@@ -29,7 +29,7 @@ final class BuilderExporter
                 if ($watch->keyColumn !== 'id') {
                     $args[] = $e($watch->keyColumn);
                 }
-                $args[] = 'columns: ' . $e($watch->columns);
+                $args[] = 'columns: [' . implode(', ', array_map($e, $watch->columns)) . ']';
             } elseif ($watch->keyColumn !== 'id') {
                 $args[] = $e($watch->keyColumn);
             }

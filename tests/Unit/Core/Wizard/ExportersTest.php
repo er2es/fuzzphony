@@ -137,6 +137,6 @@ final class ExportersTest extends TestCase
 
         $code = (new BuilderExporter())->export($original);
 
-        self::assertStringContainsString("->watch('fz_brand', 'SELECT id FROM fz_product WHERE brand_id = :id', columns: array (\n  0 => 'name',\n))", $code);
+        self::assertStringContainsString("->watch('fz_brand', 'SELECT id FROM fz_product WHERE brand_id = :id', columns: ['name'])", $code);
     }
 }
