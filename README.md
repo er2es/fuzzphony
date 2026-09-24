@@ -255,6 +255,20 @@ btree). Your schema is untouched; dropping the index is one command.
 **Engine.** Everything dialect-specific lives behind `Fuzzphony\Core\Engine\Engine`, validated by a
 conformance test suite (`tests/Conformance`). PostgreSQL is the only engine through 1.0.
 
+**Building an index is always the same two steps**, whether the index is brand new or you just
+changed its definition:
+
+1. `fuzzphony:schema --apply` (or `$fuzzphony->schema()->apply($connection)`) — creates or updates
+   the sidecar table, its indexes, and the sync triggers/functions. Idempotent: safe to rerun after
+   every definition change, and safe in a migration.
+2. `fuzzphony:reindex` (or `$fuzzphony->reindex('products')`) — backfills every existing row into the
+   sidecar table, batched and resumable. Needed once after step 1, regardless of which sync mode you
+   use — step 1 only creates the *structure*, it doesn't populate it.
+
+After that, `fuzzphony:doctor` confirms both steps actually succeeded, and the sync mode you chose
+(see [Keeping the index in sync](#keeping-the-index-in-sync)) keeps the sidecar table caught up with
+future writes automatically — no more manual reindexing unless the definition changes again.
+
 ## Query syntax
 
 End-user search text **never throws**. Malformed input is repaired and reported in
