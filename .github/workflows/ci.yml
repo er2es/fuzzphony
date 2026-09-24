@@ -82,6 +82,47 @@ jobs:
       - run: composer update --no-progress --prefer-dist --prefer-lowest --prefer-stable
       - run: composer test
 
+  demo-smoke:
+    needs: validate
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_DB: fuzzphony
+          POSTGRES_USER: fuzzphony
+          POSTGRES_PASSWORD: fuzzphony
+        ports: ['5432:5432']
+        options: >-
+          --health-cmd "pg_isready -U fuzzphony"
+          --health-interval 2s --health-retries 20
+    env:
+      DATABASE_URL: "postgresql://fuzzphony:fuzzphony@127.0.0.1:5432/fuzzphony?serverVersion=17&charset=utf8"
+      PGPASSWORD: fuzzphony
+    steps:
+      - uses: actions/checkout@v4
+      - uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.4'
+          extensions: pdo_pgsql, mbstring
+          coverage: none
+      - name: Install demo dependencies
+        working-directory: demo
+        run: composer install --no-progress --prefer-dist
+      - name: Seed a small catalogue
+        run: psql -h 127.0.0.1 -U fuzzphony fuzzphony -q -v rows=1000 -f benchmarks/seed.sql
+      - name: Lint container
+        working-directory: demo
+        run: bin/console lint:container
+      - name: Apply schema and reindex
+        working-directory: demo
+        run: |
+          bin/console fuzzphony:schema --apply
+          bin/console fuzzphony:reindex --batch=1000
+      - name: Doctor
+        working-directory: demo
+        run: bin/console fuzzphony:doctor --strict
+
   coverage:
     needs: validate
     runs-on: ubuntu-latest
