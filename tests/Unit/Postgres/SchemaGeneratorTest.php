@@ -183,4 +183,38 @@ final class SchemaGeneratorTest extends TestCase
 
         self::assertStringNotContainsString("TG_OP = 'UPDATE' AND NOT", $sql);
     }
+
+    public function testStatementLevelTriggersWithoutColumnsAreByteIdenticalToBefore(): void
+    {
+        // Regression guard: relevantColumns() is null for every watch on Indexes::products()
+        // (query source; no watch has explicit columns), so this must produce exactly what
+        // testStatementLevelTriggersUseTransitionTables already asserts.
+        $sql = (new PostgresSchemaGenerator())->index(Indexes::products('queue'))->toSql();
+
+        self::assertStringContainsString('FROM fz_new AS r CROSS JOIN LATERAL (SELECT id FROM fz_product WHERE brand_id = r."id")', $sql);
+        self::assertStringNotContainsString('LEFT JOIN', $sql);
+    }
+
+    public function testStatementLevelTriggersFilterByColumnOnUpdateOnly(): void
+    {
+        $definition = IndexDefinition::builder('products')
+            ->fromQuery('SELECT p.id, p.name, b.name AS brand FROM fz_product p JOIN fz_brand b ON b.id = p.brand_id')
+            ->watch('fz_product')
+            ->watch('fz_brand', 'SELECT id FROM fz_product WHERE brand_id = :id', columns: ['name'])
+            ->field('name', 'A')
+            ->field('brand', 'B')
+            ->build();
+
+        $sql = (new PostgresSchemaGenerator())->index($definition)->toSql();
+
+        self::assertStringContainsString("IF TG_OP = 'INSERT' THEN", $sql);
+        self::assertStringContainsString("IF TG_OP = 'DELETE' THEN", $sql);
+        self::assertStringContainsString("IF TG_OP = 'UPDATE' THEN", $sql);
+        self::assertStringContainsString('fz_new AS r LEFT JOIN fz_old o ON o."id" = r."id"', $sql);
+        self::assertStringContainsString('o."id" IS NULL OR (r."name" IS DISTINCT FROM o."name")', $sql);
+        self::assertStringContainsString('fz_old AS r LEFT JOIN fz_new n ON n."id" = r."id"', $sql);
+        self::assertStringContainsString('n."id" IS NULL OR (r."name" IS DISTINCT FROM n."name")', $sql);
+        // INSERT/DELETE branches never reference the other side's transition table.
+        self::assertStringNotContainsString("IF TG_OP = 'INSERT' THEN\n        PERFORM", $sql); // sanity: this fixture uses queue mode
+    }
 }

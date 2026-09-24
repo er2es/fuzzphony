@@ -364,34 +364,90 @@ final class PostgresSchemaGenerator
         );
     }
 
-    /** Statement-level variant: one set-based INSERT / refresh per statement via transition tables. */
     private function statementSyncFunction(IndexDefinition $index, Watch $watch): string
+    {
+        $columns = $this->relevantColumns($index, $watch);
+        $body = $columns === null
+            ? $this->statementBodyUnfiltered($index, $watch)
+            : $this->statementBodyFiltered($index, $watch, $columns);
+
+        return sprintf(
+            "CREATE OR REPLACE FUNCTION %s() RETURNS trigger\nLANGUAGE plpgsql AS \$fuzzphony\$\nBEGIN\n%s\n    RETURN NULL;\nEND\n\$fuzzphony\$",
+            Sql::ident($this->syncFunctionName($index, $watch)),
+            $body,
+        );
+    }
+
+    /** Unfiltered: today's two combined-condition branches, unchanged — byte-identical output. */
+    private function statementBodyUnfiltered(IndexDefinition $index, Watch $watch): string
     {
         $body = [];
         foreach (['fz_new' => "TG_OP IN ('INSERT', 'UPDATE')", 'fz_old' => "TG_OP IN ('UPDATE', 'DELETE')"] as $rows => $condition) {
             $affected = (string) preg_replace('/:id\b/', 'r.' . Sql::ident($watch->keyColumn), $watch->affectedIds, 1);
             $source = sprintf('%s AS r CROSS JOIN LATERAL (%s) AS a(doc_id)', $rows, $affected);
-            $action = $index->sync === SyncMode::Trigger
-                ? sprintf(
-                    'PERFORM %s(ARRAY(SELECT DISTINCT a.doc_id::%s FROM %s WHERE a.doc_id IS NOT NULL));',
-                    Sql::ident($this->refreshFunctionName($index)),
-                    $index->idType->sqlType(),
-                    $source,
-                )
-                : sprintf(
-                    "INSERT INTO %s (index_name, doc_id)\n        SELECT DISTINCT %s, a.doc_id::text FROM %s WHERE a.doc_id IS NOT NULL\n        ON CONFLICT (index_name, doc_id) DO NOTHING;",
-                    self::QUEUE_TABLE,
-                    Sql::string($index->name),
-                    $source,
-                );
-            $body[] = sprintf("    IF %s THEN\n        %s\n    END IF;", $condition, $action);
+            $body[] = sprintf("    IF %s THEN\n        %s\n    END IF;", $condition, $this->statementAction($index, $source));
         }
 
-        return sprintf(
-            "CREATE OR REPLACE FUNCTION %s() RETURNS trigger\nLANGUAGE plpgsql AS \$fuzzphony\$\nBEGIN\n%s\n    RETURN NULL;\nEND\n\$fuzzphony\$",
-            Sql::ident($this->syncFunctionName($index, $watch)),
-            implode("\n", $body),
+        return implode("\n", $body);
+    }
+
+    /**
+     * Filtered: three mutually exclusive branches (INSERT / UPDATE / DELETE), so a query naming
+     * both transition tables is only ever reached during the _upd trigger invocation, where both
+     * are actually registered. The UPDATE branch runs twice (once from the new row's perspective,
+     * once from the old row's), matching the unfiltered version's existing dual computation; each
+     * is restricted via a LEFT JOIN to rows whose relevant columns changed, or whose correlating
+     * key has no match on the other side at all (conservatively treated as changed, rather than
+     * silently dropped as an inner join would).
+     *
+     * @param list<string> $columns
+     */
+    private function statementBodyFiltered(IndexDefinition $index, Watch $watch, array $columns): string
+    {
+        $key = Sql::ident($watch->keyColumn);
+        $body = [];
+        $body[] = sprintf("    IF TG_OP = 'INSERT' THEN\n        %s\n    END IF;", $this->statementAction($index, $this->statementSource($watch, 'fz_new', 'r')));
+        $body[] = sprintf("    IF TG_OP = 'DELETE' THEN\n        %s\n    END IF;", $this->statementAction($index, $this->statementSource($watch, 'fz_old', 'r')));
+
+        $diffNew = implode(' OR ', array_map(static fn(string $c): string => sprintf('r.%1$s IS DISTINCT FROM o.%1$s', Sql::ident($c)), $columns));
+        $diffOld = implode(' OR ', array_map(static fn(string $c): string => sprintf('r.%1$s IS DISTINCT FROM n.%1$s', Sql::ident($c)), $columns));
+        $updateNewSource = sprintf('fz_new AS r LEFT JOIN fz_old o ON o.%1$s = r.%1$s CROSS JOIN LATERAL (%2$s) AS a(doc_id)', $key, (string) preg_replace('/:id\b/', 'r.' . $key, $watch->affectedIds, 1));
+        $updateOldSource = sprintf('fz_old AS r LEFT JOIN fz_new n ON n.%1$s = r.%1$s CROSS JOIN LATERAL (%2$s) AS a(doc_id)', $key, (string) preg_replace('/:id\b/', 'r.' . $key, $watch->affectedIds, 1));
+        $body[] = sprintf(
+            "    IF TG_OP = 'UPDATE' THEN\n        %s\n        %s\n    END IF;",
+            $this->statementAction($index, $updateNewSource, sprintf('o.%1$s IS NULL OR (%2$s)', $key, $diffNew)),
+            $this->statementAction($index, $updateOldSource, sprintf('n.%1$s IS NULL OR (%2$s)', $key, $diffOld)),
         );
+
+        return implode("\n", $body);
+    }
+
+    private function statementSource(Watch $watch, string $transitionTable, string $alias): string
+    {
+        $affected = (string) preg_replace('/:id\b/', $alias . '.' . Sql::ident($watch->keyColumn), $watch->affectedIds, 1);
+
+        return sprintf('%s AS %s CROSS JOIN LATERAL (%s) AS a(doc_id)', $transitionTable, $alias, $affected);
+    }
+
+    private function statementAction(IndexDefinition $index, string $source, ?string $extraWhere = null): string
+    {
+        $where = $extraWhere !== null ? sprintf('a.doc_id IS NOT NULL AND (%s)', $extraWhere) : 'a.doc_id IS NOT NULL';
+
+        return $index->sync === SyncMode::Trigger
+            ? sprintf(
+                'PERFORM %s(ARRAY(SELECT DISTINCT a.doc_id::%s FROM %s WHERE %s));',
+                Sql::ident($this->refreshFunctionName($index)),
+                $index->idType->sqlType(),
+                $source,
+                $where,
+            )
+            : sprintf(
+                "INSERT INTO %s (index_name, doc_id)\n        SELECT DISTINCT %s, a.doc_id::text FROM %s WHERE %s\n        ON CONFLICT (index_name, doc_id) DO NOTHING;",
+                self::QUEUE_TABLE,
+                Sql::string($index->name),
+                $source,
+                $where,
+            );
     }
 
     private function textConfig(TextConfig $config): Statement
