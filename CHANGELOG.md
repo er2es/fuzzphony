@@ -13,6 +13,19 @@
   exists" the moment the command actually ran through a real Symfony console application (a bare
   `CommandTester` against the isolated command never surfaced it). Renamed the long option to
   `--rank-profile`; `-p` is unchanged.
+* **Fix (demo / benchmarks)**: `benchmarks/seed.sql` assigned a product's category independently of
+  its name, so a "Wireless chair" could sit in "Mice" and category-name queries tied unrelated
+  products. The category now follows the product noun. An already-seeded demo database keeps the
+  old data until it is re-seeded and reindexed.
+* **Tests**: the Symfony bundle and the Doctrine bridge, previously untested, now have coverage:
+  bundle DI wiring, the `fuzzphony:*` console commands, `OrmSyncListener`, `EntityLoader`
+  (one query, ranking order), `FuzzphonySearchFilter`, the Live Component, and a regression test
+  for console option collisions with FrameworkBundle.
+* **CI**: `composer validate --strict` gate, a Symfony 7.4 / 8.0 × PHP 8.4 / 8.5 × PostgreSQL
+  15–18 matrix, a `--prefer-lowest` job, a demo smoke job, Codecov upload that no longer fails
+  fork PRs, and Dependabot for Composer and GitHub Actions.
+* **Docs**: README search-controller examples (minimal and tenant-scoped), a table of contents, the
+  two-step index build flow, and corrected example code (filter names are snake_case).
 
 ## 0.2.0 — 2026-09-24
 
