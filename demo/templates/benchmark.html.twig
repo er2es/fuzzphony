@@ -2,21 +2,26 @@
 {% block title %}Benchmark · Fuzzphony{% endblock %}
 {% block body %}
     <p class="muted">20 results per query. Cold = first run; warm = median of the next 5 runs. <code>ILIKE</code> does not rank and cannot exclude words, so a fast ILIKE row with hits is not the same work.</p>
-    <table>
-        <thead><tr><th>Query</th><th class="num">ILIKE cold</th><th class="num">ILIKE warm</th><th class="num">hits</th><th class="num">Fuzzphony cold</th><th class="num">Fuzzphony warm</th><th class="num">hits</th></tr></thead>
-        <tbody>
-        {% for r in rows %}
-            <tr>
-                <td>{{ r.label }}<br><code class="muted">{{ r.q }}</code></td>
-                <td class="num">{{ r.without.cold|number_format(1) }} ms</td>
-                <td class="num">{{ r.without.warm|number_format(1) }} ms</td>
-                <td class="num {{ r.without.value|length == 0 ? 's-error' }}">{{ r.without.value|length }}</td>
-                <td class="num">{{ r.with.cold|number_format(1) }} ms</td>
-                <td class="num">{{ r.with.warm|number_format(1) }} ms</td>
-                <td class="num">{{ r.with.value.hits|length }}{{ r.with.value.usedFuzzy ? ' ~' }}</td>
-            </tr>
-        {% endfor %}
-        </tbody>
-    </table>
-    <p class="muted">~ = typo tolerant. Reproduce outside the browser: <code>php benchmarks/run.php --markdown</code>.</p>
+
+    {# Every row is measured by its own request, one after the other (sequence controller): the page is usable at once,
+       progress is real, and the queries never run in parallel, which would distort the timings. #}
+    <div data-controller="sequence" aria-busy="true">
+        <div class="run-status">
+            <progress data-sequence-target="progress" value="0" max="{{ queries|length }}" aria-label="Benchmark progress"></progress>
+            <span data-sequence-target="label" role="status">Starting…</span>
+            <a class="button" href="{{ path('benchmark') }}" data-sequence-target="done" hidden>Run again</a>
+        </div>
+        <table>
+            <thead><tr><th>Query</th><th class="num">ILIKE cold</th><th class="num">ILIKE warm</th><th class="num">hits</th><th class="num">Fuzzphony cold</th><th class="num">Fuzzphony warm</th><th class="num">hits</th></tr></thead>
+            <tbody>
+            {% for label, q in queries %}
+                <tr class="pending-row" data-src="{{ path('benchmark_row', {index: loop.index0}) }}" data-label="{{ label }}">
+                    <td>{{ label }}<br><code class="muted">{{ q }}</code></td>
+                    {% for i in 1..6 %}<td class="num"><span class="skeleton"></span></td>{% endfor %}
+                </tr>
+            {% endfor %}
+            </tbody>
+        </table>
+    </div>
+    <p class="muted">~ = typo tolerant. Rows are timed one at a time: other requests running at the same moment can skew them. Reproduce outside the browser: <code>php benchmarks/run.php --markdown</code>.</p>
 {% endblock %}

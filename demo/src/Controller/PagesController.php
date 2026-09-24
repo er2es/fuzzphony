@@ -64,17 +64,33 @@ final class PagesController extends AbstractController
         ]);
     }
 
+    /** The page shell is instant; every row is measured by its own request (see sequence_controller.js). */
     #[Route('/benchmark', name: 'benchmark')]
-    public function benchmark(Fuzzphony $fuzzphony, Catalog $catalog): Response
+    public function benchmark(): Response
     {
-        $rows = [];
-        foreach (CompareController::EXAMPLES + ['plain word' => 'wireless', 'two words' => 'wireless mouse'] as $label => $q) {
-            $without = Measure::median(static fn (): array => $catalog->ilike($q));
-            $with = Measure::median(static fn () => $fuzzphony->in('catalog')->query($q)->limit(20)->get());
-            $rows[] = ['label' => $label, 'q' => $q, 'without' => $without, 'with' => $with];
-        }
+        return $this->render('benchmark.html.twig', ['queries' => self::benchmarkQueries()]);
+    }
 
-        return $this->render('benchmark.html.twig', ['rows' => $rows]);
+    /** One benchmark row, requested one at a time so the measurements never compete with each other. */
+    #[Route('/benchmark/row/{index}', name: 'benchmark_row', requirements: ['index' => '\d+'])]
+    public function benchmarkRow(int $index, Fuzzphony $fuzzphony, Catalog $catalog): Response
+    {
+        $entry = array_slice(self::benchmarkQueries(), $index, 1, true);
+        if ($entry === []) {
+            throw $this->createNotFoundException();
+        }
+        $label = (string) array_key_first($entry);
+        $q = $entry[$label];
+        $without = Measure::median(static fn (): array => $catalog->ilike($q));
+        $with = Measure::median(static fn () => $fuzzphony->in('catalog')->query($q)->limit(20)->get());
+
+        return $this->render('benchmark_row.html.twig', ['r' => ['label' => $label, 'q' => $q, 'without' => $without, 'with' => $with]]);
+    }
+
+    /** @return array<string, string> label => query */
+    private static function benchmarkQueries(): array
+    {
+        return CompareController::EXAMPLES + ['plain word' => 'wireless', 'two words' => 'wireless mouse'];
     }
 
     #[Route('/doctor', name: 'doctor')]
