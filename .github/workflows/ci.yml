@@ -69,6 +69,19 @@ jobs:
       - run: composer install --no-progress --prefer-dist
       - run: vendor/bin/phpunit --coverage-text
 
+  prefer-lowest:
+    needs: validate
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.4'
+          extensions: pdo_pgsql, mbstring
+          coverage: none
+      - run: composer update --no-progress --prefer-dist --prefer-lowest --prefer-stable
+      - run: composer test
+
   coverage:
     needs: validate
     runs-on: ubuntu-latest
