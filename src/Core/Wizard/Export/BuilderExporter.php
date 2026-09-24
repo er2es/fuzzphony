@@ -24,7 +24,16 @@ final class BuilderExporter
             $lines[] = sprintf('    ->idType(%s)', $e($index->idType->value));
         }
         foreach ($index->watches as $watch) {
-            $lines[] = sprintf('    ->watch(%s, %s%s)', $e($watch->table), $e($watch->affectedIds), $watch->keyColumn !== 'id' ? ', ' . $e($watch->keyColumn) : '');
+            $args = [$e($watch->table), $e($watch->affectedIds)];
+            if ($watch->columns !== null) {
+                if ($watch->keyColumn !== 'id') {
+                    $args[] = $e($watch->keyColumn);
+                }
+                $args[] = 'columns: ' . $e($watch->columns);
+            } elseif ($watch->keyColumn !== 'id') {
+                $args[] = $e($watch->keyColumn);
+            }
+            $lines[] = sprintf('    ->watch(%s)', implode(', ', $args));
         }
         foreach ($index->fields as $field) {
             $args = [$e($field->name), $e($field->weight->value)];

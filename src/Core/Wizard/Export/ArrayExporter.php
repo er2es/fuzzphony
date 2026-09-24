@@ -43,7 +43,13 @@ final class ArrayExporter
             $out['filters'][$filter->name] = $filter->column === null ? $filter->type->value : ['type' => $filter->type->value, 'column' => $filter->column];
         }
         foreach ($index->watches as $watch) {
-            $out['watch'][$watch->table] = $watch->keyColumn === 'id' ? $watch->affectedIds : ['ids' => $watch->affectedIds, 'key' => $watch->keyColumn];
+            $out['watch'][$watch->table] = $watch->keyColumn === 'id' && $watch->columns === null
+                ? $watch->affectedIds
+                : array_filter([
+                    'ids' => $watch->affectedIds,
+                    'key' => $watch->keyColumn !== 'id' ? $watch->keyColumn : null,
+                    'columns' => $watch->columns,
+                ], static fn(mixed $v): bool => $v !== null);
         }
 
         if ($index->sync !== SyncMode::Queue) {

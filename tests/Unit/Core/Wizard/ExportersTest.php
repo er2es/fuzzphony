@@ -108,4 +108,35 @@ final class ExportersTest extends TestCase
     {
         self::assertFalse((new AttributeExporter())->supports(Indexes::products()));
     }
+
+    public function testArrayExportRoundTripsWatchColumns(): void
+    {
+        $original = IndexDefinition::builder('products')
+            ->fromQuery('SELECT p.id, p.name, b.name AS brand FROM fz_product p JOIN fz_brand b ON b.id = p.brand_id')
+            ->watch('fz_product')
+            ->watch('fz_brand', 'SELECT id FROM fz_product WHERE brand_id = :id', columns: ['name'])
+            ->field('name', 'A')
+            ->field('brand', 'B')
+            ->build();
+
+        $reloaded = (new ArrayDefinitionLoader())->load('products', (new ArrayExporter())->export($original));
+
+        self::assertSame(['name'], $reloaded->watches[1]->columns);
+        self::assertEquals($original, $reloaded);
+    }
+
+    public function testBuilderExportRoundTripsWatchColumns(): void
+    {
+        $original = IndexDefinition::builder('products')
+            ->fromQuery('SELECT p.id, p.name, b.name AS brand FROM fz_product p JOIN fz_brand b ON b.id = p.brand_id')
+            ->watch('fz_product')
+            ->watch('fz_brand', 'SELECT id FROM fz_product WHERE brand_id = :id', columns: ['name'])
+            ->field('name', 'A')
+            ->field('brand', 'B')
+            ->build();
+
+        $code = (new BuilderExporter())->export($original);
+
+        self::assertStringContainsString("->watch('fz_brand', 'SELECT id FROM fz_product WHERE brand_id = :id', columns: array (\n  0 => 'name',\n))", $code);
+    }
 }
