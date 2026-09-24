@@ -1,5 +1,13 @@
 # Changelog
 
+## Unreleased
+
+* **Fix**: `fuzzphony:search`'s `-p`/`--profile` option collided with Symfony framework-bundle's
+  own global `--profile` console-run-profiling flag, throwing "An option named 'profile' already
+  exists" the moment the command actually ran through a real Symfony console application (a bare
+  `CommandTester` against the isolated command never surfaced it). Renamed the long option to
+  `--rank-profile`; `-p` is unchanged.
+
 ## 0.2.0 — 2026-09-24
 
 * **Multi-tenancy**: `IndexDefinition::tenant` / `IndexBuilder::tenant()` / `#[Searchable(tenant:)]`

@@ -30,7 +30,11 @@ final class SearchCommand extends Command
             ->addArgument('index', InputArgument::REQUIRED, 'Index name')
             ->addArgument('query', InputArgument::OPTIONAL, 'Search text, e.g. \'wireless mouse -cable\'', '')
             ->addOption('where', 'w', InputOption::VALUE_REQUIRED | InputOption::VALUE_IS_ARRAY, 'Filter as "name<op>value", e.g. -w "price<=20000" -w "in_stock=true"')
-            ->addOption('profile', 'p', InputOption::VALUE_REQUIRED, 'Ranking profile', 'default')
+            // Long name can't be "profile": Symfony's own console Application (since it added
+            // "--profile" as a global run-profiling flag) already reserves that name and throws
+            // "An option named 'profile' already exists" the moment this command actually runs
+            // through a real FrameworkBundle console app (a bare CommandTester never surfaces it).
+            ->addOption('rank-profile', 'p', InputOption::VALUE_REQUIRED, 'Ranking profile', 'default')
             ->addOption('limit', 'l', InputOption::VALUE_REQUIRED, 'Hits to show', '10')
             ->addOption('threshold', null, InputOption::VALUE_REQUIRED | InputOption::VALUE_IS_ARRAY, 'Override a threshold, e.g. --threshold fuzzy_mode=always')
             ->addOption('explain', null, InputOption::VALUE_NONE, 'Print the SQL and the query plan')
@@ -42,7 +46,7 @@ final class SearchCommand extends Command
         $io = new SymfonyStyle($input, $output);
         $search = $this->fuzzphony->in(Coerce::str($input->getArgument('index')))
             ->query(Coerce::str($input->getArgument('query')))
-            ->profile(Coerce::str($input->getOption('profile')))
+            ->profile(Coerce::str($input->getOption('rank-profile')))
             ->limit(max(1, Coerce::int($input->getOption('limit'))));
 
         foreach ((array) $input->getOption('where') as $where) {
