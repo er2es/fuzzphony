@@ -152,6 +152,9 @@ final class SchemaGeneratorTest extends TestCase
             ->build();
         $joinedWatch = $definition->watches[0];
 
+        // IndexBuilder::watch() normalizes [] to null at construction time, so Watch::$columns
+        // itself is never a distinguishable-but-equivalent [] downstream (exporters, validator, ...).
+        self::assertNull($joinedWatch->columns);
         self::assertNull((new PostgresSchemaGenerator())->relevantColumns($definition, $joinedWatch));
     }
 

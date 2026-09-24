@@ -77,7 +77,9 @@ final class IndexBuilder
     /** @param list<string>|null $columns */
     public function watch(string $table, string $affectedIds = 'SELECT :id', string $keyColumn = 'id', ?array $columns = null): self
     {
-        $this->watches[] = new Watch($table, $affectedIds, $keyColumn, $columns);
+        // Normalize [] to null at the source, so Watch::$columns is never a distinguishable-
+        // but-equivalent [] — every downstream consumer already treats them the same anyway.
+        $this->watches[] = new Watch($table, $affectedIds, $keyColumn, $columns !== [] ? $columns : null);
 
         return $this;
     }
