@@ -20,12 +20,11 @@ final class WizardCommandTest extends TestCase
         $this->context = new CommandTestCase();
         $introspector = new PostgresIntrospector($this->context->connection);
         $this->tester = new CommandTester(new WizardCommand($introspector, $this->context->engine, $this->context->connection));
-        $this->tester->setInteractive(false);
     }
 
     public function testSuggestsAnIndexForAKnownTable(): void
     {
-        $status = $this->tester->execute(['table' => 'fz_product', '--format' => 'yaml']);
+        $status = $this->tester->execute(['table' => 'fz_product', '--format' => 'yaml'], ['interactive' => false]);
 
         self::assertSame(Command::SUCCESS, $status);
         $display = $this->tester->getDisplay();
@@ -36,7 +35,7 @@ final class WizardCommandTest extends TestCase
 
     public function testBuilderFormatIsAlsoExportable(): void
     {
-        $status = $this->tester->execute(['table' => 'fz_product', '--format' => 'builder']);
+        $status = $this->tester->execute(['table' => 'fz_product', '--format' => 'builder'], ['interactive' => false]);
 
         self::assertSame(Command::SUCCESS, $status);
         self::assertStringContainsString('IndexDefinition::builder', $this->tester->getDisplay());
@@ -47,7 +46,7 @@ final class WizardCommandTest extends TestCase
         $file = tempnam(sys_get_temp_dir(), 'fuzzphony-wizard-');
         self::assertIsString($file);
         try {
-            $status = $this->tester->execute(['table' => 'fz_product', '--write' => $file]);
+            $status = $this->tester->execute(['table' => 'fz_product', '--write' => $file], ['interactive' => false]);
 
             self::assertSame(Command::SUCCESS, $status);
             self::assertStringContainsString('Written to', $this->tester->getDisplay());
@@ -61,7 +60,7 @@ final class WizardCommandTest extends TestCase
 
     public function testTryOptionCreatesReindexesAndInspectsTheSuggestedIndex(): void
     {
-        $status = $this->tester->execute(['table' => 'fz_product', '--try' => true]);
+        $status = $this->tester->execute(['table' => 'fz_product', '--try' => true], ['interactive' => false]);
 
         self::assertSame(Command::SUCCESS, $status);
         $display = $this->tester->getDisplay();
@@ -76,6 +75,6 @@ final class WizardCommandTest extends TestCase
     public function testUnknownTableThrows(): void
     {
         $this->expectException(\InvalidArgumentException::class);
-        $this->tester->execute(['table' => 'no_such_table']);
+        $this->tester->execute(['table' => 'no_such_table'], ['interactive' => false]);
     }
 }

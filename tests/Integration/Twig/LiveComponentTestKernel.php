@@ -46,12 +46,18 @@ final class LiveComponentTestKernel extends Kernel
 
     public function getCacheDir(): string
     {
-        return sys_get_temp_dir() . '/fuzzphony-live-component-test/cache';
+        return $this->scratchDir() . '/cache';
     }
 
     public function getLogDir(): string
     {
-        return sys_get_temp_dir() . '/fuzzphony-live-component-test/log';
+        return $this->scratchDir() . '/log';
+    }
+
+    /** Keyed by checkout and Symfony version: a compiled container from another vendor/ tree must never be reused. */
+    private function scratchDir(): string
+    {
+        return sys_get_temp_dir() . '/fuzzphony-live-component-test-' . substr(md5(__DIR__ . '|' . self::VERSION), 0, 10);
     }
 
     protected function configureContainer(ContainerConfigurator $container): void

@@ -19,12 +19,11 @@ final class SearchCommandTest extends TestCase
         $this->context = new CommandTestCase();
         $this->context->applySchemaAndReindex();
         $this->tester = new CommandTester(new SearchCommand($this->context->fuzzphony));
-        $this->tester->setInteractive(false);
     }
 
     public function testFindsAKnownHitAndPrintsItsBreakdown(): void
     {
-        $status = $this->tester->execute(['index' => 'products', 'query' => 'mouse']);
+        $status = $this->tester->execute(['index' => 'products', 'query' => 'mouse'], ['interactive' => false]);
 
         self::assertSame(Command::SUCCESS, $status);
         $display = $this->tester->getDisplay();
@@ -39,7 +38,7 @@ final class SearchCommandTest extends TestCase
             'index' => 'products',
             'query' => 'mouse',
             '--where' => ['in_stock=true', 'price<=5000'],
-        ]);
+        ], ['interactive' => false]);
 
         self::assertSame(Command::SUCCESS, $status);
         self::assertStringNotContainsString('Gaming mouse RGB', $this->tester->getDisplay());
@@ -47,7 +46,7 @@ final class SearchCommandTest extends TestCase
 
     public function testInvalidWhereFilterIsRejected(): void
     {
-        $status = $this->tester->execute(['index' => 'products', 'query' => 'mouse', '--where' => ['not a filter']]);
+        $status = $this->tester->execute(['index' => 'products', 'query' => 'mouse', '--where' => ['not a filter']], ['interactive' => false]);
 
         self::assertSame(Command::INVALID, $status);
         self::assertStringContainsString('Cannot parse filter', $this->tester->getDisplay());
@@ -55,7 +54,7 @@ final class SearchCommandTest extends TestCase
 
     public function testExplainPrintsSqlAndPlan(): void
     {
-        $status = $this->tester->execute(['index' => 'products', 'query' => 'mouse', '--explain' => true]);
+        $status = $this->tester->execute(['index' => 'products', 'query' => 'mouse', '--explain' => true], ['interactive' => false]);
 
         self::assertSame(Command::SUCCESS, $status);
         $display = $this->tester->getDisplay();
@@ -65,7 +64,7 @@ final class SearchCommandTest extends TestCase
 
     public function testBrowsingWithoutAQueryStillReturnsResults(): void
     {
-        $status = $this->tester->execute(['index' => 'products', '--where' => ['in_stock=false']]);
+        $status = $this->tester->execute(['index' => 'products', '--where' => ['in_stock=false']], ['interactive' => false]);
 
         self::assertSame(Command::SUCCESS, $status);
         self::assertStringContainsString('(no text: browsing)', $this->tester->getDisplay());

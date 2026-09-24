@@ -19,12 +19,11 @@ final class SchemaCommandTest extends TestCase
     {
         $this->context = new CommandTestCase();
         $this->tester = new CommandTester(new SchemaCommand($this->context->fuzzphony, $this->context->connection));
-        $this->tester->setInteractive(false);
     }
 
     public function testDefaultRunPrintsSqlWithoutApplying(): void
     {
-        $status = $this->tester->execute([]);
+        $status = $this->tester->execute([], ['interactive' => false]);
 
         self::assertSame(Command::SUCCESS, $status);
         self::assertStringContainsString('CREATE', $this->tester->getDisplay());
@@ -34,7 +33,7 @@ final class SchemaCommandTest extends TestCase
 
     public function testApplyActuallyCreatesTheSchema(): void
     {
-        $status = $this->tester->execute(['--apply' => true]);
+        $status = $this->tester->execute(['--apply' => true], ['interactive' => false]);
 
         self::assertSame(Command::SUCCESS, $status);
         self::assertStringContainsString('statement(s) applied', $this->tester->getDisplay());
@@ -43,10 +42,10 @@ final class SchemaCommandTest extends TestCase
 
     public function testDropRemovesTheSchemaAfterApplying(): void
     {
-        $this->tester->execute(['--apply' => true]);
+        $this->tester->execute(['--apply' => true], ['interactive' => false]);
         self::assertNotNull($this->context->connection->fetchValue("SELECT to_regclass('fuzzphony_products')"));
 
-        $status = $this->tester->execute(['--drop' => true, '--apply' => true]);
+        $status = $this->tester->execute(['--drop' => true, '--apply' => true], ['interactive' => false]);
 
         self::assertSame(Command::SUCCESS, $status);
         self::assertNull($this->context->connection->fetchValue("SELECT to_regclass('fuzzphony_products')"), 'the sidecar table must be gone');
@@ -57,7 +56,7 @@ final class SchemaCommandTest extends TestCase
     {
         $directory = sys_get_temp_dir() . '/fuzzphony-schema-command-test-' . bin2hex(random_bytes(4));
         try {
-            $status = $this->tester->execute(['--dump-migration' => $directory]);
+            $status = $this->tester->execute(['--dump-migration' => $directory], ['interactive' => false]);
 
             self::assertSame(Command::SUCCESS, $status);
             $files = glob($directory . '/Version*.php');

@@ -187,6 +187,12 @@ final class FuzzphonyBundleTest extends TestCase
     private function buildContainer(bool $withOrm, array $config = []): ContainerBuilder
     {
         $container = new ContainerBuilder();
+        // Older AbstractBundle/BundleExtension versions read these while loading; a real kernel always sets them.
+        $container->setParameter('kernel.environment', 'test');
+        $container->setParameter('kernel.debug', false);
+        $container->setParameter('kernel.project_dir', dirname(__DIR__, 3));
+        $container->setParameter('kernel.cache_dir', sys_get_temp_dir());
+        $container->setParameter('kernel.build_dir', sys_get_temp_dir());
         if ($withOrm) {
             $container->registerExtension(new class extends Extension {
                 public function load(array $configs, ContainerBuilder $container): void {}

@@ -22,14 +22,13 @@ final class DoctorCommandTest extends TestCase
     {
         $this->context = new CommandTestCase();
         $this->tester = new CommandTester(new DoctorCommand($this->context->fuzzphony));
-        $this->tester->setInteractive(false);
     }
 
     public function testHealthyIndexExitsZero(): void
     {
         $this->context->applySchemaAndReindex();
 
-        $status = $this->tester->execute([]);
+        $status = $this->tester->execute([], ['interactive' => false]);
 
         self::assertSame(Command::SUCCESS, $status);
         self::assertStringContainsString('All checks passed', $this->tester->getDisplay());
@@ -38,7 +37,7 @@ final class DoctorCommandTest extends TestCase
     public function testMissingSchemaIsAnErrorAndExitsOne(): void
     {
         // schema never applied: the sidecar table check must fail with CheckStatus::Error
-        $status = $this->tester->execute([]);
+        $status = $this->tester->execute([], ['interactive' => false]);
 
         self::assertSame(Command::FAILURE, $status);
         self::assertStringContainsString('Problems found', $this->tester->getDisplay());
@@ -52,7 +51,7 @@ final class DoctorCommandTest extends TestCase
             "INSERT INTO fz_product VALUES (99, 'Unreindexed gadget', 'not yet in the sidecar', 1, 1000, true, 0, now())",
         );
 
-        $status = $this->tester->execute(['--deep' => true]);
+        $status = $this->tester->execute(['--deep' => true], ['interactive' => false]);
 
         self::assertSame(Command::SUCCESS, $status, $this->tester->getDisplay());
         self::assertStringContainsString('Healthy, with warnings', $this->tester->getDisplay());
@@ -65,7 +64,7 @@ final class DoctorCommandTest extends TestCase
             "INSERT INTO fz_product VALUES (99, 'Unreindexed gadget', 'not yet in the sidecar', 1, 1000, true, 0, now())",
         );
 
-        $status = $this->tester->execute(['--deep' => true, '--strict' => true]);
+        $status = $this->tester->execute(['--deep' => true, '--strict' => true], ['interactive' => false]);
 
         self::assertSame(Command::FAILURE, $status, $this->tester->getDisplay());
         self::assertStringContainsString('Healthy, with warnings', $this->tester->getDisplay());
