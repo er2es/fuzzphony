@@ -38,6 +38,7 @@ jobs:
       matrix:
         php: ['8.4', '8.5']
         postgres: ['15', '16', '17']
+        symfony: ['7.3', '8.0']
     services:
       postgres:
         image: postgres:${{ matrix.postgres }}
@@ -58,6 +59,13 @@ jobs:
           php-version: ${{ matrix.php }}
           extensions: pdo_pgsql, mbstring
           coverage: pcov
+      - name: Pin Symfony ${{ matrix.symfony }}
+        run: >-
+          composer require --dev --no-update
+          "symfony/console:${{ matrix.symfony }}.*"
+          "symfony/framework-bundle:${{ matrix.symfony }}.*"
+          "symfony/messenger:${{ matrix.symfony }}.*"
+          "symfony/yaml:${{ matrix.symfony }}.*"
       - run: composer install --no-progress --prefer-dist
       - run: vendor/bin/phpunit --coverage-text
 
