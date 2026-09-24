@@ -1,11 +1,13 @@
+{# The slider readout updates instantly (range controller); the server is asked once the handle rests for 300 ms. #}
 {% macro slider(label, model, value, min, max, step) %}
-    <label>{{ label }} <strong>{{ value }}</strong>
-        <input type="range" data-model="debounce(150)|{{ model }}" value="{{ value }}" min="{{ min }}" max="{{ max }}" step="{{ step }}">
+    <label class="slider" data-controller="range">
+        <span class="slider-head">{{ label }} <output data-range-target="output" data-live-ignore aria-live="off">{{ value }}</output></span>
+        <input type="range" data-action="input->range#update" data-model="debounce(300)|{{ model }}" value="{{ value }}" min="{{ min }}" max="{{ max }}" step="{{ step }}">
     </label>
 {% endmacro %}
 {% import _self as ui %}
 
-<div {{ attributes }} class="layout">
+<div {{ attributes.defaults(stimulus_controller('busy')) }} class="layout">
     <aside class="card">
         <h2>Ranking</h2>
         {{ ui.slider('Full-text weight', 'text', text, 0, 2, 0.05) }}
@@ -28,61 +30,76 @@
         {{ ui.slider('Candidate limit', 'candidateLimit', candidateLimit, 100, 10000, 100) }}
 
         <h2 style="margin-top:1rem">Filters</h2>
-        <label><input type="checkbox" data-model="inStockOnly" {{ inStockOnly ? 'checked' }}> In stock only</label>
+        <label class="check"><input type="checkbox" data-model="inStockOnly" {{ inStockOnly ? 'checked' }}> In stock only</label>
         {{ ui.slider('Max price (0 = any)', 'maxPrice', maxPrice, 0, 200000, 1000) }}
     </aside>
 
-    <section>
-        <input type="search" data-model="debounce(200)|query" value="{{ query }}" placeholder="Try typos, accents, -exclusions, &quot;phrases&quot;, brand:…">
-        <p class="tabs">
-            <label style="display:inline"><input type="radio" data-model="tab" value="results" {{ tab == 'results' ? 'checked' }}> Results</label>
-            <label style="display:inline"><input type="radio" data-model="tab" value="sql" {{ tab == 'sql' ? 'checked' }}> SQL / EXPLAIN</label>
-            {% if tab == 'sql' %}<label style="display:inline"><input type="checkbox" data-model="analyze" {{ analyze ? 'checked' }}> ANALYZE</label>{% endif %}
-        </p>
+    <section class="pane">
+        <input type="search" data-model="debounce(250)|query" value="{{ query }}" aria-label="Search query" placeholder="Try typos, accents, -exclusions, &quot;phrases&quot;, brand:…">
 
-        {% if this.error %}
-            <p class="s-error">{{ this.error }}</p>
-        {% elseif this.result %}
-            {% set result = this.result %}
-            <p class="muted">
-                {{ result.total }}{{ result.totalIsLowerBound ? '+' }} hits · {{ result.tookMs|number_format(1) }} ms
-                {% if result.usedFuzzy %}· typo tolerant{% endif %}
-                {% if result.interpretedAs %}· understood as <code>{{ result.interpretedAs }}</code>{% endif %}
-            </p>
-            {% for warning in result.warnings %}<p class="s-warning">{{ warning }}</p>{% endfor %}
+        <div class="toolbar">
+            {# Results / SQL is pure client state: the radios are never re-rendered (data-live-ignore) and the panels below are
+               shown or hidden with :has(), so a click is instant and exactly one radio is ever checked. #}
+            <fieldset class="segmented" data-live-ignore>
+                <legend class="sr-only">View</legend>
+                <input type="radio" name="view" id="view-results" value="results" checked>
+                <label for="view-results">Results</label>
+                <input type="radio" name="view" id="view-sql" value="sql">
+                <label for="view-sql">SQL / EXPLAIN</label>
+            </fieldset>
+            <span class="live-status" aria-hidden="true"><span class="spinner"></span> Updating…</span>
+        </div>
 
-            {% if tab == 'sql' and this.explanation %}
-                {% for statement in this.explanation.statements %}
-                    <h3>{{ statement.label }}</h3>
-                    <pre>{{ statement.sql }}</pre>
-                    <pre>params: {{ statement.params|json_encode }}</pre>
-                {% endfor %}
-                <h3>Plan</h3>
-                <pre>{{ this.explanation.plan|join("\n") }}</pre>
-            {% else %}
-                {% set rows = this.rows %}
-                {% set top = (result.hits|first).score ?? 1 %}
-                <ol class="hits">
-                    {% for hit in result.hits %}
-                        {% set b = hit.breakdown %}
-                        {% set row = rows[hit.id] ?? null %}
-                        <li>
-                            {{ (hit.highlights.name ?? row.name ?? hit.id)|raw }}
-                            <span class="muted">· {{ row.brand ?? '' }} · {{ row.category ?? '' }} · {{ row.price ?? '' }} Ft · score {{ hit.score|number_format(3) }}</span>
-                            <div class="bar" title="text {{ (b.textRank * text)|number_format(3) }} · fuzzy {{ (b.fuzzySimilarity * fuzzy)|number_format(3) }} · bonus {{ (b.exactBonus + b.prefixBonus)|number_format(2) }} · boost {{ b.boostBonus|number_format(3) }} · recency {{ b.recencyBonus|number_format(3) }}">
-                                <span class="b-text" style="width: {{ 100 * b.textRank * text / max(top, 0.001) }}%"></span>
-                                <span class="b-fuzzy" style="width: {{ 100 * b.fuzzySimilarity * fuzzy / max(top, 0.001) }}%"></span>
-                                <span class="b-bonus" style="width: {{ 100 * (b.exactBonus + b.prefixBonus) / max(top, 0.001) }}%"></span>
-                                <span class="b-boost" style="width: {{ 100 * b.boostBonus / max(top, 0.001) }}%"></span>
-                                <span class="b-recency" style="width: {{ 100 * b.recencyBonus / max(top, 0.001) }}%"></span>
-                            </div>
-                        </li>
-                    {% else %}
-                        <li class="muted">No hits. Lower "Min relevance" or "Fuzzy similarity", or switch fuzzy mode to "always".</li>
-                    {% endfor %}
-                </ol>
-                <p class="muted">Bars: <span style="color:#5b3cc4">■</span> full-text <span style="color:#0e9384">■</span> fuzzy <span style="color:#f79009">■</span> exact/prefix <span style="color:#2e90fa">■</span> popularity <span style="color:#ee46bc">■</span> recency</p>
+        <div class="panels" data-busy-target="region">
+            {% if this.error %}
+                <p class="s-error" role="alert">{{ this.error }}</p>
+            {% elseif this.result %}
+                {% set result = this.result %}
+                <p class="muted summary" aria-live="polite">
+                    {{ result.total }}{{ result.totalIsLowerBound ? '+' }} hits · {{ result.tookMs|number_format(1) }} ms
+                    {% if result.usedFuzzy %}· typo tolerant{% endif %}
+                    {% if result.interpretedAs %}· understood as <code>{{ result.interpretedAs }}</code>{% endif %}
+                </p>
+                {% for warning in result.warnings %}<p class="s-warning">{{ warning }}</p>{% endfor %}
+
+                <div class="panel panel-results">
+                    {% set rows = this.rows %}
+                    {% set top = (result.hits|first).score ?? 1 %}
+                    <ol class="hits">
+                        {% for hit in result.hits %}
+                            {% set b = hit.breakdown %}
+                            {% set row = rows[hit.id] ?? null %}
+                            <li>
+                                {{ (hit.highlights.name ?? row.name ?? hit.id)|raw }}
+                                <span class="muted">· {{ row.brand ?? '' }} · {{ row.category ?? '' }} · {{ row.price ?? '' }} Ft · score {{ hit.score|number_format(3) }}</span>
+                                <div class="bar" title="text {{ (b.textRank * text)|number_format(3) }} · fuzzy {{ (b.fuzzySimilarity * fuzzy)|number_format(3) }} · bonus {{ (b.exactBonus + b.prefixBonus)|number_format(2) }} · boost {{ b.boostBonus|number_format(3) }} · recency {{ b.recencyBonus|number_format(3) }}">
+                                    <span class="b-text" style="width: {{ 100 * b.textRank * text / max(top, 0.001) }}%"></span>
+                                    <span class="b-fuzzy" style="width: {{ 100 * b.fuzzySimilarity * fuzzy / max(top, 0.001) }}%"></span>
+                                    <span class="b-bonus" style="width: {{ 100 * (b.exactBonus + b.prefixBonus) / max(top, 0.001) }}%"></span>
+                                    <span class="b-boost" style="width: {{ 100 * b.boostBonus / max(top, 0.001) }}%"></span>
+                                    <span class="b-recency" style="width: {{ 100 * b.recencyBonus / max(top, 0.001) }}%"></span>
+                                </div>
+                            </li>
+                        {% else %}
+                            <li class="muted">No hits. Lower "Min relevance" or "Fuzzy similarity", or switch fuzzy mode to "always".</li>
+                        {% endfor %}
+                    </ol>
+                    <p class="muted">Bars: <span style="color:#5b3cc4">■</span> full-text <span style="color:#0e9384">■</span> fuzzy <span style="color:#f79009">■</span> exact/prefix <span style="color:#2e90fa">■</span> popularity <span style="color:#ee46bc">■</span> recency</p>
+                </div>
+
+                <div class="panel panel-sql">
+                    <label class="check"><input type="checkbox" data-model="analyze" {{ analyze ? 'checked' }}> EXPLAIN ANALYZE (runs the query again to time each plan node)</label>
+                    {% if this.explanation %}
+                        {% for statement in this.explanation.statements %}
+                            <h3>{{ statement.label }}</h3>
+                            <pre>{{ statement.sql }}</pre>
+                            <pre>params: {{ statement.params|json_encode }}</pre>
+                        {% endfor %}
+                        <h3>Plan</h3>
+                        <pre>{{ this.explanation.plan|join("\n") }}</pre>
+                    {% endif %}
+                </div>
             {% endif %}
-        {% endif %}
+        </div>
     </section>
 </div>

@@ -1,14 +1,14 @@
 {% extends 'base.html.twig' %}
 {% block title %}Config wizard · Fuzzphony{% endblock %}
 {% block body %}
-    <form method="get" class="grid">
+    <form method="get" class="grid" data-controller="autosubmit" data-loading-message="Introspecting the table…">
         <label>Table
-            <select name="table" onchange="this.form.submit()">
+            <select name="table" data-action="change->autosubmit#submit">
                 {% for t in tables %}<option value="{{ t.table }}" {{ t.table == table ? 'selected' }}>{{ t.table }} (~{{ t.rows|number_format }} rows)</option>{% endfor %}
             </select>
         </label>
         <label>Language
-            <select name="language" onchange="this.form.submit()">
+            <select name="language" data-action="change->autosubmit#submit">
                 {% for l in languages %}<option {{ l == language ? 'selected' }}>{{ l }}</option>{% endfor %}
             </select>
         </label>

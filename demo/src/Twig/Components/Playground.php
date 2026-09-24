@@ -14,14 +14,18 @@ use Symfony\UX\LiveComponent\Attribute\AsLiveComponent;
 use Symfony\UX\LiveComponent\Attribute\LiveProp;
 use Symfony\UX\LiveComponent\DefaultActionTrait;
 
-/** Every ranking weight and threshold as a slider; results, score breakdowns and the SQL update live. */
+/**
+ * Every ranking weight and threshold as a slider; results, score breakdowns and the SQL update live.
+ *
+ * Both panels (results, SQL / EXPLAIN) are rendered on every update and the template switches between them
+ * client-side, so the Results / SQL radio never waits for the server.
+ */
 #[AsLiveComponent]
 final class Playground
 {
     use DefaultActionTrait;
 
     #[LiveProp(writable: true, url: true)] public string $query = 'wireles mouse';
-    #[LiveProp(writable: true)] public string $tab = 'results';
     #[LiveProp(writable: true)] public bool $analyze = false;
     #[LiveProp(writable: true)] public bool $inStockOnly = false;
     #[LiveProp(writable: true)] public int $maxPrice = 0;
@@ -84,13 +88,9 @@ final class Playground
             return;
         }
         try {
-            $search = $this->search();
-            if ($this->tab === 'sql') {
-                $this->explanation = $search->explain($this->analyze);
-                $this->result = $this->explanation->result;
-            } else {
-                $this->result = $search->get();
-            }
+            // explain() runs the search itself, so this is one query for both panels (plus EXPLAIN [ANALYZE]).
+            $this->explanation = $this->search()->explain($this->analyze);
+            $this->result = $this->explanation->result;
         } catch (FuzzphonyException $e) {
             // invalid slider combinations are explained, not thrown
             $this->error = $e->getMessage();

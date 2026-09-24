@@ -1,12 +1,13 @@
 {% extends 'base.html.twig' %}
 
 {% block body %}
-    <form method="get">
-        <input type="search" name="q" value="{{ q }}" placeholder="Search the catalogue…" autofocus>
+    <form method="get" class="searchbar" data-loading-message="Searching with ILIKE and Fuzzphony (1 cold + 5 warm runs each)…">
+        <input type="search" name="q" value="{{ q }}" aria-label="Search the catalogue" placeholder="Search the catalogue…" autofocus>
+        <button type="submit" class="primary">Search</button>
     </form>
     <div class="examples">
         {% for label, example in examples %}
-            <a class="button" href="{{ path('compare', {q: example}) }}">{{ label }}: <code>{{ example }}</code></a>
+            <a class="button" href="{{ path('compare', {q: example}) }}" data-loading-message="Searching for {{ example }}…">{{ label }}: <code>{{ example }}</code></a>
         {% endfor %}
     </div>
 
