@@ -63,6 +63,10 @@ final class PostgresInspector
             $checks[] = $this->coverage($index, $options);
         }
         array_push($checks, ...$this->configuration($index));
+        $tenantCheck = $this->tenantScoping($index);
+        if ($tenantCheck !== null) {
+            $checks[] = $tenantCheck;
+        }
 
         return new InspectionReport($index->name, $checks);
     }
@@ -394,6 +398,13 @@ final class PostgresInspector
         }
 
         return $checks;
+    }
+
+    private function tenantScoping(IndexDefinition $index): ?Check
+    {
+        return $index->tenant !== null
+            ? Check::ok('Tenant scoping', sprintf('enforced via filter "%s"', $index->tenant))
+            : null;
     }
 
     private function regclass(string $name): bool
