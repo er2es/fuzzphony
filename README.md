@@ -293,7 +293,10 @@ changed its definition:
    every definition change, and safe in a migration.
 2. `fuzzphony:reindex` (or `$fuzzphony->reindex('products')`) — backfills every existing row into the
    sidecar table, batched and resumable. Needed once after step 1, regardless of which sync mode you
-   use — step 1 only creates the *structure*, it doesn't populate it.
+   use — step 1 only creates the *structure*, it doesn't populate it. A full run (without `--from`)
+   finishes by removing *orphans*: indexed documents whose row the source no longer returns, in
+   batches, and reports how many it removed. A run resumed with `--from` covers only part of the
+   source, so it never removes anything.
 
 After that, `fuzzphony:doctor` confirms both steps actually succeeded, and the sync mode you chose
 (see [Keeping the index in sync](#keeping-the-index-in-sync)) keeps the sidecar table caught up with
@@ -427,8 +430,12 @@ were never analysed are sampled instead.
 
 Every `INSERT`, `UPDATE` and `DELETE` on the source table (and on watched tables) is followed: an
 insert adds the document, an update rebuilds it, and a delete removes it from the sidecar table
-(the refresh drops every indexed id the source no longer returns). When the change shows up in
-search depends on the mode:
+(the refresh drops every indexed id the source no longer returns). In `trigger` and `queue` mode a
+`TRUNCATE` is followed too, by a separate statement-level `AFTER TRUNCATE` trigger: truncating a
+table-sourced index's own table empties the index right away (and drops its queued ids), while
+truncating any other watched table resyncs every document, because the removed rows can no longer
+tell which documents they belonged to (see [Known limitations](#known-limitations) for the cost).
+When the change shows up in search depends on the mode:
 
 | Mode | Change visible in search |
 |---|---|
@@ -559,15 +566,17 @@ Exit code is non-zero on errors (`--strict`: also on warnings), so it belongs in
 
 It checks: server version, extensions, text configuration, helper functions, that the source can be
 queried, id / field / filter / boost / recency column mapping and types, the source key, sidecar
-column drift, missing or INVALID indexes, missing or disabled triggers, queue backlog and age,
-coverage (estimated, or exact with `--deep`), and risky thresholds.
+column drift, missing or INVALID indexes, missing or disabled triggers (including the `TRUNCATE`
+trigger, which an index set up with an older version lacks until `fuzzphony:schema --apply` runs
+again), queue backlog and age, coverage (estimated, or exact with `--deep`), orphaned documents
+(with `--deep`; fixed by `fuzzphony:reindex`), and risky thresholds.
 
 ## Commands
 
 | Command | Purpose |
 |---|---|
 | `fuzzphony:schema [index] [--apply\|--drop\|--dump-migration=dir]` | show / apply / export idempotent DDL (alias `fuzzphony:install`) |
-| `fuzzphony:reindex [index] [--batch=5000] [--from=id]` | resumable backfill with progress |
+| `fuzzphony:reindex [index] [--batch=5000] [--from=id]` | resumable backfill with progress; a full run also removes orphaned documents |
 | `fuzzphony:worker [--once] [--time-limit=s] [--index=x]` | drain the sync queue; graceful on SIGTERM |
 | `fuzzphony:doctor [index] [--deep] [--strict]` | health check with fixes |
 | `fuzzphony:search index 'query' [-w filter] [--explain [--analyze]]` | try queries, see score breakdowns, SQL and plans |
@@ -619,11 +628,19 @@ that query.) Run the numbers on your own data before believing anyone's benchmar
   change.~~ **Shipped** for the index's own source table (automatic) and for joined-table
   watches (opt-in `columns:`, see [Keeping the index in sync](#keeping-the-index-in-sync)).
 * Statement-level triggers cannot be attached to individual partitions; watch the partitioned parent
-  or use `trigger_level: row`.
-* `TRUNCATE` on a source table does not fire the sync triggers (PostgreSQL only runs `TRUNCATE`
-  triggers for it), and `fuzzphony:reindex` refreshes the ids the source still has but does not
-  remove indexed ids it no longer has. After a `TRUNCATE`, rebuild the index:
-  `fuzzphony:schema --drop --apply`, then `fuzzphony:schema --apply` and `fuzzphony:reindex`.
+  or use `trigger_level: row`. The `TRUNCATE` trigger on a partitioned parent fires when the parent
+  is truncated, but **not** when a single partition is truncated directly (`TRUNCATE
+  product_2024`): run `fuzzphony:reindex` afterwards, which also removes the orphaned documents.
+* `TRUNCATE` is followed in `trigger` and `queue` mode (see
+  [Keeping the index in sync](#keeping-the-index-in-sync)). Truncating the index's own source table
+  is cheap: the sidecar is emptied. Truncating a *joined* or otherwise watched table is not: every
+  indexed document, plus every document the source returns now, is resynced — in `trigger` mode
+  inside the truncating transaction (on a big index that transaction takes as long as a full
+  reindex), in `queue` mode by queueing all those ids for the worker. A query source's main table
+  counts as a watched table here, since Fuzzphony cannot tell that the source is now empty. Indexes
+  set up with an older version get the `TRUNCATE` trigger from `fuzzphony:schema --apply`
+  (`fuzzphony:doctor` reports it missing until then); `orm` and `manual` mode never see a
+  `TRUNCATE`: run `fuzzphony:reindex`.
 * The extension schema (default `public`) must be on the `search_path` for the trigram operator.
 * With very frequent words, ranking considers the first `candidate_limit` matches, so ordering is
   approximate beyond them (and `total` is reported as a lower bound).

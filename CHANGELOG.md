@@ -2,6 +2,25 @@
 
 ## Unreleased
 
+* **Fix**: `TRUNCATE` on a source or watched table left stale documents in the index forever
+  (PostgreSQL runs no `DELETE` trigger for it), and not even `fuzzphony:reindex` removed them.
+  * `trigger` and `queue` sync now add an `AFTER TRUNCATE … FOR EACH STATEMENT` trigger to every
+    watched table, at both trigger levels. Truncating a table-sourced index's own table empties the
+    index (and drops its queued ids); truncating any other watched table resyncs every indexed
+    document and every document the source now returns (queued in `queue` mode, refreshed inside
+    the transaction in `trigger` mode: expensive on a big index, see "Known limitations").
+    Truncating a single partition directly still fires nothing.
+  * A full `fuzzphony:reindex` (without `--from`) now ends by removing orphaned documents, those
+    whose row the source no longer returns, in batches, and reports how many
+    (`Engine::pruneOrphans()`; `Reindexer::run()` takes an optional `$onPruned` callback). A run
+    resumed with `--from` never prunes.
+  * `fuzzphony:doctor` reports a missing `TRUNCATE` trigger, and with `--deep` counts orphaned
+    documents (a warning; the fix is `fuzzphony:reindex`).
+
+  **After upgrading, run `fuzzphony:schema --apply`** (idempotent) so existing indexes get the new
+  trigger and sync functions, then a full `fuzzphony:reindex` to clear what earlier `TRUNCATE`s
+  left behind. `Engine` gained a method, so a third-party engine must implement it.
+
 * **Fix / behaviour change**: typo-tolerant (fuzzy) matching is now **per word**. It used to
   compare the whole query as one string with all fuzzy fields, so one long common word could
   satisfy it on its own: on the demo catalogue `wireles mice` returned 20 000 products (chairs,
