@@ -153,4 +153,6 @@ jobs:
         with:
           token: ${{ secrets.CODECOV_TOKEN }}
           files: coverage.xml
-          fail_ci_if_error: true
+          # Fork PRs don't have access to CODECOV_TOKEN, so only hard-fail CI on
+          # same-repo pushes/PRs; degrade to a warning on external contributors' PRs.
+          fail_ci_if_error: ${{ github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository }}
