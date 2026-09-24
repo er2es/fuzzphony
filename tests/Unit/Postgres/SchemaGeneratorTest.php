@@ -243,5 +243,16 @@ final class SchemaGeneratorTest extends TestCase
         self::assertStringContainsString('n."id" IS NULL OR (r."name" IS DISTINCT FROM n."name")', $sql);
         // INSERT/DELETE branches never reference the other side's transition table.
         self::assertStringNotContainsString("IF TG_OP = 'INSERT' THEN\n        PERFORM", $sql); // sanity: this fixture uses queue mode
+
+        // Pin the critical property directly, by string, rather than relying on manual code
+        // trace: the INSERT-only branch must never mention fz_old (not registered as a
+        // transition table during an _ins-only firing), and the DELETE-only branch must never
+        // mention fz_new (not registered during a _del-only firing).
+        $insertMatched = preg_match("/IF TG_OP = 'INSERT' THEN(.*?)END IF;/s", $sql, $insertBranch);
+        $deleteMatched = preg_match("/IF TG_OP = 'DELETE' THEN(.*?)END IF;/s", $sql, $deleteBranch);
+        self::assertSame(1, $insertMatched);
+        self::assertSame(1, $deleteMatched);
+        self::assertStringNotContainsString('fz_old', $insertBranch[1] ?? '');
+        self::assertStringNotContainsString('fz_new', $deleteBranch[1] ?? '');
     }
 }
