@@ -103,6 +103,11 @@ final class DefinitionValidator
             if (preg_match_all('/:id\b/', $watch->affectedIds) !== 1 || preg_match('/^\s*select\b/i', $watch->affectedIds) !== 1) {
                 $v[] = sprintf('Watch on "%s": affectedIds must be a SELECT containing ":id" exactly once, e.g. "SELECT id FROM product WHERE brand_id = :id".', $watch->table);
             }
+            foreach ($watch->columns ?? [] as $column) {
+                if (!Identifier::isColumn($column)) {
+                    $v[] = sprintf('Watch on "%s": column "%s" is not a valid column name.', $watch->table, $column);
+                }
+            }
         }
 
         if (!Identifier::isName($index->text->language)) {

@@ -116,4 +116,30 @@ final class DefinitionValidatorTest extends TestCase
 
         self::assertSame([], DefinitionValidator::validate($definition));
     }
+
+    public function testBuilderCanDeclareWatchColumns(): void
+    {
+        $definition = IndexDefinition::builder('products')
+            ->fromTable('product')
+            ->field('name')
+            ->watch('brand', 'SELECT id FROM product WHERE brand_id = :id', columns: ['name'])
+            ->build();
+
+        self::assertSame(['name'], $definition->watches[0]->columns);
+    }
+
+    public function testWatchColumnsMustBeValidColumnNames(): void
+    {
+        $definition = new IndexDefinition(
+            name: 'products',
+            source: Source::table('product'),
+            fields: [new FieldDefinition('name')],
+            watches: [new Watch('brand', 'SELECT id FROM product WHERE brand_id = :id', columns: ['not a column!'])],
+        );
+
+        $violations = DefinitionValidator::validate($definition);
+
+        self::assertCount(1, $violations);
+        self::assertStringContainsString('column "not a column!"', $violations[0]);
+    }
 }

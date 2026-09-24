@@ -74,9 +74,10 @@ final class IndexBuilder
         return $this;
     }
 
-    public function watch(string $table, string $affectedIds = 'SELECT :id', string $keyColumn = 'id'): self
+    /** @param list<string>|null $columns */
+    public function watch(string $table, string $affectedIds = 'SELECT :id', string $keyColumn = 'id', ?array $columns = null): self
     {
-        $this->watches[] = new Watch($table, $affectedIds, $keyColumn);
+        $this->watches[] = new Watch($table, $affectedIds, $keyColumn, $columns);
 
         return $this;
     }

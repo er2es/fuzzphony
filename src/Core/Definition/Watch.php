@@ -12,9 +12,16 @@ namespace Fuzzphony\Core\Definition;
  */
 final readonly class Watch
 {
+    /**
+     * @param list<string>|null $columns Restrict UPDATE-triggered refreshes to changes in these
+     *     columns of $table; null (the default) refreshes on every UPDATE, same as before this
+     *     option existed. Ignored for the automatic self-watch on the index's own source table,
+     *     where the relevant columns are derived automatically from its fields/filters/boost/recency.
+     */
     public function __construct(
         public string $table,
         public string $affectedIds = 'SELECT :id',
         public string $keyColumn = 'id',
+        public ?array $columns = null,
     ) {}
 }
