@@ -63,4 +63,16 @@ final class SearchQueryTest extends TestCase
 
         self::assertSame(['fuzzy' => 0.8, 'boost' => 0.1], $query->rankingOverrides);
     }
+
+    public function testForTenantSetsTheTenantValue(): void
+    {
+        $query = (new SearchQuery())->forTenant(42);
+
+        self::assertSame(42, $query->tenant);
+    }
+
+    public function testTenantDefaultsToNull(): void
+    {
+        self::assertNull((new SearchQuery())->tenant);
+    }
 }

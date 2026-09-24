@@ -28,6 +28,7 @@ final readonly class SearchQuery
         public array $highlight = [],
         public array $thresholdOverrides = [],
         public array $rankingOverrides = [],
+        public mixed $tenant = null,
     ) {
         if ($limit < 1 || $limit > 1000) {
             throw new \Fuzzphony\Core\Exception\InvalidQuery(sprintf('Limit must be between 1 and 1000, got %d.', $limit));
@@ -76,6 +77,11 @@ final readonly class SearchQuery
         return $this->copy(conditions: [...$this->conditions, $condition]);
     }
 
+    public function forTenant(mixed $value): self
+    {
+        return $this->copy(tenant: $value);
+    }
+
     public function profile(string $profile): self
     {
         return $this->copy(profile: $profile);
@@ -118,6 +124,7 @@ final readonly class SearchQuery
         $highlight = $changes['highlight'] ?? null;
         $thresholdOverrides = $changes['thresholdOverrides'] ?? null;
         $rankingOverrides = $changes['rankingOverrides'] ?? null;
+        $tenant = array_key_exists('tenant', $changes) ? $changes['tenant'] : $this->tenant;
 
         return new self(
             text: is_string($text) ? $text : $this->text,
@@ -128,6 +135,7 @@ final readonly class SearchQuery
             highlight: self::stringList($highlight) ?? $this->highlight,
             thresholdOverrides: self::stringKeyedArray($thresholdOverrides) ?? $this->thresholdOverrides,
             rankingOverrides: self::stringKeyedArray($rankingOverrides) ?? $this->rankingOverrides,
+            tenant: $tenant,
         );
     }
 
