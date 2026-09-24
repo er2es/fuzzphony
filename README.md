@@ -1,6 +1,7 @@
 # Fuzzphony
 
 [![CI](https://github.com/er2es/fuzzphony/actions/workflows/ci.yml/badge.svg)](https://github.com/er2es/fuzzphony/actions/workflows/ci.yml)
+[![codecov](https://codecov.io/gh/er2es/fuzzphony/graph/badge.svg)](https://codecov.io/gh/er2es/fuzzphony)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 
 **Fuzzy search, in perfect harmony with your database.**
@@ -367,8 +368,18 @@ in [`docs/adr`](docs/adr).
 * **v0.2** *(this release)* configuration wizard (CLI + web), statement-level triggers, per-query
   ranking overrides, Messenger for ORM sync, API Platform filter, Live Component, demo app,
   benchmark in CI.
-* **v1.0** Column-aware trigger filtering, stable API, BC promise. PostgreSQL only — no other
-  engine is planned before 1.0.
+* **v1.0** Enterprise readiness, stable API, BC promise. PostgreSQL only — no other engine is
+  planned before 1.0.
+  * Multi-tenancy: tenant-scoped sidecar schema, isolation enforced at the query layer (not just
+    application-level convention).
+  * Observability: hooks/events for query latency, queue lag and error rate, wired for Symfony
+    Messenger middleware and any metrics backend.
+  * Federated search: query multiple indexes at once with one merged, cross-index ranking.
+  * Security: audit logging (who searched what, when) and per-tenant/per-user rate limiting;
+    Symfony Security integration for index/field-level authorization (e.g. restricting a field
+    from highlights unless the viewer is authorized).
+  * Column-aware trigger filtering (a watched table's UPDATE only queues a refresh when a
+    relevant column actually changed).
 
 ## Development
 

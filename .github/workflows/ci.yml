@@ -48,3 +48,33 @@ jobs:
           coverage: pcov
       - run: composer install --no-progress --prefer-dist
       - run: vendor/bin/phpunit --coverage-text
+
+  coverage:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_DB: fuzzphony
+          POSTGRES_USER: fuzzphony
+          POSTGRES_PASSWORD: fuzzphony
+        ports: ['5432:5432']
+        options: >-
+          --health-cmd "pg_isready -U fuzzphony"
+          --health-interval 2s --health-retries 20
+    env:
+      FUZZPHONY_TEST_DSN: "pgsql:host=127.0.0.1;port=5432;dbname=fuzzphony;user=fuzzphony;password=fuzzphony"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.4'
+          extensions: pdo_pgsql, mbstring
+          coverage: pcov
+      - run: composer install --no-progress --prefer-dist
+      - run: vendor/bin/phpunit --coverage-clover=coverage.xml
+      - uses: codecov/codecov-action@v4
+        with:
+          token: ${{ secrets.CODECOV_TOKEN }}
+          files: coverage.xml
+          fail_ci_if_error: true
