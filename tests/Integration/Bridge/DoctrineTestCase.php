@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Fuzzphony\Tests\Integration\Bridge;
 
 use Doctrine\DBAL\Configuration as DbalConfiguration;
+use Doctrine\DBAL\Connection as DbalConnection;
 use Doctrine\DBAL\Driver\Middleware as DbalMiddleware;
 use Doctrine\DBAL\DriverManager;
 use Doctrine\ORM\EntityManager;
@@ -19,6 +20,15 @@ final class DoctrineTestCase
     /** @param list<DbalMiddleware> $middlewares DBAL middlewares must be registered before the connection is first used. */
     public static function entityManager(array $middlewares = []): EntityManagerInterface
     {
+        $config = ORMSetup::createAttributeMetadataConfig([__DIR__ . '/../../Fixtures/Doctrine'], true);
+        $config->enableNativeLazyObjects(true);
+
+        return new EntityManager(self::dbalConnection($middlewares), $config);
+    }
+
+    /** @param list<DbalMiddleware> $middlewares DBAL middlewares must be registered before the connection is first used. */
+    public static function dbalConnection(array $middlewares = []): DbalConnection
+    {
         $dsn = getenv('FUZZPHONY_TEST_DSN');
         if (!is_string($dsn) || $dsn === '') {
             Assert::markTestSkipped('Set FUZZPHONY_TEST_DSN to a disposable PostgreSQL 15+ database to run integration tests (see docker-compose.yml).');
@@ -26,11 +36,8 @@ final class DoctrineTestCase
 
         $dbalConfig = new DbalConfiguration();
         $dbalConfig->setMiddlewares($middlewares);
-        $connection = DriverManager::getConnection(self::dbalParams($dsn), $dbalConfig);
-        $config = ORMSetup::createAttributeMetadataConfig([__DIR__ . '/../../Fixtures/Doctrine'], true);
-        $config->enableNativeLazyObjects(true);
 
-        return new EntityManager($connection, $config);
+        return DriverManager::getConnection(self::dbalParams($dsn), $dbalConfig);
     }
 
     public static function createArticleTable(Connection $connection): void
