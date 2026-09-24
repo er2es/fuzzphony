@@ -282,6 +282,17 @@ $fuzzphony->in('products')->query('wireless mouse')->get();
 
 `tenant()` also works with `#[Searchable(tenant: 'account_id')]` and the YAML `tenant: account_id` key.
 
+**Adopting this on an existing index:** declaring `.tenant()` alone does not touch already-indexed
+rows. After adding it, run `fuzzphony:schema --apply` (idempotent — safe to run anytime) followed
+by `fuzzphony:reindex` to backfill the tenant column into the existing sidecar rows. Until you
+reindex, the column is NULL for rows indexed before the change, so tenant-scoped searches simply
+return nothing for them (fail-closed, not dangerous, but easy to mistake for a bug).
+
+`FuzzphonySearchFilter` (API Platform), `SearchComponent` (Live Component) and `bin/console
+fuzzphony:search` do not currently accept a tenant value; using any of them against a
+tenant-scoped index throws `InvalidQuery` (fail-closed). This is a known limitation, not
+something this release fixes.
+
 **You don't need this** for a single-tenant application (nothing changes either way), or for
 applications with fully isolated tenants — a separate database or schema per tenant already
 works today via one `Connection`/engine instance per tenant.
@@ -415,8 +426,9 @@ in [`docs/adr`](docs/adr).
   benchmark in CI.
 * **v1.0** Enterprise readiness, stable API, BC promise. PostgreSQL only — no other engine is
   planned before 1.0.
-  * ~~Multi-tenancy: tenant-scoped sidecar schema, isolation enforced at the query layer (not
-    just application-level convention).~~ **Shipped** — see [Multi-tenancy](#multi-tenancy).
+  * ~~Multi-tenancy: tenant scoping via a designated filter, isolation enforced at the query
+    layer (not just application-level convention).~~ **Shipped** — see
+    [Multi-tenancy](#multi-tenancy).
   * Observability: hooks/events for query latency, queue lag and error rate, wired for Symfony
     Messenger middleware and any metrics backend.
   * Federated search: query multiple indexes at once with one merged, cross-index ranking.

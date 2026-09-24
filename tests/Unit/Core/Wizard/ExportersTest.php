@@ -27,6 +27,16 @@ final class ExportersTest extends TestCase
         self::assertEquals($original, $reloaded);
     }
 
+    public function testArrayExportRoundTripsTenantScoping(): void
+    {
+        $original = Indexes::products(tenant: true);
+
+        $reloaded = (new ArrayDefinitionLoader())->load('products', (new ArrayExporter())->export($original));
+
+        self::assertSame('brand_id', $reloaded->tenant);
+        self::assertEquals($original, $reloaded);
+    }
+
     public function testAttributeDefinitionsRoundTripToo(): void
     {
         $original = (new AttributeDefinitionLoader())->load(Product::class)->with(entityClass: null);

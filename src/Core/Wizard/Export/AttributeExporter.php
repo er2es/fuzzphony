@@ -44,6 +44,9 @@ final class AttributeExporter
         if ($index->recencyColumn !== null) {
             $args[] = sprintf('recency: %s', $e($index->recencyColumn));
         }
+        if ($index->tenant !== null) {
+            $args[] = sprintf('tenant: %s', $e($index->tenant));
+        }
 
         $properties = [];
         foreach ($index->fields as $field) {

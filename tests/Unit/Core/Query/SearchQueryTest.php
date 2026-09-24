@@ -76,6 +76,13 @@ final class SearchQueryTest extends TestCase
         self::assertNull((new SearchQuery())->tenant);
     }
 
+    public function testTenantSurvivesASubsequentWither(): void
+    {
+        $query = (new SearchQuery())->forTenant(42)->withText('x')->limit(5);
+
+        self::assertSame(42, $query->tenant);
+    }
+
     public function testMissingTenantMessage(): void
     {
         $exception = InvalidQuery::missingTenant('products');

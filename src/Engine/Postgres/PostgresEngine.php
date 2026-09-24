@@ -189,6 +189,9 @@ final class PostgresEngine implements Engine
         if ($index->tenant !== null && $query->tenant === null) {
             throw InvalidQuery::missingTenant($index->name);
         }
+        if ($index->tenant === null && $query->tenant !== null) {
+            throw InvalidQuery::unexpectedTenant($index->name);
+        }
         $conditions = $index->tenant !== null
             ? [new Condition($index->tenant, Operator::Eq, $query->tenant), ...$query->conditions]
             : $query->conditions;

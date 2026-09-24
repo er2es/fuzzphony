@@ -55,6 +55,9 @@ final class BuilderExporter
         if ($index->recencyColumn !== null) {
             $lines[] = sprintf('    ->recencyBy(%s)', $e($index->recencyColumn));
         }
+        if ($index->tenant !== null) {
+            $lines[] = sprintf('    ->tenant(%s)', $e($index->tenant));
+        }
         $defaults = (new RankingProfile())->toArray();
         foreach ($index->profiles as $name => $profile) {
             $changed = array_filter($profile->toArray(), static fn(mixed $v, string $k): bool => $k !== 'label_weights' && $v !== $defaults[$k], ARRAY_FILTER_USE_BOTH);

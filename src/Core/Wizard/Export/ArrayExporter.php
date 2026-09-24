@@ -62,6 +62,9 @@ final class ArrayExporter
         if ($index->recencyColumn !== null) {
             $out['recency'] = $index->recencyColumn;
         }
+        if ($index->tenant !== null) {
+            $out['tenant'] = $index->tenant;
+        }
 
         $defaults = (new RankingProfile())->toArray();
         foreach ($index->profiles as $name => $profile) {

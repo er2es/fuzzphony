@@ -22,6 +22,7 @@ use Fuzzphony\Core\Ranking\RankingProfile;
  *     unaccent: true
  *     boost: popularity
  *     recency: published_at
+ *     tenant: account_id
  *     profiles: { default: { text: 1, fuzzy: 0.5 } }
  *     thresholds: { min_score: 0.05, fuzzy_mode: fallback }
  */
