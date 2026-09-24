@@ -85,8 +85,9 @@ final class PostgresEngineTest extends TestCase
         $fuzzphony = new Fuzzphony($this->engine, new IndexRegistry([$row]));
         $fuzzphony->schema()->apply($this->connection);
 
-        $names = array_column($this->connection->fetchAll("SELECT tgname FROM pg_trigger WHERE tgrelid = 'fz_brand'::regclass AND NOT tgisinternal"), 'tgname');
-        self::assertSame(['fuzzphony_sync_products__fz_brand'], $names);
+        $names = array_column($this->connection->fetchAll("SELECT tgname FROM pg_trigger WHERE tgrelid = 'fz_brand'::regclass AND NOT tgisinternal ORDER BY tgname"), 'tgname');
+        // the row-level trigger, plus the TRUNCATE trigger (statement-level at both levels, so it is kept)
+        self::assertSame(['fuzzphony_sync_products__fz_brand', 'fuzzphony_sync_products__fz_brand_trn'], $names);
         self::assertTrue($fuzzphony->inspect('products')->isHealthy());
     }
 

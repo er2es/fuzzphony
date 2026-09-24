@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Fuzzphony\Tests\Unit\Postgres;
 
 use Fuzzphony\Core\Definition\IndexDefinition;
+use Fuzzphony\Core\Definition\SyncMode;
 use Fuzzphony\Core\Definition\TriggerLevel;
 use Fuzzphony\Core\Definition\Watch;
 use Fuzzphony\Core\Schema\Statement;
@@ -65,6 +66,83 @@ final class SchemaGeneratorTest extends TestCase
         self::assertStringContainsString('SELECT id FROM fz_product WHERE brand_id = OLD."id"', $sql);
         self::assertStringContainsString('AFTER INSERT OR UPDATE OR DELETE ON "fz_brand" FOR EACH ROW', $sql);
         self::assertStringContainsString('DROP TRIGGER IF EXISTS "fuzzphony_sync_products__fz_brand_ins"', $sql);
+    }
+
+    public function testBothTriggerLevelsGetAStatementLevelTruncateTrigger(): void
+    {
+        foreach ([TriggerLevel::Statement, TriggerLevel::Row] as $level) {
+            foreach (['queue', 'trigger'] as $sync) {
+                $sql = (new PostgresSchemaGenerator())->index(Indexes::products($sync)->with(triggerLevel: $level))->toSql();
+
+                foreach (['fz_product', 'fz_brand'] as $table) {
+                    self::assertStringContainsString(
+                        sprintf('CREATE OR REPLACE TRIGGER "fuzzphony_sync_products__%1$s_trn" AFTER TRUNCATE ON "%1$s" FOR EACH STATEMENT EXECUTE FUNCTION "fuzzphony_sync_products__%1$s"()', $table),
+                        $sql,
+                        sprintf('%s sync, %s level', $sync, $level->value),
+                    );
+                }
+            }
+        }
+    }
+
+    public function testSyncModesWithoutTriggersGetNoTruncateTrigger(): void
+    {
+        foreach (['manual', 'orm'] as $sync) {
+            $sql = (new PostgresSchemaGenerator())->index(Indexes::products($sync))->toSql();
+
+            self::assertStringNotContainsString('AFTER TRUNCATE', $sql);
+            self::assertStringNotContainsString("TG_OP = 'TRUNCATE'", $sql);
+            self::assertStringContainsString('DROP TRIGGER IF EXISTS "fuzzphony_sync_products__fz_brand_trn" ON "fz_brand"', $sql, 'a truncate trigger of a previous setup is removed');
+        }
+    }
+
+    public function testTruncateBranchComesFirstAndNeverTouchesRowsOrTransitionTables(): void
+    {
+        $filtered = IndexDefinition::builder('products')
+            ->fromTable('fz_product')
+            ->field('name', 'A')
+            ->watch('fz_brand', 'SELECT id FROM fz_product WHERE brand_id = :id', columns: ['name'])
+            ->build();
+        foreach ([Indexes::products('queue'), Indexes::products('trigger'), $filtered] as $definition) {
+            foreach ([TriggerLevel::Statement, TriggerLevel::Row] as $level) {
+                $definition = $definition->with(triggerLevel: $level);
+                foreach ((new PostgresSchemaGenerator())->index($definition)->statements as $statement) {
+                    if (!str_contains($statement->sql, 'RETURNS trigger')) {
+                        continue;
+                    }
+                    self::assertSame(1, preg_match("/\\ABEGIN\n    IF TG_OP = 'TRUNCATE' THEN\n(.*?)\n    END IF;/ms", substr($statement->sql, (int) strpos($statement->sql, "BEGIN\n")), $branch), $statement->sql);
+                    self::assertStringEndsWith('RETURN NULL;', $branch[1] ?? '');
+                    self::assertDoesNotMatchRegularExpression('/\b(NEW|OLD|fz_new|fz_old)\b/', $branch[1] ?? '');
+                }
+            }
+        }
+    }
+
+    public function testTruncatingATableSourceEmptiesTheIndex(): void
+    {
+        $definition = IndexDefinition::builder('articles')->fromTable('article')->field('title')->build();
+
+        $queue = (new PostgresSchemaGenerator())->index($definition)->toSql();
+        self::assertStringContainsString("IF TG_OP = 'TRUNCATE' THEN\n        DELETE FROM \"fuzzphony_articles\";\n        DELETE FROM fuzzphony_queue WHERE index_name = 'articles';\n        RETURN NULL;\n    END IF;", $queue);
+
+        $trigger = (new PostgresSchemaGenerator())->index($definition->with(sync: SyncMode::Trigger))->toSql();
+        self::assertStringContainsString("IF TG_OP = 'TRUNCATE' THEN\n        DELETE FROM \"fuzzphony_articles\";\n        RETURN NULL;\n    END IF;", $trigger);
+    }
+
+    public function testTruncatingAnotherWatchedTableResyncsEveryDocument(): void
+    {
+        $queue = (new PostgresSchemaGenerator())->index(Indexes::products('queue'))->toSql();
+        self::assertStringContainsString(
+            "IF TG_OP = 'TRUNCATE' THEN\n        INSERT INTO fuzzphony_queue (index_name, doc_id)\n        SELECT 'products', t.id::text FROM (SELECT s.id FROM \"fuzzphony_products\" AS s UNION SELECT doc.fz_id::bigint FROM (SELECT d.\"id\" AS fz_id",
+            $queue,
+        );
+        self::assertStringNotContainsString('DELETE FROM "fuzzphony_products";', $queue, 'a query source is never emptied wholesale');
+
+        $trigger = (new PostgresSchemaGenerator())->index(Indexes::products('trigger'))->toSql();
+        self::assertStringContainsString(
+            "IF TG_OP = 'TRUNCATE' THEN\n        PERFORM \"fuzzphony_refresh_products\"(ARRAY(SELECT s.id FROM \"fuzzphony_products\" AS s UNION SELECT doc.fz_id::bigint FROM (SELECT d.\"id\" AS fz_id",
+            $trigger,
+        );
     }
 
     public function testRefreshFunctionUpsertsAndDeletesMissingDocuments(): void

@@ -237,8 +237,11 @@ final class PostgresSchemaGenerator
             return [];
         }
         $function = $this->syncFunctionName($index, $watch);
+        // PostgreSQL never runs DELETE triggers for TRUNCATE and only allows TRUNCATE triggers per
+        // statement (without transition tables), so both levels get the same extra trigger.
+        $truncate = [Identifier::limit($function . '_trn') => ['timing' => 'AFTER TRUNCATE', 'for' => 'FOR EACH STATEMENT']];
         if ($index->triggerLevel === TriggerLevel::Row) {
-            return [$function => ['timing' => 'AFTER INSERT OR UPDATE OR DELETE', 'for' => 'FOR EACH ROW']];
+            return [$function => ['timing' => 'AFTER INSERT OR UPDATE OR DELETE', 'for' => 'FOR EACH ROW']] + $truncate;
         }
 
         // Transition tables require one trigger per event.
@@ -246,7 +249,7 @@ final class PostgresSchemaGenerator
             Identifier::limit($function . '_ins') => ['timing' => 'AFTER INSERT', 'for' => 'REFERENCING NEW TABLE AS fz_new FOR EACH STATEMENT'],
             Identifier::limit($function . '_upd') => ['timing' => 'AFTER UPDATE', 'for' => 'REFERENCING OLD TABLE AS fz_old NEW TABLE AS fz_new FOR EACH STATEMENT'],
             Identifier::limit($function . '_del') => ['timing' => 'AFTER DELETE', 'for' => 'REFERENCING OLD TABLE AS fz_old FOR EACH STATEMENT'],
-        ];
+        ] + $truncate;
     }
 
     /** @return list<string> every trigger name this watch can ever have */
@@ -254,7 +257,13 @@ final class PostgresSchemaGenerator
     {
         $function = $this->syncFunctionName($index, $watch);
 
-        return [$function, Identifier::limit($function . '_ins'), Identifier::limit($function . '_upd'), Identifier::limit($function . '_del')];
+        return [
+            $function,
+            Identifier::limit($function . '_ins'),
+            Identifier::limit($function . '_upd'),
+            Identifier::limit($function . '_del'),
+            Identifier::limit($function . '_trn'),
+        ];
     }
 
     /** @return list<string> trigger names that must NOT exist for the current sync mode / level */
@@ -331,7 +340,8 @@ final class PostgresSchemaGenerator
     private function syncFunction(IndexDefinition $index, Watch $watch): string
     {
         $columns = $this->relevantColumns($index, $watch);
-        $body = [];
+        // First, so a TRUNCATE never reaches the NEW / OLD references below.
+        $body = [$this->truncateBranch($index, $watch)];
         if ($columns !== null) {
             // The key column must always be treated as relevant: even when it's not itself a
             // field/filter/boost/recency column, a key-column UPDATE moves the row's identity out
@@ -374,11 +384,51 @@ final class PostgresSchemaGenerator
             ? $this->statementBodyUnfiltered($index, $watch)
             : $this->statementBodyFiltered($index, $watch, $columns);
 
+        // The TRUNCATE branch comes first, so a TRUNCATE never reaches a transition table (none is registered for it).
         return sprintf(
-            "CREATE OR REPLACE FUNCTION %s() RETURNS trigger\nLANGUAGE plpgsql AS \$fuzzphony\$\nBEGIN\n%s\n    RETURN NULL;\nEND\n\$fuzzphony\$",
+            "CREATE OR REPLACE FUNCTION %s() RETURNS trigger\nLANGUAGE plpgsql AS \$fuzzphony\$\nBEGIN\n%s\n%s\n    RETURN NULL;\nEND\n\$fuzzphony\$",
             Sql::ident($this->syncFunctionName($index, $watch)),
+            $this->truncateBranch($index, $watch),
             $body,
         );
+    }
+
+    /**
+     * The TRUNCATE branch of both trigger levels. A TRUNCATE invocation has no NEW / OLD row and
+     * no transition table, so this branch never references them and returns right away.
+     *
+     * - The index's own source table was truncated: the source is empty, so the index is emptied
+     *   too (and, in queue mode, whatever it still had queued is dropped).
+     * - Any other watched table: its rows are gone, so the affected documents cannot be told
+     *   apart; every document that is indexed or that the source now returns is resynced.
+     *   Expensive on a big index, but a TRUNCATE is rare.
+     */
+    private function truncateBranch(IndexDefinition $index, Watch $watch): string
+    {
+        $sidecar = Sql::ident($index->sidecarTable());
+        if ($index->source->table !== null && $watch->table === $index->source->table) {
+            $actions = [sprintf('DELETE FROM %s;', $sidecar)];
+            if ($index->sync === SyncMode::Queue) {
+                $actions[] = sprintf('DELETE FROM %s WHERE index_name = %s;', self::QUEUE_TABLE, Sql::string($index->name));
+            }
+        } else {
+            $ids = sprintf(
+                'SELECT s.id FROM %s AS s UNION SELECT doc.fz_id::%s FROM (%s) AS doc WHERE doc.fz_id IS NOT NULL',
+                $sidecar,
+                $index->idType->sqlType(),
+                DocumentSql::select($index),
+            );
+            $actions = [$index->sync === SyncMode::Trigger
+                ? sprintf('PERFORM %s(ARRAY(%s));', Sql::ident($this->refreshFunctionName($index)), $ids)
+                : sprintf(
+                    "INSERT INTO %s (index_name, doc_id)\n        SELECT %s, t.id::text FROM (%s) AS t(id)\n        ON CONFLICT (index_name, doc_id) DO NOTHING;",
+                    self::QUEUE_TABLE,
+                    Sql::string($index->name),
+                    $ids,
+                )];
+        }
+
+        return sprintf("    IF TG_OP = 'TRUNCATE' THEN\n        %s\n        RETURN NULL;\n    END IF;", implode("\n        ", $actions));
     }
 
     /** Unfiltered: today's two combined-condition branches, unchanged — byte-identical output. */
