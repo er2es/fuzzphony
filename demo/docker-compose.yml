@@ -21,6 +21,9 @@ services:
       DATABASE_URL: "postgresql://fuzzphony:fuzzphony@db:5432/fuzzphony?serverVersion=17&charset=utf8"
       PGPASSWORD: fuzzphony
       DEMO_ROWS: ${DEMO_ROWS:-200000}
+      # Symfony's dev cache on the Docker bind mount is very slow (a cold rebuild took 17 s there, 3.5 s on the
+      # container's own disk, and every warm request stats hundreds of cache files over the mount).
+      APP_CACHE_DIR: /tmp/symfony-cache
     volumes:
       - ..:/app
     ports: ["8000:8000"]
@@ -31,4 +34,4 @@ services:
       php bin/console importmap:install &&
       composer setup &&
       (php bin/console fuzzphony:worker --time-limit=86400 &) &&
-      php -S 0.0.0.0:8000 -t public"
+      PHP_CLI_SERVER_WORKERS=4 php -d opcache.enable_cli=1 -d opcache.revalidate_freq=1 -S 0.0.0.0:8000 -t public"
