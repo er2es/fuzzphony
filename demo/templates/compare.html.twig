@@ -13,7 +13,7 @@
     {% if with %}
         <div class="grid">
             <section class="card">
-                <h2>Without: <code>ILIKE '%…%'</code></h2>
+                <h2>With ILIKE <code>'%…%'</code></h2>
                 <p class="muted">{{ without.value|length }} hits · warm median {{ without.warm|number_format(1) }} ms · cold {{ without.cold|number_format(1) }} ms · no ranking</p>
                 <ul class="hits">
                     {% for row in without.value %}

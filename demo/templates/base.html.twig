@@ -11,7 +11,7 @@
     <strong>🎼 Fuzzphony</strong>
     <nav>
         {% set route = app.request.attributes.get('_route') %}
-        <a href="{{ path('compare') }}" class="{{ route == 'compare' ? 'active' }}">With / without</a>
+        <a href="{{ path('compare') }}" class="{{ route == 'compare' ? 'active' }}">ILIKE vs Fuzzphony</a>
         <a href="{{ path('playground') }}" class="{{ route == 'playground' ? 'active' }}">Playground</a>
         <a href="{{ path('wizard') }}" class="{{ route == 'wizard' ? 'active' }}">Config wizard</a>
         <a href="{{ path('benchmark') }}" class="{{ route == 'benchmark' ? 'active' }}">Benchmark</a>
