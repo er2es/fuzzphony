@@ -16,7 +16,7 @@ jobs:
           - { path: 'src/Bridge/Doctrine', repo: 'doctrine-bridge' }
           - { path: 'src/Bundle', repo: 'symfony-bundle' }
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           fetch-depth: 0
       - uses: symplify/monorepo-split-github-action@v2.3.0
