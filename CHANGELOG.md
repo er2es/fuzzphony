@@ -1,7 +1,21 @@
 # Changelog
 
-## 0.2.0 — unreleased
+## 0.2.0 — 2026-09-24
 
+* **Multi-tenancy**: `IndexDefinition::tenant` / `IndexBuilder::tenant()` / `#[Searchable(tenant:)]`
+  / YAML `tenant:` mark a filter as the tenant scope; every search on a tenant-scoped index must
+  call `->forTenant()` (`InvalidQuery::missingTenant()`) and every non-scoped index rejects one
+  (`InvalidQuery::unexpectedTenant()`) — enforced in the engine, not left to callers to remember.
+  Doctor gained a "Tenant scoping" check; exporters round-trip `tenant`.
+* **Column-aware trigger filtering**: a watched table's UPDATE only queues a refresh when a
+  relevant column actually changed. Automatic for a table-sourced index's own watch
+  (`PostgresSchemaGenerator::relevantColumns()`, derived from its fields/filters/boost/recency);
+  opt-in for joined watches via `Watch::$columns` / `.watch(..., columns: [...])` / YAML
+  `columns:`. Row-level and statement-level triggers both supported — the statement-level
+  (default) trigger was restructured into three mutually exclusive `TG_OP` branches so an
+  INSERT-only or DELETE-only invocation never references a transition table it doesn't have.
+  Doctor gained a "Column-aware filtering" check, including validation that explicit `columns`
+  entries actually exist on the watched table.
 * **Configuration wizard**: `fuzzphony:wizard` and `DefinitionSuggester` + `PostgresIntrospector`
   suggest a definition from table structure and planner statistics (joins, filters, boost scaled
   from statistics, recency), explain every decision, export YAML / builder / attributes, `--try` it.
