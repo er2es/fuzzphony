@@ -41,8 +41,20 @@ foreach ($result as $hit) {
 
 ## Requirements
 
-PHP 8.4+, PostgreSQL 15+ with the `pg_trgm` and `unaccent` extensions (both ship with PostgreSQL).
-Symfony 7.x / 8.x and Doctrine are optional.
+* **PHP 8.4+**
+* **PostgreSQL 15+**
+* The `pg_trgm` and `unaccent` extensions, enabled on the database Fuzzphony connects to. Both ship
+  with core PostgreSQL (no separate package on most distributions), but must be turned on per
+  database by a superuser or the database owner:
+  ```sql
+  CREATE EXTENSION IF NOT EXISTS pg_trgm;
+  CREATE EXTENSION IF NOT EXISTS unaccent;
+  ```
+* Symfony 7.x / 8.x and Doctrine are optional (only needed for `fuzzphony/symfony-bundle`).
+
+`bin/console fuzzphony:doctor` verifies all of the above in one shot — PostgreSQL version,
+both extensions, and everything else the index needs — and prints the exact fix for anything
+missing (see [The doctor](#the-doctor)).
 
 ## Quickstart (Symfony)
 
