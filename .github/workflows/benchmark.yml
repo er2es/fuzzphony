@@ -27,7 +27,7 @@ jobs:
       PGPASSWORD: fuzzphony
       FUZZPHONY_BENCH_DSN: "pgsql:host=127.0.0.1;port=5432;dbname=fuzzphony;user=fuzzphony;password=fuzzphony"
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - uses: shivammathur/setup-php@v2
         with:
           php-version: '8.4'
@@ -42,7 +42,7 @@ jobs:
         run: |
           php benchmarks/run.php --markdown >> "$GITHUB_STEP_SUMMARY"
           php benchmarks/run.php --json > benchmark.json
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: benchmark-${{ github.sha }}
           path: benchmark.json
