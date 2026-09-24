@@ -403,6 +403,18 @@ were never analysed are sampled instead.
 | `orm` | Doctrine listener refreshes after `flush()` | no triggers allowed; joined data is not followed |
 | `manual` | nothing automatic | batch imports, read-only data |
 
+Every `INSERT`, `UPDATE` and `DELETE` on the source table (and on watched tables) is followed: an
+insert adds the document, an update rebuilds it, and a delete removes it from the sidecar table
+(the refresh drops every indexed id the source no longer returns). When the change shows up in
+search depends on the mode:
+
+| Mode | Change visible in search |
+|---|---|
+| `trigger` | immediately, inside the writing transaction |
+| `queue` | once the worker has processed the queue. Until then a deleted row can still appear as a hit; `EntityLoader` skips hits whose row no longer exists, and `fuzzphony:doctor` reports the queue's size and age |
+| `orm` | after `flush()`, and only for changes made through the entity manager: raw SQL writes are not seen |
+| `manual` | when you call `refresh()` or `reindex()` |
+
 Triggers also watch joined tables (`watch('brand', 'SELECT id FROM product WHERE brand_id = :id')`),
 so renaming a brand reindexes its products. Triggers are **statement-level** by default: they read
 PostgreSQL transition tables, so `UPDATE brand SET …` touching 100 000 rows queues all affected
@@ -581,6 +593,10 @@ that query.) Run the numbers on your own data before believing anyone's benchmar
   watches (opt-in `columns:`, see [Keeping the index in sync](#keeping-the-index-in-sync)).
 * Statement-level triggers cannot be attached to individual partitions; watch the partitioned parent
   or use `trigger_level: row`.
+* `TRUNCATE` on a source table does not fire the sync triggers (PostgreSQL only runs `TRUNCATE`
+  triggers for it), and `fuzzphony:reindex` refreshes the ids the source still has but does not
+  remove indexed ids it no longer has. After a `TRUNCATE`, rebuild the index:
+  `fuzzphony:schema --drop --apply`, then `fuzzphony:schema --apply` and `fuzzphony:reindex`.
 * The extension schema (default `public`) must be on the `search_path` for the trigram operator.
 * With very frequent words, ranking considers the first `candidate_limit` matches, so ordering is
   approximate beyond them (and `total` is reported as a lower bound).
