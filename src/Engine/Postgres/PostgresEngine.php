@@ -129,6 +129,50 @@ final class PostgresEngine implements Engine
         return array_map(static fn(array $row): int|string => $index->idType->cast(Coerce::str($row['id'])), $rows);
     }
 
+    public function pruneOrphans(IndexDefinition $index, int $batchSize = 5_000): int
+    {
+        if ($batchSize < 1) {
+            throw new \InvalidArgumentException('Batch size must be >= 1.');
+        }
+        // Keyset pagination over the sidecar: each statement checks (and locks) at most one batch,
+        // and the whole run reads every indexed id once. Same anti-join as the refresh function.
+        $sql = static fn(bool $first): string => sprintf(
+            <<<'SQL'
+                WITH batch AS (
+                    SELECT s.id FROM %1$s AS s %2$s ORDER BY s.id LIMIT :limit
+                ), removed AS (
+                    DELETE FROM %1$s AS s
+                    USING batch AS b
+                    WHERE s.id = b.id
+                      AND NOT EXISTS (SELECT 1 FROM (%3$s) AS doc WHERE doc.fz_id = b.id)
+                    RETURNING 1
+                )
+                SELECT (SELECT count(*) FROM batch) AS scanned,
+                       (SELECT b.id::text FROM batch AS b ORDER BY b.id DESC LIMIT 1) AS last,
+                       (SELECT count(*) FROM removed) AS removed
+                SQL,
+            Sql::ident($index->sidecarTable()),
+            $first ? '' : sprintf('WHERE s.id > CAST(:after AS %s)', $index->idType->sqlType()),
+            DocumentSql::select($index),
+        );
+
+        return $this->guard('orphan pruning', function () use ($sql, $batchSize): int {
+            $removed = 0;
+            $after = null;
+            do {
+                $params = ['limit' => $batchSize];
+                if ($after !== null) {
+                    $params['after'] = $after;
+                }
+                $row = $this->connection->fetchAll($sql($after === null), $params)[0];
+                $removed += Coerce::int($row['removed']);
+                $after = $row['last'] === null ? null : Coerce::str($row['last']);
+            } while ($after !== null && Coerce::int($row['scanned']) === $batchSize);
+
+            return $removed;
+        }, 'Run "fuzzphony:schema --apply" and check "fuzzphony:doctor".');
+    }
+
     public function processQueue(IndexDefinition $index, int $limit): int
     {
         // Taking the batch and refreshing it happen in ONE statement and transaction:

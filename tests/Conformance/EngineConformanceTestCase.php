@@ -10,6 +10,7 @@ use Fuzzphony\Core\Engine\Engine;
 use Fuzzphony\Core\Fuzzphony;
 use Fuzzphony\Core\Registry\IndexRegistry;
 use Fuzzphony\Core\Search\SearchResult;
+use Fuzzphony\Core\Sync\Reindexer;
 use Fuzzphony\Tests\Fixtures\Indexes;
 use PHPUnit\Framework\TestCase;
 
@@ -217,6 +218,37 @@ abstract class EngineConformanceTestCase extends TestCase
 
         self::assertContains(2, $this->ids($this->fuzzphony->in('products')->query('ergonomic')->get()));
         self::assertNotContains(4, $this->ids($this->fuzzphony->in('products')->query('pad')->thresholds(['fuzzy_mode' => 'never'])->get()));
+    }
+
+    public function testPruneOrphansRemovesOnlyDocumentsTheSourceNoLongerHas(): void
+    {
+        $index = $this->fuzzphony->registry()->get('products');
+        $this->connection->execute('DELETE FROM fz_product WHERE id IN (2, 4)'); // manual sync: still indexed
+        self::assertContains(2, $this->ids($this->fuzzphony->in('products')->query('gaming')->get()));
+
+        self::assertSame(2, $this->engine->pruneOrphans($index, 2), 'batches smaller than the index still see every document');
+        self::assertSame(0, $this->engine->pruneOrphans($index));
+
+        $browse = $this->fuzzphony->in('products')->get();
+        self::assertEqualsCanonicalizing([1, 3, 5], $this->ids($browse), 'valid documents are kept');
+    }
+
+    public function testFullReindexPrunesOrphansButAResumedOneDoesNot(): void
+    {
+        $index = $this->fuzzphony->registry()->get('products');
+        $this->connection->execute('DELETE FROM fz_product WHERE id = 4');
+        $pruned = [];
+        $onPruned = static function (int $removed) use (&$pruned): void {
+            $pruned[] = $removed;
+        };
+
+        (new Reindexer($this->engine))->run($index, 5_000, 1, null, $onPruned);
+        self::assertSame([], $pruned, 'a resumed run covers only part of the source');
+        self::assertContains(4, $this->ids($this->fuzzphony->in('products')->get()));
+
+        (new Reindexer($this->engine))->run($index, 5_000, null, null, $onPruned);
+        self::assertSame([1], $pruned);
+        self::assertNotContains(4, $this->ids($this->fuzzphony->in('products')->get()));
     }
 
     protected function requireCapability(Capability $capability): void

@@ -44,11 +44,17 @@ final class ReindexCommand extends Command
             $io->section(sprintf('Reindexing "%s"', $index->name));
             $started = microtime(true);
             $resume = is_string($from) ? $index->idType->cast($from) : null;
+            $pruned = null;
             $total = $reindexer->run($index, $batch, $resume, static function (int $done, int|string $lastId) use ($io, $started): void {
                 $rate = $done / max(0.001, microtime(true) - $started);
                 $io->writeln(sprintf('  %s documents, %s/s, last id %s <comment>(resume: --from=%s)</comment>', number_format($done), number_format($rate), $lastId, $lastId));
+            }, static function (int $removed) use (&$pruned): void {
+                $pruned = $removed;
             });
             $io->writeln(sprintf('  <info>%s documents in %.1fs</info>', number_format($total), microtime(true) - $started));
+            $io->writeln($pruned !== null
+                ? sprintf('  %s orphaned document(s) removed (no longer in the source)', number_format($pruned))
+                : '  <comment>Orphaned documents are only removed by a full run (without --from).</comment>');
         }
         $io->success('Done. Tip: run fuzzphony:doctor to verify coverage.');
 
