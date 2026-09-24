@@ -27,7 +27,7 @@ use Fuzzphony\Core\Ranking\RankingProfile;
  */
 final class ArrayDefinitionLoader
 {
-    private const array KEYS = ['source', 'id_type', 'fields', 'filters', 'watch', 'sync', 'language', 'unaccent', 'boost', 'recency', 'profiles', 'thresholds', 'class', 'trigger_level'];
+    private const array KEYS = ['source', 'id_type', 'fields', 'filters', 'watch', 'sync', 'language', 'unaccent', 'boost', 'recency', 'profiles', 'thresholds', 'class', 'trigger_level', 'tenant'];
 
     /** @param array<string, mixed> $config */
     public function load(string $name, array $config): IndexDefinition
@@ -86,6 +86,9 @@ final class ArrayDefinitionLoader
         if (isset($config['recency'])) {
             $changes['recencyColumn'] = self::str($config['recency'], '');
         }
+        if (isset($config['tenant'])) {
+            $changes['tenant'] = self::str($config['tenant'], '');
+        }
         if (isset($config['profiles'])) {
             $changes['profiles'] = $this->profiles($config['profiles']) + $definition->profiles;
         }
@@ -123,6 +126,9 @@ final class ArrayDefinitionLoader
         }
         if (isset($config['recency'])) {
             $builder->recencyBy(self::str($config['recency'], ''));
+        }
+        if (isset($config['tenant'])) {
+            $builder->tenant(self::str($config['tenant'], ''));
         }
         foreach ($this->profiles($config['profiles'] ?? []) as $profileName => $profile) {
             $builder->profile($profileName, $profile);

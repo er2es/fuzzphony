@@ -57,4 +57,25 @@ final class ArrayDefinitionLoaderTest extends TestCase
         $this->expectExceptionMessageMatches('/Unknown option\(s\): feilds/');
         (new ArrayDefinitionLoader())->load('x', ['feilds' => []]);
     }
+
+    public function testTenantKeySetsTheTenantScope(): void
+    {
+        $definition = (new ArrayDefinitionLoader())->load('articles', [
+            'source' => ['query' => 'SELECT a.id, a.title, a.account_id FROM article a'],
+            'fields' => ['title' => 'A'],
+            'filters' => ['account_id' => 'int'],
+            'watch' => ['article' => 'SELECT :id'],
+            'tenant' => 'account_id',
+        ]);
+
+        self::assertSame('account_id', $definition->tenant);
+    }
+
+    public function testYamlCanOverrideTheTenantScope(): void
+    {
+        $base = (new AttributeDefinitionLoader())->load(Product::class); // no #[Searchable(tenant: ...)]
+        $merged = (new ArrayDefinitionLoader())->override($base, ['tenant' => 'price']);
+
+        self::assertSame('price', $merged->tenant);
+    }
 }
