@@ -12,7 +12,7 @@ Twig + Stimulus via AssetMapper (no Node build), Live Components, DBAL.
 
 | Page | What it shows |
 |---|---|
-| **With / without** | the same box searched with `ILIKE` and with Fuzzphony; cold + median warm timings; one-click accent / typo / stemming / phrase / field / prefix examples |
+| **ILIKE vs Fuzzphony** | the same box searched with `ILIKE` and with Fuzzphony; cold + median warm timings; one-click accent / typo / stemming / phrase / field / prefix examples |
 | **Playground** | every ranking weight and threshold as a slider; live results with a score breakdown bar per hit; SQL + EXPLAIN (ANALYZE) tab |
 | **Config wizard** | pick a table: the wizard explains each column decision and outputs YAML, builder code and attributes (`fuzzphony:wizard` in the terminal) |
 | **Benchmark** | the comparison as a table, reproducible with `benchmarks/run.php` |
