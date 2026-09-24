@@ -38,7 +38,7 @@ jobs:
       matrix:
         php: ['8.4', '8.5']
         postgres: ['15', '16', '17', '18']
-        symfony: ['7.3', '8.0']
+        symfony: ['7.4', '8.0']
     services:
       postgres:
         image: postgres:${{ matrix.postgres }}
@@ -113,15 +113,15 @@ jobs:
         run: psql -h 127.0.0.1 -U fuzzphony fuzzphony -q -v rows=1000 -f benchmarks/seed.sql
       - name: Lint container
         working-directory: demo
-        run: bin/console lint:container
+        run: php bin/console lint:container
       - name: Apply schema and reindex
         working-directory: demo
         run: |
-          bin/console fuzzphony:schema --apply
-          bin/console fuzzphony:reindex --batch=1000
+          php bin/console fuzzphony:schema --apply
+          php bin/console fuzzphony:reindex --batch=1000
       - name: Doctor
         working-directory: demo
-        run: bin/console fuzzphony:doctor --strict
+        run: php bin/console fuzzphony:doctor --strict
 
   coverage:
     needs: validate

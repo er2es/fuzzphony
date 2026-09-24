@@ -8,8 +8,8 @@
         "fuzzphony/core": "self.version",
         "fuzzphony/postgres-engine": "self.version",
         "fuzzphony/doctrine-bridge": "self.version",
-        "symfony/framework-bundle": "^7.3 || ^8.0",
-        "symfony/console": "^7.3 || ^8.0"
+        "symfony/framework-bundle": "^7.4 || ^8.0",
+        "symfony/console": "^7.4 || ^8.0"
     },
     "autoload": {
         "psr-4": {

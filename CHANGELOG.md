@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+* **Breaking (pre-1.0)**: the minimum Symfony version is now 7.4 (was 7.3). 7.3 is end-of-life and
+  every `symfony/yaml` 7.3.x release carries security advisories, so Composer refuses to install
+  a 7.3-pinned set at all. CI now tests 7.4 and 8.0.
 * **Fix**: `<twig:Fuzzphony:Search />` failed with "There are no registered paths for namespace
   Fuzzphony" in every real installation: `FuzzphonyBundle::getPath()` pointed one directory too
   high because the bundle class sits at the package root. It now returns its own directory.
