@@ -55,6 +55,12 @@ final class FuzzphonyBundle extends AbstractBundle
 {
     protected string $extensionAlias = 'fuzzphony';
 
+    /** AbstractBundle assumes the class lives one level below the package root; here it IS the root. */
+    public function getPath(): string
+    {
+        return __DIR__;
+    }
+
     public function configure(DefinitionConfigurator $definition): void
     {
         $definition->rootNode()

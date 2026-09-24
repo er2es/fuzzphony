@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+* **Fix**: `<twig:Fuzzphony:Search />` failed with "There are no registered paths for namespace
+  Fuzzphony" in every real installation: `FuzzphonyBundle::getPath()` pointed one directory too
+  high because the bundle class sits at the package root. It now returns its own directory.
 * **Fix**: `fuzzphony:search`'s `-p`/`--profile` option collided with Symfony framework-bundle's
   own global `--profile` console-run-profiling flag, throwing "An option named 'profile' already
   exists" the moment the command actually ran through a real Symfony console application (a bare
