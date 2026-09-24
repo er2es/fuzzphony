@@ -248,6 +248,19 @@ documents with one set-based `INSERT … SELECT` instead of 100 000 trigger call
 statement**, so a failure never loses queued ids, and `SKIP LOCKED` lets several workers run side
 by side. Without long-running processes: `fuzzphony:worker --once` from cron.
 
+Watched tables also skip wasted work: a table-sourced index's own watch automatically only
+refreshes on UPDATEs that actually change a mapped field, filter, boost or recency column —
+no configuration needed. Joined-table watches can opt into the same behavior explicitly:
+
+```php
+->watch('brand', 'SELECT id FROM product WHERE brand_id = :id', columns: ['name'])
+// updating any OTHER column of "brand" no longer refreshes dependent products
+```
+
+Omitting `columns` on a joined watch keeps today's behavior (every UPDATE refreshes) —
+this is opt-in for joined watches because Fuzzphony has no way to know which of a joined
+table's columns matter without you saying so.
+
 In `orm` mode, refreshing can move out of the request through Symfony Messenger:
 
 ```yaml
@@ -400,8 +413,9 @@ that query.) Run the numbers on your own data before believing anyone's benchmar
 ## Known limitations
 
 * Field-scoped queries (`brand:x`) work per weight group: fields sharing a weight are searched together.
-* Sync triggers fire for every UPDATE of a watched table, even when only unrelated columns change
-  (the refresh is idempotent, just wasted work). Column-aware filtering is planned.
+* ~~Sync triggers fire for every UPDATE of a watched table, even when only unrelated columns
+  change.~~ **Shipped** for the index's own source table (automatic) and for joined-table
+  watches (opt-in `columns:`, see [Keeping the index in sync](#keeping-the-index-in-sync)).
 * Statement-level triggers cannot be attached to individual partitions; watch the partitioned parent
   or use `trigger_level: row`.
 * The extension schema (default `public`) must be on the `search_path` for the trigram operator.
@@ -441,8 +455,9 @@ in [`docs/adr`](docs/adr).
   * Security: audit logging (who searched what, when) and per-tenant/per-user rate limiting;
     Symfony Security integration for index/field-level authorization (e.g. restricting a field
     from highlights unless the viewer is authorized).
-  * Column-aware trigger filtering (a watched table's UPDATE only queues a refresh when a
-    relevant column actually changed).
+  * ~~Column-aware trigger filtering (a watched table's UPDATE only queues a refresh when a
+    relevant column actually changed).~~ **Shipped** — see
+    [Keeping the index in sync](#keeping-the-index-in-sync).
   * Test coverage ≥ 90% (currently 73%, tracked by Codecov in CI).
 
 ## Development
