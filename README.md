@@ -145,7 +145,7 @@ final class SearchController extends AbstractController
 
         $result = $fuzzphony->in(Product::class)
             ->query($q)
-            ->where('inStock', true)
+            ->where('in_stock', true)
             ->highlight('name')
             ->limit(20)
             ->get();
@@ -163,21 +163,51 @@ final class SearchController extends AbstractController
 }
 ```
 
-An empty `$q` (no query yet, e.g. the search page's first load) is a normal call — it returns
-a plain, filtered `where('inStock', true)` browse instead of erroring, so the same endpoint
-serves both "search" and "browse all in-stock products".
+Filter names are always **snake_case**, even when the attribute is on a camelCase property
+(`bool $inStock` → filter `in_stock`) — `#[SearchField]`/`#[SearchFilter]` names follow the
+property name through `Identifier::snake()`. An empty `$q` (no query yet, e.g. the search
+page's first load) is a normal call — it returns a plain, filtered `where('in_stock', true)`
+browse instead of erroring, so the same endpoint serves both "search" and "browse all
+in-stock products".
 
 A more complete endpoint — pagination, multiple filters from query params, a per-tenant
-account scope, and a client-chosen ranking profile:
+account scope, and a client-chosen ranking profile. This assumes a **different**, explicitly
+tenant-scoped index (see [Multi-tenancy](#multi-tenancy)), not the plain `Product` above —
+mixing tenant and non-tenant search into one example hides that tenant scoping is opt-in
+per index:
+
+```php
+IndexDefinition::builder('listings')
+    ->fromTable('listing')
+    ->filter('account_id', 'int')
+    ->tenant('account_id')
+    ->filter('category', 'string')
+    ->filter('price', 'int')
+    ->filter('in_stock', 'bool')
+    ->field('name', 'A', fuzzy: true)
+    ->field('description', 'D')
+    ->build();
+```
 
 ```php
 #[Route('/search', name: 'search')]
 public function __invoke(Request $request, Fuzzphony $fuzzphony): JsonResponse
 {
-    $builder = $fuzzphony->in(Product::class)
+    $accountId = $this->getUser()?->getAccountId();
+    if ($accountId === null) {
+        // forTenant(null) on a tenant-scoped index throws "missing tenant"; guard before searching.
+        return $this->json(['error' => 'Authentication required.'], 401);
+    }
+
+    // profile() validates eagerly and throws on an unknown name — never feed raw user input
+    // into it directly, that would contradict "search input never throws". Whitelist it instead.
+    $sort = $request->query->get('sort', 'default');
+    $sort = \in_array($sort, ['default', 'popular'], true) ? $sort : 'default';
+
+    $builder = $fuzzphony->in('listings')
         ->query(trim((string) $request->query->get('q', '')))
-        ->forTenant($this->getUser()?->getAccountId())      // multi-tenant index: required
-        ->profile($request->query->get('sort', 'default'))  // e.g. "popular"; throws on a typo'd name
+        ->forTenant($accountId)
+        ->profile($sort)
         ->highlight('name', 'description')
         ->page($request->query->getInt('page', 1), perPage: 20);
 
@@ -192,7 +222,7 @@ public function __invoke(Request $request, Fuzzphony $fuzzphony): JsonResponse
         );
     }
     if ($request->query->getBoolean('in_stock_only')) {
-        $builder = $builder->where('inStock', true);
+        $builder = $builder->where('in_stock', true);
     }
 
     $result = $builder->get();
@@ -201,7 +231,7 @@ public function __invoke(Request $request, Fuzzphony $fuzzphony): JsonResponse
         'total' => $result->total,
         'totalIsExact' => !$result->totalIsLowerBound,   // false: show "$total+", the candidate cap was hit
         'tookMs' => $result->tookMs,
-        'warnings' => $result->warnings,                 // safe to show to users, e.g. "ignored: too many words"
+        'warnings' => $result->warnings,                 // safe to show to users, e.g. "Only the first 16 terms were used."
         'hits' => array_map(static fn(Hit $hit): array => [
             'id' => $hit->id,
             'score' => $hit->score,
