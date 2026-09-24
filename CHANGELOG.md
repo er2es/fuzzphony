@@ -2,6 +2,22 @@
 
 ## Unreleased
 
+* **Fix / behaviour change**: typo-tolerant (fuzzy) matching is now **per word**. It used to
+  compare the whole query as one string with all fuzzy fields, so one long common word could
+  satisfy it on its own: on the demo catalogue `wireles mice` returned 20 000 products (chairs,
+  drills, kettles, …) of which 1 666 were mice. Every word must now match on its own, exactly or
+  by trigram similarity, through the query's real AND / OR / NOT structure (`FuzzyQueryCompiler`),
+  and `wireles mice` returns exactly the 1 666 wireless mice. Consequences:
+  * fuzzy result sets get **narrower** (recall of true matches is unchanged);
+  * negations are honoured at any depth by the fuzzy branch (previously only top-level ones);
+  * `r_fuzzy` / `ScoreBreakdown::$fuzzySimilarity` is now per-word (1.0 for an exact word, AND =
+    mean, OR = max), so scores of strict matches shift slightly in `fuzzy_mode: always`;
+  * `fuzzy_min_length` applies per word (short words must match exactly), and stop words of the
+    index language are ignored like in the full-text query, at the cost of one tiny extra query
+    before a fuzzy statement runs.
+
+  Measured at 1 000 000 rows: at most 1.3x the old fuzzy statement's time, still using the GIN
+  indexes (no sequential scan). `SearchSqlBuilder::ranked()` (`@internal`) changed signature.
 * **Breaking (pre-1.0)**: the minimum Symfony version is now 7.4 (was 7.3). 7.3 is end-of-life and
   every `symfony/yaml` 7.3.x release carries security advisories, so Composer refuses to install
   a 7.3-pinned set at all. CI now tests 7.4 and 8.0.

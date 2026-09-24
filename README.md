@@ -314,6 +314,22 @@ End-user search text **never throws**. Malformed input is repaired and reported 
 | `brand:logitech`, `name:"mx master"` | only in one field (per weight group) |
 | `(mouse OR trackpad) -cable` | grouping |
 
+**Typo tolerance follows the same structure.** When the typo-tolerant branch runs (see
+[Thresholds](#thresholds)), every word must still be satisfied on its own, either exactly (full
+text) or by trigram similarity, combined through the query's real AND / OR / NOT:
+
+| Query | Typo-tolerant meaning |
+|---|---|
+| `wireles mice` | (`wireles` exactly **or** a word similar to it) **and** (`mice` exactly **or** similar) |
+| `headphnoes \| torhc` | either word, each exactly or similar |
+| `wireles (headphones \| mouse -silent)` | the negation applies inside the group; negated words are always exact |
+| `"wireles headphones"` | the phrase exactly, or the whole phrase as one similar text |
+| `ergnoo*` | the prefix exactly, or the prefix text as a similar word |
+
+So a typo in one word never lets through documents that lack the other words. Words shorter than
+`fuzzy_min_length` and stop words of the index language ("for", "the") are handled like the
+full-text query handles them: short words must match exactly, stop words are ignored.
+
 Limits (`max_query_length`, `max_terms`, nesting depth 8) keep hostile input cheap.
 Developer mistakes, like an unknown filter or a wrong value type, **do** throw, with a suggestion:
 `Index "products" has no filter "prise". Did you mean "price"?`
@@ -322,7 +338,7 @@ Developer mistakes, like an unknown filter or a wrong value type, **do** throw, 
 
 ```
 relevance = text  × ts_rank_cd(weights A..D)       (0..1)
-          + fuzzy × word_similarity(query, fuzzy fields)  (0..1)
+          + fuzzy × per-word similarity                  (0..1)
 
 score     = relevance
           + exact_bonus    (primary field equals the query)
@@ -330,6 +346,12 @@ score     = relevance
           + boost   × boost column
           + recency × 2^(−age / half_life)
 ```
+
+The per-word similarity (`r_fuzzy`, `ScoreBreakdown::$fuzzySimilarity`) follows the query: a word
+scores 1.0 when it matches exactly and its trigram `word_similarity` against the fuzzy fields
+otherwise; AND averages its words, OR takes the best one, negations do not score. A document
+that matches both words of `wireles mouse` well therefore outranks one that matches one of them
+barely. The fuzzy weight only applies when the typo-tolerant branch runs.
 
 `min_score` is applied to **relevance only**: boosts reorder relevant hits but can never pull an
 irrelevant document into the results. Every hit carries a `ScoreBreakdown`, so "why is this first?"
@@ -357,8 +379,8 @@ $fuzzphony->in('products')->query('mouse')->profile('popular')->get();
 | `min_score` | `0.0` | minimum relevance a hit needs |
 | `fuzzy_mode` | `fallback` | `always`, `fallback` (only when exact matching finds few hits) or `never` |
 | `fallback_below` | `5` | in fallback mode: fewer exact hits than this triggers typo tolerance |
-| `fuzzy_similarity` | `0.3` | trigram word similarity needed (lower = more tolerant) |
-| `fuzzy_min_length` | `3` | shorter queries skip typo tolerance |
+| `fuzzy_similarity` | `0.3` | trigram word similarity each word needs (lower = more tolerant) |
+| `fuzzy_min_length` | `3` | shorter words must match exactly; a query with no longer word skips typo tolerance |
 | `candidate_limit` | `2000` | max candidates ranked per branch; `total` becomes a lower bound (`2000+`) |
 | `max_query_length` / `max_terms` | `256` / `16` | input limits |
 
@@ -588,6 +610,11 @@ that query.) Run the numbers on your own data before believing anyone's benchmar
 ## Known limitations
 
 * Field-scoped queries (`brand:x`) work per weight group: fields sharing a weight are searched together.
+* Field scoping is exact-only for the typo-tolerant side: the fuzzy fields are stored as one
+  trigram-indexed text, so a scoped word that is not found exactly may match *any* fuzzy field
+  once the typo-tolerant branch runs. On the demo catalogue `name:sony` finds no product with
+  "sony" in its name, falls back to typo tolerance and returns Sony-*brand* products; `name:kettel`
+  (a typo) still finds kettles. Per-field trigram columns would fix this and are planned separately.
 * ~~Sync triggers fire for every UPDATE of a watched table, even when only unrelated columns
   change.~~ **Shipped** for the index's own source table (automatic) and for joined-table
   watches (opt-in `columns:`, see [Keeping the index in sync](#keeping-the-index-in-sync)).

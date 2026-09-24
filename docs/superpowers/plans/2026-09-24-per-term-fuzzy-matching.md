@@ -181,13 +181,14 @@ The `excl` column of `q` and the `$withFuzzy && $plain !== ''` guard disappear.
 - Test: `tests/Conformance/EngineConformanceTestCase.php`, `tests/Integration/PostgresEngineTest.php`
 
 - [ ] **Step 1: Failing tests (real PostgreSQL).** Conformance (engine-agnostic, `Capability::Fuzzy`):
-  - `testATypoOnOneWordStillRequiresTheOtherWord`: `wireles headphones` → exactly `[3]` (old blob path also returned 1, the other "Wireless" product).
-  - `testFuzzyOrGroup`: `(headphnoes | torhc)` → `[3, 5]` in any order, `usedFuzzy`.
-  - `testNegationNestedInAGroupIsHonouredByTheFuzzyBranch`: `wireles (mouse -silent)` → `[]`-free of 1: product 1 ("Silent wireless mouse") excluded, product 2? (no "wireles") … see test code.
-  - `testFuzzyPhrase`: `"wireles headphones"` → `[3]`.
-  - `testBothWordsOutrankOneWord` (always mode): `wireles mouse` ranks 1 above 4 / 2.
+  - `testATypoOnOneWordStillRequiresTheOtherWord`: `wireles headphones` → exactly `[3]` (the blob path also returned 1, "Wireless mouse": `word_similarity('wireles headphones', 'wireless mouse logitech')` = 0.39).
+  - `testTypoTolerantOrGroup`: `headphnoes | torhc` → `[3, 5]` in any order, `usedFuzzy` (blob: 5 scored 0.18, missing).
+  - `testTypoTolerantMatchingHonoursANegationNestedInAGroup`: `wireles (headphones | mouse -silent)` → `[3]`; product 1 is the "Silent wireless mouse" (blob path: `[3, 1]`).
+  - `testTypoTolerantPhrase`: `"wireles headphones"` → 3 ranks first.
+  - `testTypoTolerantScoreFollowsTheQueryStructure`: `(wireles | logitek) mouse` → exactly `[1, 4]` in that order (2 and 3 lack a required part).
   - `testStopWordsDoNotBlockTypoTolerance`: `headphnoes for` → `[3]` (with "for" required fuzzily this returned nothing).
-  - Integration: `never` mode never goes fuzzy; `fallback` goes fuzzy only below `fallbackBelow`; `always` goes fuzzy on the first statement; statements carry no `excl`.
+  - Integration (`PostgresEngineTest`): `never` never goes fuzzy; `fallback` only below `fallback_below`; `always` fuzzy in the first statement and `wireless mouse` returns only `[1]` with `fuzzySimilarity` 1.0; `the ab` (stop word + short word) runs no fuzzy statement; the fuzzy statement has no `q.norm <% s.fz` and no `excl`, and compiles `-cable` in place.
+  - The first four conformance tests fail against the pre-change code (verified in a scratch copy).
 - [ ] **Step 2:** FAIL where the behaviour is new (stop words, ranking).
 - [ ] **Step 3: Implement.**
 
@@ -234,4 +235,42 @@ private function emptyQueries(IndexDefinition $index, array $queries): array
 
 ## Results
 
-_(filled in while executing)_
+**Commits:** plan, Task 1 (`FuzzyQueryCompiler`), Task 2 (`ranked()` signature), Task 0 outcome (placement B), Task 3 (engine), docs.
+
+**Acceptance (demo, 200 000 products, read-only):**
+
+```
+$ docker exec demo-app-1 sh -c "cd /app/demo && php bin/console fuzzphony:search catalog 'wireles mice' --limit 50"
+Interpreted as (wireles AND mice) · 1,666 hit(s) · 198.1 ms · typo-tolerant
+```
+
+All 50 listed ids are `Wireless mouse ####`; the full predicate run read-only against `demo-db-1`
+matches 1 666 rows, 1 666 of them `^Wireless mouse [0-9]+$`, which is every wireless mouse in
+`bench_product`. Sanity: `wireless mouse` 1,666 (strict, no fuzzy); `hedphones` 2,000+, top hits
+"Wireless / Ergonomic headphones ####"; `ergnoo*` 2,000+, "Ergonomic ..." products; `wireless -mouse`
+2,000+ strict (keyboards, drills, kettles, ...), no mice; `name:kettel` 2,000+ kettles;
+`wireles mice for the` 1,666 (stop words ignored). `mouse for gamng` returns 0: "gaming" only
+occurs in the (non-fuzzy) description, so the typo cannot be matched: correct per-term behaviour
+(the old blob matched it through "mouse").
+
+Observation (not changed, threshold defaults are a non-goal): with `fuzzy_similarity` 0.3 a
+correctly spelled word is also matched fuzzily, e.g. `wireles mouse` = 1 666 mice + 1 667
+monitors + 1 667 mowers ("mouse" ~ "monitor"/"mower"); mice rank first (exact word = 1.0).
+
+**Benchmarks (`benchmarks/run.php`, 1 000 000 rows, PostgreSQL 17.11, PHP 8.4.16, Fuzzphony cold / warm):**
+
+| case | before (bdef356) | after |
+|---|---:|---:|
+| plain word `wireless` | 239.0 / 19.7 ms, rerun 31.0 / 20.6 | 26.3 / 22.1 ms, rerun 29.0 / 21.8 |
+| two words `wireless mouse` | 33.6 / 18.6, rerun 25.1 / 18.9 | 20.4 / 17.4 |
+| accent `creme` | 23.3 / 20.4, rerun 30.7 / 28.6 | 19.8 / 20.1 |
+| typo `hedphones` (~ fuzzy) | 35.0 / 31.1, rerun 34.9 / 31.3 | 34.2 / 37.2, rerun 43.5 / 42.2 |
+| stemming `drills` | 16.3 / 16.1, rerun 18.2 / 18.1 | 18.1 / 17.6 |
+| phrase + exclusion | 66.3 / 35.7, rerun 37.0 / 37.9 | 35.1 / 35.2 |
+| filter + text `kettle` | 41.6 / 20.7, rerun 23.5 / 18.6 | 18.2 / 17.6 |
+
+Only the typo row runs the fuzzy branch. Its statement alone (EXPLAIN ANALYZE): 26.0 ms before,
+29.1-29.4 ms after; end to end through `->get()` (median of 21): 31.7-33.2 ms before, 37.1 ms after
+(the extra is the per-row `tsv @@` recheck/score plus the stop-word lookup round trip).
+`wireles mice` end to end: 49.0 ms before, 61.2-61.9 ms after (1.25x), for a result that is now
+correct. Non-fuzzy rows are unchanged within noise.
