@@ -197,6 +197,29 @@ final class PostgresEngineTest extends TestCase
         }
     }
 
+    /**
+     * relevantColumns() only affects trigger-installing sync modes; a "Column-aware
+     * filtering" line for an orm/manual-sync index would be noise (no trigger ever consults
+     * it), so the doctor must not emit one.
+     */
+    public function testDoctorDoesNotReportColumnAwareFilteringForNonTriggerSyncModes(): void
+    {
+        $index = \Fuzzphony\Core\Definition\IndexDefinition::builder('products_direct')
+            ->fromTable('fz_product')
+            ->field('name', 'A')
+            ->filter('price', 'int')
+            ->sync(\Fuzzphony\Core\Definition\SyncMode::Manual)
+            ->build();
+
+        $fuzzphony = new Fuzzphony($this->engine, new IndexRegistry([$index]));
+        $fuzzphony->schema()->apply($this->connection);
+        $fuzzphony->reindex('products_direct');
+
+        $messages = array_column($fuzzphony->inspect('products_direct')->checks, 'message', 'name');
+
+        self::assertArrayNotHasKey('Column-aware filtering', $messages);
+    }
+
     public function testExplainReturnsSqlAndPlan(): void
     {
         $explanation = $this->fuzzphony('manual')->in('products')->query('wireless mouse')->explain(analyze: true);

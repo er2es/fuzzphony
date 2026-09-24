@@ -410,6 +410,11 @@ final class PostgresInspector
     private function columnAwareFiltering(IndexDefinition $index): array
     {
         $checks = [];
+        if (!$index->sync->usesTriggers()) {
+            // orm/manual sync never installs triggers, so relevantColumns() has no effect;
+            // an "active"/error line here would just be noise.
+            return $checks;
+        }
         foreach ($index->effectiveWatches() as $watch) {
             if ($watch->columns !== null) {
                 $missing = array_values(array_diff($watch->columns, $this->tableColumns($watch->table)));
