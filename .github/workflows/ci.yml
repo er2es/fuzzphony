@@ -73,7 +73,8 @@ jobs:
           coverage: pcov
       - run: composer install --no-progress --prefer-dist
       - run: vendor/bin/phpunit --coverage-clover=coverage.xml
-      - uses: codecov/codecov-action@v4
+      - name: Upload coverage reports to Codecov
+        uses: codecov/codecov-action@v5
         with:
           token: ${{ secrets.CODECOV_TOKEN }}
           files: coverage.xml
