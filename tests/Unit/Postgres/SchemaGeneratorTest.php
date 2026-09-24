@@ -16,7 +16,7 @@ final class SchemaGeneratorTest extends TestCase
     public function testSidecarColumnsFollowTheDefinition(): void
     {
         self::assertSame(
-            ['id', 'tsv', 'fz', 'exact', 'boost', 'recency_at', 'f_price', 'f_in_stock', 'f_published_at', 'indexed_at'],
+            ['id', 'tsv', 'fz', 'exact', 'boost', 'recency_at', 'f_price', 'f_in_stock', 'f_published_at', 'f_brand_id', 'indexed_at'],
             array_keys((new PostgresSchemaGenerator())->columns(Indexes::products())),
         );
     }
@@ -26,7 +26,7 @@ final class SchemaGeneratorTest extends TestCase
         $statements = (new PostgresSchemaGenerator())->index(Indexes::products())->statements;
         $concurrent = array_values(array_filter($statements, static fn(Statement $s): bool => str_contains($s->sql, 'CONCURRENTLY')));
 
-        self::assertCount(5, $concurrent); // tsv, trigram, 3 filters
+        self::assertCount(6, $concurrent); // tsv, trigram, 4 filters
         foreach ($concurrent as $statement) {
             self::assertFalse($statement->transactional);
         }

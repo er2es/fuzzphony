@@ -51,6 +51,11 @@ final readonly class SearchBuilder
         return $this->with($this->query->whereNull($filter, $isNull));
     }
 
+    public function forTenant(mixed $value): self
+    {
+        return $this->with($this->query->forTenant($value));
+    }
+
     public function profile(string $profile): self
     {
         $this->index->profile($profile); // fail fast on typos

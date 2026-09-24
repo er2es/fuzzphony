@@ -11,9 +11,12 @@ use Fuzzphony\Core\Engine\Capability;
 use Fuzzphony\Core\Engine\Engine;
 use Fuzzphony\Core\Exception\EngineFailure;
 use Fuzzphony\Core\Exception\FuzzphonyException;
+use Fuzzphony\Core\Exception\InvalidQuery;
 use Fuzzphony\Core\Inspection\InspectionReport;
 use Fuzzphony\Core\Inspection\InspectOptions;
 use Fuzzphony\Core\Query\Ast\NodeInspector;
+use Fuzzphony\Core\Query\Filter\Condition;
+use Fuzzphony\Core\Query\Filter\Operator;
 use Fuzzphony\Core\Query\QueryParser;
 use Fuzzphony\Core\Query\SearchQuery;
 use Fuzzphony\Core\Ranking\FuzzyMode;
@@ -183,9 +186,16 @@ final class PostgresEngine implements Engine
     private function execute(IndexDefinition $index, SearchQuery $query): array
     {
         $started = hrtime(true);
+        if ($index->tenant !== null && $query->tenant === null) {
+            throw InvalidQuery::missingTenant($index->name);
+        }
+        $conditions = $index->tenant !== null
+            ? [new Condition($index->tenant, Operator::Eq, $query->tenant), ...$query->conditions]
+            : $query->conditions;
+
         $thresholds = $index->thresholds->with($query->thresholdOverrides);
         $profile = $query->rankingOverrides === [] ? $index->profile($query->profile) : $index->profile($query->profile)->with($query->rankingOverrides);
-        (new FilterCompiler($index))->validate(...$query->conditions);
+        (new FilterCompiler($index))->validate(...$conditions);
 
         $parsed = (new QueryParser($thresholds->maxQueryLength, $thresholds->maxTerms))->parse($query->text);
         $warnings = $parsed->warnings;
@@ -220,13 +230,13 @@ final class PostgresEngine implements Engine
         $threshold = null;
 
         if ($tsquery === null && $plain === '') {
-            $statement = ['label' => 'browse'] + $builder->browse($query->conditions, $profile, $thresholds, $query->limit, $query->offset);
+            $statement = ['label' => 'browse'] + $builder->browse($conditions, $profile, $thresholds, $query->limit, $query->offset);
             $rows = $this->run($statement, null);
             $statements[] = $statement;
         } else {
             $alwaysFuzzy = $fuzzyEligible && ($thresholds->fuzzyMode === FuzzyMode::Always || $tsquery === null);
             $statement = ['label' => $alwaysFuzzy ? 'full-text + fuzzy' : 'full-text']
-                + $builder->ranked($tsquery, $plain, $alwaysFuzzy, $query->conditions, $profile, $thresholds, $query->limit, $query->offset, $exclusions);
+                + $builder->ranked($tsquery, $plain, $alwaysFuzzy, $conditions, $profile, $thresholds, $query->limit, $query->offset, $exclusions);
             $threshold = $alwaysFuzzy ? $thresholds->fuzzySimilarity : null;
             $rows = $this->run($statement, $threshold);
             $statements[] = $statement;
@@ -234,7 +244,7 @@ final class PostgresEngine implements Engine
 
             if (!$alwaysFuzzy && $fuzzyEligible && $thresholds->fuzzyMode === FuzzyMode::Fallback && self::total($rows) < $thresholds->fallbackBelow) {
                 $statement = ['label' => 'fallback: full-text + fuzzy']
-                    + $builder->ranked($tsquery, $plain, true, $query->conditions, $profile, $thresholds, $query->limit, $query->offset, $exclusions);
+                    + $builder->ranked($tsquery, $plain, true, $conditions, $profile, $thresholds, $query->limit, $query->offset, $exclusions);
                 $threshold = $thresholds->fuzzySimilarity;
                 $rows = $this->run($statement, $threshold);
                 $statements[] = $statement;
