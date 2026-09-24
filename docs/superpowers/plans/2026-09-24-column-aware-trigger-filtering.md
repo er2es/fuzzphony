@@ -1093,6 +1093,7 @@ use Fuzzphony\Core\Definition\IndexDefinition;
 use Fuzzphony\Core\Definition\TriggerLevel;
 use Fuzzphony\Core\Fuzzphony;
 use Fuzzphony\Core\Registry\IndexRegistry;
+use Fuzzphony\Core\Support\Coerce;
 use Fuzzphony\Engine\Postgres\PostgresEngine;
 use Fuzzphony\Tests\Conformance\EngineConformanceTestCase;
 use PHPUnit\Framework\TestCase;
@@ -1133,16 +1134,16 @@ final class ColumnAwareFilteringTest extends TestCase
             ->build();
         $this->apply($connection, $index);
 
-        $before = (int) $connection->fetchValue("SELECT count(*) FROM {$index->sidecarTable()}");
+        $before = Coerce::int($connection->fetchValue("SELECT count(*) FROM {$index->sidecarTable()}"));
         $connection->execute('UPDATE fz_product SET popularity = 999 WHERE id = 1');
         $connection->execute(sprintf('SELECT count(*) FROM %s', PostgresSchemaGeneratorQueueTable::NAME));
 
-        $queued = (int) $connection->fetchValue(
+        $queued = Coerce::int($connection->fetchValue(
             'SELECT count(*) FROM fuzzphony_queue WHERE index_name = :n',
             ['n' => 'products_direct'],
-        );
+        ));
         self::assertSame(0, $queued, 'updating an unrelated column must not enqueue a refresh');
-        self::assertSame($before, (int) $connection->fetchValue("SELECT count(*) FROM {$index->sidecarTable()}"));
+        self::assertSame($before, Coerce::int($connection->fetchValue("SELECT count(*) FROM {$index->sidecarTable()}")));
     }
 
     public function testSelfWatchEnqueuesOnARelevantColumnUpdate(): void
@@ -1157,10 +1158,10 @@ final class ColumnAwareFilteringTest extends TestCase
 
         $connection->execute("UPDATE fz_product SET name = 'Renamed' WHERE id = 1");
 
-        $queued = (int) $connection->fetchValue(
+        $queued = Coerce::int($connection->fetchValue(
             'SELECT count(*) FROM fuzzphony_queue WHERE index_name = :n AND doc_id = :id',
             ['n' => 'products_direct', 'id' => '1'],
-        );
+        ));
         self::assertSame(1, $queued, 'updating a mapped field column must enqueue a refresh');
     }
 
@@ -1178,7 +1179,7 @@ final class ColumnAwareFilteringTest extends TestCase
 
         $connection->execute("UPDATE fz_brand SET country = 'FI' WHERE id = 1"); // brand 1 = Logitech, products 1 & 4
 
-        $queued = (int) $connection->fetchValue('SELECT count(*) FROM fuzzphony_queue WHERE index_name = :n', ['n' => 'products']);
+        $queued = Coerce::int($connection->fetchValue('SELECT count(*) FROM fuzzphony_queue WHERE index_name = :n', ['n' => 'products']));
         self::assertSame(0, $queued, 'updating an unwatched brand column must not enqueue a refresh');
     }
 
@@ -1196,7 +1197,7 @@ final class ColumnAwareFilteringTest extends TestCase
 
         $connection->execute("UPDATE fz_brand SET name = 'Logitech G' WHERE id = 1"); // fans out to products 1 & 4
 
-        $queued = (int) $connection->fetchValue('SELECT count(*) FROM fuzzphony_queue WHERE index_name = :n', ['n' => 'products']);
+        $queued = Coerce::int($connection->fetchValue('SELECT count(*) FROM fuzzphony_queue WHERE index_name = :n', ['n' => 'products']));
         self::assertSame(2, $queued, 'renaming the watched brand column must enqueue both its products');
     }
 
@@ -1240,10 +1241,10 @@ final class ColumnAwareFilteringTest extends TestCase
         $this->apply($connection, $index);
 
         $connection->execute("UPDATE fz_brand SET country = 'FI' WHERE id = 1");
-        $unrelated = (int) $connection->fetchValue('SELECT count(*) FROM fuzzphony_queue WHERE index_name = :n', ['n' => 'products']);
+        $unrelated = Coerce::int($connection->fetchValue('SELECT count(*) FROM fuzzphony_queue WHERE index_name = :n', ['n' => 'products']));
 
         $connection->execute("UPDATE fz_brand SET name = 'Logitech G' WHERE id = 1");
-        $relevant = (int) $connection->fetchValue('SELECT count(*) FROM fuzzphony_queue WHERE index_name = :n', ['n' => 'products']);
+        $relevant = Coerce::int($connection->fetchValue('SELECT count(*) FROM fuzzphony_queue WHERE index_name = :n', ['n' => 'products']));
 
         self::assertSame(0, $unrelated);
         self::assertSame(2, $relevant);
