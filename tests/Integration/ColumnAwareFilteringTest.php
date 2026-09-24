@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Fuzzphony\Tests\Integration;
 
 use Fuzzphony\Core\Definition\IndexDefinition;
+use Fuzzphony\Core\Definition\SyncMode;
 use Fuzzphony\Core\Definition\TriggerLevel;
 use Fuzzphony\Core\Fuzzphony;
 use Fuzzphony\Core\Registry\IndexRegistry;
@@ -77,6 +78,78 @@ final class ColumnAwareFilteringTest extends TestCase
             ['n' => 'products_direct', 'id' => '1'],
         ));
         self::assertSame(1, $queued, 'updating a mapped field column must enqueue a refresh');
+    }
+
+    /** Row-level mirror of testSelfWatchSkipsAnIrrelevantColumnUpdate() (spec requires coverage at both trigger levels). */
+    public function testRowLevelSelfWatchSkipsAnIrrelevantColumnUpdate(): void
+    {
+        $connection = $this->connection();
+        $index = IndexDefinition::builder('products_direct')
+            ->fromTable('fz_product')
+            ->field('name', 'A')
+            ->filter('price', 'int')
+            ->triggerLevel(TriggerLevel::Row)
+            ->build();
+        $this->apply($connection, $index);
+
+        $before = Coerce::int($connection->fetchValue("SELECT count(*) FROM {$index->sidecarTable()}"));
+        $connection->execute('UPDATE fz_product SET popularity = 999 WHERE id = 1');
+
+        $queued = Coerce::int($connection->fetchValue(
+            'SELECT count(*) FROM fuzzphony_queue WHERE index_name = :n',
+            ['n' => 'products_direct'],
+        ));
+        self::assertSame(0, $queued, 'updating an unrelated column at row level must not enqueue a refresh');
+        self::assertSame($before, Coerce::int($connection->fetchValue("SELECT count(*) FROM {$index->sidecarTable()}")));
+    }
+
+    /** Row-level mirror of testSelfWatchEnqueuesOnARelevantColumnUpdate() (spec requires coverage at both trigger levels). */
+    public function testRowLevelSelfWatchEnqueuesOnARelevantColumnUpdate(): void
+    {
+        $connection = $this->connection();
+        $index = IndexDefinition::builder('products_direct')
+            ->fromTable('fz_product')
+            ->field('name', 'A')
+            ->filter('price', 'int')
+            ->triggerLevel(TriggerLevel::Row)
+            ->build();
+        $this->apply($connection, $index);
+
+        $connection->execute("UPDATE fz_product SET name = 'Renamed' WHERE id = 1");
+
+        $queued = Coerce::int($connection->fetchValue(
+            'SELECT count(*) FROM fuzzphony_queue WHERE index_name = :n AND doc_id = :id',
+            ['n' => 'products_direct', 'id' => '1'],
+        ));
+        self::assertSame(1, $queued, 'updating a mapped field column at row level must enqueue a refresh');
+    }
+
+    /**
+     * SyncMode::Trigger refreshes synchronously (no queue), so the only observable proof that
+     * column-aware filtering fired is the sidecar row's own indexed_at timestamp: it must not
+     * advance for an irrelevant-column update, and must advance for a relevant one.
+     */
+    public function testTriggerModeSelfWatchIndexedAtOnlyAdvancesOnARelevantColumnUpdate(): void
+    {
+        $connection = $this->connection();
+        $index = IndexDefinition::builder('products_direct')
+            ->fromTable('fz_product')
+            ->field('name', 'A')
+            ->filter('price', 'int')
+            ->sync(SyncMode::Trigger)
+            ->build();
+        $this->apply($connection, $index);
+
+        $initial = Coerce::str($connection->fetchValue("SELECT indexed_at::text FROM {$index->sidecarTable()} WHERE id = 1"));
+
+        $connection->execute('UPDATE fz_product SET popularity = 999 WHERE id = 1');
+        $afterIrrelevant = Coerce::str($connection->fetchValue("SELECT indexed_at::text FROM {$index->sidecarTable()} WHERE id = 1"));
+        self::assertSame($initial, $afterIrrelevant, 'an irrelevant column update must not advance indexed_at');
+
+        $connection->execute('SELECT pg_sleep(0.01)'); // guarantee a measurable now() difference
+        $connection->execute("UPDATE fz_product SET name = 'Renamed' WHERE id = 1");
+        $afterRelevant = Coerce::str($connection->fetchValue("SELECT indexed_at::text FROM {$index->sidecarTable()} WHERE id = 1"));
+        self::assertNotSame($initial, $afterRelevant, 'a relevant column update must advance indexed_at');
     }
 
     /**
