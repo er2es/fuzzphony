@@ -6,6 +6,7 @@ namespace Fuzzphony\Tests\Unit\Postgres;
 
 use Fuzzphony\Core\Definition\IndexDefinition;
 use Fuzzphony\Core\Definition\TriggerLevel;
+use Fuzzphony\Core\Definition\Watch;
 use Fuzzphony\Core\Schema\Statement;
 use Fuzzphony\Engine\Postgres\Schema\PostgresSchemaGenerator;
 use Fuzzphony\Tests\Fixtures\Indexes;
@@ -103,5 +104,54 @@ final class SchemaGeneratorTest extends TestCase
 
         self::assertStringContainsString('DROP TABLE IF EXISTS "fuzzphony_products"', $sql);
         self::assertStringNotContainsString('DROP TABLE IF EXISTS "fz_product"', $sql);
+    }
+
+    public function testRelevantColumnsAutoDerivesForTheSelfWatchOnATableSource(): void
+    {
+        $definition = IndexDefinition::builder('t')->fromTable('t')
+            ->field('name', 'A')->filter('price', 'int')->boostBy('popularity')->recencyBy('created_at')
+            ->build();
+        $selfWatch = $definition->effectiveWatches()[0];
+
+        self::assertSame(['name', 'price', 'popularity', 'created_at'], (new PostgresSchemaGenerator())->relevantColumns($definition, $selfWatch));
+    }
+
+    public function testRelevantColumnsIsNullForAQuerySourcesOwnWatch(): void
+    {
+        // Indexes::products() is a query source; its watch($table) targets the same physical
+        // table the query reads from, but Fuzzphony has no certain column mapping for a query
+        // source, so this must NOT be treated as an auto-derivable self-watch.
+        $definition = Indexes::products();
+        $ownWatch = $definition->watches[0];
+
+        self::assertNull((new PostgresSchemaGenerator())->relevantColumns($definition, $ownWatch));
+    }
+
+    public function testRelevantColumnsReturnsExplicitJoinedWatchColumns(): void
+    {
+        $definition = IndexDefinition::builder('t')->fromTable('t')->field('name', 'A')
+            ->watch('brand', 'SELECT id FROM t WHERE brand_id = :id', columns: ['name', 'country'])
+            ->build();
+        $joinedWatch = $definition->watches[0];
+
+        self::assertSame(['name', 'country'], (new PostgresSchemaGenerator())->relevantColumns($definition, $joinedWatch));
+    }
+
+    public function testRelevantColumnsIsNullForAJoinedWatchWithNoExplicitColumns(): void
+    {
+        $definition = Indexes::products();
+        $brandWatch = $definition->watches[1]; // fz_brand, the joined watch
+
+        self::assertNull((new PostgresSchemaGenerator())->relevantColumns($definition, $brandWatch));
+    }
+
+    public function testRelevantColumnsTreatsAnExplicitEmptyListAsNull(): void
+    {
+        $definition = IndexDefinition::builder('t')->fromTable('t')->field('name', 'A')
+            ->watch('brand', 'SELECT id FROM t WHERE brand_id = :id', columns: [])
+            ->build();
+        $joinedWatch = $definition->watches[0];
+
+        self::assertNull((new PostgresSchemaGenerator())->relevantColumns($definition, $joinedWatch));
     }
 }

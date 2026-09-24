@@ -164,6 +164,40 @@ final class PostgresSchemaGenerator
     }
 
     /**
+     * Which columns of $watch->table an UPDATE must change to warrant a refresh — null means
+     * every UPDATE refreshes (today's behavior, unchanged). Explicit Watch::$columns always wins;
+     * otherwise, for the automatic self-watch on a table source, the relevant columns are derived
+     * from the index's own fields, filters, boost and recency columns.
+     *
+     * @return list<string>|null
+     */
+    public function relevantColumns(IndexDefinition $index, Watch $watch): ?array
+    {
+        if ($watch->columns !== null) {
+            return $watch->columns !== [] ? $watch->columns : null;
+        }
+        if ($index->source->table === null || $watch->table !== $index->source->table) {
+            return null;
+        }
+
+        $columns = [];
+        foreach ($index->fields as $field) {
+            $columns[] = $field->column();
+        }
+        foreach ($index->filters as $filter) {
+            $columns[] = $filter->column();
+        }
+        if ($index->boostColumn !== null) {
+            $columns[] = $index->boostColumn;
+        }
+        if ($index->recencyColumn !== null) {
+            $columns[] = $index->recencyColumn;
+        }
+
+        return array_values(array_unique($columns));
+    }
+
+    /**
      * Expected secondary indexes (name => "USING ... (...)").
      *
      * @return array<string, string>
