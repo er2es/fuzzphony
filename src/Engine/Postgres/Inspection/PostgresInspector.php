@@ -411,6 +411,17 @@ final class PostgresInspector
     {
         $checks = [];
         foreach ($index->effectiveWatches() as $watch) {
+            if ($watch->columns !== null) {
+                $missing = array_values(array_diff($watch->columns, $this->tableColumns($watch->table)));
+                if ($missing !== []) {
+                    $checks[] = Check::error(
+                        'Column-aware filtering',
+                        sprintf('Watch on "%s" names unknown column(s): %s.', $watch->table, implode(', ', $missing)),
+                    );
+
+                    continue;
+                }
+            }
             $columns = $this->schema->relevantColumns($index, $watch);
             if ($columns !== null) {
                 $checks[] = Check::ok('Column-aware filtering', sprintf('active for %s (%s)', $watch->table, implode(', ', $columns)));
@@ -418,6 +429,15 @@ final class PostgresInspector
         }
 
         return $checks;
+    }
+
+    /** @return list<string> */
+    private function tableColumns(string $table): array
+    {
+        return array_map(Coerce::str(...), array_column($this->connection->fetchAll(
+            'SELECT attname FROM pg_attribute WHERE attrelid = to_regclass(:table) AND attnum > 0 AND NOT attisdropped',
+            ['table' => $table],
+        ), 'attname'));
     }
 
     private function regclass(string $name): bool

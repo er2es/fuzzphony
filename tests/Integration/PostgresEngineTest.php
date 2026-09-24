@@ -168,6 +168,35 @@ final class PostgresEngineTest extends TestCase
         self::assertArrayHasKey('Column-aware filtering', $messages);
     }
 
+    /**
+     * A typo'd explicit column name (e.g. "nmae" instead of "name") passes
+     * DefinitionValidator (identifier syntax only) and `--apply` (PL/pgSQL resolves column
+     * names lazily), then breaks every UPDATE on the watched table at runtime. The doctor
+     * must report this as an error, not as "active".
+     */
+    public function testDoctorReportsAnErrorForAWatchColumnThatDoesNotExist(): void
+    {
+        $index = Indexes::products('queue')
+            ->with(watches: [
+                new \Fuzzphony\Core\Definition\Watch('fz_product'),
+                new \Fuzzphony\Core\Definition\Watch('fz_brand', 'SELECT id FROM fz_product WHERE brand_id = :id', 'id', ['nmae']),
+            ]);
+
+        $fuzzphony = new Fuzzphony($this->engine, new IndexRegistry([$index]));
+        $fuzzphony->schema()->apply($this->connection);
+        $fuzzphony->reindex('products');
+
+        $checks = array_values(array_filter(
+            $fuzzphony->inspect('products')->checks,
+            static fn(Check $c): bool => $c->name === 'Column-aware filtering',
+        ));
+
+        self::assertNotEmpty($checks, 'expected a "Column-aware filtering" check to be reported');
+        foreach ($checks as $check) {
+            self::assertSame(CheckStatus::Error, $check->status, $check->message);
+        }
+    }
+
     public function testExplainReturnsSqlAndPlan(): void
     {
         $explanation = $this->fuzzphony('manual')->in('products')->query('wireless mouse')->explain(analyze: true);
