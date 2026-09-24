@@ -377,19 +377,25 @@ compares a naive `ILIKE` with Fuzzphony: first ("cold") run and the median of th
 20 results. CI runs it on every push to `main` and publishes the table in the job summary.
 Sample run, 200 000 products, PostgreSQL 16, a small cloud VM:
 
-| case | query | ILIKE cold / warm | hits | Fuzzphony cold / warm | hits (total) |
-|---|---|---:|---:|---:|---:|
-| plain word | `wireless` | 1.7 / 0.6 ms | 20 | 17.9 / 11.1 ms | 20 (2000+) |
-| two words | `wireless mouse` | 4.1 / 3.7 ms | 20 | 19.9 / 13.1 ms | 20 (1666) |
-| accent | `creme` | 257.6 / 251.6 ms | **0** | 11.9 / 10.4 ms | 20 (2000+) |
-| typo | `hedphones` | 248.1 / 252.6 ms | **0** | 24.2 / 20.7 ms | 20 (2000+) ~ |
-| stemming | `drills` | 342.0 / 257.1 ms | **0** | 11.9 / 10.6 ms | 20 (2000+) |
-| phrase + exclusion | `"noise cancelling" -headphones` | 0.6 / 0.5 ms | 20* | 24.3 / 23.2 ms | 20 (2000+) |
-| filter + text | `kettle` | 0.8 / 0.7 ms | 20 | 12.8 / 11.3 ms | 20 (2000+) |
+| case | query | ILIKE cold / warm | hits | Fuzzphony cold / warm | hits (total) | who's actually right |
+|---|---|---:|---:|---:|---:|---|
+| plain word | `wireless` | 1.7 / 0.6 ms | 20 (unranked) | 17.9 / 11.1 ms | 20 (2000+) | ⚡ ILIKE faster · 🎯 Fuzzphony ranked |
+| two words | `wireless mouse` | 4.1 / 3.7 ms | 20 (unranked) | 19.9 / 13.1 ms | 20 (1666) | ⚡ ILIKE faster · 🎯 Fuzzphony ranked |
+| accent | `creme` | 257.6 / 251.6 ms | **0** | 11.9 / 10.4 ms | 20 (2000+) | ✅ Fuzzphony (ILIKE finds nothing) |
+| typo | `hedphones` | 248.1 / 252.6 ms | **0** | 24.2 / 20.7 ms | 20 (2000+) ~ | ✅ Fuzzphony (ILIKE finds nothing) |
+| stemming | `drills` | 342.0 / 257.1 ms | **0** | 11.9 / 10.6 ms | 20 (2000+) | ✅ Fuzzphony (ILIKE finds nothing) |
+| phrase + exclusion | `"noise cancelling" -headphones` | 0.6 / 0.5 ms | 20 (wrong\*) | 24.3 / 23.2 ms | 20 (2000+) | ✅ Fuzzphony (ILIKE can't exclude) |
+| filter + text | `kettle` | 0.8 / 0.7 ms | 20 (unranked) | 12.8 / 11.3 ms | 20 (2000+) | ⚡ ILIKE faster · 🎯 Fuzzphony ranked |
 
-`ILIKE … LIMIT 20` is fast when the first rows it scans match, because it does not rank and it cannot
-exclude words (*); it degrades to a full scan and finds nothing as soon as the text differs from the
-stored spelling. Run the numbers on your own data before believing anyone's benchmark, including this one.
+**Reading this honestly:** `ILIKE … LIMIT 20` without `ORDER BY` doesn't return the 20 *best*
+matches — it returns the first 20 rows the scan happens to hit, in physical table order. That's why
+it's fast when it's lucky (plain word, two words, filter + text) and catastrophic when it isn't
+(accent, typo, stemming: a full sequential scan that finds **zero** correct rows in a quarter of a
+second). It also has no concept of exclusion, so `-headphones` is silently ignored — its "20 hits"
+on that row are simply wrong, not just unranked. Fuzzphony's 11–24 ms is the cost of doing the harder,
+correct job every time: ranked, typo-tolerant, accent-insensitive, with real query semantics — not a
+lucky scan that only works until your users misspell something. (`~` = the fuzzy fallback fired for
+that query.) Run the numbers on your own data before believing anyone's benchmark, including this one.
 
 ## Known limitations
 
