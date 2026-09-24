@@ -57,6 +57,8 @@ final class FrameworkBundleOptionCollisionTest extends TestCase
         // application-level option name or shortcut (e.g. --profile, -e/--env, --no-debug).
         $command->mergeApplicationDefinition();
 
-        self::assertTrue($command->getDefinition()->hasOption('profile'), 'the merge must actually have happened, not been skipped');
+        // "env" has been an application-level option for every supported FrameworkBundle version (unlike
+        // "profile", which older versions lack), so it proves the merge actually happened, not that it was skipped.
+        self::assertTrue($command->getDefinition()->hasOption('env'), 'the application definition must have been merged into the command');
     }
 }
