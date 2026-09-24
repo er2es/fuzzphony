@@ -141,6 +141,45 @@ final class PostgresEngineTest extends TestCase
         self::assertTrue($fuzzphony->inspect('products')->isHealthy());
     }
 
+    public function testDoctorReportsAMissingTruncateTrigger(): void
+    {
+        $fuzzphony = $this->fuzzphony('queue');
+        // what an index whose schema was applied before the TRUNCATE trigger existed looks like
+        $this->connection->execute('DROP TRIGGER fuzzphony_sync_products__fz_brand_trn ON fz_brand');
+
+        $problems = array_values(array_filter($fuzzphony->inspect('products')->problems(), static fn(Check $c): bool => $c->name === 'Sync trigger on fz_brand'));
+
+        self::assertCount(1, $problems);
+        self::assertSame(CheckStatus::Error, $problems[0]->status);
+        self::assertSame('missing fuzzphony_sync_products__fz_brand_trn: a TRUNCATE of this table leaves stale documents in the index', $problems[0]->message);
+        self::assertStringContainsString('fuzzphony:schema --apply', (string) $problems[0]->fix);
+
+        $fuzzphony->schema()->apply($this->connection);
+        self::assertSame(CheckStatus::Ok, $fuzzphony->inspect('products')->status());
+    }
+
+    public function testDoctorCountsOrphanedDocumentsOnlyWhenDeep(): void
+    {
+        $fuzzphony = $this->fuzzphony('manual');
+        $this->connection->execute('DELETE FROM fz_product WHERE id IN (2, 4)'); // no sync: both stay indexed
+        $orphans = static fn(InspectOptions $options): Check => array_values(array_filter(
+            $fuzzphony->inspect('products', $options)->checks,
+            static fn(Check $c): bool => $c->name === 'Orphaned documents',
+        ))[0];
+
+        $quick = $orphans(new InspectOptions());
+        self::assertSame(CheckStatus::Skipped, $quick->status);
+        self::assertStringContainsString('--deep', $quick->message);
+
+        $deep = $orphans(new InspectOptions(deep: true));
+        self::assertSame(CheckStatus::Warning, $deep->status);
+        self::assertStringStartsWith('2 indexed document(s)', $deep->message);
+        self::assertSame('bin/console fuzzphony:reindex products', $deep->fix);
+
+        $fuzzphony->reindex('products');
+        self::assertSame(CheckStatus::Ok, $orphans(new InspectOptions(deep: true))->status);
+    }
+
     public function testDoctorReportsABrokenSourceMapping(): void
     {
         $fuzzphony = $this->fuzzphony('manual');

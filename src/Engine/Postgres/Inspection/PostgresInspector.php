@@ -61,6 +61,7 @@ final class PostgresInspector
         $checks[] = $this->queue($index, $options);
         if ($sidecarExists && $sourceColumns !== null) {
             $checks[] = $this->coverage($index, $options);
+            $checks[] = $this->orphans($index, $options);
         }
         array_push($checks, ...$this->configuration($index));
         array_push($checks, ...$this->tenantScoping($index));
@@ -309,7 +310,12 @@ final class PostgresInspector
             $leftover = array_values(array_filter($this->schema->obsoleteTriggerNames($index, $watch), static fn(string $t): bool => isset($state[$t])));
 
             if ($missing !== []) {
-                $checks[] = Check::error($label, sprintf('missing %s: changes to this table are not indexed', implode(', ', $missing)), self::APPLY);
+                // An index set up before the TRUNCATE trigger existed only lacks that one.
+                $truncateOnly = array_all($missing, static fn(string $t): bool => str_ends_with($t, '_trn'));
+                $checks[] = Check::error($label, sprintf(
+                    $truncateOnly ? 'missing %s: a TRUNCATE of this table leaves stale documents in the index' : 'missing %s: changes to this table are not indexed',
+                    implode(', ', $missing),
+                ), self::APPLY);
             } elseif ($disabled !== []) {
                 $checks[] = Check::error($label, sprintf('%s exists but is DISABLED', implode(', ', $disabled)), implode(' ', array_map(
                     static fn(string $t): string => sprintf('ALTER TABLE %s ENABLE TRIGGER %s;', Sql::ident($watch->table), Sql::ident($t)),
@@ -375,6 +381,23 @@ final class PostgresInspector
         return $ratio < 0.95 || $ratio > 1.05
             ? Check::warning('Coverage', sprintf('%d of %d documents indexed (%.1f%%, %s).', $indexed, $source, $ratio * 100, $how), sprintf('bin/console fuzzphony:reindex %s', $index->name))
             : Check::ok('Coverage', sprintf('%d of %d documents indexed (%.1f%%, %s)', $indexed, $source, $ratio * 100, $how));
+    }
+
+    /** Indexed documents whose id the source no longer returns: exact only, so --deep only. */
+    private function orphans(IndexDefinition $index, InspectOptions $options): Check
+    {
+        if (!$options->deep) {
+            return Check::skipped('Orphaned documents', 'Run with --deep to count indexed documents that are no longer in the source.');
+        }
+        $orphans = Coerce::int($this->connection->fetchValue(sprintf(
+            'SELECT count(*) FROM %s AS s WHERE NOT EXISTS (SELECT 1 FROM (%s) AS doc WHERE doc.fz_id = s.id)',
+            Sql::ident($index->sidecarTable()),
+            DocumentSql::select($index),
+        )));
+
+        return $orphans > 0
+            ? Check::warning('Orphaned documents', sprintf('%d indexed document(s) are no longer in the source and can still be found.', $orphans), sprintf('bin/console fuzzphony:reindex %s', $index->name))
+            : Check::ok('Orphaned documents', 'none');
     }
 
     /** @return list<Check> */
