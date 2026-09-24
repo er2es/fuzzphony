@@ -89,4 +89,31 @@ final class DefinitionValidatorTest extends TestCase
 
         self::assertSame('account_id', $definition->tenant);
     }
+
+    public function testTenantMustReferenceADeclaredFilter(): void
+    {
+        $definition = new IndexDefinition(
+            name: 'products',
+            source: Source::table('product'),
+            fields: [new FieldDefinition('name')],
+            tenant: 'account_id',
+        );
+
+        $violations = DefinitionValidator::validate($definition);
+
+        self::assertCount(1, $violations);
+        self::assertStringContainsString('tenant("account_id")', $violations[0]);
+    }
+
+    public function testTenantReferencingADeclaredFilterIsValid(): void
+    {
+        $definition = IndexDefinition::builder('products')
+            ->fromTable('product')
+            ->field('name')
+            ->filter('account_id', 'int')
+            ->tenant('account_id')
+            ->build(); // build() calls DefinitionValidator::assertValid() internally; it must not throw
+
+        self::assertSame([], DefinitionValidator::validate($definition));
+    }
 }

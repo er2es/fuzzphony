@@ -69,6 +69,17 @@ final class DefinitionValidator
             $seen[$filter->name] = true;
         }
 
+        if ($index->tenant !== null) {
+            $known = array_map(static fn(FilterDefinition $f): string => $f->name, $index->filters);
+            if (!in_array($index->tenant, $known, true)) {
+                $v[] = sprintf(
+                    'tenant("%s") must reference a declared filter. Known filters: %s.',
+                    $index->tenant,
+                    $known === [] ? '(none)' : implode(', ', $known),
+                );
+            }
+        }
+
         foreach (['boost' => $index->boostColumn, 'recency' => $index->recencyColumn] as $what => $column) {
             if ($column !== null && !Identifier::isColumn($column)) {
                 $v[] = sprintf('The %s column "%s" is not a valid column name.', $what, $column);
