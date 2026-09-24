@@ -25,7 +25,7 @@ final class PostgresTestCase
     public static function createFixtures(Connection $connection, array $rows): void
     {
         $connection->execute('DROP TABLE IF EXISTS fz_product, fz_brand, fuzzphony_products, fuzzphony_queue CASCADE');
-        $connection->execute('CREATE TABLE fz_brand (id bigint PRIMARY KEY, name text NOT NULL)');
+        $connection->execute("CREATE TABLE fz_brand (id bigint PRIMARY KEY, name text NOT NULL, country text NOT NULL DEFAULT '')");
         $connection->execute(<<<'SQL'
             CREATE TABLE fz_product (
                 id bigint PRIMARY KEY, name text NOT NULL, description text, brand_id bigint NOT NULL REFERENCES fz_brand,
