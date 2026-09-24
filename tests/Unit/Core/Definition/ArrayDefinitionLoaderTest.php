@@ -78,4 +78,15 @@ final class ArrayDefinitionLoaderTest extends TestCase
 
         self::assertSame('price', $merged->tenant);
     }
+
+    public function testWatchColumnsCanBeDeclaredInYaml(): void
+    {
+        $definition = (new ArrayDefinitionLoader())->load('products', [
+            'source' => ['query' => 'SELECT p.id, p.name FROM product p'],
+            'fields' => ['name' => 'A'],
+            'watch' => ['product' => ['ids' => 'SELECT :id', 'columns' => ['name']]],
+        ]);
+
+        self::assertSame(['name'], $definition->watches[0]->columns);
+    }
 }

@@ -15,7 +15,7 @@ use Fuzzphony\Core\Ranking\RankingProfile;
  *     id_type: int
  *     fields: { name: { weight: A, fuzzy: true }, description: C }
  *     filters: { price: int, in_stock: bool }
- *     watch: { brand: "SELECT id FROM product WHERE brand_id = :id" }
+ *     watch: { brand: { ids: "SELECT id FROM product WHERE brand_id = :id", columns: [name] } }
  *     sync: queue
  *     trigger_level: statement   # or row
  *     language: english
@@ -52,7 +52,7 @@ final class ArrayDefinitionLoader
         }
         foreach ($this->map($config['watch'] ?? []) as $table => $options) {
             $options = is_string($options) ? ['ids' => $options] : $this->map($options);
-            $builder->watch($table, self::str($options['ids'] ?? null, 'SELECT :id'), self::str($options['key'] ?? null, 'id'));
+            $builder->watch($table, self::str($options['ids'] ?? null, 'SELECT :id'), self::str($options['key'] ?? null, 'id'), self::stringList($options['columns'] ?? null));
         }
 
         $this->apply($builder, $config);
@@ -98,7 +98,7 @@ final class ArrayDefinitionLoader
         }
         foreach ($this->map($config['watch'] ?? []) as $table => $options) {
             $options = is_string($options) ? ['ids' => $options] : $this->map($options);
-            $changes['watches'] = [...($changes['watches'] ?? $definition->watches), new Watch($table, self::str($options['ids'] ?? null, 'SELECT :id'), self::str($options['key'] ?? null, 'id'))];
+            $changes['watches'] = [...($changes['watches'] ?? $definition->watches), new Watch($table, self::str($options['ids'] ?? null, 'SELECT :id'), self::str($options['key'] ?? null, 'id'), self::stringList($options['columns'] ?? null))];
         }
 
         $merged = $definition->with(...$changes);
@@ -163,6 +163,17 @@ final class ArrayDefinitionLoader
     private static function str(mixed $value, string $default): string
     {
         return is_scalar($value) ? (string) $value : $default;
+    }
+
+    /** @return list<string>|null */
+    private static function stringList(mixed $value): ?array
+    {
+        if (!is_array($value)) {
+            return null;
+        }
+        $strings = array_values(array_filter($value, 'is_string'));
+
+        return $strings !== [] ? $strings : null;
     }
 
     /** @param array<string, mixed> $config */
