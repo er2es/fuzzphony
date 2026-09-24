@@ -154,4 +154,33 @@ final class SchemaGeneratorTest extends TestCase
 
         self::assertNull((new PostgresSchemaGenerator())->relevantColumns($definition, $joinedWatch));
     }
+
+    public function testRowLevelTriggersSkipUnchangedColumns(): void
+    {
+        $definition = Indexes::products('queue')->with(triggerLevel: TriggerLevel::Row, tenant: null);
+        // Force a self-watch scenario isn't available on this query-sourced fixture; instead prove
+        // the guard is emitted for a watch that DOES have relevant columns via an explicit list.
+        $definition = IndexDefinition::builder($definition->name)
+            ->fromQuery('SELECT p.id, p.name FROM fz_product p')
+            ->field('name', 'A')
+            ->watch('fz_product')
+            ->watch('fz_brand', 'SELECT id FROM fz_product WHERE brand_id = :id', columns: ['name'])
+            ->triggerLevel(TriggerLevel::Row)
+            ->build();
+
+        $sql = (new PostgresSchemaGenerator())->index($definition)->toSql();
+
+        self::assertStringContainsString(
+            "IF TG_OP = 'UPDATE' AND NOT (NEW.\"name\" IS DISTINCT FROM OLD.\"name\") THEN\n        RETURN NULL;\n    END IF;",
+            $sql,
+        );
+    }
+
+    public function testRowLevelTriggersWithoutColumnsAreUnchanged(): void
+    {
+        $definition = Indexes::products('queue')->with(triggerLevel: TriggerLevel::Row);
+        $sql = (new PostgresSchemaGenerator())->index($definition)->toSql();
+
+        self::assertStringNotContainsString("TG_OP = 'UPDATE' AND NOT", $sql);
+    }
 }

@@ -330,7 +330,15 @@ final class PostgresSchemaGenerator
 
     private function syncFunction(IndexDefinition $index, Watch $watch): string
     {
+        $columns = $this->relevantColumns($index, $watch);
         $body = [];
+        if ($columns !== null) {
+            $diff = implode(' OR ', array_map(
+                static fn(string $c): string => sprintf('NEW.%1$s IS DISTINCT FROM OLD.%1$s', Sql::ident($c)),
+                $columns,
+            ));
+            $body[] = sprintf("    IF TG_OP = 'UPDATE' AND NOT (%s) THEN\n        RETURN NULL;\n    END IF;", $diff);
+        }
         foreach (['NEW' => "TG_OP <> 'DELETE'", 'OLD' => "TG_OP <> 'INSERT'"] as $record => $condition) {
             $affected = (string) preg_replace('/:id\b/', $record . '.' . Sql::ident($watch->keyColumn), $watch->affectedIds, 1);
             $action = $index->sync === SyncMode::Trigger
