@@ -52,7 +52,7 @@ final class ArrayDefinitionLoader
         }
         foreach ($this->map($config['watch'] ?? []) as $table => $options) {
             $options = is_string($options) ? ['ids' => $options] : $this->map($options);
-            $builder->watch($table, self::str($options['ids'] ?? null, 'SELECT :id'), self::str($options['key'] ?? null, 'id'), self::stringList($options['columns'] ?? null));
+            $builder->watch($table, self::str($options['ids'] ?? null, 'SELECT :id'), self::str($options['key'] ?? null, 'id'), self::stringList($name, $options['columns'] ?? null));
         }
 
         $this->apply($builder, $config);
@@ -98,7 +98,7 @@ final class ArrayDefinitionLoader
         }
         foreach ($this->map($config['watch'] ?? []) as $table => $options) {
             $options = is_string($options) ? ['ids' => $options] : $this->map($options);
-            $changes['watches'] = [...($changes['watches'] ?? $definition->watches), new Watch($table, self::str($options['ids'] ?? null, 'SELECT :id'), self::str($options['key'] ?? null, 'id'), self::stringList($options['columns'] ?? null))];
+            $changes['watches'] = [...($changes['watches'] ?? $definition->watches), new Watch($table, self::str($options['ids'] ?? null, 'SELECT :id'), self::str($options['key'] ?? null, 'id'), self::stringList($definition->name, $options['columns'] ?? null))];
         }
 
         $merged = $definition->with(...$changes);
@@ -165,15 +165,32 @@ final class ArrayDefinitionLoader
         return is_scalar($value) ? (string) $value : $default;
     }
 
-    /** @return list<string>|null */
-    private static function stringList(mixed $value): ?array
+    /**
+     * A "columns: [...]" value: null (absent or explicit null) means "no filtering", same as
+     * before this option existed. A non-array scalar or an array containing a non-string entry
+     * is a config error (most commonly a bare "columns: name" typo for "columns: [name]"), so it
+     * is rejected loudly rather than silently treated as "no filtering" too.
+     *
+     * @return list<string>|null
+     */
+    private static function stringList(string $name, mixed $value): ?array
     {
-        if (!is_array($value)) {
+        if ($value === null) {
             return null;
         }
-        $strings = array_values(array_filter($value, 'is_string'));
+        if (is_array($value)) {
+            $strings = array_filter($value, 'is_string');
+            if (count($strings) === count($value)) {
+                $list = array_values($strings);
 
-        return $strings !== [] ? $strings : null;
+                return $list !== [] ? $list : null;
+            }
+        }
+
+        throw new InvalidDefinition($name, [sprintf(
+            'Watch "columns" must be a list of strings (e.g. columns: [name]), got %s.',
+            is_array($value) ? 'an array containing a non-string entry' : get_debug_type($value),
+        )]);
     }
 
     /** @param array<string, mixed> $config */

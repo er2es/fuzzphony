@@ -89,4 +89,48 @@ final class ArrayDefinitionLoaderTest extends TestCase
 
         self::assertSame(['name'], $definition->watches[0]->columns);
     }
+
+    public function testWatchColumnsAsAnEmptyListMeansNoFiltering(): void
+    {
+        $definition = (new ArrayDefinitionLoader())->load('products', [
+            'source' => ['query' => 'SELECT p.id, p.name FROM product p'],
+            'fields' => ['name' => 'A'],
+            'watch' => ['product' => ['ids' => 'SELECT :id', 'columns' => []]],
+        ]);
+
+        self::assertNull($definition->watches[0]->columns);
+    }
+
+    public function testAbsentWatchColumnsMeansNoFiltering(): void
+    {
+        $definition = (new ArrayDefinitionLoader())->load('products', [
+            'source' => ['query' => 'SELECT p.id, p.name FROM product p'],
+            'fields' => ['name' => 'A'],
+            'watch' => ['product' => ['ids' => 'SELECT :id']],
+        ]);
+
+        self::assertNull($definition->watches[0]->columns);
+    }
+
+    public function testAScalarWatchColumnsValueIsRejected(): void
+    {
+        $this->expectException(InvalidDefinition::class);
+        $this->expectExceptionMessageMatches('/"columns" must be a list of strings/');
+        (new ArrayDefinitionLoader())->load('products', [
+            'source' => ['query' => 'SELECT p.id, p.name FROM product p'],
+            'fields' => ['name' => 'A'],
+            'watch' => ['product' => ['ids' => 'SELECT :id', 'columns' => 'name']], // typo for columns: [name]
+        ]);
+    }
+
+    public function testAWatchColumnsListContainingANonStringIsRejected(): void
+    {
+        $this->expectException(InvalidDefinition::class);
+        $this->expectExceptionMessageMatches('/"columns" must be a list of strings/');
+        (new ArrayDefinitionLoader())->load('products', [
+            'source' => ['query' => 'SELECT p.id, p.name FROM product p'],
+            'fields' => ['name' => 'A'],
+            'watch' => ['product' => ['ids' => 'SELECT :id', 'columns' => ['name', 42]]],
+        ]);
+    }
 }
