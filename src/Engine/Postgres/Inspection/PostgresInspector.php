@@ -64,6 +64,7 @@ final class PostgresInspector
         }
         array_push($checks, ...$this->configuration($index));
         array_push($checks, ...$this->tenantScoping($index));
+        array_push($checks, ...$this->columnAwareFiltering($index));
 
         return new InspectionReport($index->name, $checks);
     }
@@ -403,6 +404,20 @@ final class PostgresInspector
         return $index->tenant !== null
             ? [Check::ok('Tenant scoping', sprintf('enforced via filter "%s"', $index->tenant))]
             : [];
+    }
+
+    /** @return list<Check> */
+    private function columnAwareFiltering(IndexDefinition $index): array
+    {
+        $checks = [];
+        foreach ($index->effectiveWatches() as $watch) {
+            $columns = $this->schema->relevantColumns($index, $watch);
+            if ($columns !== null) {
+                $checks[] = Check::ok('Column-aware filtering', sprintf('active for %s (%s)', $watch->table, implode(', ', $columns)));
+            }
+        }
+
+        return $checks;
     }
 
     private function regclass(string $name): bool

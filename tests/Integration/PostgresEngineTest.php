@@ -150,6 +150,24 @@ final class PostgresEngineTest extends TestCase
         self::assertNotEmpty(array_filter($messages, static fn(string $m): bool => str_contains($m, 'cannot be queried')));
     }
 
+    public function testDoctorReportsColumnAwareFiltering(): void
+    {
+        // Create a custom index with explicit columns on a watch to test column-aware filtering
+        $index = Indexes::products('queue')
+            ->with(watches: [
+                new \Fuzzphony\Core\Definition\Watch('fz_product', columns: ['name', 'price']),
+                new \Fuzzphony\Core\Definition\Watch('fz_brand', 'SELECT id FROM fz_product WHERE brand_id = :id', 'id', ['name']),
+            ]);
+
+        $fuzzphony = new Fuzzphony($this->engine, new IndexRegistry([$index]));
+        $fuzzphony->schema()->apply($this->connection);
+        $fuzzphony->reindex('products');
+
+        $messages = array_column($fuzzphony->inspect('products')->checks, 'message', 'name');
+
+        self::assertArrayHasKey('Column-aware filtering', $messages);
+    }
+
     public function testExplainReturnsSqlAndPlan(): void
     {
         $explanation = $this->fuzzphony('manual')->in('products')->query('wireless mouse')->explain(analyze: true);
