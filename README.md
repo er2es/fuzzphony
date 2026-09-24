@@ -258,6 +258,39 @@ framework:
     routing: { Fuzzphony\Bundle\Messenger\RefreshDocuments: async }
 ```
 
+## Multi-tenancy
+
+If your data is already partitioned by tenant/account in the same tables — a shared-schema
+multi-tenant SaaS where each customer's data must never appear in another customer's search
+results — mark the tenant column so Fuzzphony enforces it on every search, not just on the
+ones a developer remembered to filter:
+
+```php
+IndexDefinition::builder('products')
+    ->fromTable('product')
+    ->filter('account_id', 'int')
+    ->tenant('account_id')   // marks that filter as the tenant scope
+    ->field('name', 'A', fuzzy: true)
+    ->build();
+
+$fuzzphony->in('products')->forTenant($accountId)->query('wireless mouse')->get();
+
+// Omitting forTenant() on a tenant-scoped index throws immediately, before any SQL runs:
+$fuzzphony->in('products')->query('wireless mouse')->get();
+// InvalidQuery: Index "products" requires forTenant(); none was given.
+```
+
+`tenant()` also works with `#[Searchable(tenant: 'account_id')]` and the YAML `tenant: account_id` key.
+
+**You don't need this** for a single-tenant application (nothing changes either way), or for
+applications with fully isolated tenants — a separate database or schema per tenant already
+works today via one `Connection`/engine instance per tenant.
+
+This is an application-layer guarantee, enforced by Fuzzphony's API surface rather than by the
+database. If you need defense-in-depth against raw SQL bypassing the library entirely, pair it
+with your own PostgreSQL row-level security policy on the sidecar table — Fuzzphony's filter
+stays correct alongside it.
+
 ## Integrations
 
 **API Platform.** Relevance search for any collection whose entity is searchable; other filters,
@@ -382,8 +415,8 @@ in [`docs/adr`](docs/adr).
   benchmark in CI.
 * **v1.0** Enterprise readiness, stable API, BC promise. PostgreSQL only — no other engine is
   planned before 1.0.
-  * Multi-tenancy: tenant-scoped sidecar schema, isolation enforced at the query layer (not just
-    application-level convention).
+  * ~~Multi-tenancy: tenant-scoped sidecar schema, isolation enforced at the query layer (not
+    just application-level convention).~~ **Shipped** — see [Multi-tenancy](#multi-tenancy).
   * Observability: hooks/events for query latency, queue lag and error rate, wired for Symfony
     Messenger middleware and any metrics backend.
   * Federated search: query multiple indexes at once with one merged, cross-index ranking.
