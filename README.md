@@ -28,6 +28,34 @@ foreach ($result as $hit) {
 
 ---
 
+## Contents
+
+- [Why](#why)
+- [Requirements](#requirements)
+- [Quickstart (Symfony)](#quickstart-symfony)
+  - [Search controller examples](#search-controller-examples)
+- [Quickstart (plain PHP)](#quickstart-plain-php)
+- [Concepts](#concepts)
+- [Query syntax](#query-syntax)
+- [Ranking](#ranking)
+- [Thresholds](#thresholds)
+  - [Per-query tuning](#per-query-tuning)
+- [Configuration wizard](#configuration-wizard)
+- [Keeping the index in sync](#keeping-the-index-in-sync)
+- [Multi-tenancy](#multi-tenancy)
+- [Integrations](#integrations)
+- [Demo](#demo)
+- [The doctor](#the-doctor)
+- [Commands](#commands)
+- [Security](#security)
+- [Benchmarks](#benchmarks)
+- [Known limitations](#known-limitations)
+- [Architecture](#architecture)
+- [Roadmap](#roadmap)
+- [Development](#development)
+
+---
+
 ## Why
 
 | | `LIKE '%…%'` | Fuzzphony | External engine |
@@ -96,6 +124,8 @@ bin/console fuzzphony:search products 'wireles mouse' -w "price<=20000"
 
 Then inject `Fuzzphony\Core\Fuzzphony` anywhere. `Fuzzphony\Bridge\Doctrine\EntityLoader` turns
 results into entities with one query, keeping the ranking order.
+
+### Search controller examples
 
 A minimal search endpoint that takes the user's query straight off the request:
 
