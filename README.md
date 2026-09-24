@@ -380,6 +380,7 @@ in [`docs/adr`](docs/adr).
     from highlights unless the viewer is authorized).
   * Column-aware trigger filtering (a watched table's UPDATE only queues a refresh when a
     relevant column actually changed).
+  * Test coverage ≥ 90% (currently 73%, tracked by Codecov in CI).
 
 ## Development
 
