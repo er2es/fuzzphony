@@ -171,7 +171,31 @@ final class SchemaGeneratorTest extends TestCase
         $sql = (new PostgresSchemaGenerator())->index($definition)->toSql();
 
         self::assertStringContainsString(
-            "IF TG_OP = 'UPDATE' AND NOT (NEW.\"name\" IS DISTINCT FROM OLD.\"name\") THEN\n        RETURN NULL;\n    END IF;",
+            "IF TG_OP = 'UPDATE' AND NOT (NEW.\"name\" IS DISTINCT FROM OLD.\"name\" OR NEW.\"id\" IS DISTINCT FROM OLD.\"id\") THEN\n        RETURN NULL;\n    END IF;",
+            $sql,
+        );
+    }
+
+    /**
+     * Regression guard: the row-level guard must always treat the correlating key column as
+     * relevant, even when it isn't itself a field/filter/boost/recency column. Otherwise an
+     * UPDATE that only changes the key column (e.g. renumbering a primary key) is wrongly
+     * suppressed by the guard, leaving the old document stale and the new one never indexed.
+     */
+    public function testRowLevelGuardAlwaysIncludesTheKeyColumnEvenWhenNotOtherwiseRelevant(): void
+    {
+        $definition = IndexDefinition::builder('t')->fromTable('t')
+            ->field('name', 'A')
+            ->triggerLevel(TriggerLevel::Row)
+            ->build();
+        // The self-watch's key column defaults to "id", which is not itself a field/filter/
+        // boost/recency column here, so relevantColumns() alone would omit it.
+        self::assertSame(['name'], (new PostgresSchemaGenerator())->relevantColumns($definition, $definition->effectiveWatches()[0]));
+
+        $sql = (new PostgresSchemaGenerator())->index($definition)->toSql();
+
+        self::assertStringContainsString(
+            "IF TG_OP = 'UPDATE' AND NOT (NEW.\"name\" IS DISTINCT FROM OLD.\"name\" OR NEW.\"id\" IS DISTINCT FROM OLD.\"id\") THEN\n        RETURN NULL;\n    END IF;",
             $sql,
         );
     }

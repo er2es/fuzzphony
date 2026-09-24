@@ -333,9 +333,12 @@ final class PostgresSchemaGenerator
         $columns = $this->relevantColumns($index, $watch);
         $body = [];
         if ($columns !== null) {
+            // The key column must always be treated as relevant: even when it's not itself a
+            // field/filter/boost/recency column, a key-column UPDATE moves the row's identity out
+            // from under the old document and in under a new one, and both refreshes are required.
             $diff = implode(' OR ', array_map(
                 static fn(string $c): string => sprintf('NEW.%1$s IS DISTINCT FROM OLD.%1$s', Sql::ident($c)),
-                $columns,
+                array_unique([...$columns, $watch->keyColumn]),
             ));
             $body[] = sprintf("    IF TG_OP = 'UPDATE' AND NOT (%s) THEN\n        RETURN NULL;\n    END IF;", $diff);
         }

@@ -79,6 +79,39 @@ final class ColumnAwareFilteringTest extends TestCase
         self::assertSame(1, $queued, 'updating a mapped field column must enqueue a refresh');
     }
 
+    /**
+     * Regression guard: a row-level, table-sourced self-watch must still refresh when only the
+     * key column changes, even though the key column isn't itself a field/filter/boost/recency
+     * column. Before the fix, the row-level guard's diff-list omitted the key column, so this
+     * UPDATE was wrongly suppressed: the old document went stale and the new one was never
+     * indexed. The statement-level path doesn't have this bug (its LEFT JOIN already falls back
+     * to "treat as changed" when the correlating key has no match on the other side).
+     */
+    public function testRowLevelSelfWatchEnqueuesBothOldAndNewIdOnAKeyColumnUpdate(): void
+    {
+        $connection = $this->connection();
+        $index = IndexDefinition::builder('products_direct')
+            ->fromTable('fz_product')
+            ->field('name', 'A')
+            ->filter('price', 'int')
+            ->triggerLevel(TriggerLevel::Row)
+            ->build();
+        $this->apply($connection, $index);
+
+        $connection->execute('UPDATE fz_product SET id = 1001 WHERE id = 1');
+
+        $queuedOld = Coerce::int($connection->fetchValue(
+            'SELECT count(*) FROM fuzzphony_queue WHERE index_name = :n AND doc_id = :id',
+            ['n' => 'products_direct', 'id' => '1'],
+        ));
+        $queuedNew = Coerce::int($connection->fetchValue(
+            'SELECT count(*) FROM fuzzphony_queue WHERE index_name = :n AND doc_id = :id',
+            ['n' => 'products_direct', 'id' => '1001'],
+        ));
+        self::assertSame(1, $queuedOld, 'the stale old-id document must be refreshed away');
+        self::assertSame(1, $queuedNew, 'the new-id document must be indexed');
+    }
+
     public function testJoinedWatchWithColumnsSkipsAnIrrelevantColumnUpdate(): void
     {
         $connection = $this->connection();
