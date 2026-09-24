@@ -21,6 +21,11 @@ final class InvalidQuery extends \InvalidArgumentException implements FuzzphonyE
         ));
     }
 
+    public static function missingTenant(string $index): self
+    {
+        return new self(sprintf('Index "%s" requires forTenant(); none was given.', $index));
+    }
+
     /** @param list<string> $known */
     public static function unknownProfile(string $index, string $profile, array $known): self
     {

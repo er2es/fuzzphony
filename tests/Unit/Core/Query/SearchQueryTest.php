@@ -75,4 +75,11 @@ final class SearchQueryTest extends TestCase
     {
         self::assertNull((new SearchQuery())->tenant);
     }
+
+    public function testMissingTenantMessage(): void
+    {
+        $exception = InvalidQuery::missingTenant('products');
+
+        self::assertSame('Index "products" requires forTenant(); none was given.', $exception->getMessage());
+    }
 }
