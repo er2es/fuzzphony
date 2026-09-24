@@ -97,6 +97,95 @@ bin/console fuzzphony:search products 'wireles mouse' -w "price<=20000"
 Then inject `Fuzzphony\Core\Fuzzphony` anywhere. `Fuzzphony\Bridge\Doctrine\EntityLoader` turns
 results into entities with one query, keeping the ranking order.
 
+A minimal search endpoint that takes the user's query straight off the request:
+
+```php
+use Fuzzphony\Core\Fuzzphony;
+use Fuzzphony\Core\Search\Hit;
+use Symfony\Bundle\FrameworkBundle\Controller\AbstractController;
+use Symfony\Component\HttpFoundation\{JsonResponse, Request};
+use Symfony\Component\Routing\Attribute\Route;
+
+final class SearchController extends AbstractController
+{
+    #[Route('/search', name: 'search')]
+    public function __invoke(Request $request, Fuzzphony $fuzzphony): JsonResponse
+    {
+        $q = trim((string) $request->query->get('q', ''));
+
+        $result = $fuzzphony->in(Product::class)
+            ->query($q)
+            ->where('inStock', true)
+            ->highlight('name')
+            ->limit(20)
+            ->get();
+
+        return $this->json([
+            'total' => $result->total,
+            'tookMs' => $result->tookMs,
+            'hits' => array_map(static fn(Hit $hit): array => [
+                'id' => $hit->id,
+                'score' => $hit->score,
+                'name' => $hit->highlights['name'] ?? null,   // "<mark>Wireless</mark> mouse"
+            ], $result->hits),
+        ]);
+    }
+}
+```
+
+An empty `$q` (no query yet, e.g. the search page's first load) is a normal call — it returns
+a plain, filtered `where('inStock', true)` browse instead of erroring, so the same endpoint
+serves both "search" and "browse all in-stock products".
+
+A more complete endpoint — pagination, multiple filters from query params, a per-tenant
+account scope, and a client-chosen ranking profile:
+
+```php
+#[Route('/search', name: 'search')]
+public function __invoke(Request $request, Fuzzphony $fuzzphony): JsonResponse
+{
+    $builder = $fuzzphony->in(Product::class)
+        ->query(trim((string) $request->query->get('q', '')))
+        ->forTenant($this->getUser()?->getAccountId())      // multi-tenant index: required
+        ->profile($request->query->get('sort', 'default'))  // e.g. "popular"; throws on a typo'd name
+        ->highlight('name', 'description')
+        ->page($request->query->getInt('page', 1), perPage: 20);
+
+    if ($request->query->has('category')) {
+        $builder = $builder->whereIn('category', $request->query->all('category'));
+    }
+    if ($request->query->has('price_min') || $request->query->has('price_max')) {
+        $builder = $builder->whereBetween(
+            'price',
+            $request->query->getInt('price_min', 0),
+            $request->query->getInt('price_max', PHP_INT_MAX),
+        );
+    }
+    if ($request->query->getBoolean('in_stock_only')) {
+        $builder = $builder->where('inStock', true);
+    }
+
+    $result = $builder->get();
+
+    return $this->json([
+        'total' => $result->total,
+        'totalIsExact' => !$result->totalIsLowerBound,   // false: show "$total+", the candidate cap was hit
+        'tookMs' => $result->tookMs,
+        'warnings' => $result->warnings,                 // safe to show to users, e.g. "ignored: too many words"
+        'hits' => array_map(static fn(Hit $hit): array => [
+            'id' => $hit->id,
+            'score' => $hit->score,
+            'name' => $hit->highlights['name'] ?? null,
+            'description' => $hit->highlights['description'] ?? null,
+        ], $result->hits),
+    ]);
+}
+```
+
+Every `where*`/`forTenant`/`profile`/`ranking`/`thresholds` call is immutable and returns a new
+builder, so building the query conditionally (as above) is just reassigning the variable —
+nothing is applied until `->get()`.
+
 ## Quickstart (plain PHP)
 
 ```php
