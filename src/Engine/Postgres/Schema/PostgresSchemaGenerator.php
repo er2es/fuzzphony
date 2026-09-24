@@ -414,8 +414,11 @@ final class PostgresSchemaGenerator
 
         $diffNew = implode(' OR ', array_map(static fn(string $c): string => sprintf('r.%1$s IS DISTINCT FROM o.%1$s', Sql::ident($c)), $columns));
         $diffOld = implode(' OR ', array_map(static fn(string $c): string => sprintf('r.%1$s IS DISTINCT FROM n.%1$s', Sql::ident($c)), $columns));
-        $updateNewSource = sprintf('fz_new AS r LEFT JOIN fz_old o ON o.%1$s = r.%1$s CROSS JOIN LATERAL (%2$s) AS a(doc_id)', $key, (string) preg_replace('/:id\b/', 'r.' . $key, $watch->affectedIds, 1));
-        $updateOldSource = sprintf('fz_old AS r LEFT JOIN fz_new n ON n.%1$s = r.%1$s CROSS JOIN LATERAL (%2$s) AS a(doc_id)', $key, (string) preg_replace('/:id\b/', 'r.' . $key, $watch->affectedIds, 1));
+        // Both perspectives correlate on the same key, from the same "r" alias, so the affected-ids
+        // expression itself (not just the key column) is identical either way.
+        $affected = (string) preg_replace('/:id\b/', 'r.' . $key, $watch->affectedIds, 1);
+        $updateNewSource = sprintf('fz_new AS r LEFT JOIN fz_old o ON o.%1$s = r.%1$s CROSS JOIN LATERAL (%2$s) AS a(doc_id)', $key, $affected);
+        $updateOldSource = sprintf('fz_old AS r LEFT JOIN fz_new n ON n.%1$s = r.%1$s CROSS JOIN LATERAL (%2$s) AS a(doc_id)', $key, $affected);
         $body[] = sprintf(
             "    IF TG_OP = 'UPDATE' THEN\n        %s\n        %s\n    END IF;",
             $this->statementAction($index, $updateNewSource, sprintf('o.%1$s IS NULL OR (%2$s)', $key, $diffNew)),
