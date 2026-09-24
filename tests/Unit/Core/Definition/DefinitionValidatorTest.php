@@ -77,4 +77,16 @@ final class DefinitionValidatorTest extends TestCase
         self::assertSame('product', $definition->effectiveWatches()[0]->table);
         self::assertSame('SELECT :id', $definition->effectiveWatches()[0]->affectedIds);
     }
+
+    public function testBuilderCanDeclareATenantScope(): void
+    {
+        $definition = IndexDefinition::builder('products')
+            ->fromTable('product')
+            ->field('name')
+            ->filter('account_id', 'int')
+            ->tenant('account_id')
+            ->build();
+
+        self::assertSame('account_id', $definition->tenant);
+    }
 }

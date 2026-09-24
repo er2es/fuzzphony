@@ -36,6 +36,8 @@ final readonly class IndexDefinition
         public Thresholds $thresholds = new Thresholds(),
         public ?string $entityClass = null,
         public TriggerLevel $triggerLevel = TriggerLevel::Statement,
+        /** The name of the FilterDefinition that scopes every search to one tenant; null = not tenant-scoped. */
+        public ?string $tenant = null,
     ) {}
 
     public static function builder(string $name): IndexBuilder
@@ -139,6 +141,7 @@ final readonly class IndexDefinition
         $thresholds = $changes['thresholds'] ?? null;
         $entityClass = array_key_exists('entityClass', $changes) ? $changes['entityClass'] : $this->entityClass;
         $triggerLevel = $changes['triggerLevel'] ?? null;
+        $tenant = array_key_exists('tenant', $changes) ? $changes['tenant'] : $this->tenant;
 
         $entityClassOverride = $this->entityClass;
         if (array_key_exists('entityClass', $changes)) {
@@ -165,6 +168,7 @@ final readonly class IndexDefinition
             thresholds: $thresholds instanceof Thresholds ? $thresholds : $this->thresholds,
             entityClass: $entityClassOverride,
             triggerLevel: $triggerLevel instanceof TriggerLevel ? $triggerLevel : $this->triggerLevel,
+            tenant: is_string($tenant) || $tenant === null ? $tenant : $this->tenant,
         );
     }
 

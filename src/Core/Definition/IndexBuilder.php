@@ -32,6 +32,7 @@ final class IndexBuilder
     private TextConfig $text;
     private ?string $boost = null;
     private ?string $recency = null;
+    private ?string $tenant = null;
     /** @var array<string, RankingProfile> */
     private array $profiles = [];
     private Thresholds $thresholds;
@@ -122,6 +123,14 @@ final class IndexBuilder
         return $this;
     }
 
+    /** Marks an already-declared filter() as the tenant scope: every search must supply forTenant(). */
+    public function tenant(string $filterName): self
+    {
+        $this->tenant = $filterName;
+
+        return $this;
+    }
+
     public function profile(string $name, RankingProfile $profile): self
     {
         $this->profiles[$name] = $profile;
@@ -161,6 +170,7 @@ final class IndexBuilder
             thresholds: $this->thresholds,
             entityClass: $this->entityClass,
             triggerLevel: $this->triggerLevel,
+            tenant: $this->tenant,
         );
         DefinitionValidator::assertValid($definition);
 
