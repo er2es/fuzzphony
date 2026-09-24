@@ -1,0 +1,48 @@
+name: Benchmark
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+    inputs:
+      rows:
+        description: 'Products to generate'
+        default: '200000'
+
+jobs:
+  benchmark:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_DB: fuzzphony
+          POSTGRES_USER: fuzzphony
+          POSTGRES_PASSWORD: fuzzphony
+        ports: ['5432:5432']
+        options: >-
+          --health-cmd "pg_isready -U fuzzphony"
+          --health-interval 2s --health-retries 20
+    env:
+      PGPASSWORD: fuzzphony
+      FUZZPHONY_BENCH_DSN: "pgsql:host=127.0.0.1;port=5432;dbname=fuzzphony;user=fuzzphony;password=fuzzphony"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.4'
+          extensions: pdo_pgsql, mbstring
+          coverage: none
+      - run: composer install --no-progress --prefer-dist --no-dev
+      - name: Seed catalogue
+        run: psql -h 127.0.0.1 -U fuzzphony fuzzphony -q -v rows=${{ inputs.rows || '200000' }} -f benchmarks/seed.sql
+      - name: Build index
+        run: php benchmarks/run.php --setup-only
+      - name: Run
+        run: |
+          php benchmarks/run.php --markdown >> "$GITHUB_STEP_SUMMARY"
+          php benchmarks/run.php --json > benchmark.json
+      - uses: actions/upload-artifact@v4
+        with:
+          name: benchmark-${{ github.sha }}
+          path: benchmark.json

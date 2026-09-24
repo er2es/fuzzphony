@@ -1,0 +1,8 @@
+{
+    "name": "fuzzphony/core",
+    "description": "Fuzzphony core: index definitions, query language, ranking, thresholds, sync and inspection contracts. Framework- and database-agnostic.",
+    "type": "library",
+    "license": "MIT",
+    "require": { "php": ">=8.4", "ext-pdo": "*", "ext-mbstring": "*" },
+    "autoload": { "psr-4": { "Fuzzphony\\Core\\": "" } }
+}

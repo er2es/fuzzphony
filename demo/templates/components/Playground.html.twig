@@ -1,0 +1,88 @@
+{% macro slider(label, model, value, min, max, step) %}
+    <label>{{ label }} <strong>{{ value }}</strong>
+        <input type="range" data-model="debounce(150)|{{ model }}" value="{{ value }}" min="{{ min }}" max="{{ max }}" step="{{ step }}">
+    </label>
+{% endmacro %}
+{% import _self as ui %}
+
+<div {{ attributes }} class="layout">
+    <aside class="card">
+        <h2>Ranking</h2>
+        {{ ui.slider('Full-text weight', 'text', text, 0, 2, 0.05) }}
+        {{ ui.slider('Fuzzy weight', 'fuzzy', fuzzy, 0, 2, 0.05) }}
+        {{ ui.slider('Exact title bonus', 'exactBonus', exactBonus, 0, 2, 0.05) }}
+        {{ ui.slider('Prefix bonus', 'prefixBonus', prefixBonus, 0, 1, 0.05) }}
+        {{ ui.slider('Popularity boost', 'boost', boost, 0, 0.2, 0.005) }}
+        {{ ui.slider('Recency', 'recency', recency, 0, 1, 0.05) }}
+        {{ ui.slider('Recency half-life (days)', 'halfLife', halfLife, 1, 365, 1) }}
+
+        <h2 style="margin-top:1rem">Thresholds</h2>
+        {{ ui.slider('Min relevance', 'minScore', minScore, 0, 1, 0.01) }}
+        {{ ui.slider('Fuzzy similarity', 'similarity', similarity, 0.05, 1, 0.05) }}
+        <label>Fuzzy mode
+            <select data-model="fuzzyMode">
+                {% for mode in ['fallback', 'always', 'never'] %}<option value="{{ mode }}" {{ mode == fuzzyMode ? 'selected' }}>{{ mode }}</option>{% endfor %}
+            </select>
+        </label>
+        {{ ui.slider('Fallback below (hits)', 'fallbackBelow', fallbackBelow, 1, 50, 1) }}
+        {{ ui.slider('Candidate limit', 'candidateLimit', candidateLimit, 100, 10000, 100) }}
+
+        <h2 style="margin-top:1rem">Filters</h2>
+        <label><input type="checkbox" data-model="inStockOnly" {{ inStockOnly ? 'checked' }}> In stock only</label>
+        {{ ui.slider('Max price (0 = any)', 'maxPrice', maxPrice, 0, 200000, 1000) }}
+    </aside>
+
+    <section>
+        <input type="search" data-model="debounce(200)|query" value="{{ query }}" placeholder="Try typos, accents, -exclusions, &quot;phrases&quot;, brand:…">
+        <p class="tabs">
+            <label style="display:inline"><input type="radio" data-model="tab" value="results" {{ tab == 'results' ? 'checked' }}> Results</label>
+            <label style="display:inline"><input type="radio" data-model="tab" value="sql" {{ tab == 'sql' ? 'checked' }}> SQL / EXPLAIN</label>
+            {% if tab == 'sql' %}<label style="display:inline"><input type="checkbox" data-model="analyze" {{ analyze ? 'checked' }}> ANALYZE</label>{% endif %}
+        </p>
+
+        {% if this.error %}
+            <p class="s-error">{{ this.error }}</p>
+        {% elseif this.result %}
+            {% set result = this.result %}
+            <p class="muted">
+                {{ result.total }}{{ result.totalIsLowerBound ? '+' }} hits · {{ result.tookMs|number_format(1) }} ms
+                {% if result.usedFuzzy %}· typo tolerant{% endif %}
+                {% if result.interpretedAs %}· understood as <code>{{ result.interpretedAs }}</code>{% endif %}
+            </p>
+            {% for warning in result.warnings %}<p class="s-warning">{{ warning }}</p>{% endfor %}
+
+            {% if tab == 'sql' and this.explanation %}
+                {% for statement in this.explanation.statements %}
+                    <h3>{{ statement.label }}</h3>
+                    <pre>{{ statement.sql }}</pre>
+                    <pre>params: {{ statement.params|json_encode }}</pre>
+                {% endfor %}
+                <h3>Plan</h3>
+                <pre>{{ this.explanation.plan|join("\n") }}</pre>
+            {% else %}
+                {% set rows = this.rows %}
+                {% set top = (result.hits|first).score ?? 1 %}
+                <ol class="hits">
+                    {% for hit in result.hits %}
+                        {% set b = hit.breakdown %}
+                        {% set row = rows[hit.id] ?? null %}
+                        <li>
+                            {{ (hit.highlights.name ?? row.name ?? hit.id)|raw }}
+                            <span class="muted">· {{ row.brand ?? '' }} · {{ row.category ?? '' }} · {{ row.price ?? '' }} Ft · score {{ hit.score|number_format(3) }}</span>
+                            <div class="bar" title="text {{ (b.textRank * text)|number_format(3) }} · fuzzy {{ (b.fuzzySimilarity * fuzzy)|number_format(3) }} · bonus {{ (b.exactBonus + b.prefixBonus)|number_format(2) }} · boost {{ b.boostBonus|number_format(3) }} · recency {{ b.recencyBonus|number_format(3) }}">
+                                <span class="b-text" style="width: {{ 100 * b.textRank * text / max(top, 0.001) }}%"></span>
+                                <span class="b-fuzzy" style="width: {{ 100 * b.fuzzySimilarity * fuzzy / max(top, 0.001) }}%"></span>
+                                <span class="b-bonus" style="width: {{ 100 * (b.exactBonus + b.prefixBonus) / max(top, 0.001) }}%"></span>
+                                <span class="b-boost" style="width: {{ 100 * b.boostBonus / max(top, 0.001) }}%"></span>
+                                <span class="b-recency" style="width: {{ 100 * b.recencyBonus / max(top, 0.001) }}%"></span>
+                            </div>
+                        </li>
+                    {% else %}
+                        <li class="muted">No hits. Lower "Min relevance" or "Fuzzy similarity", or switch fuzzy mode to "always".</li>
+                    {% endfor %}
+                </ol>
+                <p class="muted">Bars: <span style="color:#5b3cc4">■</span> full-text <span style="color:#0e9384">■</span> fuzzy <span style="color:#f79009">■</span> exact/prefix <span style="color:#2e90fa">■</span> popularity <span style="color:#ee46bc">■</span> recency</p>
+            {% endif %}
+        {% endif %}
+    </section>
+</div>

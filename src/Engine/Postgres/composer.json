@@ -1,0 +1,8 @@
+{
+    "name": "fuzzphony/postgres-engine",
+    "description": "Fuzzphony PostgreSQL engine: tsvector + unaccent + pg_trgm, sidecar indexes, triggers and queue sync.",
+    "type": "library",
+    "license": "MIT",
+    "require": { "php": ">=8.4", "ext-pdo_pgsql": "*", "fuzzphony/core": "self.version" },
+    "autoload": { "psr-4": { "Fuzzphony\\Engine\\Postgres\\": "" } }
+}

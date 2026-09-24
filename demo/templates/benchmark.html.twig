@@ -1,0 +1,22 @@
+{% extends 'base.html.twig' %}
+{% block title %}Benchmark · Fuzzphony{% endblock %}
+{% block body %}
+    <p class="muted">20 results per query. Cold = first run; warm = median of the next 5 runs. <code>ILIKE</code> does not rank and cannot exclude words, so a fast ILIKE row with hits is not the same work.</p>
+    <table>
+        <thead><tr><th>Query</th><th class="num">ILIKE cold</th><th class="num">ILIKE warm</th><th class="num">hits</th><th class="num">Fuzzphony cold</th><th class="num">Fuzzphony warm</th><th class="num">hits</th></tr></thead>
+        <tbody>
+        {% for r in rows %}
+            <tr>
+                <td>{{ r.label }}<br><code class="muted">{{ r.q }}</code></td>
+                <td class="num">{{ r.without.cold|number_format(1) }} ms</td>
+                <td class="num">{{ r.without.warm|number_format(1) }} ms</td>
+                <td class="num {{ r.without.value|length == 0 ? 's-error' }}">{{ r.without.value|length }}</td>
+                <td class="num">{{ r.with.cold|number_format(1) }} ms</td>
+                <td class="num">{{ r.with.warm|number_format(1) }} ms</td>
+                <td class="num">{{ r.with.value.hits|length }}{{ r.with.value.usedFuzzy ? ' ~' }}</td>
+            </tr>
+        {% endfor %}
+        </tbody>
+    </table>
+    <p class="muted">~ = typo tolerant. Reproduce outside the browser: <code>php benchmarks/run.php --markdown</code>.</p>
+{% endblock %}

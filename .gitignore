@@ -1,0 +1,9 @@
+/vendor/
+/composer.lock
+/.phpunit.cache/
+/.php-cs-fixer.cache
+/var/
+
+demo/vendor/
+demo/var/
+demo/assets/vendor/

@@ -1,0 +1,23 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>{% block title %}Fuzzphony demo{% endblock %}</title>
+    {% block importmap %}{{ importmap('app') }}{% endblock %}
+</head>
+<body>
+<header>
+    <strong>🎼 Fuzzphony</strong>
+    <nav>
+        {% set route = app.request.attributes.get('_route') %}
+        <a href="{{ path('compare') }}" class="{{ route == 'compare' ? 'active' }}">With / without</a>
+        <a href="{{ path('playground') }}" class="{{ route == 'playground' ? 'active' }}">Playground</a>
+        <a href="{{ path('wizard') }}" class="{{ route == 'wizard' ? 'active' }}">Config wizard</a>
+        <a href="{{ path('benchmark') }}" class="{{ route == 'benchmark' ? 'active' }}">Benchmark</a>
+        <a href="{{ path('doctor') }}" class="{{ route == 'doctor' ? 'active' }}">Doctor</a>
+    </nav>
+</header>
+<main>{% block body %}{% endblock %}</main>
+</body>
+</html>

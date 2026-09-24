@@ -1,0 +1,9 @@
+{
+    "name": "fuzzphony/doctrine-bridge",
+    "description": "Fuzzphony Doctrine bridge: DBAL connection adapter, ORM metadata naming, ORM sync listener, entity hydration.",
+    "type": "library",
+    "license": "MIT",
+    "require": { "php": ">=8.4", "fuzzphony/core": "self.version", "doctrine/dbal": "^4.2" },
+    "suggest": { "doctrine/orm": "For #[Searchable] entities, ORM sync mode and entity hydration" },
+    "autoload": { "psr-4": { "Fuzzphony\\Bridge\\Doctrine\\": "" } }
+}

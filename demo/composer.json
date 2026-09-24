@@ -1,0 +1,43 @@
+{
+    "name": "fuzzphony/demo",
+    "description": "Fuzzphony demo: with/without comparison, ranking playground, config wizard, benchmark.",
+    "type": "project",
+    "license": "MIT",
+    "require": {
+        "php": ">=8.4",
+        "ext-pdo_pgsql": "*",
+        "doctrine/doctrine-bundle": "^2.13",
+        "doctrine/dbal": "^4.2",
+        "fuzzphony/symfony-bundle": "*@dev",
+        "symfony/asset-mapper": "^7.3",
+        "symfony/console": "^7.3",
+        "symfony/dotenv": "^7.3",
+        "symfony/framework-bundle": "^7.3",
+        "symfony/runtime": "^7.3",
+        "symfony/stimulus-bundle": "^2.22",
+        "symfony/twig-bundle": "^7.3",
+        "symfony/ux-live-component": "^2.22",
+        "symfony/ux-twig-component": "^2.22",
+        "symfony/yaml": "^7.3"
+    },
+    "repositories": [
+        { "type": "path", "url": "../src/Core", "options": { "symlink": true } },
+        { "type": "path", "url": "../src/Engine/Postgres", "options": { "symlink": true } },
+        { "type": "path", "url": "../src/Bridge/Doctrine", "options": { "symlink": true } },
+        { "type": "path", "url": "../src/Bundle", "options": { "symlink": true } }
+    ],
+    "minimum-stability": "dev",
+    "prefer-stable": true,
+    "autoload": { "psr-4": { "App\\": "src/" } },
+    "config": {
+        "allow-plugins": { "symfony/runtime": true },
+        "sort-packages": true
+    },
+    "scripts": {
+        "setup": [
+            "@php bin/console fuzzphony:schema --apply",
+            "@php bin/console fuzzphony:reindex --batch=20000",
+            "@php bin/console fuzzphony:doctor"
+        ]
+    }
+}

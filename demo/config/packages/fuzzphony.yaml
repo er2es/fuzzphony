@@ -1,0 +1,34 @@
+# The demo index: products joined with brands and categories (tables from ../benchmarks/seed.sql).
+# Generated with `bin/console fuzzphony:wizard bench_product --name=catalog`, then tuned by hand.
+fuzzphony:
+  indexes:
+    catalog:
+      source:
+        query: |
+          SELECT p.id, p.name, p.description, b.name AS brand, c.name AS category,
+                 p.brand_id, p.category_id, p.price, p.in_stock, p.popularity, p.published_at
+          FROM bench_product p
+          JOIN bench_brand b ON b.id = p.brand_id
+          JOIN bench_category c ON c.id = p.category_id
+      fields:
+        name: { weight: A, fuzzy: true }
+        brand: { weight: B, fuzzy: true }
+        category: C
+        description: D
+      filters:
+        price: int
+        in_stock: bool
+        brand_id: int
+        category_id: int
+        published_at: datetime
+      watch:
+        bench_product: 'SELECT :id'
+        bench_brand: 'SELECT id FROM bench_product WHERE brand_id = :id'
+        bench_category: 'SELECT id FROM bench_product WHERE category_id = :id'
+      language: english
+      boost: popularity
+      recency: published_at
+      profiles:
+        popular: { boost: 0.03, recency: 0.3, recency_half_life_days: 60 }
+      thresholds:
+        min_score: 0.01

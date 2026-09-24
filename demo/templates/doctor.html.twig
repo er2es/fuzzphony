@@ -1,0 +1,20 @@
+{% extends 'base.html.twig' %}
+{% block title %}Doctor · Fuzzphony{% endblock %}
+{% block body %}
+    <h2>Index "{{ report.index }}": <span class="s-{{ report.status.value }}">{{ report.status.value }}</span></h2>
+    <p><a class="button" href="{{ path('doctor', {deep: deep ? 0 : 1}) }}">{{ deep ? 'Use estimates' : 'Exact counts (--deep)' }}</a></p>
+    <table>
+        <thead><tr><th></th><th>Check</th><th>Result</th><th>Fix</th></tr></thead>
+        <tbody>
+        {% for check in report.checks %}
+            <tr>
+                <td class="s-{{ check.status.value }}">{{ {ok: '✔', warning: '!', error: '✘', skipped: '–'}[check.status.value] }}</td>
+                <td>{{ check.name }}</td>
+                <td>{{ check.message }}</td>
+                <td>{% if check.fix %}<code>{{ check.fix }}</code>{% endif %}</td>
+            </tr>
+        {% endfor %}
+        </tbody>
+    </table>
+    <p class="muted">Same in the terminal (and in CI): <code>bin/console fuzzphony:doctor --strict</code></p>
+{% endblock %}

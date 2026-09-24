@@ -1,0 +1,31 @@
+name: Split packages
+
+on:
+  push:
+    branches: [main]
+    tags: ['*']
+
+jobs:
+  split:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        package:
+          - { path: 'src/Core', repo: 'core' }
+          - { path: 'src/Engine/Postgres', repo: 'postgres-engine' }
+          - { path: 'src/Bridge/Doctrine', repo: 'doctrine-bridge' }
+          - { path: 'src/Bundle', repo: 'symfony-bundle' }
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: symplify/monorepo-split-github-action@v2.3.0
+        env:
+          GITHUB_TOKEN: ${{ secrets.SPLIT_ACCESS_TOKEN }}
+        with:
+          package_directory: ${{ matrix.package.path }}
+          repository_organization: 'fuzzphony'
+          repository_name: ${{ matrix.package.repo }}
+          tag: ${{ github.ref_type == 'tag' && github.ref_name || '' }}
+          user_name: 'fuzzphony-bot'
+          user_email: 'bot@fuzzphony.dev'

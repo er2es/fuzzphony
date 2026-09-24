@@ -1,0 +1,40 @@
+{% extends 'base.html.twig' %}
+{% block title %}Config wizard · Fuzzphony{% endblock %}
+{% block body %}
+    <form method="get" class="grid">
+        <label>Table
+            <select name="table" onchange="this.form.submit()">
+                {% for t in tables %}<option value="{{ t.table }}" {{ t.table == table ? 'selected' }}>{{ t.table }} (~{{ t.rows|number_format }} rows)</option>{% endfor %}
+            </select>
+        </label>
+        <label>Language
+            <select name="language" onchange="this.form.submit()">
+                {% for l in languages %}<option {{ l == language ? 'selected' }}>{{ l }}</option>{% endfor %}
+            </select>
+        </label>
+    </form>
+
+    {% if error %}<p class="s-error">{{ error }}</p>{% endif %}
+
+    {% if suggestion %}
+        <h2>What the wizard decided, and why</h2>
+        <table>
+            <thead><tr><th>Column</th><th>Role</th><th>Why</th></tr></thead>
+            <tbody>
+            {% for d in suggestion.decisions %}
+                <tr><td><code>{{ d.column }}</code></td><td>{{ d.role }}</td><td class="muted">{{ d.reason }}</td></tr>
+            {% endfor %}
+            </tbody>
+        </table>
+        {% for note in suggestion.notes %}<p class="s-warning">{{ note }}</p>{% endfor %}
+
+        {% if exports %}
+            <div class="grid" style="margin-top:1rem">
+                <section class="card"><h2>config/packages/fuzzphony.yaml</h2><pre>{{ exports.yaml }}</pre></section>
+                <section class="card"><h2>Builder (plain PHP)</h2><pre>{{ exports.builder }}</pre></section>
+                <section class="card"><h2>Attributes</h2><pre>{{ exports.attributes }}</pre></section>
+            </div>
+            <p class="muted">Same in the terminal: <code>bin/console fuzzphony:wizard {{ table }} --try</code></p>
+        {% endif %}
+    {% endif %}
+{% endblock %}

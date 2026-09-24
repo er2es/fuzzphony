@@ -1,0 +1,72 @@
+{
+    "name": "fuzzphony/fuzzphony",
+    "description": "Fuzzy search, in perfect harmony with your database. PostgreSQL-native full-text + trigram search for PHP and Symfony, without an extra service.",
+    "type": "library",
+    "license": "MIT",
+    "keywords": [
+        "search",
+        "full-text",
+        "fuzzy",
+        "postgresql",
+        "pg_trgm",
+        "symfony",
+        "doctrine"
+    ],
+    "require": {
+        "php": ">=8.4",
+        "ext-pdo": "*",
+        "ext-mbstring": "*"
+    },
+    "require-dev": {
+        "api-platform/doctrine-orm": "^4.1",
+        "doctrine/dbal": "^4.2",
+        "doctrine/orm": "^3.3",
+        "ext-pdo_pgsql": "*",
+        "friendsofphp/php-cs-fixer": "^3.64",
+        "phpstan/phpstan": "^2.1",
+        "phpstan/phpstan-strict-rules": "^2.0",
+        "phpunit/phpunit": "^11.5 || ^12.0",
+        "symfony/console": "^7.3 || ^8.0",
+        "symfony/framework-bundle": "^7.3 || ^8.0",
+        "symfony/messenger": "^7.3 || ^8.0",
+        "symfony/ux-live-component": "^2.22",
+        "symfony/yaml": "^7.3 || ^8.0",
+        "symplify/monorepo-builder": "^11.2"
+    },
+    "replace": {
+        "fuzzphony/core": "self.version",
+        "fuzzphony/postgres-engine": "self.version",
+        "fuzzphony/doctrine-bridge": "self.version",
+        "fuzzphony/symfony-bundle": "self.version"
+    },
+    "autoload": {
+        "psr-4": {
+            "Fuzzphony\\Core\\": "src/Core/",
+            "Fuzzphony\\Engine\\Postgres\\": "src/Engine/Postgres/",
+            "Fuzzphony\\Bridge\\Doctrine\\": "src/Bridge/Doctrine/",
+            "Fuzzphony\\Bundle\\": "src/Bundle/"
+        }
+    },
+    "autoload-dev": {
+        "psr-4": {
+            "Fuzzphony\\Tests\\": "tests/"
+        }
+    },
+    "scripts": {
+        "test": "phpunit --testsuite=unit",
+        "test:integration": "phpunit --testsuite=integration",
+        "test:all": "phpunit",
+        "stan": "phpstan analyse",
+        "cs": "php-cs-fixer fix --dry-run --diff",
+        "cs:fix": "php-cs-fixer fix",
+        "qa": [
+            "@cs",
+            "@stan",
+            "@test"
+        ]
+    },
+    "config": {
+        "sort-packages": true
+    },
+    "minimum-stability": "stable"
+}

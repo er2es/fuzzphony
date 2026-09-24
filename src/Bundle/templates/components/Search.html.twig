@@ -1,0 +1,37 @@
+{# Highlights are HTML-escaped by Fuzzphony (only <mark> is added), so |raw is safe here. #}
+<div {{ attributes.defaults({class: 'fuzzphony-search'}) }}>
+    <input type="search"
+           data-model="debounce(200)|query"
+           value="{{ query }}"
+           placeholder="{{ placeholder }}"
+           autocomplete="off"
+           aria-label="{{ placeholder }}"
+           class="fuzzphony-search__input">
+
+    {% set result = this.result %}
+    {% if result %}
+        <p class="fuzzphony-search__meta" aria-live="polite">
+            {{ result.total }}{{ result.totalIsLowerBound ? '+' }} result{{ result.total == 1 ? '' : 's' }}
+            · {{ result.tookMs|number_format(1) }} ms
+            {% if result.usedFuzzy %}· typo tolerant{% endif %}
+        </p>
+        {% for warning in result.warnings %}
+            <p class="fuzzphony-search__warning">{{ warning }}</p>
+        {% endfor %}
+        <ol class="fuzzphony-search__hits">
+            {% for hit in result.hits %}
+                <li class="fuzzphony-search__hit" data-id="{{ hit.id }}">
+                    {% block hit %}
+                        {% for field, snippet in hit.highlights %}
+                            <span class="fuzzphony-search__{{ field }}">{{ snippet|raw }}</span>
+                        {% else %}
+                            #{{ hit.id }}
+                        {% endfor %}
+                    {% endblock %}
+                </li>
+            {% else %}
+                <li class="fuzzphony-search__empty">No results.</li>
+            {% endfor %}
+        </ol>
+    {% endif %}
+</div>

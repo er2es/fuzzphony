@@ -1,0 +1,85 @@
+<?php
+
+declare(strict_types=1);
+
+namespace Fuzzphony\Core\Ranking;
+
+use Fuzzphony\Core\Exception\InvalidDefinition;
+
+/**
+ * Tolerance and cost limits. Every value has a safe default; override per index or per query.
+ */
+final readonly class Thresholds
+{
+    public function __construct(
+        /** Minimum relevance (0..~1.5) a hit needs; bonuses are not counted. */
+        public float $minScore = 0.0,
+        /** Minimum trigram word similarity (0..1) for a typo-tolerant match. Lower = more tolerant. */
+        public float $fuzzySimilarity = 0.3,
+        /** Typo tolerance is skipped for shorter queries: trigrams of 1-2 letters are noise. */
+        public int $fuzzyMinLength = 3,
+        public FuzzyMode $fuzzyMode = FuzzyMode::Fallback,
+        /** In fallback mode fuzzy matching kicks in when exact matching found fewer hits than this. */
+        public int $fallbackBelow = 5,
+        /** Upper bound of candidates ranked per branch; protects against "match half the table" queries. */
+        public int $candidateLimit = 2000,
+        /** Longer search text is truncated (with a warning). */
+        public int $maxQueryLength = 256,
+        /** Queries with more terms are truncated (with a warning). */
+        public int $maxTerms = 16,
+    ) {
+        $violations = [];
+        if ($minScore < 0.0) {
+            $violations[] = '"minScore" must be >= 0.';
+        }
+        if ($fuzzySimilarity <= 0.0 || $fuzzySimilarity > 1.0) {
+            $violations[] = '"fuzzySimilarity" must be in (0, 1]. Typical values: 0.3 (tolerant) .. 0.6 (strict).';
+        }
+        if ($fuzzyMinLength < 1) {
+            $violations[] = '"fuzzyMinLength" must be >= 1.';
+        }
+        if ($fallbackBelow < 1) {
+            $violations[] = '"fallbackBelow" must be >= 1.';
+        }
+        if ($candidateLimit < 10) {
+            $violations[] = '"candidateLimit" must be >= 10.';
+        }
+        if ($maxQueryLength < 1 || $maxTerms < 1) {
+            $violations[] = '"maxQueryLength" and "maxTerms" must be >= 1.';
+        }
+        if ($violations !== []) {
+            throw new InvalidDefinition('thresholds', $violations);
+        }
+    }
+
+    /** @param array<string, mixed> $overrides snake_case keys, e.g. ['min_score' => 0.1, 'fuzzy_mode' => 'always'] */
+    public function with(array $overrides): self
+    {
+        $map = [
+            'min_score' => 'minScore',
+            'fuzzy_similarity' => 'fuzzySimilarity',
+            'fuzzy_min_length' => 'fuzzyMinLength',
+            'fuzzy_mode' => 'fuzzyMode',
+            'fallback_below' => 'fallbackBelow',
+            'candidate_limit' => 'candidateLimit',
+            'max_query_length' => 'maxQueryLength',
+            'max_terms' => 'maxTerms',
+        ];
+        $unknown = array_diff(array_keys($overrides), array_keys($map));
+        if ($unknown !== []) {
+            throw new InvalidDefinition('thresholds', [sprintf('Unknown threshold option(s): %s. Allowed: %s.', implode(', ', $unknown), implode(', ', array_keys($map)))]);
+        }
+
+        $args = get_object_vars($this);
+        foreach ($overrides as $key => $value) {
+            $property = $map[$key];
+            $args[$property] = match ($property) {
+                'fuzzyMode' => $value instanceof FuzzyMode ? $value : FuzzyMode::from(is_string($value) ? $value : ''),
+                'minScore', 'fuzzySimilarity' => is_numeric($value) ? (float) $value : throw new InvalidDefinition('thresholds', [sprintf('"%s" must be a number.', $key)]),
+                default => is_int($value) ? $value : throw new InvalidDefinition('thresholds', [sprintf('"%s" must be an integer.', $key)]),
+            };
+        }
+
+        return new self(...$args);
+    }
+}

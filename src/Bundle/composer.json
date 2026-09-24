@@ -1,0 +1,24 @@
+{
+    "name": "fuzzphony/symfony-bundle",
+    "description": "Fuzzphony Symfony bundle: configuration, autowiring, console commands (schema, doctor, reindex, worker, search).",
+    "type": "symfony-bundle",
+    "license": "MIT",
+    "require": {
+        "php": ">=8.4",
+        "fuzzphony/core": "self.version",
+        "fuzzphony/postgres-engine": "self.version",
+        "fuzzphony/doctrine-bridge": "self.version",
+        "symfony/framework-bundle": "^7.3 || ^8.0",
+        "symfony/console": "^7.3 || ^8.0"
+    },
+    "autoload": {
+        "psr-4": {
+            "Fuzzphony\\Bundle\\": ""
+        }
+    },
+    "suggest": {
+        "symfony/messenger": "Asynchronous refresh in ORM sync mode (fuzzphony.orm_sync.async)",
+        "symfony/ux-live-component": "<twig:Fuzzphony:Search> search-as-you-type component",
+        "api-platform/doctrine-orm": "FuzzphonySearchFilter for API Platform collections"
+    }
+}
