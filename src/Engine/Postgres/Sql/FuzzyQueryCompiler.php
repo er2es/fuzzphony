@@ -20,8 +20,14 @@ use Fuzzphony\Engine\Postgres\Schema\PostgresSchemaGenerator;
  * Every word must be satisfied on its own, exactly (full text) or fuzzily (trigram), combined
  * through the query's real AND / OR / NOT structure:
  *
- *   wireles mice   ->   (s.tsv @@ to_tsquery(cfg, :p0) OR fuzzphony_norm(:p1) <% s.fz)
- *                   AND (s.tsv @@ to_tsquery(cfg, :p4) OR fuzzphony_norm(:p5) <% s.fz)
+ *   wireles mice   ->   (s.tsv @@ q.ft0 OR q.fn1 <% s.fz) AND (s.tsv @@ q.ft2 OR q.fn3 <% s.fz)
+ *
+ *   with q.ft0 = to_tsquery(cfg, :p2), q.fn1 = fuzzphony_norm(:p3), ...
+ *
+ * The values live in the materialized q CTE on purpose: when the planner sees them as literals
+ * it estimates the (large) number of trigram matches correctly and then prefers a LIMIT
+ * early-exit sequential scan that evaluates "<%" row by row, which is several times slower
+ * than the BitmapAnd / BitmapOr over the GIN(tsv) and GIN(fz) indexes (measured at 1M rows).
  *
  * The exact side of a leaf is TsQueryCompiler's output for that leaf (lexemes, weight labels,
  * prefix). Negated parts stay exact-only. Words shorter than fuzzyMinLength stay exact-only.
@@ -34,6 +40,8 @@ use Fuzzphony\Engine\Postgres\Schema\PostgresSchemaGenerator;
 final class FuzzyQueryCompiler
 {
     private readonly TsQueryCompiler $tsquery;
+    /** @var list<string> */
+    private array $columns = [];
 
     public function __construct(
         private readonly IndexDefinition $index,
@@ -81,9 +89,10 @@ final class FuzzyQueryCompiler
      */
     public function compile(Node $node, ParameterBag $params, array $emptyQueries = []): ?FuzzyMatch
     {
+        $this->columns = [];
         $compiled = $this->node($node, $params, $emptyQueries);
 
-        return $compiled === null || $compiled['score'] === null ? null : new FuzzyMatch($compiled['predicate'], $compiled['score']);
+        return $compiled === null || $compiled['score'] === null ? null : new FuzzyMatch($compiled['predicate'], $compiled['score'], $this->columns);
     }
 
     /**
@@ -114,22 +123,16 @@ final class FuzzyQueryCompiler
         if ($tsquery === null) {
             return null;
         }
+        $exact = $this->matches($tsquery, $params);
         $needle = $this->needle($node);
         if ($needle === null) {
-            return [
-                'predicate' => $this->matches($tsquery, $params),
-                'score' => sprintf('CASE WHEN %s THEN 1 ELSE 0 END', $this->matches($tsquery, $params)),
-            ];
+            return ['predicate' => $exact, 'score' => sprintf('CASE WHEN %s THEN 1 ELSE 0 END', $exact)];
         }
+        $norm = $this->column('fn', sprintf('%s(%s)', PostgresSchemaGenerator::NORM_FUNCTION, $params->add($needle)));
 
-        // each occurrence is bound separately: native prepares cannot reuse a placeholder name
         return [
-            'predicate' => sprintf('(%s OR %s <%% s.fz)', $this->matches($tsquery, $params), $this->norm($needle, $params)),
-            'score' => sprintf(
-                'GREATEST(word_similarity(%s, s.fz), CASE WHEN %s THEN 1 ELSE 0 END)',
-                $this->norm($needle, $params),
-                $this->matches($tsquery, $params),
-            ),
+            'predicate' => sprintf('(%s OR %s <%% s.fz)', $exact, $norm),
+            'score' => sprintf('GREATEST(word_similarity(%s, s.fz), CASE WHEN %s THEN 1 ELSE 0 END)', $norm, $exact),
         ];
     }
 
@@ -193,11 +196,15 @@ final class FuzzyQueryCompiler
 
     private function matches(string $tsquery, ParameterBag $params): string
     {
-        return sprintf('s.tsv @@ to_tsquery(%s::regconfig, %s)', Sql::string($this->index->text->configName()), $params->add($tsquery));
+        return 's.tsv @@ ' . $this->column('ft', sprintf('to_tsquery(%s::regconfig, %s)', Sql::string($this->index->text->configName()), $params->add($tsquery)));
     }
 
-    private function norm(string $needle, ParameterBag $params): string
+    /** Adds a q column (ft<n> = tsquery, fn<n> = needle) and returns the reference to it. */
+    private function column(string $prefix, string $expression): string
     {
-        return sprintf('%s(%s)', PostgresSchemaGenerator::NORM_FUNCTION, $params->add($needle));
+        $name = $prefix . count($this->columns);
+        $this->columns[] = $expression . ' AS ' . $name;
+
+        return 'q.' . $name;
     }
 }

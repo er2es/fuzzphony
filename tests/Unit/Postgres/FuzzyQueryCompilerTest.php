@@ -26,10 +26,11 @@ final class FuzzyQueryCompilerTest extends TestCase
         $match = $this->compiler()->compile(self::parse('mouse'), $params);
 
         self::assertNotNull($match);
-        self::assertSame("(s.tsv @@ to_tsquery('fuzzphony_english'::regconfig, :p0) OR fuzzphony_norm(:p1) <% s.fz)", $match->predicate);
-        self::assertSame("GREATEST(word_similarity(fuzzphony_norm(:p2), s.fz), CASE WHEN s.tsv @@ to_tsquery('fuzzphony_english'::regconfig, :p3) THEN 1 ELSE 0 END)", $match->score);
-        // native prepares cannot reuse a placeholder: every occurrence is its own parameter
-        self::assertSame(['p0' => "'mouse'", 'p1' => 'mouse', 'p2' => 'mouse', 'p3' => "'mouse'"], $params->all());
+        // the values are q columns (bound once each); predicate and score only reference them
+        self::assertSame(["to_tsquery('fuzzphony_english'::regconfig, :p0) AS ft0", 'fuzzphony_norm(:p1) AS fn1'], $match->columns);
+        self::assertSame('(s.tsv @@ q.ft0 OR q.fn1 <% s.fz)', $match->predicate);
+        self::assertSame('GREATEST(word_similarity(q.fn1, s.fz), CASE WHEN s.tsv @@ q.ft0 THEN 1 ELSE 0 END)', $match->score);
+        self::assertSame(['p0' => "'mouse'", 'p1' => 'mouse'], $params->all());
     }
 
     /** @return iterable<string, array{string, string, string}> */
@@ -99,8 +100,8 @@ final class FuzzyQueryCompilerTest extends TestCase
         $match = $this->compiler()->compile(self::parse($input), $params);
 
         self::assertNotNull($match);
-        self::assertSame($predicate, self::shorthand($match->predicate, $params));
-        self::assertSame($score, self::shorthand($match->score, $params));
+        self::assertSame($predicate, self::shorthand($match->predicate, $match, $params));
+        self::assertSame($score, self::shorthand($match->score, $match, $params));
     }
 
     public function testStopWordLeavesAreDropped(): void
@@ -109,8 +110,8 @@ final class FuzzyQueryCompilerTest extends TestCase
         $match = $this->compiler()->compile(self::parse('mouse for gamng'), $params, ["'for'"]);
 
         self::assertNotNull($match);
-        self::assertSame("(fz['mouse'|mouse] AND fz['gamng'|gamng])", self::shorthand($match->predicate, $params));
-        self::assertSame("((sim[mouse|'mouse'] + sim[gamng|'gamng']) / 2)", self::shorthand($match->score, $params));
+        self::assertSame("(fz['mouse'|mouse] AND fz['gamng'|gamng])", self::shorthand($match->predicate, $match, $params));
+        self::assertSame("((sim[mouse|'mouse'] + sim[gamng|'gamng']) / 2)", self::shorthand($match->score, $match, $params));
     }
 
     public function testALeafWithoutLettersOrDigitsIsDropped(): void
@@ -119,7 +120,7 @@ final class FuzzyQueryCompilerTest extends TestCase
         $match = $this->compiler()->compile(new AllOf([new Term('mouse'), new Term('+++')]), $params);
 
         self::assertNotNull($match);
-        self::assertSame("fz['mouse'|mouse]", self::shorthand($match->predicate, $params));
+        self::assertSame("fz['mouse'|mouse]", self::shorthand($match->predicate, $match, $params));
     }
 
     public function testNothingToScoreCompilesToNull(): void
@@ -134,7 +135,7 @@ final class FuzzyQueryCompilerTest extends TestCase
         $match = $this->compiler()->compile(self::parse("robert'); DROP TABLE x; -- \"o'reilly books\" -secret name:evil"), $params);
 
         self::assertNotNull($match);
-        $sql = $match->predicate . ' ' . $match->score;
+        $sql = implode(' ', [$match->predicate, $match->score, ...$match->columns]);
         foreach (['robert', 'drop', 'table', 'reilly', 'books', 'secret', 'evil'] as $word) {
             self::assertStringNotContainsStringIgnoringCase($word, $sql);
         }
@@ -168,9 +169,9 @@ final class FuzzyQueryCompilerTest extends TestCase
 
     public function testMatchIsAValueObject(): void
     {
-        $match = new FuzzyMatch('TRUE', '1');
+        $match = new FuzzyMatch('TRUE', '1', ['1 AS x']);
 
-        self::assertSame(['TRUE', '1'], [$match->predicate, $match->score]);
+        self::assertSame(['TRUE', '1', ['1 AS x']], [$match->predicate, $match->score, $match->columns]);
     }
 
     private function compiler(): FuzzyQueryCompiler
@@ -187,19 +188,28 @@ final class FuzzyQueryCompilerTest extends TestCase
     }
 
     /**
-     * Substitutes the bound values into the SQL and abbreviates the leaf expressions, so the
+     * Substitutes the bound values for the q columns and abbreviates the leaf expressions, so the
      * structure is readable: fz[tsquery|needle], sim[needle|tsquery], ts[tsquery], hit[tsquery].
      * testOneLeafIsExactOrFuzzyAndEveryValueIsBound pins the unabbreviated SQL.
      */
-    private static function shorthand(string $sql, ParameterBag $params): string
+    private static function shorthand(string $sql, FuzzyMatch $match, ParameterBag $params): string
     {
-        $values = $params->all();
-        $sql = (string) preg_replace_callback('/:(p\d+)\b/', static fn(array $m): string => '{' . (string) ($values[$m[1]] ?? '?') . '}', $sql);
-        $tsq = "s\\.tsv @@ to_tsquery\\('fuzzphony_english'::regconfig, \\{([^}]*)\\}\\)";
-        $norm = 'fuzzphony_norm\(\{([^}]*)\}\)';
+        $values = [];
+        foreach ($match->columns as $column) {
+            if (preg_match('/:(p\d+)\)? AS (f[tn]\d+)$/', $column, $m) !== 1) {
+                self::fail('Unexpected q column: ' . $column);
+            }
+            $values['q.' . $m[2]] = '{' . (string) ($params->all()[$m[1]] ?? '?') . '}';
+        }
+        $sql = strtr($sql, $values);
 
         return (string) preg_replace(
-            ['/\(' . $tsq . ' OR ' . $norm . ' <% s\.fz\)/', '/GREATEST\(word_similarity\(' . $norm . ', s\.fz\), CASE WHEN ' . $tsq . ' THEN 1 ELSE 0 END\)/', '/CASE WHEN ' . $tsq . ' THEN 1 ELSE 0 END/', '/' . $tsq . '/'],
+            [
+                '/\(s\.tsv @@ \{([^}]*)\} OR \{([^}]*)\} <% s\.fz\)/',
+                '/GREATEST\(word_similarity\(\{([^}]*)\}, s\.fz\), CASE WHEN s\.tsv @@ \{([^}]*)\} THEN 1 ELSE 0 END\)/',
+                '/CASE WHEN s\.tsv @@ \{([^}]*)\} THEN 1 ELSE 0 END/',
+                '/s\.tsv @@ \{([^}]*)\}/',
+            ],
             ['fz[$1|$2]', 'sim[$1|$2]', 'hit[$1]', 'ts[$1]'],
             $sql,
         );

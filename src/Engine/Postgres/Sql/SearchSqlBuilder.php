@@ -52,7 +52,14 @@ final class SearchSqlBuilder
         $q[] = $plain !== ''
             ? sprintf('%s(%s) AS norm', PostgresSchemaGenerator::NORM_FUNCTION, $params->add($plain))
             : "''::text AS norm";
-        $ctes = ['q AS (SELECT ' . implode(', ', $q) . ')'];
+        // Per-term fuzzy branch: every word is satisfied exactly or fuzzily, through the query's
+        // own AND / OR / NOT. Its per-word values are extra q columns.
+        $fuzzy = $fuzzyRoot === null ? null : (new FuzzyQueryCompiler($this->index, $thresholds))->compile($fuzzyRoot, $params, $emptyQueries);
+        if ($fuzzy !== null) {
+            array_push($q, ...$fuzzy->columns);
+        }
+        // MATERIALIZED: one row computed once, and the planner must not see the per-word values (see FuzzyQueryCompiler)
+        $ctes = ['q AS MATERIALIZED (SELECT ' . implode(', ', $q) . ')'];
 
         $branches = [];
         if ($tsquery !== null) {
@@ -65,12 +72,9 @@ final class SearchSqlBuilder
             );
             $branches[] = 'SELECT id, r_text, 0::double precision AS r_fuzzy FROM fts';
         }
-        // Per-term: every word is satisfied exactly or fuzzily, through the query's own AND / OR / NOT.
-        // Compiled here so its placeholders follow the ones above in the same bag.
-        $fuzzy = $fuzzyRoot === null ? null : (new FuzzyQueryCompiler($this->index, $thresholds))->compile($fuzzyRoot, $params, $emptyQueries);
         if ($fuzzy !== null) {
             $ctes[] = sprintf(
-                "fuzzy AS (\n    SELECT s.id, (%s)::double precision AS r_fuzzy\n    FROM %s AS s\n    WHERE %s AND %s\n    LIMIT %d\n)",
+                "fuzzy AS (\n    SELECT s.id, (%s)::double precision AS r_fuzzy\n    FROM %s AS s CROSS JOIN q\n    WHERE %s AND %s\n    LIMIT %d\n)",
                 $fuzzy->score,
                 $table,
                 $fuzzy->predicate,
