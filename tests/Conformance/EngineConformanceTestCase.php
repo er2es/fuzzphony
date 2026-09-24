@@ -83,6 +83,64 @@ abstract class EngineConformanceTestCase extends TestCase
         self::assertNotContains(3, $ids);
     }
 
+    public function testATypoOnOneWordStillRequiresTheOtherWord(): void
+    {
+        $this->requireCapability(Capability::Fuzzy);
+        // "wireles" alone is close enough to product 1 ("Wireless mouse"), but product 1 has no headphones
+        $result = $this->fuzzphony->in('products')->query('wireles headphones')->get();
+
+        self::assertTrue($result->usedFuzzy);
+        self::assertSame([3], $this->ids($result));
+    }
+
+    public function testTypoTolerantOrGroup(): void
+    {
+        $this->requireCapability(Capability::Fuzzy);
+        $result = $this->fuzzphony->in('products')->query('headphnoes | torhc')->get();
+
+        self::assertTrue($result->usedFuzzy);
+        self::assertEqualsCanonicalizing([3, 5], $this->ids($result));
+    }
+
+    public function testTypoTolerantMatchingHonoursANegationNestedInAGroup(): void
+    {
+        $this->requireCapability(Capability::Fuzzy);
+        // product 1 is a wireless mouse, but a "silent" one
+        $result = $this->fuzzphony->in('products')->query('wireles (headphones | mouse -silent)')->get();
+
+        self::assertTrue($result->usedFuzzy);
+        self::assertSame([3], $this->ids($result));
+    }
+
+    public function testTypoTolerantPhrase(): void
+    {
+        $this->requireCapability(Capability::Fuzzy);
+        $this->requireCapability(Capability::Phrase);
+        $result = $this->fuzzphony->in('products')->query('"wireles headphones"')->get();
+
+        self::assertTrue($result->usedFuzzy);
+        self::assertSame(3, $result->hits[0]->id ?? null);
+    }
+
+    public function testTypoTolerantScoreFollowsTheQueryStructure(): void
+    {
+        $this->requireCapability(Capability::Fuzzy);
+        // both need "mouse"; 1 also matches "wireles" (closer than "logitek"), 4 only "logitek";
+        // 2 (no wireless / logitech) and 3 (no mouse) must not appear at all
+        $result = $this->fuzzphony->in('products')->query('(wireles | logitek) mouse')->ranking(['exact_bonus' => 0, 'prefix_bonus' => 0])->get();
+
+        self::assertSame([1, 4], $this->ids($result));
+    }
+
+    public function testStopWordsDoNotBlockTypoTolerance(): void
+    {
+        $this->requireCapability(Capability::Fuzzy);
+        $this->requireCapability(Capability::Stemming);
+        $result = $this->fuzzphony->in('products')->query('headphnoes for')->get();
+
+        self::assertSame([3], $this->ids($result));
+    }
+
     public function testPhrase(): void
     {
         $this->requireCapability(Capability::Phrase);

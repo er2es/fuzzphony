@@ -229,6 +229,45 @@ final class PostgresEngineTest extends TestCase
         self::assertNotEmpty(array_filter($explanation->plan, static fn(string $l): bool => str_contains($l, 'actual time')));
     }
 
+    public function testFuzzyModesStillDecideWhenTheTypoTolerantBranchRuns(): void
+    {
+        $search = $this->fuzzphony('manual')->in('products');
+
+        $never = $search->query('headphnoes')->thresholds(['fuzzy_mode' => 'never'])->explain();
+        self::assertSame(['full-text'], array_column($never->statements, 'label'));
+        self::assertSame([], $never->result->ids());
+
+        $enough = $search->query('mouse')->thresholds(['fallback_below' => 1])->explain();
+        self::assertSame(['full-text'], array_column($enough->statements, 'label'), 'enough strict hits: no fallback');
+
+        $fallback = $search->query('headphnoes')->thresholds(['fallback_below' => 1])->explain();
+        self::assertSame(['full-text', 'fallback: full-text + fuzzy'], array_column($fallback->statements, 'label'));
+        self::assertSame([3], $fallback->result->ids());
+
+        $always = $search->query('wireless mouse')->thresholds(['fuzzy_mode' => 'always'])->explain();
+        self::assertSame(['full-text + fuzzy'], array_column($always->statements, 'label'));
+        self::assertSame([1], $always->result->ids(), 'every word must match, also in always mode');
+        self::assertEqualsWithDelta(1.0, $always->result->hits[0]->breakdown->fuzzySimilarity, 1e-9, 'both words match exactly');
+    }
+
+    public function testNoFuzzyStatementWhenOnlyStopWordsCouldMatchFuzzily(): void
+    {
+        $explanation = $this->fuzzphony('manual')->in('products')->query('the ab')->explain();
+
+        self::assertSame(['full-text'], array_column($explanation->statements, 'label'));
+    }
+
+    public function testFuzzyStatementsCarryNoWholeQueryTrigramCheck(): void
+    {
+        $explanation = $this->fuzzphony('manual')->in('products')->query('wireles -cable')->explain();
+        self::assertSame(['full-text', 'fallback: full-text + fuzzy'], array_column($explanation->statements, 'label'));
+        $sql = $explanation->statements[1]['sql'];
+
+        self::assertStringNotContainsString('q.norm <% s.fz', $sql);
+        self::assertStringNotContainsString('excl', $sql);
+        self::assertStringContainsString('NOT (s.tsv @@ q.ft', $sql);
+    }
+
     public function testErrorsCarryAHint(): void
     {
         $fuzzphony = $this->fuzzphony('manual');

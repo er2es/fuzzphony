@@ -30,6 +30,7 @@ use Fuzzphony\Engine\Postgres\Inspection\PostgresInspector;
 use Fuzzphony\Engine\Postgres\Schema\PostgresSchemaGenerator;
 use Fuzzphony\Engine\Postgres\Sql\DocumentSql;
 use Fuzzphony\Engine\Postgres\Sql\FilterCompiler;
+use Fuzzphony\Engine\Postgres\Sql\FuzzyQueryCompiler;
 use Fuzzphony\Engine\Postgres\Sql\SearchSqlBuilder;
 use Fuzzphony\Engine\Postgres\Sql\Sql;
 use Fuzzphony\Engine\Postgres\Sql\TsQueryCompiler;
@@ -219,10 +220,13 @@ final class PostgresEngine implements Engine
         }
         $plain = implode(' ', TsQueryCompiler::lexemes(implode(' ', NodeInspector::positiveWords($root))));
 
-        $fuzzyEligible = $index->hasFuzzy()
+        // Typo tolerance is per word (FuzzyQueryCompiler); it needs at least one positive word long enough for it.
+        $fuzzy = new FuzzyQueryCompiler($index, $thresholds);
+        $fuzzyRoot = $root !== null
+            && $index->hasFuzzy()
             && $profile->fuzzy > 0.0
             && $thresholds->fuzzyMode !== FuzzyMode::Never
-            && mb_strlen(str_replace(' ', '', $plain)) >= $thresholds->fuzzyMinLength;
+            && $fuzzy->hasFuzzyLeaf($root) ? $root : null;
 
         $builder = new SearchSqlBuilder($index);
         $statements = [];
@@ -234,17 +238,26 @@ final class PostgresEngine implements Engine
             $rows = $this->run($statement, null);
             $statements[] = $statement;
         } else {
-            $alwaysFuzzy = $fuzzyEligible && ($thresholds->fuzzyMode === FuzzyMode::Always || $tsquery === null);
+            $emptyQueries = [];
+            $alwaysFuzzy = $fuzzyRoot !== null
+                && ($thresholds->fuzzyMode === FuzzyMode::Always || $tsquery === null)
+                && $fuzzy->hasFuzzyLeaf($fuzzyRoot, $emptyQueries = $this->emptyQueries($index, $fuzzy->leafQueries($fuzzyRoot)));
             $statement = ['label' => $alwaysFuzzy ? 'full-text + fuzzy' : 'full-text']
-                + $builder->ranked($tsquery, $plain, $alwaysFuzzy ? $root : null, $conditions, $profile, $thresholds, $query->limit, $query->offset);
+                + $builder->ranked($tsquery, $plain, $alwaysFuzzy ? $fuzzyRoot : null, $conditions, $profile, $thresholds, $query->limit, $query->offset, $emptyQueries);
             $threshold = $alwaysFuzzy ? $thresholds->fuzzySimilarity : null;
             $rows = $this->run($statement, $threshold);
             $statements[] = $statement;
             $usedFuzzy = $alwaysFuzzy;
 
-            if (!$alwaysFuzzy && $fuzzyEligible && $thresholds->fuzzyMode === FuzzyMode::Fallback && self::total($rows) < $thresholds->fallbackBelow) {
+            if (
+                !$alwaysFuzzy
+                && $fuzzyRoot !== null
+                && $thresholds->fuzzyMode === FuzzyMode::Fallback
+                && self::total($rows) < $thresholds->fallbackBelow
+                && $fuzzy->hasFuzzyLeaf($fuzzyRoot, $emptyQueries = $this->emptyQueries($index, $fuzzy->leafQueries($fuzzyRoot)))
+            ) {
                 $statement = ['label' => 'fallback: full-text + fuzzy']
-                    + $builder->ranked($tsquery, $plain, $root, $conditions, $profile, $thresholds, $query->limit, $query->offset);
+                    + $builder->ranked($tsquery, $plain, $fuzzyRoot, $conditions, $profile, $thresholds, $query->limit, $query->offset, $emptyQueries);
                 $threshold = $thresholds->fuzzySimilarity;
                 $rows = $this->run($statement, $threshold);
                 $statements[] = $statement;
@@ -296,6 +309,32 @@ final class PostgresEngine implements Engine
         );
 
         return ['result' => $result, 'statements' => $statements, 'threshold' => $threshold];
+    }
+
+    /**
+     * The leaf tsqueries the index's text configuration reduces to nothing (stop words such as
+     * "for"). The strict tsquery drops them inside PostgreSQL; the per-word fuzzy branch must
+     * drop them too, or "mouse for gaming" would require a word similar to "for". Asked right
+     * before a fuzzy statement is built, in one round trip.
+     *
+     * @param list<string> $queries
+     *
+     * @return list<string>
+     */
+    private function emptyQueries(IndexDefinition $index, array $queries): array
+    {
+        if ($queries === []) {
+            return [];
+        }
+        $rows = $this->guard('search', fn(): array => $this->connection->fetchAll(
+            sprintf(
+                'SELECT t.q FROM unnest(CAST(:queries AS text[])) AS t(q) WHERE numnode(to_tsquery(%s::regconfig, t.q)) = 0',
+                Sql::string($index->text->configName()),
+            ),
+            ['queries' => Sql::arrayLiteral($queries)],
+        ), 'Run "bin/console fuzzphony:doctor" to check the index.');
+
+        return array_map(static fn(array $row): string => Coerce::str($row['q']), $rows);
     }
 
     /**

@@ -43,8 +43,9 @@ final class NodeInspector
     }
 
     /**
-     * Exclusions that apply to the whole query ("a b -c -d" -> [c, d]). Typo-tolerant matching
-     * uses them so that "-headphones" is honoured even for fuzzy hits.
+     * Exclusions that apply to the whole query ("a b -c -d" -> [c, d]). The PostgreSQL engine no
+     * longer needs this (its typo-tolerant branch compiles negations in place, at any depth);
+     * kept for engines that can only apply exclusions globally.
      *
      * @return list<Node>
      */
