@@ -212,13 +212,10 @@ final class PostgresEngine implements Engine
         }
 
         $tsquery = null;
-        $exclusions = null;
         if ($root !== null) {
             $compiler = new TsQueryCompiler($index);
             $tsquery = $compiler->compile($root);
             array_push($warnings, ...$compiler->warnings());
-            $excluded = array_filter(array_map($compiler->compile(...), NodeInspector::topLevelExclusions($root)), static fn(?string $e): bool => $e !== null);
-            $exclusions = $excluded === [] ? null : implode(' | ', $excluded);
         }
         $plain = implode(' ', TsQueryCompiler::lexemes(implode(' ', NodeInspector::positiveWords($root))));
 
@@ -239,7 +236,7 @@ final class PostgresEngine implements Engine
         } else {
             $alwaysFuzzy = $fuzzyEligible && ($thresholds->fuzzyMode === FuzzyMode::Always || $tsquery === null);
             $statement = ['label' => $alwaysFuzzy ? 'full-text + fuzzy' : 'full-text']
-                + $builder->ranked($tsquery, $plain, $alwaysFuzzy, $conditions, $profile, $thresholds, $query->limit, $query->offset, $exclusions);
+                + $builder->ranked($tsquery, $plain, $alwaysFuzzy ? $root : null, $conditions, $profile, $thresholds, $query->limit, $query->offset);
             $threshold = $alwaysFuzzy ? $thresholds->fuzzySimilarity : null;
             $rows = $this->run($statement, $threshold);
             $statements[] = $statement;
@@ -247,7 +244,7 @@ final class PostgresEngine implements Engine
 
             if (!$alwaysFuzzy && $fuzzyEligible && $thresholds->fuzzyMode === FuzzyMode::Fallback && self::total($rows) < $thresholds->fallbackBelow) {
                 $statement = ['label' => 'fallback: full-text + fuzzy']
-                    + $builder->ranked($tsquery, $plain, true, $conditions, $profile, $thresholds, $query->limit, $query->offset, $exclusions);
+                    + $builder->ranked($tsquery, $plain, $root, $conditions, $profile, $thresholds, $query->limit, $query->offset);
                 $threshold = $thresholds->fuzzySimilarity;
                 $rows = $this->run($statement, $threshold);
                 $statements[] = $statement;

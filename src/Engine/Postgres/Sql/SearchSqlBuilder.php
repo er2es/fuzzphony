@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Fuzzphony\Engine\Postgres\Sql;
 
 use Fuzzphony\Core\Definition\IndexDefinition;
+use Fuzzphony\Core\Query\Ast\Node;
 use Fuzzphony\Core\Query\Filter\Condition;
 use Fuzzphony\Core\Ranking\RankingProfile;
 use Fuzzphony\Core\Ranking\Thresholds;
@@ -15,7 +16,7 @@ use Fuzzphony\Engine\Postgres\Schema\PostgresSchemaGenerator;
  *
  *   q      -> the compiled query (bound parameters, evaluated once)
  *   fts    -> full-text candidates via the GIN(tsv) index, capped by candidateLimit
- *   fuzzy  -> trigram candidates via the GIN(fz gin_trgm_ops) index, capped by candidateLimit
+ *   fuzzy  -> per-term candidates: each word via GIN(tsv) OR GIN(fz gin_trgm_ops), capped by candidateLimit
  *   cand   -> union of both branches, one row per document
  *   scored -> relevance + bonuses per candidate
  *   page   -> minScore cut, ordering, pagination
@@ -29,12 +30,14 @@ final class SearchSqlBuilder
     public function __construct(private readonly IndexDefinition $index) {}
 
     /**
+     * @param string          $plain        positive words, for the exact / prefix bonuses (q.norm)
+     * @param Node|null       $fuzzyRoot    the parsed query when the fuzzy branch runs, else null
      * @param list<Condition> $conditions
-     * @param string|null     $exclusions tsquery of top-level exclusions, also applied to fuzzy candidates
+     * @param list<string>    $emptyQueries leaf tsqueries the text configuration reduces to nothing (stop words)
      *
      * @return array{sql: string, params: array<string, scalar|null>}
      */
-    public function ranked(?string $tsquery, string $plain, bool $withFuzzy, array $conditions, RankingProfile $profile, Thresholds $thresholds, int $limit, int $offset, ?string $exclusions = null): array
+    public function ranked(?string $tsquery, string $plain, ?Node $fuzzyRoot, array $conditions, RankingProfile $profile, Thresholds $thresholds, int $limit, int $offset, array $emptyQueries = []): array
     {
         $params = new ParameterBag();
         $filters = new FilterCompiler($this->index);
@@ -49,10 +52,6 @@ final class SearchSqlBuilder
         $q[] = $plain !== ''
             ? sprintf('%s(%s) AS norm', PostgresSchemaGenerator::NORM_FUNCTION, $params->add($plain))
             : "''::text AS norm";
-        $withFuzzy = $withFuzzy && $plain !== '';
-        if ($withFuzzy && $exclusions !== null) {
-            $q[] = sprintf('to_tsquery(%s, %s) AS excl', $config, $params->add($exclusions));
-        }
         $ctes = ['q AS (SELECT ' . implode(', ', $q) . ')'];
 
         $branches = [];
@@ -66,12 +65,16 @@ final class SearchSqlBuilder
             );
             $branches[] = 'SELECT id, r_text, 0::double precision AS r_fuzzy FROM fts';
         }
-        if ($withFuzzy) {
+        // Per-term: every word is satisfied exactly or fuzzily, through the query's own AND / OR / NOT.
+        // Compiled here so its placeholders follow the ones above in the same bag.
+        $fuzzy = $fuzzyRoot === null ? null : (new FuzzyQueryCompiler($this->index, $thresholds))->compile($fuzzyRoot, $params, $emptyQueries);
+        if ($fuzzy !== null) {
             $ctes[] = sprintf(
-                "fuzzy AS (\n    SELECT s.id, word_similarity(q.norm, s.fz)::double precision AS r_fuzzy\n    FROM %s AS s CROSS JOIN q\n    WHERE q.norm <%% s.fz AND %s%s\n    LIMIT %d\n)",
+                "fuzzy AS (\n    SELECT s.id, (%s)::double precision AS r_fuzzy\n    FROM %s AS s\n    WHERE %s AND %s\n    LIMIT %d\n)",
+                $fuzzy->score,
                 $table,
+                $fuzzy->predicate,
                 $filters->compile($conditions, $params),
-                $exclusions !== null ? ' AND NOT (s.tsv @@ q.excl)' : '',
                 $candidates,
             );
             $branches[] = 'SELECT id, 0::double precision AS r_text, r_fuzzy FROM fuzzy';
@@ -96,7 +99,7 @@ final class SearchSqlBuilder
 
         $counts = [];
         $counts[] = $tsquery !== null ? '(SELECT count(*) FROM fts) AS fts_n' : '0 AS fts_n';
-        $counts[] = $withFuzzy ? '(SELECT count(*) FROM fuzzy) AS fuzzy_n' : '0 AS fuzzy_n';
+        $counts[] = $fuzzy !== null ? '(SELECT count(*) FROM fuzzy) AS fuzzy_n' : '0 AS fuzzy_n';
         $minScore = Sql::float($thresholds->minScore);
         $ctes[] = sprintf(
             "page AS (\n    SELECT id, r_text, r_fuzzy, relevance, exact_bonus, prefix_bonus, boost_bonus, recency_bonus,\n        relevance + exact_bonus + prefix_bonus + boost_bonus + recency_bonus AS score\n    FROM scored\n    WHERE relevance >= %s\n    ORDER BY score DESC, id\n    LIMIT %d OFFSET %d\n)",
