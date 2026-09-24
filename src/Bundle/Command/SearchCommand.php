@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Fuzzphony\Bundle\Command;
 
 use Fuzzphony\Core\Fuzzphony;
+use Fuzzphony\Core\Support\Coerce;
 use Symfony\Component\Console\Attribute\AsCommand;
 use Symfony\Component\Console\Command\Command;
 use Symfony\Component\Console\Completion\CompletionInput;
@@ -39,13 +40,14 @@ final class SearchCommand extends Command
     protected function execute(InputInterface $input, OutputInterface $output): int
     {
         $io = new SymfonyStyle($input, $output);
-        $search = $this->fuzzphony->in((string) $input->getArgument('index'))
-            ->query((string) $input->getArgument('query'))
-            ->profile((string) $input->getOption('profile'))
-            ->limit(max(1, (int) $input->getOption('limit')));
+        $search = $this->fuzzphony->in(Coerce::str($input->getArgument('index')))
+            ->query(Coerce::str($input->getArgument('query')))
+            ->profile(Coerce::str($input->getOption('profile')))
+            ->limit(max(1, Coerce::int($input->getOption('limit'))));
 
         foreach ((array) $input->getOption('where') as $where) {
-            if (preg_match('/^([a-z_][a-z0-9_]*)\s*(<=|>=|!=|=|<|>)\s*(.*)$/', (string) $where, $m) !== 1) {
+            $where = Coerce::str($where);
+            if (preg_match('/^([a-z_][a-z0-9_]*)\s*(<=|>=|!=|=|<|>)\s*(.*)$/', $where, $m) !== 1) {
                 $io->error(sprintf('Cannot parse filter "%s"; use name<op>value.', $where));
 
                 return Command::INVALID;
@@ -59,7 +61,7 @@ final class SearchCommand extends Command
         }
         $overrides = [];
         foreach ((array) $input->getOption('threshold') as $pair) {
-            [$key, $value] = array_pad(explode('=', (string) $pair, 2), 2, '');
+            [$key, $value] = array_pad(explode('=', Coerce::str($pair), 2), 2, '');
             $overrides[$key] = is_numeric($value) ? $value + 0 : $value;
         }
         if ($overrides !== []) {
@@ -68,7 +70,7 @@ final class SearchCommand extends Command
 
         $explain = $input->getOption('explain') === true;
         $explanation = $explain ? $search->explain($input->getOption('analyze') === true) : null;
-        $result = $explanation?->result ?? $search->get();
+        $result = $explanation !== null ? $explanation->result : $search->get();
 
         $io->writeln(sprintf(
             'Interpreted as <info>%s</info> · %s%s hit(s) · %.1f ms%s',

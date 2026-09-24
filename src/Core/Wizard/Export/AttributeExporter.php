@@ -25,7 +25,7 @@ final class AttributeExporter
         if (!$this->supports($index)) {
             throw new \LogicException('Only table sources without extra watches can be expressed with attributes; export YAML instead.');
         }
-        $e = static fn (mixed $v): string => var_export($v, true);
+        $e = static fn(mixed $v): string => var_export($v, true);
 
         $args = [sprintf('name: %s', $e($index->name)), sprintf('language: %s', $e($index->text->language))];
         if (!$index->text->unaccent) {

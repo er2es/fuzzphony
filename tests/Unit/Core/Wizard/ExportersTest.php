@@ -49,7 +49,8 @@ final class ExportersTest extends TestCase
     {
         $code = (new BuilderExporter())->export(Indexes::products());
 
-        token_get_all("<?php\n" . $code, TOKEN_PARSE); // throws \ParseError on invalid code
+        $tokens = token_get_all("<?php\n" . $code, TOKEN_PARSE); // throws \ParseError on invalid code
+        self::assertNotEmpty($tokens);
         self::assertStringContainsString("->field('name', 'A', fuzzy: true)", $code);
         self::assertStringContainsString("->profile('popular', new RankingProfile(boost: 0.1, recency: 0.3))", $code);
     }
@@ -64,20 +65,23 @@ final class ExportersTest extends TestCase
         self::assertTrue($exporter->supports($original));
 
         $code = $exporter->export($original, 'GadgetExport' . bin2hex(random_bytes(4)));
-        token_get_all($code, TOKEN_PARSE);
+        $tokens = token_get_all($code, TOKEN_PARSE);
+        self::assertNotEmpty($tokens);
         eval(substr($code, 5));
-        preg_match('/final class (\w+)/', $code, $m);
+        if (preg_match('/final class (\w+)/', $code, $m) !== 1) {
+            self::fail('Could not find the exported class name.');
+        }
 
         /** @var class-string $class */
         $class = '\\' . $m[1];
         $loaded = (new AttributeDefinitionLoader())->load($class);
         self::assertSame(
-            array_map(static fn ($f): array => [$f->name, $f->weight, $f->fuzzy, $f->highlight, $f->column()], $original->fields),
-            array_map(static fn ($f): array => [$f->name, $f->weight, $f->fuzzy, $f->highlight, $f->column()], $loaded->fields),
+            array_map(static fn($f): array => [$f->name, $f->weight, $f->fuzzy, $f->highlight, $f->column()], $original->fields),
+            array_map(static fn($f): array => [$f->name, $f->weight, $f->fuzzy, $f->highlight, $f->column()], $loaded->fields),
         );
         self::assertSame(
-            array_map(static fn ($f): array => [$f->name, $f->type, $f->column()], $original->filters),
-            array_map(static fn ($f): array => [$f->name, $f->type, $f->column()], $loaded->filters),
+            array_map(static fn($f): array => [$f->name, $f->type, $f->column()], $original->filters),
+            array_map(static fn($f): array => [$f->name, $f->type, $f->column()], $loaded->filters),
         );
         self::assertSame('gadget', $loaded->source->table);
         self::assertSame('fuzzphony_german', $loaded->text->configName());

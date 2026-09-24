@@ -14,7 +14,7 @@ final class BuilderExporter
 {
     public function export(IndexDefinition $index): string
     {
-        $e = static fn (mixed $v): string => var_export($v, true);
+        $e = static fn(mixed $v): string => var_export($v, true);
         $lines = [sprintf('$%s = IndexDefinition::builder(%s)', $this->variable($index->name), $e($index->name))];
         $source = $index->source;
         $lines[] = $source->query !== null
@@ -57,7 +57,7 @@ final class BuilderExporter
         }
         $defaults = (new RankingProfile())->toArray();
         foreach ($index->profiles as $name => $profile) {
-            $changed = array_filter($profile->toArray(), static fn (mixed $v, string $k): bool => $k !== 'label_weights' && $v !== $defaults[$k], ARRAY_FILTER_USE_BOTH);
+            $changed = array_filter($profile->toArray(), static fn(mixed $v, string $k): bool => $k !== 'label_weights' && $v !== $defaults[$k], ARRAY_FILTER_USE_BOTH);
             if ($name === 'default' && $changed === []) {
                 continue;
             }

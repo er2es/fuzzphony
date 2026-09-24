@@ -12,6 +12,7 @@ use Fuzzphony\Core\Inspection\Check;
 use Fuzzphony\Core\Inspection\InspectionReport;
 use Fuzzphony\Core\Inspection\InspectOptions;
 use Fuzzphony\Core\Ranking\FuzzyMode;
+use Fuzzphony\Core\Support\Coerce;
 use Fuzzphony\Engine\Postgres\Schema\PostgresSchemaGenerator;
 use Fuzzphony\Engine\Postgres\Sql\DocumentSql;
 use Fuzzphony\Engine\Postgres\Sql\Sql;
@@ -68,7 +69,7 @@ final class PostgresInspector
 
     private function version(): Check
     {
-        $version = (int) $this->connection->fetchValue("SELECT current_setting('server_version_num')::int");
+        $version = Coerce::int($this->connection->fetchValue("SELECT current_setting('server_version_num')::int"));
 
         return $version >= 150000
             ? Check::ok('PostgreSQL version', sprintf('%d.%d', intdiv($version, 10000), $version % 10000))
@@ -131,9 +132,10 @@ final class PostgresInspector
                 ['view' => 'pg_temp.' . $view],
             );
         } catch (\Throwable $e) {
+            $firstLine = strtok($e->getMessage(), "\n");
             $checks[] = Check::error(
                 'Source',
-                sprintf('The source cannot be queried: %s', trim(strtok($e->getMessage(), "\n") ?: $e->getMessage())),
+                sprintf('The source cannot be queried: %s', trim($firstLine !== false ? $firstLine : $e->getMessage())),
                 $index->source->table !== null ? sprintf('Check that table "%s" exists and is readable.', $index->source->table) : 'Run the source query manually and fix it.',
             );
 
@@ -148,7 +150,7 @@ final class PostgresInspector
         $checks[] = Check::ok('Source', $index->source->table !== null ? sprintf('table "%s"', $index->source->table) : 'custom query');
         $columns = [];
         foreach ($rows as $row) {
-            $columns[(string) $row['attname']] = (string) preg_replace('/\(.*\)/', '', (string) $row['type']);
+            $columns[Coerce::str($row['attname'])] = (string) preg_replace('/\(.*\)/', '', Coerce::str($row['type']));
         }
 
         return $columns;
@@ -239,10 +241,10 @@ final class PostgresInspector
     /** @return list<Check> */
     private function sidecarColumns(IndexDefinition $index): array
     {
-        $actual = array_column($this->connection->fetchAll(
+        $actual = array_map(Coerce::str(...), array_column($this->connection->fetchAll(
             'SELECT attname FROM pg_attribute WHERE attrelid = to_regclass(:table) AND attnum > 0 AND NOT attisdropped',
             ['table' => $index->sidecarTable()],
-        ), 'attname');
+        ), 'attname'));
         $expected = array_keys($this->schema->columns($index));
         $missing = array_diff($expected, $actual);
         $extra = array_diff($actual, $expected);
@@ -255,7 +257,7 @@ final class PostgresInspector
             $checks[] = Check::warning(
                 'Sidecar columns',
                 sprintf('Columns no longer in the definition: %s (harmless, but they waste space).', implode(', ', $extra)),
-                implode(' ', array_map(static fn (string $c): string => sprintf('ALTER TABLE %s DROP COLUMN %s;', Sql::ident($index->sidecarTable()), Sql::ident($c)), $extra)),
+                implode(' ', array_map(static fn(string $c): string => sprintf('ALTER TABLE %s DROP COLUMN %s;', Sql::ident($index->sidecarTable()), Sql::ident($c)), $extra)),
             );
         }
 
@@ -271,7 +273,7 @@ final class PostgresInspector
         );
         $valid = [];
         foreach ($rows as $row) {
-            $valid[(string) $row['relname']] = (bool) $row['indisvalid'];
+            $valid[Coerce::str($row['relname'])] = (bool) $row['indisvalid'];
         }
 
         $checks = [];
@@ -300,15 +302,15 @@ final class PostgresInspector
             $label = 'Sync trigger on ' . $watch->table;
             $expected = array_keys($this->schema->triggerDefinitions($index, $watch));
 
-            $missing = array_values(array_filter($expected, static fn (string $t): bool => !isset($state[$t])));
-            $disabled = array_values(array_filter($expected, static fn (string $t): bool => ($state[$t] ?? null) === 'D'));
-            $leftover = array_values(array_filter($this->schema->obsoleteTriggerNames($index, $watch), static fn (string $t): bool => isset($state[$t])));
+            $missing = array_values(array_filter($expected, static fn(string $t): bool => !isset($state[$t])));
+            $disabled = array_values(array_filter($expected, static fn(string $t): bool => ($state[$t] ?? null) === 'D'));
+            $leftover = array_values(array_filter($this->schema->obsoleteTriggerNames($index, $watch), static fn(string $t): bool => isset($state[$t])));
 
             if ($missing !== []) {
                 $checks[] = Check::error($label, sprintf('missing %s: changes to this table are not indexed', implode(', ', $missing)), self::APPLY);
             } elseif ($disabled !== []) {
                 $checks[] = Check::error($label, sprintf('%s exists but is DISABLED', implode(', ', $disabled)), implode(' ', array_map(
-                    static fn (string $t): string => sprintf('ALTER TABLE %s ENABLE TRIGGER %s;', Sql::ident($watch->table), Sql::ident($t)),
+                    static fn(string $t): string => sprintf('ALTER TABLE %s ENABLE TRIGGER %s;', Sql::ident($watch->table), Sql::ident($t)),
                     $disabled,
                 )));
             } elseif ($expected !== []) {
@@ -334,8 +336,8 @@ final class PostgresInspector
             sprintf('SELECT count(*) AS n, coalesce(extract(epoch FROM now() - min(queued_at)), 0)::bigint AS age FROM %s WHERE index_name = :index', PostgresSchemaGenerator::QUEUE_TABLE),
             ['index' => $index->name],
         )[0];
-        $size = (int) $row['n'];
-        $age = (int) $row['age'];
+        $size = Coerce::int($row['n']);
+        $age = Coerce::int($row['age']);
 
         return match (true) {
             $size > $options->maxQueueBacklog || ($size > 0 && $age > $options->maxQueueAgeSeconds) => Check::warning(
@@ -350,16 +352,16 @@ final class PostgresInspector
     private function coverage(IndexDefinition $index, InspectOptions $options): Check
     {
         if ($options->deep) {
-            $source = (int) $this->connection->fetchValue(sprintf('SELECT count(*) FROM (%s) AS d', DocumentSql::raw($index)));
-            $indexed = (int) $this->connection->fetchValue(sprintf('SELECT count(*) FROM %s', Sql::ident($index->sidecarTable())));
+            $source = Coerce::int($this->connection->fetchValue(sprintf('SELECT count(*) FROM (%s) AS d', DocumentSql::raw($index))));
+            $indexed = Coerce::int($this->connection->fetchValue(sprintf('SELECT count(*) FROM %s', Sql::ident($index->sidecarTable()))));
             $how = 'exact';
         } else {
             if ($index->source->table === null) {
                 return Check::skipped('Coverage', 'Estimates are not available for query sources; run with --deep for exact counts.');
             }
             $estimate = 'SELECT greatest(reltuples, 0)::bigint FROM pg_class WHERE oid = to_regclass(:t)';
-            $source = (int) $this->connection->fetchValue($estimate, ['t' => (string) $index->source->table]);
-            $indexed = (int) $this->connection->fetchValue($estimate, ['t' => $index->sidecarTable()]);
+            $source = Coerce::int($this->connection->fetchValue($estimate, ['t' => $index->source->table]));
+            $indexed = Coerce::int($this->connection->fetchValue($estimate, ['t' => $index->sidecarTable()]));
             $how = 'estimated';
         }
 

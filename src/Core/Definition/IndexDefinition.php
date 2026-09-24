@@ -67,7 +67,7 @@ final readonly class IndexDefinition
             }
         }
 
-        throw InvalidQuery::unknownFilter($this->name, $name, array_map(static fn (FilterDefinition $f): string => $f->name, $this->filters));
+        throw InvalidQuery::unknownFilter($this->name, $name, array_map(static fn(FilterDefinition $f): string => $f->name, $this->filters));
     }
 
     public function profile(string $name): RankingProfile
@@ -78,7 +78,7 @@ final readonly class IndexDefinition
     /** @return list<FieldDefinition> */
     public function fuzzyFields(): array
     {
-        return array_values(array_filter($this->fields, static fn (FieldDefinition $f): bool => $f->fuzzy));
+        return array_values(array_filter($this->fields, static fn(FieldDefinition $f): bool => $f->fuzzy));
     }
 
     public function hasFuzzy(): bool
@@ -119,9 +119,96 @@ final readonly class IndexDefinition
         return $watches;
     }
 
-    /** Returns a copy with some properties replaced (used to merge YAML overrides into attribute definitions). */
+    /**
+     * Returns a copy with some properties replaced (used to merge YAML overrides into attribute definitions).
+     * Each override is validated against its real property type; an absent or wrong-typed key keeps the current value.
+     */
     public function with(mixed ...$changes): self
     {
-        return new self(...array_merge(get_object_vars($this), $changes));
+        $name = $changes['name'] ?? null;
+        $source = $changes['source'] ?? null;
+        $fields = $changes['fields'] ?? null;
+        $filters = $changes['filters'] ?? null;
+        $watches = $changes['watches'] ?? null;
+        $idType = $changes['idType'] ?? null;
+        $sync = $changes['sync'] ?? null;
+        $text = $changes['text'] ?? null;
+        $boostColumn = array_key_exists('boostColumn', $changes) ? $changes['boostColumn'] : $this->boostColumn;
+        $recencyColumn = array_key_exists('recencyColumn', $changes) ? $changes['recencyColumn'] : $this->recencyColumn;
+        $profiles = $changes['profiles'] ?? null;
+        $thresholds = $changes['thresholds'] ?? null;
+        $entityClass = array_key_exists('entityClass', $changes) ? $changes['entityClass'] : $this->entityClass;
+        $triggerLevel = $changes['triggerLevel'] ?? null;
+
+        $entityClassOverride = $this->entityClass;
+        if (array_key_exists('entityClass', $changes)) {
+            $candidate = $changes['entityClass'];
+            if ($candidate === null) {
+                $entityClassOverride = null;
+            } elseif (is_string($candidate) && class_exists($candidate)) {
+                $entityClassOverride = $candidate;
+            }
+        }
+
+        return new self(
+            name: is_string($name) ? $name : $this->name,
+            source: $source instanceof Source ? $source : $this->source,
+            fields: self::typedList($fields, FieldDefinition::class) ?? $this->fields,
+            filters: self::typedList($filters, FilterDefinition::class) ?? $this->filters,
+            watches: self::typedList($watches, Watch::class) ?? $this->watches,
+            idType: $idType instanceof IdType ? $idType : $this->idType,
+            sync: $sync instanceof SyncMode ? $sync : $this->sync,
+            text: $text instanceof TextConfig ? $text : $this->text,
+            boostColumn: is_string($boostColumn) || $boostColumn === null ? $boostColumn : $this->boostColumn,
+            recencyColumn: is_string($recencyColumn) || $recencyColumn === null ? $recencyColumn : $this->recencyColumn,
+            profiles: self::typedMap($profiles, RankingProfile::class) ?? $this->profiles,
+            thresholds: $thresholds instanceof Thresholds ? $thresholds : $this->thresholds,
+            entityClass: $entityClassOverride,
+            triggerLevel: $triggerLevel instanceof TriggerLevel ? $triggerLevel : $this->triggerLevel,
+        );
+    }
+
+    /**
+     * @template T of object
+     *
+     * @param class-string<T> $of
+     *
+     * @return list<T>|null
+     */
+    private static function typedList(mixed $value, string $of): ?array
+    {
+        if (!is_array($value)) {
+            return null;
+        }
+        foreach ($value as $item) {
+            if (!$item instanceof $of) {
+                return null;
+            }
+        }
+
+        return array_values($value);
+    }
+
+    /**
+     * @template T of object
+     *
+     * @param class-string<T> $of
+     *
+     * @return array<string, T>|null
+     */
+    private static function typedMap(mixed $value, string $of): ?array
+    {
+        if (!is_array($value)) {
+            return null;
+        }
+        $result = [];
+        foreach ($value as $key => $item) {
+            if (!is_string($key) || !$item instanceof $of) {
+                return null;
+            }
+            $result[$key] = $item;
+        }
+
+        return $result;
     }
 }

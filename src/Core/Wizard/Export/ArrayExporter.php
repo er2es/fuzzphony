@@ -25,7 +25,7 @@ final class ArrayExporter
             'table' => $source->table,
             'query' => $source->query,
             'id' => $source->idColumn !== 'id' ? $source->idColumn : null,
-        ], static fn (mixed $v): bool => $v !== null);
+        ], static fn(mixed $v): bool => $v !== null);
         if ($index->idType->value !== 'int') {
             $out['id_type'] = $index->idType->value;
         }
@@ -33,10 +33,10 @@ final class ArrayExporter
         foreach ($index->fields as $field) {
             $options = array_filter([
                 'weight' => $field->weight->value,
-                'fuzzy' => $field->fuzzy ?: null,
+                'fuzzy' => $field->fuzzy ? true : null,
                 'highlight' => $field->highlight ? null : false,
                 'column' => $field->column,
-            ], static fn (mixed $v): bool => $v !== null);
+            ], static fn(mixed $v): bool => $v !== null);
             $out['fields'][$field->name] = count($options) === 1 ? $field->weight->value : $options;
         }
         foreach ($index->filters as $filter) {
@@ -65,7 +65,7 @@ final class ArrayExporter
 
         $defaults = (new RankingProfile())->toArray();
         foreach ($index->profiles as $name => $profile) {
-            $diff = array_filter($profile->toArray(), static fn (mixed $v, string $k): bool => $v !== $defaults[$k], ARRAY_FILTER_USE_BOTH);
+            $diff = array_filter($profile->toArray(), static fn(mixed $v, string $k): bool => $v !== $defaults[$k], ARRAY_FILTER_USE_BOTH);
             if ($name !== 'default' || $diff !== []) {
                 $out['profiles'][$name] = $diff;
             }

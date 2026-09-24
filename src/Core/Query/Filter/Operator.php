@@ -34,7 +34,7 @@ enum Operator: string
         }) ?? throw new InvalidQuery(sprintf(
             'Unknown operator "%s". Use one of: %s.',
             $operator,
-            implode(', ', array_map(static fn (self $o): string => $o->value, self::cases())),
+            implode(', ', array_map(static fn(self $o): string => $o->value, self::cases())),
         ));
     }
 }

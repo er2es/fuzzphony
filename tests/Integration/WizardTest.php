@@ -17,7 +17,7 @@ final class WizardTest extends TestCase
 {
     public function testSuggestionIsImmediatelyUsable(): void
     {
-        $connection = PostgresTestCase::connect($this);
+        $connection = PostgresTestCase::connect();
         PostgresTestCase::createFixtures($connection, EngineConformanceTestCase::fixtureRows());
         $introspector = new PostgresIntrospector($connection);
 
@@ -49,6 +49,6 @@ final class WizardTest extends TestCase
     public function testUnknownTable(): void
     {
         $this->expectException(\InvalidArgumentException::class);
-        (new PostgresIntrospector(PostgresTestCase::connect($this)))->describe('no_such_table');
+        (new PostgresIntrospector(PostgresTestCase::connect()))->describe('no_such_table');
     }
 }

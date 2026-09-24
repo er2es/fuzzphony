@@ -33,7 +33,7 @@ final class Identifier
     public static function quote(string $identifier): string
     {
         return implode('.', array_map(
-            static fn (string $part): string => '"' . str_replace('"', '""', $part) . '"',
+            static fn(string $part): string => '"' . str_replace('"', '""', $part) . '"',
             explode('.', $identifier),
         ));
     }

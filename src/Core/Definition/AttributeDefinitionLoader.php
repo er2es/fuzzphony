@@ -4,9 +4,9 @@ declare(strict_types=1);
 
 namespace Fuzzphony\Core\Definition;
 
+use Fuzzphony\Core\Attribute\Searchable;
 use Fuzzphony\Core\Attribute\SearchField;
 use Fuzzphony\Core\Attribute\SearchFilter;
-use Fuzzphony\Core\Attribute\Searchable;
 use Fuzzphony\Core\Exception\InvalidDefinition;
 use Fuzzphony\Core\Support\Identifier;
 

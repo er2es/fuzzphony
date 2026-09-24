@@ -14,8 +14,8 @@ final class NodeInspector
             $node === null => false,
             $node instanceof Term, $node instanceof Phrase, $node instanceof FieldScoped => true,
             $node instanceof Not => false,
-            $node instanceof AllOf => array_any($node->nodes, static fn (Node $n): bool => self::hasPositive($n)),
-            $node instanceof AnyOf => array_all($node->nodes, static fn (Node $n): bool => self::hasPositive($n)),
+            $node instanceof AllOf => array_any($node->nodes, static fn(Node $n): bool => self::hasPositive($n)),
+            $node instanceof AnyOf => array_all($node->nodes, static fn(Node $n): bool => self::hasPositive($n)),
             default => false,
         };
     }
@@ -35,7 +35,7 @@ final class NodeInspector
             $node instanceof Phrase => $node->words,
             $node instanceof FieldScoped => $fieldFilter === null || $fieldFilter($node->field) ? self::positiveWords($node->node) : [],
             $node instanceof AllOf, $node instanceof AnyOf => array_merge(...array_map(
-                static fn (Node $n): array => self::positiveWords($n, $fieldFilter),
+                static fn(Node $n): array => self::positiveWords($n, $fieldFilter),
                 $node->nodes,
             )),
             default => [],
@@ -53,8 +53,8 @@ final class NodeInspector
         return match (true) {
             $node instanceof Not => [$node->node],
             $node instanceof AllOf => array_values(array_map(
-                static fn (Not $n): Node => $n->node,
-                array_filter($node->nodes, static fn (Node $n): bool => $n instanceof Not),
+                static fn(Not $n): Node => $n->node,
+                array_filter($node->nodes, static fn(Node $n): bool => $n instanceof Not),
             )),
             default => [],
         };

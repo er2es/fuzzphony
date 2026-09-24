@@ -39,7 +39,7 @@ final class DefinitionSuggester
         }
         $pk = $table->column($table->primaryKey);
         $name = $indexName ?? $this->indexName($table->table);
-        $fkColumns = array_map(static fn (ForeignKey $fk): string => $fk->column, $table->foreignKeys);
+        $fkColumns = array_map(static fn(ForeignKey $fk): string => $fk->column, $table->foreignKeys);
 
         $fields = [];      // [column expression alias, weight, fuzzy, select sql]
         $filters = [];     // [name, FilterType, select sql]
@@ -157,9 +157,10 @@ final class DefinitionSuggester
         } else {
             // Joins: one SELECT with stable aliases; the main table and every joined table are watched.
             $select = [sprintf('t.%s', Identifier::quote($table->primaryKey))];
-            foreach ([...$fields, ...$filters] as $entry) {
-                $alias = $entry[0];
-                $expression = $entry[array_key_last($entry) - 1];
+            foreach ($fields as [$alias, , , $expression]) {
+                $select[] = $expression === 't.' . Identifier::quote($alias) ? $expression : sprintf('%s AS %s', $expression, Identifier::quote($alias));
+            }
+            foreach ($filters as [$alias, , $expression]) {
                 $select[] = $expression === 't.' . Identifier::quote($alias) ? $expression : sprintf('%s AS %s', $expression, Identifier::quote($alias));
             }
             foreach (array_filter([$boost, $recency]) as $extra) {
@@ -230,7 +231,7 @@ final class DefinitionSuggester
 
     private function labelColumn(TableProfile $table): ?string
     {
-        $text = array_values(array_filter($table->columns, static fn (ColumnProfile $c): bool => $c->kind === ColumnKind::Text));
+        $text = array_values(array_filter($table->columns, static fn(ColumnProfile $c): bool => $c->kind === ColumnKind::Text));
         foreach ($text as $column) {
             if (preg_match(self::TITLE, $column->name) === 1) {
                 return $column->name;

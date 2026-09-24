@@ -24,7 +24,7 @@ final class SchemaGeneratorTest extends TestCase
     public function testIndexesAreBuiltConcurrentlyOutsideTransactions(): void
     {
         $statements = (new PostgresSchemaGenerator())->index(Indexes::products())->statements;
-        $concurrent = array_values(array_filter($statements, static fn (Statement $s): bool => str_contains($s->sql, 'CONCURRENTLY')));
+        $concurrent = array_values(array_filter($statements, static fn(Statement $s): bool => str_contains($s->sql, 'CONCURRENTLY')));
 
         self::assertCount(5, $concurrent); // tsv, trigram, 3 filters
         foreach ($concurrent as $statement) {

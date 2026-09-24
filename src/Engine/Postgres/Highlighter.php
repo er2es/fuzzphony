@@ -7,6 +7,7 @@ namespace Fuzzphony\Engine\Postgres;
 use Fuzzphony\Core\Database\Connection;
 use Fuzzphony\Core\Definition\IndexDefinition;
 use Fuzzphony\Core\Exception\InvalidQuery;
+use Fuzzphony\Core\Support\Coerce;
 use Fuzzphony\Engine\Postgres\Sql\DocumentSql;
 use Fuzzphony\Engine\Postgres\Sql\ParameterBag;
 use Fuzzphony\Engine\Postgres\Sql\Sql;
@@ -69,7 +70,7 @@ final class Highlighter
         $out = [];
         foreach ($this->connection->fetchAll($sql, $params->all()) as $row) {
             foreach ($fields as $name) {
-                $out[(string) $row['id']][$name] = self::toHtml((string) $row['h_' . $name]);
+                $out[Coerce::str($row['id'])][$name] = self::toHtml(Coerce::str($row['h_' . $name]));
             }
         }
 

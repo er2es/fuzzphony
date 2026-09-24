@@ -20,8 +20,8 @@ final readonly class SchemaPlan
     /** Transactional statements run in one transaction; the rest (concurrent index builds) run after it. */
     public function apply(Connection $connection, ?callable $onStatement = null): void
     {
-        $transactional = array_filter($this->statements, static fn (Statement $s): bool => $s->transactional);
-        $separate = array_filter($this->statements, static fn (Statement $s): bool => !$s->transactional);
+        $transactional = array_filter($this->statements, static fn(Statement $s): bool => $s->transactional);
+        $separate = array_filter($this->statements, static fn(Statement $s): bool => !$s->transactional);
 
         $connection->transactional(static function (Connection $c) use ($transactional, $onStatement): void {
             foreach ($transactional as $statement) {

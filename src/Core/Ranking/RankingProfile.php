@@ -133,6 +133,8 @@ final readonly class RankingProfile
 
     private static function num(float $value): string
     {
-        return rtrim(rtrim(sprintf('%.6F', $value), '0'), '.') ?: '0';
+        $trimmed = rtrim(rtrim(sprintf('%.6F', $value), '0'), '.');
+
+        return $trimmed !== '' ? $trimmed : '0';
     }
 }

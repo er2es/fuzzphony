@@ -34,7 +34,9 @@ final class Reindexer
             }
             $total += $this->engine->refresh($index, $ids);
             $after = $ids[array_key_last($ids)];
-            $onBatch !== null && $onBatch($total, $after);
+            if ($onBatch !== null) {
+                $onBatch($total, $after);
+            }
         } while (count($ids) === $batchSize);
 
         return $total;

@@ -25,6 +25,14 @@ final readonly class ScoreBreakdown
     /** @return array<string, float> */
     public function toArray(): array
     {
-        return get_object_vars($this);
+        return [
+            'textRank' => $this->textRank,
+            'fuzzySimilarity' => $this->fuzzySimilarity,
+            'relevance' => $this->relevance,
+            'exactBonus' => $this->exactBonus,
+            'prefixBonus' => $this->prefixBonus,
+            'boostBonus' => $this->boostBonus,
+            'recencyBonus' => $this->recencyBonus,
+        ];
     }
 }

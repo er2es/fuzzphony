@@ -70,16 +70,38 @@ final readonly class Thresholds
             throw new InvalidDefinition('thresholds', [sprintf('Unknown threshold option(s): %s. Allowed: %s.', implode(', ', $unknown), implode(', ', array_keys($map)))]);
         }
 
-        $args = get_object_vars($this);
+        $minScore = $this->minScore;
+        $fuzzySimilarity = $this->fuzzySimilarity;
+        $fuzzyMinLength = $this->fuzzyMinLength;
+        $fuzzyMode = $this->fuzzyMode;
+        $fallbackBelow = $this->fallbackBelow;
+        $candidateLimit = $this->candidateLimit;
+        $maxQueryLength = $this->maxQueryLength;
+        $maxTerms = $this->maxTerms;
+
         foreach ($overrides as $key => $value) {
             $property = $map[$key];
-            $args[$property] = match ($property) {
-                'fuzzyMode' => $value instanceof FuzzyMode ? $value : FuzzyMode::from(is_string($value) ? $value : ''),
-                'minScore', 'fuzzySimilarity' => is_numeric($value) ? (float) $value : throw new InvalidDefinition('thresholds', [sprintf('"%s" must be a number.', $key)]),
-                default => is_int($value) ? $value : throw new InvalidDefinition('thresholds', [sprintf('"%s" must be an integer.', $key)]),
+            match ($property) {
+                'minScore' => $minScore = is_numeric($value) ? (float) $value : throw new InvalidDefinition('thresholds', [sprintf('"%s" must be a number.', $key)]),
+                'fuzzySimilarity' => $fuzzySimilarity = is_numeric($value) ? (float) $value : throw new InvalidDefinition('thresholds', [sprintf('"%s" must be a number.', $key)]),
+                'fuzzyMinLength' => $fuzzyMinLength = is_int($value) ? $value : throw new InvalidDefinition('thresholds', [sprintf('"%s" must be an integer.', $key)]),
+                'fuzzyMode' => $fuzzyMode = $value instanceof FuzzyMode ? $value : FuzzyMode::from(is_string($value) ? $value : ''),
+                'fallbackBelow' => $fallbackBelow = is_int($value) ? $value : throw new InvalidDefinition('thresholds', [sprintf('"%s" must be an integer.', $key)]),
+                'candidateLimit' => $candidateLimit = is_int($value) ? $value : throw new InvalidDefinition('thresholds', [sprintf('"%s" must be an integer.', $key)]),
+                'maxQueryLength' => $maxQueryLength = is_int($value) ? $value : throw new InvalidDefinition('thresholds', [sprintf('"%s" must be an integer.', $key)]),
+                default => $maxTerms = is_int($value) ? $value : throw new InvalidDefinition('thresholds', [sprintf('"%s" must be an integer.', $key)]),
             };
         }
 
-        return new self(...$args);
+        return new self(
+            minScore: $minScore,
+            fuzzySimilarity: $fuzzySimilarity,
+            fuzzyMinLength: $fuzzyMinLength,
+            fuzzyMode: $fuzzyMode,
+            fallbackBelow: $fallbackBelow,
+            candidateLimit: $candidateLimit,
+            maxQueryLength: $maxQueryLength,
+            maxTerms: $maxTerms,
+        );
     }
 }

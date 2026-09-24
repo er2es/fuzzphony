@@ -70,7 +70,7 @@ final class PostgresSchemaGenerator
         $table = Sql::ident($index->sidecarTable());
         $columns = $this->columns($index);
 
-        $definitions = array_map(static fn (string $name, string $type): string => sprintf('    %s %s', Sql::ident($name), $type), array_keys($columns), $columns);
+        $definitions = array_map(static fn(string $name, string $type): string => sprintf('    %s %s', Sql::ident($name), $type), array_keys($columns), $columns);
         $statements = [
             new Statement(sprintf("CREATE TABLE IF NOT EXISTS %s (\n%s\n)", $table, implode(",\n", $definitions)), sprintf('Sidecar index table of "%s"', $index->name)),
         ];
@@ -250,7 +250,7 @@ final class PostgresSchemaGenerator
         $values[] = 'now()';
 
         $updates = implode(",\n        ", array_map(
-            static fn (string $c): string => sprintf('%1$s = EXCLUDED.%1$s', Sql::ident($c)),
+            static fn(string $c): string => sprintf('%1$s = EXCLUDED.%1$s', Sql::ident($c)),
             array_slice($columns, 1),
         ));
         $document = DocumentSql::select($index);
@@ -382,7 +382,7 @@ final class PostgresSchemaGenerator
         $config = Sql::string($index->text->configName()) . '::regconfig';
 
         return implode("\n            || ", array_map(
-            static fn ($field): string => sprintf(
+            static fn($field): string => sprintf(
                 "setweight(to_tsvector(%s, coalesce(doc.%s::text, '')), '%s')",
                 $config,
                 Sql::ident('fld_' . $field->name),
@@ -400,7 +400,7 @@ final class PostgresSchemaGenerator
         }
 
         return sprintf("coalesce(concat_ws(' ', %s), '')", implode(', ', array_map(
-            static fn ($field): string => sprintf('%s(doc.%s::text)', self::NORM_FUNCTION, Sql::ident('fld_' . $field->name)),
+            static fn($field): string => sprintf('%s(doc.%s::text)', self::NORM_FUNCTION, Sql::ident('fld_' . $field->name)),
             $fields,
         )));
     }

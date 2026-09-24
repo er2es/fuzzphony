@@ -26,12 +26,13 @@ final class FuzzphonySearchFilter implements FilterInterface
         private readonly string $parameterName = 'q',
         private readonly string $profile = 'default',
         private readonly int $maxResults = 500,
-        private readonly ?array $properties = null,
     ) {}
 
+    /** @param array<string, mixed> $context */
     public function apply(QueryBuilder $queryBuilder, QueryNameGeneratorInterface $queryNameGenerator, string $resourceClass, ?Operation $operation = null, array $context = []): void
     {
-        $text = $context['filters'][$this->parameterName] ?? null;
+        $filters = $context['filters'] ?? null;
+        $text = is_array($filters) ? ($filters[$this->parameterName] ?? null) : null;
         if (!is_string($text) || trim($text) === '' || !$this->fuzzphony->registry()->has($resourceClass)) {
             return;
         }
@@ -61,16 +62,14 @@ final class FuzzphonySearchFilter implements FilterInterface
             ->orderBy('fuzzphony_rank', 'ASC');
     }
 
-    /** @return array<string, array<string, mixed>> */
+    /** @return array<string, array{property?: string, type?: string, required?: bool, description?: string, strategy?: string, is_collection?: bool, schema?: array<string, mixed>}> */
     public function getDescription(string $resourceClass): array
     {
         return [
             $this->parameterName => [
-                'property' => null,
                 'type' => 'string',
                 'required' => false,
                 'description' => 'Relevance search: typo tolerant, accent insensitive. Supports "phrases", -exclusions, OR, prefix* and field:value.',
-                'openapi' => ['example' => 'wireless mouse -cable'],
             ],
         ];
     }

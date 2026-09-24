@@ -42,7 +42,7 @@ final class FilterCompiler
     {
         $filter = $this->index->filter($c->filter);
         $column = $alias . '.' . self::column($filter->name);
-        $bind = fn (mixed $value): string => $params->add($filter->type->normalize($value, $filter->name));
+        $bind = fn(mixed $value): string => $params->add($filter->type->normalize($value, $filter->name));
 
         return match ($c->operator) {
             Operator::IsNull => $column . ' IS NULL',

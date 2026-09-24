@@ -22,6 +22,7 @@ use Fuzzphony\Core\Search\Explanation;
 use Fuzzphony\Core\Search\Hit;
 use Fuzzphony\Core\Search\ScoreBreakdown;
 use Fuzzphony\Core\Search\SearchResult;
+use Fuzzphony\Core\Support\Coerce;
 use Fuzzphony\Engine\Postgres\Inspection\PostgresInspector;
 use Fuzzphony\Engine\Postgres\Schema\PostgresSchemaGenerator;
 use Fuzzphony\Engine\Postgres\Sql\DocumentSql;
@@ -88,7 +89,7 @@ final class PostgresEngine implements Engine
                 }
                 $rows = $c->fetchAll(($analyze ? 'EXPLAIN (ANALYZE, BUFFERS) ' : 'EXPLAIN ') . $last['sql'], $last['params']);
 
-                return array_map(static fn (array $row): string => (string) reset($row), $rows);
+                return array_map(static fn(array $row): string => Coerce::str(reset($row)), $rows);
             });
         }
 
@@ -101,10 +102,10 @@ final class PostgresEngine implements Engine
             return 0;
         }
 
-        return $this->guard('refresh', fn (): int => (int) $this->connection->fetchValue(
+        return $this->guard('refresh', fn(): int => Coerce::int($this->connection->fetchValue(
             sprintf('SELECT %s(CAST(:ids AS %s[]))', Sql::ident($this->schema->refreshFunctionName($index)), $index->idType->sqlType()),
             ['ids' => Sql::arrayLiteral(array_values($ids))],
-        ), 'Run "fuzzphony:schema --apply" to create the refresh function, then "fuzzphony:doctor".');
+        )), 'Run "fuzzphony:schema --apply" to create the refresh function, then "fuzzphony:doctor".');
     }
 
     public function sourceIds(IndexDefinition $index, int|string|null $after, int $limit): array
@@ -121,7 +122,7 @@ final class PostgresEngine implements Engine
             $where,
         ), $params);
 
-        return array_map(static fn (array $row): int|string => $index->idType->cast((string) $row['id']), $rows);
+        return array_map(static fn(array $row): int|string => $index->idType->cast(Coerce::str($row['id'])), $rows);
     }
 
     public function processQueue(IndexDefinition $index, int $limit): int
@@ -152,19 +153,19 @@ final class PostgresEngine implements Engine
 
         return $this->guard(
             'queue processing',
-            fn (): int => (int) $this->connection->transactional(
-                static fn (Connection $c): mixed => $c->fetchValue($sql, ['index' => $index->name, 'limit' => $limit]),
-            ),
+            fn(): int => Coerce::int($this->connection->transactional(
+                static fn(Connection $c): mixed => $c->fetchValue($sql, ['index' => $index->name, 'limit' => $limit]),
+            )),
             'Run "fuzzphony:schema --apply" and check "fuzzphony:doctor".',
         );
     }
 
     public function queueSize(IndexDefinition $index): int
     {
-        return (int) $this->connection->fetchValue(
+        return Coerce::int($this->connection->fetchValue(
             sprintf('SELECT count(*) FROM %s WHERE index_name = :index', PostgresSchemaGenerator::QUEUE_TABLE),
             ['index' => $index->name],
-        );
+        ));
     }
 
     public function inspect(IndexDefinition $index, InspectOptions $options = new InspectOptions()): InspectionReport
@@ -203,7 +204,7 @@ final class PostgresEngine implements Engine
             $compiler = new TsQueryCompiler($index);
             $tsquery = $compiler->compile($root);
             array_push($warnings, ...$compiler->warnings());
-            $excluded = array_filter(array_map($compiler->compile(...), NodeInspector::topLevelExclusions($root)), static fn (?string $e): bool => $e !== null);
+            $excluded = array_filter(array_map($compiler->compile(...), NodeInspector::topLevelExclusions($root)), static fn(?string $e): bool => $e !== null);
             $exclusions = $excluded === [] ? null : implode(' | ', $excluded);
         }
         $plain = implode(' ', TsQueryCompiler::lexemes(implode(' ', NodeInspector::positiveWords($root))));
@@ -242,7 +243,7 @@ final class PostgresEngine implements Engine
         }
 
         $total = self::total($rows);
-        $capped = $rows !== [] && ((int) $rows[0]['fts_n'] >= $thresholds->candidateLimit || (int) $rows[0]['fuzzy_n'] >= $thresholds->candidateLimit);
+        $capped = $rows !== [] && (Coerce::int($rows[0]['fts_n']) >= $thresholds->candidateLimit || Coerce::int($rows[0]['fuzzy_n']) >= $thresholds->candidateLimit);
         if ($statements[0]['label'] === 'browse') {
             $capped = $total >= $thresholds->candidateLimit;
         }
@@ -254,21 +255,21 @@ final class PostgresEngine implements Engine
                 $index,
                 $query->highlight,
                 $tsquery,
-                array_map(static fn (array $r): int|string => $index->idType->cast((string) $r['id']), $rows),
+                array_map(static fn(array $r): int|string => $index->idType->cast(Coerce::str($r['id'])), $rows),
             );
         }
 
         $hits = [];
         foreach ($rows as $row) {
-            $id = $index->idType->cast((string) $row['id']);
-            $hits[] = new Hit($id, (float) $row['score'], new ScoreBreakdown(
-                textRank: (float) $row['r_text'],
-                fuzzySimilarity: (float) $row['r_fuzzy'],
-                relevance: (float) $row['relevance'],
-                exactBonus: (float) $row['exact_bonus'],
-                prefixBonus: (float) $row['prefix_bonus'],
-                boostBonus: (float) $row['boost_bonus'],
-                recencyBonus: (float) $row['recency_bonus'],
+            $id = $index->idType->cast(Coerce::str($row['id']));
+            $hits[] = new Hit($id, Coerce::float($row['score']), new ScoreBreakdown(
+                textRank: Coerce::float($row['r_text']),
+                fuzzySimilarity: Coerce::float($row['r_fuzzy']),
+                relevance: Coerce::float($row['relevance']),
+                exactBonus: Coerce::float($row['exact_bonus']),
+                prefixBonus: Coerce::float($row['prefix_bonus']),
+                boostBonus: Coerce::float($row['boost_bonus']),
+                recencyBonus: Coerce::float($row['recency_bonus']),
             ), $highlights[(string) $id] ?? []);
         }
 
@@ -294,7 +295,7 @@ final class PostgresEngine implements Engine
      */
     private function run(array $statement, ?float $similarityThreshold): array
     {
-        return $this->guard('search', fn (): array => $this->connection->transactional(
+        return $this->guard('search', fn(): array => $this->connection->transactional(
             static function (Connection $c) use ($statement, $similarityThreshold): array {
                 if ($similarityThreshold !== null) {
                     // SET LOCAL semantics: only for this transaction, lets "<%" use the trigram index
@@ -309,7 +310,7 @@ final class PostgresEngine implements Engine
     /** @param list<array<string, mixed>> $rows */
     private static function total(array $rows): int
     {
-        return $rows === [] ? 0 : (int) $rows[0]['total'];
+        return $rows === [] ? 0 : Coerce::int($rows[0]['total']);
     }
 
     /**
@@ -321,7 +322,7 @@ final class PostgresEngine implements Engine
      */
     private static function hitsOnly(array $rows): array
     {
-        return array_values(array_filter($rows, static fn (array $row): bool => $row['id'] !== null));
+        return array_values(array_filter($rows, static fn(array $row): bool => $row['id'] !== null));
     }
 
     /**

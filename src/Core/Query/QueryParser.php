@@ -183,9 +183,10 @@ final class QueryParser
 
     private function phrase(string $raw): Term|Phrase|null
     {
+        $split = preg_split('/\s+/u', trim($raw));
         $words = array_values(array_filter(
-            preg_split('/\s+/u', trim($raw)) ?: [],
-            static fn (string $w): bool => preg_match('/[\p{L}\p{N}]/u', $w) === 1,
+            $split !== false ? $split : [],
+            static fn(string $w): bool => preg_match('/[\p{L}\p{N}]/u', $w) === 1,
         ));
         if ($words === []) {
             return null;

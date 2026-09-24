@@ -45,10 +45,12 @@ final class Worker
         $started = microtime(true);
         $total = 0;
         $this->stop = false;
-        while (!$this->stop) {
+        while ($this->keepRunning()) {
             $processed = $this->runOnce($indexes, $batchSize);
             $total += $processed;
-            $onCycle !== null && $onCycle($processed);
+            if ($onCycle !== null) {
+                $onCycle($processed);
+            }
             if ($timeLimitSeconds !== null && microtime(true) - $started >= $timeLimitSeconds) {
                 break;
             }
@@ -64,5 +66,11 @@ final class Worker
     public function stop(): void
     {
         $this->stop = true;
+    }
+
+    /** Behind a method call so PHPStan does not "prove" this loop condition constant: $stop is mutated asynchronously by a signal handler. */
+    private function keepRunning(): bool
+    {
+        return !$this->stop;
     }
 }

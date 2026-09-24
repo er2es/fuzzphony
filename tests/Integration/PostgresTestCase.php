@@ -11,11 +11,11 @@ use PHPUnit\Framework\TestCase;
 /** @internal */
 final class PostgresTestCase
 {
-    public static function connect(TestCase $test): Connection
+    public static function connect(): Connection
     {
         $dsn = getenv('FUZZPHONY_TEST_DSN');
         if (!is_string($dsn) || $dsn === '') {
-            $test->markTestSkipped('Set FUZZPHONY_TEST_DSN to a disposable PostgreSQL 15+ database to run integration tests (see docker-compose.yml).');
+            TestCase::markTestSkipped('Set FUZZPHONY_TEST_DSN to a disposable PostgreSQL 15+ database to run integration tests (see docker-compose.yml).');
         }
 
         return PdoConnection::fromDsn($dsn);

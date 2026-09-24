@@ -51,7 +51,7 @@ final class SearchComponent
         if (trim($this->query) === '') {
             return null;
         }
-        $fields = array_values(array_filter(array_map('trim', explode(',', $this->highlight))));
+        $fields = array_values(array_filter(array_map('trim', explode(',', $this->highlight)), static fn(string $f): bool => $f !== ''));
 
         return $this->result ??= $this->fuzzphony->in($this->index)
             ->query($this->query)

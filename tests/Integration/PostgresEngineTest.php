@@ -12,6 +12,7 @@ use Fuzzphony\Core\Inspection\Check;
 use Fuzzphony\Core\Inspection\CheckStatus;
 use Fuzzphony\Core\Inspection\InspectOptions;
 use Fuzzphony\Core\Registry\IndexRegistry;
+use Fuzzphony\Core\Support\Coerce;
 use Fuzzphony\Core\Sync\Worker;
 use Fuzzphony\Engine\Postgres\PostgresEngine;
 use Fuzzphony\Tests\Conformance\EngineConformanceTestCase;
@@ -26,7 +27,7 @@ final class PostgresEngineTest extends TestCase
 
     protected function setUp(): void
     {
-        $this->connection = PostgresTestCase::connect($this);
+        $this->connection = PostgresTestCase::connect();
         $this->engine = new PostgresEngine($this->connection);
         PostgresTestCase::createFixtures($this->connection, EngineConformanceTestCase::fixtureRows());
     }
@@ -114,7 +115,7 @@ final class PostgresEngineTest extends TestCase
     {
         $report = $this->fuzzphony('queue')->inspect('products', new InspectOptions(deep: true));
 
-        self::assertSame(CheckStatus::Ok, $report->status(), implode("\n", array_map(static fn (Check $c): string => $c->name . ': ' . $c->message, $report->problems())));
+        self::assertSame(CheckStatus::Ok, $report->status(), implode("\n", array_map(static fn(Check $c): string => $c->name . ': ' . $c->message, $report->problems())));
     }
 
     public function testDoctorFindsDriftMissingIndexesAndDisabledTriggers(): void
@@ -144,9 +145,9 @@ final class PostgresEngineTest extends TestCase
         $fuzzphony = $this->fuzzphony('manual');
         $this->connection->execute('ALTER TABLE fz_product RENAME COLUMN price TO price_huf');
 
-        $messages = array_map(static fn (Check $c): string => $c->message, $fuzzphony->inspect('products')->problems());
+        $messages = array_map(static fn(Check $c): string => $c->message, $fuzzphony->inspect('products')->problems());
 
-        self::assertNotEmpty(array_filter($messages, static fn (string $m): bool => str_contains($m, 'cannot be queried')));
+        self::assertNotEmpty(array_filter($messages, static fn(string $m): bool => str_contains($m, 'cannot be queried')));
     }
 
     public function testExplainReturnsSqlAndPlan(): void
@@ -155,7 +156,7 @@ final class PostgresEngineTest extends TestCase
 
         self::assertSame('(wireless AND mouse)', $explanation->interpretedAs);
         self::assertNotEmpty($explanation->statements);
-        self::assertNotEmpty(array_filter($explanation->plan, static fn (string $l): bool => str_contains($l, 'actual time')));
+        self::assertNotEmpty(array_filter($explanation->plan, static fn(string $l): bool => str_contains($l, 'actual time')));
     }
 
     public function testErrorsCarryAHint(): void
@@ -174,7 +175,7 @@ final class PostgresEngineTest extends TestCase
         $this->engine->dropSchema($fuzzphony->registry()->get('products'))->apply($this->connection);
 
         self::assertNull($this->connection->fetchValue("SELECT to_regclass('fuzzphony_products')"));
-        self::assertSame(5, (int) $this->connection->fetchValue('SELECT count(*) FROM fz_product'));
+        self::assertSame(5, Coerce::int($this->connection->fetchValue('SELECT count(*) FROM fz_product')));
         $this->connection->execute("UPDATE fz_brand SET name = 'x' WHERE id = 1"); // no trigger left behind
         $this->addToAssertionCount(1);
     }

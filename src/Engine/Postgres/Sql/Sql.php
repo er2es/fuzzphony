@@ -29,11 +29,15 @@ final class Sql
         return $formatted === '' || $formatted === '-0' ? '0' : $formatted;
     }
 
-    /** PostgreSQL array literal for binding a list as one parameter: {1,2,3} / {"a","b"}. */
+    /**
+     * PostgreSQL array literal for binding a list as one parameter: {1,2,3} / {"a","b"}.
+     *
+     * @param list<int|string> $values
+     */
     public static function arrayLiteral(array $values): string
     {
         return '{' . implode(',', array_map(
-            static fn (mixed $v): string => is_int($v) ? (string) $v : '"' . addcslashes((string) $v, '"\\') . '"',
+            static fn(int|string $v): string => is_int($v) ? (string) $v : '"' . addcslashes($v, '"\\') . '"',
             $values,
         )) . '}';
     }

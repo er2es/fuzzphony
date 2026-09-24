@@ -8,6 +8,7 @@ use Fuzzphony\Core\Database\Connection;
 use Fuzzphony\Core\Fuzzphony;
 use Fuzzphony\Core\Schema\SchemaPlan;
 use Fuzzphony\Core\Schema\Statement;
+use Fuzzphony\Core\Support\Coerce;
 use Symfony\Component\Console\Attribute\AsCommand;
 use Symfony\Component\Console\Command\Command;
 use Symfony\Component\Console\Completion\CompletionInput;
@@ -67,7 +68,7 @@ final class SchemaCommand extends Command
 
         $directory = $input->getOption('dump-migration');
         if (is_string($directory)) {
-            $file = $this->writeMigration($plan, $directory, (string) $input->getOption('namespace'));
+            $file = $this->writeMigration($plan, $directory, Coerce::str($input->getOption('namespace')));
             $io->success(sprintf('Migration written to %s (non-transactional, because indexes are built concurrently).', $file));
 
             return Command::SUCCESS;
@@ -101,7 +102,7 @@ final class SchemaCommand extends Command
     {
         $class = 'Version' . date('YmdHis');
         $up = implode("\n", array_map(
-            static fn (Statement $s): string => sprintf("        // %s\n        \$this->addSql(%s);", $s->description, var_export($s->sql, true)),
+            static fn(Statement $s): string => sprintf("        // %s\n        \$this->addSql(%s);", $s->description, var_export($s->sql, true)),
             $plan->statements,
         ));
         $code = <<<PHP

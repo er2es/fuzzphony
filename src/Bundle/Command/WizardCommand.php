@@ -10,6 +10,7 @@ use Fuzzphony\Core\Engine\Engine;
 use Fuzzphony\Core\Fuzzphony;
 use Fuzzphony\Core\Inspection\CheckStatus;
 use Fuzzphony\Core\Registry\IndexRegistry;
+use Fuzzphony\Core\Support\Coerce;
 use Fuzzphony\Core\Wizard\DefinitionSuggester;
 use Fuzzphony\Core\Wizard\Export\AttributeExporter;
 use Fuzzphony\Core\Wizard\Export\BuilderExporter;
@@ -59,16 +60,16 @@ final class WizardCommand extends Command
 
                 return Command::FAILURE;
             }
-            $choices = array_map(static fn (array $t): string => sprintf('%s (~%s rows)', $t['table'], number_format($t['rows'])), $tables);
-            $picked = (string) $io->askQuestion(new ChoiceQuestion('Which table should be searchable?', $choices, 0));
+            $choices = array_map(static fn(array $t): string => sprintf('%s (~%s rows)', $t['table'], number_format($t['rows'])), $tables);
+            $picked = Coerce::str($io->askQuestion(new ChoiceQuestion('Which table should be searchable?', $choices, 0)));
             $table = $tables[(int) array_search($picked, $choices, true)]['table'];
         }
 
         $profile = $this->introspector->describe($table);
-        $suggestion = (new DefinitionSuggester())->suggest($profile, is_string($input->getOption('name')) ? $input->getOption('name') : null, (string) $input->getOption('language'));
+        $suggestion = (new DefinitionSuggester())->suggest($profile, is_string($input->getOption('name')) ? $input->getOption('name') : null, Coerce::str($input->getOption('language')));
 
         $io->title(sprintf('Suggested index for "%s" (~%s rows)', $table, number_format($profile->estimatedRows)));
-        $io->table(['Column', 'Role', 'Why'], array_map(static fn ($d): array => [$d->column, $d->role, $d->reason], $suggestion->decisions));
+        $io->table(['Column', 'Role', 'Why'], array_map(static fn($d): array => [$d->column, $d->role, $d->reason], $suggestion->decisions));
         foreach ($suggestion->notes as $note) {
             $io->note($note);
         }
@@ -80,15 +81,15 @@ final class WizardCommand extends Command
         }
 
         if ($input->isInteractive() && $index->fields !== []) {
-            $fields = array_map(static fn ($f): string => $f->name, $index->fields);
+            $fields = array_map(static fn($f): string => $f->name, $index->fields);
             $keep = $io->askQuestion((new ChoiceQuestion('Searchable fields to keep (comma-separated, Enter = all)', $fields, implode(',', array_keys($fields))))->setMultiselect(true));
-            $kept = array_values(array_filter($index->fields, static fn ($f): bool => in_array($f->name, (array) $keep, true)));
+            $kept = array_values(array_filter($index->fields, static fn($f): bool => in_array($f->name, (array) $keep, true)));
             if ($kept !== $index->fields && $kept !== []) {
                 $index = $index->with(fields: $kept);
             }
         }
 
-        $format = (string) $input->getOption('format');
+        $format = Coerce::str($input->getOption('format'));
         $attributes = new AttributeExporter();
         if ($format === 'attributes' && !$attributes->supports($index)) {
             $io->warning('Joined sources cannot be expressed with attributes; showing YAML instead.');
@@ -123,7 +124,7 @@ final class WizardCommand extends Command
         $fuzzphony = new Fuzzphony($this->engine, new IndexRegistry([$index]));
         $io->section('Trying it');
         $fuzzphony->schema()->apply($this->connection);
-        $count = $fuzzphony->reindex($index->name, 5_000, static fn (int $done) => $io->write(sprintf("\r  indexed %s", number_format($done))));
+        $count = $fuzzphony->reindex($index->name, 5_000, static fn(int $done) => $io->write(sprintf("\r  indexed %s", number_format($done))));
         $io->newLine();
         $report = $fuzzphony->inspect($index->name);
         $io->writeln(sprintf('  %s documents, doctor: <%s>%s</>', number_format($count), $report->status() === CheckStatus::Ok ? 'info' : 'comment', $report->status()->value));

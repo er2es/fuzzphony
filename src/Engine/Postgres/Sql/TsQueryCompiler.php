@@ -44,10 +44,9 @@ final class TsQueryCompiler
     /** @return list<string> */
     public static function lexemes(string $text): array
     {
-        return array_map(
-            mb_strtolower(...),
-            preg_split('/[^\p{L}\p{N}]+/u', $text, -1, PREG_SPLIT_NO_EMPTY) ?: [],
-        );
+        $split = preg_split('/[^\p{L}\p{N}]+/u', $text, -1, PREG_SPLIT_NO_EMPTY);
+
+        return array_map(mb_strtolower(...), $split !== false ? $split : []);
     }
 
     private function node(Node $node, string $weights): ?string
@@ -100,8 +99,8 @@ final class TsQueryCompiler
     private function group(array $nodes, string $glue, string $weights): ?string
     {
         $parts = array_values(array_filter(
-            array_map(fn (Node $n): ?string => $this->node($n, $weights), $nodes),
-            static fn (?string $p): bool => $p !== null,
+            array_map(fn(Node $n): ?string => $this->node($n, $weights), $nodes),
+            static fn(?string $p): bool => $p !== null,
         ));
 
         return match (count($parts)) {

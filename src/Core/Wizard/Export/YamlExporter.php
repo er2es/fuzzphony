@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Fuzzphony\Core\Wizard\Export;
 
 use Fuzzphony\Core\Definition\IndexDefinition;
+use Fuzzphony\Core\Support\Coerce;
 
 /** Writes config/packages/fuzzphony.yaml content without depending on symfony/yaml. */
 final class YamlExporter
@@ -26,7 +27,7 @@ final class YamlExporter
             if (is_array($value)) {
                 $out .= $value === [] ? sprintf("%s%s: {}\n", $pad, $key) : sprintf("%s%s:\n%s", $pad, $key, $this->node($value, $depth + 1));
             } elseif (is_string($value) && str_contains($value, "\n")) {
-                $out .= sprintf("%s%s: |\n%s\n", $pad, $key, implode("\n", array_map(static fn (string $l): string => $pad . '  ' . $l, explode("\n", $value))));
+                $out .= sprintf("%s%s: |\n%s\n", $pad, $key, implode("\n", array_map(static fn(string $l): string => $pad . '  ' . $l, explode("\n", $value))));
             } else {
                 $out .= sprintf("%s%s: %s\n", $pad, $key, $this->scalar($value));
             }
@@ -40,11 +41,23 @@ final class YamlExporter
         return match (true) {
             is_bool($value) => $value ? 'true' : 'false',
             is_int($value) => (string) $value,
-            is_float($value) => rtrim(rtrim(sprintf('%.6F', $value), '0'), '.') ?: '0',
+            is_float($value) => self::floatLiteral($value),
             $value === null => '~',
-            default => preg_match('/^[A-Za-z_][A-Za-z0-9_ .\/-]*$/', (string) $value) === 1 && !in_array(strtolower((string) $value), ['yes', 'no', 'on', 'off', 'true', 'false', 'null', 'y', 'n'], true)
-                ? (string) $value
-                : "'" . str_replace("'", "''", (string) $value) . "'",
+            default => self::stringLiteral(Coerce::str($value)),
         };
+    }
+
+    private static function floatLiteral(float $value): string
+    {
+        $trimmed = rtrim(rtrim(sprintf('%.6F', $value), '0'), '.');
+
+        return $trimmed !== '' ? $trimmed : '0';
+    }
+
+    private static function stringLiteral(string $value): string
+    {
+        return preg_match('/^[A-Za-z_][A-Za-z0-9_ .\/-]*$/', $value) === 1 && !in_array(strtolower($value), ['yes', 'no', 'on', 'off', 'true', 'false', 'null', 'y', 'n'], true)
+            ? $value
+            : "'" . str_replace("'", "''", $value) . "'";
     }
 }

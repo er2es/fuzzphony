@@ -32,7 +32,7 @@ final readonly class DbalConnection implements Connection
 
     public function transactional(callable $callback): mixed
     {
-        return $this->connection->transactional(fn (): mixed => $callback($this));
+        return $this->connection->transactional(fn(): mixed => $callback($this));
     }
 
     /**

@@ -9,26 +9,27 @@ use Fuzzphony\Bridge\Doctrine\DbalConnection;
 use Fuzzphony\Bridge\Doctrine\DoctrineIndexDiscovery;
 use Fuzzphony\Bridge\Doctrine\EntityLoader;
 use Fuzzphony\Bridge\Doctrine\OrmSyncListener;
+use Fuzzphony\Bundle\ApiPlatform\FuzzphonySearchFilter;
 use Fuzzphony\Bundle\Command\DoctorCommand;
 use Fuzzphony\Bundle\Command\ReindexCommand;
 use Fuzzphony\Bundle\Command\SchemaCommand;
 use Fuzzphony\Bundle\Command\SearchCommand;
 use Fuzzphony\Bundle\Command\WizardCommand;
 use Fuzzphony\Bundle\Command\WorkerCommand;
-use Fuzzphony\Bundle\ApiPlatform\FuzzphonySearchFilter;
 use Fuzzphony\Bundle\Messenger\MessengerRefreshDispatcher;
 use Fuzzphony\Bundle\Messenger\RefreshDocumentsHandler;
-use Fuzzphony\Bundle\Twig\SearchComponent;
 use Fuzzphony\Bundle\Registry\RegistryFactory;
+use Fuzzphony\Bundle\Twig\SearchComponent;
 use Fuzzphony\Core\Database\Connection;
 use Fuzzphony\Core\Engine\Engine;
 use Fuzzphony\Core\Fuzzphony;
 use Fuzzphony\Core\Registry\IndexRegistry;
+use Fuzzphony\Core\Support\Coerce;
 use Fuzzphony\Core\Sync\ImmediateRefreshDispatcher;
 use Fuzzphony\Core\Sync\RefreshDispatcher;
 use Fuzzphony\Core\Wizard\SourceIntrospector;
-use Fuzzphony\Engine\Postgres\Wizard\PostgresIntrospector;
 use Fuzzphony\Engine\Postgres\PostgresEngine;
+use Fuzzphony\Engine\Postgres\Wizard\PostgresIntrospector;
 use Symfony\Component\Config\Definition\Configurator\DefinitionConfigurator;
 use Symfony\Component\DependencyInjection\ContainerBuilder;
 use Symfony\Component\DependencyInjection\Loader\Configurator\ContainerConfigurator;
@@ -83,18 +84,36 @@ final class FuzzphonyBundle extends AbstractBundle
             ->end();
     }
 
-    /** @param array{connection: string, extension_schema: string, discover_entities: bool, worker: array{batch_size: int, idle_sleep: float}, orm_sync: array{async: bool, chunk_size: int}, indexes: array<string, array<string, mixed>>} $config */
+    /** @param array<array-key, mixed> $config */
     public function loadExtension(array $config, ContainerConfigurator $container, ContainerBuilder $builder): void
     {
         $services = $container->services()->defaults()->autowire(false)->autoconfigure(false);
         $hasOrm = interface_exists(EntityManagerInterface::class) && $builder->hasExtension('doctrine');
 
+        // configure()'s tree guarantees these shapes/types; narrowed here because AbstractBundle
+        // declares $config as plain array (a stricter @param on the override would violate LSP).
+        $connectionRaw = Coerce::str($config['connection'] ?? null);
+        $connectionName = $connectionRaw !== '' ? $connectionRaw : 'default';
+        $extensionSchemaRaw = Coerce::str($config['extension_schema'] ?? null);
+        $extensionSchema = $extensionSchemaRaw !== '' ? $extensionSchemaRaw : 'public';
+        $discoverEntities = (bool) ($config['discover_entities'] ?? true);
+        $indexes = is_array($config['indexes'] ?? null) ? $config['indexes'] : [];
+        $worker = is_array($config['worker'] ?? null) ? $config['worker'] : [];
+        $workerBatchSizeRaw = Coerce::int($worker['batch_size'] ?? null);
+        $workerBatchSize = $workerBatchSizeRaw !== 0 ? $workerBatchSizeRaw : 500;
+        $workerIdleSleepRaw = Coerce::float($worker['idle_sleep'] ?? null);
+        $workerIdleSleep = $workerIdleSleepRaw !== 0.0 ? $workerIdleSleepRaw : 1.0;
+        $ormSync = is_array($config['orm_sync'] ?? null) ? $config['orm_sync'] : [];
+        $ormSyncAsync = (bool) ($ormSync['async'] ?? false);
+        $ormSyncChunkSizeRaw = Coerce::int($ormSync['chunk_size'] ?? null);
+        $ormSyncChunkSize = $ormSyncChunkSizeRaw !== 0 ? $ormSyncChunkSizeRaw : 500;
+
         $services->set('fuzzphony.connection', DbalConnection::class)
-            ->args([service(sprintf('doctrine.dbal.%s_connection', $config['connection']))]);
+            ->args([service(sprintf('doctrine.dbal.%s_connection', $connectionName))]);
         $services->alias(Connection::class, 'fuzzphony.connection');
 
         $services->set('fuzzphony.engine', PostgresEngine::class)
-            ->args([service('fuzzphony.connection'), $config['extension_schema']]);
+            ->args([service('fuzzphony.connection'), $extensionSchema]);
         $services->alias(Engine::class, 'fuzzphony.engine')->public();
 
         if ($hasOrm) {
@@ -108,8 +127,8 @@ final class FuzzphonyBundle extends AbstractBundle
         $services->set('fuzzphony.registry', IndexRegistry::class)
             ->factory([RegistryFactory::class, 'create'])
             ->args([
-                $config['indexes'],
-                $hasOrm && $config['discover_entities'] ? service('fuzzphony.discovery') : null,
+                $indexes,
+                $hasOrm && $discoverEntities ? service('fuzzphony.discovery') : null,
             ]);
         $services->alias(IndexRegistry::class, 'fuzzphony.registry');
 
@@ -120,12 +139,12 @@ final class FuzzphonyBundle extends AbstractBundle
         $services->set('fuzzphony.introspector', PostgresIntrospector::class)->args([service('fuzzphony.connection')]);
         $services->alias(SourceIntrospector::class, 'fuzzphony.introspector');
 
-        if ($config['orm_sync']['async']) {
+        if ($ormSyncAsync) {
             if (!interface_exists(\Symfony\Component\Messenger\MessageBusInterface::class)) {
                 throw new \LogicException('fuzzphony.orm_sync.async requires symfony/messenger: composer require symfony/messenger');
             }
             $services->set('fuzzphony.refresh_dispatcher', MessengerRefreshDispatcher::class)
-                ->args([service('messenger.default_bus'), $config['orm_sync']['chunk_size']]);
+                ->args([service('messenger.default_bus'), $ormSyncChunkSize]);
         } else {
             $services->set('fuzzphony.refresh_dispatcher', ImmediateRefreshDispatcher::class)->args([service('fuzzphony.engine')]);
         }
@@ -154,7 +173,7 @@ final class FuzzphonyBundle extends AbstractBundle
             $listener = $services->set('fuzzphony.orm_sync_listener', OrmSyncListener::class)
                 ->args([service('fuzzphony.refresh_dispatcher'), service('fuzzphony.registry')]);
             foreach (['postPersist', 'postUpdate', 'preRemove', 'postFlush'] as $event) {
-                $listener->tag('doctrine.event_listener', ['event' => $event, 'connection' => $config['connection']]);
+                $listener->tag('doctrine.event_listener', ['event' => $event, 'connection' => $connectionName]);
             }
         }
 
@@ -162,7 +181,7 @@ final class FuzzphonyBundle extends AbstractBundle
             SchemaCommand::class => [service('fuzzphony'), service('fuzzphony.connection')],
             DoctorCommand::class => [service('fuzzphony')],
             ReindexCommand::class => [service('fuzzphony')],
-            WorkerCommand::class => [service('fuzzphony'), $config['worker']['batch_size'], $config['worker']['idle_sleep']],
+            WorkerCommand::class => [service('fuzzphony'), $workerBatchSize, $workerIdleSleep],
             SearchCommand::class => [service('fuzzphony')],
             WizardCommand::class => [service('fuzzphony.introspector'), service('fuzzphony.engine'), service('fuzzphony.connection')],
         ];

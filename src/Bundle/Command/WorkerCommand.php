@@ -42,7 +42,7 @@ final class WorkerCommand extends Command implements SignalableCommandInterface
         $io = new SymfonyStyle($input, $output);
         $indexes = array_values(array_filter(
             IndexArgument::resolve($this->fuzzphony, $input),
-            static fn ($index): bool => $index->sync === SyncMode::Queue,
+            static fn($index): bool => $index->sync === SyncMode::Queue,
         ));
         if ($indexes === []) {
             $io->note('No index uses the "queue" sync mode; nothing to do.');
@@ -60,7 +60,7 @@ final class WorkerCommand extends Command implements SignalableCommandInterface
         }
 
         $limit = $input->getOption('time-limit');
-        $io->writeln(sprintf('Worker started for: %s (Ctrl+C / SIGTERM stops gracefully)', implode(', ', array_map(static fn ($i): string => $i->name, $indexes))));
+        $io->writeln(sprintf('Worker started for: %s (Ctrl+C / SIGTERM stops gracefully)', implode(', ', array_map(static fn($i): string => $i->name, $indexes))));
         $total = $this->worker->run($indexes, $batch, $this->idleSleep, is_string($limit) ? (int) $limit : null, static function (int $processed) use ($output): void {
             if ($processed > 0 && $output->isVerbose()) {
                 $output->writeln(sprintf('[%s] %d item(s)', date('H:i:s'), $processed));

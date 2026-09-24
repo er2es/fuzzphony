@@ -42,16 +42,16 @@ final class ArrayDefinitionLoader
             : $builder->fromTable($source['table'] ?? $name, $source['id'] ?? 'id');
 
         foreach ($this->map($config['fields'] ?? []) as $field => $options) {
-            $options = is_string($options) ? ['weight' => $options] : $options;
-            $builder->field($field, (string) ($options['weight'] ?? 'B'), (bool) ($options['fuzzy'] ?? false), (bool) ($options['highlight'] ?? true), isset($options['column']) ? (string) $options['column'] : null);
+            $options = is_string($options) ? ['weight' => $options] : $this->map($options);
+            $builder->field($field, self::str($options['weight'] ?? null, 'B'), (bool) ($options['fuzzy'] ?? false), (bool) ($options['highlight'] ?? true), isset($options['column']) ? self::str($options['column'], '') : null);
         }
         foreach ($this->map($config['filters'] ?? []) as $filter => $options) {
-            $options = is_string($options) ? ['type' => $options] : $options;
-            $builder->filter($filter, (string) ($options['type'] ?? ''), isset($options['column']) ? (string) $options['column'] : null);
+            $options = is_string($options) ? ['type' => $options] : $this->map($options);
+            $builder->filter($filter, self::str($options['type'] ?? null, ''), isset($options['column']) ? self::str($options['column'], '') : null);
         }
         foreach ($this->map($config['watch'] ?? []) as $table => $options) {
-            $options = is_string($options) ? ['ids' => $options] : $options;
-            $builder->watch($table, (string) ($options['ids'] ?? 'SELECT :id'), (string) ($options['key'] ?? 'id'));
+            $options = is_string($options) ? ['ids' => $options] : $this->map($options);
+            $builder->watch($table, self::str($options['ids'] ?? null, 'SELECT :id'), self::str($options['key'] ?? null, 'id'));
         }
 
         $this->apply($builder, $config);
@@ -72,19 +72,19 @@ final class ArrayDefinitionLoader
         $this->assertKnownKeys($definition->name, $config);
         $changes = [];
         if (isset($config['sync'])) {
-            $changes['sync'] = SyncMode::from((string) $config['sync']);
+            $changes['sync'] = SyncMode::from(self::str($config['sync'], ''));
         }
         if (isset($config['trigger_level'])) {
-            $changes['triggerLevel'] = TriggerLevel::from((string) $config['trigger_level']);
+            $changes['triggerLevel'] = TriggerLevel::from(self::str($config['trigger_level'], ''));
         }
         if (isset($config['language']) || isset($config['unaccent'])) {
-            $changes['text'] = new TextConfig((string) ($config['language'] ?? $definition->text->language), (bool) ($config['unaccent'] ?? $definition->text->unaccent));
+            $changes['text'] = new TextConfig(self::str($config['language'] ?? null, $definition->text->language), (bool) ($config['unaccent'] ?? $definition->text->unaccent));
         }
         if (isset($config['boost'])) {
-            $changes['boostColumn'] = (string) $config['boost'];
+            $changes['boostColumn'] = self::str($config['boost'], '');
         }
         if (isset($config['recency'])) {
-            $changes['recencyColumn'] = (string) $config['recency'];
+            $changes['recencyColumn'] = self::str($config['recency'], '');
         }
         if (isset($config['profiles'])) {
             $changes['profiles'] = $this->profiles($config['profiles']) + $definition->profiles;
@@ -93,8 +93,8 @@ final class ArrayDefinitionLoader
             $changes['thresholds'] = $definition->thresholds->with($this->map($config['thresholds']));
         }
         foreach ($this->map($config['watch'] ?? []) as $table => $options) {
-            $options = is_string($options) ? ['ids' => $options] : $options;
-            $changes['watches'] = [...($changes['watches'] ?? $definition->watches), new Watch($table, (string) ($options['ids'] ?? 'SELECT :id'), (string) ($options['key'] ?? 'id'))];
+            $options = is_string($options) ? ['ids' => $options] : $this->map($options);
+            $changes['watches'] = [...($changes['watches'] ?? $definition->watches), new Watch($table, self::str($options['ids'] ?? null, 'SELECT :id'), self::str($options['key'] ?? null, 'id'))];
         }
 
         $merged = $definition->with(...$changes);
@@ -107,22 +107,22 @@ final class ArrayDefinitionLoader
     private function apply(IndexBuilder $builder, array $config): void
     {
         if (isset($config['id_type'])) {
-            $builder->idType((string) $config['id_type']);
+            $builder->idType(self::str($config['id_type'], ''));
         }
         if (isset($config['sync'])) {
-            $builder->sync((string) $config['sync']);
+            $builder->sync(self::str($config['sync'], ''));
         }
         if (isset($config['trigger_level'])) {
-            $builder->triggerLevel((string) $config['trigger_level']);
+            $builder->triggerLevel(self::str($config['trigger_level'], ''));
         }
         if (isset($config['language']) || isset($config['unaccent'])) {
-            $builder->language((string) ($config['language'] ?? 'english'), (bool) ($config['unaccent'] ?? true));
+            $builder->language(self::str($config['language'] ?? null, 'english'), (bool) ($config['unaccent'] ?? true));
         }
         if (isset($config['boost'])) {
-            $builder->boostBy((string) $config['boost']);
+            $builder->boostBy(self::str($config['boost'], ''));
         }
         if (isset($config['recency'])) {
-            $builder->recencyBy((string) $config['recency']);
+            $builder->recencyBy(self::str($config['recency'], ''));
         }
         foreach ($this->profiles($config['profiles'] ?? []) as $profileName => $profile) {
             $builder->profile($profileName, $profile);
@@ -137,7 +137,7 @@ final class ArrayDefinitionLoader
     {
         $profiles = [];
         foreach ($this->map($config) as $name => $options) {
-            $profiles[$name] = RankingProfile::fromArray(is_array($options) ? $options : []);
+            $profiles[$name] = RankingProfile::fromArray($this->map($options));
         }
 
         return $profiles;
@@ -151,6 +151,11 @@ final class ArrayDefinitionLoader
         }
         /** @var array<string, mixed> $value */
         return $value;
+    }
+
+    private static function str(mixed $value, string $default): string
+    {
+        return is_scalar($value) ? (string) $value : $default;
     }
 
     /** @param array<string, mixed> $config */

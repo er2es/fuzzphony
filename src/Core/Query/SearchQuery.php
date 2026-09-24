@@ -110,6 +110,71 @@ final readonly class SearchQuery
 
     private function copy(mixed ...$changes): self
     {
-        return new self(...[...get_object_vars($this), ...$changes]);
+        $text = $changes['text'] ?? null;
+        $conditions = $changes['conditions'] ?? null;
+        $profile = $changes['profile'] ?? null;
+        $limit = $changes['limit'] ?? null;
+        $offset = $changes['offset'] ?? null;
+        $highlight = $changes['highlight'] ?? null;
+        $thresholdOverrides = $changes['thresholdOverrides'] ?? null;
+        $rankingOverrides = $changes['rankingOverrides'] ?? null;
+
+        return new self(
+            text: is_string($text) ? $text : $this->text,
+            conditions: self::conditionList($conditions) ?? $this->conditions,
+            profile: is_string($profile) ? $profile : $this->profile,
+            limit: is_int($limit) ? $limit : $this->limit,
+            offset: is_int($offset) ? $offset : $this->offset,
+            highlight: self::stringList($highlight) ?? $this->highlight,
+            thresholdOverrides: self::stringKeyedArray($thresholdOverrides) ?? $this->thresholdOverrides,
+            rankingOverrides: self::stringKeyedArray($rankingOverrides) ?? $this->rankingOverrides,
+        );
+    }
+
+    /** @return list<Condition>|null */
+    private static function conditionList(mixed $value): ?array
+    {
+        if (!is_array($value)) {
+            return null;
+        }
+        foreach ($value as $item) {
+            if (!$item instanceof Condition) {
+                return null;
+            }
+        }
+
+        return array_values($value);
+    }
+
+    /** @return list<string>|null */
+    private static function stringList(mixed $value): ?array
+    {
+        if (!is_array($value)) {
+            return null;
+        }
+        foreach ($value as $item) {
+            if (!is_string($item)) {
+                return null;
+            }
+        }
+
+        return array_values($value);
+    }
+
+    /** @return array<string, mixed>|null */
+    private static function stringKeyedArray(mixed $value): ?array
+    {
+        if (!is_array($value)) {
+            return null;
+        }
+        $result = [];
+        foreach ($value as $key => $item) {
+            if (!is_string($key)) {
+                return null;
+            }
+            $result[$key] = $item;
+        }
+
+        return $result;
     }
 }

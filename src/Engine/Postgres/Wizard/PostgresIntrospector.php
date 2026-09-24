@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Fuzzphony\Engine\Postgres\Wizard;
 
 use Fuzzphony\Core\Database\Connection;
+use Fuzzphony\Core\Support\Coerce;
 use Fuzzphony\Core\Support\Identifier;
 use Fuzzphony\Core\Wizard\ColumnKind;
 use Fuzzphony\Core\Wizard\ColumnProfile;
@@ -39,7 +40,7 @@ final readonly class PostgresIntrospector implements SourceIntrospector
             ORDER BY c.reltuples DESC, 1
             SQL);
 
-        return array_map(static fn (array $r): array => ['table' => (string) $r['table_name'], 'rows' => (int) $r['rows']], $rows);
+        return array_map(static fn(array $r): array => ['table' => Coerce::str($r['table_name']), 'rows' => Coerce::int($r['rows'])], $rows);
     }
 
     public function describe(string $table, bool $withRelations = true): TableProfile
@@ -61,32 +62,32 @@ final readonly class PostgresIntrospector implements SourceIntrospector
                 SQL,
             ['t' => $table],
         );
-        $rows = (int) $this->connection->fetchValue('SELECT greatest(reltuples, 0)::bigint FROM pg_class WHERE oid = to_regclass(:t)', ['t' => $table]);
+        $rows = Coerce::int($this->connection->fetchValue('SELECT greatest(reltuples, 0)::bigint FROM pg_class WHERE oid = to_regclass(:t)', ['t' => $table]));
 
         $notes = [];
-        $hasStats = array_filter($columns, static fn (array $c): bool => $c['n_distinct'] !== null) !== [];
+        $hasStats = array_filter($columns, static fn(array $c): bool => $c['n_distinct'] !== null) !== [];
         $sample = [];
         if (!$hasStats) {
-            $sample = $this->sample($table, array_column($columns, 'name'));
-            $rows = max($rows, (int) ($sample['__rows'] ?? 0));
+            $sample = $this->sample($table, array_map(Coerce::str(...), array_column($columns, 'name')));
+            $rows = max($rows, Coerce::int($sample['__rows'] ?? null));
             $notes[] = sprintf('No planner statistics for "%s" yet; sampled up to %d rows. Run ANALYZE for better suggestions.', $table, self::SAMPLE);
         }
 
         $profiles = [];
         foreach ($columns as $c) {
-            $name = (string) $c['name'];
-            $kind = $this->kind((string) $c['type']);
-            $distinct = $c['n_distinct'] !== null ? (float) $c['n_distinct'] : null;
+            $name = Coerce::str($c['name']);
+            $kind = $this->kind(Coerce::str($c['type']));
+            $distinct = $c['n_distinct'] !== null ? Coerce::float($c['n_distinct']) : null;
             if ($distinct !== null && $distinct < 0) {
                 $distinct = -$distinct * max($rows, 1); // negative = fraction of rows
             }
             $profiles[] = new ColumnProfile(
                 name: $name,
                 kind: $kind,
-                sqlType: (string) $c['type'],
+                sqlType: Coerce::str($c['type']),
                 nullable: (bool) $c['nullable'],
-                averageLength: $c['avg_width'] !== null ? (float) $c['avg_width'] : (isset($sample['l_' . $name]) ? (float) $sample['l_' . $name] : null),
-                distinct: $distinct ?? (isset($sample['d_' . $name]) ? (float) $sample['d_' . $name] : null),
+                averageLength: $c['avg_width'] !== null ? Coerce::float($c['avg_width']) : (isset($sample['l_' . $name]) ? Coerce::float($sample['l_' . $name]) : null),
+                distinct: $distinct ?? (isset($sample['d_' . $name]) ? Coerce::float($sample['d_' . $name]) : null),
                 approximateMax: in_array($kind, [ColumnKind::Int, ColumnKind::Float], true) ? $this->max([$c['bounds'], $c['common']], $sample['m_' . $name] ?? null) : null,
             );
         }
@@ -134,11 +135,11 @@ final readonly class PostgresIntrospector implements SourceIntrospector
             ['t' => $table],
         );
 
-        return array_map(fn (array $r): ForeignKey => new ForeignKey(
-            (string) $r['column_name'],
-            (string) $r['ref_table'],
-            (string) $r['ref_column'],
-            $this->describe((string) $r['ref_table'], withRelations: false),
+        return array_map(fn(array $r): ForeignKey => new ForeignKey(
+            Coerce::str($r['column_name']),
+            Coerce::str($r['ref_table']),
+            Coerce::str($r['ref_column']),
+            $this->describe(Coerce::str($r['ref_table']), withRelations: false),
         ), $rows);
     }
 

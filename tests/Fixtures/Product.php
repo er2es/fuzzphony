@@ -4,9 +4,9 @@ declare(strict_types=1);
 
 namespace Fuzzphony\Tests\Fixtures;
 
+use Fuzzphony\Core\Attribute\Searchable;
 use Fuzzphony\Core\Attribute\SearchField;
 use Fuzzphony\Core\Attribute\SearchFilter;
-use Fuzzphony\Core\Attribute\Searchable;
 use Fuzzphony\Core\Definition\SyncMode;
 
 #[Searchable(language: 'hungarian', sync: SyncMode::Trigger, boost: 'popularity', recency: 'publishedAt')]

@@ -25,6 +25,7 @@ final readonly class SearchResult implements \IteratorAggregate, \Countable
         public ?string $interpretedAs = null,
     ) {}
 
+    /** @param list<string> $warnings */
     public static function empty(int $limit, int $offset, array $warnings = [], float $tookMs = 0.0): self
     {
         return new self([], 0, false, $tookMs, false, array_values($warnings), $limit, $offset);
@@ -33,9 +34,10 @@ final readonly class SearchResult implements \IteratorAggregate, \Countable
     /** @return list<int|string> */
     public function ids(): array
     {
-        return array_map(static fn (Hit $hit): int|string => $hit->id, $this->hits);
+        return array_map(static fn(Hit $hit): int|string => $hit->id, $this->hits);
     }
 
+    /** @return \ArrayIterator<int, Hit> */
     public function getIterator(): \ArrayIterator
     {
         return new \ArrayIterator($this->hits);

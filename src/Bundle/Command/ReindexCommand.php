@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Fuzzphony\Bundle\Command;
 
 use Fuzzphony\Core\Fuzzphony;
+use Fuzzphony\Core\Support\Coerce;
 use Fuzzphony\Core\Sync\Reindexer;
 use Symfony\Component\Console\Attribute\AsCommand;
 use Symfony\Component\Console\Command\Command;
@@ -35,7 +36,7 @@ final class ReindexCommand extends Command
     protected function execute(InputInterface $input, OutputInterface $output): int
     {
         $io = new SymfonyStyle($input, $output);
-        $batch = max(1, (int) $input->getOption('batch'));
+        $batch = max(1, Coerce::int($input->getOption('batch')));
         $from = $input->getOption('from');
         $reindexer = new Reindexer($this->fuzzphony->engine());
 

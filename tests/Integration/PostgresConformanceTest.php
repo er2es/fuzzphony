@@ -13,7 +13,7 @@ final class PostgresConformanceTest extends EngineConformanceTestCase
 {
     protected function createConnection(): Connection
     {
-        return PostgresTestCase::connect($this);
+        return PostgresTestCase::connect();
     }
 
     protected function createEngine(Connection $connection): Engine

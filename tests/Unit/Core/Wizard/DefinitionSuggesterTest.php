@@ -17,6 +17,7 @@ use PHPUnit\Framework\TestCase;
 
 final class DefinitionSuggesterTest extends TestCase
 {
+    /** @param list<ForeignKey> $foreignKeys */
     private static function article(array $foreignKeys = []): TableProfile
     {
         return new TableProfile('article', [
@@ -80,7 +81,7 @@ final class DefinitionSuggesterTest extends TestCase
         self::assertStringContainsString('j0."full_name" AS "author"', (string) $index->source->query);
         self::assertSame(Weight::B, $index->field('author')?->weight);
         self::assertSame(FilterType::Int, $index->filter('author_id')->type);
-        self::assertSame(['article', 'author'], array_map(static fn ($w): string => $w->table, $index->watches));
+        self::assertSame(['article', 'author'], array_map(static fn($w): string => $w->table, $index->watches));
         self::assertSame('SELECT "id" FROM "article" WHERE "author_id" = :id', $index->watches[1]->affectedIds);
     }
 

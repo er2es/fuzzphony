@@ -14,7 +14,7 @@ final readonly class InspectionReport
 
     public function status(): CheckStatus
     {
-        $statuses = array_map(static fn (Check $c): CheckStatus => $c->status, $this->checks);
+        $statuses = array_map(static fn(Check $c): CheckStatus => $c->status, $this->checks);
 
         return match (true) {
             in_array(CheckStatus::Error, $statuses, true) => CheckStatus::Error,
@@ -33,7 +33,7 @@ final readonly class InspectionReport
     {
         return array_values(array_filter(
             $this->checks,
-            static fn (Check $c): bool => $c->status === CheckStatus::Error || $c->status === CheckStatus::Warning,
+            static fn(Check $c): bool => $c->status === CheckStatus::Error || $c->status === CheckStatus::Warning,
         ));
     }
 }
