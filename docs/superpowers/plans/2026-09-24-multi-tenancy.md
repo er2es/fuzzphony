@@ -452,26 +452,7 @@ Expected: PASS
 
 - [ ] **Step 5: Write the `override()` test (YAML overriding an attribute-defined index)**
 
-Add to the same test file:
-
-```php
-    public function testYamlCanOverrideTheTenantScope(): void
-    {
-        $base = (new AttributeDefinitionLoader())->load(TenantScopedProduct::class);
-        $merged = (new ArrayDefinitionLoader())->override($base, ['tenant' => 'account_id']);
-
-        self::assertSame('account_id', $merged->tenant);
-    }
-```
-
-Add `use Fuzzphony\Tests\Fixtures\TenantScopedProduct;` to the file's `use` block.
-
-- [ ] **Step 6: Run test to verify it fails**
-
-Run: `vendor/bin/phpunit --filter testYamlCanOverrideTheTenantScope`
-Expected: FAIL — `IndexDefinition::with()` was never given a `tenant` key by `override()`, so `$merged->tenant` is `null`, not `'account_id'`. (It happens to pass trivially if `TenantScopedProduct` already sets `tenant: 'account_id'` via its attribute — to make the test meaningfully exercise the override path, assert against a *different* base without a tenant first.)
-
-Replace the test with one that actually proves the override applies on top of a definition that has **no** tenant yet:
+Add to the same test file. `Product` (the existing fixture, already imported in this file) has no `#[Searchable(tenant: ...)]`, so this genuinely proves the override applies the scope rather than just echoing an attribute that already set it:
 
 ```php
     public function testYamlCanOverrideTheTenantScope(): void
@@ -484,6 +465,11 @@ Replace the test with one that actually proves the override applies on top of a 
 ```
 
 (`Product` already declares a `price` filter, so this is a structurally valid override without inventing new fixture data.)
+
+- [ ] **Step 6: Run test to verify it fails**
+
+Run: `vendor/bin/phpunit --filter testYamlCanOverrideTheTenantScope`
+Expected: FAIL — `IndexDefinition::with()` was never given a `tenant` key by `override()`, so `$merged->tenant` is `null`, not `'price'`.
 
 - [ ] **Step 7: Add `tenant` to `override()`**
 
