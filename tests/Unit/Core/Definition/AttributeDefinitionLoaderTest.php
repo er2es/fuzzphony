@@ -11,6 +11,7 @@ use Fuzzphony\Core\Definition\SyncMode;
 use Fuzzphony\Core\Definition\Weight;
 use Fuzzphony\Core\Registry\IndexRegistry;
 use Fuzzphony\Tests\Fixtures\Product;
+use Fuzzphony\Tests\Fixtures\TenantScopedProduct;
 use PHPUnit\Framework\TestCase;
 
 final class AttributeDefinitionLoaderTest extends TestCase
@@ -50,5 +51,12 @@ final class AttributeDefinitionLoaderTest extends TestCase
 
         $this->expectExceptionMessage('Index "products" has no filter "prise". Did you mean "price"?');
         $definition->filter('prise');
+    }
+
+    public function testTenantAttributeSetsTheTenantScope(): void
+    {
+        $definition = (new AttributeDefinitionLoader())->load(TenantScopedProduct::class);
+
+        self::assertSame('account_id', $definition->tenant);
     }
 }

@@ -29,5 +29,7 @@ final readonly class Searchable
         /** Timestamp column used by the "recency" ranking weight. */
         public ?string $recency = null,
         public TriggerLevel $triggerLevel = TriggerLevel::Statement,
+        /** Name of the #[SearchFilter] property (its resulting filter name, snake_cased) that scopes every search to one tenant. */
+        public ?string $tenant = null,
     ) {}
 }

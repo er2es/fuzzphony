@@ -45,6 +45,9 @@ final class AttributeDefinitionLoader
         if ($searchable->recency !== null) {
             $builder->recencyBy($searchable->recency);
         }
+        if ($searchable->tenant !== null) {
+            $builder->tenant($searchable->tenant);
+        }
 
         $problems = [];
         foreach ($reflection->getProperties() as $property) {
