@@ -1,0 +1,138 @@
+{% extends 'base.html.twig' %}
+
+{% block title %}Languages · Fuzzphony demo{% endblock %}
+
+{# `word` in a caption becomes <code>word</code>; everything else is escaped. #}
+{% macro caption(text) %}{% for part in text|split('`') %}{% if loop.index is even %}<code>{{ part }}</code>{% else %}{{ part }}{% endif %}{% endfor %}{% endmacro %}
+
+{% block body %}
+    {% set total = products|length %}
+    <div class="lang-page">
+        <div class="lang-intro">
+            <h1>One catalogue, five languages</h1>
+            <p class="muted">Each language has its own index over the same kind of products. Pick one, try an example, and see what PostgreSQL made of every word you typed.</p>
+        </div>
+
+        <form method="get" action="{{ path('languages') }}" class="lang-switch" aria-label="Language" data-loading-message="Switching the language…">
+            {% for c, l in languages %}
+                <button type="submit" name="lang" value="{{ c }}" aria-pressed="{{ c == code ? 'true' : 'false' }}">
+                    <span class="lang-code" aria-hidden="true">{{ c }}</span>
+                    <span class="lang-name">{{ l.name }}{% if l.native != l.name %} <span class="lang-native" lang="{{ c }}">{{ l.native }}</span>{% endif %}</span>
+                </button>
+            {% endfor %}
+        </form>
+
+        <form method="get" action="{{ path('languages') }}" class="searchbar" role="search" data-loading-message="Searching the {{ language.name }} catalogue…">
+            <input type="hidden" name="lang" value="{{ code }}">
+            <input type="search" name="q" value="{{ q }}" maxlength="100" lang="{{ code }}" aria-label="Search the {{ language.name }} catalogue" placeholder="Search the {{ language.name }} catalogue…"{% if q == '' %} autofocus{% endif %}>
+            <button type="submit" class="primary">Search</button>
+        </form>
+
+        <ul class="presets" aria-label="Examples in {{ language.name }}">
+            {% for preset in language.presets %}
+                {% set active = preset.q == q %}
+                <li>
+                    <a class="preset{{ active ? ' is-active' }}" href="{{ path('languages', {lang: code, q: preset.q}) }}"{% if active %} aria-current="true"{% endif %} data-loading-message="Searching for {{ preset.q }}…">
+                        <span class="preset-kind{{ preset.kind ends with 'not matched' ? ' is-limit' }}">{{ preset.kind }}</span>
+                        <span class="preset-q" lang="{{ code }}">{{ preset.q }}</span>
+                        <span class="preset-caption">{{ _self.caption(preset.caption) }}</span>
+                    </a>
+                </li>
+            {% endfor %}
+        </ul>
+
+        <div id="lang-results" aria-live="polite">
+            {% if q != '' %}
+                {% set found = result ? result.total : 0 %}
+                {% set scale = max(found, ilike|length, 1) %}
+                <section class="contrast" aria-label="ILIKE compared with Fuzzphony">
+                    <div class="contrast-row">
+                        <span class="contrast-label">ILIKE <code>'%{{ q|split(' ')|filter(w => w != '')|join('%') }}%'</code></span>
+                        <span class="contrast-bar"><span class="is-ilike" style="width: {{ (ilike|length / scale * 100)|round }}%"></span></span>
+                        <strong class="contrast-count">{{ ilike|length }}</strong>
+                    </div>
+                    <div class="contrast-row">
+                        <span class="contrast-label">Fuzzphony, {{ language.name }}</span>
+                        <span class="contrast-bar"><span class="is-fuzz" style="width: {{ (found / scale * 100)|round }}%"></span></span>
+                        <strong class="contrast-count">{{ found }}</strong>
+                    </div>
+                    <p class="muted">of {{ total }} {{ language.name }} products. ILIKE looks for the exact letters; Fuzzphony matches word stems, ignores accents and stop words and tolerates typos.</p>
+                </section>
+
+                <div class="lang-grid">
+                    <section class="card analysis" aria-labelledby="analysis-title">
+                        <h2 id="analysis-title">How the words were analysed</h2>
+                        <p class="muted">With <code>{{ language.config }}</code>: the built-in <code>{{ language.builtin }}</code> configuration, accents removed before the stemmer.</p>
+                        {% if analysis is empty %}
+                            <p class="muted">No words to analyse: only punctuation or numbers PostgreSQL does not treat as words.</p>
+                        {% else %}
+                            <ol class="words">
+                                {% for w in analysis %}
+                                    {% set stop = w.lexeme is null %}
+                                    {% set kept_stop = not stop and w.plainLexeme is null %}
+                                    {% set folded = w.folded != w.token %}
+                                    <li class="word{{ stop ? ' is-stop' }}">
+                                        <span class="word-token" lang="{{ code }}">{{ w.token }}</span>
+                                        <span class="word-steps">
+                                            {% if folded %}
+                                                <span class="step"><span class="step-what">accents removed</span><span class="step-out" lang="{{ code }}">{{ w.folded }}</span></span>
+                                            {% endif %}
+                                            {% if stop %}
+                                                <span class="step"><span class="step-what">stop word</span><span class="step-out is-dropped">ignored</span></span>
+                                            {% else %}
+                                                <span class="step"><span class="step-what">{{ w.lexeme == w.folded|lower ? 'stem unchanged' : 'stemmed' }}</span><code class="lexeme">{{ w.lexeme }}</code></span>
+                                            {% endif %}
+                                        </span>
+                                        <span class="word-note">
+                                            {% if stop %}
+                                                A {{ language.name }} filler word: it neither has to match nor counts.
+                                            {% elseif kept_stop %}
+                                                A stop word in {{ language.name }}, but kept: removing the accent changed its spelling.
+                                            {% else %}
+                                                {% if folded and w.plainLexeme != w.lexeme %}Without accent folding: <code class="lexeme">{{ w.plainLexeme }}</code>. {% endif %}
+                                                {% if w.docs > 0 %}In {{ w.docs }} product{{ w.docs == 1 ? '' : 's' }} exactly.{% else %}In no product exactly{% if result and result.usedFuzzy %}{{ result.total > 0 ? ': only typo tolerance can find it' : ', and typo tolerance found nothing close either' }}{% endif %}.{% endif %}
+                                            {% endif %}
+                                        </span>
+                                    </li>
+                                {% endfor %}
+                            </ol>
+                        {% endif %}
+                        {% if result %}
+                            <p class="muted">Fuzzphony understood <code>{{ result.interpretedAs }}</code>{% if result.usedFuzzy %} and used typo tolerance{% endif %}.</p>
+                        {% endif %}
+                    </section>
+
+                    <section class="card" aria-labelledby="hits-title">
+                        <h2 id="hits-title">Found by Fuzzphony</h2>
+                        {% if error %}
+                            <p class="s-error">{{ error }}</p>
+                        {% elseif result %}
+                            {% for warning in result.warnings %}<p class="s-warning">{{ warning }}</p>{% endfor %}
+                            <ul class="hits lang-hits">
+                                {% for hit in result.hits %}
+                                    {% set row = products[hit.id] ?? null %}
+                                    <li>
+                                        {# names[hit.id]: the library's highlight (escaped HTML with <mark>), completed by the controller #}
+                                        <span class="hit-name" lang="{{ code }}">{% if names[hit.id] ?? null %}{{ names[hit.id]|raw }}{% else %}{{ row.name ?? hit.id }}{% endif %}</span>
+                                        {% if hit.breakdown.textRank == 0 and hit.breakdown.fuzzySimilarity > 0 %}<span class="tag is-typo">typo match</span>{% endif %}
+                                        {% if hit.id not in ilike %}<span class="tag is-missed">ILIKE misses this</span>{% endif %}
+                                        <span class="hit-desc muted" lang="{{ code }}">{% if hit.highlights.description is defined %}{{ hit.highlights.description|raw }}{% else %}{{ row.description ?? '' }}{% endif %} <span class="hit-cat">{{ row.category ?? '' }}</span></span>
+                                    </li>
+                                {% else %}
+                                    <li class="muted">Nothing found{% if language.presets|filter(p => p.q == q and p.kind ends with 'not matched')|length %}, as expected: the stemmer has no rule that turns this word into the one in the catalogue{% endif %}.</li>
+                                {% endfor %}
+                            </ul>
+                        {% endif %}
+                    </section>
+                </div>
+            {% endif %}
+        </div>
+
+        <details class="catalogue">
+            <summary>All {{ total }} {{ language.name }} products</summary>
+            <ul lang="{{ code }}">
+                {% for p in products %}<li>{{ p.name }} <span class="muted">{{ p.category }}</span></li>{% endfor %}
+            </ul>
+        </details>
+    </div>
+{% endblock %}
