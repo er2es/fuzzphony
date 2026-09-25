@@ -176,7 +176,8 @@ final class PostgresEngineTest extends TestCase
         $fuzzphony->reindex($index->name);
         $generator = new PostgresSchemaGenerator();
         $names = array_keys($generator->triggerDefinitions($index, $index->effectiveWatches()[1]));
-        $truncate = $names[array_key_last($names)];
+        $truncate = end($names);
+        self::assertIsString($truncate);
         self::assertFalse(str_ends_with($truncate, '_trn'), 'the fixture must exercise a hashed name');
         $this->connection->execute(sprintf('DROP TRIGGER %s ON fz_brand', Sql::ident($truncate)));
 
