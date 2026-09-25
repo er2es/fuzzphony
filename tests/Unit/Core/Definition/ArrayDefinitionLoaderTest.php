@@ -25,7 +25,7 @@ final class ArrayDefinitionLoaderTest extends TestCase
             'language' => 'german',
             'recency' => 'published_at',
             'profiles' => ['fresh' => ['recency' => 0.5]],
-            'thresholds' => ['min_score' => 0.05, 'fuzzy_mode' => 'always'],
+            'thresholds' => ['min_score' => 0.05, 'fuzzy_mode' => 'always', 'relax_when_empty' => false],
         ]);
 
         self::assertStringEndsNotWith(';', (string) $definition->source->query);
@@ -34,6 +34,7 @@ final class ArrayDefinitionLoaderTest extends TestCase
         self::assertArrayHasKey('default', $definition->profiles);
         self::assertSame(0.5, $definition->profile('fresh')->recency);
         self::assertSame(FuzzyMode::Always, $definition->thresholds->fuzzyMode);
+        self::assertFalse($definition->thresholds->relaxWhenEmpty);
     }
 
     public function testYamlOverridesAttributeIndexes(): void

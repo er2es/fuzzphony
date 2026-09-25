@@ -27,6 +27,11 @@ final readonly class Thresholds
         public int $maxQueryLength = 256,
         /** Queries with more terms are truncated (with a warning). */
         public int $maxTerms = 16,
+        /**
+         * A multi-word query that finds nothing is searched once more without the words that match
+         * nothing on their own, and the result names them in a warning.
+         */
+        public bool $relaxWhenEmpty = true,
     ) {
         $violations = [];
         if ($minScore < 0.0) {
@@ -64,6 +69,7 @@ final readonly class Thresholds
             'candidate_limit' => 'candidateLimit',
             'max_query_length' => 'maxQueryLength',
             'max_terms' => 'maxTerms',
+            'relax_when_empty' => 'relaxWhenEmpty',
         ];
         $unknown = array_diff(array_keys($overrides), array_keys($map));
         if ($unknown !== []) {
@@ -78,6 +84,7 @@ final readonly class Thresholds
         $candidateLimit = $this->candidateLimit;
         $maxQueryLength = $this->maxQueryLength;
         $maxTerms = $this->maxTerms;
+        $relaxWhenEmpty = $this->relaxWhenEmpty;
 
         foreach ($overrides as $key => $value) {
             $property = $map[$key];
@@ -89,6 +96,7 @@ final readonly class Thresholds
                 'fallbackBelow' => $fallbackBelow = is_int($value) ? $value : throw new InvalidDefinition('thresholds', [sprintf('"%s" must be an integer.', $key)]),
                 'candidateLimit' => $candidateLimit = is_int($value) ? $value : throw new InvalidDefinition('thresholds', [sprintf('"%s" must be an integer.', $key)]),
                 'maxQueryLength' => $maxQueryLength = is_int($value) ? $value : throw new InvalidDefinition('thresholds', [sprintf('"%s" must be an integer.', $key)]),
+                'relaxWhenEmpty' => $relaxWhenEmpty = self::bool($value) ?? throw new InvalidDefinition('thresholds', [sprintf('"%s" must be a boolean.', $key)]),
                 default => $maxTerms = is_int($value) ? $value : throw new InvalidDefinition('thresholds', [sprintf('"%s" must be an integer.', $key)]),
             };
         }
@@ -102,6 +110,17 @@ final readonly class Thresholds
             candidateLimit: $candidateLimit,
             maxQueryLength: $maxQueryLength,
             maxTerms: $maxTerms,
+            relaxWhenEmpty: $relaxWhenEmpty,
         );
+    }
+
+    /** true / false, also as 1 / 0 or "true" / "false" / "yes" / "no" (command-line overrides are strings). */
+    private static function bool(mixed $value): ?bool
+    {
+        return match (true) {
+            is_bool($value) => $value,
+            is_int($value), is_string($value) => filter_var($value, FILTER_VALIDATE_BOOL, FILTER_NULL_ON_FAILURE),
+            default => null,
+        };
     }
 }

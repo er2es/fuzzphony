@@ -42,4 +42,23 @@ final class ThresholdsTest extends TestCase
         $this->expectException(InvalidDefinition::class);
         (new Thresholds())->with(['candidate_limit' => 'lots']);
     }
+
+    public function testRelaxWhenEmptyIsOnByDefaultAndOverridable(): void
+    {
+        $base = new Thresholds();
+
+        self::assertTrue($base->relaxWhenEmpty);
+        self::assertFalse($base->with(['relax_when_empty' => false])->relaxWhenEmpty);
+        self::assertFalse($base->with(['relax_when_empty' => 'false'])->relaxWhenEmpty, 'as passed by --threshold relax_when_empty=false');
+        self::assertFalse($base->with(['relax_when_empty' => 0])->relaxWhenEmpty);
+        self::assertTrue($base->with(['relax_when_empty' => false])->with(['relax_when_empty' => 'true'])->relaxWhenEmpty);
+        self::assertFalse($base->with(['relax_when_empty' => false])->with(['min_score' => 0.1])->relaxWhenEmpty, 'kept by other overrides');
+    }
+
+    public function testRelaxWhenEmptyMustBeABoolean(): void
+    {
+        $this->expectException(InvalidDefinition::class);
+        $this->expectExceptionMessageMatches('/"relax_when_empty" must be a boolean/');
+        (new Thresholds())->with(['relax_when_empty' => 'maybe']);
+    }
 }

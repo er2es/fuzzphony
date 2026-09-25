@@ -27,6 +27,19 @@ final class ExportersTest extends TestCase
         self::assertEquals($original, $reloaded);
     }
 
+    public function testRelaxWhenEmptyRoundTripsAndIsOnlyExportedWhenChanged(): void
+    {
+        $original = Indexes::products()->with(thresholds: (new Thresholds())->with(['relax_when_empty' => false]));
+        $exported = (new ArrayExporter())->export($original);
+
+        self::assertSame(['relax_when_empty' => false], $exported['thresholds'] ?? null);
+        self::assertEquals($original, (new ArrayDefinitionLoader())->load('products', $exported));
+        self::assertStringContainsString("    thresholds:
+        relax_when_empty: false
+", (new YamlExporter())->export($original));
+        self::assertArrayNotHasKey('thresholds', (new ArrayExporter())->export(Indexes::products()));
+    }
+
     public function testArrayExportRoundTripsTenantScoping(): void
     {
         $original = Indexes::products(tenant: true);

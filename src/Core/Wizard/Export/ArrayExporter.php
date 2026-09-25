@@ -93,7 +93,7 @@ final class ArrayExporter
     {
         $d = new Thresholds();
         $out = [];
-        foreach (['min_score' => 'minScore', 'fuzzy_similarity' => 'fuzzySimilarity', 'fuzzy_min_length' => 'fuzzyMinLength', 'fallback_below' => 'fallbackBelow', 'candidate_limit' => 'candidateLimit', 'max_query_length' => 'maxQueryLength', 'max_terms' => 'maxTerms'] as $key => $property) {
+        foreach (['min_score' => 'minScore', 'fuzzy_similarity' => 'fuzzySimilarity', 'fuzzy_min_length' => 'fuzzyMinLength', 'fallback_below' => 'fallbackBelow', 'candidate_limit' => 'candidateLimit', 'max_query_length' => 'maxQueryLength', 'max_terms' => 'maxTerms', 'relax_when_empty' => 'relaxWhenEmpty'] as $key => $property) {
             if ($t->{$property} !== $d->{$property}) {
                 $out[$key] = $t->{$property};
             }
