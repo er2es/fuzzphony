@@ -101,6 +101,33 @@ final class FuzzyQueryCompiler
     }
 
     /**
+     * The condition each leaf has in the search, one per leaf and in order, for the empty-result
+     * relaxation probe: exact or trigram (as in the fuzzy branch) when $fuzzy is true and the
+     * word is long enough, else exact only; null for a leaf reduced to nothing (a stop word).
+     * The values are q columns, like compile()'s.
+     *
+     * @param list<Node>   $leaves
+     * @param list<string> $emptyQueries leaf tsqueries the text configuration reduces to nothing (stop words)
+     *
+     * @return array{predicates: list<string|null>, columns: list<string>}
+     */
+    public function leafConditions(array $leaves, ParameterBag $params, array $emptyQueries, bool $fuzzy): array
+    {
+        $this->columns = [];
+        $predicates = [];
+        foreach ($leaves as $leaf) {
+            $tsquery = $this->exact($leaf, $emptyQueries);
+            $predicates[] = match (true) {
+                $tsquery === null => null,
+                $fuzzy => $this->leaf($leaf, $params, $emptyQueries)['predicate'] ?? null,
+                default => $this->matches($tsquery, $params),
+            };
+        }
+
+        return ['predicates' => $predicates, 'columns' => $this->columns];
+    }
+
+    /**
      * @param list<string> $empty
      *
      * "partial" marks a score that can be positive while the predicate is false (an AND of which

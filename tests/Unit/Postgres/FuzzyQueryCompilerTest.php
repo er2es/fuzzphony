@@ -233,6 +233,33 @@ final class FuzzyQueryCompilerTest extends TestCase
         );
     }
 
+    public function testLeafConditionsAreTheSearchesPerLeafConditions(): void
+    {
+        $params = new ParameterBag();
+        $leaves = [new Term('wireless'), new Term('ab'), new Term('for'), new Term('aluminum')];
+        $conditions = $this->compiler()->leafConditions($leaves, $params, ["'for'"], fuzzy: true);
+
+        // exact or trigram, like the fuzzy branch; below fuzzyMinLength exact only; a stop word has none
+        self::assertSame(['(s.tsv @@ q.ft0 OR q.fn1 <% s.fz)', 's.tsv @@ q.ft2', null, '(s.tsv @@ q.ft3 OR q.fn4 <% s.fz)'], $conditions['predicates']);
+        self::assertSame([
+            "to_tsquery('fuzzphony_english'::regconfig, :p0) AS ft0",
+            'fuzzphony_norm(:p1) AS fn1',
+            "to_tsquery('fuzzphony_english'::regconfig, :p2) AS ft2",
+            "to_tsquery('fuzzphony_english'::regconfig, :p3) AS ft3",
+            'fuzzphony_norm(:p4) AS fn4',
+        ], $conditions['columns']);
+        self::assertSame(['p0' => "'wireless'", 'p1' => 'wireless', 'p2' => "'ab'", 'p3' => "'aluminum'", 'p4' => 'aluminum'], $params->all());
+    }
+
+    public function testLeafConditionsWithoutTheFuzzyBranchAreExactOnly(): void
+    {
+        $params = new ParameterBag();
+        $conditions = $this->compiler()->leafConditions([new Term('wireless'), self::parse('name:"usb receiver"')], $params, [], fuzzy: false);
+
+        self::assertSame(['s.tsv @@ q.ft0', 's.tsv @@ q.ft1'], $conditions['predicates']);
+        self::assertSame(['p0' => "'wireless'", 'p1' => "('usb':A <-> 'receiver':A)"], $params->all());
+    }
+
     private function compiler(): FuzzyQueryCompiler
     {
         return new FuzzyQueryCompiler(Indexes::products(), new Thresholds());

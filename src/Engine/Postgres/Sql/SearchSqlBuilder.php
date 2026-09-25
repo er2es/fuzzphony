@@ -124,6 +124,49 @@ final class SearchSqlBuilder
     }
 
     /**
+     * The empty-result relaxation probe: per leaf, whether at least one document of the searched
+     * set (filters and tenant included) matches it on its own, with the condition the search
+     * uses for it. One row, one boolean column l<i> per leaf (NULL for a stop word); each EXISTS
+     * stops at the first row.
+     *
+     * @param list<Node>      $leaves
+     * @param bool            $fuzzy        whether the fuzzy branch is eligible (then long enough words may match by trigram)
+     * @param list<Condition> $conditions
+     * @param list<string>    $emptyQueries leaf tsqueries the text configuration reduces to nothing (stop words)
+     *
+     * @return array{sql: string, params: array<string, scalar|null>}
+     */
+    public function probe(array $leaves, bool $fuzzy, array $conditions, Thresholds $thresholds, array $emptyQueries = []): array
+    {
+        $params = new ParameterBag();
+        $filters = new FilterCompiler($this->index);
+        $table = Sql::ident($this->index->sidecarTable());
+        $compiled = (new FuzzyQueryCompiler($this->index, $thresholds))->leafConditions($leaves, $params, $emptyQueries, $fuzzy);
+        if ($compiled['columns'] === []) {
+            throw new \LogicException('A relaxation probe needs at least one leaf that is not a stop word.');
+        }
+
+        $exists = [];
+        foreach ($compiled['predicates'] as $i => $predicate) {
+            $exists[] = $predicate === null
+                ? sprintf('    NULL::boolean AS l%d', $i)
+                : sprintf('    EXISTS (SELECT 1 FROM %s AS s WHERE %s AND %s LIMIT 1) AS l%d', $table, $predicate, $filters->compile($conditions, $params), $i);
+        }
+        // MATERIALIZED: the planner must not see the per-word values (see FuzzyQueryCompiler)
+        $sql = sprintf(
+            "WITH q AS MATERIALIZED (SELECT %s)
+SELECT
+%s
+FROM q",
+            implode(', ', $compiled['columns']),
+            implode(",
+", $exists),
+        );
+
+        return ['sql' => $sql, 'params' => $params->all()];
+    }
+
+    /**
      * No search text: filter-only browsing, ordered by boost / recency, then id.
      *
      * @param list<Condition> $conditions

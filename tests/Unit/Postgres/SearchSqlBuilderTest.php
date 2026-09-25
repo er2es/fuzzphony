@@ -55,6 +55,38 @@ final class SearchSqlBuilderTest extends TestCase
         self::assertSame(['p0' => "('mouse' & 'for')", 'p1' => 'mouse for', 'p2' => "'mouse'", 'p3' => 'mouse'], $statement['params']);
     }
 
+    public function testTheRelaxationProbeIsOneExistsPerLeafWithTheFiltersInEach(): void
+    {
+        $conditions = (new SearchQuery())->where('brand_id', '=', 3)->conditions;
+        $leaves = [new Term('wireless'), new Term('for'), new Term('aluminum')];
+        $statement = (new SearchSqlBuilder(Indexes::products()))->probe($leaves, false, $conditions, new Thresholds(), ["'for'"]);
+
+        self::assertSame(
+            "WITH q AS MATERIALIZED (SELECT to_tsquery('fuzzphony_english'::regconfig, :p0) AS ft0, to_tsquery('fuzzphony_english'::regconfig, :p1) AS ft1)
+"
+            . "SELECT
+"
+            . "    EXISTS (SELECT 1 FROM \"fuzzphony_products\" AS s WHERE s.tsv @@ q.ft0 AND s.\"f_brand_id\" = :p2 LIMIT 1) AS l0,
+"
+            . "    NULL::boolean AS l1,
+"
+            . "    EXISTS (SELECT 1 FROM \"fuzzphony_products\" AS s WHERE s.tsv @@ q.ft1 AND s.\"f_brand_id\" = :p3 LIMIT 1) AS l2
+"
+            . 'FROM q',
+            $statement['sql'],
+        );
+        self::assertSame(['p0' => "'wireless'", 'p1' => "'aluminum'", 'p2' => 3, 'p3' => 3], $statement['params']);
+    }
+
+    public function testTheRelaxationProbeUsesTheFuzzyLeafConditionWhenTheFuzzyBranchIsEligible(): void
+    {
+        $statement = (new SearchSqlBuilder(Indexes::products()))->probe([new Term('wireless'), new Term('aluminum')], true, [], new Thresholds(), []);
+
+        self::assertStringContainsString('EXISTS (SELECT 1 FROM "fuzzphony_products" AS s WHERE (s.tsv @@ q.ft0 OR q.fn1 <% s.fz) AND TRUE LIMIT 1) AS l0', $statement['sql']);
+        self::assertStringContainsString('(s.tsv @@ q.ft2 OR q.fn3 <% s.fz)', $statement['sql']);
+        self::assertStringNotContainsString('aluminum', $statement['sql']);
+    }
+
     public function testTextOnlyHasNoFuzzyBranch(): void
     {
         $statement = (new SearchSqlBuilder(Indexes::products()))->ranked("'mouse'", 'mouse', null, [], new RankingProfile(), new Thresholds(), 10, 0);
