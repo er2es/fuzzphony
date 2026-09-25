@@ -44,7 +44,7 @@ brand, and the `worker` service refreshed them (`docker compose logs worker`).
 | `php` | php-fpm 8.4 (Alpine) | the Symfony app, `APP_ENV=prod`; dynamic pool of up to 16 children, opcache without timestamp checks + preload |
 | `worker` | same image | `fuzzphony:worker`, drains the sync queue; recycled hourly, stops on SIGTERM after the current batch |
 | `init` | same image | one-shot bootstrap: wait for the database, seed only if `bench_product` / `lang_product` are missing, `fuzzphony:schema --apply`, reindex each index only if it is empty, `fuzzphony:doctor`. `php` and `worker` start only after it succeeded |
-| `db` | postgres 17 | named volume `pgdata`, tuned for the demo (see `command:`), healthcheck |
+| `db` | postgres 18 | named volume `pgdata`, tuned for the demo (see `command:`), healthcheck |
 
 The image is built once from the repository root (`demo/Dockerfile`, multi-stage): dependencies
 (`composer install --no-dev --classmap-authoritative`), compiled AssetMapper assets and the warmed Symfony cache are
@@ -88,7 +88,8 @@ docker compose down -v      # removes the containers AND the database volume
 docker compose up --build   # seeds again (about 60 s for the 500 000-row default; ~30 s at 200 000 rows)
 ```
 
-`docker compose down` (without `-v`) keeps the data. To rebuild only the index: `DEMO_REINDEX=always docker compose run --rm init`.
+`docker compose down` (without `-v`) keeps the data. A demo started before the PostgreSQL 18 default
+needs `down -v` once, because PostgreSQL 18 can't open a 17 data directory. To rebuild only the index: `DEMO_REINDEX=always docker compose run --rm init`.
 
 ## Live-edit development
 
@@ -125,6 +126,9 @@ On Linux set `DEMO_UID` / `DEMO_GID` to your own ids so files written into the m
 ## Measured
 
 ### Proven on 500 000 rows
+
+The numbers below were measured on PostgreSQL 17.11. On PostgreSQL 18.6, the current default, the
+same stack came up in 46 s from an empty volume, and every page returned 200.
 
 Verified end to end in an isolated `docker compose -p` project of its own (its own image names, host
 ports and volume; torn down afterwards) on the same machine as below: 16 cores, Docker Desktop assigned

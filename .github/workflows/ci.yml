@@ -90,7 +90,7 @@ jobs:
     runs-on: ubuntu-latest
     services:
       postgres:
-        image: postgres:17
+        image: postgres:18
         env:
           POSTGRES_DB: fuzzphony
           POSTGRES_USER: fuzzphony
@@ -100,7 +100,7 @@ jobs:
           --health-cmd "pg_isready -U fuzzphony"
           --health-interval 2s --health-retries 20
     env:
-      DATABASE_URL: "postgresql://fuzzphony:fuzzphony@127.0.0.1:5432/fuzzphony?serverVersion=17&charset=utf8"
+      DATABASE_URL: "postgresql://fuzzphony:fuzzphony@127.0.0.1:5432/fuzzphony?serverVersion=18&charset=utf8"
       PGPASSWORD: fuzzphony
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
