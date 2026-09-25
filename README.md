@@ -844,6 +844,21 @@ in [`docs/adr`](docs/adr).
   orphan pruning, a production-like demo stack.
 * **v1.0** Enterprise readiness, stable API, BC promise. PostgreSQL only — no other engine is
   planned before 1.0.
+  * Search-as-you-type: a dedicated, fast `suggest()` API for prefix suggestions, and a debounced
+    dropdown in the Live Component.
+  * Synonyms per index (`tv` ↔ `television`, domain abbreviations), expanded on the query side
+    without dictionary files on the database server.
+  * Facets: counts per filter value for the current query ("Kitchen (120) · Office (45)").
+  * "Did you mean": a spelling suggestion from the index's own vocabulary when a word matches
+    nothing (`hedphones` → "headphones?"), next to the existing empty-result relaxation.
+  * Zero-downtime reindex: build the new index in a shadow table and swap it in, so a definition
+    change or a full rebuild never serves partial results.
+  * Search analytics: the most frequent queries and the queries that found nothing, for the
+    people who own the content.
+  * Doctrine Migrations integration: generate a migration class from the schema, next to
+    `--dump-migration`.
+  * Documentation site with a "Migrating from `LIKE`" guide and recipes (admin panel, shop,
+    multi-tenant SaaS).
   * Observability: hooks/events for query latency, queue lag and error rate, wired for Symfony
     Messenger middleware and any metrics backend.
   * Federated search: query multiple indexes at once with one merged, cross-index ranking.
@@ -855,6 +870,9 @@ in [`docs/adr`](docs/adr).
     afterwards so a caller's own transaction is left untouched, which costs one extra database round
     trip per fuzzy statement. An optional, non-breaking `Connection` capability (`inTransaction()`)
     would let the engine skip that round trip when no outer transaction is open.
+* **After 1.0**
+  * Laravel integration: a Scout driver over the same PostgreSQL engine.
+
 ## Development
 
 ```bash
