@@ -7,6 +7,11 @@ changes; they are always listed under **Breaking** and explained in [UPGRADE.md]
 
 ## [Unreleased]
 
+## [0.3.1] - 2026-09-25
+
+**After upgrading, run `fuzzphony:schema --apply`, then a full `fuzzphony:reindex`** so accented
+stop words are dropped from the index too. See [UPGRADE.md](UPGRADE.md).
+
 ### Added
 
 - Demo: a Languages page (`/languages`) that searches a small hand-written catalogue in English,
@@ -25,6 +30,10 @@ changes; they are always listed under **Breaking** and explained in [UPGRADE.md]
   match (see `demo/README.md` "Tuning"). Verified at that size in an isolated compose project: cold
   start (empty volume to first response) 54-57 s, `fuzzphony:doctor --deep` reports 500000 of 500000
   documents indexed (100.0%, exact) — see `demo/README.md` "Proven on 500 000 rows".
+- README: the demo moved up front; "Why" says who Fuzzphony is for and when it is not the right
+  tool; the Messenger section says `symfony/messenger` is optional; the roadmap lists
+  search-as-you-type, synonyms, facets, "did you mean", zero-downtime reindex, search analytics
+  and a Laravel driver.
 
 ### Fixed
 
@@ -203,6 +212,7 @@ on its own:
 - Sync modes: queue (default), trigger, ORM, manual; watches for joined tables.
 - Doctor with fixes; CLI commands for schema, reindex, worker, search and explain.
 
-[Unreleased]: https://github.com/er2es/fuzzphony/compare/v0.3.0...HEAD
+[Unreleased]: https://github.com/er2es/fuzzphony/compare/v0.3.1...HEAD
+[0.3.1]: https://github.com/er2es/fuzzphony/compare/v0.3.0...v0.3.1
 [0.3.0]: https://github.com/er2es/fuzzphony/compare/v0.2.0...v0.3.0
 [0.2.0]: https://github.com/er2es/fuzzphony/releases/tag/v0.2.0
