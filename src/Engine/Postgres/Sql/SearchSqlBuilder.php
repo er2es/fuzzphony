@@ -127,7 +127,7 @@ final class SearchSqlBuilder
      * The empty-result relaxation probe: per leaf, whether at least one document of the searched
      * set (filters and tenant included) matches it on its own, with the condition the search
      * uses for it. One row, one boolean column l<i> per leaf (NULL for a stop word); each EXISTS
-     * stops at the first row.
+     * stops at the first row of its materialized CTE.
      *
      * @param list<Node>      $leaves
      * @param bool            $fuzzy        whether the fuzzy branch is eligible (then long enough words may match by trigram)
@@ -146,22 +146,27 @@ final class SearchSqlBuilder
             throw new \LogicException('A relaxation probe needs at least one leaf that is not a stop word.');
         }
 
-        $exists = [];
+        // One MATERIALIZED CTE per leaf: it is planned for full retrieval, so the planner reads the
+        // GIN indexes (bitmap scans) instead of a scan that stops at the first match, which reads
+        // the whole table for a word that matches nothing; EXISTS over it still stops at the first
+        // row. Planner settings (enable_seqscan ...) would do the same, but they would leak into
+        // the caller's transaction.
+        $ctes = ['q AS MATERIALIZED (SELECT ' . implode(', ', $compiled['columns']) . ')'];
+        $columns = [];
         foreach ($compiled['predicates'] as $i => $predicate) {
-            $exists[] = $predicate === null
-                ? sprintf('    NULL::boolean AS l%d', $i)
-                : sprintf('    EXISTS (SELECT 1 FROM %s AS s WHERE %s AND %s LIMIT 1) AS l%d', $table, $predicate, $filters->compile($conditions, $params), $i);
+            if ($predicate === null) {
+                $columns[] = sprintf('    NULL::boolean AS l%d', $i);
+
+                continue;
+            }
+            $ctes[] = sprintf('m%d AS MATERIALIZED (SELECT 1 FROM %s AS s CROSS JOIN q WHERE %s AND %s)', $i, $table, $predicate, $filters->compile($conditions, $params));
+            $columns[] = sprintf('    EXISTS (SELECT 1 FROM m%1$d) AS l%1$d', $i);
         }
-        // MATERIALIZED: the planner must not see the per-word values (see FuzzyQueryCompiler)
-        $sql = sprintf(
-            "WITH q AS MATERIALIZED (SELECT %s)
+        $sql = sprintf("WITH %s
 SELECT
-%s
-FROM q",
-            implode(', ', $compiled['columns']),
-            implode(",
-", $exists),
-        );
+%s", implode(",
+     ", $ctes), implode(",
+", $columns));
 
         return ['sql' => $sql, 'params' => $params->all()];
     }

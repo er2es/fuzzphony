@@ -44,6 +44,8 @@ use Fuzzphony\Engine\Postgres\Sql\TsQueryCompiler;
 
 final class PostgresEngine implements Engine
 {
+    private const PROBE_LABEL = 'relaxation probe';
+
     private readonly PostgresSchemaGenerator $schema;
 
     public function __construct(
@@ -92,14 +94,23 @@ final class PostgresEngine implements Engine
     {
         $run = $this->execute($index, $query);
         $plan = [];
-        $last = $run['statements'] === [] ? null : $run['statements'][array_key_last($run['statements'])];
+        // the plan of the last search statement (the relaxation probe is listed but is not the search)
+        $last = null;
+        foreach ($run['statements'] as $statement) {
+            if ($statement['label'] !== self::PROBE_LABEL) {
+                $last = $statement;
+            }
+        }
         if ($last !== null) {
-            $plan = $this->connection->transactional(function (Connection $c) use ($last, $analyze, $run): array {
-                self::configure($c, $run['threshold'], $run['bitmapScansOnly']);
-                $rows = $c->fetchAll(($analyze ? 'EXPLAIN (ANALYZE, BUFFERS) ' : 'EXPLAIN ') . $last['sql'], $last['params']);
+            $plan = $this->connection->transactional(fn(Connection $c): array => self::withSimilarityThreshold(
+                $c,
+                $run['threshold'],
+                static function () use ($c, $last, $analyze): array {
+                    $rows = $c->fetchAll(($analyze ? 'EXPLAIN (ANALYZE, BUFFERS) ' : 'EXPLAIN ') . $last['sql'], $last['params']);
 
-                return array_map(static fn(array $row): string => Coerce::str(reset($row)), $rows);
-            });
+                    return array_map(static fn(array $row): string => Coerce::str(reset($row)), $rows);
+                },
+            ));
         }
 
         return new Explanation($run['result']->interpretedAs ?? '', $run['statements'], $plan, $run['result']);
@@ -230,8 +241,7 @@ final class PostgresEngine implements Engine
      * @return array{
      *     result: SearchResult,
      *     statements: list<array{label: string, sql: string, params: array<string, scalar|null>}>,
-     *     threshold: float|null,
-     *     bitmapScansOnly: bool
+     *     threshold: float|null
      * }
      */
     private function execute(IndexDefinition $index, SearchQuery $query): array
@@ -259,31 +269,28 @@ final class PostgresEngine implements Engine
             $warnings[] = 'The search only excluded words; add at least one word to look for.';
             $empty = SearchResult::empty($query->limit, $query->offset, $warnings, round((hrtime(true) - $started) / 1e6, 3));
 
-            return ['result' => $empty, 'statements' => [], 'threshold' => null, 'bitmapScansOnly' => false];
+            return ['result' => $empty, 'statements' => [], 'threshold' => null];
         }
 
         $run = $this->pipeline($index, $root, $conditions, $profile, $thresholds, $query, '');
         $statements = $run['statements'];
         array_push($warnings, ...$run['warnings']);
-        // settings of the last statement, which explain() runs again
+        // setting of the last search statement, which explain() runs again
         $threshold = $run['threshold'];
-        $bitmapScansOnly = false;
 
         // Empty-result relaxation: drop the words that match nothing on their own, search once more.
         if ($root !== null && $thresholds->relaxWhenEmpty && self::total($run['rows']) === 0) {
-            $probe = $this->probe($index, $root, $run['fuzzy'], $conditions, $thresholds);
+            $probe = $this->probe($index, $root, $run['fuzzy'], $run['emptyQueries'], $conditions, $thresholds);
             if ($probe !== null) {
                 $statements[] = $probe['statement'];
-                $threshold = $probe['threshold'];
-                $bitmapScansOnly = true;
                 $reduced = $probe['ignored'] === [] ? null : Relaxation::without($root, $probe['ignored']);
                 if ($reduced !== null) {
+                    $relaxed = $this->pipeline($index, $reduced, $conditions, $profile, $thresholds, $query, 'relaxed: ');
+                    array_push($statements, ...$relaxed['statements']);
+                    $threshold = $relaxed['threshold'];
                     $root = $reduced;
-                    $run = $this->pipeline($index, $root, $conditions, $profile, $thresholds, $query, 'relaxed: ');
-                    array_push($statements, ...$run['statements']);
-                    array_push($warnings, ...$run['warnings']);
-                    $threshold = $run['threshold'];
-                    $bitmapScansOnly = false;
+                    $run = $relaxed;
+                    array_push($warnings, ...$relaxed['warnings']);
                     $warnings[] = Relaxation::warning($probe['ignored']);
                 }
             }
@@ -334,7 +341,7 @@ final class PostgresEngine implements Engine
             interpretedAs: $root !== null ? (string) $root : null,
         );
 
-        return ['result' => $result, 'statements' => $statements, 'threshold' => $threshold, 'bitmapScansOnly' => $bitmapScansOnly];
+        return ['result' => $result, 'statements' => $statements, 'threshold' => $threshold];
     }
 
     /**
@@ -350,6 +357,7 @@ final class PostgresEngine implements Engine
      *     threshold: float|null,
      *     tsquery: string|null,
      *     fuzzy: bool,
+     *     emptyQueries: list<string>|null,
      *     browse: bool,
      *     warnings: list<string>
      * }
@@ -378,6 +386,7 @@ final class PostgresEngine implements Engine
         $usedFuzzy = false;
         $threshold = null;
         $browse = false;
+        $emptyQueries = null;
 
         if ($tsquery === null && $plain === '') {
             $statement = ['label' => $labelPrefix . 'browse'] + $builder->browse($conditions, $profile, $thresholds, $query->limit, $query->offset);
@@ -385,12 +394,11 @@ final class PostgresEngine implements Engine
             $statements[] = $statement;
             $browse = true;
         } else {
-            $emptyQueries = [];
             $alwaysFuzzy = $fuzzyRoot !== null
                 && ($thresholds->fuzzyMode === FuzzyMode::Always || $tsquery === null)
                 && $fuzzy->hasFuzzyLeaf($fuzzyRoot, $emptyQueries = $this->emptyQueries($index, $fuzzy->leafQueries($fuzzyRoot)));
             $statement = ['label' => $labelPrefix . ($alwaysFuzzy ? 'full-text + fuzzy' : 'full-text')]
-                + $builder->ranked($tsquery, $plain, $alwaysFuzzy ? $fuzzyRoot : null, $conditions, $profile, $thresholds, $query->limit, $query->offset, $emptyQueries);
+                + $builder->ranked($tsquery, $plain, $alwaysFuzzy ? $fuzzyRoot : null, $conditions, $profile, $thresholds, $query->limit, $query->offset, $emptyQueries ?? []);
             $threshold = $alwaysFuzzy ? $thresholds->fuzzySimilarity : null;
             $rows = $this->run($statement, $threshold);
             $statements[] = $statement;
@@ -419,6 +427,7 @@ final class PostgresEngine implements Engine
             'threshold' => $threshold,
             'tsquery' => $tsquery,
             'fuzzy' => $fuzzyRoot !== null,
+            'emptyQueries' => $emptyQueries,
             'browse' => $browse,
             'warnings' => $warnings,
         ];
@@ -431,15 +440,15 @@ final class PostgresEngine implements Engine
      * ignored by the search already and are never reported). "ignored" is empty when every word
      * matches something, and when none does (then there is nothing to keep).
      *
-     * @param list<Condition> $conditions
+     * @param list<string>|null $emptyQueries the stop-word tsqueries when the search asked for them already, else null
+     * @param list<Condition>   $conditions
      *
      * @return array{
      *     statement: array{label: string, sql: string, params: array<string, scalar|null>},
-     *     threshold: float|null,
      *     ignored: list<Term|Phrase|FieldScoped>
      * }|null
      */
-    private function probe(IndexDefinition $index, Node $root, bool $fuzzy, array $conditions, Thresholds $thresholds): ?array
+    private function probe(IndexDefinition $index, Node $root, bool $fuzzy, ?array $emptyQueries, array $conditions, Thresholds $thresholds): ?array
     {
         $compiler = new TsQueryCompiler($index);
         $leaves = [];
@@ -454,7 +463,7 @@ final class PostgresEngine implements Engine
         if (count($leaves) < 2) {
             return null;
         }
-        $empty = $this->emptyQueries($index, array_values(array_unique($tsqueries)));
+        $empty = $emptyQueries ?? $this->emptyQueries($index, array_values(array_unique($tsqueries)));
         $probed = [];
         foreach ($leaves as $i => $leaf) {
             if (!in_array($tsqueries[$i], $empty, true)) {
@@ -465,9 +474,8 @@ final class PostgresEngine implements Engine
             return null;
         }
 
-        $statement = ['label' => 'relaxation probe'] + (new SearchSqlBuilder($index))->probe($probed, $fuzzy, $conditions, $thresholds, $empty);
-        $threshold = $fuzzy ? $thresholds->fuzzySimilarity : null;
-        $row = $this->run($statement, $threshold, bitmapScansOnly: true)[0] ?? [];
+        $statement = ['label' => self::PROBE_LABEL] + (new SearchSqlBuilder($index))->probe($probed, $fuzzy, $conditions, $thresholds, $empty);
+        $row = $this->run($statement, $fuzzy ? $thresholds->fuzzySimilarity : null)[0] ?? [];
         $ignored = [];
         foreach ($probed as $i => $leaf) {
             if (in_array($row['l' . $i] ?? null, [false, 'f', 0], true)) {
@@ -475,7 +483,7 @@ final class PostgresEngine implements Engine
             }
         }
 
-        return ['statement' => $statement, 'threshold' => $threshold, 'ignored' => count($ignored) < count($probed) ? $ignored : []];
+        return ['statement' => $statement, 'ignored' => count($ignored) < count($probed) ? $ignored : []];
     }
 
     /**
@@ -509,35 +517,45 @@ final class PostgresEngine implements Engine
      *
      * @return list<array<string, mixed>>
      */
-    private function run(array $statement, ?float $similarityThreshold, bool $bitmapScansOnly = false): array
+    private function run(array $statement, ?float $similarityThreshold): array
     {
         return $this->guard('search', fn(): array => $this->connection->transactional(
-            static function (Connection $c) use ($statement, $similarityThreshold, $bitmapScansOnly): array {
-                self::configure($c, $similarityThreshold, $bitmapScansOnly);
-
-                return $c->fetchAll($statement['sql'], $statement['params']);
-            },
+            static fn(Connection $c): array => self::withSimilarityThreshold(
+                $c,
+                $similarityThreshold,
+                static fn(): array => $c->fetchAll($statement['sql'], $statement['params']),
+            ),
         ), 'Run "bin/console fuzzphony:doctor" to check the index.');
     }
 
     /**
-     * Transaction-local settings (SET LOCAL semantics) of a search statement.
+     * Runs $work with pg_trgm.word_similarity_threshold set, which lets "<%" use the trigram
+     * index, and puts the previous value back afterwards. The setting is transaction-local, but
+     * when the caller already has a transaction open (or a savepoint is released) it would
+     * otherwise stay on until the caller commits. A search leaves no session state behind.
      *
-     * The similarity threshold lets "<%" use the trigram index. Bitmap-scans-only is for the
-     * relaxation probe: an "EXISTS (... LIMIT 1)" makes the planner prefer a scan that stops at
-     * the first match (sequential, or along a filter's btree index), which evaluates the text
-     * condition row by row and reads the whole table for exactly the words the probe is looking
-     * for, those that match nothing (measured at 200 000 rows: 600-770 ms instead of 15-30 ms).
-     * Bitmap scans evaluate the text condition through the GIN indexes.
+     * @template T
+     *
+     * @param \Closure(): T $work
+     *
+     * @return T
      */
-    private static function configure(Connection $c, ?float $similarityThreshold, bool $bitmapScansOnly): void
+    private static function withSimilarityThreshold(Connection $c, ?float $similarityThreshold, \Closure $work): mixed
     {
-        if ($similarityThreshold !== null) {
-            $c->fetchValue("SELECT set_config('pg_trgm.word_similarity_threshold', :t, true)", ['t' => (string) $similarityThreshold]);
+        if ($similarityThreshold === null) {
+            return $work();
         }
-        if ($bitmapScansOnly) {
-            $c->fetchValue("SELECT set_config('enable_seqscan', 'off', true), set_config('enable_indexscan', 'off', true)");
-        }
+        $name = 'pg_trgm.word_similarity_threshold';
+        // the previous value is read before the new one is set (the CTE is evaluated first);
+        // NULL (the extension is not loaded yet) is restored as the default
+        $previous = $c->fetchValue(
+            sprintf("WITH old AS MATERIALIZED (SELECT current_setting('%1\$s', true) AS v) SELECT v, set_config('%1\$s', :t, true) FROM old", $name),
+            ['t' => (string) $similarityThreshold],
+        );
+        $result = $work();
+        $c->fetchValue(sprintf("SELECT set_config('%s', :v, true)", $name), ['v' => is_string($previous) ? $previous : null]);
+
+        return $result;
     }
 
     /** @param list<array<string, mixed>> $rows */

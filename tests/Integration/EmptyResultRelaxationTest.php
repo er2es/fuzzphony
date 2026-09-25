@@ -4,9 +4,11 @@ declare(strict_types=1);
 
 namespace Fuzzphony\Tests\Integration;
 
+use Fuzzphony\Core\Database\Connection;
 use Fuzzphony\Core\Fuzzphony;
 use Fuzzphony\Core\Registry\IndexRegistry;
 use Fuzzphony\Core\Search\SearchResult;
+use Fuzzphony\Core\Support\Coerce;
 use Fuzzphony\Engine\Postgres\PostgresEngine;
 use Fuzzphony\Tests\Conformance\EngineConformanceTestCase;
 use Fuzzphony\Tests\Fixtures\Indexes;
@@ -15,13 +17,22 @@ use PHPUnit\Framework\TestCase;
 /** PostgreSQL side of the empty-result relaxation: the statements it runs, and tenant isolation. */
 final class EmptyResultRelaxationTest extends TestCase
 {
-    private function fuzzphony(bool $tenant = false): Fuzzphony
+    private Connection $connection;
+
+    private function fuzzphony(bool $tenant = false, int $filler = 0): Fuzzphony
     {
-        $connection = PostgresTestCase::connect();
+        $connection = $this->connection = PostgresTestCase::connect();
         PostgresTestCase::createFixtures($connection, EngineConformanceTestCase::fixtureRows());
+        if ($filler > 0) {
+            // enough rows for the planner to prefer the indexes over a sequential scan
+            $connection->execute("INSERT INTO fz_product SELECT 100 + n, 'Filler item ' || n, 'Lorem ipsum dolor ' || (n % 97), 1, 1000 + n, true, 0, now() FROM generate_series(1, :n) AS n", ['n' => $filler]);
+        }
         $fuzzphony = new Fuzzphony(new PostgresEngine($connection), new IndexRegistry([Indexes::products('manual', tenant: $tenant)]));
         $fuzzphony->schema()->apply($connection);
         $fuzzphony->reindex('products');
+        if ($filler > 0) {
+            $connection->execute('ANALYZE "fuzzphony_products"');
+        }
 
         return $fuzzphony;
     }
@@ -39,7 +50,7 @@ final class EmptyResultRelaxationTest extends TestCase
         self::assertNotEmpty(array_filter($explanation->plan, static fn(string $l): bool => str_contains($l, 'actual time')));
 
         $probe = $explanation->statements[2];
-        self::assertStringContainsString('EXISTS (SELECT 1 FROM "fuzzphony_products" AS s WHERE (s.tsv @@ q.ft0 OR q.fn1 <% s.fz)', $probe['sql']);
+        self::assertStringContainsString('m0 AS MATERIALIZED (SELECT 1 FROM "fuzzphony_products" AS s CROSS JOIN q WHERE (s.tsv @@ q.ft0 OR q.fn1 <% s.fz)', $probe['sql']);
         self::assertStringNotContainsString('offfice', $probe['sql'], 'user text is bound, never inlined');
         self::assertContains('offfice', $probe['params']);
     }
@@ -62,15 +73,115 @@ final class EmptyResultRelaxationTest extends TestCase
 
     public function testTheProbeReadsTheTextIndexesInsteadOfScanningForAFirstMatch(): void
     {
-        // the probe is the last statement here, so it is the one explain() shows
-        $explanation = $this->fuzzphony()->in('products')->query('mouse torch')->explain(analyze: true);
-        $plan = implode("\n", $explanation->plan);
+        $search = $this->fuzzphony(filler: 150_000)->in('products');
+        $probe = $search->query('mouse torch')->explain()->statements[2];
+        self::assertSame('relaxation probe', $probe['label']);
 
-        self::assertSame(['full-text', 'fallback: full-text + fuzzy', 'relaxation probe'], array_column($explanation->statements, 'label'));
+        $plan = implode("
+", array_map(
+            static fn(array $row): string => Coerce::str(reset($row)),
+            $this->connection->fetchAll('EXPLAIN ' . $probe['sql'], $probe['params']),
+        ));
+
         self::assertStringContainsString('Bitmap Index Scan on fuzzphony_products_tsv', $plan);
         self::assertStringContainsString('Bitmap Index Scan on fuzzphony_products_fz', $plan);
         self::assertStringNotContainsString('Seq Scan on fuzzphony_products', $plan);
         self::assertStringNotContainsString('Index Scan using', $plan);
+    }
+
+    public function testExplainShowsThePlanOfTheSearchNotOfTheProbe(): void
+    {
+        $explanation = $this->fuzzphony()->in('products')->query('mouse torch')->explain();
+
+        self::assertSame(['full-text', 'fallback: full-text + fuzzy', 'relaxation probe'], array_column($explanation->statements, 'label'));
+        $plan = implode("
+", $explanation->plan);
+        self::assertStringContainsString('CTE scored', $plan);
+        self::assertStringNotContainsString('CTE m0', $plan);
+    }
+
+    public function testTheProbeLeavesNoPlannerSettingsInTheCallersTransaction(): void
+    {
+        $search = $this->fuzzphony()->in('products');
+
+        $settings = $this->connection->transactional(function (Connection $c) use ($search): array {
+            $result = $search->query('wireless mouse offfice')->get();
+            self::assertContains('No results for all words; ignored words that match nothing: "offfice".', $result->warnings);
+            $probed = $search->query('mouse torch')->get();
+            self::assertSame([], $probed->ids());
+
+            return [
+                'enable_seqscan' => $c->fetchValue('SHOW enable_seqscan'),
+                'enable_indexscan' => $c->fetchValue('SHOW enable_indexscan'),
+                'enable_bitmapscan' => $c->fetchValue('SHOW enable_bitmapscan'),
+            ];
+        });
+
+        self::assertSame(['enable_seqscan' => 'on', 'enable_indexscan' => 'on', 'enable_bitmapscan' => 'on'], $settings);
+    }
+
+    public function testTheSimilarityThresholdIsRestoredInTheCallersTransaction(): void
+    {
+        $search = $this->fuzzphony()->in('products');
+        $this->connection->fetchValue("SELECT set_config('pg_trgm.word_similarity_threshold', '0.55', false)");
+        $shown = static fn(Connection $c): mixed => $c->fetchValue("SELECT current_setting('pg_trgm.word_similarity_threshold')");
+
+        $inside = $this->connection->transactional(function (Connection $c) use ($search, $shown): array {
+            $result = $search->query('wireles mice')->get();
+            self::assertContains(1, $result->ids());
+            self::assertTrue($result->usedFuzzy);
+            $afterSearch = $shown($c);
+            $explained = $search->query('wireles mice')->explain();
+
+            return ['after search' => $afterSearch, 'after explain' => $shown($c), 'explained' => $explained->result->usedFuzzy];
+        });
+
+        self::assertSame(['after search' => '0.55', 'after explain' => '0.55', 'explained' => true], $inside);
+        self::assertSame('0.55', $shown($this->connection));
+    }
+
+    public function testTheProbeReusesTheStopWordLookupOfTheSearch(): void
+    {
+        $this->fuzzphony();
+        $log = new \ArrayObject();
+        $recording = new class ($this->connection, $log) implements Connection {
+            /** @param \ArrayObject<int, string> $log */
+            public function __construct(private readonly Connection $inner, private readonly \ArrayObject $log) {}
+
+            public function fetchAll(string $sql, array $params = []): array
+            {
+                $this->log[] = $sql;
+
+                return $this->inner->fetchAll($sql, $params);
+            }
+
+            public function fetchValue(string $sql, array $params = []): mixed
+            {
+                $this->log[] = $sql;
+
+                return $this->inner->fetchValue($sql, $params);
+            }
+
+            public function execute(string $sql, array $params = []): int
+            {
+                $this->log[] = $sql;
+
+                return $this->inner->execute($sql, $params);
+            }
+
+            public function transactional(callable $callback): mixed
+            {
+                return $this->inner->transactional(fn(): mixed => $callback($this));
+            }
+        };
+        $search = (new Fuzzphony(new PostgresEngine($recording), new IndexRegistry([Indexes::products('manual')])))->in('products');
+
+        $result = $search->query('wireless mouse offfice')->get();
+
+        self::assertSame([1], $result->ids());
+        $lookups = array_filter($log->getArrayCopy(), static fn(string $sql): bool => str_contains($sql, 'numnode('));
+        // one for the fuzzy fallback of the search, one for the fallback of the relaxed search; the probe reuses the first
+        self::assertCount(2, $lookups);
     }
 
     public function testAStopWordIsNeitherKeptNorReportedAsUnmatched(): void
