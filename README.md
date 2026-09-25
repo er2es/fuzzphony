@@ -71,6 +71,13 @@ search cluster, which is one more service to run, sync, back up and secure, and 
 your data. Fuzzphony gives you good search **inside the PostgreSQL you already have**, and
 it doesn't need to change your schema to do it.
 
+**Where it comes from.** Fuzzphony grew out of a production requirement: adding dependable,
+typo-tolerant search to an established system whose database could not be restructured, without
+introducing new infrastructure. The constraints behind that requirement are common: a schema owned
+by other applications, operations teams wary of another service, and data that has to stay where
+it is. So the solution was generalised, tested against PostgreSQL 15 to 18, and released as a
+library for teams in the same position.
+
 **A good fit when:**
 
 - **The database is not yours to change.** It's a legacy system, an ERP, or tables another team
