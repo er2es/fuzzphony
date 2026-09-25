@@ -35,6 +35,16 @@ final class RelaxationTest extends TestCase
         yield 'nothing removed' => ['wireless mouse', [], '(wireless AND mouse)'];
         yield 'all removed' => ['foo bar', ['foo', 'bar'], null];
         yield 'single leaf' => ['foo', ['foo'], null];
+        // A group that would be left with only negations ("everything except ...") is not a relaxation:
+        // the search does not run negation-only queries, and a relaxed one must not either.
+        yield 'and left with only a negation' => ['foo -cable', ['foo'], null];
+        yield 'and of several words, one left' => ['foo bar -cable', ['foo'], '(bar AND NOT cable)'];
+        yield 'and of several words, none left' => ['foo bar -cable', ['foo', 'bar'], null];
+        yield 'or branch left with only a negation' => ['zzqq -mouse | wireless yyqq', ['zzqq', 'yyqq'], null];
+        yield 'or branch left with only a negation, the other kept' => ['(zzqq -mouse) | wireless', ['zzqq'], null];
+        yield 'nested group left with only a negation' => ['wireless (foo -mouse | bar)', ['foo'], null];
+        yield 'nested group keeps a word next to its negation' => ['wireless (foo bar -mouse | baz)', ['foo'], '(wireless AND ((bar AND NOT mouse) OR baz))'];
+        yield 'the negation of an untouched group stays' => ['wireless (foo | bar) -cable', ['foo'], '(wireless AND bar AND NOT cable)'];
     }
 
     /** @param list<string> $remove canonical forms of the leaves to remove */

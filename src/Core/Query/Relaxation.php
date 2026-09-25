@@ -8,6 +8,7 @@ use Fuzzphony\Core\Query\Ast\AllOf;
 use Fuzzphony\Core\Query\Ast\AnyOf;
 use Fuzzphony\Core\Query\Ast\FieldScoped;
 use Fuzzphony\Core\Query\Ast\Node;
+use Fuzzphony\Core\Query\Ast\Not;
 use Fuzzphony\Core\Query\Ast\Phrase;
 use Fuzzphony\Core\Query\Ast\Term;
 
@@ -34,11 +35,25 @@ final class Relaxation
     }
 
     /**
-     * The query without the given leaves (compared by instance); null when nothing is left.
+     * The query without the given leaves (compared by instance); null when nothing is left, or
+     * when removing them would leave an AND / OR group with only negations: "everything except
+     * ..." is not a relaxation, and the search refuses such queries too.
      *
      * @param list<Node> $remove
      */
     public static function without(Node $node, array $remove): ?Node
+    {
+        $reduced = self::reduce($node, $remove);
+
+        return $reduced === false ? null : $reduced;
+    }
+
+    /**
+     * @param list<Node> $remove
+     *
+     * @return Node|null|false null: removed, nothing left of it; false: it would be left with negations only
+     */
+    private static function reduce(Node $node, array $remove): Node|null|false
     {
         if (in_array($node, $remove, true)) {
             return null;
@@ -48,10 +63,16 @@ final class Relaxation
         }
         $kept = [];
         foreach ($node->nodes as $child) {
-            $child = self::without($child, $remove);
+            $child = self::reduce($child, $remove);
+            if ($child === false) {
+                return false;
+            }
             if ($child !== null) {
                 $kept[] = $child;
             }
+        }
+        if ($kept !== [] && array_all($kept, static fn(Node $n): bool => $n instanceof Not)) {
+            return false;
         }
 
         return match (count($kept)) {

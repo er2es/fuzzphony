@@ -284,7 +284,8 @@ final class PostgresEngine implements Engine
             if ($probe !== null) {
                 $statements[] = $probe['statement'];
                 $reduced = $probe['ignored'] === [] ? null : Relaxation::without($root, $probe['ignored']);
-                if ($reduced !== null) {
+                // the same guard as for the query itself: a relaxed query must still look for something
+                if ($reduced !== null && NodeInspector::hasPositive($reduced)) {
                     $relaxed = $this->pipeline($index, $reduced, $conditions, $profile, $thresholds, $query, 'relaxed: ');
                     array_push($statements, ...$relaxed['statements']);
                     $threshold = $relaxed['threshold'];

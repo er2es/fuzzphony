@@ -210,6 +210,22 @@ final class EmptyResultRelaxationTest extends TestCase
         self::assertCount(2, $lookups);
     }
 
+    public function testRelaxationNeverTurnsAnOrBranchIntoAnExclusionOnly(): void
+    {
+        $search = $this->fuzzphony()->in('products');
+
+        // (zzqqx AND NOT mouse) OR (wireless AND yyqqx): dropping the unknown words would leave
+        // "everything except mouse" as a branch
+        $result = $search->query('zzqqx -mouse | wireless yyqqx')->get();
+        $explanation = $search->query('zzqqx -mouse | wireless yyqqx')->explain();
+
+        self::assertSame([], $result->ids());
+        self::assertSame(0, $result->total);
+        self::assertSame('((zzqqx AND NOT mouse) OR (wireless AND yyqqx))', $result->interpretedAs);
+        self::assertSame([], $result->warnings);
+        self::assertSame(['full-text', 'fallback: full-text + fuzzy', 'relaxation probe'], array_column($explanation->statements, 'label'));
+    }
+
     public function testAStopWordIsNeitherKeptNorReportedAsUnmatched(): void
     {
         $result = $this->fuzzphony()->in('products')->query('wireless mouse for offfice')->get();
