@@ -104,4 +104,11 @@ final class ThresholdsTest extends TestCase
             self::assertCount(3, $e->violations);
         }
     }
+
+    public function testAnUnknownFuzzyModeIsAnInvalidDefinition(): void
+    {
+        $this->expectException(InvalidDefinition::class);
+        $this->expectExceptionMessageMatches('/"fuzzy_mode" must be one of: always, fallback, never/');
+        (new Thresholds())->with(['fuzzy_mode' => 'bogus']);
+    }
 }

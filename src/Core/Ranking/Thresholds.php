@@ -109,7 +109,7 @@ final readonly class Thresholds
                 'minScore' => $minScore = is_numeric($value) ? (float) $value : throw new InvalidDefinition('thresholds', [sprintf('"%s" must be a number.', $key)]),
                 'fuzzySimilarity' => $fuzzySimilarity = is_numeric($value) ? (float) $value : throw new InvalidDefinition('thresholds', [sprintf('"%s" must be a number.', $key)]),
                 'fuzzyMinLength' => $fuzzyMinLength = is_int($value) ? $value : throw new InvalidDefinition('thresholds', [sprintf('"%s" must be an integer.', $key)]),
-                'fuzzyMode' => $fuzzyMode = $value instanceof FuzzyMode ? $value : FuzzyMode::from(is_string($value) ? $value : ''),
+                'fuzzyMode' => $fuzzyMode = $value instanceof FuzzyMode ? $value : (FuzzyMode::tryFrom(is_string($value) ? $value : '') ?? throw new InvalidDefinition('thresholds', [sprintf('"%s" must be one of: %s.', $key, implode(', ', array_map(static fn(FuzzyMode $m): string => $m->value, FuzzyMode::cases())))])),
                 'fallbackBelow' => $fallbackBelow = is_int($value) ? $value : throw new InvalidDefinition('thresholds', [sprintf('"%s" must be an integer.', $key)]),
                 'candidateLimit' => $candidateLimit = is_int($value) ? $value : throw new InvalidDefinition('thresholds', [sprintf('"%s" must be an integer.', $key)]),
                 'maxQueryLength' => $maxQueryLength = is_int($value) ? $value : throw new InvalidDefinition('thresholds', [sprintf('"%s" must be an integer.', $key)]),
