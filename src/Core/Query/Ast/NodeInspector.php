@@ -21,7 +21,8 @@ final class NodeInspector
     }
 
     /**
-     * Positive words, in order, for typo-tolerant matching and exact/prefix bonuses.
+     * Positive words, in order, of a query: they feed the exact-match and prefix bonuses (typo-tolerant
+     * matching compiles the AST itself, see FuzzyQueryCompiler).
      *
      * @param (callable(string): bool)|null $fieldFilter only include field-scoped words when this returns true
      *
@@ -37,25 +38,6 @@ final class NodeInspector
             $node instanceof AllOf, $node instanceof AnyOf => array_merge(...array_map(
                 static fn(Node $n): array => self::positiveWords($n, $fieldFilter),
                 $node->nodes,
-            )),
-            default => [],
-        };
-    }
-
-    /**
-     * Exclusions that apply to the whole query ("a b -c -d" -> [c, d]). The PostgreSQL engine no
-     * longer needs this (its typo-tolerant branch compiles negations in place, at any depth);
-     * kept for engines that can only apply exclusions globally.
-     *
-     * @return list<Node>
-     */
-    public static function topLevelExclusions(?Node $node): array
-    {
-        return match (true) {
-            $node instanceof Not => [$node->node],
-            $node instanceof AllOf => array_values(array_map(
-                static fn(Not $n): Node => $n->node,
-                array_filter($node->nodes, static fn(Node $n): bool => $n instanceof Not),
             )),
             default => [],
         };
