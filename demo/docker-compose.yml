@@ -176,6 +176,8 @@ services:
       context: ..
       dockerfile: demo/Dockerfile
       target: web
+    environment:
+      NGINX_ENTRYPOINT_QUIET_LOGS: "1" # the stock entrypoint's "no files found in /docker-entrypoint.d/" line
     depends_on:
       php: { condition: service_healthy }
     ports:
