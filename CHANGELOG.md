@@ -16,6 +16,14 @@
     resumed with `--from` never prunes.
   * `fuzzphony:doctor` reports a missing `TRUNCATE` trigger, and with `--deep` counts orphaned
     documents (a warning; the fix is `fuzzphony:reindex`).
+  * The own-table `TRUNCATE` shortcut only empties the index when the source really is empty
+    (`TRUNCATE ONLY` on a table-inheritance parent leaves the children's rows in the source and now
+    resyncs), and it skips queue rows a running worker holds instead of waiting for them.
+  * Pruning is opt-out: `fuzzphony:reindex --no-prune` and `Fuzzphony::reindex(..., prune: false)`
+    (`Reindexer::run()` takes `$prune` too), for sessions that see less than the application (row-level
+    security, `search_path`). A full run whose source returns no row at all does not prune unless
+    `--prune-empty` / `pruneEmpty: true` is given (`$onPruneSkipped` reports it).
+    `Fuzzphony::reindex()` now also accepts `$onPruned`.
 
   **After upgrading, run `fuzzphony:schema --apply`** (idempotent) so existing indexes get the new
   trigger and sync functions, then a full `fuzzphony:reindex` to clear what earlier `TRUNCATE`s
