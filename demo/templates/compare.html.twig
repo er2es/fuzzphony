@@ -36,7 +36,7 @@
                     {% for hit in result.hits %}
                         {% set row = with.rows[hit.id] ?? null %}
                         <li>
-                            {{ (hit.highlights.name ?? row.name ?? hit.id)|raw }}
+                            {% if hit.highlights.name is defined %}{{ hit.highlights.name|raw }}{% else %}{{ row.name ?? hit.id }}{% endif %}
                             <span class="muted">· {{ row.brand ?? '' }} · score {{ hit.score|number_format(3) }}</span>
                         </li>
                     {% else %}

@@ -70,7 +70,8 @@
                             {% set b = hit.breakdown %}
                             {% set row = rows[hit.id] ?? null %}
                             <li>
-                                {{ (hit.highlights.name ?? row.name ?? hit.id)|raw }}
+                                {# the highlight is HTML-escaped by Fuzzphony (only <mark> is added); the fallback is raw database text #}
+                                {% if hit.highlights.name is defined %}{{ hit.highlights.name|raw }}{% else %}{{ row.name ?? hit.id }}{% endif %}
                                 <span class="muted">· {{ row.brand ?? '' }} · {{ row.category ?? '' }} · {{ row.price ?? '' }} Ft · score {{ hit.score|number_format(3) }}</span>
                                 <div class="bar" title="text {{ (b.textRank * text)|number_format(3) }} · fuzzy {{ (b.fuzzySimilarity * fuzzy)|number_format(3) }} · bonus {{ (b.exactBonus + b.prefixBonus)|number_format(2) }} · boost {{ b.boostBonus|number_format(3) }} · recency {{ b.recencyBonus|number_format(3) }}">
                                     <span class="b-text" style="width: {{ 100 * b.textRank * text / max(top, 0.001) }}%"></span>
