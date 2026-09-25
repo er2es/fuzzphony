@@ -24,6 +24,9 @@ final class PagesController extends AbstractController
 {
     private const array LANGUAGES = ['english', 'german', 'french', 'spanish', 'italian', 'hungarian', 'dutch', 'simple'];
 
+    /** benchmarkRow() below measures ILIKE and Fuzzphony, one Measure::median() call each: always these two. */
+    private const int ENGINES = 2;
+
     #[Route('/playground', name: 'playground')]
     public function playground(): Response
     {
@@ -77,9 +80,15 @@ final class PagesController extends AbstractController
 
     /** The page shell is instant; every row is measured by its own request (see sequence_controller.js). */
     #[Route('/benchmark', name: 'benchmark')]
-    public function benchmark(): Response
+    public function benchmark(Catalog $catalog): Response
     {
-        return $this->render('benchmark.html.twig', ['queries' => self::benchmarkQueries()]);
+        return $this->render('benchmark.html.twig', [
+            'queries' => self::benchmarkQueries(),
+            'table' => Catalog::TABLE,
+            'rowEstimate' => $catalog->estimatedProductCount(),
+            'warmRuns' => Measure::WARM_RUNS,
+            'engines' => self::ENGINES,
+        ]);
     }
 
     /** One benchmark row, requested one at a time so the measurements never compete with each other. */

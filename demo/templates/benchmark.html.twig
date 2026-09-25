@@ -1,7 +1,12 @@
 {% extends 'base.html.twig' %}
 {% block title %}Benchmark · Fuzzphony{% endblock %}
 {% block body %}
-    <p class="muted">20 results per query. Cold = first run; warm = median of the next 5 runs. <code>ILIKE</code> does not rank and cannot exclude words, so a fast ILIKE row with hits is not the same work.</p>
+    {% set statements = queries|length * (1 + warmRuns) * engines %}
+    <p class="muted">
+        Searching {{ rowEstimate > 0 ? rowEstimate|number_format ~ ' products' : 'the product catalogue' }} (<code>{{ table }}</code>):
+        {{ queries|length }} queries × (1 cold + {{ warmRuns }} warm runs) × {{ engines }} engines = {{ statements|number_format }} statements.
+    </p>
+    <p class="muted">20 results per query. Cold = first run; warm = median of the next {{ warmRuns }} runs. <code>ILIKE</code> does not rank and cannot exclude words, so a fast ILIKE row with hits is not the same work.</p>
 
     {# Every row is measured by its own request, one after the other (sequence controller): the page is usable at once,
        progress is real, and the queries never run in parallel, which would distort the timings. #}
