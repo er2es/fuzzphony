@@ -559,7 +559,9 @@ Omitting `columns` on a joined watch keeps today's behavior (every UPDATE refres
 this is opt-in for joined watches because Fuzzphony has no way to know which of a joined
 table's columns matter without you saying so.
 
-In `orm` mode, refreshing can move out of the request through Symfony Messenger:
+In `orm` mode, refreshing can move out of the request through Symfony Messenger
+(`composer require symfony/messenger`; it is optional, and the container fails with that hint
+when `async` is on without it):
 
 ```yaml
 fuzzphony:
@@ -797,8 +799,6 @@ in [`docs/adr`](docs/adr).
     afterwards so a caller's own transaction is left untouched, which costs one extra database round
     trip per fuzzy statement. An optional, non-breaking `Connection` capability (`inTransaction()`)
     would let the engine skip that round trip when no outer transaction is open.
-  * Test coverage ≥ 90%, tracked by Codecov in CI.
-
 ## Development
 
 ```bash
@@ -807,5 +807,7 @@ composer install
 FUZZPHONY_TEST_DSN="pgsql:host=127.0.0.1;dbname=fuzzphony;user=fuzzphony;password=fuzzphony" composer test:all
 composer qa     # php-cs-fixer + PHPStan (max) + unit tests
 ```
+
+The unit and integration suites cover 100% of the lines in `src/`; CI fails below 90%.
 
 See [CONTRIBUTING.md](CONTRIBUTING.md). Licensed under the [MIT license](LICENSE).

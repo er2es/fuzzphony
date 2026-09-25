@@ -13,6 +13,11 @@ changes; they are always listed under **Breaking** and explained in [UPGRADE.md]
   German, French, Spanish and Hungarian, one index per language, with one-click examples and the
   lexeme PostgreSQL produced for every query word.
 
+### Changed
+
+- The test suite covers 100% of the lines in `src/` (533 tests, up from 400 and 91.5%). CI fails
+  below 90% line coverage, and Codecov reports the coverage of every pull request's changes.
+
 ## [0.3.0] - 2026-09-25
 
 **After upgrading, run `fuzzphony:schema --apply`** (idempotent) so existing indexes get the new
