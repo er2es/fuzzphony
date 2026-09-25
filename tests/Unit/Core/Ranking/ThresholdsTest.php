@@ -111,4 +111,39 @@ final class ThresholdsTest extends TestCase
         $this->expectExceptionMessageMatches('/"fuzzy_mode" must be one of: always, fallback, never/');
         (new Thresholds())->with(['fuzzy_mode' => 'bogus']);
     }
+
+    public function testLowerBoundsAreValidated(): void
+    {
+        foreach ([
+            ['minScore' => -0.1, 'message' => '"minScore" must be >= 0.'],
+            ['fuzzyMinLength' => 0, 'message' => '"fuzzyMinLength" must be >= 1.'],
+            ['fallbackBelow' => 0, 'message' => '"fallbackBelow" must be >= 1.'],
+            ['candidateLimit' => 5, 'message' => '"candidateLimit" must be >= 10.'],
+            ['maxQueryLength' => 0, 'message' => '"maxQueryLength" and "maxTerms" must be >= 1.'],
+            ['maxTerms' => 0, 'message' => '"maxQueryLength" and "maxTerms" must be >= 1.'],
+        ] as $case) {
+            $message = $case['message'];
+            unset($case['message']);
+            try {
+                new Thresholds(...$case);
+                self::fail(sprintf('%s must be rejected', implode(',', array_keys($case))));
+            } catch (InvalidDefinition $e) {
+                self::assertContains($message, $e->violations);
+            }
+        }
+    }
+
+    public function testFuzzySimilarityOverrideMustBeNumeric(): void
+    {
+        $this->expectException(InvalidDefinition::class);
+        $this->expectExceptionMessageMatches('/"fuzzy_similarity" must be a number\./');
+        (new Thresholds())->with(['fuzzy_similarity' => 'lots']);
+    }
+
+    public function testFuzzyMinLengthOverrideMustBeAnInteger(): void
+    {
+        $this->expectException(InvalidDefinition::class);
+        $this->expectExceptionMessageMatches('/"fuzzy_min_length" must be an integer\./');
+        (new Thresholds())->with(['fuzzy_min_length' => 'three']);
+    }
 }

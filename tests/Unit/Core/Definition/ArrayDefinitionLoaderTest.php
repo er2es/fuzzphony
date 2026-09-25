@@ -7,6 +7,7 @@ namespace Fuzzphony\Tests\Unit\Core\Definition;
 use Fuzzphony\Core\Definition\ArrayDefinitionLoader;
 use Fuzzphony\Core\Definition\AttributeDefinitionLoader;
 use Fuzzphony\Core\Definition\SyncMode;
+use Fuzzphony\Core\Definition\Watch;
 use Fuzzphony\Core\Definition\Weight;
 use Fuzzphony\Core\Exception\InvalidDefinition;
 use Fuzzphony\Core\Ranking\FuzzyMode;
@@ -133,5 +134,60 @@ final class ArrayDefinitionLoaderTest extends TestCase
             'fields' => ['name' => 'A'],
             'watch' => ['product' => ['ids' => 'SELECT :id', 'columns' => ['name', 42]]],
         ]);
+    }
+
+    public function testClassKeySetsTheEntityClass(): void
+    {
+        $definition = (new ArrayDefinitionLoader())->load('products', [
+            'source' => ['table' => 'product'],
+            'fields' => ['name' => 'A'],
+            'class' => Product::class,
+        ]);
+
+        self::assertSame(Product::class, $definition->entityClass);
+    }
+
+    public function testIdTypeAndTriggerLevelKeysAreAppliedOnLoad(): void
+    {
+        $definition = (new ArrayDefinitionLoader())->load('products', [
+            'source' => ['table' => 'product', 'id' => 'uuid'],
+            'fields' => ['name' => 'A'],
+            'id_type' => 'uuid',
+            'trigger_level' => 'row',
+        ]);
+
+        self::assertSame(\Fuzzphony\Core\Definition\IdType::Uuid, $definition->idType);
+        self::assertSame(\Fuzzphony\Core\Definition\TriggerLevel::Row, $definition->triggerLevel);
+    }
+
+    public function testANonArrayOptionalSectionIsIgnored(): void
+    {
+        $definition = (new ArrayDefinitionLoader())->load('products', [
+            'source' => ['table' => 'product'],
+            'fields' => ['name' => 'A'],
+            'filters' => 'not-a-map', // ignored: map() falls back to []
+        ]);
+
+        self::assertSame([], $definition->filters);
+    }
+
+    public function testYamlOverrideCanChangeTriggerLevelLanguageBoostRecencyAndWatches(): void
+    {
+        $base = (new AttributeDefinitionLoader())->load(Product::class);
+        $merged = (new ArrayDefinitionLoader())->override($base, [
+            'trigger_level' => 'row',
+            'language' => 'german',
+            'unaccent' => false,
+            'boost' => 'price',
+            'recency' => 'price',
+            'watch' => ['brand' => ['ids' => 'SELECT id FROM product WHERE brand_id = :id']],
+        ]);
+
+        self::assertSame(\Fuzzphony\Core\Definition\TriggerLevel::Row, $merged->triggerLevel);
+        self::assertSame('german', $merged->text->language);
+        self::assertFalse($merged->text->unaccent);
+        self::assertSame('price', $merged->boostColumn);
+        self::assertSame('price', $merged->recencyColumn);
+        self::assertContains('brand', array_map(static fn(Watch $w): string => $w->table, $merged->watches));
     }
 }

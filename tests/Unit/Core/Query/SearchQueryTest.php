@@ -32,10 +32,16 @@ final class SearchQueryTest extends TestCase
     public function testOperatorAliases(): void
     {
         self::assertSame(Operator::Neq, Operator::parse('<>'));
+        self::assertSame(Operator::Eq, Operator::parse('=='));
         self::assertSame(Operator::NotIn, Operator::parse('NOT   IN'));
         $this->expectException(InvalidQuery::class);
         $this->expectExceptionMessageMatches('/Unknown operator "~".*<=/');
         Operator::parse('~');
+    }
+
+    public function testParsingAnOperatorInstanceReturnsItUnchanged(): void
+    {
+        self::assertSame(Operator::Gte, Operator::parse(Operator::Gte));
     }
 
     public function testPagination(): void
@@ -88,5 +94,64 @@ final class SearchQueryTest extends TestCase
         $exception = InvalidQuery::missingTenant('products');
 
         self::assertSame('Index "products" requires forTenant(); none was given.', $exception->getMessage());
+    }
+
+    public function testUnexpectedTenantMessage(): void
+    {
+        $exception = InvalidQuery::unexpectedTenant('products');
+
+        self::assertSame('Index "products" is not tenant-scoped; forTenant() has no effect here.', $exception->getMessage());
+    }
+
+    public function testUnknownProfileMessage(): void
+    {
+        $exception = InvalidQuery::unknownProfile('products', 'obsolete', ['default', 'popular']);
+
+        self::assertSame('Index "products" has no ranking profile "obsolete". Known profiles: default, popular.', $exception->getMessage());
+    }
+
+    public function testNegativeOffsetIsRejected(): void
+    {
+        $this->expectException(InvalidQuery::class);
+        $this->expectExceptionMessage('Offset must be >= 0.');
+        new SearchQuery(offset: -1);
+    }
+
+    public function testThreeArgumentWhereRejectsANonStringNonOperatorOperator(): void
+    {
+        $this->expectException(InvalidQuery::class);
+        $this->expectExceptionMessage('The operator must be a string such as "<=" or an Operator case.');
+        (new SearchQuery())->where('price', 42, 100);
+    }
+
+    public function testAConditionsListContainingANonConditionIsIgnored(): void
+    {
+        // conditions is a public constructor parameter with no runtime type enforcement of its
+        // items; a caller that bypasses the fluent API can still hand it garbage. The next
+        // with*() call must not silently accept a corrupted list: it keeps the previous value.
+        // @phpstan-ignore argument.type (deliberately malformed to exercise the runtime fallback)
+        $query = new SearchQuery(conditions: ['not a condition']);
+
+        $after = $query->where('price', '=', 1);
+
+        self::assertSame(['not a condition'], $after->conditions);
+    }
+
+    public function testAHighlightListContainingANonStringIsIgnored(): void
+    {
+        // @phpstan-ignore argument.type (deliberately malformed to exercise the runtime fallback)
+        $query = new SearchQuery(highlight: [42]);
+
+        $after = $query->highlight('name');
+
+        self::assertSame([42], $after->highlight);
+    }
+
+    public function testThresholdOverridesWithNonStringKeysAreIgnored(): void
+    {
+        // @phpstan-ignore argument.type (deliberately malformed to exercise the runtime fallback)
+        $query = (new SearchQuery())->thresholds([5 => 'x']);
+
+        self::assertSame([], $query->thresholdOverrides);
     }
 }

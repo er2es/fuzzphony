@@ -61,4 +61,25 @@ final class RankingProfileTest extends TestCase
         self::assertSame(0.8, $tuned->labelWeights['A']);
         self::assertEquals($base, RankingProfile::fromArray($base->toArray()));
     }
+
+    public function testAnUnknownWeightLabelIsRejected(): void
+    {
+        $this->expectException(InvalidDefinition::class);
+        $this->expectExceptionMessage('Unknown weight label "E"; use A, B, C or D.');
+        new RankingProfile(labelWeights: ['E' => 0.5]);
+    }
+
+    public function testALabelWeightOutOfRangeIsRejected(): void
+    {
+        $this->expectException(InvalidDefinition::class);
+        $this->expectExceptionMessage('Label weight A must be between 0 and 1, got 1.5.');
+        new RankingProfile(labelWeights: ['A' => 1.5]);
+    }
+
+    public function testFromArrayRejectsANonNumericOption(): void
+    {
+        $this->expectException(InvalidDefinition::class);
+        $this->expectExceptionMessage('Ranking option "text" must be a number.');
+        RankingProfile::fromArray(['text' => 'a lot']);
+    }
 }
