@@ -354,8 +354,15 @@ $result->warnings;      // ['No results for all words; ignored words that match 
 
 Words that all match something but never in the same document (`mouse kettle`) are **not**
 relaxed: that empty result is the correct answer. A query that already has hits, a single word, or a
-query whose every word matches nothing is never relaxed either. The check costs one extra statement,
-only for empty multi-word results; turn it off with `relax_when_empty: false`.
+query whose every word matches nothing is never relaxed either, nor is one that would be left with
+a group of only exclusions (`zzqq -mouse | wireless yyqq`). If the relaxed search finds nothing too
+(`wireless mouse aluminum kettle`), you get the original empty result, without a warning.
+
+The check costs one probe statement, a possible stop-word lookup, and one or two relaxed search
+statements (strict, then fuzzy), only for empty multi-word results; turn it off with
+`relax_when_empty: false`. The probe looks at whether a word matches any document at all, so it does not
+apply `min_score` or the candidate limit: a word can count as matching through documents the search
+would reject, and is then kept instead of dropped (the relaxation errs on the side of doing less).
 
 Limits (`max_query_length`, `max_terms`, nesting depth 8) keep hostile input cheap.
 Developer mistakes, like an unknown filter or a wrong value type, **do** throw, with a suggestion:
