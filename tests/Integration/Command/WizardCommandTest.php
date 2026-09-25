@@ -72,6 +72,20 @@ final class WizardCommandTest extends TestCase
         );
     }
 
+    public function testTryOptionWithInteractiveSamplesRunsSearchesUntilABlankAnswer(): void
+    {
+        // "" accepts every suggested field (the interactive keep-fields prompt runs first), then
+        // "mouse" runs one sample search and "" ends the loop.
+        $this->tester->setInputs(['', 'mouse', '']);
+
+        $status = $this->tester->execute(['table' => 'fz_product', '--try' => true], ['interactive' => true]);
+
+        self::assertSame(Command::SUCCESS, $status);
+        $display = $this->tester->getDisplay();
+        self::assertStringContainsString('Try a search (empty to finish)', $display);
+        self::assertMatchesRegularExpression('/\d+ hit\(s\), [\d.]+ ms.*: ids /', $display);
+    }
+
     public function testUnknownTableThrows(): void
     {
         $this->expectException(\InvalidArgumentException::class);
