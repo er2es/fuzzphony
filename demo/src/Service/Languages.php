@@ -16,8 +16,9 @@ use Doctrine\DBAL\Connection;
 final readonly class Languages
 {
     /**
-     * code => settings. `config` is what `fuzzphony:schema --apply` creates for the index (built-in configuration +
-     * unaccent before the stemmer), `builtin` the configuration it copies (used to show what folding changed).
+     * code => settings. `config` is what `fuzzphony:schema --apply` creates for the index (built-in configuration,
+     * stop words dropped, then unaccent before the stemmer), `builtin` the configuration it copies (used to show what
+     * folding changed).
      * Preset captions mark words with backticks; the template renders those as <code>.
      */
     public const array LANGUAGES = [
@@ -50,6 +51,7 @@ final readonly class Languages
                 ['kind' => 'plural', 'q' => 'crèmes', 'caption' => '`crèmes` finds every `crème`, singular or plural.'],
                 ['kind' => 'accents', 'q' => 'ecouteurs', 'caption' => '`ecouteurs` without the accent finds `Écouteurs`.'],
                 ['kind' => 'stop words', 'q' => 'sac pour le vélo', 'caption' => '`pour` and `le` are ignored: only `sac` and `vélo` have to match.'],
+                ['kind' => 'accented stop word', 'q' => 'machine à café', 'caption' => '`à` is a stop word too, accent and all: only `machine` and `café` have to match.'],
                 ['kind' => 'typo', 'q' => 'aspirater', 'caption' => '`aspirater` still finds `Aspirateur`.'],
             ],
         ],
