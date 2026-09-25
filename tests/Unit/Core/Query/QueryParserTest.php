@@ -156,4 +156,23 @@ final class QueryParserTest extends TestCase
         self::assertFalse(NodeInspector::hasPositive((new QueryParser())->parse('-cable -wire')->root));
         self::assertFalse(NodeInspector::hasPositive((new QueryParser())->parse('mouse OR -cable')->root));
     }
+
+    public function testHasPositiveIsFalseForAnEmptyTree(): void
+    {
+        self::assertFalse(NodeInspector::hasPositive(null));
+    }
+
+    public function testIsEmptyReflectsWhetherParsingProducedARoot(): void
+    {
+        self::assertTrue((new QueryParser())->parse('')->isEmpty());
+        self::assertFalse((new QueryParser())->parse('mouse')->isEmpty());
+    }
+
+    public function testAPhraseIsDroppedWhenTheTermBudgetIsAlreadyExhausted(): void
+    {
+        $parsed = (new QueryParser(maxTerms: 1))->parse('a "b c"');
+
+        self::assertSame('a', (string) $parsed->root);
+        self::assertSame(['Only the first 1 terms were used.'], $parsed->warnings);
+    }
 }
