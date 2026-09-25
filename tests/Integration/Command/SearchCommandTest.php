@@ -32,6 +32,14 @@ final class SearchCommandTest extends TestCase
         self::assertStringContainsString(' 1 ', $display, 'the wireless mouse (id 1) should be listed');
     }
 
+    public function testWarningsNamingTheUsersWordsAreNotReadAsConsoleStyleTags(): void
+    {
+        $status = $this->tester->execute(['index' => 'products', 'query' => 'wireless mouse <comment>zzqqx</comment>'], ['interactive' => false]);
+
+        self::assertSame(Command::SUCCESS, $status);
+        self::assertStringContainsString('ignored words that match nothing: "<comment>zzqqx</comment>"', $this->tester->getDisplay());
+    }
+
     public function testWhereFilterNarrowsResults(): void
     {
         $status = $this->tester->execute([

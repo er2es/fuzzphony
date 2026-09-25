@@ -9,7 +9,7 @@ final readonly class SearchResult implements \IteratorAggregate, \Countable
 {
     /**
      * @param list<Hit>    $hits
-     * @param list<string> $warnings Corrections applied to the search text; safe to show to users.
+     * @param list<string> $warnings Corrections applied to the search text. Plain text, not HTML: a warning may quote the user's own words (invisible format characters removed, long words cut), so escape it when rendering it as HTML.
      */
     public function __construct(
         public array $hits,

@@ -20,6 +20,9 @@ use Fuzzphony\Core\Query\Ast\Term;
  */
 final class Relaxation
 {
+    /** Longest word shown in a warning, in characters; a longer one is cut and gets an ellipsis. */
+    private const LABEL_LENGTH = 40;
+
     /**
      * The words a query looks for (not the negated ones), in order.
      *
@@ -83,25 +86,38 @@ final class Relaxation
     }
 
     /**
-     * The message for SearchResult::$warnings; safe to show to users.
+     * The message for SearchResult::$warnings. Plain text, not HTML: it names the user's own
+     * words (as typed, minus invisible format characters, cut to LABEL_LENGTH characters, once
+     * each), so a caller that renders it as HTML must escape it.
      *
      * @param list<Term|Phrase|FieldScoped> $ignored
      */
     public static function warning(array $ignored): string
     {
+        $labels = array_unique(array_map(self::label(...), $ignored));
+
         return sprintf(
             'No results for all words; ignored words that match nothing: %s.',
-            implode(', ', array_map(static fn(Node $leaf): string => '"' . self::label($leaf) . '"', $ignored)),
+            implode(', ', array_map(static fn(string $label): string => '"' . $label . '"', $labels)),
         );
     }
 
     /** The words of a leaf as typed: alu*, usb receiver, name:foo. */
     private static function label(Term|Phrase|FieldScoped $leaf): string
     {
+        $label = self::typed($leaf);
+        // format characters (bidi overrides, zero-width spaces, BOM) change how text is displayed, not what it says
+        $label = preg_replace('/\p{Cf}/u', '', mb_scrub($label)) ?? '';
+
+        return mb_strlen($label) > self::LABEL_LENGTH ? mb_substr($label, 0, self::LABEL_LENGTH) . '…' : $label;
+    }
+
+    private static function typed(Term|Phrase|FieldScoped $leaf): string
+    {
         return match (true) {
             $leaf instanceof Term => (string) $leaf,
             $leaf instanceof Phrase => implode(' ', $leaf->words),
-            default => $leaf->field . ':' . self::label($leaf->node),
+            default => $leaf->field . ':' . self::typed($leaf->node),
         };
     }
 }

@@ -10,6 +10,7 @@ use Symfony\Component\Console\Attribute\AsCommand;
 use Symfony\Component\Console\Command\Command;
 use Symfony\Component\Console\Completion\CompletionInput;
 use Symfony\Component\Console\Completion\CompletionSuggestions;
+use Symfony\Component\Console\Formatter\OutputFormatter;
 use Symfony\Component\Console\Input\InputArgument;
 use Symfony\Component\Console\Input\InputInterface;
 use Symfony\Component\Console\Input\InputOption;
@@ -85,7 +86,7 @@ final class SearchCommand extends Command
             $result->usedFuzzy ? ' · typo-tolerant' : '',
         ));
         foreach ($result->warnings as $warning) {
-            $io->writeln(' <comment>!</comment> ' . $warning);
+            $io->writeln(' <comment>!</comment> ' . OutputFormatter::escape($warning));
         }
 
         $rows = [];
