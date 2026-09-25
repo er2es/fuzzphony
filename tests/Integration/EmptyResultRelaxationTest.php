@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Fuzzphony\Tests\Integration;
 
+use Fuzzphony\Bridge\Doctrine\DbalConnection;
 use Fuzzphony\Core\Database\Connection;
 use Fuzzphony\Core\Fuzzphony;
 use Fuzzphony\Core\Registry\IndexRegistry;
@@ -12,6 +13,7 @@ use Fuzzphony\Core\Support\Coerce;
 use Fuzzphony\Engine\Postgres\PostgresEngine;
 use Fuzzphony\Tests\Conformance\EngineConformanceTestCase;
 use Fuzzphony\Tests\Fixtures\Indexes;
+use Fuzzphony\Tests\Integration\Bridge\DoctrineTestCase;
 use PHPUnit\Framework\TestCase;
 
 /** PostgreSQL side of the empty-result relaxation: the statements it runs, and tenant isolation. */
@@ -19,9 +21,9 @@ final class EmptyResultRelaxationTest extends TestCase
 {
     private Connection $connection;
 
-    private function fuzzphony(bool $tenant = false, int $filler = 0): Fuzzphony
+    private function fuzzphony(bool $tenant = false, int $filler = 0, ?Connection $connection = null): Fuzzphony
     {
-        $connection = $this->connection = PostgresTestCase::connect();
+        $connection = $this->connection = $connection ?? PostgresTestCase::connect();
         PostgresTestCase::createFixtures($connection, EngineConformanceTestCase::fixtureRows());
         if ($filler > 0) {
             // enough rows for the planner to prefer the indexes over a sequential scan
@@ -118,6 +120,30 @@ final class EmptyResultRelaxationTest extends TestCase
         });
 
         self::assertSame(['enable_seqscan' => 'on', 'enable_indexscan' => 'on', 'enable_bitmapscan' => 'on'], $settings);
+    }
+
+    public function testSearchingInsideADbalTransactionLeavesNoSettingsBehind(): void
+    {
+        $dbal = DoctrineTestCase::dbalConnection();
+        $connection = new DbalConnection($dbal);
+        $search = $this->fuzzphony(connection: $connection)->in('products');
+
+        $dbal->beginTransaction();
+        try {
+            $relaxed = $search->query('wireless mouse offfice')->get();
+            $fuzzy = $search->query('wireles mice')->get();
+            $settings = [
+                'enable_seqscan' => $dbal->fetchOne('SHOW enable_seqscan'),
+                'enable_indexscan' => $dbal->fetchOne('SHOW enable_indexscan'),
+                'threshold' => $dbal->fetchOne("SELECT current_setting('pg_trgm.word_similarity_threshold')"),
+            ];
+        } finally {
+            $dbal->rollBack();
+        }
+
+        self::assertSame([1], $relaxed->ids());
+        self::assertTrue($fuzzy->usedFuzzy);
+        self::assertSame(['enable_seqscan' => 'on', 'enable_indexscan' => 'on', 'threshold' => '0.6'], $settings);
     }
 
     public function testTheSimilarityThresholdIsRestoredInTheCallersTransaction(): void
