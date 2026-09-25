@@ -61,17 +61,17 @@ services:
       POSTGRES_DB: fuzzphony
       POSTGRES_USER: fuzzphony
       POSTGRES_PASSWORD: ${DEMO_DB_PASSWORD:-fuzzphony}
-    # Tuning for a 200k-1M row demo on a small VM (Docker Desktop defaults to ~2 GB); see README.md.
+    # Tuning for a 500k-1M row demo on a small VM (Docker Desktop defaults to ~2 GB); see README.md.
     command:
       - postgres
       - -c
-      - shared_buffers=256MB
+      - shared_buffers=384MB
       - -c
-      - effective_cache_size=768MB
+      - effective_cache_size=1200MB
       - -c
       - work_mem=16MB
       - -c
-      - maintenance_work_mem=128MB
+      - maintenance_work_mem=256MB
       - -c
       - random_page_cost=1.1
       - -c
@@ -105,7 +105,7 @@ services:
       start_period: 20s
     deploy:
       resources:
-        limits: { memory: 1g }
+        limits: { memory: 1536m }
         reservations: { memory: 256m }
 
   init:
@@ -116,7 +116,7 @@ services:
       <<: [*app-env, *libpq-env]
       # init owns the schema: it connects as the owner role, without the app role's statement_timeout
       DATABASE_URL: "postgresql://fuzzphony:${DEMO_DB_PASSWORD:-fuzzphony}@db:5432/fuzzphony?serverVersion=17&charset=utf8"
-      DEMO_ROWS: ${DEMO_ROWS:-200000}
+      DEMO_ROWS: ${DEMO_ROWS:-500000}
       DEMO_REINDEX: ${DEMO_REINDEX:-auto}
       # only read by init's safety check (refuse default secrets on a non-loopback address)
       DEMO_BIND: ${DEMO_BIND:-127.0.0.1}

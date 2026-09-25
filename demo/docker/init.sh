@@ -9,7 +9,7 @@
 set -eu
 
 cd /app/demo
-: "${DEMO_ROWS:=200000}"
+: "${DEMO_ROWS:=500000}"
 : "${DEMO_REINDEX:=auto}"   # auto | always | never
 log() { printf '[init] %s\n' "$*"; }
 APP_ROLE=fuzzphony_app
