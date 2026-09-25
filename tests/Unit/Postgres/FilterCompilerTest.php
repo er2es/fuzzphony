@@ -67,4 +67,18 @@ final class FilterCompilerTest extends TestCase
         $this->expectException(InvalidQuery::class);
         (new FilterCompiler(Indexes::products()))->validate(...(new SearchQuery())->where('price', 'between', [1])->conditions);
     }
+
+    public function testInWithANonArrayValueIsADeveloperError(): void
+    {
+        $this->expectException(InvalidQuery::class);
+        $this->expectExceptionMessage('Filter "price" IN expects a list of values.');
+        (new FilterCompiler(Indexes::products()))->validate(...(new SearchQuery())->where('price', 'in', 'not-an-array')->conditions);
+    }
+
+    public function testInRejectsMoreThanOneThousandValues(): void
+    {
+        $this->expectException(InvalidQuery::class);
+        $this->expectExceptionMessage('Filter "price" accepts at most 1000 values in IN().');
+        (new FilterCompiler(Indexes::products()))->validate(...(new SearchQuery())->whereIn('price', range(1, 1001))->conditions);
+    }
 }
