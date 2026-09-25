@@ -26,6 +26,9 @@ final class CompareController extends AbstractController
     /** Below, every search measures ILIKE and Fuzzphony, one Measure::median() call each: always these two. */
     private const int ENGINES = 2;
 
+    /** Like the Languages page: the ILIKE fragment is a public endpoint that scans the whole table. */
+    private const int MAX_QUERY = 100;
+
     /**
      * ILIKE takes ~400 ms per run on the 500 000-row catalogue, Fuzzphony ~12 ms; running both before
      * rendering made the whole page wait for the slow one. Fuzzphony is measured here, synchronously, so the
@@ -66,6 +69,6 @@ final class CompareController extends AbstractController
     /** Same normalisation on both routes, so the ILIKE fragment always matches what the page asked to search for. */
     private static function normalizeQuery(Request $request): string
     {
-        return trim((string) $request->query->get('q', ''));
+        return mb_substr(trim((string) $request->query->get('q', '')), 0, self::MAX_QUERY);
     }
 }
