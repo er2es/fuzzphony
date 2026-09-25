@@ -76,6 +76,26 @@ final class SchemaCommandTest extends TestCase
         }
     }
 
+    public function testDumpMigrationFailsCleanlyWhenTheDirectoryCannotBeCreated(): void
+    {
+        // A plain file already occupies that path, so mkdir() cannot turn it into a directory.
+        // mkdir() itself raises a PHP warning on failure (which SchemaCommand deliberately lets
+        // through before throwing its own, clearer RuntimeException); a temporary error handler
+        // keeps that expected, non-actionable warning from failing the test run.
+        $path = sys_get_temp_dir() . '/fuzzphony-schema-command-test-blocked-' . bin2hex(random_bytes(4));
+        file_put_contents($path, 'not a directory');
+        set_error_handler(static fn(int $errno, string $errstr): bool => str_contains($errstr, 'mkdir()'));
+        try {
+            $this->expectException(\RuntimeException::class);
+            $this->expectExceptionMessage(sprintf('Cannot create directory "%s".', $path));
+
+            $this->tester->execute(['--dump-migration' => $path], ['interactive' => false]);
+        } finally {
+            restore_error_handler();
+            unlink($path);
+        }
+    }
+
     public function testCompletesIndexNames(): void
     {
         $completion = new CommandCompletionTester(new SchemaCommand($this->context->fuzzphony, $this->context->connection));

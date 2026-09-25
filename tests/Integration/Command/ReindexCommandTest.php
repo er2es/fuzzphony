@@ -8,6 +8,7 @@ use Fuzzphony\Bundle\Command\ReindexCommand;
 use Fuzzphony\Core\Support\Coerce;
 use PHPUnit\Framework\TestCase;
 use Symfony\Component\Console\Command\Command;
+use Symfony\Component\Console\Tester\CommandCompletionTester;
 use Symfony\Component\Console\Tester\CommandTester;
 
 final class ReindexCommandTest extends TestCase
@@ -72,6 +73,13 @@ final class ReindexCommandTest extends TestCase
         self::assertSame(Command::SUCCESS, $status, $this->tester->getDisplay());
         self::assertStringContainsString('5 orphaned document(s) removed', $this->tester->getDisplay());
         self::assertSame(0, $this->indexed());
+    }
+
+    public function testCompletesIndexNames(): void
+    {
+        $completion = new CommandCompletionTester(new ReindexCommand($this->context->fuzzphony));
+
+        self::assertSame(['products'], $completion->complete(['']));
     }
 
     private function indexed(): int
