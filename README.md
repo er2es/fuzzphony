@@ -296,7 +296,13 @@ changed its definition:
    use — step 1 only creates the *structure*, it doesn't populate it. A full run (without `--from`)
    finishes by removing *orphans*: indexed documents whose row the source no longer returns, in
    batches, and reports how many it removed. A run resumed with `--from` covers only part of the
-   source, so it never removes anything.
+   source, so it never removes anything. Pruning is relative to what the *reindexing session* can
+   see: where that session sees fewer rows than your application (row-level security on the source,
+   a query source using `current_setting(...)`, a different `search_path` for the CLI user), a full
+   reindex removes the difference from the index. Pass `--no-prune` (or `prune: false` to
+   `$fuzzphony->reindex()`) there. A full run whose source returns **no row at all** does not prune
+   and says so, because that is far more likely a visibility problem than intent (a real `TRUNCATE`
+   is handled by its trigger); `--prune-empty` (`pruneEmpty: true`) forces it.
 
 After that, `fuzzphony:doctor` confirms both steps actually succeeded, and the sync mode you chose
 (see [Keeping the index in sync](#keeping-the-index-in-sync)) keeps the sidecar table caught up with
@@ -435,7 +441,8 @@ Every `INSERT`, `UPDATE` and `DELETE` on the source table (and on watched tables
 insert adds the document, an update rebuilds it, and a delete removes it from the sidecar table
 (the refresh drops every indexed id the source no longer returns). In `trigger` and `queue` mode a
 `TRUNCATE` is followed too, by a separate statement-level `AFTER TRUNCATE` trigger: truncating a
-table-sourced index's own table empties the index right away (and drops its queued ids), while
+table-sourced index's own table empties the index right away when the source is then really empty
+(and drops its queued ids), while
 truncating any other watched table resyncs every document, because the removed rows can no longer
 tell which documents they belonged to (see [Known limitations](#known-limitations) for the cost).
 When the change shows up in search depends on the mode:
@@ -579,7 +586,7 @@ again), queue backlog and age, coverage (estimated, or exact with `--deep`), orp
 | Command | Purpose |
 |---|---|
 | `fuzzphony:schema [index] [--apply\|--drop\|--dump-migration=dir]` | show / apply / export idempotent DDL (alias `fuzzphony:install`) |
-| `fuzzphony:reindex [index] [--batch=5000] [--from=id]` | resumable backfill with progress; a full run also removes orphaned documents |
+| `fuzzphony:reindex [index] [--batch=5000] [--from=id] [--no-prune] [--prune-empty]` | resumable backfill with progress; a full run also removes orphaned documents (`--no-prune` keeps them; an empty source is only pruned with `--prune-empty`) |
 | `fuzzphony:worker [--once] [--time-limit=s] [--index=x]` | drain the sync queue; graceful on SIGTERM |
 | `fuzzphony:doctor [index] [--deep] [--strict]` | health check with fixes |
 | `fuzzphony:search index 'query' [-w filter] [--explain [--analyze]]` | try queries, see score breakdowns, SQL and plans |
@@ -641,11 +648,21 @@ that query.) Run the numbers on your own data before believing anyone's benchmar
   product_2024`): run `fuzzphony:reindex` afterwards, which also removes the orphaned documents.
 * `TRUNCATE` is followed in `trigger` and `queue` mode (see
   [Keeping the index in sync](#keeping-the-index-in-sync)). Truncating the index's own source table
-  is cheap: the sidecar is emptied. Truncating a *joined* or otherwise watched table is not: every
+  is cheap: the sidecar is emptied, but only after checking that the source really is empty (a
+  `TRUNCATE ONLY` on a table-inheritance parent leaves the child tables' rows in the source, so it
+  resyncs like the case below). Truncating a *joined* or otherwise watched table is not cheap: every
   indexed document, plus every document the source returns now, is resynced — in `trigger` mode
-  inside the truncating transaction (on a big index that transaction takes as long as a full
-  reindex), in `queue` mode by queueing all those ids for the worker. A query source's main table
-  counts as a watched table here, since Fuzzphony cannot tell that the source is now empty. Indexes
+  inside the truncating transaction, in `queue` mode by queueing all those ids for the worker. Measured
+  on a 1M-document index, that `TRUNCATE` took **42.8 s** in `trigger` mode (holding an
+  `ACCESS EXCLUSIVE` lock on the truncated table and row locks on the sidecar for that whole time)
+  and **8.5 s** in `queue` mode (plus 1M queued ids). For big indexes that watch joined tables
+  prefer `queue` sync, or truncate in a maintenance window. A query source's main table
+  counts as a watched table here, since Fuzzphony cannot tell that the source is now empty. In
+  `queue` mode a `TRUNCATE` never waits for the queue rows a running worker holds when it empties
+  the index; the joined-table resync can still wait for a conflicting row the worker holds, and
+  in the worst case a deadlock makes the `TRUNCATE` fail (the window is a few microseconds per
+  worker batch): just retry it, the queue keeps its ids. Truncating a single partition of a
+  partitioned source fires nothing (see above). Indexes
   set up with an older version get the `TRUNCATE` trigger from `fuzzphony:schema --apply`
   (`fuzzphony:doctor` reports it missing until then); `orm` and `manual` mode never see a
   `TRUNCATE`: run `fuzzphony:reindex`.
