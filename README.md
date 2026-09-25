@@ -781,12 +781,15 @@ every result and handles those cases in about 10-25 ms. Measure on your own data
 
 ## Known limitations
 
+Each of these has a planned fix on the [roadmap](#roadmap), except the partition trigger rule,
+which PostgreSQL imposes.
+
 * Field-scoped queries (`brand:x`) work per weight group: fields sharing a weight are searched together.
 * Field scoping is exact-only for the typo-tolerant side: the fuzzy fields are stored as one
   trigram-indexed text, so a scoped word that is not found exactly may match *any* fuzzy field
   once the typo-tolerant branch runs. On the demo catalogue `name:sony` finds no product with
   "sony" in its name, falls back to typo tolerance and returns Sony-*brand* products; `name:kettel`
-  (a typo) still finds kettles. Per-field trigram columns would fix this and are planned separately.
+  (a typo) still finds kettles. Per-field trigram columns will fix this (roadmap: exact field scoping).
 * Typo tolerance is per word and deliberately lenient: at the default `fuzzy_similarity` of 0.3 a
   correctly spelled word also matches similar words (`mouse` is trigram-close to `monitor` and
   `mower`), so `wireles mouse` also lists wireless monitors, ranked below the mice. With very
@@ -816,7 +819,8 @@ every result and handles those cases in about 10-25 ms. Measure on your own data
   set up with an older version get the `TRUNCATE` trigger from `fuzzphony:schema --apply`
   (`fuzzphony:doctor` reports it missing until then); `orm` and `manual` mode never see a
   `TRUNCATE`: run `fuzzphony:reindex`.
-* The extension schema (default `public`) must be on the `search_path` for the trigram operator.
+* The extension schema (default `public`) must be on the `search_path` for the trigram operator
+  (to be schema-qualified in the next patch release).
 * With very frequent words, ranking considers the first `candidate_limit` matches, so ordering is
   approximate beyond them (and `total` is reported as a lower bound).
 
@@ -851,11 +855,19 @@ in [`docs/adr`](docs/adr).
     dropdown in the Live Component.
   * Synonyms per index (`tv` ↔ `television`, domain abbreviations), expanded on the query side
     without dictionary files on the database server.
-  * Facets: counts per filter value for the current query ("Kitchen (120) · Office (45)").
+  * Facets: counts per filter value for the current query ("Kitchen (120) · Office (45)"), and
+    an opt-in exact `total` for queries whose matches exceed `candidate_limit`.
+  * Exact field scoping: per-field text and trigram columns, so `brand:x` searches that field only
+    (not its whole weight group) and a scoped typo can't match another fuzzy field.
+  * Length-aware typo tolerance: a stricter similarity for short words and a looser one for long
+    words, so `mouse` stops matching `monitor` without losing typos in long words.
   * "Did you mean": a spelling suggestion from the index's own vocabulary when a word matches
     nothing (`hedphones` → "headphones?"), next to the existing empty-result relaxation.
   * Zero-downtime reindex: build the new index in a shadow table and swap it in, so a definition
-    change or a full rebuild never serves partial results.
+    change or a full rebuild never serves partial results. A `TRUNCATE` on a watched table then
+    queues one full-resync job instead of every document id.
+  * Partition-aware sync: the `TRUNCATE` trigger on every partition, and the doctor reporting new
+    partitions that miss it.
   * Search analytics: the most frequent queries and the queries that found nothing, for the
     people who own the content.
   * Doctrine Migrations integration: generate a migration class from the schema, next to

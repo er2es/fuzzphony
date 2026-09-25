@@ -7,6 +7,12 @@ changes; they are always listed under **Breaking** and explained in [UPGRADE.md]
 
 ## [Unreleased]
 
+### Changed
+
+- README: every known limitation now points to its planned fix; the roadmap adds exact field
+  scoping, length-aware typo tolerance, an exact `total`, partition-aware sync and a one-job
+  resync after `TRUNCATE`.
+
 ## [0.3.1] - 2026-09-25
 
 **After upgrading, run `fuzzphony:schema --apply`, then a full `fuzzphony:reindex`** so accented
