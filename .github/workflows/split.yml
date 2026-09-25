@@ -1,10 +1,10 @@
 name: Split packages
 
-# Disabled until v1.0 release-prep: this needs a SPLIT_ACCESS_TOKEN secret (a PAT with push
-# access to the fuzzphony/{core,postgres-engine,doctrine-bridge,symfony-bundle} repos) that
-# was never configured, and those target repos don't exist yet either. Every run fails at the
-# clone step with "could not read Password for 'https://github.com'". Re-enable the trigger
-# below once both are set up.
+# Disabled: this needs a SPLIT_ACCESS_TOKEN secret (a PAT with push access to the separate
+# fuzzphony/{core,postgres-engine,doctrine-bridge,symfony-bundle} repos) that was never
+# configured, and those target repos don't exist yet either. Every run fails at the clone
+# step with "could not read Password for 'https://github.com'". Re-enable the trigger below
+# once both are set up -- no fixed timeline for that.
 on:
   workflow_dispatch: {}
   # push:
