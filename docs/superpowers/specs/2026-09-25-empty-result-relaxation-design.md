@@ -38,18 +38,45 @@ same per-leaf condition the search uses: exact tsquery, or, when the fuzzy branc
 for that leaf, exact-or-trigram. "The searched set" includes the caller's filter conditions and
 the tenant condition, so the probe can never reveal that a word exists in another tenant's data.
 
-The probe is one statement: per positive leaf, `EXISTS (SELECT 1 FROM sidecar s WHERE <leaf
-condition> AND <filters/tenant> LIMIT 1)`; each `EXISTS` uses the GIN indexes and stops at the
-first row.
+The probe is one statement with one `MATERIALIZED` CTE per positive leaf (`m<i> AS MATERIALIZED
+(SELECT 1 FROM sidecar s CROSS JOIN q WHERE <leaf condition> AND <filters/tenant>)`) and
+`EXISTS (SELECT 1 FROM m<i>)` per leaf. A materialized CTE is planned for full retrieval, so the
+planner reads the GIN indexes with bitmap scans instead of scanning for a first match (which
+reads the whole table for a word that matches nothing: 200 000 rows, 559 ms against 10 ms), and
+`EXISTS` still stops at the first row it reads. No planner setting is involved: `SET LOCAL` would
+stay on for the rest of the caller's transaction when the caller has one open, and the probe must
+leave no session state behind. Each leaf carries its own copy of the filters and the tenant
+condition with its own bound parameters.
+
+The probe does not apply `min_score` or the candidate limit, which the search does: a word can
+count as satisfiable through documents the search would reject. That only causes
+under-relaxation (a word kept that could have been dropped), never a wrong drop.
 
 If some leaves are unsatisfiable, they are removed from the AST (a removed leaf behaves like a
 dropped stop word: it disappears from its `AllOf` / `AnyOf`; a `Not` is left alone) and the
 normal pipeline runs **once more** on the reduced query. There is no second relaxation. The
 result carries:
 
-- a warning, in `SearchResult::$warnings`, that is safe to show to users, for example
+- a warning in `SearchResult::$warnings`, for example
   `No results for all words; ignored words that match nothing: "aluminum".`, and
 - `interpretedAs` showing the reduced query (`(wireless AND mouse)`).
+
+The warning is **plain text, not HTML**: it names the user's own words as typed, so the caller
+escapes it when rendering HTML. Format characters (Unicode category `Cf`: bidi overrides,
+zero-width characters, BOM) are stripped from a word, a word longer than 40 characters is cut and
+gets an ellipsis, and identical words are named once.
+
+**Only word dropping is a relaxation.** When removing the unsatisfiable words would leave an
+AND / OR group with nothing but negations (`zzqq -mouse | wireless yyqq` is
+`((zzqq AND NOT mouse) OR (wireless AND yyqq))`; the first group would become `NOT mouse`, "everything
+except mouse", which the search refuses for a query of its own), the query is not relaxed at all.
+The same `hasPositive` guard as for the original query applies to the reduced one.
+
+**Relaxed run also empty.** When the reduced query finds nothing too (`wireless mouse aluminum
+kettle`: "kettle" exists, but no wireless mouse is a kettle), the answer is the original empty
+result: the original `interpretedAs`, no "ignored" warning. Telling the user that words were
+ignored and then showing nothing helps no one. The probe and the relaxed statements still ran
+and are listed by `explain()`.
 
 Not relaxed, by design:
 
@@ -68,9 +95,16 @@ tolerance), so it also applies when `fuzzy_mode` is `never`.
 
 ## Cost and safety
 
-Only zero-hit multi-word queries pay: one probe statement plus, if it finds unsatisfiable
-words, one more normal search. Bound parameters only, no user text in SQL, same as the rest.
-`explain()` includes the extra statements, labelled.
+Only zero-hit multi-word queries pay: the probe statement (plus a stop-word lookup, unless the
+search made one already for its fuzzy branch) and, if it finds unsatisfiable words, one more
+normal search: one or two statements, plus its own stop-word lookup for the fuzzy branch. Bound
+parameters only, no user text in SQL, same as the rest. `explain()` lists the extra statements,
+labelled, and shows the plan of the last search statement (the probe is listed, but it is not
+the search).
+
+Neither the probe nor the search leaves session or transaction state behind:
+`pg_trgm.word_similarity_threshold` is set transaction-locally for the statement and put back
+afterwards, so a caller's open transaction (or DBAL savepoint) is not affected.
 
 ## Testing
 
@@ -82,7 +116,10 @@ words, one more normal search. Bound parameters only, no user text in SQL, same 
   nothing; a query with hits is not relaxed; the probe respects a tenant condition and a filter
   (a word that only exists in another tenant is still reported as unsatisfiable and dropped,
   and its existence is not otherwise observable); `relax_when_empty: false` restores the empty
-  result; `fuzzy_mode: never` still relaxes.
+  result; `fuzzy_mode: never` still relaxes; a relaxed search that is also empty keeps the
+  original answer; a reduced query with an exclusion-only group is not relaxed; the probe has
+  no Seq Scan on a large table and, inside a caller's transaction, leaves `enable_seqscan`,
+  `enable_indexscan` and the similarity threshold as they were (PDO and DBAL).
 - **Acceptance (demo catalogue):** `wireless mouse aluminum` returns the 1 666 wireless mice and
   a warning naming "aluminum"; `wireless mouse aluminium` returns 238 hits with no warning;
   `wireles mice` still returns exactly 1 666 hits with no warning.

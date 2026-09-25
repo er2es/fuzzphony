@@ -289,10 +289,14 @@ final class PostgresEngine implements Engine
                     $relaxed = $this->pipeline($index, $reduced, $conditions, $profile, $thresholds, $query, 'relaxed: ');
                     array_push($statements, ...$relaxed['statements']);
                     $threshold = $relaxed['threshold'];
-                    $root = $reduced;
-                    $run = $relaxed;
-                    array_push($warnings, ...$relaxed['warnings']);
-                    $warnings[] = Relaxation::warning($probe['ignored']);
+                    // Still nothing: the user would be told words were ignored and see no result anyway,
+                    // so the original (empty) answer stands.
+                    if (self::total($relaxed['rows']) > 0) {
+                        $root = $reduced;
+                        $run = $relaxed;
+                        array_push($warnings, ...$relaxed['warnings']);
+                        $warnings[] = Relaxation::warning($probe['ignored']);
+                    }
                 }
             }
         }

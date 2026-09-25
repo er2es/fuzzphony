@@ -210,6 +210,26 @@ final class EmptyResultRelaxationTest extends TestCase
         self::assertCount(2, $lookups);
     }
 
+    public function testARelaxedSearchThatFindsNothingKeepsTheOriginalAnswer(): void
+    {
+        $search = $this->fuzzphony()->in('products');
+
+        // wireless mouse exists, torch exists, never together; zzqqx exists nowhere
+        $result = $search->query('wireless mouse torch zzqqx')->get();
+        $explanation = $search->query('wireless mouse torch zzqqx')->explain();
+
+        self::assertSame([], $result->ids());
+        self::assertSame(0, $result->total);
+        self::assertSame('(wireless AND mouse AND torch AND zzqqx)', $result->interpretedAs, 'the query as typed, not the relaxed one');
+        self::assertSame([], $result->warnings, 'nothing was found, so nothing is reported as ignored');
+        self::assertSame(
+            ['full-text', 'fallback: full-text + fuzzy', 'relaxation probe', 'relaxed: full-text', 'relaxed: fallback: full-text + fuzzy'],
+            array_column($explanation->statements, 'label'),
+        );
+        self::assertStringContainsString('CTE scored', implode("
+", $explanation->plan));
+    }
+
     public function testRelaxationNeverTurnsAnOrBranchIntoAnExclusionOnly(): void
     {
         $search = $this->fuzzphony()->in('products');
