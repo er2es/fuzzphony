@@ -12,13 +12,38 @@
         "symfony",
         "doctrine"
     ],
+    "homepage": "https://github.com/er2es/fuzzphony",
+    "authors": [
+        {
+            "name": "Szabó József",
+            "homepage": "https://github.com/er2es"
+        }
+    ],
+    "support": {
+        "issues": "https://github.com/er2es/fuzzphony/issues",
+        "source": "https://github.com/er2es/fuzzphony",
+        "security": "https://github.com/er2es/fuzzphony/security/advisories/new"
+    },
     "require": {
         "php": ">=8.4",
+        "ext-mbstring": "*",
         "ext-pdo": "*",
-        "ext-mbstring": "*"
+        "ext-pdo_pgsql": "*"
+    },
+    "suggest": {
+        "doctrine/dbal": "Use an existing Doctrine DBAL connection (Fuzzphony\\Bridge\\Doctrine\\DbalConnection)",
+        "doctrine/orm": "Load results as entities (EntityLoader) and sync in ORM mode (OrmSyncListener)",
+        "symfony/framework-bundle": "Symfony integration: configuration, autowiring and the fuzzphony:* console commands",
+        "symfony/messenger": "Asynchronous refresh in ORM sync mode (fuzzphony.orm_sync.async)",
+        "symfony/ux-live-component": "The <twig:Fuzzphony:Search> search-as-you-type component",
+        "api-platform/doctrine-orm": "FuzzphonySearchFilter for API Platform collections"
+    },
+    "conflict": {
+        "doctrine/dbal": "<4.2",
+        "doctrine/orm": "<3.3",
+        "symfony/framework-bundle": "<7.4"
     },
     "require-dev": {
-        "ext-pdo_pgsql": "*",
         "api-platform/doctrine-orm": "^4.1 || ^5.0",
         "doctrine/dbal": "^4.2",
         "doctrine/orm": "^3.3",
