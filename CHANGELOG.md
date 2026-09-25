@@ -40,6 +40,7 @@
 
   Measured at 1 000 000 rows: at most 1.3x the old fuzzy statement's time, still using the GIN
   indexes (no sequential scan). `SearchSqlBuilder::ranked()` (`@internal`) changed signature.
+  `NodeInspector::topLevelExclusions()`, which no engine uses any more, was removed.
 * **Breaking (pre-1.0)**: the minimum Symfony version is now 7.4 (was 7.3). 7.3 is end-of-life and
   every `symfony/yaml` 7.3.x release carries security advisories, so Composer refuses to install
   a 7.3-pinned set at all. CI now tests 7.4 and 8.0.
