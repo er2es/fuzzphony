@@ -21,7 +21,9 @@ changes; they are always listed under **Breaking** and explained in [UPGRADE.md]
   resync after `TRUNCATE`.
 - CI: every workflow runs with a read-only token and pins its actions to a commit SHA; an OpenSSF
   Scorecard workflow publishes the score shown in the README badge. The demo's base images are
-  pinned by digest, and Dependabot keeps them current.
+  pinned by digest, and Dependabot keeps them current. The package now contains `.github/`
+  (a few KB of workflow files): Scorecard reads the same archive Composer downloads.
+- `main` is protected: changes land through pull requests once CI passes.
 
 ## [0.3.1] - 2026-09-25
 
