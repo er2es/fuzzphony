@@ -52,7 +52,7 @@ final class EmptyResultRelaxationTest extends TestCase
         self::assertNotEmpty(array_filter($explanation->plan, static fn(string $l): bool => str_contains($l, 'actual time')));
 
         $probe = $explanation->statements[2];
-        self::assertStringContainsString('m0 AS MATERIALIZED (SELECT 1 FROM "fuzzphony_products" AS s CROSS JOIN q WHERE (s.tsv @@ q.ft0 OR q.fn1 <% s.fz)', $probe['sql']);
+        self::assertStringContainsString('m0 AS MATERIALIZED (SELECT 1 FROM "fuzzphony_products" AS s CROSS JOIN q WHERE (s.tsv @@ q.ft0 OR q.fn1 OPERATOR("public".<%) s.fz)', $probe['sql']);
         self::assertStringNotContainsString('offfice', $probe['sql'], 'user text is bound, never inlined');
         self::assertContains('offfice', $probe['params']);
     }

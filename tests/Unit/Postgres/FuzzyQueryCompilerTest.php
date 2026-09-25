@@ -28,8 +28,8 @@ final class FuzzyQueryCompilerTest extends TestCase
         self::assertNotNull($match);
         // the values are q columns (bound once each); predicate and score only reference them
         self::assertSame(["to_tsquery('fuzzphony_english'::regconfig, :p0) AS ft0", 'fuzzphony_norm(:p1) AS fn1'], $match->columns);
-        self::assertSame('(s.tsv @@ q.ft0 OR q.fn1 <% s.fz)', $match->predicate);
-        self::assertSame('GREATEST(word_similarity(q.fn1, s.fz), CASE WHEN s.tsv @@ q.ft0 THEN 1.0 ELSE 0.0 END)', $match->score);
+        self::assertSame('(s.tsv @@ q.ft0 OR q.fn1 OPERATOR("public".<%) s.fz)', $match->predicate);
+        self::assertSame('GREATEST("public".word_similarity(q.fn1, s.fz), CASE WHEN s.tsv @@ q.ft0 THEN 1.0 ELSE 0.0 END)', $match->score);
         self::assertSame(['p0' => "'mouse'", 'p1' => 'mouse'], $params->all());
     }
 
@@ -182,7 +182,7 @@ final class FuzzyQueryCompilerTest extends TestCase
         self::assertNotNull($second);
         self::assertCount(4, $first->columns);
         self::assertSame(["to_tsquery('fuzzphony_english'::regconfig, :p0) AS ft0", 'fuzzphony_norm(:p1) AS fn1'], $second->columns);
-        self::assertSame('(s.tsv @@ q.ft0 OR q.fn1 <% s.fz)', $second->predicate);
+        self::assertSame('(s.tsv @@ q.ft0 OR q.fn1 OPERATOR("public".<%) s.fz)', $second->predicate);
         self::assertSame(['p0' => "'lamp'", 'p1' => 'lamp'], $secondParams->all());
     }
 
@@ -256,7 +256,7 @@ final class FuzzyQueryCompilerTest extends TestCase
         $conditions = $this->compiler()->leafConditions($leaves, $params, ["'for'"], fuzzy: true);
 
         // exact or trigram, like the fuzzy branch; below fuzzyMinLength exact only; a stop word has none
-        self::assertSame(['(s.tsv @@ q.ft0 OR q.fn1 <% s.fz)', 's.tsv @@ q.ft2', null, '(s.tsv @@ q.ft3 OR q.fn4 <% s.fz)'], $conditions['predicates']);
+        self::assertSame(['(s.tsv @@ q.ft0 OR q.fn1 OPERATOR("public".<%) s.fz)', 's.tsv @@ q.ft2', null, '(s.tsv @@ q.ft3 OR q.fn4 OPERATOR("public".<%) s.fz)'], $conditions['predicates']);
         self::assertSame([
             "to_tsquery('fuzzphony_english'::regconfig, :p0) AS ft0",
             'fuzzphony_norm(:p1) AS fn1',
@@ -307,8 +307,8 @@ final class FuzzyQueryCompilerTest extends TestCase
 
         $sql = (string) preg_replace(
             [
-                '/\(s\.tsv @@ \{([^}]*)\} OR \{([^}]*)\} <% s\.fz\)/',
-                '/GREATEST\(word_similarity\(\{([^}]*)\}, s\.fz\), CASE WHEN s\.tsv @@ \{([^}]*)\} THEN 1\.0 ELSE 0\.0 END\)/',
+                '/\(s\.tsv @@ \{([^}]*)\} OR \{([^}]*)\} OPERATOR\("public"\.<%\) s\.fz\)/',
+                '/GREATEST\("public"\.word_similarity\(\{([^}]*)\}, s\.fz\), CASE WHEN s\.tsv @@ \{([^}]*)\} THEN 1\.0 ELSE 0\.0 END\)/',
                 '/CASE WHEN s\.tsv @@ \{([^}]*)\} THEN 1\.0 ELSE 0\.0 END/',
                 '/s\.tsv @@ \{([^}]*)\}/',
             ],
