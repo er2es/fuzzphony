@@ -329,7 +329,10 @@ text) or by trigram similarity, combined through the query's real AND / OR / NOT
 | `"wireles headphones"` | the phrase exactly, or the whole phrase as one similar text |
 | `ergnoo*` | the prefix exactly, or the prefix text as a similar word |
 
-So a typo in one word never lets through documents that lack the other words. Words shorter than
+So a typo in one word never lets through documents that lack the other words. Typo tolerance only
+reaches words stored in **fuzzy fields** (`fuzzy: true`): a misspelled word that appears only in a
+non-fuzzy field such as a description or a category cannot be matched approximately, so the whole
+query finds nothing rather than ignoring that word. Words shorter than
 `fuzzy_min_length` and stop words of the index language ("for", "the") are handled like the
 full-text query handles them: short words must match exactly, stop words are ignored.
 
@@ -624,6 +627,11 @@ that query.) Run the numbers on your own data before believing anyone's benchmar
   once the typo-tolerant branch runs. On the demo catalogue `name:sony` finds no product with
   "sony" in its name, falls back to typo tolerance and returns Sony-*brand* products; `name:kettel`
   (a typo) still finds kettles. Per-field trigram columns would fix this and are planned separately.
+* Typo tolerance is per word and deliberately lenient: at the default `fuzzy_similarity` of 0.3 a
+  correctly spelled word also matches similar words (`mouse` is trigram-close to `monitor` and
+  `mower`), so `wireles mouse` also lists wireless monitors, ranked below the mice. With very
+  frequent words these near-misses can use up `candidate_limit` before ranking, so raise
+  `fuzzy_similarity` (0.4 to 0.5 is stricter) or `candidate_limit` when that matters.
 * ~~Sync triggers fire for every UPDATE of a watched table, even when only unrelated columns
   change.~~ **Shipped** for the index's own source table (automatic) and for joined-table
   watches (opt-in `columns:`, see [Keeping the index in sync](#keeping-the-index-in-sync)).

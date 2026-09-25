@@ -27,7 +27,10 @@
   drills, kettles, …) of which 1 666 were mice. Every word must now match on its own, exactly or
   by trigram similarity, through the query's real AND / OR / NOT structure (`FuzzyQueryCompiler`),
   and `wireles mice` returns exactly the 1 666 wireless mice. Consequences:
-  * fuzzy result sets get **narrower** (recall of true matches is unchanged);
+  * fuzzy result sets get **narrower**. Recall is unchanged for words that live in a fuzzy field,
+    but a typo in a word found only in a non-fuzzy field (a description, a category) can no longer
+    be matched approximately, so that query now returns nothing instead of silently ignoring the
+    word (`wireless mouse alumnium` used to list wireless mice, it now lists none);
   * negations are honoured at any depth by the fuzzy branch (previously only top-level ones);
   * `r_fuzzy` / `ScoreBreakdown::$fuzzySimilarity` is now per-word (1.0 for an exact word, AND =
     mean, OR = max), so scores of strict matches shift slightly in `fuzzy_mode: always`;
