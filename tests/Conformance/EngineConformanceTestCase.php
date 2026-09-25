@@ -120,7 +120,31 @@ abstract class EngineConformanceTestCase extends TestCase
         $result = $this->fuzzphony->in('products')->query('"wireles headphones"')->get();
 
         self::assertTrue($result->usedFuzzy);
-        self::assertSame(3, $result->hits[0]->id ?? null);
+        // a phrase is one needle: the wireless headphones first, then the wireless mouse that shares
+        // enough trigrams with it, and nothing else
+        self::assertSame([3, 1], $this->ids($result));
+        self::assertGreaterThan($result->hits[1]->breakdown->fuzzySimilarity, $result->hits[0]->breakdown->fuzzySimilarity);
+
+        // the phrase is one unit among others: the wireless mouse lacks "sony", so it is out
+        self::assertSame([3], $this->ids($this->fuzzphony->in('products')->query('"wireles headphones" sony')->get()));
+    }
+
+    public function testAnOrBranchScoresOnlyWhenItMatches(): void
+    {
+        $this->requireCapability(Capability::Fuzzy);
+        // 3 matches the AND group in full (1.0). 1, 2 and 4 match through the typo "mose" alone;
+        // 1 also has "wireless" (half of the group), which must not count: its branch does not match.
+        $result = $this->fuzzphony->in('products')->query('mose | (wireless headphones)')
+            ->thresholds(['fuzzy_mode' => 'always'])->ranking(['exact_bonus' => 0, 'prefix_bonus' => 0])->get();
+        $fuzzy = [];
+        foreach ($result->hits as $hit) {
+            $fuzzy[$hit->id] = $hit->breakdown->fuzzySimilarity;
+        }
+
+        self::assertEqualsCanonicalizing([1, 2, 3, 4], array_keys($fuzzy));
+        self::assertEqualsWithDelta(1.0, $fuzzy[3], 1e-9);
+        self::assertEqualsWithDelta($fuzzy[2], $fuzzy[1], 1e-9, 'a half-matching AND branch must not lift a row matched through another branch');
+        self::assertLessThan(1.0, $fuzzy[1]);
     }
 
     public function testTypoTolerantScoreFollowsTheQueryStructure(): void
@@ -138,8 +162,12 @@ abstract class EngineConformanceTestCase extends TestCase
         $this->requireCapability(Capability::Fuzzy);
         $this->requireCapability(Capability::Stemming);
         $result = $this->fuzzphony->in('products')->query('headphnoes for')->get();
+        $alone = $this->fuzzphony->in('products')->query('headphnoes')->get();
 
         self::assertSame([3], $this->ids($result));
+        // the stop word is ignored, not scored as a word that failed to match
+        self::assertSame([3], $this->ids($alone));
+        self::assertEqualsWithDelta($alone->hits[0]->breakdown->fuzzySimilarity, $result->hits[0]->breakdown->fuzzySimilarity, 1e-9);
     }
 
     public function testPhrase(): void

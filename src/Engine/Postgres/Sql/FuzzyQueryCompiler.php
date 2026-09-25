@@ -34,8 +34,13 @@ use Fuzzphony\Engine\Postgres\Schema\PostgresSchemaGenerator;
  * A field-scoped word matches fuzzily against the whole fz column (every fuzzy field): fz is
  * one string, so the field cannot be enforced on the fuzzy side (known limitation).
  *
- * Score: a leaf scores max(word similarity, 1 when it matches exactly); AND = mean of the
- * scored children, OR = maximum, NOT does not score.
+ * Score: a leaf scores max(word similarity, 1.0 when it matches exactly); AND = mean of the
+ * scored children, OR = maximum over the branches that actually match, NOT does not score.
+ * Exact hits score 1.0 / 0.0 (numeric, never integers) so that a mean is never an integer division.
+ * An AND branch of an OR is guarded ("CASE WHEN <its predicate> THEN <its score> ELSE 0.0 END"):
+ * its score is partial credit for the words that matched, which must not lift a row that matched
+ * through another branch. Plain leaves need no guard: a leaf that does not match scores below
+ * the similarity threshold, under any leaf that does.
  */
 final class FuzzyQueryCompiler
 {
@@ -98,7 +103,10 @@ final class FuzzyQueryCompiler
     /**
      * @param list<string> $empty
      *
-     * @return array{predicate: string, score: string|null}|null
+     * "partial" marks a score that can be positive while the predicate is false (an AND of which
+     * some words matched).
+     *
+     * @return array{predicate: string, score: string|null, partial: bool}|null
      */
     private function node(Node $node, ParameterBag $params, array $empty): ?array
     {
@@ -107,7 +115,7 @@ final class FuzzyQueryCompiler
             $node instanceof AnyOf => $this->group($node->nodes, false, $params, $empty),
             $node instanceof Not => ($tsquery = $this->exact($node->node, $empty)) === null
                 ? null
-                : ['predicate' => sprintf('NOT (%s)', $this->matches($tsquery, $params)), 'score' => null],
+                : ['predicate' => sprintf('NOT (%s)', $this->matches($tsquery, $params)), 'score' => null, 'partial' => false],
             default => $this->leaf($node, $params, $empty),
         };
     }
@@ -115,7 +123,7 @@ final class FuzzyQueryCompiler
     /**
      * @param list<string> $empty
      *
-     * @return array{predicate: string, score: string}|null
+     * @return array{predicate: string, score: string, partial: bool}|null
      */
     private function leaf(Node $node, ParameterBag $params, array $empty): ?array
     {
@@ -126,13 +134,14 @@ final class FuzzyQueryCompiler
         $exact = $this->matches($tsquery, $params);
         $needle = $this->needle($node);
         if ($needle === null) {
-            return ['predicate' => $exact, 'score' => sprintf('CASE WHEN %s THEN 1 ELSE 0 END', $exact)];
+            return ['predicate' => $exact, 'score' => sprintf('CASE WHEN %s THEN 1.0 ELSE 0.0 END', $exact), 'partial' => false];
         }
         $norm = $this->column('fn', sprintf('%s(%s)', PostgresSchemaGenerator::NORM_FUNCTION, $params->add($needle)));
 
         return [
             'predicate' => sprintf('(%s OR %s <%% s.fz)', $exact, $norm),
-            'score' => sprintf('GREATEST(word_similarity(%s, s.fz), CASE WHEN %s THEN 1 ELSE 0 END)', $norm, $exact),
+            'score' => sprintf('GREATEST(word_similarity(%s, s.fz), CASE WHEN %s THEN 1.0 ELSE 0.0 END)', $norm, $exact),
+            'partial' => false,
         ];
     }
 
@@ -140,36 +149,42 @@ final class FuzzyQueryCompiler
      * @param list<Node>   $nodes
      * @param list<string> $empty
      *
-     * @return array{predicate: string, score: string|null}|null
+     * @return array{predicate: string, score: string|null, partial: bool}|null
      */
     private function group(array $nodes, bool $all, ParameterBag $params, array $empty): ?array
     {
-        $predicates = [];
-        $scores = [];
+        $children = [];
         foreach ($nodes as $child) {
             $compiled = $this->node($child, $params, $empty);
-            if ($compiled === null) {
-                continue;
+            if ($compiled !== null) {
+                $children[] = $compiled;
             }
-            $predicates[] = $compiled['predicate'];
-            if ($compiled['score'] !== null) {
-                $scores[] = $compiled['score'];
+        }
+        if (count($children) <= 1) {
+            return $children[0] ?? null;
+        }
+
+        $predicates = array_column($children, 'predicate');
+        // an OR branch counts only while its own predicate holds (see the class comment)
+        $scores = [];
+        foreach ($children as $child) {
+            if ($child['score'] !== null) {
+                $scores[] = !$all && $child['partial']
+                    ? sprintf('CASE WHEN %s THEN %s ELSE 0.0 END', $child['predicate'], $child['score'])
+                    : $child['score'];
             }
         }
 
-        return match (count($predicates)) {
-            0 => null,
-            1 => ['predicate' => $predicates[0], 'score' => $scores[0] ?? null],
-            default => [
-                'predicate' => '(' . implode($all ? ' AND ' : ' OR ', $predicates) . ')',
-                'score' => match (true) {
-                    $scores === [] => null,
-                    count($scores) === 1 => $scores[0],
-                    $all => sprintf('((%s) / %d)', implode(' + ', $scores), count($scores)),
-                    default => sprintf('GREATEST(%s)', implode(', ', $scores)),
-                },
-            ],
-        };
+        return [
+            'predicate' => '(' . implode($all ? ' AND ' : ' OR ', $predicates) . ')',
+            'score' => match (true) {
+                $scores === [] => null,
+                count($scores) === 1 => $scores[0],
+                $all => sprintf('((%s) / %d)', implode(' + ', $scores), count($scores)),
+                default => sprintf('GREATEST(%s)', implode(', ', $scores)),
+            },
+            'partial' => $all,
+        ];
     }
 
     /** @param list<string> $empty */

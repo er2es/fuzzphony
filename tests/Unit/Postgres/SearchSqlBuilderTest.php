@@ -28,7 +28,7 @@ final class SearchSqlBuilderTest extends TestCase
         );
         self::assertStringContainsString("ts_rank_cd('{0.1,0.2,0.4,1}'::real[]", $statement['sql']);
         self::assertStringContainsString('WHERE (s.tsv @@ q.ft0 OR q.fn1 <% s.fz) AND', $statement['sql']);
-        self::assertStringContainsString('SELECT s.id, (GREATEST(word_similarity(q.fn1, s.fz), CASE WHEN s.tsv @@ q.ft0 THEN 1 ELSE 0 END))::double precision AS r_fuzzy', $statement['sql']);
+        self::assertStringContainsString('SELECT s.id, (GREATEST(word_similarity(q.fn1, s.fz), CASE WHEN s.tsv @@ q.ft0 THEN 1.0 ELSE 0.0 END))::double precision AS r_fuzzy', $statement['sql']);
         self::assertStringNotContainsString('q.norm <% s.fz', $statement['sql'], 'the whole query is no longer one trigram check');
         self::assertStringContainsString('WHERE relevance >= 0.1', $statement['sql']);
         self::assertStringContainsString('LIMIT 20 OFFSET 40', $statement['sql']);

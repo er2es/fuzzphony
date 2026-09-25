@@ -29,7 +29,7 @@ final class FuzzyQueryCompilerTest extends TestCase
         // the values are q columns (bound once each); predicate and score only reference them
         self::assertSame(["to_tsquery('fuzzphony_english'::regconfig, :p0) AS ft0", 'fuzzphony_norm(:p1) AS fn1'], $match->columns);
         self::assertSame('(s.tsv @@ q.ft0 OR q.fn1 <% s.fz)', $match->predicate);
-        self::assertSame('GREATEST(word_similarity(q.fn1, s.fz), CASE WHEN s.tsv @@ q.ft0 THEN 1 ELSE 0 END)', $match->score);
+        self::assertSame('GREATEST(word_similarity(q.fn1, s.fz), CASE WHEN s.tsv @@ q.ft0 THEN 1.0 ELSE 0.0 END)', $match->score);
         self::assertSame(['p0' => "'mouse'", 'p1' => 'mouse'], $params->all());
     }
 
@@ -59,7 +59,7 @@ final class FuzzyQueryCompilerTest extends TestCase
         yield 'negation nested in a group' => [
             '(mouse -cable) | trackpad',
             "((fz['mouse'|mouse] AND NOT (ts['cable'])) OR fz['trackpad'|trackpad])",
-            "GREATEST(sim[mouse|'mouse'], sim[trackpad|'trackpad'])",
+            "GREATEST(guard[(fz['mouse'|mouse] AND NOT (ts['cable'])) => sim[mouse|'mouse']], sim[trackpad|'trackpad'])",
         ];
         yield 'nested groups' => [
             'wireless (mouse | "usb receiver")',
@@ -86,6 +86,41 @@ final class FuzzyQueryCompilerTest extends TestCase
             "(ts['ab'] AND fz['mouse'|mouse])",
             "((hit['ab'] + sim[mouse|'mouse']) / 2)",
         ];
+        yield 'exact-only words score with numeric 1.0 / 0.0, so the mean is never an integer division' => [
+            'ab cd',
+            "(ts['ab'] AND ts['cd'])",
+            "((hit['ab'] + hit['cd']) / 2)",
+        ];
+        yield 'an OR branch scores only when its own predicate holds' => [
+            'mouse | (wireles headphones)',
+            "(fz['mouse'|mouse] OR (fz['wireles'|wireles] AND fz['headphones'|headphones]))",
+            "GREATEST(sim[mouse|'mouse'], guard[(fz['wireles'|wireles] AND fz['headphones'|headphones]) => ((sim[wireles|'wireles'] + sim[headphones|'headphones']) / 2)])",
+        ];
+        yield 'an exact-only AND branch is guarded too' => [
+            'mouse | (ab cd)',
+            "(fz['mouse'|mouse] OR (ts['ab'] AND ts['cd']))",
+            "GREATEST(sim[mouse|'mouse'], guard[(ts['ab'] AND ts['cd']) => ((hit['ab'] + hit['cd']) / 2)])",
+        ];
+        yield 'a negation inside an OR branch keeps the branch guarded' => [
+            'mouse | (wireles -silent)',
+            "(fz['mouse'|mouse] OR (fz['wireles'|wireles] AND NOT (ts['silent'])))",
+            "GREATEST(sim[mouse|'mouse'], guard[(fz['wireles'|wireles] AND NOT (ts['silent'])) => sim[wireles|'wireles']])",
+        ];
+        yield 'plain leaves of an OR need no guard' => [
+            'wireles | mouse | keybord',
+            "(fz['wireles'|wireles] OR fz['mouse'|mouse] OR fz['keybord'|keybord])",
+            "GREATEST(sim[wireles|'wireles'], sim[mouse|'mouse'], sim[keybord|'keybord'])",
+        ];
+        yield 'an unknown field is searched everywhere, like the strict query does' => [
+            'nosuch:mouse',
+            "fz['mouse'|mouse]",
+            "sim[mouse|'mouse']",
+        ];
+        yield 'a negated group stays exact only and does not score' => [
+            'mouse -(wireless cable)',
+            "(fz['mouse'|mouse] AND NOT (ts[('wireless' & 'cable')]))",
+            "sim[mouse|'mouse']",
+        ];
         yield 'hyphenated word' => [
             'e-mail',
             "fz[('e' <-> 'mail')|e mail]",
@@ -102,6 +137,37 @@ final class FuzzyQueryCompilerTest extends TestCase
         self::assertNotNull($match);
         self::assertSame($predicate, self::shorthand($match->predicate, $match, $params));
         self::assertSame($score, self::shorthand($match->score, $match, $params));
+    }
+
+    public function testANegatedGroupAloneCompilesToNull(): void
+    {
+        self::assertNull($this->compiler()->compile(self::parse('-(mouse cable)'), new ParameterBag()));
+    }
+
+    public function testAnOrBranchThatBecomesNullIsDropped(): void
+    {
+        $params = new ParameterBag();
+        // "the" is a stop word, so the OR keeps only its negation: it cannot score, it only excludes
+        $match = $this->compiler()->compile(self::parse('wireles (the | -mouse)'), $params, ["'the'"]);
+
+        self::assertNotNull($match);
+        self::assertSame("(fz['wireles'|wireles] AND NOT (ts['mouse']))", self::shorthand($match->predicate, $match, $params));
+        self::assertSame("sim[wireles|'wireles']", self::shorthand($match->score, $match, $params));
+    }
+
+    public function testOneCompilerInstanceCompilesDifferentQueriesIndependently(): void
+    {
+        $compiler = $this->compiler();
+        $first = $compiler->compile(self::parse('mouse cable'), new ParameterBag());
+        $secondParams = new ParameterBag();
+        $second = $compiler->compile(self::parse('lamp'), $secondParams);
+
+        self::assertNotNull($first);
+        self::assertNotNull($second);
+        self::assertCount(4, $first->columns);
+        self::assertSame(["to_tsquery('fuzzphony_english'::regconfig, :p0) AS ft0", 'fuzzphony_norm(:p1) AS fn1'], $second->columns);
+        self::assertSame('(s.tsv @@ q.ft0 OR q.fn1 <% s.fz)', $second->predicate);
+        self::assertSame(['p0' => "'lamp'", 'p1' => 'lamp'], $secondParams->all());
     }
 
     public function testStopWordLeavesAreDropped(): void
@@ -167,13 +233,6 @@ final class FuzzyQueryCompilerTest extends TestCase
         );
     }
 
-    public function testMatchIsAValueObject(): void
-    {
-        $match = new FuzzyMatch('TRUE', '1', ['1 AS x']);
-
-        self::assertSame(['TRUE', '1', ['1 AS x']], [$match->predicate, $match->score, $match->columns]);
-    }
-
     private function compiler(): FuzzyQueryCompiler
     {
         return new FuzzyQueryCompiler(Indexes::products(), new Thresholds());
@@ -189,7 +248,7 @@ final class FuzzyQueryCompilerTest extends TestCase
 
     /**
      * Substitutes the bound values for the q columns and abbreviates the leaf expressions, so the
-     * structure is readable: fz[tsquery|needle], sim[needle|tsquery], ts[tsquery], hit[tsquery].
+     * structure is readable: fz[tsquery|needle], sim[needle|tsquery], ts[tsquery], hit[tsquery], guard[predicate => score].
      * testOneLeafIsExactOrFuzzyAndEveryValueIsBound pins the unabbreviated SQL.
      */
     private static function shorthand(string $sql, FuzzyMatch $match, ParameterBag $params): string
@@ -203,15 +262,21 @@ final class FuzzyQueryCompilerTest extends TestCase
         }
         $sql = strtr($sql, $values);
 
-        return (string) preg_replace(
+        $sql = (string) preg_replace(
             [
                 '/\(s\.tsv @@ \{([^}]*)\} OR \{([^}]*)\} <% s\.fz\)/',
-                '/GREATEST\(word_similarity\(\{([^}]*)\}, s\.fz\), CASE WHEN s\.tsv @@ \{([^}]*)\} THEN 1 ELSE 0 END\)/',
-                '/CASE WHEN s\.tsv @@ \{([^}]*)\} THEN 1 ELSE 0 END/',
+                '/GREATEST\(word_similarity\(\{([^}]*)\}, s\.fz\), CASE WHEN s\.tsv @@ \{([^}]*)\} THEN 1\.0 ELSE 0\.0 END\)/',
+                '/CASE WHEN s\.tsv @@ \{([^}]*)\} THEN 1\.0 ELSE 0\.0 END/',
                 '/s\.tsv @@ \{([^}]*)\}/',
             ],
             ['fz[$1|$2]', 'sim[$1|$2]', 'hit[$1]', 'ts[$1]'],
             $sql,
         );
+        // an OR branch guard, innermost first: guard[predicate => score]
+        do {
+            $sql = (string) preg_replace('/CASE WHEN ((?:(?!CASE).)*?) THEN ((?:(?!CASE).)*?) ELSE 0\.0 END/', 'guard[$1 => $2]', $sql, -1, $count);
+        } while ($count > 0);
+
+        return $sql;
     }
 }
