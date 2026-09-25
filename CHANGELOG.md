@@ -7,6 +7,13 @@ changes; they are always listed under **Breaking** and explained in [UPGRADE.md]
 
 ## [Unreleased]
 
+### Fixed
+
+- PostgreSQL: the trigram operator (`<%`) and `word_similarity()` in the typo-tolerant / relaxed
+  search SQL are now schema-qualified with the configured `extension_schema`, like every other
+  `pg_trgm` / `unaccent` reference already was. `pg_trgm` and `unaccent` no longer need to be on
+  the `search_path`.
+
 ### Changed
 
 - README: every known limitation now points to its planned fix; the roadmap adds exact field
