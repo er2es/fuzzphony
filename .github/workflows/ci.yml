@@ -167,3 +167,11 @@ jobs:
           php -r '$m = simplexml_load_file("coverage.xml")->project->metrics;
           $p = 100 * (int) $m["coveredstatements"] / max(1, (int) $m["statements"]);
           printf("Line coverage: %.2f%%\n", $p); exit($p < 90 ? 1 : 0);'
+
+  # The one required status check of the main branch: green only when every job above passed.
+  ci-ok:
+    if: always()
+    needs: [validate, quality, tests, prefer-lowest, demo-smoke, coverage]
+    runs-on: ubuntu-latest
+    steps:
+      - run: test "${{ contains(needs.*.result, 'failure') || contains(needs.*.result, 'cancelled') || contains(needs.*.result, 'skipped') }}" = false
