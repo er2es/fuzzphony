@@ -65,6 +65,37 @@ foreach ($result as $hit) {
 
 ## Why
 
+Most applications already have a search box, and behind it a `LIKE '%…%'` that misses
+`hedphones`, `creme` and `drills`, reads the whole table and ranks nothing. The usual fix is a
+search cluster, which is one more service to run, sync, back up and secure, and one more copy of
+your data. Fuzzphony gives you good search **inside the PostgreSQL you already have**, and
+it doesn't need to change your schema to do it.
+
+**A good fit when:**
+
+- **The database is not yours to change.** It's a legacy system, an ERP, or tables another team
+  or application owns. Fuzzphony adds no column and never alters your tables. The index lives in
+  its own sidecar table, filled from your table or from a SQL query. If even a trigger is too much, the
+  `orm` and `manual` sync modes need none.
+- **You're replacing `LIKE` in admin panels, back offices, CRMs and support tools.** This is where
+  typo and accent tolerance pay off on the first day.
+- **One more service is one too many.** There is no cluster, and no second pipeline to keep in
+  sync or to wake you up at night.
+- **The data must stay in the database.** For compliance or privacy, the index stays next to the
+  data, under the same backups and roles.
+- **Search must be exactly as fresh as the data.** In `trigger` mode the index changes in the
+  same transaction as the row, so a sold-out product or a closed ticket disappears from search on
+  commit.
+- **You run a shared-schema multi-tenant SaaS.** The engine enforces the tenant filter on every
+  query, so a forgotten `WHERE` can't leak another customer's rows.
+- **Your content is multilingual.** There is stemming for 28 languages, and accent folding
+  finds `Kávéfőző` for `kavefozo` and `Crème Brûlée` for `creme brulee`.
+
+**Not the right tool when** you need hundreds of millions of documents or thousands of searches
+a second on one index, analytics-style faceted aggregations, or semantic/vector search (look at
+pgvector or a dedicated engine), or when your database is not PostgreSQL (MySQL is on the
+[roadmap](#roadmap)).
+
 | | `LIKE '%…%'` | Fuzzphony | External engine |
 |---|---|---|---|
 | Typos (`hedphones`) | ✘ | ✔ trigram fallback | ✔ |
