@@ -397,38 +397,67 @@ final class PostgresSchemaGenerator
      * The TRUNCATE branch of both trigger levels. A TRUNCATE invocation has no NEW / OLD row and
      * no transition table, so this branch never references them and returns right away.
      *
-     * - The index's own source table was truncated: the source is empty, so the index is emptied
-     *   too (and, in queue mode, whatever it still had queued is dropped).
-     * - Any other watched table: its rows are gone, so the affected documents cannot be told
-     *   apart; every document that is indexed or that the source now returns is resynced.
-     *   Expensive on a big index, but a TRUNCATE is rare.
+     * - The index's own source table was truncated and the source really is empty now: the index
+     *   is emptied too (and, in queue mode, whatever it still had queued is dropped). The emptiness
+     *   is checked, not assumed: TRUNCATE ONLY on a table-inheritance parent fires this trigger while
+     *   "SELECT * FROM parent" still returns the child tables' rows. Queue rows another transaction
+     *   holds (a running worker) are skipped, so this never waits on the worker's row locks; the
+     *   worker refreshes those ids itself and the refresh deletes them from the now empty index.
+     * - Any other watched table (or a source that is not empty): its rows are gone, so the affected
+     *   documents cannot be told apart; every document that is indexed or that the source now
+     *   returns is resynced. Expensive on a big index, but a TRUNCATE is rare.
      */
     private function truncateBranch(IndexDefinition $index, Watch $watch): string
     {
         $sidecar = Sql::ident($index->sidecarTable());
-        if ($index->source->table !== null && $watch->table === $index->source->table) {
-            $actions = [sprintf('DELETE FROM %s;', $sidecar)];
-            if ($index->sync === SyncMode::Queue) {
-                $actions[] = sprintf('DELETE FROM %s WHERE index_name = %s;', self::QUEUE_TABLE, Sql::string($index->name));
-            }
-        } else {
-            $ids = sprintf(
-                'SELECT s.id FROM %s AS s UNION SELECT doc.fz_id::%s FROM (%s) AS doc WHERE doc.fz_id IS NOT NULL',
-                $sidecar,
-                $index->idType->sqlType(),
-                DocumentSql::select($index),
+        $ids = sprintf(
+            'SELECT s.id FROM %s AS s UNION SELECT doc.fz_id::%s FROM (%s) AS doc WHERE doc.fz_id IS NOT NULL',
+            $sidecar,
+            $index->idType->sqlType(),
+            DocumentSql::select($index),
+        );
+        $resync = $index->sync === SyncMode::Trigger
+            ? sprintf('PERFORM %s(ARRAY(%s));', Sql::ident($this->refreshFunctionName($index)), $ids)
+            : sprintf(
+                "INSERT INTO %s (index_name, doc_id)
+        SELECT %s, t.id::text FROM (%s) AS t(id)
+        ON CONFLICT (index_name, doc_id) DO NOTHING;",
+                self::QUEUE_TABLE,
+                Sql::string($index->name),
+                $ids,
             );
-            $actions = [$index->sync === SyncMode::Trigger
-                ? sprintf('PERFORM %s(ARRAY(%s));', Sql::ident($this->refreshFunctionName($index)), $ids)
-                : sprintf(
-                    "INSERT INTO %s (index_name, doc_id)\n        SELECT %s, t.id::text FROM (%s) AS t(id)\n        ON CONFLICT (index_name, doc_id) DO NOTHING;",
-                    self::QUEUE_TABLE,
-                    Sql::string($index->name),
-                    $ids,
-                )];
+        if ($index->source->table === null || $watch->table !== $index->source->table) {
+            return sprintf("    IF TG_OP = 'TRUNCATE' THEN
+        %s
+        RETURN NULL;
+    END IF;", $resync);
         }
 
-        return sprintf("    IF TG_OP = 'TRUNCATE' THEN\n        %s\n        RETURN NULL;\n    END IF;", implode("\n        ", $actions));
+        $wipe = [sprintf('DELETE FROM %s;', $sidecar)];
+        if ($index->sync === SyncMode::Queue) {
+            $wipe[] = sprintf(
+                'DELETE FROM %1$s WHERE ctid IN (SELECT ctid FROM %1$s WHERE index_name = %2$s FOR UPDATE SKIP LOCKED);',
+                self::QUEUE_TABLE,
+                Sql::string($index->name),
+            );
+        }
+
+        return sprintf(
+            "    IF TG_OP = 'TRUNCATE' THEN
+        IF NOT EXISTS (SELECT 1 FROM %s) THEN
+            %s
+        ELSE
+            %s
+        END IF;
+        RETURN NULL;
+    END IF;",
+            Sql::ident($index->source->table),
+            implode("
+            ", $wipe),
+            str_replace("
+        ", "
+            ", $resync),
+        );
     }
 
     /** Unfiltered: today's two combined-condition branches, unchanged — byte-identical output. */

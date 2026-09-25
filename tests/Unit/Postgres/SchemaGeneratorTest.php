@@ -118,15 +118,45 @@ final class SchemaGeneratorTest extends TestCase
         }
     }
 
-    public function testTruncatingATableSourceEmptiesTheIndex(): void
+    public function testTruncatingATableSourceEmptiesTheIndexOnlyWhenTheSourceIsReallyEmpty(): void
     {
         $definition = IndexDefinition::builder('articles')->fromTable('article')->field('title')->build();
+        $guard = "IF TG_OP = 'TRUNCATE' THEN
+        IF NOT EXISTS (SELECT 1 FROM \"article\") THEN
+            DELETE FROM \"fuzzphony_articles\";";
+        $resync = "
+        ELSE
+            %s";
 
         $queue = (new PostgresSchemaGenerator())->index($definition)->toSql();
-        self::assertStringContainsString("IF TG_OP = 'TRUNCATE' THEN\n        DELETE FROM \"fuzzphony_articles\";\n        DELETE FROM fuzzphony_queue WHERE index_name = 'articles';\n        RETURN NULL;\n    END IF;", $queue);
+        self::assertStringContainsString(
+            $guard . "
+            DELETE FROM fuzzphony_queue WHERE ctid IN (SELECT ctid FROM fuzzphony_queue WHERE index_name = 'articles' FOR UPDATE SKIP LOCKED);"
+            . sprintf($resync, "INSERT INTO fuzzphony_queue (index_name, doc_id)
+"),
+            $queue,
+        );
+        self::assertStringNotContainsString("DELETE FROM fuzzphony_queue WHERE index_name = 'articles'", $queue, 'never waits on the rows a worker holds');
 
         $trigger = (new PostgresSchemaGenerator())->index($definition->with(sync: SyncMode::Trigger))->toSql();
-        self::assertStringContainsString("IF TG_OP = 'TRUNCATE' THEN\n        DELETE FROM \"fuzzphony_articles\";\n        RETURN NULL;\n    END IF;", $trigger);
+        self::assertStringContainsString($guard . sprintf($resync, 'PERFORM "fuzzphony_refresh_articles"(ARRAY(SELECT s.id FROM "fuzzphony_articles" AS s UNION'), $trigger);
+        self::assertStringNotContainsString('fuzzphony_queue WHERE ctid', $trigger);
+    }
+
+    public function testASecondWatchedTableOfATableSourceNeverWipesTheIndex(): void
+    {
+        $definition = IndexDefinition::builder('articles')->fromTable('article')->field('title')->watch('comment', 'SELECT article_id FROM comment WHERE id = :id')->build();
+        foreach (['queue', 'trigger'] as $sync) {
+            $functions = array_values(array_filter(
+                (new PostgresSchemaGenerator())->index($definition->with(sync: SyncMode::from($sync)))->statements,
+                static fn($statement): bool => str_contains($statement->sql, 'CREATE OR REPLACE FUNCTION "fuzzphony_sync_articles__comment"'),
+            ));
+            self::assertCount(1, $functions);
+            self::assertStringNotContainsString('DELETE FROM "fuzzphony_articles";', $functions[0]->sql, $sync);
+            self::assertStringNotContainsString('NOT EXISTS (SELECT 1 FROM "article")', $functions[0]->sql, $sync);
+            self::assertStringContainsString("IF TG_OP = 'TRUNCATE' THEN
+        " . ($sync === 'queue' ? 'INSERT INTO fuzzphony_queue' : 'PERFORM "fuzzphony_refresh_articles"'), $functions[0]->sql, $sync);
+        }
     }
 
     public function testTruncatingAnotherWatchedTableResyncsEveryDocument(): void

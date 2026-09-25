@@ -27,7 +27,7 @@ final class TruncateSyncTest extends TestCase
         $this->connection = PostgresTestCase::connect();
         $this->engine = new PostgresEngine($this->connection);
         PostgresTestCase::createFixtures($this->connection, EngineConformanceTestCase::fixtureRows());
-        $this->connection->execute('DROP TABLE IF EXISTS fz_note, fz_hidden, fuzzphony_items, fuzzphony_noted CASCADE');
+        $this->connection->execute('DROP TABLE IF EXISTS fz_note, fz_hidden, fuzzphony_items, fuzzphony_noted, fuzzphony_inherited, inh_child, inh_parent CASCADE');
         // no foreign keys: each table can be truncated on its own
         $this->connection->execute('CREATE TABLE fz_note (id bigint PRIMARY KEY, product_id bigint NOT NULL, note text NOT NULL)');
         $this->connection->execute('CREATE TABLE fz_hidden (product_id bigint PRIMARY KEY)');
@@ -126,6 +126,78 @@ final class TruncateSyncTest extends TestCase
         self::assertSame([3], $search('fragile'));
         self::assertSame([2], $search('ergonomic'));
         self::assertSame(3, $this->rows('fuzzphony_noted'));
+    }
+
+    /** TRUNCATE ONLY on an inheritance parent fires its trigger, yet the source (SELECT * FROM parent) still returns the children. */
+    #[DataProvider('modes')]
+    public function testTruncateOnlyOnAnInheritanceParentKeepsTheChildDocuments(string $sync, TriggerLevel $level): void
+    {
+        $this->connection->execute('CREATE TABLE inh_parent (id bigint PRIMARY KEY, name text NOT NULL)');
+        $this->connection->execute('CREATE TABLE inh_child () INHERITS (inh_parent)');
+        $this->connection->execute("INSERT INTO inh_parent VALUES (1, 'parent row')");
+        $this->connection->execute("INSERT INTO inh_child VALUES (2, 'child row'), (3, 'child row')");
+        $index = IndexDefinition::builder('inherited')->fromTable('inh_parent')->field('name', 'A')->sync($sync)->triggerLevel($level)->build();
+        $fuzzphony = $this->install($index);
+        self::assertSame(3, $this->rows('fuzzphony_inherited'));
+
+        $this->connection->execute('TRUNCATE ONLY inh_parent');
+
+        self::assertSame(2, $this->rows('inh_parent'), 'the source still returns the child rows');
+        if ($sync === 'queue') {
+            self::assertEqualsCanonicalizing([1, 2, 3], $this->queued($index), 'resynced, not wiped');
+            $this->converge($index);
+        }
+        self::assertSame(2, $this->rows('fuzzphony_inherited'), 'only the truncated parent row is gone');
+        self::assertEqualsCanonicalizing([2, 3], $fuzzphony->in('inherited')->query('child')->get()->ids());
+        self::assertSame([], $fuzzphony->in('inherited')->query('parent')->get()->ids());
+    }
+
+    /** A running queue worker holds its rows: TRUNCATE skips them instead of waiting (and possibly deadlocking). */
+    public function testTruncatingTheSourceTableDoesNotWaitForQueueRowsAWorkerHolds(): void
+    {
+        $index = IndexDefinition::builder('items')->fromTable('fz_product')->field('name', 'A')->sync('queue')->triggerLevel(TriggerLevel::Statement)->build();
+        $this->install($index);
+        $this->connection->execute("INSERT INTO fz_product VALUES (6, 'Trackball', 'Ergonomic trackball', 1, 5990, true, 3, now())");
+        $this->connection->execute("INSERT INTO fuzzphony_queue (index_name, doc_id) VALUES ('items', '7')");
+        self::assertSame(2, $this->engine->queueSize($index));
+
+        $worker = new \PDO((string) getenv('FUZZPHONY_TEST_DSN'), null, null, [\PDO::ATTR_ERRMODE => \PDO::ERRMODE_EXCEPTION]);
+        $worker->beginTransaction();
+        $worker->exec("SELECT 1 FROM fuzzphony_queue WHERE index_name = 'items' AND doc_id = '6' FOR UPDATE");
+        try {
+            $this->connection->execute("SET lock_timeout = '1500ms'");
+            $this->connection->execute('TRUNCATE fz_product CASCADE');
+        } finally {
+            $worker->rollBack();
+        }
+
+        self::assertSame(0, $this->rows('fuzzphony_items'));
+        self::assertSame(1, $this->engine->queueSize($index), 'only the row the worker holds is left; the worker refreshes it');
+    }
+
+    /** The own-table shortcut is only for the table source's own watch; a second watched table resyncs. */
+    #[DataProvider('modes')]
+    public function testTruncatingASecondWatchedTableOfATableSourceResyncsInsteadOfWiping(string $sync, TriggerLevel $level): void
+    {
+        $index = IndexDefinition::builder('items')
+            ->fromTable('fz_product')
+            ->field('name', 'A')
+            ->watch('fz_product')
+            ->watch('fz_note', 'SELECT :id', 'product_id')
+            ->sync($sync)
+            ->triggerLevel($level)
+            ->build();
+        $fuzzphony = $this->install($index);
+        self::assertSame(5, $this->rows('fuzzphony_items'));
+
+        $this->connection->execute('TRUNCATE fz_note');
+
+        if ($sync === 'queue') {
+            self::assertEqualsCanonicalizing([1, 2, 3, 4, 5], $this->queued($index), 'every document is queued, none deleted');
+            $this->converge($index);
+        }
+        self::assertSame(5, $this->rows('fuzzphony_items'), 'the source still has all its rows');
+        self::assertNotSame([], $fuzzphony->in('items')->query('mouse')->get()->ids());
     }
 
     /** Joined table fz_note (LEFT JOIN) and an anti-join on fz_hidden, both watched. */
