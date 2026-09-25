@@ -64,7 +64,7 @@ foreach ($result as $hit) {
 |---|---|---|---|
 | Typos (`hedphones`) | ✘ | ✔ trigram fallback | ✔ |
 | Accents (`creme` → `crème`) | ✘ | ✔ `unaccent` | ✔ |
-| Stemming (`mice` → `mouse`) | ✘ | ✔ 20+ languages | ✔ |
+| Stemming (`drills` → `drill`) | ✘ | ✔ PostgreSQL's 28 Snowball languages | ✔ |
 | Relevance ranking + field weights | ✘ | ✔ explainable | ✔ |
 | Extra service to run, sync and secure | – | **none** | yes |
 | Transactional consistency with your data | ✔ | ✔ (trigger mode) | eventual |
