@@ -2,6 +2,7 @@
 
 [![CI](https://github.com/er2es/fuzzphony/actions/workflows/ci.yml/badge.svg)](https://github.com/er2es/fuzzphony/actions/workflows/ci.yml)
 [![codecov](https://codecov.io/gh/er2es/fuzzphony/graph/badge.svg)](https://codecov.io/gh/er2es/fuzzphony)
+[![Packagist Version](https://img.shields.io/packagist/v/fuzzphony/fuzzphony)](https://packagist.org/packages/fuzzphony/fuzzphony)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 
 **Fuzzy search, in perfect harmony with your database.**
@@ -24,7 +25,8 @@ foreach ($result as $hit) {
 }
 ```
 
-> Status: **v0.2**. PostgreSQL engine, wizard, demo app. The API may still change before 1.0.
+> Status: **v0.3**. The API may still change before 1.0; breaking changes are listed in the
+> [CHANGELOG](CHANGELOG.md) and explained in [UPGRADE.md](UPGRADE.md).
 
 ---
 
@@ -540,8 +542,8 @@ return nothing for them (fail-closed, not dangerous, but easy to mistake for a b
 
 `FuzzphonySearchFilter` (API Platform), `SearchComponent` (Live Component) and `bin/console
 fuzzphony:search` do not currently accept a tenant value; using any of them against a
-tenant-scoped index throws `InvalidQuery` (fail-closed). This is a known limitation, not
-something this release fixes.
+tenant-scoped index throws `InvalidQuery` (fail-closed). A tenant resolver for these
+integrations is planned (see [Roadmap](#roadmap)).
 
 **You don't need this** for a single-tenant application (nothing changes either way), or for
 applications with fully isolated tenants — a separate database or schema per tenant already
@@ -623,34 +625,38 @@ again), queue backlog and age, coverage (estimated, or exact with `--deep`), orp
 * `$result->warnings` are **plain text**, not HTML: a warning may quote the user's own words (the relaxation
   warning does, as typed, minus invisible format characters, cut at 40 characters), so escape it when you render it
   as HTML (Twig's `{{ warning }}` does).
-* Input size, term count and nesting depth are capped; candidate sets are bounded.
+* `$result->interpretedAs` is plain text too, built from the user's words.
+* Input size, term count and nesting depth are capped; candidate sets are bounded. Set a
+  PostgreSQL `statement_timeout` for the application's database role as well.
+* Index definitions (the `fromQuery()` source, `watch()` SQL, index, field and filter names) are
+  trusted developer input: they end up in generated SQL and trigger functions, so never build them
+  from user input.
+
+Report vulnerabilities privately, see [SECURITY.md](SECURITY.md).
 
 ## Benchmarks
 
 `benchmarks/seed.sql` generates a catalogue (products × brands × categories); `benchmarks/run.php`
 compares a naive `ILIKE` with Fuzzphony: first ("cold") run and the median of the next 5 ("warm"),
-20 results. CI runs it on every push to `main` and publishes the table in the job summary.
-Sample run, 200 000 products, PostgreSQL 16, a small cloud VM:
+20 results. The [Benchmark workflow](https://github.com/er2es/fuzzphony/actions/workflows/benchmark.yml)
+runs it on every push to `main` and publishes the current table in its job summary. An example run
+(200 000 products, PostgreSQL 16, a small cloud VM; the output of `run.php --markdown`):
 
-| case | query | ILIKE cold / warm | hits | Fuzzphony cold / warm | hits (total) | who's actually right |
-|---|---|---:|---:|---:|---:|---|
-| plain word | `wireless` | 1.7 / 0.6 ms | 20 (unranked) | 17.9 / 11.1 ms | 20 (2000+) | ⚡ ILIKE faster · 🎯 Fuzzphony ranked |
-| two words | `wireless mouse` | 4.1 / 3.7 ms | 20 (unranked) | 19.9 / 13.1 ms | 20 (1666) | ⚡ ILIKE faster · 🎯 Fuzzphony ranked |
-| accent | `creme` | 257.6 / 251.6 ms | **0** | 11.9 / 10.4 ms | 20 (2000+) | ✅ Fuzzphony (ILIKE finds nothing) |
-| typo | `hedphones` | 248.1 / 252.6 ms | **0** | 24.2 / 20.7 ms | 20 (2000+) ~ | ✅ Fuzzphony (ILIKE finds nothing) |
-| stemming | `drills` | 342.0 / 257.1 ms | **0** | 11.9 / 10.6 ms | 20 (2000+) | ✅ Fuzzphony (ILIKE finds nothing) |
-| phrase + exclusion | `"noise cancelling" -headphones` | 0.6 / 0.5 ms | 20 (wrong\*) | 24.3 / 23.2 ms | 20 (2000+) | ✅ Fuzzphony (ILIKE can't exclude) |
-| filter + text | `kettle` | 0.8 / 0.7 ms | 20 (unranked) | 12.8 / 11.3 ms | 20 (2000+) | ⚡ ILIKE faster · 🎯 Fuzzphony ranked |
+| case | query | ILIKE cold / warm | hits | Fuzzphony cold / warm | hits (total) |
+|---|---|---:|---:|---:|---:|
+| plain word | `wireless` | 1.7 / 0.6 ms | 20 | 17.9 / 11.1 ms | 20 (2000+) |
+| two words | `wireless mouse` | 4.1 / 3.7 ms | 20 | 19.9 / 13.1 ms | 20 (1666) |
+| accent | `creme` | 257.6 / 251.6 ms | **0** | 11.9 / 10.4 ms | 20 (2000+) |
+| typo | `hedphones` | 248.1 / 252.6 ms | **0** | 24.2 / 20.7 ms | 20 (2000+) ~ |
+| stemming | `drills` | 342.0 / 257.1 ms | **0** | 11.9 / 10.6 ms | 20 (2000+) |
+| phrase + exclusion | `"noise cancelling" -headphones` | 0.6 / 0.5 ms | 20 | 24.3 / 23.2 ms | 20 (2000+) |
+| filter + text | `kettle` | 0.8 / 0.7 ms | 20 | 12.8 / 11.3 ms | 20 (2000+) |
 
-**Reading this honestly:** `ILIKE … LIMIT 20` without `ORDER BY` doesn't return the 20 *best*
-matches — it returns the first 20 rows the scan happens to hit, in physical table order. That's why
-it's fast when it's lucky (plain word, two words, filter + text) and catastrophic when it isn't
-(accent, typo, stemming: a full sequential scan that finds **zero** correct rows in a quarter of a
-second). It also has no concept of exclusion, so `-headphones` is silently ignored — its "20 hits"
-on that row are simply wrong, not just unranked. Fuzzphony's 11–24 ms is the cost of doing the harder,
-correct job every time: ranked, typo-tolerant, accent-insensitive, with real query semantics — not a
-lucky scan that only works until your users misspell something. (`~` = the fuzzy fallback fired for
-that query.) Run the numbers on your own data before believing anyone's benchmark, including this one.
+`~` means the typo-tolerant fallback ran. The two columns do different work: `ILIKE … LIMIT 20`
+returns the first 20 rows the scan reaches, unranked, and cannot exclude words (its 20 hits for
+the exclusion query include headphones), so it is fastest when the word is common and finds
+nothing for accents, typos or other word forms, after scanning the whole table. Fuzzphony ranks
+every result and handles those cases in about 10-25 ms. Measure on your own data.
 
 ## Known limitations
 
@@ -665,9 +671,6 @@ that query.) Run the numbers on your own data before believing anyone's benchmar
   `mower`), so `wireles mouse` also lists wireless monitors, ranked below the mice. With very
   frequent words these near-misses can use up `candidate_limit` before ranking, so raise
   `fuzzy_similarity` (0.4 to 0.5 is stricter) or `candidate_limit` when that matters.
-* ~~Sync triggers fire for every UPDATE of a watched table, even when only unrelated columns
-  change.~~ **Shipped** for the index's own source table (automatic) and for joined-table
-  watches (opt-in `columns:`, see [Keeping the index in sync](#keeping-the-index-in-sync)).
 * Statement-level triggers cannot be attached to individual partitions; watch the partitioned parent
   or use `trigger_level: row`. The `TRUNCATE` trigger on a partitioned parent fires when the parent
   is truncated, but **not** when a single partition is truncated directly (`TRUNCATE
@@ -708,35 +711,33 @@ fuzzphony/symfony-bundle   configuration, autowiring, console commands, Messenge
                            filter, Live Component
 ```
 
-A monorepo, split into read-only package repositories on every push. Design decisions are recorded
+A monorepo, published as the single Composer package `fuzzphony/fuzzphony`; each directory already
+has its own `composer.json` for a later split into separate packages. Design decisions are recorded
 in [`docs/adr`](docs/adr).
 
 ## Roadmap
 
 * **v0.1** PostgreSQL engine, attributes / YAML / builder, query language, ranking profiles,
   thresholds, queue / trigger / ORM sync, doctor, CLI.
-* **v0.2** *(this release)* configuration wizard (CLI + web), statement-level triggers, per-query
-  ranking overrides, Messenger for ORM sync, API Platform filter, Live Component, demo app,
-  benchmark in CI.
+* **v0.2** configuration wizard (CLI + web), statement-level triggers, per-query ranking
+  overrides, Messenger for ORM sync, API Platform filter, Live Component, demo app, benchmark in
+  CI, multi-tenancy, column-aware trigger filtering.
+* **v0.3** *(current)* per-word typo tolerance, empty-result relaxation, `TRUNCATE` sync and
+  orphan pruning, a production-like demo stack.
 * **v1.0** Enterprise readiness, stable API, BC promise. PostgreSQL only — no other engine is
   planned before 1.0.
-  * ~~Multi-tenancy: tenant scoping via a designated filter, isolation enforced at the query
-    layer (not just application-level convention).~~ **Shipped** — see
-    [Multi-tenancy](#multi-tenancy).
   * Observability: hooks/events for query latency, queue lag and error rate, wired for Symfony
     Messenger middleware and any metrics backend.
   * Federated search: query multiple indexes at once with one merged, cross-index ranking.
   * Security: audit logging (who searched what, when) and per-tenant/per-user rate limiting;
     Symfony Security integration for index/field-level authorization (e.g. restricting a field
-    from highlights unless the viewer is authorized).
-  * ~~Column-aware trigger filtering (a watched table's UPDATE only queues a refresh when a
-    relevant column actually changed).~~ **Shipped** — see
-    [Keeping the index in sync](#keeping-the-index-in-sync).
+    from highlights unless the viewer is authorized), and a tenant resolver (for example from the
+    Symfony Security user) for the API Platform filter, the Live Component and `fuzzphony:search`.
   * Transaction-aware connections: the similarity-threshold setting of a fuzzy statement is restored
     afterwards so a caller's own transaction is left untouched, which costs one extra database round
     trip per fuzzy statement. An optional, non-breaking `Connection` capability (`inTransaction()`)
     would let the engine skip that round trip when no outer transaction is open.
-  * Test coverage ≥ 90% (currently 73%, tracked by Codecov in CI).
+  * Test coverage ≥ 90%, tracked by Codecov in CI.
 
 ## Development
 

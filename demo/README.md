@@ -1,5 +1,12 @@
 # Fuzzphony demo
 
+> **A local showcase, not a production template.** It shows the SQL and query plans of every
+> search on purpose, and it ships throwaway secrets. Run it on your own machine; do not expose it
+> to the internet as is.
+
+Clone the whole repository: the image is built from the repository root, because the demo uses the
+library's source in `../src` directly (not a Packagist release).
+
 ```bash
 cd demo
 docker compose up --build                      # http://localhost:8000
