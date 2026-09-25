@@ -48,9 +48,22 @@ final readonly class Fuzzphony
         return $this->engine->refresh($this->registry->get($index), $ids);
     }
 
-    public function reindex(string $index, int $batchSize = 5_000, ?callable $onBatch = null): int
+    /**
+     * Rebuilds the whole index from the source and, unless $prune is false, removes the documents the
+     * source no longer returns. Pruning is relative to what this connection sees (row-level security,
+     * search_path, current_setting() in a query source): pass $prune = false when it sees less than the
+     * application. A source that returns no row at all is not pruned unless $pruneEmpty is set;
+     * $onPruneSkipped is then called.
+     *
+     * @param callable(int $processed, int|string $lastId): void|null $onBatch
+     * @param callable(int $removed): void|null                         $onPruned
+     * @param callable(): void|null                                     $onPruneSkipped
+     *
+     * @return int total documents written
+     */
+    public function reindex(string $index, int $batchSize = 5_000, ?callable $onBatch = null, ?callable $onPruned = null, bool $prune = true, bool $pruneEmpty = false, ?callable $onPruneSkipped = null): int
     {
-        return (new Reindexer($this->engine))->run($this->registry->get($index), $batchSize, null, $onBatch);
+        return (new Reindexer($this->engine))->run($this->registry->get($index), $batchSize, null, $onBatch, $onPruned, $prune, $pruneEmpty, $onPruneSkipped);
     }
 
     public function registry(): IndexRegistry

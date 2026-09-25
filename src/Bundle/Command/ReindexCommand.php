@@ -30,7 +30,9 @@ final class ReindexCommand extends Command
         $this
             ->addArgument('index', InputArgument::OPTIONAL, 'Only this index (default: all)')
             ->addOption('batch', 'b', InputOption::VALUE_REQUIRED, 'Documents per batch', '5000')
-            ->addOption('from', null, InputOption::VALUE_REQUIRED, 'Resume after this id (printed while running)');
+            ->addOption('from', null, InputOption::VALUE_REQUIRED, 'Resume after this id (printed while running)')
+            ->addOption('no-prune', null, InputOption::VALUE_NONE, 'Do not remove indexed documents this session cannot see in the source (row-level security, search_path)')
+            ->addOption('prune-empty', null, InputOption::VALUE_NONE, 'Prune even when the source returns no row at all (wipes the whole index)');
     }
 
     protected function execute(InputInterface $input, OutputInterface $output): int
@@ -38,6 +40,8 @@ final class ReindexCommand extends Command
         $io = new SymfonyStyle($input, $output);
         $batch = max(1, Coerce::int($input->getOption('batch')));
         $from = $input->getOption('from');
+        $noPrune = $input->getOption('no-prune') === true;
+        $pruneEmpty = $input->getOption('prune-empty') === true;
         $reindexer = new Reindexer($this->fuzzphony->engine());
 
         foreach (IndexArgument::resolve($this->fuzzphony, $input) as $index) {
@@ -45,16 +49,22 @@ final class ReindexCommand extends Command
             $started = microtime(true);
             $resume = is_string($from) ? $index->idType->cast($from) : null;
             $pruned = null;
+            $skipped = false;
             $total = $reindexer->run($index, $batch, $resume, static function (int $done, int|string $lastId) use ($io, $started): void {
                 $rate = $done / max(0.001, microtime(true) - $started);
                 $io->writeln(sprintf('  %s documents, %s/s, last id %s <comment>(resume: --from=%s)</comment>', number_format($done), number_format($rate), $lastId, $lastId));
             }, static function (int $removed) use (&$pruned): void {
                 $pruned = $removed;
+            }, !$noPrune, $pruneEmpty, static function () use (&$skipped): void {
+                $skipped = true;
             });
             $io->writeln(sprintf('  <info>%s documents in %.1fs</info>', number_format($total), microtime(true) - $started));
-            $io->writeln($pruned !== null
-                ? sprintf('  %s orphaned document(s) removed (no longer in the source)', number_format($pruned))
-                : '  <comment>Orphaned documents are only removed by a full run (without --from).</comment>');
+            $io->writeln(match (true) {
+                $pruned !== null => sprintf('  %s orphaned document(s) removed (no longer in the source)', number_format($pruned)),
+                $skipped => '  <comment>The source returned no rows for this session, so nothing was pruned (row-level security or search_path? a TRUNCATE is handled by its trigger). Use --prune-empty to remove every indexed document anyway.</comment>',
+                $noPrune => '  <comment>Pruning skipped (--no-prune).</comment>',
+                default => '  <comment>Orphaned documents are only removed by a full run (without --from).</comment>',
+            });
         }
         $io->success('Done. Tip: run fuzzphony:doctor to verify coverage.');
 

@@ -41,6 +41,39 @@ final class ReindexCommandTest extends TestCase
         self::assertSame(5, $this->indexed());
     }
 
+    public function testNoPruneKeepsWhatTheSessionCannotSee(): void
+    {
+        $status = $this->tester->execute(['index' => 'products', '--no-prune' => true], ['interactive' => false]);
+
+        self::assertSame(Command::SUCCESS, $status, $this->tester->getDisplay());
+        self::assertStringContainsString('Pruning skipped (--no-prune)', $this->tester->getDisplay());
+        self::assertStringNotContainsString('orphaned document(s) removed', $this->tester->getDisplay());
+        self::assertSame(5, $this->indexed());
+    }
+
+    public function testASourceThatReturnsNothingIsNotPrunedWithoutPruneEmpty(): void
+    {
+        $this->context->connection->execute('DELETE FROM fz_product');
+
+        $status = $this->tester->execute(['index' => 'products'], ['interactive' => false]);
+
+        self::assertSame(Command::SUCCESS, $status, $this->tester->getDisplay());
+        self::assertStringContainsString('source returned no rows for this session, so nothing was pruned', $this->tester->getDisplay());
+        self::assertStringContainsString('--prune-empty', $this->tester->getDisplay());
+        self::assertSame(5, $this->indexed());
+    }
+
+    public function testPruneEmptyWipesTheIndexOfAnEmptySource(): void
+    {
+        $this->context->connection->execute('DELETE FROM fz_product');
+
+        $status = $this->tester->execute(['index' => 'products', '--prune-empty' => true], ['interactive' => false]);
+
+        self::assertSame(Command::SUCCESS, $status, $this->tester->getDisplay());
+        self::assertStringContainsString('5 orphaned document(s) removed', $this->tester->getDisplay());
+        self::assertSame(0, $this->indexed());
+    }
+
     private function indexed(): int
     {
         return Coerce::int($this->context->connection->fetchValue('SELECT count(*) FROM fuzzphony_products'));
