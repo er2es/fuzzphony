@@ -9,9 +9,11 @@ use Fuzzphony\Core\Definition\FilterType;
 use Fuzzphony\Core\Definition\IdType;
 use Fuzzphony\Core\Definition\SyncMode;
 use Fuzzphony\Core\Definition\Weight;
+use Fuzzphony\Core\Exception\InvalidDefinition;
 use Fuzzphony\Core\Registry\IndexRegistry;
 use Fuzzphony\Tests\Fixtures\Product;
 use Fuzzphony\Tests\Fixtures\TenantScopedProduct;
+use Fuzzphony\Tests\Fixtures\UninferableFilterProduct;
 use PHPUnit\Framework\TestCase;
 
 final class AttributeDefinitionLoaderTest extends TestCase
@@ -58,5 +60,19 @@ final class AttributeDefinitionLoaderTest extends TestCase
         $definition = (new AttributeDefinitionLoader())->load(TenantScopedProduct::class);
 
         self::assertSame('account_id', $definition->tenant);
+    }
+
+    public function testClassesWithoutTheSearchableAttributeAreRejected(): void
+    {
+        $this->expectException(InvalidDefinition::class);
+        $this->expectExceptionMessage('Class stdClass has no #[Searchable] attribute.');
+        (new AttributeDefinitionLoader())->load(\stdClass::class);
+    }
+
+    public function testAnUntypedFilterPropertyWithNoExplicitTypeIsRejected(): void
+    {
+        $this->expectException(InvalidDefinition::class);
+        $this->expectExceptionMessage('Cannot infer the filter type of UninferableFilterProduct::$tags; pass it explicitly: #[SearchFilter(type: "int")].');
+        (new AttributeDefinitionLoader())->load(UninferableFilterProduct::class);
     }
 }
