@@ -26,6 +26,6 @@ updates:
       interval: "weekly"
     ignore:
       # A PostgreSQL major version can't open the previous one's data directory: the demo's
-      # pgdata volume would stop starting. Majors are done by hand, together with a reseed.
+      # pgdata volume would stop starting. Majors are done by hand (see demo/README.md "Reset").
       - dependency-name: "postgres"
         update-types: ["version-update:semver-major"]

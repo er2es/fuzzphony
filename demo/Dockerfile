@@ -49,7 +49,7 @@ COPY demo/ ./
 # Placeholders for the build only (not persisted in the image); the real values come from the environment at runtime.
 ENV APP_ENV=prod APP_DEBUG=0
 RUN --mount=type=cache,target=/tmp/composer-cache \
-    export APP_SECRET=build-only DATABASE_URL='postgresql://build:build@localhost/build?serverVersion=17'; \
+    export APP_SECRET=build-only DATABASE_URL='postgresql://build:build@localhost/build?serverVersion=18'; \
     set -eux; \
     composer dump-autoload --no-dev --optimize --classmap-authoritative; \
     php bin/console importmap:install; \

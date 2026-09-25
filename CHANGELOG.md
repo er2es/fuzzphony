@@ -7,6 +7,11 @@ changes; they are always listed under **Breaking** and explained in [UPGRADE.md]
 
 ## [Unreleased]
 
+### Changed
+
+- Demo: the database is PostgreSQL 18.6 (was 17.11). An existing demo needs
+  `docker compose down -v` once and seeds again on the next `up --build`.
+
 ## [0.3.2] - 2026-09-25
 
 No action needed after upgrading: only the generated search statements change.

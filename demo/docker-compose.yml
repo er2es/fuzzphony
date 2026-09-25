@@ -4,7 +4,7 @@
 #   php     php-fpm, immutable image (composer install, compiled assets and cache warmed at build time)
 #   worker  fuzzphony:worker, drains the sync queue
 #   init    one-shot: safety checks -> app role -> seed (only if missing) -> schema -> reindex (only if empty) -> doctor
-#   db      PostgreSQL 17 with a named volume
+#   db      PostgreSQL 18 with a named volume
 #
 # Both ports are published on 127.0.0.1 only. DEMO_BIND=0.0.0.0 (web) / DEMO_DB_BIND=0.0.0.0 (db) expose them to the
 # network, and init then refuses to start while APP_SECRET / the database password are still the documented defaults.
@@ -38,7 +38,7 @@ x-app-env: &app-env
   APP_ENV: prod
   APP_DEBUG: "0"
   APP_SECRET: ${DEMO_APP_SECRET:-demo-only-not-a-secret-change-me}
-  DATABASE_URL: "postgresql://fuzzphony_app:${DEMO_DB_PASSWORD:-fuzzphony}@db:5432/fuzzphony?serverVersion=17&charset=utf8"
+  DATABASE_URL: "postgresql://fuzzphony_app:${DEMO_DB_PASSWORD:-fuzzphony}@db:5432/fuzzphony?serverVersion=18&charset=utf8"
   # Expensive diagnostics are opt-in: EXPLAIN ANALYZE in the playground, exact counts on /doctor?deep=1.
   DEMO_ALLOW_ANALYZE: ${DEMO_ALLOW_ANALYZE:-0}
   DEMO_ALLOW_DEEP_DOCTOR: ${DEMO_ALLOW_DEEP_DOCTOR:-0}
@@ -52,7 +52,7 @@ x-libpq-env: &libpq-env
 services:
   db:
     <<: *hardened
-    image: postgres:17.11-bookworm@sha256:639ab7ceb90e13123085b741fb31ef493fba25463002f6da665352e7b534b652
+    image: postgres:18.6-bookworm@sha256:3725f4e2499eef5134592b3b4ab79a543ed7f8e533b05b5b637af926630f6650
     init: false # the postgres entrypoint already handles signals
     tmpfs: ["/tmp", "/var/run/postgresql"]
     # postgres starts as root to fix ownership of the data directory, then drops to the postgres user.
@@ -92,7 +92,8 @@ services:
     # CPU-bound part of a search demo) is the service that must be able to use every core it can get.
     shm_size: 256mb # parallel query allocates dynamic shared memory in /dev/shm (Docker's default is 64 MB)
     volumes:
-      - pgdata:/var/lib/postgresql/data
+      # PostgreSQL 18 images keep the data in a versioned directory below /var/lib/postgresql.
+      - pgdata:/var/lib/postgresql
     ports:
       - "${DEMO_DB_BIND:-127.0.0.1}:${DEMO_DB_PORT:-5432}:5432"
     networks: [backend]
@@ -115,7 +116,7 @@ services:
     environment:
       <<: [*app-env, *libpq-env]
       # init owns the schema: it connects as the owner role, without the app role's statement_timeout
-      DATABASE_URL: "postgresql://fuzzphony:${DEMO_DB_PASSWORD:-fuzzphony}@db:5432/fuzzphony?serverVersion=17&charset=utf8"
+      DATABASE_URL: "postgresql://fuzzphony:${DEMO_DB_PASSWORD:-fuzzphony}@db:5432/fuzzphony?serverVersion=18&charset=utf8"
       DEMO_ROWS: ${DEMO_ROWS:-500000}
       DEMO_REINDEX: ${DEMO_REINDEX:-auto}
       # only read by init's safety check (refuse default secrets on a non-loopback address)
