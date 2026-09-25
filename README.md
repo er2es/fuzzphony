@@ -477,6 +477,12 @@ $fuzzphony->in('products')->query('mouse')->profile('popular')->get();
 Set them per index (YAML) or per query: `->thresholds(['min_score' => 0.1, 'fuzzy_mode' => 'always'])`.
 Invalid keys fail immediately with the list of allowed ones.
 
+The cost limits have hard caps that no setting can exceed: `candidate_limit` ≤ 10 000,
+`max_query_length` ≤ 1 024 and `max_terms` ≤ 64 (`Thresholds::MAX_CANDIDATE_LIMIT`,
+`MAX_QUERY_LENGTH`, `MAX_TERMS`). Larger values, and an unknown `fuzzy_mode`, throw
+`InvalidDefinition`, so thresholds taken from a request can tighten the limits but never remove
+them.
+
 ### Per-query tuning
 
 Any profile value can be overridden for one query, which is what the demo's playground does with sliders:
@@ -683,7 +689,8 @@ again), queue backlog and age, coverage (estimated, or exact with `--deep`), orp
   PostgreSQL `statement_timeout` for the application's database role as well.
 * Index definitions (the `fromQuery()` source, `watch()` SQL, index, field and filter names) are
   trusted developer input: they end up in generated SQL and trigger functions, so never build them
-  from user input.
+  from user input. Embedded SQL must not contain `$fuzzphony$`, the dollar-quote tag of the
+  generated functions; the definition is rejected if it does.
 
 Report vulnerabilities privately, see [SECURITY.md](SECURITY.md).
 

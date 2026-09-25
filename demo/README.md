@@ -50,6 +50,17 @@ dropped (PostgreSQL keeps the five it needs to start), memory limits, rotated lo
 `restart: unless-stopped`. Two networks: `frontend` (web, php) and `backend` (php, worker, init, db). The database
 port is published on `127.0.0.1` only.
 
+## Security defaults
+
+The stack is published on `127.0.0.1` only. `DEMO_BIND=0.0.0.0` (web) and `DEMO_DB_BIND=0.0.0.0`
+(database) expose it; `init` then refuses to start while `DEMO_APP_SECRET` / `DEMO_DB_PASSWORD`
+are the documented defaults (generate values with `openssl rand -hex 32`). php-fpm and the worker
+connect as `fuzzphony_app` (not a superuser, no DDL, `statement_timeout = 5s`); `init` uses the
+owner role without a timeout, so seeding and reindexing are unaffected. The expensive diagnostics
+are opt-in: `DEMO_ALLOW_ANALYZE=1` enables EXPLAIN ANALYZE in the playground and
+`DEMO_ALLOW_DEEP_DOCTOR=1` enables `/doctor?deep=1` (both 0 by default, 1 in
+`docker-compose.dev.yml`).
+
 ## Settings
 
 Every setting has a default; override with environment variables or a file:
@@ -59,7 +70,8 @@ Every setting has a default; override with environment variables or a file:
 | Variable | Default | |
 |---|---|---|
 | `DEMO_PORT` / `DEMO_DB_PORT` | `8000` / `5432` | host ports |
-| `DEMO_BIND` / `DEMO_DB_BIND` | *(all)* / `127.0.0.1` | address the ports are published on |
+| `DEMO_BIND` / `DEMO_DB_BIND` | `127.0.0.1` / `127.0.0.1` | address the ports are published on (see Security defaults) |
+| `DEMO_ALLOW_ANALYZE` / `DEMO_ALLOW_DEEP_DOCTOR` | `0` / `0` | enable EXPLAIN ANALYZE in the playground / `/doctor?deep=1` |
 | `DEMO_ROWS` | `200000` | catalogue size, used when the database is empty |
 | `DEMO_REINDEX` | `auto` | `always` reindexes on every start, `never` skips it |
 | `DEMO_APP_SECRET`, `DEMO_DB_PASSWORD` | throwaway demo values | change both before exposing the stack |

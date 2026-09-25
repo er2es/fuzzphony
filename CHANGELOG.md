@@ -25,6 +25,10 @@ behind. See [UPGRADE.md](UPGRADE.md).
   end. Opt out with `--no-prune` / `prune: false`.
 - `NodeInspector::topLevelExclusions()` was removed (no engine uses it any more).
   `SearchSqlBuilder::ranked()` (`@internal`) changed signature.
+- `Thresholds` rejects `candidate_limit` above 10 000, `max_query_length` above 1 024 and
+  `max_terms` above 64, and an unknown `fuzzy_mode` throws `InvalidDefinition` (it used to throw a
+  bare `ValueError`).
+- A source query or watch SQL that contains `$fuzzphony$` is rejected by the definition validator.
 - The `ext-pdo_pgsql` extension is now a hard requirement of `fuzzphony/fuzzphony` (the
   PostgreSQL engine is always part of the package); install it before upgrading.
 
@@ -86,6 +90,8 @@ behind. See [UPGRADE.md](UPGRADE.md).
     the full-text query.
   - Measured at 1 000 000 rows: at most 1.3× the old fuzzy statement's time, still on the GIN
     indexes.
+- `fuzzphony:doctor` warns about a `candidate_limit` above 5 000 (was 20 000, which is now above
+  the cap).
 - The similarity threshold a fuzzy statement sets is restored afterwards, so a search inside a
   caller's own transaction leaves no setting behind.
 - The dev-only parts of the repository (`demo/`, `benchmarks/`, `docs/`, `tests/`, CI and tool
@@ -94,6 +100,21 @@ behind. See [UPGRADE.md](UPGRADE.md).
   one-shot idempotent `init`, a tuned PostgreSQL 17 with a named volume) built from an immutable
   multi-stage image; `docker-compose.dev.yml` keeps live editing. The old demo volume is not
   reused: the first start seeds again.
+
+### Security
+
+- A source query or watch `affectedIds` containing `$fuzzphony$`, the dollar-quote tag of the
+  generated functions, could break out of the generated function body; it is now rejected. The
+  wizard skips table, column and foreign-key names that are not plain identifiers instead of
+  building SQL from them.
+- Threshold overrides can no longer lift the cost limits (see Breaking).
+- Chained exclusions (`NOT NOT …`, `- - …`) are parsed in a loop instead of recursively; long
+  chains are collapsed with the warning `Repeated exclusions ("-" / NOT) were collapsed.`
+- Demo: published on 127.0.0.1 only by default, refuses to start exposed with the default secret
+  or password, connects as a non-superuser role with a 5 s `statement_timeout`, clamps every
+  playground input, makes EXPLAIN ANALYZE and the deep doctor opt-in (`DEMO_ALLOW_ANALYZE`,
+  `DEMO_ALLOW_DEEP_DOCTOR`), accepts only listed tables in the web wizard, and escapes the hit
+  title when there is no highlight.
 
 ### Fixed
 
