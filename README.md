@@ -28,11 +28,16 @@ foreach ($result as $hit) {
 > Status: **v0.3**. The API may still change before 1.0; breaking changes are listed in the
 > [CHANGELOG](CHANGELOG.md) and explained in [UPGRADE.md](UPGRADE.md).
 
+> ⭐ **Try it in one command:** `git clone https://github.com/er2es/fuzzphony && cd fuzzphony/demo && docker compose up --build`,
+> then open http://localhost:8000 and search a real product catalogue with typos, accents and five
+> languages, next to plain `ILIKE`. [What's in the demo →](#demo)
+
 ---
 
 ## Contents
 
 - [Why](#why)
+- ⭐ **[Demo](#demo)**: try it in one command
 - [Requirements](#requirements)
 - [Quickstart (Symfony)](#quickstart-symfony)
   - [Search controller examples](#search-controller-examples)
@@ -47,7 +52,6 @@ foreach ($result as $hit) {
 - [Keeping the index in sync](#keeping-the-index-in-sync)
 - [Multi-tenancy](#multi-tenancy)
 - [Integrations](#integrations)
-- [Demo](#demo)
 - [The doctor](#the-doctor)
 - [Commands](#commands)
 - [Security](#security)
@@ -69,6 +73,26 @@ foreach ($result as $hit) {
 | Relevance ranking + field weights | ✘ | ✔ explainable | ✔ |
 | Extra service to run, sync and secure | – | **none** | yes |
 | Transactional consistency with your data | ✔ | ✔ (trigger mode) | eventual |
+
+## Demo
+
+A full Symfony app on a seeded product catalogue, running on your machine:
+
+```bash
+git clone https://github.com/er2es/fuzzphony
+cd fuzzphony/demo && docker compose up --build    # http://localhost:8000
+```
+
+| Page | What you see |
+|---|---|
+| **ILIKE vs Fuzzphony** | the same query both ways, with timings and one-click typo / accent / stemming / phrase examples |
+| **Languages** | English, German, French, Spanish and Hungarian presets, and what PostgreSQL made of every word |
+| **Playground** | every ranking weight and threshold as a slider, with a score breakdown per hit and the SQL |
+| **Config wizard** | pick a table, get a suggested index definition with every decision explained |
+| **Benchmark** / **Doctor** | the comparison as a table, and the `fuzzphony:doctor` report in the browser |
+
+It is a local showcase, not a production template: see [demo/README.md](demo/README.md) for the
+stack, the settings and the security defaults.
 
 ## Requirements
 
@@ -633,12 +657,6 @@ class Product { /* ... */ }
 ```
 
 Override `templates/bundles/FuzzphonyBundle/components/Search.html.twig` to change the markup.
-
-## Demo
-
-`cd demo && docker compose up --build`, then http://localhost:8000: ILIKE vs Fuzzphony side by side,
-a ranking playground with sliders and score breakdowns, the web wizard, benchmarks and the doctor.
-See [demo/README.md](demo/README.md).
 
 ## The doctor
 
