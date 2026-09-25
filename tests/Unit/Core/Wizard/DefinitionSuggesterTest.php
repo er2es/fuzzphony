@@ -159,4 +159,92 @@ final class DefinitionSuggesterTest extends TestCase
         self::assertNull($suggestion->definition);
         self::assertStringContainsString('is not a plain identifier', $suggestion->notes[0]);
     }
+
+    public function testAnUnsafePrimaryKeyNameGetsNoSuggestion(): void
+    {
+        $suggestion = (new DefinitionSuggester())->suggest(new TableProfile('article', [
+            new ColumnProfile('id; --', ColumnKind::Int, 'bigint'),
+            new ColumnProfile('title', ColumnKind::Text, 'text'),
+        ], 'id; --'));
+
+        self::assertNull($suggestion->definition);
+        self::assertStringContainsString('Primary key "id; --"', $suggestion->notes[0]);
+        self::assertStringContainsString('is not a plain identifier', $suggestion->notes[0]);
+    }
+
+    public function testTechnicalColumnsAreSkipped(): void
+    {
+        $suggestion = (new DefinitionSuggester())->suggest(new TableProfile('article', [
+            new ColumnProfile('id', ColumnKind::Int, 'bigint'),
+            new ColumnProfile('title', ColumnKind::Text, 'text'),
+            new ColumnProfile('slug', ColumnKind::Text, 'text'),
+        ], 'id'));
+
+        $decision = array_values(array_filter($suggestion->decisions, static fn(Decision $d): bool => $d->column === 'slug'))[0] ?? null;
+        self::assertNotNull($decision);
+        self::assertSame('skip', $decision->role);
+        self::assertSame('technical column', $decision->reason);
+    }
+
+    public function testLargeTablesGetAnOffPeakReindexNote(): void
+    {
+        $suggestion = (new DefinitionSuggester())->suggest(new TableProfile('article', [
+            new ColumnProfile('id', ColumnKind::Int, 'bigint'),
+            new ColumnProfile('title', ColumnKind::Text, 'text'),
+        ], 'id', 6_000_000));
+
+        self::assertNotNull($suggestion->definition, implode("\n", $suggestion->notes));
+        self::assertContains('Large table: run the first reindex off-peak; queue sync keeps writes cheap afterwards.', $suggestion->notes);
+    }
+
+    public function testAnInvalidDefinitionIsReportedAsNotes(): void
+    {
+        $suggestion = (new DefinitionSuggester())->suggest(new TableProfile('article', [
+            new ColumnProfile('id', ColumnKind::Int, 'bigint'),
+            new ColumnProfile('title', ColumnKind::Text, 'text'),
+        ], 'id'), null, 'not a valid language!');
+
+        self::assertNull($suggestion->definition);
+        self::assertStringContainsString('must be a text search configuration name', implode("\n", $suggestion->notes));
+    }
+
+    public function testShortTextBecomesAWeightBField(): void
+    {
+        $suggestion = (new DefinitionSuggester())->suggest(new TableProfile('article', [
+            new ColumnProfile('id', ColumnKind::Int, 'bigint'),
+            new ColumnProfile('title', ColumnKind::Text, 'text', false, 48),
+            new ColumnProfile('subtitle', ColumnKind::Text, 'text', false, 40),
+        ], 'id'));
+        $index = $suggestion->definition;
+
+        self::assertNotNull($index, implode("\n", $suggestion->notes));
+        self::assertSame(Weight::B, $index->field('subtitle')?->weight);
+    }
+
+    public function testMediumLengthTextBecomesAWeightCField(): void
+    {
+        $suggestion = (new DefinitionSuggester())->suggest(new TableProfile('article', [
+            new ColumnProfile('id', ColumnKind::Int, 'bigint'),
+            new ColumnProfile('title', ColumnKind::Text, 'text', false, 48),
+            new ColumnProfile('teaser', ColumnKind::Text, 'text', false, 120),
+        ], 'id'));
+        $index = $suggestion->definition;
+
+        self::assertNotNull($index, implode("\n", $suggestion->notes));
+        self::assertSame(Weight::C, $index->field('teaser')?->weight);
+    }
+
+    public function testBoostWeightFallsBackToAGuessWhenTheRangeIsUnknown(): void
+    {
+        $suggestion = (new DefinitionSuggester())->suggest(new TableProfile('article', [
+            new ColumnProfile('id', ColumnKind::Int, 'bigint'),
+            new ColumnProfile('title', ColumnKind::Text, 'text'),
+            new ColumnProfile('rating', ColumnKind::Float, 'double precision', false, null, null, null),
+        ], 'id'));
+        $index = $suggestion->definition;
+
+        self::assertNotNull($index, implode("\n", $suggestion->notes));
+        self::assertSame(0.01, $index->profile('popular')->boost);
+        self::assertStringContainsString('Could not estimate the range of "rating"; boost weight 0.01 is a guess', implode("\n", $suggestion->notes));
+    }
 }
