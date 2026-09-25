@@ -7,6 +7,7 @@ namespace Fuzzphony\Tests\Integration\Command;
 use Fuzzphony\Bundle\Command\SearchCommand;
 use PHPUnit\Framework\TestCase;
 use Symfony\Component\Console\Command\Command;
+use Symfony\Component\Console\Tester\CommandCompletionTester;
 use Symfony\Component\Console\Tester\CommandTester;
 
 final class SearchCommandTest extends TestCase
@@ -76,5 +77,24 @@ final class SearchCommandTest extends TestCase
 
         self::assertSame(Command::SUCCESS, $status);
         self::assertStringContainsString('(no text: browsing)', $this->tester->getDisplay());
+    }
+
+    public function testThresholdOverrideNarrowsWhatCountsAsAHit(): void
+    {
+        $status = $this->tester->execute([
+            'index' => 'products',
+            'query' => 'mouse',
+            '--threshold' => ['min_score=99'],
+        ], ['interactive' => false]);
+
+        self::assertSame(Command::SUCCESS, $status);
+        self::assertStringContainsString('0 hit(s)', $this->tester->getDisplay(), 'an unreachable min_score must leave no hit standing');
+    }
+
+    public function testCompletesIndexNames(): void
+    {
+        $completion = new CommandCompletionTester(new SearchCommand($this->context->fuzzphony));
+
+        self::assertSame(['products'], $completion->complete(['']));
     }
 }

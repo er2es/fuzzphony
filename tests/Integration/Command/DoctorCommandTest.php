@@ -7,6 +7,7 @@ namespace Fuzzphony\Tests\Integration\Command;
 use Fuzzphony\Bundle\Command\DoctorCommand;
 use PHPUnit\Framework\TestCase;
 use Symfony\Component\Console\Command\Command;
+use Symfony\Component\Console\Tester\CommandCompletionTester;
 use Symfony\Component\Console\Tester\CommandTester;
 
 /**
@@ -68,5 +69,12 @@ final class DoctorCommandTest extends TestCase
 
         self::assertSame(Command::FAILURE, $status, $this->tester->getDisplay());
         self::assertStringContainsString('Healthy, with warnings', $this->tester->getDisplay());
+    }
+
+    public function testCompletesIndexNames(): void
+    {
+        $completion = new CommandCompletionTester(new DoctorCommand($this->context->fuzzphony));
+
+        self::assertSame(['products'], $completion->complete(['']));
     }
 }
