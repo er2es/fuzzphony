@@ -52,7 +52,12 @@ final class IndexBuilder
         return $this;
     }
 
-    /** Any SELECT returning one row per document (joins welcome). Remember to watch() joined tables. */
+    /**
+     * Any SELECT returning one row per document (joins welcome). Remember to watch() joined tables.
+     *
+     * The SQL is trusted developer input and is embedded verbatim in generated DDL (functions and
+     * triggers): never build it from user input. It must not contain the "$fuzzphony$" dollar-quote tag.
+     */
     public function fromQuery(string $sql, string $idColumn = 'id'): self
     {
         $this->source = Source::query($sql, $idColumn);
@@ -74,7 +79,15 @@ final class IndexBuilder
         return $this;
     }
 
-    /** @param list<string>|null $columns */
+    /**
+     * Re-index the documents affected by a change in $table. $affectedIds is a SELECT returning the
+     * affected document ids, with ":id" standing for the changed row's $keyColumn value.
+     *
+     * The SQL is trusted developer input and is embedded verbatim in generated trigger functions:
+     * never build it from user input. It must not contain the "$fuzzphony$" dollar-quote tag.
+     *
+     * @param list<string>|null $columns
+     */
     public function watch(string $table, string $affectedIds = 'SELECT :id', string $keyColumn = 'id', ?array $columns = null): self
     {
         // Normalize [] to null at the source, so Watch::$columns is never a distinguishable-

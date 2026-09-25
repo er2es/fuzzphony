@@ -10,6 +10,13 @@ use Fuzzphony\Core\Support\Identifier;
 /** Collects ALL problems of a definition at once, each with a concrete fix. */
 final class DefinitionValidator
 {
+    /**
+     * Dollar-quote tag the schema generator wraps generated function bodies in. The source query
+     * and every watch's affectedIds SQL are embedded in such bodies, so they must never contain
+     * it (PostgreSQL matches the tag case-sensitively, and so does this check).
+     */
+    public const string DOLLAR_QUOTE_TAG = '$fuzzphony$';
+
     public static function assertValid(IndexDefinition $index): void
     {
         $violations = self::validate($index);
@@ -33,6 +40,9 @@ final class DefinitionValidator
         }
         if ($source->query !== null && preg_match('/^\s*(select|with)\b/i', $source->query) !== 1) {
             $v[] = 'Source query must be a SELECT (or WITH ... SELECT) statement.';
+        }
+        if ($source->query !== null && str_contains($source->query, self::DOLLAR_QUOTE_TAG)) {
+            $v[] = sprintf('Source query must not contain "%s": it is embedded in generated function bodies quoted with that tag. Use another dollar-quote tag or a plain string literal.', self::DOLLAR_QUOTE_TAG);
         }
         if (!Identifier::isColumn($source->idColumn)) {
             $v[] = sprintf('Id column "%s" is not a valid column name.', $source->idColumn);
@@ -102,6 +112,9 @@ final class DefinitionValidator
             }
             if (preg_match_all('/:id\b/', $watch->affectedIds) !== 1 || preg_match('/^\s*select\b/i', $watch->affectedIds) !== 1) {
                 $v[] = sprintf('Watch on "%s": affectedIds must be a SELECT containing ":id" exactly once, e.g. "SELECT id FROM product WHERE brand_id = :id".', $watch->table);
+            }
+            if (str_contains($watch->affectedIds, self::DOLLAR_QUOTE_TAG)) {
+                $v[] = sprintf('Watch on "%s": affectedIds must not contain "%s": it is embedded in generated trigger functions quoted with that tag. Use another dollar-quote tag or a plain string literal.', $watch->table, self::DOLLAR_QUOTE_TAG);
             }
             foreach ($watch->columns ?? [] as $column) {
                 if (!Identifier::isColumn($column)) {

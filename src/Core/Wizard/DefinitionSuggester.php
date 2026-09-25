@@ -25,6 +25,7 @@ final class DefinitionSuggester
     private const array RECENCY = ['published_at', 'publish_date', 'created_at', 'created', 'updated_at', 'modified_at', 'updated', 'date'];
     private const string SKIP = '/^(slug|uuid|guid|version|lock_version|deleted_at|password_.*)$/i';
     private const int MAX_JOINS = 3;
+    private const string UNSAFE_NAME = 'name is not a plain identifier ([A-Za-z_][A-Za-z0-9_]*), so it is never put into generated SQL';
 
     /** @var list<Decision> */
     private array $decisions = [];
@@ -34,6 +35,12 @@ final class DefinitionSuggester
         $this->decisions = [];
         $notes = $table->notes;
 
+        if (!Identifier::isTable($table->table)) {
+            return new Suggestion(null, [], [...$notes, sprintf('Table "%s" %s.', $table->table, self::UNSAFE_NAME)]);
+        }
+        if ($table->primaryKey !== null && !Identifier::isColumn($table->primaryKey)) {
+            return new Suggestion(null, [], [...$notes, sprintf('Primary key "%s" %s.', $table->primaryKey, self::UNSAFE_NAME)]);
+        }
         if ($table->primaryKey === null) {
             return new Suggestion(null, [], [...$notes, sprintf('Table "%s" has no single-column primary key; Fuzzphony needs one stable id per document.', $table->table)]);
         }
@@ -51,6 +58,10 @@ final class DefinitionSuggester
             $c = $column->name;
             if ($c === $table->primaryKey) {
                 $this->decide($c, 'id', sprintf('primary key (%s)', $column->sqlType));
+                continue;
+            }
+            if (!Identifier::isColumn($c)) {
+                $this->decide($c, 'skip', self::UNSAFE_NAME);
                 continue;
             }
             if (preg_match(self::SENSITIVE, $c) === 1) {
@@ -121,6 +132,16 @@ final class DefinitionSuggester
         $joins = [];
         $watches = [];
         foreach (array_slice($table->foreignKeys, 0, self::MAX_JOINS) as $i => $fk) {
+            $unsafe = match (true) {
+                !Identifier::isColumn($fk->column) => $fk->column,
+                !Identifier::isTable($fk->referencedTable) => $fk->referencedTable,
+                !Identifier::isColumn($fk->referencedColumn) => $fk->referencedColumn,
+                default => null,
+            };
+            if ($unsafe !== null) {
+                $this->decide($fk->column, 'skip', sprintf('not joined: "%s" is not a plain identifier, so it is never put into generated SQL', $unsafe));
+                continue;
+            }
             $label = $fk->referenced !== null ? $this->labelColumn($fk->referenced) : null;
             if ($label === null) {
                 continue;
@@ -231,7 +252,7 @@ final class DefinitionSuggester
 
     private function labelColumn(TableProfile $table): ?string
     {
-        $text = array_values(array_filter($table->columns, static fn(ColumnProfile $c): bool => $c->kind === ColumnKind::Text));
+        $text = array_values(array_filter($table->columns, static fn(ColumnProfile $c): bool => $c->kind === ColumnKind::Text && Identifier::isColumn($c->name)));
         foreach ($text as $column) {
             if (preg_match(self::TITLE, $column->name) === 1) {
                 return $column->name;

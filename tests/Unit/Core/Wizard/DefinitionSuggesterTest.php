@@ -103,4 +103,60 @@ final class DefinitionSuggesterTest extends TestCase
         self::assertNull($suggestion->definition);
         self::assertSame('No text column looks searchable. Pick fields manually.', $suggestion->notes[0]);
     }
+
+    public function testColumnsWithUnsafeNamesAreSkippedAndExplained(): void
+    {
+        $hostile = 'x$fuzzphony$; DROP TABLE article; --';
+        $table = new TableProfile('article', [
+            new ColumnProfile('id', ColumnKind::Int, 'bigint'),
+            new ColumnProfile('title', ColumnKind::Text, 'text', false, 48, 90_000),
+            new ColumnProfile($hostile, ColumnKind::Text, 'text', false, 48, 90_000),
+        ], 'id', 100_000);
+
+        $suggestion = (new DefinitionSuggester())->suggest($table);
+
+        self::assertNotNull($suggestion->definition, implode("\n", $suggestion->notes));
+        self::assertSame(['title'], array_map(static fn($f): string => $f->column(), $suggestion->definition->fields));
+        $decision = array_values(array_filter($suggestion->decisions, static fn(Decision $d): bool => $d->column === $hostile))[0] ?? null;
+        self::assertNotNull($decision);
+        self::assertSame('skip', $decision->role);
+        self::assertStringContainsString('not a plain identifier', $decision->reason);
+    }
+
+    public function testForeignKeysWithUnsafeNamesAreNotJoined(): void
+    {
+        $hostileTable = new TableProfile('author$fuzzphony$', [
+            new ColumnProfile('id', ColumnKind::Int, 'bigint'),
+            new ColumnProfile('full_name', ColumnKind::Text, 'text'),
+        ], 'id');
+        $hostileLabel = new TableProfile('editor', [
+            new ColumnProfile('id', ColumnKind::Int, 'bigint'),
+            new ColumnProfile('name$fuzzphony$', ColumnKind::Text, 'text'),
+        ], 'id');
+        $table = self::article([
+            new ForeignKey('author_id', 'author$fuzzphony$', 'id', $hostileTable),
+            new ForeignKey('is_draft', 'editor', 'id', $hostileLabel),
+            new ForeignKey('view_count', 'editor', 'id"; --', $hostileLabel),
+        ]);
+
+        $suggestion = (new DefinitionSuggester())->suggest($table);
+        $index = $suggestion->definition;
+
+        self::assertNotNull($index, implode("\n", $suggestion->notes));
+        self::assertNull($index->source->query, 'no join survives, so the plain table source is used');
+        self::assertSame(['article'], array_map(static fn($w): string => $w->table, $index->effectiveWatches()));
+        $reasons = implode("\n", array_map(static fn(Decision $d): string => $d->column . ': ' . $d->reason, $suggestion->decisions));
+        self::assertStringContainsString('author_id: not joined: "author$fuzzphony$" is not a plain identifier', $reasons);
+    }
+
+    public function testATableWithAnUnsafeNameGetsNoSuggestion(): void
+    {
+        $suggestion = (new DefinitionSuggester())->suggest(new TableProfile('article$fuzzphony$', [
+            new ColumnProfile('id', ColumnKind::Int, 'bigint'),
+            new ColumnProfile('title', ColumnKind::Text, 'text'),
+        ], 'id'));
+
+        self::assertNull($suggestion->definition);
+        self::assertStringContainsString('is not a plain identifier', $suggestion->notes[0]);
+    }
 }

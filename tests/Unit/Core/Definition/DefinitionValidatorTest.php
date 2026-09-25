@@ -142,4 +142,47 @@ final class DefinitionValidatorTest extends TestCase
         self::assertCount(1, $violations);
         self::assertStringContainsString('column "not a column!"', $violations[0]);
     }
+
+    public function testSourceQueryMustNotContainTheDollarQuoteTag(): void
+    {
+        $definition = new IndexDefinition(
+            name: 'products',
+            source: Source::query('SELECT id, name FROM product WHERE name <> $fuzzphony$x$fuzzphony$'),
+            fields: [new FieldDefinition('name')],
+            sync: SyncMode::Manual,
+        );
+
+        $violations = DefinitionValidator::validate($definition);
+
+        self::assertCount(1, $violations, implode("\n", $violations));
+        self::assertStringContainsString('Source query must not contain "$fuzzphony$"', $violations[0]);
+    }
+
+    public function testWatchAffectedIdsMustNotContainTheDollarQuoteTag(): void
+    {
+        $definition = new IndexDefinition(
+            name: 'products',
+            source: Source::table('product'),
+            fields: [new FieldDefinition('name')],
+            watches: [new Watch('brand', 'SELECT id FROM product WHERE brand_id = :id; END $fuzzphony$; DROP TABLE x; --')],
+        );
+
+        $violations = DefinitionValidator::validate($definition);
+
+        self::assertCount(1, $violations, implode("\n", $violations));
+        self::assertStringContainsString('Watch on "brand": affectedIds must not contain "$fuzzphony$"', $violations[0]);
+    }
+
+    public function testTheDollarQuoteTagIsMatchedCaseSensitivelyLikePostgres(): void
+    {
+        // PostgreSQL dollar-quote tags are case sensitive: $FUZZPHONY$ does not end a $fuzzphony$ body.
+        $definition = new IndexDefinition(
+            name: 'products',
+            source: Source::query('SELECT id, $FUZZPHONY$x$FUZZPHONY$ AS name FROM product'),
+            fields: [new FieldDefinition('name')],
+            sync: SyncMode::Manual,
+        );
+
+        self::assertSame([], DefinitionValidator::validate($definition));
+    }
 }

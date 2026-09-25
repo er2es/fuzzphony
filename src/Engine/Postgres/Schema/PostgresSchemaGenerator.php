@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Fuzzphony\Engine\Postgres\Schema;
 
+use Fuzzphony\Core\Definition\DefinitionValidator;
 use Fuzzphony\Core\Definition\FilterType;
 use Fuzzphony\Core\Definition\IndexDefinition;
 use Fuzzphony\Core\Definition\SyncMode;
@@ -25,6 +26,8 @@ final class PostgresSchemaGenerator
 {
     public const string QUEUE_TABLE = 'fuzzphony_queue';
     public const string NORM_FUNCTION = 'fuzzphony_norm';
+    /** Every generated function body / DO block is quoted with this tag; the validator keeps it out of embedded SQL. */
+    private const string TAG = DefinitionValidator::DOLLAR_QUOTE_TAG;
 
     public function __construct(private readonly string $extensionSchema = 'public')
     {
@@ -40,7 +43,7 @@ final class PostgresSchemaGenerator
             new Statement(sprintf('CREATE EXTENSION IF NOT EXISTS pg_trgm WITH SCHEMA %s', Sql::ident($schema)), 'Trigram matching for typo tolerance'),
             new Statement(sprintf('CREATE EXTENSION IF NOT EXISTS unaccent WITH SCHEMA %s', Sql::ident($schema)), 'Accent folding'),
             new Statement(sprintf(
-                "CREATE OR REPLACE FUNCTION %s(text) RETURNS text\nLANGUAGE sql IMMUTABLE PARALLEL SAFE STRICT\nAS \$fuzzphony\$ SELECT btrim(regexp_replace(lower(%s.unaccent('%s.unaccent'::regdictionary, \$1)), '[^[:alnum:]]+', ' ', 'g')) \$fuzzphony\$",
+                "CREATE OR REPLACE FUNCTION %s(text) RETURNS text\nLANGUAGE sql IMMUTABLE PARALLEL SAFE STRICT\nAS " . self::TAG . " SELECT btrim(regexp_replace(lower(%s.unaccent('%s.unaccent'::regdictionary, \$1)), '[^[:alnum:]]+', ' ', 'g')) " . self::TAG,
                 self::NORM_FUNCTION,
                 Sql::ident($schema),
                 $schema,
@@ -127,7 +130,7 @@ final class PostgresSchemaGenerator
         $statements[] = new Statement(sprintf('DROP FUNCTION IF EXISTS %s(%s[])', Sql::ident($this->refreshFunctionName($index)), $index->idType->sqlType()), 'Remove refresh function');
         $statements[] = new Statement(sprintf('DROP TABLE IF EXISTS %s', Sql::ident($index->sidecarTable())), 'Remove sidecar table');
         $statements[] = new Statement(sprintf(
-            "DO \$fuzzphony\$ BEGIN IF to_regclass('%s') IS NOT NULL THEN DELETE FROM %s WHERE index_name = %s; END IF; END \$fuzzphony\$",
+            "DO " . self::TAG . " BEGIN IF to_regclass('%s') IS NOT NULL THEN DELETE FROM %s WHERE index_name = %s; END IF; END " . self::TAG,
             self::QUEUE_TABLE,
             self::QUEUE_TABLE,
             Sql::string($index->name),
@@ -301,7 +304,7 @@ final class PostgresSchemaGenerator
         return sprintf(
             <<<'SQL'
                 CREATE OR REPLACE FUNCTION %1$s(p_ids %2$s[]) RETURNS integer
-                LANGUAGE plpgsql AS $fuzzphony$
+                LANGUAGE plpgsql AS %8$s
                 DECLARE
                     written integer;
                 BEGIN
@@ -325,7 +328,7 @@ final class PostgresSchemaGenerator
 
                     RETURN written;
                 END
-                $fuzzphony$
+                %8$s
                 SQL,
             Sql::ident($this->refreshFunctionName($index)),
             $index->idType->sqlType(),
@@ -334,6 +337,7 @@ final class PostgresSchemaGenerator
             implode(",\n        ", $values),
             $document,
             $updates,
+            self::TAG,
         );
     }
 
@@ -371,7 +375,7 @@ final class PostgresSchemaGenerator
         }
 
         return sprintf(
-            "CREATE OR REPLACE FUNCTION %s() RETURNS trigger\nLANGUAGE plpgsql AS \$fuzzphony\$\nBEGIN\n%s\n    RETURN NULL;\nEND\n\$fuzzphony\$",
+            "CREATE OR REPLACE FUNCTION %s() RETURNS trigger\nLANGUAGE plpgsql AS " . self::TAG . "\nBEGIN\n%s\n    RETURN NULL;\nEND\n" . self::TAG,
             Sql::ident($this->syncFunctionName($index, $watch)),
             implode("\n", $body),
         );
@@ -386,7 +390,7 @@ final class PostgresSchemaGenerator
 
         // The TRUNCATE branch comes first, so a TRUNCATE never reaches a transition table (none is registered for it).
         return sprintf(
-            "CREATE OR REPLACE FUNCTION %s() RETURNS trigger\nLANGUAGE plpgsql AS \$fuzzphony\$\nBEGIN\n%s\n%s\n    RETURN NULL;\nEND\n\$fuzzphony\$",
+            "CREATE OR REPLACE FUNCTION %s() RETURNS trigger\nLANGUAGE plpgsql AS " . self::TAG . "\nBEGIN\n%s\n%s\n    RETURN NULL;\nEND\n" . self::TAG,
             Sql::ident($this->syncFunctionName($index, $watch)),
             $this->truncateBranch($index, $watch),
             $body,
@@ -542,7 +546,7 @@ final class PostgresSchemaGenerator
 
         return new Statement(sprintf(
             <<<'SQL'
-                DO $fuzzphony$
+                DO %6$s
                 BEGIN
                     IF NOT EXISTS (SELECT 1 FROM pg_ts_config WHERE cfgname = %1$s) THEN
                         CREATE TEXT SEARCH CONFIGURATION %2$s (COPY = %3$s);
@@ -550,13 +554,14 @@ final class PostgresSchemaGenerator
                             ALTER MAPPING FOR hword, hword_part, word WITH %4$s.unaccent, %5$s;
                     END IF;
                 END
-                $fuzzphony$
+                %6$s
                 SQL,
             Sql::string($name),
             Sql::ident($name),
             Sql::ident($config->language),
             Sql::ident($this->extensionSchema),
             Sql::ident($dictionary),
+            self::TAG,
         ), sprintf('Text search configuration "%s" (%s stemming + accent folding)', $name, $config->language));
     }
 
