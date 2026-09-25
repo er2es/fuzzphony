@@ -20,7 +20,7 @@ export default class extends Controller {
             this.regionTarget.innerHTML = await response.text();
         } catch (error) {
             if (error.name !== 'AbortError') {
-                this.regionTarget.innerHTML = `<h2>With ILIKE <code>'%…%'</code></h2><p class="muted s-error">Could not load ILIKE's results (${this.escape(error.message)}). <a href="${this.element.dataset.src}">Try again</a>.</p>`;
+                this.regionTarget.innerHTML = `<h2>With ILIKE <code>'%…%'</code></h2><p class="muted s-error">Could not load ILIKE's results (${this.escape(error.message)}). <a href="${this.escape(this.element.dataset.src)}">Try again</a>.</p>`;
             }
         } finally {
             this.regionTarget.removeAttribute('aria-busy');
