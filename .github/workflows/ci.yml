@@ -110,7 +110,9 @@ jobs:
         working-directory: demo
         run: composer install --no-progress --prefer-dist
       - name: Seed a small catalogue
-        run: psql -h 127.0.0.1 -U fuzzphony fuzzphony -q -v rows=1000 -f benchmarks/seed.sql
+        run: |
+          psql -h 127.0.0.1 -U fuzzphony fuzzphony -q -v rows=1000 -v ON_ERROR_STOP=1 -f benchmarks/seed.sql
+          psql -h 127.0.0.1 -U fuzzphony fuzzphony -q -v ON_ERROR_STOP=1 -f demo/sql/lang_product.sql
       - name: Lint container
         working-directory: demo
         run: php bin/console lint:container
@@ -156,3 +158,9 @@ jobs:
           # Fork PRs don't have access to CODECOV_TOKEN, so only hard-fail CI on
           # same-repo pushes/PRs; degrade to a warning on external contributors' PRs.
           fail_ci_if_error: ${{ github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository }}
+      # The goal is 100%; this floor only stops a real slide (see CONTRIBUTING.md).
+      - name: Require at least 90% line coverage
+        run: >-
+          php -r '$m = simplexml_load_file("coverage.xml")->project->metrics;
+          $p = 100 * (int) $m["coveredstatements"] / max(1, (int) $m["statements"]);
+          printf("Line coverage: %.2f%%\n", $p); exit($p < 90 ? 1 : 0);'

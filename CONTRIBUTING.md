@@ -27,6 +27,8 @@ against PHP 8.4 / 8.5, PostgreSQL 15 to 18, Symfony 7.4 / 8.0 and the lowest all
 ## Pull requests
 
 - One topic per pull request, with tests. Fix php-cs-fixer findings with `composer cs:fix`.
+- Cover the code you add: the goal is 100% line coverage of `src/`. Codecov reports the coverage
+  of each pull request's changes; CI fails below 90% in total.
 - Add a line to the `## [Unreleased]` section of [CHANGELOG.md](CHANGELOG.md) under Added,
   Changed, Fixed or Breaking.
 - Commit messages are short imperative sentences that say why ("Fix the fuzzy branch ignoring

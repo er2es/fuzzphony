@@ -1,0 +1,10 @@
+# The hard floor (90%) is enforced by the CI coverage job; these statuses report, they don't block.
+coverage:
+  status:
+    project:
+      default:
+        informational: true
+    patch:
+      default:
+        target: 100%
+        informational: true
