@@ -6,6 +6,7 @@ namespace Fuzzphony\Tests\Unit\Core\Query;
 
 use Fuzzphony\Core\Query\Ast\NodeInspector;
 use Fuzzphony\Core\Query\QueryParser;
+use Fuzzphony\Core\Ranking\Thresholds;
 use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\TestCase;
 
@@ -89,6 +90,43 @@ final class QueryParserTest extends TestCase
         $parsed = (new QueryParser())->parse(str_repeat('(', 50) . 'mouse' . str_repeat(')', 50));
 
         self::assertNotEmpty($parsed->warnings);
+    }
+
+    /** @return iterable<string, array{string, int, string}> */
+    public static function chainedNegations(): iterable
+    {
+        // input, parser max length, expected tree
+        yield 'even "-" chain within the length cap' => [str_repeat('-', 1_000) . 'mouse', Thresholds::MAX_QUERY_LENGTH, 'mouse'];
+        yield 'odd "-!" chain within the length cap' => [str_repeat('-!', 500) . '-mouse cable', Thresholds::MAX_QUERY_LENGTH, '(NOT mouse AND cable)'];
+        yield '5 000 "-" prefixes' => [str_repeat('-', 5_000) . 'mouse', 100_000, 'mouse'];
+        yield '5 000 NOT tokens' => ['cable ' . str_repeat('NOT ', 5_001) . 'mouse', 100_000, '(cable AND NOT mouse)'];
+    }
+
+    #[DataProvider('chainedNegations')]
+    public function testChainedNegationsAreCollapsedWithAWarning(string $input, int $maxLength, string $expected): void
+    {
+        $started = microtime(true);
+        $parsed = (new QueryParser(maxLength: $maxLength))->parse($input);
+
+        self::assertLessThan(1.0, microtime(true) - $started);
+        self::assertSame($expected, (string) $parsed->root);
+        self::assertContains('Repeated exclusions ("-" / NOT) were collapsed.', $parsed->warnings);
+    }
+
+    public function testAFewChainedNegationsNeedNoWarning(): void
+    {
+        $parsed = (new QueryParser())->parse('mouse NOT -cable');
+
+        self::assertSame('(mouse AND cable)', (string) $parsed->root);
+        self::assertSame([], $parsed->warnings);
+    }
+
+    public function testAChainOfOnlyNegationsDegradesWithAWarning(): void
+    {
+        $parsed = (new QueryParser(maxLength: Thresholds::MAX_QUERY_LENGTH))->parse(str_repeat('-', 5_000) . 'mouse');
+
+        self::assertNull($parsed->root, 'truncated to 1 024 "-" without a term');
+        self::assertContains('Ignored an exclusion ("-" / NOT) without a term.', $parsed->warnings);
     }
 
     public function testFuzzedInputNeverThrows(): void

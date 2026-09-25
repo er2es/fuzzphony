@@ -107,21 +107,35 @@ final class QueryParser
         return $this->combine(AllOf::class, $nodes);
     }
 
+    /**
+     * A chain of exclusions ("NOT -!x") is read in a loop, not recursively, so its length never
+     * costs stack depth; only its parity matters (double negation cancels).
+     */
     private function parseUnary(): ?Node
     {
-        if ($this->peek() === Lexer::NOT) {
+        $negations = 0;
+        while ($this->peek() === Lexer::NOT) {
             ++$this->pos;
-            $inner = $this->parseUnary();
-            if ($inner === null) {
-                $this->warn('Ignored an exclusion ("-" / NOT) without a term.');
-
-                return null;
-            }
-
-            return $inner instanceof Not ? $inner->node : new Not($inner);
+            ++$negations;
+        }
+        if ($negations > self::MAX_DEPTH) {
+            $this->warn('Repeated exclusions ("-" / NOT) were collapsed.');
         }
 
-        return $this->peek() === null ? null : $this->parsePrimary();
+        $inner = $this->peek() === null ? null : $this->parsePrimary();
+        if ($negations === 0) {
+            return $inner;
+        }
+        if ($inner === null) {
+            $this->warn('Ignored an exclusion ("-" / NOT) without a term.');
+
+            return null;
+        }
+        if ($negations % 2 === 0) {
+            return $inner;
+        }
+
+        return $inner instanceof Not ? $inner->node : new Not($inner);
     }
 
     private function parsePrimary(): ?Node
