@@ -9,7 +9,7 @@ library's source in `../src` directly (not a Packagist release).
 
 ```bash
 cd demo
-docker compose up --build                      # http://localhost:8000
+docker compose up --build                      # http://localhost:8000 (seeds 500 000 products by default)
 DEMO_ROWS=1000000 docker compose up --build    # the full 1M-product catalogue (a few minutes to seed and index)
 ```
 
@@ -76,7 +76,7 @@ Every setting has a default; override with environment variables or a file:
 | `DEMO_PORT` / `DEMO_DB_PORT` | `8000` / `5432` | host ports |
 | `DEMO_BIND` / `DEMO_DB_BIND` | `127.0.0.1` / `127.0.0.1` | address the ports are published on (see Security defaults) |
 | `DEMO_ALLOW_ANALYZE` / `DEMO_ALLOW_DEEP_DOCTOR` | `0` / `0` | enable EXPLAIN ANALYZE in the playground / `/doctor?deep=1` |
-| `DEMO_ROWS` | `200000` | catalogue size, used when the database is empty |
+| `DEMO_ROWS` | `500000` | catalogue size, used when the database is empty |
 | `DEMO_REINDEX` | `auto` | `always` reindexes on every start, `never` skips it |
 | `DEMO_APP_SECRET`, `DEMO_DB_PASSWORD` | throwaway demo values | change both before exposing the stack |
 | `PHP_FPM_*` | see `.env.example` | pool size, see Tuning |
@@ -85,7 +85,7 @@ Every setting has a default; override with environment variables or a file:
 
 ```bash
 docker compose down -v      # removes the containers AND the database volume
-docker compose up --build   # seeds again (about 30 s for 200 000 rows)
+docker compose up --build   # seeds again (about 60 s for the 500 000-row default; ~30 s at 200 000 rows)
 ```
 
 `docker compose down` (without `-v`) keeps the data. To rebuild only the index: `DEMO_REINDEX=always docker compose run --rm init`.
@@ -113,12 +113,52 @@ On Linux set `DEMO_UID` / `DEMO_GID` to your own ids so files written into the m
   With `validate_timestamps=0` PHP never re-reads a file: rebuild the image to change code.
 * **PostgreSQL**: the flags under `db.command` in `docker-compose.yml` (`shared_buffers`, `effective_cache_size`, `work_mem`,
   `random_page_cost`, parallel workers, statements slower than 1 s are logged). They assume a small VM (Docker Desktop
-  defaults to about 2 GB); raise `shared_buffers` and the `db` memory limit for `DEMO_ROWS=1000000`.
-  `pg_trgm` and `unaccent` are created by `fuzzphony:schema --apply`.
+  defaults to about 2 GB) and are sized for the `DEMO_ROWS=500000` default: `shared_buffers=384MB` (up from 256 MB),
+  `effective_cache_size=1200MB` (a planner hint, not a real allocation) and `maintenance_work_mem=256MB` (the larger
+  GIN indexes build faster with more of it; PostgreSQL does not parallelize a single GIN build, so this is one
+  process's budget, not `maintenance_work_mem` times `max_parallel_workers`). The `db` service's own memory limit
+  went from 1 GB to 1536 MB to match. Raise `shared_buffers`, `maintenance_work_mem` and the `db` memory limit
+  further for `DEMO_ROWS=1000000`. `pg_trgm` and `unaccent` are created by `fuzzphony:schema --apply`.
 * **CPU** is deliberately not limited: a `cpus:` cap fails on hosts with fewer cores than the cap, and the database is the
   CPU-bound part of a search demo.
 
 ## Measured
+
+### Proven on 500 000 rows
+
+Verified end to end in an isolated `docker compose -p` project of its own (its own image names, host
+ports and volume; torn down afterwards) on the same machine as below: 16 cores, Docker Desktop assigned
+~1.9 GB. Empty `pgdata` volume, `DEMO_ROWS` at its default (500000).
+
+- **Cold start** (`docker compose up -d` on the empty volume to the first `200` from `/`): 54 s and 57 s
+  measured on two separate runs. Breakdown from the `init` container's own log on the 54 s run: seeding
+  4.3 s, applying the schema 0.2 s, reindexing the catalogue (500 000 documents) 25.4 s, reindexing the
+  five language indexes (30 rows each) well under 1 s combined; the remaining ~24 s is the database
+  container starting and passing its healthcheck before `init` can even begin.
+- **`fuzzphony:doctor --deep`**: `Coverage: 500000 of 500000 documents indexed (100.0%, exact)`,
+  `Orphaned documents: none` — every seeded row made it into the index.
+- **`db` memory** right after seeding and indexing (`docker stats`, one-off, no load yet): 406 MiB of its
+  1536 MiB limit (26%) — the tuning below leaves comfortable headroom on a ~1.9 GB VM.
+- **ILIKE vs Fuzzphony**, read straight off the running `/benchmark` page's own measurements (PostgreSQL
+  17.11, PHP 8.4.26; cold = first run, warm = median of the next 5):
+
+  | Query | ILIKE cold / warm | hits | Fuzzphony cold / warm | hits |
+  |---|---:|---:|---:|---:|
+  | accent (`creme`) | 413.7 / 405.4 ms | 0 | 24.2 / 13.1 ms | 20 |
+  | typo (`hedphones`) | 449.5 / 426.6 ms | 0 | 34.6 / 32.8 ms | 20 ~ |
+  | stemming (`drills`) | 400.5 / 394.8 ms | 0 | 14.6 / 11.3 ms | 20 |
+  | phrase + exclude (`"noise cancelling" -headphones`) | 541.5 / 495.4 ms | 0 | 28.7 / 24.1 ms | 20 |
+  | field (`category:kitchen kettle`) | 505.4 / 488.6 ms | 0 | 15.8 / 11.9 ms | 20 |
+  | prefix (`ergono*`) | 467.4 / 437.9 ms | 0 | 18.2 / 15.5 ms | 20 |
+  | plain word (`wireless`) | 7.2 / 0.6 ms | 20 | 15.6 / 13.1 ms | 20 |
+  | two words (`wireless mouse`) | 10.2 / 3.0 ms | 20 | 21.0 / 14.0 ms | 20 |
+
+  ~ = typo-tolerant fallback used. ILIKE's 0 hits above are not a bug: `creme`/`hedphones`/`drills` need
+  accent folding, typo tolerance or stemming that `ILIKE '%…%'` does not have, and `category:kitchen
+  kettle` / `ergono*` are Fuzzphony's own field/prefix syntax, which ILIKE just treats as a literal
+  (non-matching) substring — see the note at the top of the Benchmark page itself.
+
+### Load test (200 000 rows)
 
 Same machine (16 cores, Docker Desktop, 2 GB assigned), 200 000-row catalogue, containerized `ab`
 (`httpd:2.4-alpine`) against the published port, 3 concurrency levels, 12-15 s per point. "Before" is
@@ -148,9 +188,13 @@ throughput, single-digit-ms p50 for `/`. `/?q=...` and `/playground` run real Fu
 against Postgres on the same small container and are dominated by that query cost, not the web tier,
 so they improved less (and `/?q=...` regressed slightly at concurrency 32, most likely Postgres CPU
 contention on this 16-core-but-2GB-RAM box under `ab`'s hammering, not a regression in the web tier
-itself — the `/` and `/doctor` numbers on the same run show the tier is faster). Cold start (`docker
-compose up --build` on an empty volume, `DEMO_ROWS=200000`) to first 200 on `/`: ~30 s (was ~91 s,
-dominated by `composer install` + cache warmup happening on every start). Image size: `fuzzphony-demo/php`
+itself — the `/` and `/doctor` numbers on the same run show the tier is faster). This table (and the cold
+start and idle-memory figures below) were measured on the 200 000-row catalogue, the demo's default at
+the time; the web tier's own throughput does not depend on catalogue size, only the query cost inside it
+does, so it has not been re-run since `DEMO_ROWS` defaulted to 500 000 — see "Proven on 500 000 rows"
+above for that catalogue size instead. Cold start (`docker compose up --build` on an empty volume,
+`DEMO_ROWS=200000`) to first 200 on `/`: ~30 s (was ~91 s, dominated by `composer install` + cache
+warmup happening on every start). Image size: `fuzzphony-demo/php`
 115 MB, `fuzzphony-demo/web` 54 MB (total 169 MB) vs. the old single `demo-app` image at 604 MB.
 Idle memory (`docker stats`, no load): `web` ~5-7 MB / 128 MB limit, `php` ~40-60 MB / 768 MB, `worker`
 ~20 MB / 256 MB, `db` ~135-195 MB / 1 GB — versus the old single `app` container at ~38-60 MB (it did
