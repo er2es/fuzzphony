@@ -26,6 +26,8 @@ against PHP 8.4 / 8.5, PostgreSQL 15 to 18, Symfony 7.4 / 8.0 and the lowest all
 
 ## Pull requests
 
+- `main` is protected: every change, the maintainer's too, lands through a pull request once the
+  `ci-ok` check (all CI jobs) is green.
 - One topic per pull request, with tests. Fix php-cs-fixer findings with `composer cs:fix`.
 - Cover the code you add: the goal is 100% line coverage of `src/`. Codecov reports the coverage
   of each pull request's changes; CI fails below 90% in total.
