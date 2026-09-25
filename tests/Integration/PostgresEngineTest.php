@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Fuzzphony\Tests\Integration;
 
 use Fuzzphony\Core\Database\Connection;
+use Fuzzphony\Core\Definition\IndexDefinition;
 use Fuzzphony\Core\Definition\TriggerLevel;
 use Fuzzphony\Core\Exception\EngineFailure;
 use Fuzzphony\Core\Fuzzphony;
@@ -15,6 +16,8 @@ use Fuzzphony\Core\Registry\IndexRegistry;
 use Fuzzphony\Core\Support\Coerce;
 use Fuzzphony\Core\Sync\Worker;
 use Fuzzphony\Engine\Postgres\PostgresEngine;
+use Fuzzphony\Engine\Postgres\Schema\PostgresSchemaGenerator;
+use Fuzzphony\Engine\Postgres\Sql\Sql;
 use Fuzzphony\Tests\Conformance\EngineConformanceTestCase;
 use Fuzzphony\Tests\Fixtures\Indexes;
 use PHPUnit\Framework\TestCase;
@@ -156,6 +159,31 @@ final class PostgresEngineTest extends TestCase
 
         $fuzzphony->schema()->apply($this->connection);
         self::assertSame(CheckStatus::Ok, $fuzzphony->inspect('products')->status());
+    }
+
+    public function testDoctorRecognizesAMissingTruncateTriggerWhenTheNameIsHashed(): void
+    {
+        // a long index name makes Identifier::limit() hash the trigger names, so they no longer end in "_trn"
+        $index = IndexDefinition::builder(str_repeat('long_index_name_', 3))
+            ->fromQuery('SELECT p.id, p.name, b.name AS brand FROM fz_product p JOIN fz_brand b ON b.id = p.brand_id')
+            ->watch('fz_product')
+            ->watch('fz_brand', 'SELECT id FROM fz_product WHERE brand_id = :id')
+            ->field('name', 'A')
+            ->sync('queue')
+            ->build();
+        $fuzzphony = new Fuzzphony($this->engine, new IndexRegistry([$index]));
+        $fuzzphony->schema()->apply($this->connection);
+        $fuzzphony->reindex($index->name);
+        $generator = new PostgresSchemaGenerator();
+        $names = array_keys($generator->triggerDefinitions($index, $index->effectiveWatches()[1]));
+        $truncate = $names[array_key_last($names)];
+        self::assertFalse(str_ends_with($truncate, '_trn'), 'the fixture must exercise a hashed name');
+        $this->connection->execute(sprintf('DROP TRIGGER %s ON fz_brand', Sql::ident($truncate)));
+
+        $problems = array_values(array_filter($fuzzphony->inspect($index->name)->problems(), static fn(Check $c): bool => $c->name === 'Sync trigger on fz_brand'));
+
+        self::assertCount(1, $problems);
+        self::assertSame(sprintf('missing %s: a TRUNCATE of this table leaves stale documents in the index', $truncate), $problems[0]->message);
     }
 
     public function testDoctorCountsOrphanedDocumentsOnlyWhenDeep(): void

@@ -13,6 +13,7 @@ use Fuzzphony\Core\Inspection\InspectionReport;
 use Fuzzphony\Core\Inspection\InspectOptions;
 use Fuzzphony\Core\Ranking\FuzzyMode;
 use Fuzzphony\Core\Support\Coerce;
+use Fuzzphony\Core\Support\Identifier;
 use Fuzzphony\Engine\Postgres\Schema\PostgresSchemaGenerator;
 use Fuzzphony\Engine\Postgres\Sql\DocumentSql;
 use Fuzzphony\Engine\Postgres\Sql\Sql;
@@ -311,7 +312,9 @@ final class PostgresInspector
 
             if ($missing !== []) {
                 // An index set up before the TRUNCATE trigger existed only lacks that one.
-                $truncateOnly = array_all($missing, static fn(string $t): bool => str_ends_with($t, '_trn'));
+                // (compared by name: Identifier::limit() hashes a long name, which then no longer ends in "_trn")
+                $truncateTrigger = Identifier::limit($this->schema->syncFunctionName($index, $watch) . '_trn');
+                $truncateOnly = array_all($missing, static fn(string $t): bool => $t === $truncateTrigger);
                 $checks[] = Check::error($label, sprintf(
                     $truncateOnly ? 'missing %s: a TRUNCATE of this table leaves stale documents in the index' : 'missing %s: changes to this table are not indexed',
                     implode(', ', $missing),
