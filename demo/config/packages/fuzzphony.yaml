@@ -32,3 +32,39 @@ fuzzphony:
         popular: { boost: 0.03, recency: 0.3, recency_half_life_days: 60 }
       thresholds:
         min_score: 0.01
+
+    # The /languages page: one small hand-written catalogue (sql/lang_product.sql), one index per language.
+    # Each index stems and removes stop words with its own language and folds accents (fuzzphony_<language>).
+    lang_en: &lang
+      source:
+        query: "SELECT id, name, description, category FROM lang_product WHERE lang = 'en'"
+      fields:
+        name: { weight: A, fuzzy: true }
+        category: C
+        description: D
+      watch:
+        lang_product: 'SELECT :id'
+      language: english
+      # typo tolerance only when nothing matches exactly: on 30 products the default (fewer than 5 exact hits) would
+      # mix typo matches into every stemming example
+      thresholds: { fallback_below: 1 }
+    lang_de:
+      <<: *lang
+      source:
+        query: "SELECT id, name, description, category FROM lang_product WHERE lang = 'de'"
+      language: german
+    lang_fr:
+      <<: *lang
+      source:
+        query: "SELECT id, name, description, category FROM lang_product WHERE lang = 'fr'"
+      language: french
+    lang_es:
+      <<: *lang
+      source:
+        query: "SELECT id, name, description, category FROM lang_product WHERE lang = 'es'"
+      language: spanish
+    lang_hu:
+      <<: *lang
+      source:
+        query: "SELECT id, name, description, category FROM lang_product WHERE lang = 'hu'"
+      language: hungarian

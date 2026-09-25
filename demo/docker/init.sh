@@ -51,18 +51,34 @@ else
     seeded=1
 fi
 
+# The small multilingual catalogue of the /languages page, seeded the same way (only while it is missing).
+lang_seeded=0
+if [ "$(psql -tAc "SELECT to_regclass('lang_product') IS NOT NULL")" = t ]; then
+    log "multilingual catalogue present, not seeding"
+else
+    log "seeding the multilingual catalogue (sql/lang_product.sql)"
+    psql -q -1 -v ON_ERROR_STOP=1 -f sql/lang_product.sql
+    lang_seeded=1
+fi
+
 log "applying the schema"
 php bin/console fuzzphony:schema --apply --no-interaction
 
-# Right after the schema was created the index table is empty; an existing one is kept in sync by the
-# triggers + the worker, so a full reindex on every start would only cost time.
-indexed=$(psql -tAc "SELECT EXISTS (SELECT 1 FROM fuzzphony_catalog)")
-if [ "$DEMO_REINDEX" = always ] || { [ "$DEMO_REINDEX" = auto ] && { [ "$seeded" = 1 ] || [ "$indexed" != t ]; }; }; then
-    log "reindexing"
-    php bin/console fuzzphony:reindex --batch=20000 --no-interaction
-else
-    log "index present, not reindexing (DEMO_REINDEX=always forces it)"
-fi
+# Right after the schema was created an index table is empty; an existing one is kept in sync by the
+# triggers + the worker, so a full reindex on every start would only cost time. Decided per index.
+needs_reindex() { # <index> <its source was just seeded: 0|1>
+    case "$DEMO_REINDEX" in always) return 0 ;; never) return 1 ;; esac
+    [ "$2" = 1 ] || [ "$(psql -tAc "SELECT EXISTS (SELECT 1 FROM fuzzphony_$1)")" != t ]
+}
+for index in catalog lang_en lang_de lang_fr lang_es lang_hu; do
+    case "$index" in catalog) fresh=$seeded ;; *) fresh=$lang_seeded ;; esac
+    if needs_reindex "$index" "$fresh"; then
+        log "reindexing $index"
+        php bin/console fuzzphony:reindex "$index" --batch=20000 --no-interaction
+    else
+        log "index $index present, not reindexing (DEMO_REINDEX=always forces it)"
+    fi
+done
 
 # Read access to the catalogue, write access only to Fuzzphony's own tables (the index and the sync queue).
 log "granting $APP_ROLE access"
