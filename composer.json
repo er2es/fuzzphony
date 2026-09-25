@@ -19,7 +19,7 @@
     },
     "require-dev": {
         "ext-pdo_pgsql": "*",
-        "api-platform/doctrine-orm": "^4.1",
+        "api-platform/doctrine-orm": "^4.1 || ^5.0",
         "doctrine/dbal": "^4.2",
         "doctrine/orm": "^3.3",
         "friendsofphp/php-cs-fixer": "^3.64",
