@@ -177,7 +177,18 @@ if ($thresholds->relaxWhenEmpty && $root !== null && self::total($run['rows']) =
 
 - [ ] `docker cp benchmarks/seed.sql fz-relax-pg:/seed.sql`; `CREATE DATABASE fuzzbench` + extensions; `MSYS_NO_PATHCONV=1 docker exec fz-relax-pg psql -U fuzzphony -d fuzzbench -v rows=200000 -f /seed.sql`.
 - [ ] Scratch PHP script (scratchpad, not committed) building the demo-shaped index (`name` A fuzzy, `brand` B fuzzy, `category` C, `description` D, boost/recency as the demo), schema apply + reindex + `ANALYZE`, then the four queries and `EXPLAIN (ANALYZE, BUFFERS)` of the probe statement.
-- [ ] Record the results below.
+- [x] Record the results below.
+
+**Results (PostgreSQL 17, 200 000 rows, demo-shaped index, fallback mode, `min_score` 0.01):**
+
+| query | total | warning | notes |
+|---|---:|---|---|
+| `wireless mouse aluminum` | 1 666 | `No results for all words; ignored words that match nothing: "aluminum".` | `interpretedAs` `(wireless AND mouse)`; all 1 666 hits are `Wireless mouse ####`, the same ids as `wireless mouse`; statements `full-text`, `fallback: full-text + fuzzy`, `relaxation probe`, `relaxed: full-text`; ~100 ms end to end |
+| `wireless mouse aluminium` | 238 | none | unchanged, ~10 ms |
+| `wireles mice` | 1 666 | none | unchanged, fuzzy |
+| `mouse kettle` | 0 | none | the probe runs and finds both words; ~55-65 ms (was ~27 ms: probe + stop-word lookup) |
+
+**Probe plan (added decision 9).** As first written (`EXISTS (... LIMIT 1)`, default planner settings) the probe took **600-770 ms**: `LIMIT 1` makes the planner pick a sequential scan that stops at the first match, which is instant for the common words and reads all 200 000 rows, evaluating `<%` row by row, for `aluminum`, the very word the probe is looking for. With `enable_seqscan = off` it used the GIN bitmaps (13-15 ms) but with an `in_stock = false` filter it walked the btree index of the filter instead (100-180 ms, 28 571 rows removed by filter). The shipped probe runs with `enable_seqscan` and `enable_indexscan` off (transaction-local, like the similarity threshold; `explain()` applies the same settings), leaving only bitmap scans: `BitmapOr(GIN tsv, GIN fz)`, `BitmapAnd` with the filter's btree when there is one. Median of 5 warm runs, `EXPLAIN (ANALYZE, BUFFERS)`: **14-25 ms unfiltered** (188 shared buffers; the unmatched word's `EXISTS` 0.04 ms, the common words 6-8 ms each for building their bitmaps), `in_stock = false` 28 ms, `brand_id = 3` 19 ms, `price < 5000` 20 ms, `category_id = 1` 19 ms.
 
 ### Task 6: docs
 
