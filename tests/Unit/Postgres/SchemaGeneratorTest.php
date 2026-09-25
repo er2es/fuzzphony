@@ -199,7 +199,11 @@ final class SchemaGeneratorTest extends TestCase
         $sql = (new PostgresSchemaGenerator())->global(Indexes::products(), Indexes::products(), $german)->toSql();
 
         self::assertSame(1, substr_count($sql, 'CREATE TEXT SEARCH CONFIGURATION "fuzzphony_english"'));
-        self::assertStringContainsString('WITH "public".unaccent, "german_stem"', $sql);
+        self::assertStringContainsString('WITH "public".unaccent, "german_stem"', $sql, 'for a language without a stop-word list');
+        self::assertStringContainsString('WITH "fuzzphony_german_stop", "public".unaccent, "german_stem"', $sql, 'accented stop words are dropped before unaccent');
+        self::assertStringContainsString("FROM pg_ts_dict WHERE oid = '\"german_stem\"'::regdictionary", $sql, 'the stop-word list comes from the catalog');
+        self::assertStringContainsString("EXECUTE format('CREATE TEXT SEARCH DICTIONARY %I (TEMPLATE = pg_catalog.simple, STOPWORDS = %L, ACCEPT = false)', 'fuzzphony_german_stop', v_stopwords)", $sql);
+        self::assertMatchesRegularExpression('/COPY = "english"\);\s+END IF;\s+SELECT substring/', $sql, 'only the CREATE is conditional, so --apply repairs an existing configuration');
     }
 
     public function testLongNamesStayWithinPostgresLimits(): void

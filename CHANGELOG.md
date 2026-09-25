@@ -15,8 +15,22 @@ changes; they are always listed under **Breaking** and explained in [UPGRADE.md]
 
 ### Changed
 
-- The test suite covers 100% of the lines in `src/` (533 tests, up from 400 and 91.5%). CI fails
+- The test suite covers 100% of the lines in `src/` (539 tests, up from 400 and 91.5%). CI fails
   below 90% line coverage, and Codecov reports the coverage of every pull request's changes.
+
+### Fixed
+
+- With accent folding (the default), accented stop words were not ignored: `unaccent` ran before
+  the stemmer, which then looked up `fur` instead of `für` in its stop-word list. German `für`,
+  Hungarian `és`, French `à` (and the like in every language with a stop-word list) were indexed
+  and had to match like ordinary words, so `Tasche für Laptop` did not find `Laptop Tasche`, and
+  `à` alone matched 13 products of the demo's French catalogue. The configuration
+  `fuzzphony_<language>` now drops stop words first, with a new dictionary
+  `fuzzphony_<language>_stop` built from the language's own stop-word list; the typo-tolerant
+  branch and the empty-result relaxation ignore them too. `fuzzphony:schema --apply` now also
+  repairs an existing configuration, and `fuzzphony:doctor` reports one that still keeps accented
+  stop words. **Run `fuzzphony:schema --apply`, then a full `fuzzphony:reindex`**, see
+  [UPGRADE.md](UPGRADE.md).
 
 ## [0.3.0] - 2026-09-25
 

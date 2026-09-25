@@ -107,9 +107,37 @@ final class PostgresInspector
         $name = $index->text->configName();
         $exists = (bool) $this->connection->fetchValue('SELECT count(*) > 0 FROM pg_ts_config WHERE cfgname = :name', ['name' => $name]);
 
-        return $exists
-            ? Check::ok('Text search configuration', $name)
-            : Check::error('Text search configuration', sprintf('"%s" is missing.', $name), self::APPLY);
+        if (!$exists) {
+            return Check::error('Text search configuration', sprintf('"%s" is missing.', $name), self::APPLY);
+        }
+        if ($index->text->unaccent && $this->keepsAccentedStopWords($index)) {
+            return Check::error(
+                'Text search configuration',
+                sprintf('"%s" keeps accented stop words (such as "für", "és", "à"): the stop-word dictionary "%s" does not run before unaccent.', $name, $this->schema->stopDictionaryName($index->text)),
+                self::APPLY . sprintf(', then bin/console fuzzphony:reindex %s', $index->name),
+            );
+        }
+
+        return Check::ok('Text search configuration', $name);
+    }
+
+    /** A 0.3.0 configuration: the stem dictionary has a stop-word list, but "word" tokens do not start with the stop-word dictionary. */
+    private function keepsAccentedStopWords(IndexDefinition $index): bool
+    {
+        return (bool) $this->connection->fetchValue(
+            <<<'SQL'
+                SELECT EXISTS (SELECT 1 FROM pg_ts_dict WHERE dictname = :stem AND dictinitoption ~ 'stopwords')
+                   AND NOT EXISTS (
+                       SELECT 1
+                       FROM pg_ts_config c
+                       JOIN pg_ts_config_map m ON m.mapcfg = c.oid AND m.mapseqno = 1
+                       JOIN pg_ts_dict d ON d.oid = m.mapdict
+                       WHERE c.cfgname = :name AND d.dictname = :stop
+                         AND m.maptokentype = (SELECT t.tokid FROM ts_token_type(c.cfgparser) AS t WHERE t.alias = 'word')
+                   )
+                SQL,
+            ['stem' => $this->schema->stemDictionaryName($index->text), 'name' => $index->text->configName(), 'stop' => $this->schema->stopDictionaryName($index->text)],
+        );
     }
 
     private function function(string $signature, string $label): Check

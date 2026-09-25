@@ -397,10 +397,13 @@ The language decides three things:
 
 * **Stemming**: word forms are reduced to a common stem, so a search for one form finds the
   others.
-* **Stop words**: the language's filler words ("the", "for", "und") are ignored.
+* **Stop words**: the language's filler words ("the", "for", "und", and accented ones such as
+  "für", "és" or "à") are ignored.
 * **Accent folding** (on by default): `fuzzphony:schema --apply` creates a configuration
   `fuzzphony_<language>` that copies the built-in one and removes accents before stemming, so
-  `cafe` finds `café`.
+  `cafe` finds `café`. Stop words are dropped before the accents are removed (with a dictionary
+  `fuzzphony_<language>_stop` that uses the built-in stop-word list), so folding never turns one
+  into an ordinary word. Languages whose stemmer has no stop-word list get no such dictionary.
 
 Measured with Fuzzphony's configuration (accents removed, then stemmed):
 

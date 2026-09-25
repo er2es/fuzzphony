@@ -539,30 +539,65 @@ final class PostgresSchemaGenerator
             );
     }
 
+    /** The dictionary the accent-folding configuration consults for stop words, before unaccent. */
+    public function stopDictionaryName(TextConfig $config): string
+    {
+        return 'fuzzphony_' . $config->language . '_stop';
+    }
+
+    /** The dictionary that stems (and, for most languages, drops stop words) in the configuration. */
+    public function stemDictionaryName(TextConfig $config): string
+    {
+        return $config->language === 'simple' ? 'simple' : $config->language . '_stem';
+    }
+
+    /**
+     * unaccent is a filtering dictionary: the stem dictionary after it checks its stop-word list
+     * against the unaccented token, so accented stop words ("für", "és", "à") would survive. A
+     * stop-word-only dictionary (ACCEPT = false: drops a stop word, passes everything else on)
+     * therefore runs first, with the stem dictionary's own list, read from the catalog. Languages
+     * whose stem dictionary has no list get none. The mapping is always (re)applied, so running
+     * this again repairs a configuration created without the stop-word dictionary.
+     */
     private function textConfig(TextConfig $config): Statement
     {
         $name = $config->configName();
-        $dictionary = $config->language === 'simple' ? 'simple' : $config->language . '_stem';
+        $stop = $this->stopDictionaryName($config);
 
         return new Statement(sprintf(
             <<<'SQL'
-                DO %6$s
+                DO %8$s
+                DECLARE
+                    v_stopwords text;
                 BEGIN
                     IF NOT EXISTS (SELECT 1 FROM pg_ts_config WHERE cfgname = %1$s) THEN
                         CREATE TEXT SEARCH CONFIGURATION %2$s (COPY = %3$s);
+                    END IF;
+                    SELECT substring(dictinitoption FROM 'stopwords *= *''([[:alnum:]_]+)''') INTO v_stopwords
+                    FROM pg_ts_dict WHERE oid = %5$s::regdictionary;
+                    IF v_stopwords IS NULL THEN
                         ALTER TEXT SEARCH CONFIGURATION %2$s
-                            ALTER MAPPING FOR hword, hword_part, word WITH %4$s.unaccent, %5$s;
+                            ALTER MAPPING FOR hword, hword_part, word WITH %4$s.unaccent, %6$s;
+                    ELSE
+                        IF NOT EXISTS (SELECT 1 FROM pg_ts_dict WHERE dictname = %7$s) THEN
+                            EXECUTE format('CREATE TEXT SEARCH DICTIONARY %%I (TEMPLATE = pg_catalog.simple, STOPWORDS = %%L, ACCEPT = false)', %7$s, v_stopwords);
+                        END IF;
+                        ALTER TEXT SEARCH CONFIGURATION %2$s
+                            ALTER MAPPING FOR hword, hword_part, word WITH %9$s, %4$s.unaccent, %6$s;
                     END IF;
                 END
-                %6$s
+                %8$s
                 SQL,
             Sql::string($name),
             Sql::ident($name),
             Sql::ident($config->language),
             Sql::ident($this->extensionSchema),
-            Sql::ident($dictionary),
+            Sql::string(Sql::ident($this->stemDictionaryName($config))),
+            Sql::ident($this->stemDictionaryName($config)),
+            Sql::string($stop),
             self::TAG,
-        ), sprintf('Text search configuration "%s" (%s stemming + accent folding)', $name, $config->language));
+            Sql::ident($stop),
+        ), sprintf('Text search configuration "%s" (%s stemming + accent folding, accented stop words dropped)', $name, $config->language));
     }
 
     private function tsvectorExpression(IndexDefinition $index): string

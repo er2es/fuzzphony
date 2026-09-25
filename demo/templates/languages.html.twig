@@ -62,19 +62,18 @@
                 <div class="lang-grid">
                     <section class="card analysis" aria-labelledby="analysis-title">
                         <h2 id="analysis-title">How the words were analysed</h2>
-                        <p class="muted">With <code>{{ language.config }}</code>: the built-in <code>{{ language.builtin }}</code> configuration, accents removed before the stemmer.</p>
+                        <p class="muted">With <code>{{ language.config }}</code>: the built-in <code>{{ language.builtin }}</code> configuration: stop words dropped, then accents removed before the stemmer.</p>
                         {% if analysis is empty %}
                             <p class="muted">No words to analyse: only punctuation or numbers PostgreSQL does not treat as words.</p>
                         {% else %}
                             <ol class="words">
                                 {% for w in analysis %}
                                     {% set stop = w.lexeme is null %}
-                                    {% set kept_stop = not stop and w.plainLexeme is null %}
                                     {% set folded = w.folded != w.token %}
                                     <li class="word{{ stop ? ' is-stop' }}">
                                         <span class="word-token" lang="{{ code }}">{{ w.token }}</span>
                                         <span class="word-steps">
-                                            {% if folded %}
+                                            {% if folded and not stop %}
                                                 <span class="step"><span class="step-what">accents removed</span><span class="step-out" lang="{{ code }}">{{ w.folded }}</span></span>
                                             {% endif %}
                                             {% if stop %}
@@ -86,8 +85,6 @@
                                         <span class="word-note">
                                             {% if stop %}
                                                 A {{ language.name }} filler word: it neither has to match nor counts.
-                                            {% elseif kept_stop %}
-                                                A stop word in {{ language.name }}, but kept: removing the accent changed its spelling.
                                             {% else %}
                                                 {% if folded and w.plainLexeme != w.lexeme %}Without accent folding: <code class="lexeme">{{ w.plainLexeme }}</code>. {% endif %}
                                                 {% if w.docs > 0 %}In {{ w.docs }} product{{ w.docs == 1 ? '' : 's' }} exactly.{% else %}In no product exactly{% if result and result.usedFuzzy %}{{ result.total > 0 ? ': only typo tolerance can find it' : ', and typo tolerance found nothing close either' }}{% endif %}.{% endif %}
