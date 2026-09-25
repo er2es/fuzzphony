@@ -29,6 +29,17 @@
   trigger and sync functions, then a full `fuzzphony:reindex` to clear what earlier `TRUNCATE`s
   left behind. `Engine` gained a method, so a third-party engine must implement it.
 
+* **New**: empty-result relaxation. When a query of two or more words finds nothing, each word is
+  checked on its own against the searched set (filters and tenant included, with the same exact or
+  typo-tolerant condition the search uses) in one extra statement; the words that match nothing are
+  dropped like stop words, the search runs once more, and `SearchResult::$warnings` says
+  `No results for all words; ignored words that match nothing: "aluminum".` (`interpretedAs` shows
+  the reduced query). On the demo catalogue `wireless mouse aluminum` (the word is only in
+  descriptions) returns the 1 666 wireless mice instead of nothing. Words that all match something
+  but never together (`mouse kettle`), single words and queries with hits are never relaxed. New
+  threshold `relax_when_empty` (default `true`, independent of `fuzzy_mode`); `explain()` lists
+  the `relaxation probe` and `relaxed: …` statements. The probe runs with bitmap scans only
+  (15-30 ms at 200 000 rows).
 * **Fix / behaviour change**: typo-tolerant (fuzzy) matching is now **per word**. It used to
   compare the whole query as one string with all fuzzy fields, so one long common word could
   satisfy it on its own: on the demo catalogue `wireles mice` returned 20 000 products (chairs,
@@ -37,8 +48,9 @@
   and `wireles mice` returns exactly the 1 666 wireless mice. Consequences:
   * fuzzy result sets get **narrower**. Recall is unchanged for words that live in a fuzzy field,
     but a typo in a word found only in a non-fuzzy field (a description, a category) can no longer
-    be matched approximately, so that query now returns nothing instead of silently ignoring the
-    word (`wireless mouse alumnium` used to list wireless mice, it now lists none);
+    be matched approximately. Such a query finding nothing is relaxed instead (see the next entry):
+    `wireless mouse aluminum` lists the wireless mice again, now with a warning naming the ignored
+    word;
   * negations are honoured at any depth by the fuzzy branch (previously only top-level ones);
   * `r_fuzzy` / `ScoreBreakdown::$fuzzySimilarity` is now per-word (1.0 for an exact word, AND =
     mean, OR = max), so scores of strict matches shift slightly in `fuzzy_mode: always`;
