@@ -24,3 +24,8 @@ updates:
     directory: "/demo"
     schedule:
       interval: "weekly"
+    ignore:
+      # A PostgreSQL major version can't open the previous one's data directory: the demo's
+      # pgdata volume would stop starting. Majors are done by hand, together with a reseed.
+      - dependency-name: "postgres"
+        update-types: ["version-update:semver-major"]
