@@ -18,6 +18,9 @@ x-dev-php: &dev-php
     APP_ENV: dev
     APP_DEBUG: "1"
     APP_CACHE_DIR: /tmp/symfony-cache
+    # local live-edit: the expensive diagnostics are on unless switched off explicitly
+    DEMO_ALLOW_ANALYZE: ${DEMO_ALLOW_ANALYZE:-1}
+    DEMO_ALLOW_DEEP_DOCTOR: ${DEMO_ALLOW_DEEP_DOCTOR:-1}
 
 services:
   init:
