@@ -1,10 +1,14 @@
 {% extends 'base.html.twig' %}
 
 {% block body %}
-    <form method="get" class="searchbar" data-loading-message="Searching with ILIKE and Fuzzphony (1 cold + 5 warm runs each)…">
+    <form method="get" class="searchbar" data-loading-message="Searching with ILIKE and Fuzzphony (1 cold + {{ warmRuns }} warm runs each)…">
         <input type="search" name="q" value="{{ q }}" aria-label="Search the catalogue" placeholder="Search the catalogue…" autofocus>
         <button type="submit" class="primary">Search</button>
     </form>
+    <p class="muted">
+        Searching {{ rowEstimate > 0 ? rowEstimate|number_format ~ ' products' : 'the product catalogue' }} (<code>{{ table }}</code>):
+        each search runs 1 cold + {{ warmRuns }} warm runs on both engines = {{ ((1 + warmRuns) * engines)|number_format }} statements.
+    </p>
     <div class="examples">
         {% for label, example in examples %}
             <a class="button" href="{{ path('compare', {q: example}) }}" data-loading-message="Searching for {{ example }}…">{{ label }}: <code>{{ example }}</code></a>
@@ -46,6 +50,6 @@
             </section>
         </div>
     {% else %}
-        <p class="muted">Type something, or pick an example: the same catalogue, searched with a naive <code>ILIKE</code> and with Fuzzphony, timed as median of 5 warm runs (the first, cold run is shown separately).</p>
+        <p class="muted">Type something, or pick an example: the same catalogue, searched with a naive <code>ILIKE</code> and with Fuzzphony.</p>
     {% endif %}
 {% endblock %}

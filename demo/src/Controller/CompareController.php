@@ -23,6 +23,9 @@ final class CompareController extends AbstractController
         'prefix' => 'ergono*',
     ];
 
+    /** Below, every search measures ILIKE and Fuzzphony, one Measure::median() call each: always these two. */
+    private const int ENGINES = 2;
+
     #[Route('/', name: 'compare')]
     public function __invoke(Request $request, Fuzzphony $fuzzphony, Catalog $catalog): Response
     {
@@ -40,6 +43,10 @@ final class CompareController extends AbstractController
             'examples' => self::EXAMPLES,
             'without' => $without,
             'with' => $with,
+            'table' => Catalog::TABLE,
+            'rowEstimate' => $catalog->estimatedProductCount(),
+            'warmRuns' => Measure::WARM_RUNS,
+            'engines' => self::ENGINES,
         ]);
     }
 }

@@ -12,11 +12,19 @@ changes; they are always listed under **Breaking** and explained in [UPGRADE.md]
 - Demo: a Languages page (`/languages`) that searches a small hand-written catalogue in English,
   German, French, Spanish and Hungarian, one index per language, with one-click examples and the
   lexeme PostgreSQL produced for every query word.
+- Demo: the Benchmark and ILIKE vs Fuzzphony pages state why a run takes a while, derived from the
+  actual query/run counts, e.g. "Searching 500,000 products (bench_product): 8 queries × (1 cold +
+  5 warm runs) × 2 engines = 96 statements."
 
 ### Changed
 
 - The test suite covers 100% of the lines in `src/` (539 tests, up from 400 and 91.5%). CI fails
   below 90% line coverage, and Codecov reports the coverage of every pull request's changes.
+- Demo: the default catalogue size (`DEMO_ROWS`) is 500 000 products (was 200 000); `shared_buffers`,
+  `effective_cache_size`, `maintenance_work_mem` and the `db` container's memory limit were raised to
+  match (see `demo/README.md` "Tuning"). Verified at that size in an isolated compose project: cold
+  start (empty volume to first response) 54-57 s, `fuzzphony:doctor --deep` reports 500000 of 500000
+  documents indexed (100.0%, exact) — see `demo/README.md` "Proven on 500 000 rows".
 
 ### Fixed
 
