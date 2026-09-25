@@ -27,7 +27,10 @@ use Fuzzphony\Engine\Postgres\Schema\PostgresSchemaGenerator;
  */
 final class SearchSqlBuilder
 {
-    public function __construct(private readonly IndexDefinition $index) {}
+    public function __construct(
+        private readonly IndexDefinition $index,
+        private readonly string $extensionSchema = 'public',
+    ) {}
 
     /**
      * @param string          $plain        positive words, for the exact / prefix bonuses (q.norm)
@@ -54,7 +57,7 @@ final class SearchSqlBuilder
             : "''::text AS norm";
         // Per-term fuzzy branch: every word is satisfied exactly or fuzzily, through the query's
         // own AND / OR / NOT. Its per-word values are extra q columns.
-        $fuzzy = $fuzzyRoot === null ? null : (new FuzzyQueryCompiler($this->index, $thresholds))->compile($fuzzyRoot, $params, $emptyQueries);
+        $fuzzy = $fuzzyRoot === null ? null : (new FuzzyQueryCompiler($this->index, $thresholds, $this->extensionSchema))->compile($fuzzyRoot, $params, $emptyQueries);
         if ($fuzzy !== null) {
             array_push($q, ...$fuzzy->columns);
         }
@@ -141,7 +144,7 @@ final class SearchSqlBuilder
         $params = new ParameterBag();
         $filters = new FilterCompiler($this->index);
         $table = Sql::ident($this->index->sidecarTable());
-        $compiled = (new FuzzyQueryCompiler($this->index, $thresholds))->leafConditions($leaves, $params, $emptyQueries, $fuzzy);
+        $compiled = (new FuzzyQueryCompiler($this->index, $thresholds, $this->extensionSchema))->leafConditions($leaves, $params, $emptyQueries, $fuzzy);
         if ($compiled['columns'] === []) {
             throw new \LogicException('A relaxation probe needs at least one leaf that is not a stop word.');
         }

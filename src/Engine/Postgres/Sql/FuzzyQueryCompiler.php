@@ -51,6 +51,7 @@ final class FuzzyQueryCompiler
     public function __construct(
         private readonly IndexDefinition $index,
         private readonly Thresholds $thresholds,
+        private readonly string $extensionSchema = 'public',
     ) {
         $this->tsquery = new TsQueryCompiler($index);
     }
@@ -164,10 +165,11 @@ final class FuzzyQueryCompiler
             return ['predicate' => $exact, 'score' => sprintf('CASE WHEN %s THEN 1.0 ELSE 0.0 END', $exact), 'partial' => false];
         }
         $norm = $this->column('fn', sprintf('%s(%s)', PostgresSchemaGenerator::NORM_FUNCTION, $params->add($needle)));
+        $schema = Sql::ident($this->extensionSchema);
 
         return [
-            'predicate' => sprintf('(%s OR %s <%% s.fz)', $exact, $norm),
-            'score' => sprintf('GREATEST(word_similarity(%s, s.fz), CASE WHEN %s THEN 1.0 ELSE 0.0 END)', $norm, $exact),
+            'predicate' => sprintf('(%s OR %s OPERATOR(%s.<%%) s.fz)', $exact, $norm, $schema),
+            'score' => sprintf('GREATEST(%s.word_similarity(%s, s.fz), CASE WHEN %s THEN 1.0 ELSE 0.0 END)', $schema, $norm, $exact),
             'partial' => false,
         ];
     }

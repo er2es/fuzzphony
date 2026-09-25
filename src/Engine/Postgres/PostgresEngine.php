@@ -50,7 +50,7 @@ final class PostgresEngine implements Engine
 
     public function __construct(
         private readonly Connection $connection,
-        string $extensionSchema = 'public',
+        private readonly string $extensionSchema = 'public',
     ) {
         $this->schema = new PostgresSchemaGenerator($extensionSchema);
     }
@@ -379,14 +379,14 @@ final class PostgresEngine implements Engine
         $plain = implode(' ', TsQueryCompiler::lexemes(implode(' ', NodeInspector::positiveWords($root))));
 
         // Typo tolerance is per word (FuzzyQueryCompiler); it needs at least one positive word long enough for it.
-        $fuzzy = new FuzzyQueryCompiler($index, $thresholds);
+        $fuzzy = new FuzzyQueryCompiler($index, $thresholds, $this->extensionSchema);
         $fuzzyRoot = $root !== null
             && $index->hasFuzzy()
             && $profile->fuzzy > 0.0
             && $thresholds->fuzzyMode !== FuzzyMode::Never
             && $fuzzy->hasFuzzyLeaf($root) ? $root : null;
 
-        $builder = new SearchSqlBuilder($index);
+        $builder = new SearchSqlBuilder($index, $this->extensionSchema);
         $statements = [];
         $usedFuzzy = false;
         $threshold = null;
@@ -479,7 +479,7 @@ final class PostgresEngine implements Engine
             return null;
         }
 
-        $statement = ['label' => self::PROBE_LABEL] + (new SearchSqlBuilder($index))->probe($probed, $fuzzy, $conditions, $thresholds, $empty);
+        $statement = ['label' => self::PROBE_LABEL] + (new SearchSqlBuilder($index, $this->extensionSchema))->probe($probed, $fuzzy, $conditions, $thresholds, $empty);
         $row = $this->run($statement, $fuzzy ? $thresholds->fuzzySimilarity : null)[0] ?? [];
         $ignored = [];
         foreach ($probed as $i => $leaf) {
