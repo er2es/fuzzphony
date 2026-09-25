@@ -6,9 +6,12 @@ namespace Fuzzphony\Tests\Unit\Core\Definition;
 
 use Fuzzphony\Core\Definition\DefinitionValidator;
 use Fuzzphony\Core\Definition\FieldDefinition;
+use Fuzzphony\Core\Definition\FilterDefinition;
+use Fuzzphony\Core\Definition\FilterType;
 use Fuzzphony\Core\Definition\IndexDefinition;
 use Fuzzphony\Core\Definition\Source;
 use Fuzzphony\Core\Definition\SyncMode;
+use Fuzzphony\Core\Definition\TextConfig;
 use Fuzzphony\Core\Definition\Watch;
 use Fuzzphony\Core\Exception\InvalidDefinition;
 use Fuzzphony\Core\Ranking\RankingProfile;
@@ -171,6 +174,162 @@ final class DefinitionValidatorTest extends TestCase
 
         self::assertCount(1, $violations, implode("\n", $violations));
         self::assertStringContainsString('Watch on "brand": affectedIds must not contain "$fuzzphony$"', $violations[0]);
+    }
+
+    public function testSourceQueryMustBeASelectStatement(): void
+    {
+        $definition = new IndexDefinition(
+            name: 'products',
+            source: Source::query('DELETE FROM product'),
+            fields: [new FieldDefinition('name')],
+            sync: SyncMode::Manual,
+        );
+
+        $violations = DefinitionValidator::validate($definition);
+
+        self::assertCount(1, $violations, implode("\n", $violations));
+        self::assertSame('Source query must be a SELECT (or WITH ... SELECT) statement.', $violations[0]);
+    }
+
+    public function testIdColumnMustBeAValidColumnName(): void
+    {
+        $definition = new IndexDefinition(
+            name: 'products',
+            source: Source::table('product', 'id; --'),
+            fields: [new FieldDefinition('name')],
+        );
+
+        $violations = DefinitionValidator::validate($definition);
+
+        self::assertCount(1, $violations, implode("\n", $violations));
+        self::assertSame('Id column "id; --" is not a valid column name.', $violations[0]);
+    }
+
+    public function testAtLeastOneFieldIsRequired(): void
+    {
+        $definition = new IndexDefinition(
+            name: 'products',
+            source: Source::table('product'),
+            fields: [],
+        );
+
+        $violations = DefinitionValidator::validate($definition);
+
+        self::assertCount(1, $violations, implode("\n", $violations));
+        self::assertSame('At least one searchable field is required, e.g. ->field("name", "A").', $violations[0]);
+    }
+
+    public function testFieldNameAndColumnMustBeValid(): void
+    {
+        $definition = new IndexDefinition(
+            name: 'products',
+            source: Source::table('product'),
+            fields: [new FieldDefinition('Bad Name!', column: 'title'), new FieldDefinition('title', column: 'bad col!')],
+        );
+
+        $violations = DefinitionValidator::validate($definition);
+
+        self::assertCount(2, $violations, implode("\n", $violations));
+        self::assertSame('Field name "Bad Name!" must match [a-z_][a-z0-9_]*.', $violations[0]);
+        self::assertSame('Field "title" maps to invalid column "bad col!".', $violations[1]);
+    }
+
+    public function testFilterNameColumnAndDuplicatesAreValidated(): void
+    {
+        $definition = new IndexDefinition(
+            name: 'products',
+            source: Source::table('product'),
+            fields: [new FieldDefinition('name')],
+            filters: [
+                new FilterDefinition('Bad Name!', FilterType::Int, 'price'),
+                new FilterDefinition('price', FilterType::Int, 'bad col!'),
+                new FilterDefinition('stock', FilterType::Int),
+                new FilterDefinition('stock', FilterType::Int),
+            ],
+        );
+
+        $violations = DefinitionValidator::validate($definition);
+
+        self::assertCount(3, $violations, implode("\n", $violations));
+        self::assertSame('Filter name "Bad Name!" must match [a-z_][a-z0-9_]*.', $violations[0]);
+        self::assertSame('Filter "price" maps to invalid column "bad col!".', $violations[1]);
+        self::assertSame('Filter "stock" is defined twice.', $violations[2]);
+    }
+
+    public function testBoostAndRecencyColumnsMustBeValidColumnNames(): void
+    {
+        $definition = new IndexDefinition(
+            name: 'products',
+            source: Source::table('product'),
+            fields: [new FieldDefinition('name')],
+            boostColumn: 'bad col!',
+        );
+
+        $violations = DefinitionValidator::validate($definition);
+
+        self::assertCount(1, $violations, implode("\n", $violations));
+        self::assertSame('The boost column "bad col!" is not a valid column name.', $violations[0]);
+    }
+
+    public function testWatchedTableAndKeyColumnMustBeValid(): void
+    {
+        $definition = new IndexDefinition(
+            name: 'products',
+            source: Source::table('product'),
+            fields: [new FieldDefinition('name')],
+            watches: [new Watch('bad table!', 'SELECT :id', 'bad col!')],
+        );
+
+        $violations = DefinitionValidator::validate($definition);
+
+        self::assertCount(2, $violations, implode("\n", $violations));
+        self::assertSame('Watched table "bad table!" is not a valid identifier.', $violations[0]);
+        self::assertSame('Watch key column "bad col!" is not a valid column name.', $violations[1]);
+    }
+
+    public function testLanguageMustBeATextSearchConfigurationName(): void
+    {
+        $definition = new IndexDefinition(
+            name: 'products',
+            source: Source::table('product'),
+            fields: [new FieldDefinition('name')],
+            text: new TextConfig('not a language!'),
+        );
+
+        $violations = DefinitionValidator::validate($definition);
+
+        self::assertCount(1, $violations, implode("\n", $violations));
+        self::assertSame('Language "not a language!" must be a text search configuration name such as english, hungarian, german or simple.', $violations[0]);
+    }
+
+    public function testADefaultRankingProfileIsRequired(): void
+    {
+        $definition = new IndexDefinition(
+            name: 'products',
+            source: Source::table('product'),
+            fields: [new FieldDefinition('name')],
+            profiles: ['other' => new RankingProfile()],
+        );
+
+        $violations = DefinitionValidator::validate($definition);
+
+        self::assertCount(1, $violations, implode("\n", $violations));
+        self::assertSame('A ranking profile named "default" is required.', $violations[0]);
+    }
+
+    public function testARecencyProfileNeedsARecencyColumn(): void
+    {
+        $definition = new IndexDefinition(
+            name: 'products',
+            source: Source::table('product'),
+            fields: [new FieldDefinition('name')],
+            profiles: ['default' => new RankingProfile(recency: 0.3)],
+        );
+
+        $violations = DefinitionValidator::validate($definition);
+
+        self::assertCount(1, $violations, implode("\n", $violations));
+        self::assertSame('Profile "default" uses recency, but the index has no recency column. Call recencyBy("published_at") or set recency to 0.', $violations[0]);
     }
 
     public function testTheDollarQuoteTagIsMatchedCaseSensitivelyLikePostgres(): void
