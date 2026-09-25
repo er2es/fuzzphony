@@ -16,6 +16,8 @@ jobs:
   analysis:
     runs-on: ubuntu-latest
     permissions:
+      contents: read # the checks read workflows, releases and pull requests
+      actions: read
       security-events: write # upload the results to code scanning
       id-token: write # publish the results for the badge
     steps:

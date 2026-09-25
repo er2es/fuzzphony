@@ -8,9 +8,9 @@
 #        Symfony cache are baked in; no composer, no dev tooling)
 #   web  nginx serving the compiled assets and proxying the rest to php-fpm
 #   dev  php + composer for docker-compose.dev.yml (source bind-mounted, APP_ENV=dev)
-ARG PHP_IMAGE=php:8.4.26-fpm-alpine3.24
-ARG NGINX_IMAGE=nginxinc/nginx-unprivileged:1.30.5-alpine3.24
-ARG COMPOSER_IMAGE=composer:2.10.3
+ARG PHP_IMAGE=php:8.4.26-fpm-alpine3.24@sha256:26d7864255a0a4be3dcf9cbfb7a2b01659a1670cb52c839f582ebfd5d9d96bfc
+ARG NGINX_IMAGE=nginxinc/nginx-unprivileged:1.30.5-alpine3.24@sha256:4714e0b1b2577eaa1a6131d07c958b67f0eb68e6d0521e90c6e5287db8cf0bc5
+ARG COMPOSER_IMAGE=composer:2.10.3@sha256:9715c7f69044da2a212a5fbde29ee7da24e364d426560ae6367b060236f847d7
 
 FROM ${COMPOSER_IMAGE} AS composer
 
