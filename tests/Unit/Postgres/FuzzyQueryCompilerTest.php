@@ -144,6 +144,22 @@ final class FuzzyQueryCompilerTest extends TestCase
         self::assertNull($this->compiler()->compile(self::parse('-(mouse cable)'), new ParameterBag()));
     }
 
+    /** A negated stop word drops out of the group entirely (its exact() is null too), leaving the rest intact. */
+    public function testANegatedStopWordIsDroppedWhileTheRestOfTheGroupSurvives(): void
+    {
+        $params = new ParameterBag();
+        $match = $this->compiler()->compile(self::parse('mouse -for'), $params, ["'for'"]);
+
+        self::assertNotNull($match);
+        self::assertSame("fz['mouse'|mouse]", self::shorthand($match->predicate, $match, $params));
+    }
+
+    /** Two negations with nothing positive to score: the group has no score, so the whole thing is null. */
+    public function testAllNegatedLeavesWithNoPositiveScoreCompileToNull(): void
+    {
+        self::assertNull($this->compiler()->compile(self::parse('-mouse -cable'), new ParameterBag()));
+    }
+
     public function testAnOrBranchThatBecomesNullIsDropped(): void
     {
         $params = new ParameterBag();
