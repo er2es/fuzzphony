@@ -6,3 +6,8 @@ framework:
     asset_mapper:
         paths:
             - assets/
+        # No CDN dependency, and the CSP's script-src doesn't allow the default polyfill's
+        # host (jspm.io) on purpose. Every browser this demo targets has native import maps
+        # and dynamic import, so the polyfill is dead weight (and its own CSP self-test is
+        # exactly the "data:" console warning you'd otherwise see on every page load).
+        importmap_polyfill: false
