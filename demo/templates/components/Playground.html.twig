@@ -89,7 +89,11 @@
                 </div>
 
                 <div class="panel panel-sql">
-                    <label class="check"><input type="checkbox" data-model="analyze" {{ analyze ? 'checked' }}> EXPLAIN ANALYZE (runs the query again to time each plan node)</label>
+                    {% if this.analyzeAllowed %}
+                        <label class="check"><input type="checkbox" data-model="analyze" {{ analyze ? 'checked' }}> EXPLAIN ANALYZE (runs the query again to time each plan node)</label>
+                    {% else %}
+                        <p class="muted">EXPLAIN ANALYZE (timing each plan node) is off in this demo: it runs every query a second time. Start the stack with <code>DEMO_ALLOW_ANALYZE=1</code> to enable it.</p>
+                    {% endif %}
                     {% if this.explanation %}
                         {% for statement in this.explanation.statements %}
                             <h3>{{ statement.label }}</h3>

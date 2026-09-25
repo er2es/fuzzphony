@@ -14,12 +14,16 @@ use Fuzzphony\Core\Wizard\Export\BuilderExporter;
 use Fuzzphony\Core\Wizard\Export\YamlExporter;
 use Fuzzphony\Core\Wizard\SourceIntrospector;
 use Symfony\Bundle\FrameworkBundle\Controller\AbstractController;
+use Symfony\Component\DependencyInjection\Attribute\Autowire;
 use Symfony\Component\HttpFoundation\Request;
 use Symfony\Component\HttpFoundation\Response;
+use Symfony\Component\HttpKernel\Exception\BadRequestHttpException;
 use Symfony\Component\Routing\Attribute\Route;
 
 final class PagesController extends AbstractController
 {
+    private const array LANGUAGES = ['english', 'german', 'french', 'spanish', 'italian', 'hungarian', 'dutch', 'simple'];
+
     #[Route('/playground', name: 'playground')]
     public function playground(): Response
     {
@@ -32,6 +36,13 @@ final class PagesController extends AbstractController
         $tables = $introspector->tables();
         $table = (string) $request->query->get('table', $tables[0]['table'] ?? '');
         $language = (string) $request->query->get('language', 'english');
+        // Only the introspector's own list (user tables, never pg_catalog or other system relations) is described.
+        if ($table !== '' && !in_array($table, array_column($tables, 'table'), true)) {
+            throw $this->createNotFoundException(sprintf('Unknown table "%s".', $table));
+        }
+        if (!in_array($language, self::LANGUAGES, true)) {
+            throw new BadRequestHttpException(sprintf('Unknown language "%s".', $language));
+        }
         $suggestion = $exports = null;
         $error = null;
 
@@ -57,7 +68,7 @@ final class PagesController extends AbstractController
             'tables' => $tables,
             'table' => $table,
             'language' => $language,
-            'languages' => ['english', 'german', 'french', 'spanish', 'italian', 'hungarian', 'dutch', 'simple'],
+            'languages' => self::LANGUAGES,
             'suggestion' => $suggestion,
             'exports' => $exports,
             'error' => $error,
@@ -93,12 +104,20 @@ final class PagesController extends AbstractController
         return CompareController::EXAMPLES + ['plain word' => 'wireless', 'two words' => 'wireless mouse'];
     }
 
+    /** Exact counts (?deep=1) scan the whole catalogue, so they are only offered when DEMO_ALLOW_DEEP_DOCTOR=1. */
     #[Route('/doctor', name: 'doctor')]
-    public function doctor(Request $request, Fuzzphony $fuzzphony): Response
-    {
+    public function doctor(
+        Request $request,
+        Fuzzphony $fuzzphony,
+        #[Autowire('%env(bool:DEMO_ALLOW_DEEP_DOCTOR)%')] bool $deepAllowed,
+    ): Response {
+        $deep = $deepAllowed && $request->query->getBoolean('deep');
+
         return $this->render('doctor.html.twig', [
-            'report' => $fuzzphony->inspect('catalog', new InspectOptions(deep: $request->query->getBoolean('deep'))),
-            'deep' => $request->query->getBoolean('deep'),
+            'report' => $fuzzphony->inspect('catalog', new InspectOptions(deep: $deep)),
+            'deep' => $deep,
+            'deep_allowed' => $deepAllowed,
+            'deep_refused' => !$deepAllowed && $request->query->getBoolean('deep'),
         ]);
     }
 }

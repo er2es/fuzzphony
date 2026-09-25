@@ -1,3 +1,9 @@
+parameters:
+    # Opt-in switches for the expensive diagnostics (off unless the environment sets them to 1):
+    # EXPLAIN ANALYZE in the playground re-runs every query, /doctor?deep=1 counts every row exactly.
+    env(DEMO_ALLOW_ANALYZE): '0'
+    env(DEMO_ALLOW_DEEP_DOCTOR): '0'
+
 services:
     _defaults:
         autowire: true
