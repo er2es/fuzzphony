@@ -69,4 +69,39 @@ final class ThresholdsTest extends TestCase
         $this->expectExceptionMessageMatches('/"relax_when_empty" must be a boolean/');
         (new Thresholds())->with(['relax_when_empty' => '']);
     }
+
+    public function testCostLimitsHaveHardMaximums(): void
+    {
+        $max = new Thresholds(
+            candidateLimit: Thresholds::MAX_CANDIDATE_LIMIT,
+            maxQueryLength: Thresholds::MAX_QUERY_LENGTH,
+            maxTerms: Thresholds::MAX_TERMS,
+        );
+        self::assertSame(10_000, $max->candidateLimit);
+        self::assertSame(1_024, $max->maxQueryLength);
+        self::assertSame(64, $max->maxTerms);
+
+        foreach ([
+            'candidate_limit' => ['"candidateLimit" must be <= 10000', 10_001],
+            'max_query_length' => ['"maxQueryLength" must be <= 1024', 1_025],
+            'max_terms' => ['"maxTerms" must be <= 64', 65],
+        ] as $key => [$message, $value]) {
+            try {
+                (new Thresholds())->with([$key => $value]);
+                self::fail(sprintf('%s = %d must be rejected', $key, $value));
+            } catch (InvalidDefinition $e) {
+                self::assertStringContainsString($message, $e->getMessage());
+            }
+        }
+    }
+
+    public function testAllCapViolationsAreReportedTogether(): void
+    {
+        try {
+            new Thresholds(candidateLimit: PHP_INT_MAX, maxQueryLength: PHP_INT_MAX, maxTerms: PHP_INT_MAX);
+            self::fail('must be rejected');
+        } catch (InvalidDefinition $e) {
+            self::assertCount(3, $e->violations);
+        }
+    }
 }

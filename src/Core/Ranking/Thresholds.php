@@ -11,6 +11,14 @@ use Fuzzphony\Core\Exception\InvalidDefinition;
  */
 final readonly class Thresholds
 {
+    /**
+     * Hard caps of the cost limits. They hold even when an application forwards request parameters
+     * into ->thresholds(), so an override can tighten the limits but never switch them off.
+     */
+    public const int MAX_CANDIDATE_LIMIT = 10_000;
+    public const int MAX_QUERY_LENGTH = 1_024;
+    public const int MAX_TERMS = 64;
+
     public function __construct(
         /** Minimum relevance (0..~1.5) a hit needs; bonuses are not counted. */
         public float $minScore = 0.0,
@@ -21,11 +29,11 @@ final readonly class Thresholds
         public FuzzyMode $fuzzyMode = FuzzyMode::Fallback,
         /** In fallback mode fuzzy matching kicks in when exact matching found fewer hits than this. */
         public int $fallbackBelow = 5,
-        /** Upper bound of candidates ranked per branch; protects against "match half the table" queries. */
+        /** Upper bound of candidates ranked per branch; protects against "match half the table" queries. At most MAX_CANDIDATE_LIMIT. */
         public int $candidateLimit = 2000,
-        /** Longer search text is truncated (with a warning). */
+        /** Longer search text is truncated (with a warning). At most MAX_QUERY_LENGTH. */
         public int $maxQueryLength = 256,
-        /** Queries with more terms are truncated (with a warning). */
+        /** Queries with more terms are truncated (with a warning). At most MAX_TERMS. */
         public int $maxTerms = 16,
         /**
          * A multi-word query that finds nothing is searched once more without the words that match
@@ -49,8 +57,17 @@ final readonly class Thresholds
         if ($candidateLimit < 10) {
             $violations[] = '"candidateLimit" must be >= 10.';
         }
+        if ($candidateLimit > self::MAX_CANDIDATE_LIMIT) {
+            $violations[] = sprintf('"candidateLimit" must be <= %d.', self::MAX_CANDIDATE_LIMIT);
+        }
         if ($maxQueryLength < 1 || $maxTerms < 1) {
             $violations[] = '"maxQueryLength" and "maxTerms" must be >= 1.';
+        }
+        if ($maxQueryLength > self::MAX_QUERY_LENGTH) {
+            $violations[] = sprintf('"maxQueryLength" must be <= %d.', self::MAX_QUERY_LENGTH);
+        }
+        if ($maxTerms > self::MAX_TERMS) {
+            $violations[] = sprintf('"maxTerms" must be <= %d.', self::MAX_TERMS);
         }
         if ($violations !== []) {
             throw new InvalidDefinition('thresholds', $violations);

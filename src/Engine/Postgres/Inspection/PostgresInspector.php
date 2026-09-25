@@ -414,7 +414,7 @@ final class PostgresInspector
         if ($t->fuzzySimilarity < 0.2) {
             $checks[] = Check::warning('Typo tolerance', sprintf('fuzzy_similarity %.2f is very tolerant; expect noisy matches.', $t->fuzzySimilarity));
         }
-        if ($t->candidateLimit > 20_000) {
+        if ($t->candidateLimit > 5_000) {
             $checks[] = Check::warning('Candidate limit', sprintf('candidate_limit %d may make frequent words slow to rank.', $t->candidateLimit));
         }
         if ($checks === []) {
