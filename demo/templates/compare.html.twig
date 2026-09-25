@@ -1,13 +1,14 @@
 {% extends 'base.html.twig' %}
 
 {% block body %}
-    <form method="get" class="searchbar" data-loading-message="Searching with ILIKE and Fuzzphony (1 cold + {{ warmRuns }} warm runs each)…">
+    <form method="get" class="searchbar" data-loading-message="Searching with Fuzzphony (1 cold + {{ warmRuns }} warm runs)…">
         <input type="search" name="q" value="{{ q }}" aria-label="Search the catalogue" placeholder="Search the catalogue…" autofocus>
         <button type="submit" class="primary">Search</button>
     </form>
     <p class="muted">
         Searching {{ rowEstimate > 0 ? rowEstimate|number_format ~ ' products' : 'the product catalogue' }} (<code>{{ table }}</code>):
         each search runs 1 cold + {{ warmRuns }} warm runs on both engines = {{ ((1 + warmRuns) * engines)|number_format }} statements.
+        Fuzzphony renders below at once; ILIKE is much slower on this catalogue, so its column loads separately.
     </p>
     <div class="examples">
         {% for label, example in examples %}
@@ -17,16 +18,21 @@
 
     {% if with %}
         <div class="grid">
-            <section class="card">
-                <h2>With ILIKE <code>'%…%'</code></h2>
-                <p class="muted">{{ without.value|length }} hits · warm median {{ without.warm|number_format(1) }} ms · cold {{ without.cold|number_format(1) }} ms · no ranking</p>
-                <ul class="hits">
-                    {% for row in without.value %}
-                        <li>{{ row.name }} <span class="muted">· {{ row.brand }}</span></li>
-                    {% else %}
-                        <li class="muted">Nothing found. The text has to match the stored spelling exactly.</li>
-                    {% endfor %}
-                </ul>
+            {# ILIKE is much slower than Fuzzphony on this catalogue (see the controller); rather than block the
+               whole page on it, the column starts as a placeholder and ilike_controller.js fetches the real
+               content from compare_ilike and swaps it in. A new search is a plain page navigation, so it never
+               races this fetch; the controller's own AbortController only guards disconnects within a page. #}
+            <section class="card" data-controller="ilike" data-src="{{ path('compare_ilike', {q: q}) }}">
+                <div data-ilike-target="region" aria-busy="true">
+                    <h2>With ILIKE <code>'%…%'</code></h2>
+                    <p class="muted">ILIKE is scanning {{ rowEstimate > 0 ? rowEstimate|number_format ~ ' rows' : 'the catalogue' }}…</p>
+                    <ul class="hits" aria-hidden="true">
+                        <li><span class="skeleton"></span></li>
+                        <li><span class="skeleton"></span></li>
+                        <li><span class="skeleton"></span></li>
+                    </ul>
+                </div>
+                <noscript><p class="muted"><a href="{{ path('compare_ilike', {q: q}) }}">Load the ILIKE results</a> (needs JavaScript to load on its own).</p></noscript>
             </section>
             <section class="card">
                 {% set result = with.value %}

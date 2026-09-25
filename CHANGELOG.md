@@ -11,6 +11,9 @@ changes; they are always listed under **Breaking** and explained in [UPGRADE.md]
 
 - Demo: the database is PostgreSQL 18.6 (was 17.11). An existing demo needs
   `docker compose down -v` once and seeds again on the next `up --build`.
+- Demo: the compare page shows Fuzzphony's results at once and loads the ILIKE column
+  separately (`GET /compare/ilike`), so the page feels as fast as Fuzzphony is instead of waiting
+  on ILIKE's ~400 ms full scan too.
 
 ## [0.3.2] - 2026-09-25
 
