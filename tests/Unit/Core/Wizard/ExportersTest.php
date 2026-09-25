@@ -152,4 +152,93 @@ final class ExportersTest extends TestCase
 
         self::assertStringContainsString("->watch('fz_brand', 'SELECT id FROM fz_product WHERE brand_id = :id', columns: ['name'])", $code);
     }
+
+    public function testBuilderExportCoversTheOptionalArgumentsOfEveryClause(): void
+    {
+        $original = IndexDefinition::builder('gizmos')
+            ->fromTable('gizmo', 'uuid')
+            ->idType('uuid')
+            ->watch('gizmo_tag', 'SELECT gizmo_id FROM gizmo_tag_map WHERE tag_id = :id', 'tag_id', columns: ['name'])
+            ->watch('gizmo_note', 'SELECT gizmo_id FROM notes WHERE note_id = :id', 'note_id')
+            ->field('title', 'A', highlight: false)
+            ->field('body', 'D', column: 'Body')
+            ->filter('account_id', 'int')
+            ->sync('manual')
+            ->triggerLevel('row')
+            ->tenant('account_id')
+            ->build();
+
+        $code = (new BuilderExporter())->export($original);
+        $tokens = token_get_all("<?php\n" . $code, TOKEN_PARSE);
+        self::assertNotEmpty($tokens);
+
+        self::assertStringContainsString("->fromTable('gizmo', 'uuid')", $code);
+        self::assertStringContainsString("->idType('uuid')", $code);
+        self::assertStringContainsString("->watch('gizmo_tag', 'SELECT gizmo_id FROM gizmo_tag_map WHERE tag_id = :id', 'tag_id', columns: ['name'])", $code);
+        self::assertStringContainsString("->watch('gizmo_note', 'SELECT gizmo_id FROM notes WHERE note_id = :id', 'note_id')", $code);
+        self::assertStringContainsString('highlight: false', $code);
+        self::assertStringContainsString("column: 'Body'", $code);
+        self::assertStringContainsString("->sync('manual')", $code);
+        self::assertStringContainsString("->triggerLevel('row')", $code);
+        self::assertStringContainsString("->tenant('account_id')", $code);
+    }
+
+    public function testAttributeExportThrowsForUnsupportedSources(): void
+    {
+        $this->expectException(\LogicException::class);
+        $this->expectExceptionMessage('Only table sources without extra watches can be expressed with attributes; export YAML instead.');
+        (new AttributeExporter())->export(Indexes::products());
+    }
+
+    public function testAttributeExportCoversOptionalArgumentsAndFilterTypes(): void
+    {
+        $original = IndexDefinition::builder('widgets')
+            ->fromTable('widget')
+            ->field('title', 'A', fuzzy: true, highlight: false)
+            ->filter('price', 'float')
+            ->filter('label', 'string')
+            ->filter('created', 'date')
+            ->filter('updated_at', 'datetime')
+            ->filter('account_id', 'int')
+            ->language('german', unaccent: false)
+            ->sync('manual')
+            ->triggerLevel('row')
+            ->boostBy('price')
+            ->tenant('account_id')
+            ->build();
+
+        $code = (new AttributeExporter())->export($original, 'WidgetExport' . bin2hex(random_bytes(4)));
+        $tokens = token_get_all($code, TOKEN_PARSE);
+        self::assertNotEmpty($tokens);
+
+        self::assertStringContainsString('unaccent: false', $code);
+        self::assertStringContainsString('sync: SyncMode::Manual', $code);
+        self::assertStringContainsString('triggerLevel: TriggerLevel::Row', $code);
+        self::assertStringContainsString("boost: 'price'", $code);
+        self::assertStringContainsString("tenant: 'account_id'", $code);
+        self::assertStringContainsString('highlight: false', $code);
+        self::assertStringContainsString("type: 'float', column: 'price'", $code);
+        self::assertStringContainsString('public ?float $price = null;', $code);
+        self::assertStringContainsString('public ?string $label = null;', $code);
+        self::assertStringContainsString('public ?\DateTimeImmutable $created = null;', $code);
+        self::assertStringContainsString('public ?\DateTimeImmutable $updatedAt = null;', $code);
+    }
+
+    public function testArrayExportIncludesNonDefaultIdTypeTriggerLevelAndUnaccent(): void
+    {
+        $original = IndexDefinition::builder('widgets')
+            ->fromTable('widget', 'uuid')
+            ->idType('uuid')
+            ->field('title', 'A')
+            ->triggerLevel('row')
+            ->language('german', unaccent: false)
+            ->build();
+
+        $exported = (new ArrayExporter())->export($original);
+
+        self::assertSame('uuid', $exported['id_type']);
+        self::assertSame('row', $exported['trigger_level']);
+        self::assertFalse($exported['unaccent']);
+        self::assertEquals($original, (new ArrayDefinitionLoader())->load('widgets', $exported));
+    }
 }
