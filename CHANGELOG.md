@@ -93,6 +93,14 @@
   fork PRs, and Dependabot for Composer and GitHub Actions.
 * **Docs**: README search-controller examples (minimal and tenant-scoped), a table of contents, the
   two-step index build flow, and corrected example code (filter names are snake_case).
+* **Demo**: `demo/docker-compose.yml` is now a production-like stack instead of `php -S` on a bind
+  mount: nginx + php-fpm (`web`, `php`), a `worker`, a one-shot idempotent `init` (seed only when
+  missing, schema, reindex only when empty, doctor) and a tuned PostgreSQL 17 with a named volume.
+  The image is multi-stage and immutable (dependencies, compiled AssetMapper assets and the prod
+  cache are baked in; non-root, read-only root filesystem, opcache preload, healthchecks, memory
+  limits, log rotation). `docker-compose.dev.yml` keeps live editing. Ports, catalogue size and
+  secrets are settable (`.env.example`); the database port is published on 127.0.0.1 only. The old
+  `demo` volume is not reused: the first start of the new stack seeds again (`down -v` resets).
 
 ## 0.2.0 — 2026-09-24
 
