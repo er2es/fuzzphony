@@ -5,12 +5,15 @@ on:
     branches: [main]
   pull_request:
 
+permissions:
+  contents: read
+
 jobs:
   validate:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v7
-      - uses: shivammathur/setup-php@v2
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: shivammathur/setup-php@f3e473d116dcccaddc5834248c87452386958240 # 2.37.2
         with:
           php-version: '8.4'
           coverage: none
@@ -20,8 +23,8 @@ jobs:
     needs: validate
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v7
-      - uses: shivammathur/setup-php@v2
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: shivammathur/setup-php@f3e473d116dcccaddc5834248c87452386958240 # 2.37.2
         with:
           php-version: '8.4'
           extensions: pdo_pgsql, mbstring
@@ -53,8 +56,8 @@ jobs:
     env:
       FUZZPHONY_TEST_DSN: "pgsql:host=127.0.0.1;port=5432;dbname=fuzzphony;user=fuzzphony;password=fuzzphony"
     steps:
-      - uses: actions/checkout@v7
-      - uses: shivammathur/setup-php@v2
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: shivammathur/setup-php@f3e473d116dcccaddc5834248c87452386958240 # 2.37.2
         with:
           php-version: ${{ matrix.php }}
           extensions: pdo_pgsql, mbstring
@@ -73,8 +76,8 @@ jobs:
     needs: validate
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v7
-      - uses: shivammathur/setup-php@v2
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: shivammathur/setup-php@f3e473d116dcccaddc5834248c87452386958240 # 2.37.2
         with:
           php-version: '8.4'
           extensions: pdo_pgsql, mbstring
@@ -100,8 +103,8 @@ jobs:
       DATABASE_URL: "postgresql://fuzzphony:fuzzphony@127.0.0.1:5432/fuzzphony?serverVersion=17&charset=utf8"
       PGPASSWORD: fuzzphony
     steps:
-      - uses: actions/checkout@v7
-      - uses: shivammathur/setup-php@v2
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: shivammathur/setup-php@f3e473d116dcccaddc5834248c87452386958240 # 2.37.2
         with:
           php-version: '8.4'
           extensions: pdo_pgsql, mbstring
@@ -142,8 +145,8 @@ jobs:
     env:
       FUZZPHONY_TEST_DSN: "pgsql:host=127.0.0.1;port=5432;dbname=fuzzphony;user=fuzzphony;password=fuzzphony"
     steps:
-      - uses: actions/checkout@v7
-      - uses: shivammathur/setup-php@v2
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: shivammathur/setup-php@f3e473d116dcccaddc5834248c87452386958240 # 2.37.2
         with:
           php-version: '8.4'
           extensions: pdo_pgsql, mbstring
@@ -151,7 +154,7 @@ jobs:
       - run: composer install --no-progress --prefer-dist
       - run: vendor/bin/phpunit --coverage-clover=coverage.xml
       - name: Upload coverage reports to Codecov
-        uses: codecov/codecov-action@v7
+        uses: codecov/codecov-action@303a32d7a59b442fa8d48b6a1cc6825c09c847a5 # v7.1.1
         with:
           token: ${{ secrets.CODECOV_TOKEN }}
           files: coverage.xml

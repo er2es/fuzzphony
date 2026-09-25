@@ -12,6 +12,8 @@ changes; they are always listed under **Breaking** and explained in [UPGRADE.md]
 - README: every known limitation now points to its planned fix; the roadmap adds exact field
   scoping, length-aware typo tolerance, an exact `total`, partition-aware sync and a one-job
   resync after `TRUNCATE`.
+- CI: every workflow runs with a read-only token and pins its actions to a commit SHA; an OpenSSF
+  Scorecard workflow publishes the score shown in the README badge.
 
 ## [0.3.1] - 2026-09-25
 

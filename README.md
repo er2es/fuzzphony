@@ -3,6 +3,7 @@
 [![CI](https://github.com/er2es/fuzzphony/actions/workflows/ci.yml/badge.svg)](https://github.com/er2es/fuzzphony/actions/workflows/ci.yml)
 [![codecov](https://codecov.io/gh/er2es/fuzzphony/graph/badge.svg)](https://codecov.io/gh/er2es/fuzzphony)
 [![Packagist Version](https://img.shields.io/packagist/v/fuzzphony/fuzzphony)](https://packagist.org/packages/fuzzphony/fuzzphony)
+[![OpenSSF Scorecard](https://api.scorecard.dev/projects/github.com/er2es/fuzzphony/badge)](https://scorecard.dev/viewer/?uri=github.com/er2es/fuzzphony)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 
 **Fuzzy search, in perfect harmony with your database.**

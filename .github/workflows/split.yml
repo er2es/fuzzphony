@@ -11,6 +11,9 @@ on:
   #   branches: [main]
   #   tags: ['*']
 
+permissions:
+  contents: read
+
 jobs:
   split:
     runs-on: ubuntu-latest
@@ -22,10 +25,10 @@ jobs:
           - { path: 'src/Bridge/Doctrine', repo: 'doctrine-bridge' }
           - { path: 'src/Bundle', repo: 'symfony-bundle' }
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: 0
-      - uses: symplify/monorepo-split-github-action@v2.4.5
+      - uses: symplify/monorepo-split-github-action@14e42e2437f674b8987c1f50ca3689116aea1893 # v2.4.5
         env:
           GITHUB_TOKEN: ${{ secrets.SPLIT_ACCESS_TOKEN }}
         with:
