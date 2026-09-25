@@ -61,4 +61,12 @@ final class ThresholdsTest extends TestCase
         $this->expectExceptionMessageMatches('/"relax_when_empty" must be a boolean/');
         (new Thresholds())->with(['relax_when_empty' => 'maybe']);
     }
+
+    public function testRelaxWhenEmptyRejectsAnEmptyString(): void
+    {
+        // "--threshold relax_when_empty=" must not silently switch the feature off
+        $this->expectException(InvalidDefinition::class);
+        $this->expectExceptionMessageMatches('/"relax_when_empty" must be a boolean/');
+        (new Thresholds())->with(['relax_when_empty' => '']);
+    }
 }

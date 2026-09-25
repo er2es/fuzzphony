@@ -119,6 +119,7 @@ final readonly class Thresholds
     {
         return match (true) {
             is_bool($value) => $value,
+            $value === '' => null, // filter_var() reads an empty string as false
             is_int($value), is_string($value) => filter_var($value, FILTER_VALIDATE_BOOL, FILTER_NULL_ON_FAILURE),
             default => null,
         };
