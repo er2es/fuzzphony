@@ -337,10 +337,25 @@ text) or by trigram similarity, combined through the query's real AND / OR / NOT
 
 So a typo in one word never lets through documents that lack the other words. Typo tolerance only
 reaches words stored in **fuzzy fields** (`fuzzy: true`): a misspelled word that appears only in a
-non-fuzzy field such as a description or a category cannot be matched approximately, so the whole
-query finds nothing rather than ignoring that word. Words shorter than
+non-fuzzy field such as a description or a category cannot be matched approximately. Words shorter than
 `fuzzy_min_length` and stop words of the index language ("for", "the") are handled like the
 full-text query handles them: short words must match exactly, stop words are ignored.
+
+**A query that finds nothing is relaxed.** When a query of two or more words returns no hit at
+all, Fuzzphony checks each word on its own against everything the search may see (your filters
+and the tenant included), exactly or by similarity just like the search does. Words that match
+nothing at all are dropped, the search runs once more, and the result says so:
+
+```php
+$result = $fuzzphony->in('products')->query('wireless mouse aluminum')->get(); // "aluminium" is only in descriptions
+$result->interpretedAs; // "(wireless AND mouse)"
+$result->warnings;      // ['No results for all words; ignored words that match nothing: "aluminum".']
+```
+
+Words that all match something but never in the same document (`mouse kettle`) are **not**
+relaxed: that empty result is the correct answer. A query that already has hits, a single word, or a
+query whose every word matches nothing is never relaxed either. The check costs one extra statement,
+only for empty multi-word results; turn it off with `relax_when_empty: false`.
 
 Limits (`max_query_length`, `max_terms`, nesting depth 8) keep hostile input cheap.
 Developer mistakes, like an unknown filter or a wrong value type, **do** throw, with a suggestion:
@@ -395,6 +410,7 @@ $fuzzphony->in('products')->query('mouse')->profile('popular')->get();
 | `fuzzy_min_length` | `3` | shorter words must match exactly; a query with no longer word skips typo tolerance |
 | `candidate_limit` | `2000` | max candidates ranked per branch; `total` becomes a lower bound (`2000+`) |
 | `max_query_length` / `max_terms` | `256` / `16` | input limits |
+| `relax_when_empty` | `true` | a multi-word query that finds nothing drops the words that match nothing and says so in `warnings` ([details](#query-syntax)); independent of `fuzzy_mode` |
 
 Set them per index (YAML) or per query: `->thresholds(['min_score' => 0.1, 'fuzzy_mode' => 'always'])`.
 Invalid keys fail immediately with the list of allowed ones.
