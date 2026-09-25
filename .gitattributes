@@ -11,11 +11,12 @@
 # Dev-only material: never part of a `composer require`/`update` download (Composer fetches a
 # GitHub-generated zip, which -- like `git archive` -- honours export-ignore). A git checkout
 # still has all of it; only the distributed package is smaller.
+# /.github stays in: OpenSSF Scorecard reads the repository from that same archive and would
+# otherwise find no workflows to score.
 /demo export-ignore
 /benchmarks export-ignore
 /docs export-ignore
 /tests export-ignore
-/.github export-ignore
 /docker-compose.yml export-ignore
 /.dockerignore export-ignore
 /phpunit.xml.dist export-ignore
