@@ -170,6 +170,71 @@ abstract class EngineConformanceTestCase extends TestCase
         self::assertEqualsWithDelta($alone->hits[0]->breakdown->fuzzySimilarity, $result->hits[0]->breakdown->fuzzySimilarity, 1e-9);
     }
 
+    public function testAWordThatMatchesNothingIsIgnoredWhenTheQueryFindsNothing(): void
+    {
+        // "offfice" is a typo of a word that only occurs in a description, which typo tolerance does not reach
+        $result = $this->fuzzphony->in('products')->query('wireless mouse offfice')->get();
+
+        self::assertSame([1], $this->ids($result));
+        self::assertSame('(wireless AND mouse)', $result->interpretedAs);
+        self::assertContains('No results for all words; ignored words that match nothing: "offfice".', $result->warnings);
+    }
+
+    public function testWordsThatAllExistButNeverTogetherAreNotRelaxed(): void
+    {
+        $result = $this->fuzzphony->in('products')->query('mouse torch')->get();
+
+        self::assertSame([], $this->ids($result));
+        self::assertSame(0, $result->total);
+        self::assertSame([], $result->warnings);
+        self::assertSame('(mouse AND torch)', $result->interpretedAs);
+    }
+
+    public function testAQueryWithHitsIsNotRelaxed(): void
+    {
+        $result = $this->fuzzphony->in('products')->query('wireless mouse')->get();
+
+        self::assertSame([1], $this->ids($result));
+        self::assertSame([], $result->warnings);
+    }
+
+    public function testASingleWordOrOnlyUnmatchedWordsAreNotRelaxed(): void
+    {
+        foreach (['offfice', 'offfice zzqqx'] as $query) {
+            $result = $this->fuzzphony->in('products')->query($query)->get();
+
+            self::assertSame([], $this->ids($result), $query);
+            self::assertSame([], $result->warnings, $query);
+        }
+    }
+
+    public function testRelaxationCanBeTurnedOff(): void
+    {
+        $result = $this->fuzzphony->in('products')->query('wireless mouse offfice')->thresholds(['relax_when_empty' => false])->get();
+
+        self::assertSame([], $this->ids($result));
+        self::assertSame([], $result->warnings);
+        self::assertSame('(wireless AND mouse AND offfice)', $result->interpretedAs);
+    }
+
+    public function testRelaxationDoesNotDependOnTypoTolerance(): void
+    {
+        $result = $this->fuzzphony->in('products')->query('wireless mouse offfice')->thresholds(['fuzzy_mode' => 'never'])->get();
+
+        self::assertSame([1], $this->ids($result));
+        self::assertFalse($result->usedFuzzy);
+        self::assertContains('No results for all words; ignored words that match nothing: "offfice".', $result->warnings);
+    }
+
+    public function testRelaxationOnlyCountsDocumentsThatPassTheFilters(): void
+    {
+        // only product 3 (wireless headphones) is out of stock: "mouse" matches nothing there
+        $result = $this->fuzzphony->in('products')->query('wireless mouse')->where('in_stock', false)->get();
+
+        self::assertSame([3], $this->ids($result));
+        self::assertContains('No results for all words; ignored words that match nothing: "mouse".', $result->warnings);
+    }
+
     public function testPhrase(): void
     {
         $this->requireCapability(Capability::Phrase);

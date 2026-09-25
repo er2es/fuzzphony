@@ -14,12 +14,19 @@ use Fuzzphony\Core\Exception\FuzzphonyException;
 use Fuzzphony\Core\Exception\InvalidQuery;
 use Fuzzphony\Core\Inspection\InspectionReport;
 use Fuzzphony\Core\Inspection\InspectOptions;
+use Fuzzphony\Core\Query\Ast\FieldScoped;
+use Fuzzphony\Core\Query\Ast\Node;
 use Fuzzphony\Core\Query\Ast\NodeInspector;
+use Fuzzphony\Core\Query\Ast\Phrase;
+use Fuzzphony\Core\Query\Ast\Term;
 use Fuzzphony\Core\Query\Filter\Condition;
 use Fuzzphony\Core\Query\Filter\Operator;
 use Fuzzphony\Core\Query\QueryParser;
+use Fuzzphony\Core\Query\Relaxation;
 use Fuzzphony\Core\Query\SearchQuery;
 use Fuzzphony\Core\Ranking\FuzzyMode;
+use Fuzzphony\Core\Ranking\RankingProfile;
+use Fuzzphony\Core\Ranking\Thresholds;
 use Fuzzphony\Core\Schema\SchemaPlan;
 use Fuzzphony\Core\Search\Explanation;
 use Fuzzphony\Core\Search\Hit;
@@ -256,62 +263,31 @@ final class PostgresEngine implements Engine
             return ['result' => $empty, 'statements' => [], 'threshold' => null];
         }
 
-        $tsquery = null;
-        if ($root !== null) {
-            $compiler = new TsQueryCompiler($index);
-            $tsquery = $compiler->compile($root);
-            array_push($warnings, ...$compiler->warnings());
-        }
-        $plain = implode(' ', TsQueryCompiler::lexemes(implode(' ', NodeInspector::positiveWords($root))));
+        $run = $this->pipeline($index, $root, $conditions, $profile, $thresholds, $query, '');
+        $statements = $run['statements'];
+        array_push($warnings, ...$run['warnings']);
 
-        // Typo tolerance is per word (FuzzyQueryCompiler); it needs at least one positive word long enough for it.
-        $fuzzy = new FuzzyQueryCompiler($index, $thresholds);
-        $fuzzyRoot = $root !== null
-            && $index->hasFuzzy()
-            && $profile->fuzzy > 0.0
-            && $thresholds->fuzzyMode !== FuzzyMode::Never
-            && $fuzzy->hasFuzzyLeaf($root) ? $root : null;
-
-        $builder = new SearchSqlBuilder($index);
-        $statements = [];
-        $usedFuzzy = false;
-        $threshold = null;
-
-        if ($tsquery === null && $plain === '') {
-            $statement = ['label' => 'browse'] + $builder->browse($conditions, $profile, $thresholds, $query->limit, $query->offset);
-            $rows = $this->run($statement, null);
-            $statements[] = $statement;
-        } else {
-            $emptyQueries = [];
-            $alwaysFuzzy = $fuzzyRoot !== null
-                && ($thresholds->fuzzyMode === FuzzyMode::Always || $tsquery === null)
-                && $fuzzy->hasFuzzyLeaf($fuzzyRoot, $emptyQueries = $this->emptyQueries($index, $fuzzy->leafQueries($fuzzyRoot)));
-            $statement = ['label' => $alwaysFuzzy ? 'full-text + fuzzy' : 'full-text']
-                + $builder->ranked($tsquery, $plain, $alwaysFuzzy ? $fuzzyRoot : null, $conditions, $profile, $thresholds, $query->limit, $query->offset, $emptyQueries);
-            $threshold = $alwaysFuzzy ? $thresholds->fuzzySimilarity : null;
-            $rows = $this->run($statement, $threshold);
-            $statements[] = $statement;
-            $usedFuzzy = $alwaysFuzzy;
-
-            if (
-                !$alwaysFuzzy
-                && $fuzzyRoot !== null
-                && $thresholds->fuzzyMode === FuzzyMode::Fallback
-                && self::total($rows) < $thresholds->fallbackBelow
-                && $fuzzy->hasFuzzyLeaf($fuzzyRoot, $emptyQueries = $this->emptyQueries($index, $fuzzy->leafQueries($fuzzyRoot)))
-            ) {
-                $statement = ['label' => 'fallback: full-text + fuzzy']
-                    + $builder->ranked($tsquery, $plain, $fuzzyRoot, $conditions, $profile, $thresholds, $query->limit, $query->offset, $emptyQueries);
-                $threshold = $thresholds->fuzzySimilarity;
-                $rows = $this->run($statement, $threshold);
-                $statements[] = $statement;
-                $usedFuzzy = true;
+        // Empty-result relaxation: drop the words that match nothing on their own, search once more.
+        if ($root !== null && $thresholds->relaxWhenEmpty && self::total($run['rows']) === 0) {
+            $probe = $this->probe($index, $root, $run['fuzzy'], $conditions, $thresholds);
+            if ($probe !== null) {
+                $statements[] = $probe['statement'];
+                $reduced = $probe['ignored'] === [] ? null : Relaxation::without($root, $probe['ignored']);
+                if ($reduced !== null) {
+                    $root = $reduced;
+                    $run = $this->pipeline($index, $root, $conditions, $profile, $thresholds, $query, 'relaxed: ');
+                    array_push($statements, ...$run['statements']);
+                    array_push($warnings, ...$run['warnings']);
+                    $warnings[] = Relaxation::warning($probe['ignored']);
+                }
             }
         }
 
+        $rows = $run['rows'];
+        $tsquery = $run['tsquery'];
         $total = self::total($rows);
         $capped = $rows !== [] && (Coerce::int($rows[0]['fts_n']) >= $thresholds->candidateLimit || Coerce::int($rows[0]['fuzzy_n']) >= $thresholds->candidateLimit);
-        if ($statements[0]['label'] === 'browse') {
+        if ($run['browse']) {
             $capped = $total >= $thresholds->candidateLimit;
         }
         $rows = self::hitsOnly($rows);
@@ -345,14 +321,153 @@ final class PostgresEngine implements Engine
             total: $total,
             totalIsLowerBound: $capped,
             tookMs: round((hrtime(true) - $started) / 1e6, 3),
-            usedFuzzy: $usedFuzzy,
+            usedFuzzy: $run['usedFuzzy'],
             warnings: array_values(array_unique($warnings)),
             limit: $query->limit,
             offset: $query->offset,
             interpretedAs: $root !== null ? (string) $root : null,
         );
 
-        return ['result' => $result, 'statements' => $statements, 'threshold' => $threshold];
+        return ['result' => $result, 'statements' => $statements, 'threshold' => $run['threshold']];
+    }
+
+    /**
+     * The normal search: strict full text, then the typo-tolerant branch as the fuzzy mode says
+     * (or browsing when there is no text). Runs once, or twice when an empty result is relaxed.
+     *
+     * @param list<Condition> $conditions
+     *
+     * @return array{
+     *     rows: list<array<string, mixed>>,
+     *     statements: list<array{label: string, sql: string, params: array<string, scalar|null>}>,
+     *     usedFuzzy: bool,
+     *     threshold: float|null,
+     *     tsquery: string|null,
+     *     fuzzy: bool,
+     *     browse: bool,
+     *     warnings: list<string>
+     * }
+     */
+    private function pipeline(IndexDefinition $index, ?Node $root, array $conditions, RankingProfile $profile, Thresholds $thresholds, SearchQuery $query, string $labelPrefix): array
+    {
+        $warnings = [];
+        $tsquery = null;
+        if ($root !== null) {
+            $compiler = new TsQueryCompiler($index);
+            $tsquery = $compiler->compile($root);
+            $warnings = $compiler->warnings();
+        }
+        $plain = implode(' ', TsQueryCompiler::lexemes(implode(' ', NodeInspector::positiveWords($root))));
+
+        // Typo tolerance is per word (FuzzyQueryCompiler); it needs at least one positive word long enough for it.
+        $fuzzy = new FuzzyQueryCompiler($index, $thresholds);
+        $fuzzyRoot = $root !== null
+            && $index->hasFuzzy()
+            && $profile->fuzzy > 0.0
+            && $thresholds->fuzzyMode !== FuzzyMode::Never
+            && $fuzzy->hasFuzzyLeaf($root) ? $root : null;
+
+        $builder = new SearchSqlBuilder($index);
+        $statements = [];
+        $usedFuzzy = false;
+        $threshold = null;
+        $browse = false;
+
+        if ($tsquery === null && $plain === '') {
+            $statement = ['label' => $labelPrefix . 'browse'] + $builder->browse($conditions, $profile, $thresholds, $query->limit, $query->offset);
+            $rows = $this->run($statement, null);
+            $statements[] = $statement;
+            $browse = true;
+        } else {
+            $emptyQueries = [];
+            $alwaysFuzzy = $fuzzyRoot !== null
+                && ($thresholds->fuzzyMode === FuzzyMode::Always || $tsquery === null)
+                && $fuzzy->hasFuzzyLeaf($fuzzyRoot, $emptyQueries = $this->emptyQueries($index, $fuzzy->leafQueries($fuzzyRoot)));
+            $statement = ['label' => $labelPrefix . ($alwaysFuzzy ? 'full-text + fuzzy' : 'full-text')]
+                + $builder->ranked($tsquery, $plain, $alwaysFuzzy ? $fuzzyRoot : null, $conditions, $profile, $thresholds, $query->limit, $query->offset, $emptyQueries);
+            $threshold = $alwaysFuzzy ? $thresholds->fuzzySimilarity : null;
+            $rows = $this->run($statement, $threshold);
+            $statements[] = $statement;
+            $usedFuzzy = $alwaysFuzzy;
+
+            if (
+                !$alwaysFuzzy
+                && $fuzzyRoot !== null
+                && $thresholds->fuzzyMode === FuzzyMode::Fallback
+                && self::total($rows) < $thresholds->fallbackBelow
+                && $fuzzy->hasFuzzyLeaf($fuzzyRoot, $emptyQueries = $this->emptyQueries($index, $fuzzy->leafQueries($fuzzyRoot)))
+            ) {
+                $statement = ['label' => $labelPrefix . 'fallback: full-text + fuzzy']
+                    + $builder->ranked($tsquery, $plain, $fuzzyRoot, $conditions, $profile, $thresholds, $query->limit, $query->offset, $emptyQueries);
+                $threshold = $thresholds->fuzzySimilarity;
+                $rows = $this->run($statement, $threshold);
+                $statements[] = $statement;
+                $usedFuzzy = true;
+            }
+        }
+
+        return [
+            'rows' => $rows,
+            'statements' => $statements,
+            'usedFuzzy' => $usedFuzzy,
+            'threshold' => $threshold,
+            'tsquery' => $tsquery,
+            'fuzzy' => $fuzzyRoot !== null,
+            'browse' => $browse,
+            'warnings' => $warnings,
+        ];
+    }
+
+    /**
+     * The relaxation probe: which positive words match no document of the searched set on their
+     * own, with the condition the search used for them (filters and tenant included). Null when
+     * there is nothing to probe: fewer than two words that are not stop words (stop words are
+     * ignored by the search already and are never reported). "ignored" is empty when every word
+     * matches something, and when none does (then there is nothing to keep).
+     *
+     * @param list<Condition> $conditions
+     *
+     * @return array{
+     *     statement: array{label: string, sql: string, params: array<string, scalar|null>},
+     *     ignored: list<Term|Phrase|FieldScoped>
+     * }|null
+     */
+    private function probe(IndexDefinition $index, Node $root, bool $fuzzy, array $conditions, Thresholds $thresholds): ?array
+    {
+        $compiler = new TsQueryCompiler($index);
+        $leaves = [];
+        $tsqueries = [];
+        foreach (Relaxation::positiveLeaves($root) as $leaf) {
+            $tsquery = $compiler->compile($leaf);
+            if ($tsquery !== null) {
+                $leaves[] = $leaf;
+                $tsqueries[] = $tsquery;
+            }
+        }
+        if (count($leaves) < 2) {
+            return null;
+        }
+        $empty = $this->emptyQueries($index, array_values(array_unique($tsqueries)));
+        $probed = [];
+        foreach ($leaves as $i => $leaf) {
+            if (!in_array($tsqueries[$i], $empty, true)) {
+                $probed[] = $leaf;
+            }
+        }
+        if (count($probed) < 2) {
+            return null;
+        }
+
+        $statement = ['label' => 'relaxation probe'] + (new SearchSqlBuilder($index))->probe($probed, $fuzzy, $conditions, $thresholds, $empty);
+        $row = $this->run($statement, $fuzzy ? $thresholds->fuzzySimilarity : null)[0] ?? [];
+        $ignored = [];
+        foreach ($probed as $i => $leaf) {
+            if (in_array($row['l' . $i] ?? null, [false, 'f', 0], true)) {
+                $ignored[] = $leaf;
+            }
+        }
+
+        return ['statement' => $statement, 'ignored' => count($ignored) < count($probed) ? $ignored : []];
     }
 
     /**
