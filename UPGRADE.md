@@ -3,6 +3,11 @@
 Before 1.0, a minor version may contain breaking changes. Each section lists what to change,
 and the [CHANGELOG](CHANGELOG.md) has the full list of changes.
 
+## From 0.3.1 to 0.3.2
+
+Nothing to do: only the generated search statements change (the trigram operator is now
+schema-qualified, so `pg_trgm` no longer has to be on the `search_path`).
+
 ## From 0.3.0 to 0.3.1
 
 No code changes. Only indexes with accent folding (`unaccent`, the default) are affected: their
