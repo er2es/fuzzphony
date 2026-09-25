@@ -1,6 +1,6 @@
 # Empty-result relaxation — design
 
-Status: approved (design), not yet implemented. Follow-up to
+Status: implemented (plan `docs/superpowers/plans/2026-09-25-empty-result-relaxation.md`). Follow-up to
 `2026-09-24-per-term-fuzzy-matching-design.md`, prompted by that change's independent review.
 
 ## Problem
