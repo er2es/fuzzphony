@@ -110,4 +110,28 @@ final class SearchSqlBuilderTest extends TestCase
         self::assertStringContainsString('LIMIT 100', $statement['sql']);
         self::assertSame([], $statement['params']);
     }
+
+    /** No positive words (e.g. every leaf negated): q.norm is a plain empty-text literal, not a bound value. */
+    public function testNoPlainTextMeansNormIsAnEmptyLiteral(): void
+    {
+        $statement = (new SearchSqlBuilder(Indexes::products()))->ranked("'mouse'", '', new Term('mouse'), [], new RankingProfile(), new Thresholds(), 10, 0);
+
+        self::assertStringContainsString("''::text AS norm", $statement['sql']);
+    }
+
+    public function testRankedWithNeitherATsqueryNorAFuzzyBranchIsAProgrammingError(): void
+    {
+        $this->expectException(\LogicException::class);
+        $this->expectExceptionMessage('A ranked search needs a full-text query or a fuzzy branch.');
+
+        (new SearchSqlBuilder(Indexes::products()))->ranked(null, '', null, [], new RankingProfile(), new Thresholds(), 10, 0);
+    }
+
+    public function testAProbeWhereEveryLeafIsAStopWordIsAProgrammingError(): void
+    {
+        $this->expectException(\LogicException::class);
+        $this->expectExceptionMessage('A relaxation probe needs at least one leaf that is not a stop word.');
+
+        (new SearchSqlBuilder(Indexes::products()))->probe([new Term('for')], false, [], new Thresholds(), ["'for'"]);
+    }
 }

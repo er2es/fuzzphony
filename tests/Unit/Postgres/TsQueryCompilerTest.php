@@ -4,6 +4,8 @@ declare(strict_types=1);
 
 namespace Fuzzphony\Tests\Unit\Postgres;
 
+use Fuzzphony\Core\Query\Ast\AllOf;
+use Fuzzphony\Core\Query\Ast\Term;
 use Fuzzphony\Core\Query\QueryParser;
 use Fuzzphony\Engine\Postgres\Sql\TsQueryCompiler;
 use Fuzzphony\Tests\Fixtures\Indexes;
@@ -52,5 +54,19 @@ final class TsQueryCompilerTest extends TestCase
     public function testLexemesContainOnlyLettersAndDigits(): void
     {
         self::assertSame(['o', 'reilly', '3s', 'ütvefúró'], TsQueryCompiler::lexemes("O'Reilly <3S> Ütvefúró;"));
+    }
+
+    public function testAGroupWithOneSurvivingChildReturnsItDirectly(): void
+    {
+        $compiled = (new TsQueryCompiler(Indexes::products()))->compile(new AllOf([new Term('mouse'), new Term('+++')]));
+
+        self::assertSame("'mouse'", $compiled);
+    }
+
+    public function testAGroupWhereEveryChildDropsToNothingCompilesToNull(): void
+    {
+        $compiled = (new TsQueryCompiler(Indexes::products()))->compile(new AllOf([new Term('+++'), new Term('$$$')]));
+
+        self::assertNull($compiled);
     }
 }

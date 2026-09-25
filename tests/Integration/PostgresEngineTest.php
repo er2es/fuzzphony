@@ -8,10 +8,12 @@ use Fuzzphony\Core\Database\Connection;
 use Fuzzphony\Core\Definition\IndexDefinition;
 use Fuzzphony\Core\Definition\TriggerLevel;
 use Fuzzphony\Core\Exception\EngineFailure;
+use Fuzzphony\Core\Exception\InvalidQuery;
 use Fuzzphony\Core\Fuzzphony;
 use Fuzzphony\Core\Inspection\Check;
 use Fuzzphony\Core\Inspection\CheckStatus;
 use Fuzzphony\Core\Inspection\InspectOptions;
+use Fuzzphony\Core\Ranking\Thresholds;
 use Fuzzphony\Core\Registry\IndexRegistry;
 use Fuzzphony\Core\Support\Coerce;
 use Fuzzphony\Core\Sync\Worker;
@@ -356,5 +358,225 @@ final class PostgresEngineTest extends TestCase
         self::assertSame(5, Coerce::int($this->connection->fetchValue('SELECT count(*) FROM fz_product')));
         $this->connection->execute("UPDATE fz_brand SET name = 'x' WHERE id = 1"); // no trigger left behind
         $this->addToAssertionCount(1);
+    }
+
+    public function testNameIdentifiesTheEngine(): void
+    {
+        self::assertSame('postgresql', $this->engine->name());
+    }
+
+    public function testSchemaGeneratorIsSharedAcrossCalls(): void
+    {
+        self::assertSame($this->engine->schemaGenerator(), $this->engine->schemaGenerator());
+    }
+
+    public function testRefreshWithNoIdsIsANoOp(): void
+    {
+        self::assertSame(0, $this->engine->refresh(Indexes::products(), []));
+    }
+
+    public function testPruneOrphansRejectsANonPositiveBatchSize(): void
+    {
+        $this->expectException(\InvalidArgumentException::class);
+        $this->expectExceptionMessage('Batch size must be >= 1.');
+
+        $this->engine->pruneOrphans(Indexes::products(), 0);
+    }
+
+    /**
+     * guard() must rethrow a FuzzphonyException (here: InvalidQuery from a broken Connection)
+     * unchanged, not wrap it in an EngineFailure like an ordinary \Throwable.
+     */
+    public function testGuardRethrowsAFuzzphonyExceptionUnwrapped(): void
+    {
+        $failing = new class ($this->connection) implements Connection {
+            public function __construct(private readonly Connection $inner) {}
+
+            public function fetchAll(string $sql, array $params = []): array
+            {
+                if (str_contains($sql, 'numnode(')) {
+                    throw new InvalidQuery('synthetic failure for the guard test');
+                }
+
+                return $this->inner->fetchAll($sql, $params);
+            }
+
+            public function fetchValue(string $sql, array $params = []): mixed
+            {
+                return $this->inner->fetchValue($sql, $params);
+            }
+
+            public function execute(string $sql, array $params = []): int
+            {
+                return $this->inner->execute($sql, $params);
+            }
+
+            public function transactional(callable $callback): mixed
+            {
+                return $this->inner->transactional(fn(Connection $c): mixed => $callback($this));
+            }
+        };
+        $fuzzphony = new Fuzzphony(new PostgresEngine($failing), new IndexRegistry([Indexes::products('manual')]));
+        $fuzzphony->schema()->apply($this->connection);
+        $fuzzphony->reindex('products');
+
+        $this->expectException(InvalidQuery::class);
+        $this->expectExceptionMessage('synthetic failure for the guard test'); // unwrapped: not "Fuzzphony search failed: ..."
+
+        $fuzzphony->in('products')->query('headphnoes')->thresholds(['fallback_below' => 1])->get();
+    }
+
+    public function testDoctorReportsAMissingRequiredExtension(): void
+    {
+        $fuzzphony = $this->fuzzphony('manual');
+        $this->connection->execute('DROP EXTENSION pg_trgm CASCADE');
+        try {
+            $problems = array_column($fuzzphony->inspect('products')->problems(), null, 'name');
+
+            self::assertSame(CheckStatus::Error, $problems['Extension pg_trgm']->status);
+            self::assertSame('not installed (a superuser or the database owner must create it once)', $problems['Extension pg_trgm']->message);
+            self::assertStringContainsString('CREATE EXTENSION IF NOT EXISTS pg_trgm', (string) $problems['Extension pg_trgm']->fix);
+        } finally {
+            $this->connection->execute('CREATE EXTENSION IF NOT EXISTS pg_trgm');
+        }
+    }
+
+    public function testDoctorSkipsAnUninstalledExtensionThatIsNotNeeded(): void
+    {
+        $index = IndexDefinition::builder('products_direct')->fromTable('fz_product')->field('name', 'A')->filter('price', 'int')->build();
+        $fuzzphony = new Fuzzphony($this->engine, new IndexRegistry([$index]));
+        $fuzzphony->schema()->apply($this->connection);
+        $fuzzphony->reindex('products_direct');
+        $this->connection->execute('DROP EXTENSION pg_trgm CASCADE');
+        try {
+            $checks = array_column($fuzzphony->inspect('products_direct')->checks, null, 'name');
+
+            self::assertSame(CheckStatus::Skipped, $checks['Extension pg_trgm']->status);
+            self::assertSame('not needed by this index', $checks['Extension pg_trgm']->message);
+        } finally {
+            $this->connection->execute('CREATE EXTENSION IF NOT EXISTS pg_trgm');
+        }
+    }
+
+    /**
+     * When sourceColumns() is run inside the caller's own (ambient) transaction and the probe
+     * view fails to create, the ambient transaction is left aborted; the finally block's own
+     * DROP VIEW then also fails, and that second failure must be swallowed, not thrown in place
+     * of the original. The aborted transaction still poisons whatever inspect() tries next
+     * (this is what running the doctor inside someone else's transaction costs), so the overall
+     * call still fails, but with PostgreSQL's own "transaction is aborted" error, not a
+     * confusing "view does not exist" from the cleanup itself.
+     */
+    public function testASourceQueryErrorInsideTheCallersTransactionLeavesItAborted(): void
+    {
+        $index = IndexDefinition::builder('products_direct')
+            ->fromQuery('SELECT id, name, no_such_column FROM fz_product')
+            ->field('name', 'A')
+            ->sync('manual')
+            ->build();
+        $fuzzphony = new Fuzzphony($this->engine, new IndexRegistry([$index]));
+
+        $this->expectException(\PDOException::class);
+        $this->expectExceptionMessageMatches('/current transaction is aborted/');
+        $this->connection->transactional(fn(): mixed => $fuzzphony->inspect('products_direct'));
+    }
+
+    public function testDoctorReportsAUuidIdTypeMismatch(): void
+    {
+        $index = IndexDefinition::builder('products_direct')->fromTable('fz_product')->idType('uuid')->field('name', 'A')->build();
+        $fuzzphony = new Fuzzphony($this->engine, new IndexRegistry([$index]));
+        $fuzzphony->schema()->apply($this->connection);
+
+        $problems = array_column($fuzzphony->inspect('products_direct')->problems(), 'message', 'name');
+
+        self::assertSame('"id" is bigint, but the index expects id type "uuid".', $problems['Id column']);
+    }
+
+    public function testDoctorReportsAStringIdTypeMismatch(): void
+    {
+        $index = IndexDefinition::builder('products_direct')->fromTable('fz_product')->idType('string')->field('name', 'A')->build();
+        $fuzzphony = new Fuzzphony($this->engine, new IndexRegistry([$index]));
+        $fuzzphony->schema()->apply($this->connection);
+
+        $problems = array_column($fuzzphony->inspect('products_direct')->problems(), 'message', 'name');
+
+        self::assertSame('"id" is bigint, but the index expects id type "string".', $problems['Id column']);
+    }
+
+    public function testDoctorReportsAnIdColumnThatDoesNotExistInTheSource(): void
+    {
+        $index = IndexDefinition::builder('products_direct')->fromQuery('SELECT name FROM fz_product', 'id')->field('name', 'A')->sync('manual')->build();
+        $fuzzphony = new Fuzzphony($this->engine, new IndexRegistry([$index]));
+        $fuzzphony->schema()->apply($this->connection);
+
+        $problems = array_column($fuzzphony->inspect('products_direct')->problems(), 'message', 'name');
+
+        self::assertSame('Column "id" not found in the source. Available: name.', $problems['Id column']);
+    }
+
+    public function testDoctorReportsBrokenFieldFilterBoostAndRecencyColumnMappings(): void
+    {
+        $index = IndexDefinition::builder('products_direct')
+            ->fromTable('fz_product')
+            ->field('title', 'A', column: 'no_such_column')
+            ->filter('missing_filter', 'int', 'also_missing')
+            ->boostBy('no_such_boost')
+            ->recencyBy('no_such_recency')
+            ->build();
+        $fuzzphony = new Fuzzphony($this->engine, new IndexRegistry([$index]));
+        $fuzzphony->schema()->apply($this->connection);
+
+        $problems = array_column($fuzzphony->inspect('products_direct')->problems(), 'message', 'name');
+
+        self::assertStringContainsString('Missing in source: title -> "no_such_column"', $problems['Field columns']);
+        self::assertSame('Column "also_missing" not found in source.', $problems['Filter missing_filter']);
+        self::assertSame('Column "no_such_boost" not found in source.', $problems['Boost column']);
+        self::assertSame('Column "no_such_recency" not found in source.', $problems['Recency column']);
+    }
+
+    public function testDoctorWarnsAboutExtraSidecarColumns(): void
+    {
+        $fuzzphony = $this->fuzzphony('manual');
+        $this->connection->execute('ALTER TABLE fuzzphony_products ADD COLUMN extra_junk text');
+
+        $extra = array_values(array_filter(
+            $fuzzphony->inspect('products')->problems(),
+            static fn(Check $c): bool => $c->name === 'Sidecar columns' && str_contains($c->message, 'no longer in the definition'),
+        ));
+
+        self::assertCount(1, $extra);
+        self::assertSame(CheckStatus::Warning, $extra[0]->status);
+        self::assertStringContainsString('extra_junk', $extra[0]->message);
+        self::assertStringContainsString('ALTER TABLE "fuzzphony_products" DROP COLUMN "extra_junk";', (string) $extra[0]->fix);
+    }
+
+    public function testDoctorWarnsAboutLeftoverTriggersFromAPreviousSyncLevel(): void
+    {
+        $this->fuzzphony('queue'); // installs the default statement-level triggers
+        $rowIndex = Indexes::products('queue')->with(triggerLevel: TriggerLevel::Row);
+        $rowFuzzphony = new Fuzzphony($this->engine, new IndexRegistry([$rowIndex]));
+
+        $leftover = array_values(array_filter(
+            $rowFuzzphony->inspect('products')->problems(),
+            static fn(Check $c): bool => $c->name === 'Sync trigger on fz_brand' && str_contains($c->message, 'Leftover trigger'),
+        ));
+
+        self::assertCount(1, $leftover);
+        self::assertSame(CheckStatus::Warning, $leftover[0]->status);
+        self::assertStringContainsString('do not match "queue" sync / row level and cause double work', $leftover[0]->message);
+        self::assertStringContainsString('fuzzphony:schema --apply', (string) $leftover[0]->fix);
+    }
+
+    public function testDoctorWarnsAboutVeryTolerantFuzzySimilarityAndAHighCandidateLimit(): void
+    {
+        $index = Indexes::products('manual')->with(thresholds: new Thresholds(fuzzySimilarity: 0.1, candidateLimit: 6_000));
+        $fuzzphony = new Fuzzphony($this->engine, new IndexRegistry([$index]));
+        $fuzzphony->schema()->apply($this->connection);
+        $fuzzphony->reindex('products');
+
+        $problems = array_column($fuzzphony->inspect('products')->problems(), 'message', 'name');
+
+        self::assertStringContainsString('fuzzy_similarity 0.10 is very tolerant', $problems['Typo tolerance'] ?? '');
+        self::assertSame('candidate_limit 6000 may make frequent words slow to rank.', $problems['Candidate limit'] ?? null);
     }
 }

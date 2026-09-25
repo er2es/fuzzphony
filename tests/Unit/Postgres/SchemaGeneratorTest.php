@@ -15,6 +15,14 @@ use PHPUnit\Framework\TestCase;
 
 final class SchemaGeneratorTest extends TestCase
 {
+    public function testAnInvalidExtensionSchemaIsRejected(): void
+    {
+        $this->expectException(\InvalidArgumentException::class);
+        $this->expectExceptionMessage('Invalid extension schema "not a valid ident; drop table".');
+
+        new PostgresSchemaGenerator('not a valid ident; drop table');
+    }
+
     public function testSidecarColumnsFollowTheDefinition(): void
     {
         self::assertSame(
