@@ -27,8 +27,8 @@ final class SearchSqlBuilderTest extends TestCase
             $statement['sql'],
         );
         self::assertStringContainsString("ts_rank_cd('{0.1,0.2,0.4,1}'::real[]", $statement['sql']);
-        self::assertStringContainsString('WHERE (s.tsv @@ q.ft0 OR q.fn1 <% s.fz) AND', $statement['sql']);
-        self::assertStringContainsString('SELECT s.id, (GREATEST(word_similarity(q.fn1, s.fz), CASE WHEN s.tsv @@ q.ft0 THEN 1.0 ELSE 0.0 END))::double precision AS r_fuzzy', $statement['sql']);
+        self::assertStringContainsString('WHERE (s.tsv @@ q.ft0 OR q.fn1 OPERATOR("public".<%) s.fz) AND', $statement['sql']);
+        self::assertStringContainsString('SELECT s.id, (GREATEST("public".word_similarity(q.fn1, s.fz), CASE WHEN s.tsv @@ q.ft0 THEN 1.0 ELSE 0.0 END))::double precision AS r_fuzzy', $statement['sql']);
         self::assertStringNotContainsString('q.norm <% s.fz', $statement['sql'], 'the whole query is no longer one trigram check');
         self::assertStringContainsString('WHERE relevance >= 0.1', $statement['sql']);
         self::assertStringContainsString('LIMIT 20 OFFSET 40', $statement['sql']);
@@ -80,8 +80,8 @@ final class SearchSqlBuilderTest extends TestCase
     {
         $statement = (new SearchSqlBuilder(Indexes::products()))->probe([new Term('wireless'), new Term('aluminum')], true, [], new Thresholds(), []);
 
-        self::assertStringContainsString('m0 AS MATERIALIZED (SELECT 1 FROM "fuzzphony_products" AS s CROSS JOIN q WHERE (s.tsv @@ q.ft0 OR q.fn1 <% s.fz) AND TRUE)', $statement['sql']);
-        self::assertStringContainsString('(s.tsv @@ q.ft2 OR q.fn3 <% s.fz)', $statement['sql']);
+        self::assertStringContainsString('m0 AS MATERIALIZED (SELECT 1 FROM "fuzzphony_products" AS s CROSS JOIN q WHERE (s.tsv @@ q.ft0 OR q.fn1 OPERATOR("public".<%) s.fz) AND TRUE)', $statement['sql']);
+        self::assertStringContainsString('(s.tsv @@ q.ft2 OR q.fn3 OPERATOR("public".<%) s.fz)', $statement['sql']);
         self::assertStringNotContainsString('aluminum', $statement['sql']);
     }
 

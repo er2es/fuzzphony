@@ -7,6 +7,14 @@ changes; they are always listed under **Breaking** and explained in [UPGRADE.md]
 
 ## [Unreleased]
 
+## [0.3.2] - 2026-09-25
+
+No action needed after upgrading: only the generated search statements change.
+
+### Added
+
+- `.bestpractices.json` with the answers for the OpenSSF Best Practices badge.
+
 ### Changed
 
 - README: every known limitation now points to its planned fix; the roadmap adds exact field
@@ -17,6 +25,13 @@ changes; they are always listed under **Breaking** and explained in [UPGRADE.md]
   pinned by digest, and Dependabot keeps them current. The package now contains `.github/`
   (a few KB of workflow files): Scorecard reads the same archive Composer downloads.
 - `main` is protected: changes land through pull requests once CI passes.
+
+### Fixed
+
+- PostgreSQL: the trigram operator (`<%`) and `word_similarity()` in the typo-tolerant / relaxed
+  search SQL are now schema-qualified with the configured `extension_schema`, like every other
+  `pg_trgm` / `unaccent` reference already was. `pg_trgm` and `unaccent` no longer need to be on
+  the `search_path`.
 
 ## [0.3.1] - 2026-09-25
 
@@ -223,7 +238,8 @@ on its own:
 - Sync modes: queue (default), trigger, ORM, manual; watches for joined tables.
 - Doctor with fixes; CLI commands for schema, reindex, worker, search and explain.
 
-[Unreleased]: https://github.com/er2es/fuzzphony/compare/v0.3.1...HEAD
+[Unreleased]: https://github.com/er2es/fuzzphony/compare/v0.3.2...HEAD
+[0.3.2]: https://github.com/er2es/fuzzphony/compare/v0.3.1...v0.3.2
 [0.3.1]: https://github.com/er2es/fuzzphony/compare/v0.3.0...v0.3.1
 [0.3.0]: https://github.com/er2es/fuzzphony/compare/v0.2.0...v0.3.0
 [0.2.0]: https://github.com/er2es/fuzzphony/releases/tag/v0.2.0

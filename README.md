@@ -820,8 +820,6 @@ which PostgreSQL imposes.
   set up with an older version get the `TRUNCATE` trigger from `fuzzphony:schema --apply`
   (`fuzzphony:doctor` reports it missing until then); `orm` and `manual` mode never see a
   `TRUNCATE`: run `fuzzphony:reindex`.
-* The extension schema (default `public`) must be on the `search_path` for the trigram operator
-  (to be schema-qualified in the next patch release).
 * With very frequent words, ranking considers the first `candidate_limit` matches, so ordering is
   approximate beyond them (and `total` is reported as a lower bound).
 
