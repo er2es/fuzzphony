@@ -1,37 +1,183 @@
-# One command demo:  docker compose up --build   ->  http://localhost:8000
-#   DEMO_ROWS=1000000 docker compose up --build    (default 200 000; 1M takes a few minutes to seed + index)
+# Fuzzphony demo, production-like:  docker compose up --build   ->  http://localhost:8000
+#
+#   web     nginx: static + fingerprinted assets, proxies to php-fpm
+#   php     php-fpm, immutable image (composer install, compiled assets and cache warmed at build time)
+#   worker  fuzzphony:worker, drains the sync queue
+#   init    one-shot: seed (only if missing) -> schema -> reindex (only if empty) -> doctor
+#   db      PostgreSQL 17 with a named volume
+#
+# Settings: docker.env (copy .env.example), or plain environment variables. Every one has a default.
+# Live-edit development (bind-mounted source, APP_ENV=dev): docker-compose.dev.yml, see README.md.
+name: fuzzphony-demo
+
+x-logging: &logging
+  driver: json-file
+  options: { max-size: "10m", max-file: "3" }
+
+x-hardened: &hardened
+  restart: unless-stopped
+  init: true
+  read_only: true
+  tmpfs: ["/tmp:size=64m,mode=1777"]
+  cap_drop: [ALL]
+  security_opt: ["no-new-privileges:true"]
+  logging: *logging
+
+x-php-image: &php-image
+  image: fuzzphony-demo/php:local
+  build:
+    context: ..
+    dockerfile: demo/Dockerfile
+    target: php
+
+x-app-env: &app-env
+  APP_ENV: prod
+  APP_DEBUG: "0"
+  APP_SECRET: ${DEMO_APP_SECRET:-demo-only-not-a-secret-change-me}
+  DATABASE_URL: "postgresql://fuzzphony:${DEMO_DB_PASSWORD:-fuzzphony}@db:5432/fuzzphony?serverVersion=17&charset=utf8"
+
+x-libpq-env: &libpq-env
+  PGHOST: db
+  PGUSER: fuzzphony
+  PGDATABASE: fuzzphony
+  PGPASSWORD: ${DEMO_DB_PASSWORD:-fuzzphony}
+
 services:
   db:
-    image: postgres:17
+    <<: *hardened
+    image: postgres:17.11-bookworm
+    init: false # the postgres entrypoint already handles signals
+    tmpfs: ["/tmp", "/var/run/postgresql"]
+    # postgres starts as root to fix ownership of the data directory, then drops to the postgres user.
+    cap_add: [CHOWN, DAC_OVERRIDE, FOWNER, SETGID, SETUID]
     environment:
       POSTGRES_DB: fuzzphony
       POSTGRES_USER: fuzzphony
-      POSTGRES_PASSWORD: fuzzphony
-    ports: ["5432:5432"]
+      POSTGRES_PASSWORD: ${DEMO_DB_PASSWORD:-fuzzphony}
+    # Tuning for a 200k-1M row demo on a small VM (Docker Desktop defaults to ~2 GB); see README.md.
+    command:
+      - postgres
+      - -c
+      - shared_buffers=256MB
+      - -c
+      - effective_cache_size=768MB
+      - -c
+      - work_mem=16MB
+      - -c
+      - maintenance_work_mem=128MB
+      - -c
+      - random_page_cost=1.1
+      - -c
+      - effective_io_concurrency=200
+      - -c
+      - max_worker_processes=8
+      - -c
+      - max_parallel_workers=4
+      - -c
+      - max_parallel_workers_per_gather=2
+      - -c
+      - max_wal_size=2GB
+      - -c
+      - wal_compression=on
+      - -c
+      - log_min_duration_statement=1000
+    # No `cpus:` limits anywhere: a hard cap fails on hosts with fewer cores than the cap, and the database (the
+    # CPU-bound part of a search demo) is the service that must be able to use every core it can get.
+    shm_size: 256mb # parallel query allocates dynamic shared memory in /dev/shm (Docker's default is 64 MB)
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    ports:
+      - "${DEMO_DB_BIND:-127.0.0.1}:${DEMO_DB_PORT:-5432}:5432"
+    networks: [backend]
+    stop_grace_period: 60s
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U fuzzphony"]
-      interval: 2s
-      retries: 30
+      test: ["CMD-SHELL", "pg_isready -U fuzzphony -d fuzzphony"]
+      interval: 5s
+      timeout: 3s
+      retries: 12
+      start_period: 20s
+    deploy:
+      resources:
+        limits: { memory: 1g }
+        reservations: { memory: 256m }
 
-  app:
-    build: .
+  init:
+    <<: [*hardened, *php-image]
+    restart: "no"
+    command: ["demo-init"]
+    environment:
+      <<: [*app-env, *libpq-env]
+      DEMO_ROWS: ${DEMO_ROWS:-200000}
+      DEMO_REINDEX: ${DEMO_REINDEX:-auto}
     depends_on:
       db: { condition: service_healthy }
+    networks: [backend]
+    healthcheck: { disable: true }
+    deploy:
+      resources:
+        limits: { memory: 768m }
+
+  php:
+    <<: [*hardened, *php-image]
     environment:
-      DATABASE_URL: "postgresql://fuzzphony:fuzzphony@db:5432/fuzzphony?serverVersion=17&charset=utf8"
-      PGPASSWORD: fuzzphony
-      DEMO_ROWS: ${DEMO_ROWS:-200000}
-      # Symfony's dev cache on the Docker bind mount is very slow (a cold rebuild took 17 s there, 3.5 s on the
-      # container's own disk, and every warm request stats hundreds of cache files over the mount).
-      APP_CACHE_DIR: /tmp/symfony-cache
-    volumes:
-      - ..:/app
-    ports: ["8000:8000"]
-    command: >
-      sh -c "composer install --no-interaction --prefer-dist &&
-      (psql -h db -U fuzzphony fuzzphony -tAc \"SELECT to_regclass('bench_product')\" | grep -q bench_product
-      || psql -h db -U fuzzphony fuzzphony -v rows=$$DEMO_ROWS -f ../benchmarks/seed.sql) &&
-      php bin/console importmap:install &&
-      composer setup &&
-      (php bin/console fuzzphony:worker --time-limit=86400 &) &&
-      PHP_CLI_SERVER_WORKERS=4 php -d opcache.enable_cli=1 -d opcache.revalidate_freq=1 -S 0.0.0.0:8000 -t public"
+      <<: *app-env
+      PHP_INI_SCAN_DIR: ":/usr/local/etc/php/fpm.d" # adds opcache preload for FPM only
+      PHP_FPM_MAX_CHILDREN: ${PHP_FPM_MAX_CHILDREN:-16}
+      PHP_FPM_START_SERVERS: ${PHP_FPM_START_SERVERS:-4}
+      PHP_FPM_MIN_SPARE_SERVERS: ${PHP_FPM_MIN_SPARE_SERVERS:-2}
+      PHP_FPM_MAX_SPARE_SERVERS: ${PHP_FPM_MAX_SPARE_SERVERS:-6}
+      PHP_FPM_MAX_REQUESTS: ${PHP_FPM_MAX_REQUESTS:-500}
+      PHP_FPM_SLOWLOG_TIMEOUT: ${PHP_FPM_SLOWLOG_TIMEOUT:-3s}
+    depends_on:
+      init: { condition: service_completed_successfully }
+    networks: [frontend, backend]
+    stop_grace_period: 30s
+    deploy:
+      resources:
+        limits: { memory: 768m }
+        reservations: { memory: 128m }
+
+  worker:
+    <<: [*hardened, *php-image]
+    # --time-limit: the process is recycled hourly (restart: unless-stopped brings it back), SIGTERM finishes the batch.
+    command: ["php", "bin/console", "fuzzphony:worker", "--time-limit=3600", "-v"]
+    environment: *app-env
+    depends_on:
+      init: { condition: service_completed_successfully }
+    networks: [backend]
+    stop_grace_period: 30s
+    healthcheck:
+      test: ["CMD-SHELL", "pgrep -f fuzzphony:worker >/dev/null"]
+      interval: 15s
+      timeout: 3s
+      retries: 3
+      start_period: 10s
+    deploy:
+      resources:
+        limits: { memory: 256m }
+        reservations: { memory: 32m }
+
+  web:
+    <<: *hardened
+    image: fuzzphony-demo/web:local
+    build:
+      context: ..
+      dockerfile: demo/Dockerfile
+      target: web
+    depends_on:
+      php: { condition: service_healthy }
+    ports:
+      - "${DEMO_BIND:+$DEMO_BIND:}${DEMO_PORT:-8000}:8080"
+    networks: [frontend]
+    stop_grace_period: 15s
+    deploy:
+      resources:
+        limits: { memory: 128m }
+        reservations: { memory: 16m }
+
+networks:
+  frontend: {}
+  backend: {}
+
+volumes:
+  pgdata: {}

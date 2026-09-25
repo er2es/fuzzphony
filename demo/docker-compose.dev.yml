@@ -1,0 +1,39 @@
+# Live-edit development on top of docker-compose.yml: the source is bind-mounted, Symfony runs in dev mode
+# (debug toolbar-free, but with the dev cache, AssetMapper served on the fly and PHP re-reading edited files).
+#
+#   docker compose -f docker-compose.yml -f docker-compose.dev.yml up --build
+#
+# On Linux set DEMO_UID / DEMO_GID to your own (id -u / id -g) so files written to the mount belong to you.
+x-dev-php: &dev-php
+  image: fuzzphony-demo/php:dev
+  build:
+    target: dev
+  read_only: false
+  tmpfs: ["/tmp:size=256m,mode=1777"] # the dev cache (APP_CACHE_DIR) lives here: a bind mount is far too slow for it
+  user: "${DEMO_UID:-1000}:${DEMO_GID:-1000}"
+  volumes:
+    - ..:/app
+    - vendor:/app/demo/vendor
+  environment: &dev-env
+    APP_ENV: dev
+    APP_DEBUG: "1"
+    APP_CACHE_DIR: /tmp/symfony-cache
+
+services:
+  init:
+    <<: *dev-php
+    # dependencies are installed into the named volume on first start; a no-op afterwards
+    command: ["sh", "-c", "composer install --no-interaction --prefer-dist && php bin/console importmap:install && exec demo-init"]
+    environment:
+      <<: *dev-env
+  php:
+    <<: *dev-php
+    environment:
+      <<: *dev-env
+  worker:
+    <<: *dev-php
+    environment:
+      <<: *dev-env
+
+volumes:
+  vendor: {}
