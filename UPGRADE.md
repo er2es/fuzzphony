@@ -3,6 +3,26 @@
 Before 1.0, a minor version may contain breaking changes. Each section lists what to change,
 and the [CHANGELOG](CHANGELOG.md) has the full list of changes.
 
+## From 0.3.0 to 0.3.1
+
+No code changes. Only indexes with accent folding (`unaccent`, the default) are affected: their
+text search configuration kept accented stop words (`für`, `és`, `à`), so the stored documents
+contain them.
+
+1. **Apply the schema.** It creates the stop-word dictionary `fuzzphony_<language>_stop` and
+   re-maps the existing `fuzzphony_<language>` configuration; queries ignore accented stop words
+   from then on.
+2. **Reindex every such index.** Documents indexed before still contain the stop words, and
+   until they are rebuilt a search can rank them differently.
+
+```bash
+bin/console fuzzphony:schema --apply
+bin/console fuzzphony:reindex
+```
+
+Until you apply the schema, `fuzzphony:doctor` reports that the text search configuration keeps
+accented stop words.
+
 ## From 0.2 to 0.3
 
 1. **Requirements.** Symfony 7.4 or 8.0 (7.3 is no longer supported), and the `pdo_pgsql` PHP
