@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+* **Fix (demo)**: the CSP blocked the empty `data:application/javascript,` entry AssetMapper's
+  importmap generates for `app.js`'s `import './styles/app.css'` (a no-op placeholder, only ever
+  compiler-generated). A blocked static import aborts the whole module's evaluation, so nothing
+  in `app.js` ran at all -- Stimulus never booted, breaking every JS-driven page. `script-src` now
+  allows `data:`, documented in `demo/docker/nginx/security-headers.conf` as safe here specifically
+  because that content never depends on a request.
 * **Fix**: `TRUNCATE` on a source or watched table left stale documents in the index forever
   (PostgreSQL runs no `DELETE` trigger for it), and not even `fuzzphony:reindex` removed them.
   * `trigger` and `queue` sync now add an `AFTER TRUNCATE … FOR EACH STATEMENT` trigger to every
