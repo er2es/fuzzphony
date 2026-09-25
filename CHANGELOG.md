@@ -7,6 +7,12 @@ changes; they are always listed under **Breaking** and explained in [UPGRADE.md]
 
 ## [Unreleased]
 
+### Added
+
+- Demo: a Languages page (`/languages`) that searches a small hand-written catalogue in English,
+  German, French, Spanish and Hungarian, one index per language, with one-click examples and the
+  lexeme PostgreSQL produced for every query word.
+
 ## [0.3.0] - 2026-09-25
 
 **After upgrading, run `fuzzphony:schema --apply`** (idempotent) so existing indexes get the new
