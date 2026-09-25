@@ -231,7 +231,7 @@ public function __invoke(Request $request, Fuzzphony $fuzzphony): JsonResponse
         'total' => $result->total,
         'totalIsExact' => !$result->totalIsLowerBound,   // false: show "$total+", the candidate cap was hit
         'tookMs' => $result->tookMs,
-        'warnings' => $result->warnings,                 // safe to show to users, e.g. "Only the first 16 terms were used."
+        'warnings' => $result->warnings,                 // plain text, e.g. "Only the first 16 terms were used."; escape it when rendering HTML
         'hits' => array_map(static fn(Hit $hit): array => [
             'id' => $hit->id,
             'score' => $hit->score,
@@ -613,6 +613,9 @@ again), queue backlog and age, coverage (estimated, or exact with `--deep`), orp
 * Search text is parsed by Fuzzphony, reduced to letters and digits per lexeme, and **bound as a
   parameter**; identifiers come only from validated definitions.
 * Highlight snippets are HTML-escaped by Fuzzphony; only its own `<mark>` tags remain.
+* `$result->warnings` are **plain text**, not HTML: a warning may quote the user's own words (the relaxation
+  warning does, as typed, minus invisible format characters, cut at 40 characters), so escape it when you render it
+  as HTML (Twig's `{{ warning }}` does).
 * Input size, term count and nesting depth are capped; candidate sets are bounded.
 
 ## Benchmarks
