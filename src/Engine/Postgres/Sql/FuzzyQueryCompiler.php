@@ -226,11 +226,12 @@ final class FuzzyQueryCompiler
     private function needle(Node $node): ?string
     {
         $inner = $node instanceof FieldScoped ? $node->node : $node;
-        $text = match (true) {
-            $inner instanceof Term => $inner->text,
-            $inner instanceof Phrase => implode(' ', $inner->words),
-            default => '',
-        };
+        if ($inner instanceof Phrase) {
+            $text = implode(' ', $inner->words);
+        } else {
+            assert($inner instanceof Term, 'node() reaches a leaf only for Term, Phrase and a field-scoped one of them');
+            $text = $inner->text;
+        }
         $needle = implode(' ', TsQueryCompiler::lexemes($text));
 
         return $this->index->hasFuzzy() && mb_strlen(str_replace(' ', '', $needle)) >= $this->thresholds->fuzzyMinLength ? $needle : null;

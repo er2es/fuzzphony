@@ -147,7 +147,8 @@ final class FuzzphonyBundle extends AbstractBundle
 
         if ($ormSyncAsync) {
             if (!interface_exists(\Symfony\Component\Messenger\MessageBusInterface::class)) {
-                throw new \LogicException('fuzzphony.orm_sync.async requires symfony/messenger: composer require symfony/messenger');
+                // symfony/messenger is a dev dependency, so the test run can't reach this line.
+                throw new \LogicException('fuzzphony.orm_sync.async requires symfony/messenger: composer require symfony/messenger'); // @codeCoverageIgnore
             }
             $services->set('fuzzphony.refresh_dispatcher', MessengerRefreshDispatcher::class)
                 ->args([service('messenger.default_bus'), $ormSyncChunkSize]);

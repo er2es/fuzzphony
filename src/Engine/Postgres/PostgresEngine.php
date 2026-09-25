@@ -503,9 +503,6 @@ final class PostgresEngine implements Engine
      */
     private function emptyQueries(IndexDefinition $index, array $queries): array
     {
-        if ($queries === []) {
-            return [];
-        }
         $rows = $this->guard('search', fn(): array => $this->connection->fetchAll(
             sprintf(
                 'SELECT t.q FROM unnest(CAST(:queries AS text[])) AS t(q) WHERE numnode(to_tsquery(%s::regconfig, t.q)) = 0',
