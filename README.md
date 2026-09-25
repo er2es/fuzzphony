@@ -732,6 +732,10 @@ in [`docs/adr`](docs/adr).
   * ~~Column-aware trigger filtering (a watched table's UPDATE only queues a refresh when a
     relevant column actually changed).~~ **Shipped** — see
     [Keeping the index in sync](#keeping-the-index-in-sync).
+  * Transaction-aware connections: the similarity-threshold setting of a fuzzy statement is restored
+    afterwards so a caller's own transaction is left untouched, which costs one extra database round
+    trip per fuzzy statement. An optional, non-breaking `Connection` capability (`inTransaction()`)
+    would let the engine skip that round trip when no outer transaction is open.
   * Test coverage ≥ 90% (currently 73%, tracked by Codecov in CI).
 
 ## Development
