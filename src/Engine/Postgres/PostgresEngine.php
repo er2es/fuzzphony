@@ -95,9 +95,7 @@ final class PostgresEngine implements Engine
         $last = $run['statements'] === [] ? null : $run['statements'][array_key_last($run['statements'])];
         if ($last !== null) {
             $plan = $this->connection->transactional(function (Connection $c) use ($last, $analyze, $run): array {
-                if ($run['threshold'] !== null) {
-                    $c->fetchValue("SELECT set_config('pg_trgm.word_similarity_threshold', :t, true)", ['t' => (string) $run['threshold']]);
-                }
+                self::configure($c, $run['threshold'], $run['bitmapScansOnly']);
                 $rows = $c->fetchAll(($analyze ? 'EXPLAIN (ANALYZE, BUFFERS) ' : 'EXPLAIN ') . $last['sql'], $last['params']);
 
                 return array_map(static fn(array $row): string => Coerce::str(reset($row)), $rows);
@@ -232,7 +230,8 @@ final class PostgresEngine implements Engine
      * @return array{
      *     result: SearchResult,
      *     statements: list<array{label: string, sql: string, params: array<string, scalar|null>}>,
-     *     threshold: float|null
+     *     threshold: float|null,
+     *     bitmapScansOnly: bool
      * }
      */
     private function execute(IndexDefinition $index, SearchQuery $query): array
@@ -260,24 +259,31 @@ final class PostgresEngine implements Engine
             $warnings[] = 'The search only excluded words; add at least one word to look for.';
             $empty = SearchResult::empty($query->limit, $query->offset, $warnings, round((hrtime(true) - $started) / 1e6, 3));
 
-            return ['result' => $empty, 'statements' => [], 'threshold' => null];
+            return ['result' => $empty, 'statements' => [], 'threshold' => null, 'bitmapScansOnly' => false];
         }
 
         $run = $this->pipeline($index, $root, $conditions, $profile, $thresholds, $query, '');
         $statements = $run['statements'];
         array_push($warnings, ...$run['warnings']);
+        // settings of the last statement, which explain() runs again
+        $threshold = $run['threshold'];
+        $bitmapScansOnly = false;
 
         // Empty-result relaxation: drop the words that match nothing on their own, search once more.
         if ($root !== null && $thresholds->relaxWhenEmpty && self::total($run['rows']) === 0) {
             $probe = $this->probe($index, $root, $run['fuzzy'], $conditions, $thresholds);
             if ($probe !== null) {
                 $statements[] = $probe['statement'];
+                $threshold = $probe['threshold'];
+                $bitmapScansOnly = true;
                 $reduced = $probe['ignored'] === [] ? null : Relaxation::without($root, $probe['ignored']);
                 if ($reduced !== null) {
                     $root = $reduced;
                     $run = $this->pipeline($index, $root, $conditions, $profile, $thresholds, $query, 'relaxed: ');
                     array_push($statements, ...$run['statements']);
                     array_push($warnings, ...$run['warnings']);
+                    $threshold = $run['threshold'];
+                    $bitmapScansOnly = false;
                     $warnings[] = Relaxation::warning($probe['ignored']);
                 }
             }
@@ -328,7 +334,7 @@ final class PostgresEngine implements Engine
             interpretedAs: $root !== null ? (string) $root : null,
         );
 
-        return ['result' => $result, 'statements' => $statements, 'threshold' => $run['threshold']];
+        return ['result' => $result, 'statements' => $statements, 'threshold' => $threshold, 'bitmapScansOnly' => $bitmapScansOnly];
     }
 
     /**
@@ -429,6 +435,7 @@ final class PostgresEngine implements Engine
      *
      * @return array{
      *     statement: array{label: string, sql: string, params: array<string, scalar|null>},
+     *     threshold: float|null,
      *     ignored: list<Term|Phrase|FieldScoped>
      * }|null
      */
@@ -459,7 +466,8 @@ final class PostgresEngine implements Engine
         }
 
         $statement = ['label' => 'relaxation probe'] + (new SearchSqlBuilder($index))->probe($probed, $fuzzy, $conditions, $thresholds, $empty);
-        $row = $this->run($statement, $fuzzy ? $thresholds->fuzzySimilarity : null)[0] ?? [];
+        $threshold = $fuzzy ? $thresholds->fuzzySimilarity : null;
+        $row = $this->run($statement, $threshold, bitmapScansOnly: true)[0] ?? [];
         $ignored = [];
         foreach ($probed as $i => $leaf) {
             if (in_array($row['l' . $i] ?? null, [false, 'f', 0], true)) {
@@ -467,7 +475,7 @@ final class PostgresEngine implements Engine
             }
         }
 
-        return ['statement' => $statement, 'ignored' => count($ignored) < count($probed) ? $ignored : []];
+        return ['statement' => $statement, 'threshold' => $threshold, 'ignored' => count($ignored) < count($probed) ? $ignored : []];
     }
 
     /**
@@ -501,18 +509,35 @@ final class PostgresEngine implements Engine
      *
      * @return list<array<string, mixed>>
      */
-    private function run(array $statement, ?float $similarityThreshold): array
+    private function run(array $statement, ?float $similarityThreshold, bool $bitmapScansOnly = false): array
     {
         return $this->guard('search', fn(): array => $this->connection->transactional(
-            static function (Connection $c) use ($statement, $similarityThreshold): array {
-                if ($similarityThreshold !== null) {
-                    // SET LOCAL semantics: only for this transaction, lets "<%" use the trigram index
-                    $c->fetchValue("SELECT set_config('pg_trgm.word_similarity_threshold', :t, true)", ['t' => (string) $similarityThreshold]);
-                }
+            static function (Connection $c) use ($statement, $similarityThreshold, $bitmapScansOnly): array {
+                self::configure($c, $similarityThreshold, $bitmapScansOnly);
 
                 return $c->fetchAll($statement['sql'], $statement['params']);
             },
         ), 'Run "bin/console fuzzphony:doctor" to check the index.');
+    }
+
+    /**
+     * Transaction-local settings (SET LOCAL semantics) of a search statement.
+     *
+     * The similarity threshold lets "<%" use the trigram index. Bitmap-scans-only is for the
+     * relaxation probe: an "EXISTS (... LIMIT 1)" makes the planner prefer a scan that stops at
+     * the first match (sequential, or along a filter's btree index), which evaluates the text
+     * condition row by row and reads the whole table for exactly the words the probe is looking
+     * for, those that match nothing (measured at 200 000 rows: 600-770 ms instead of 15-30 ms).
+     * Bitmap scans evaluate the text condition through the GIN indexes.
+     */
+    private static function configure(Connection $c, ?float $similarityThreshold, bool $bitmapScansOnly): void
+    {
+        if ($similarityThreshold !== null) {
+            $c->fetchValue("SELECT set_config('pg_trgm.word_similarity_threshold', :t, true)", ['t' => (string) $similarityThreshold]);
+        }
+        if ($bitmapScansOnly) {
+            $c->fetchValue("SELECT set_config('enable_seqscan', 'off', true), set_config('enable_indexscan', 'off', true)");
+        }
     }
 
     /** @param list<array<string, mixed>> $rows */

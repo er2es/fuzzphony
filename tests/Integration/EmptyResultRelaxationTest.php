@@ -60,6 +60,19 @@ final class EmptyResultRelaxationTest extends TestCase
         self::assertSame(['full-text', 'relaxation probe', 'relaxed: full-text'], $labels('wireless mouse offfice', fuzzyMode: 'never'));
     }
 
+    public function testTheProbeReadsTheTextIndexesInsteadOfScanningForAFirstMatch(): void
+    {
+        // the probe is the last statement here, so it is the one explain() shows
+        $explanation = $this->fuzzphony()->in('products')->query('mouse torch')->explain(analyze: true);
+        $plan = implode("\n", $explanation->plan);
+
+        self::assertSame(['full-text', 'fallback: full-text + fuzzy', 'relaxation probe'], array_column($explanation->statements, 'label'));
+        self::assertStringContainsString('Bitmap Index Scan on fuzzphony_products_tsv', $plan);
+        self::assertStringContainsString('Bitmap Index Scan on fuzzphony_products_fz', $plan);
+        self::assertStringNotContainsString('Seq Scan on fuzzphony_products', $plan);
+        self::assertStringNotContainsString('Index Scan using', $plan);
+    }
+
     public function testAStopWordIsNeitherKeptNorReportedAsUnmatched(): void
     {
         $result = $this->fuzzphony()->in('products')->query('wireless mouse for offfice')->get();
