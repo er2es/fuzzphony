@@ -9,6 +9,10 @@ changes; they are always listed under **Breaking** and explained in [UPGRADE.md]
 
 ### Changed
 
+- README: shortened to what the library does, the demo, install and quickstart; the details moved
+  to `docs/`, the install command is `composer require fuzzphony/fuzzphony` (the bundle is not a
+  separate package), and new badges show PHPStan, OpenSSF Best Practices, PHP, PostgreSQL and
+  Symfony support.
 - Demo: the database is PostgreSQL 18.6 (was 17.11). An existing demo needs
   `docker compose down -v` once and seeds again on the next `up --build`.
 - Demo: the compare page shows Fuzzphony's results at once and loads the ILIKE column
