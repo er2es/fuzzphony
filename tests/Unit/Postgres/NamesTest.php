@@ -59,6 +59,8 @@ final class NamesTest extends TestCase
         self::assertSame(substr($long, 0, 54) . '_' . hash('crc32b', $long), Names::limit($long));
         self::assertSame(63, strlen(Names::limit($long)));
         self::assertSame(substr($long, 0, 11) . '_' . hash('crc32b', $long), Names::limit($long, 20));
+        $mixed = implode('', range('a', 'z')) . str_repeat('0123456789', 5);
+        self::assertSame('abcdefghijklmnopqrstuvwxyz0123456789012345678901234567_' . hash('crc32b', $mixed), Names::limit($mixed), 'the kept part is the start of the name');
 
         $index = IndexDefinition::builder(str_repeat('long_index_name_', 3))->fromTable('t')->field('name')->build();
         self::assertLessThanOrEqual(63, strlen((new Names())->triggerName($index, new Watch(str_repeat('watched_table_', 4)), '_trn')));

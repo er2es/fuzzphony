@@ -540,6 +540,29 @@ final class PostgresEngineTest extends TestCase
         self::assertSame('Column "no_such_recency" not found in source.', $problems['Recency column']);
     }
 
+    public function testDoctorReportsIncompatibleFilterBoostAndRecencyColumnTypes(): void
+    {
+        $index = IndexDefinition::builder('products_direct')
+            ->fromTable('fz_product')
+            ->field('name', 'A')
+            ->filter('label', 'int', 'name')
+            ->boostBy('name')
+            ->recencyBy('price')
+            ->sync('manual')
+            ->build();
+        $fuzzphony = new Fuzzphony($this->engine, new IndexRegistry([$index]));
+        $fuzzphony->schema()->apply($this->connection);
+
+        $problems = [];
+        foreach ($fuzzphony->inspect('products_direct')->problems() as $check) {
+            $problems[$check->name] = [$check->status, $check->message];
+        }
+
+        self::assertSame([CheckStatus::Warning, 'Column "name" is text; declared as "int" (values are cast on indexing).'], $problems['Filter label']);
+        self::assertSame([CheckStatus::Error, 'Column "name" is text; expected a numeric type.'], $problems['Boost column']);
+        self::assertSame([CheckStatus::Error, 'Column "price" is integer; expected a date/timestamp type.'], $problems['Recency column']);
+    }
+
     public function testDoctorWarnsAboutExtraSidecarColumns(): void
     {
         $fuzzphony = $this->fuzzphony('manual');

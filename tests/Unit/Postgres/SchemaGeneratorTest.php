@@ -219,6 +219,31 @@ final class SchemaGeneratorTest extends TestCase
         self::assertStringNotContainsString('DROP TABLE IF EXISTS "fz_product"', $sql);
     }
 
+    public function testDropRemovesEveryTriggerAndFunctionAndForgetsQueuedItems(): void
+    {
+        $sql = (new PostgresSchemaGenerator())->drop(Indexes::products())->toSql();
+
+        self::assertStringContainsString('DROP TRIGGER IF EXISTS "fuzzphony_sync_products__fz_brand_trn" ON "fz_brand"', $sql);
+        self::assertStringContainsString('DROP FUNCTION IF EXISTS "fuzzphony_sync_products__fz_brand"()', $sql);
+        self::assertStringContainsString('DROP FUNCTION IF EXISTS "fuzzphony_refresh_products"(bigint[])', $sql);
+        self::assertStringContainsString("IF to_regclass('fuzzphony_queue') IS NOT NULL THEN DELETE FROM fuzzphony_queue WHERE index_name = 'products'; END IF;", $sql);
+    }
+
+    public function testSecondaryIndexAndTriggerNames(): void
+    {
+        $generator = new PostgresSchemaGenerator();
+        $index = Indexes::products();
+
+        self::assertSame(
+            ['fuzzphony_products_tsv', 'fuzzphony_products_fz', 'fuzzphony_products_f_price', 'fuzzphony_products_f_in_stock', 'fuzzphony_products_f_published_at', 'fuzzphony_products_f_brand_id'],
+            array_keys($generator->indexes($index)),
+        );
+        self::assertSame(
+            ['fuzzphony_sync_products__fz_brand', 'fuzzphony_sync_products__fz_brand_ins', 'fuzzphony_sync_products__fz_brand_upd', 'fuzzphony_sync_products__fz_brand_del', 'fuzzphony_sync_products__fz_brand_trn'],
+            $generator->allTriggerNames($index, new Watch('fz_brand')),
+        );
+    }
+
     public function testRelevantColumnsAutoDerivesForTheSelfWatchOnATableSource(): void
     {
         $definition = IndexDefinition::builder('t')->fromTable('t')
