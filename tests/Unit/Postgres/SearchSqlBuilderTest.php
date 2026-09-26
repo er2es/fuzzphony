@@ -134,4 +134,13 @@ final class SearchSqlBuilderTest extends TestCase
 
         (new SearchSqlBuilder(Indexes::products()))->probe([new Term('for')], false, [], new Thresholds(), ["'for'"]);
     }
+
+    public function testTheLabelWeightsBecomeTheTsRankWeightsArrayOrderedDToA(): void
+    {
+        $default = (new SearchSqlBuilder(Indexes::products()))->ranked("'mouse'", 'mouse', null, [], new RankingProfile(), new Thresholds(), 10, 0);
+        $custom = (new SearchSqlBuilder(Indexes::products()))->ranked("'mouse'", 'mouse', null, [], new RankingProfile(labelWeights: ['b' => 0.8, 'd' => 0.0]), new Thresholds(), 10, 0);
+
+        self::assertStringContainsString("ts_rank_cd('{0.1,0.2,0.4,1}'::real[], s.tsv, q.tsq, 32)", $default['sql']);
+        self::assertStringContainsString("ts_rank_cd('{0,0.2,0.8,1}'::real[], s.tsv, q.tsq, 32)", $custom['sql']);
+    }
 }

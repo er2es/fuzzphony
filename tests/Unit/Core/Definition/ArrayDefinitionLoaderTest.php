@@ -31,7 +31,8 @@ final class ArrayDefinitionLoaderTest extends TestCase
 
         self::assertStringEndsNotWith(';', (string) $definition->source->query);
         self::assertSame(Weight::C, $definition->field('body')?->weight);
-        self::assertSame('fuzzphony_german', $definition->text->configName());
+        self::assertSame('german', $definition->text->language);
+        self::assertTrue($definition->text->unaccent);
         self::assertArrayHasKey('default', $definition->profiles);
         self::assertSame(0.5, $definition->profile('fresh')->recency);
         self::assertSame(FuzzyMode::Always, $definition->thresholds->fuzzyMode);

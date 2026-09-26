@@ -8,6 +8,8 @@ use Fuzzphony\Core\Database\Connection;
 use Fuzzphony\Core\Definition\IndexDefinition;
 use Fuzzphony\Core\Exception\InvalidQuery;
 use Fuzzphony\Core\Support\Coerce;
+use Fuzzphony\Engine\Postgres\Schema\Names;
+use Fuzzphony\Engine\Postgres\Schema\Types;
 use Fuzzphony\Engine\Postgres\Sql\DocumentSql;
 use Fuzzphony\Engine\Postgres\Sql\ParameterBag;
 use Fuzzphony\Engine\Postgres\Sql\Sql;
@@ -22,7 +24,10 @@ final class Highlighter
     private const string START = "\u{E000}";
     private const string STOP = "\u{E001}";
 
-    public function __construct(private readonly Connection $connection) {}
+    public function __construct(
+        private readonly Connection $connection,
+        private readonly Names $names = new Names(),
+    ) {}
 
     /**
      * @param list<string>     $fields
@@ -43,7 +48,7 @@ final class Highlighter
         }
 
         $params = new ParameterBag();
-        $config = Sql::string($index->text->configName()) . '::regconfig';
+        $config = $this->names->regconfig($index->text);
         $options = sprintf('StartSel="%s", StopSel="%s", MaxWords=30, MinWords=12, MaxFragments=2, FragmentDelimiter=" … "', self::START, self::STOP);
 
         $columns = ['d.fz_id::text AS id'];
@@ -64,7 +69,7 @@ final class Highlighter
             implode(', ', $columns),
             DocumentSql::select($index),
             $params->add(Sql::arrayLiteral($ids)),
-            $index->idType->sqlType(),
+            Types::id($index->idType),
         );
 
         $out = [];

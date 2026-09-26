@@ -15,12 +15,11 @@ final class RankingProfileTest extends TestCase
         $profile = new RankingProfile();
 
         self::assertSame(1.0, $profile->text);
-        self::assertSame('{0.1,0.2,0.4,1}', $profile->tsRankWeights());
     }
 
     public function testLabelWeightsAreMergedWithDefaults(): void
     {
-        self::assertSame('{0.1,0.2,0.8,1}', (new RankingProfile(labelWeights: ['b' => 0.8]))->tsRankWeights());
+        self::assertSame(['A' => 1.0, 'B' => 0.8, 'C' => 0.2, 'D' => 0.1], (new RankingProfile(labelWeights: ['b' => 0.8]))->labelWeights);
     }
 
     public function testCollectsEveryViolation(): void

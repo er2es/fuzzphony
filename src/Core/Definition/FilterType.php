@@ -46,35 +46,6 @@ enum FilterType: string
         };
     }
 
-    public function sqlType(): string
-    {
-        return match ($this) {
-            self::Bool => 'boolean',
-            self::Int => 'bigint',
-            self::Float => 'double precision',
-            self::String => 'text',
-            self::Date => 'date',
-            self::DateTime => 'timestamptz',
-        };
-    }
-
-    /**
-     * PostgreSQL column types that can back this filter without a lossy cast.
-     *
-     * @return list<string>
-     */
-    public function compatibleSqlTypes(): array
-    {
-        return match ($this) {
-            self::Bool => ['boolean'],
-            self::Int => ['smallint', 'integer', 'bigint'],
-            self::Float => ['real', 'double precision', 'numeric', 'smallint', 'integer', 'bigint'],
-            self::String => ['text', 'character varying', 'character', 'citext', 'uuid'],
-            self::Date => ['date', 'timestamp without time zone', 'timestamp with time zone'],
-            self::DateTime => ['timestamp without time zone', 'timestamp with time zone', 'date'],
-        };
-    }
-
     private static function toDate(mixed $value, string $format): ?string
     {
         if ($value instanceof \DateTimeInterface) {

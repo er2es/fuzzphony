@@ -32,6 +32,11 @@ and the [CHANGELOG](CHANGELOG.md) has the full list of changes.
 
    `onBatch` must be a `\Closure` (use `$callable(...)` for other callables). The console command
    is unchanged.
+4. **Removed Core helpers.** `IndexDefinition::sidecarTable()`, `TextConfig::configName()`,
+   `IdType::sqlType()`, `FilterType::sqlType()`, `FilterType::compatibleSqlTypes()`,
+   `RankingProfile::tsRankWeights()` and `Identifier::limit()` are gone. Nothing replaces them in
+   the public API: the engine derives these names itself. If you queried the sidecar table by
+   hand, its name is `fuzzphony_<index>` in Fuzzphony's schema (see step 6).
 
 ## From 0.3.1 to 0.3.2
 

@@ -9,7 +9,7 @@ use Fuzzphony\Core\Query\Ast\Node;
 use Fuzzphony\Core\Query\Filter\Condition;
 use Fuzzphony\Core\Ranking\RankingProfile;
 use Fuzzphony\Core\Ranking\Thresholds;
-use Fuzzphony\Engine\Postgres\Schema\PostgresSchemaGenerator;
+use Fuzzphony\Engine\Postgres\Schema\Names;
 
 /**
  * @internal Builds the ranked search statement:
@@ -29,7 +29,7 @@ final class SearchSqlBuilder
 {
     public function __construct(
         private readonly IndexDefinition $index,
-        private readonly string $extensionSchema = 'public',
+        private readonly Names $names = new Names(),
     ) {}
 
     /**
@@ -44,8 +44,8 @@ final class SearchSqlBuilder
     {
         $params = new ParameterBag();
         $filters = new FilterCompiler($this->index);
-        $table = Sql::ident($this->index->sidecarTable());
-        $config = Sql::string($this->index->text->configName()) . '::regconfig';
+        $table = $this->names->sidecar($this->index);
+        $config = $this->names->regconfig($this->index->text);
         $candidates = $thresholds->candidateLimit;
 
         $q = [];
@@ -53,11 +53,11 @@ final class SearchSqlBuilder
             $q[] = sprintf('to_tsquery(%s, %s) AS tsq', $config, $params->add($tsquery));
         }
         $q[] = $plain !== ''
-            ? sprintf('%s(%s) AS norm', PostgresSchemaGenerator::NORM_FUNCTION, $params->add($plain))
+            ? sprintf('%s(%s) AS norm', $this->names->normFunction(), $params->add($plain))
             : "''::text AS norm";
         // Per-term fuzzy branch: every word is satisfied exactly or fuzzily, through the query's
         // own AND / OR / NOT. Its per-word values are extra q columns.
-        $fuzzy = $fuzzyRoot === null ? null : (new FuzzyQueryCompiler($this->index, $thresholds, $this->extensionSchema))->compile($fuzzyRoot, $params, $emptyQueries);
+        $fuzzy = $fuzzyRoot === null ? null : (new FuzzyQueryCompiler($this->index, $thresholds, $this->names))->compile($fuzzyRoot, $params, $emptyQueries);
         if ($fuzzy !== null) {
             array_push($q, ...$fuzzy->columns);
         }
@@ -68,7 +68,7 @@ final class SearchSqlBuilder
         if ($tsquery !== null) {
             $ctes[] = sprintf(
                 "fts AS (\n    SELECT s.id, ts_rank_cd('%s'::real[], s.tsv, q.tsq, 32)::double precision AS r_text\n    FROM %s AS s CROSS JOIN q\n    WHERE s.tsv @@ q.tsq AND %s\n    LIMIT %d\n)",
-                $profile->tsRankWeights(),
+                self::tsRankWeights($profile),
                 $table,
                 $filters->compile($conditions, $params),
                 $candidates,
@@ -143,8 +143,8 @@ final class SearchSqlBuilder
     {
         $params = new ParameterBag();
         $filters = new FilterCompiler($this->index);
-        $table = Sql::ident($this->index->sidecarTable());
-        $compiled = (new FuzzyQueryCompiler($this->index, $thresholds, $this->extensionSchema))->leafConditions($leaves, $params, $emptyQueries, $fuzzy);
+        $table = $this->names->sidecar($this->index);
+        $compiled = (new FuzzyQueryCompiler($this->index, $thresholds, $this->names))->leafConditions($leaves, $params, $emptyQueries, $fuzzy);
         if ($compiled['columns'] === []) {
             throw new \LogicException('A relaxation probe needs at least one leaf that is not a stop word.');
         }
@@ -185,7 +185,7 @@ SELECT
     {
         $params = new ParameterBag();
         $where = (new FilterCompiler($this->index))->compile($conditions, $params);
-        $table = Sql::ident($this->index->sidecarTable());
+        $table = $this->names->sidecar($this->index);
         $score = sprintf('(%s + %s)', $this->boostExpression($profile), $this->recencyExpression($profile));
 
         $sql = sprintf(
@@ -222,5 +222,13 @@ SELECT
             Sql::float($profile->recency),
             Sql::float($profile->recencyHalfLifeDays),
         );
+    }
+
+    /** PostgreSQL ts_rank weights array literal, ordered {D, C, B, A}. */
+    private static function tsRankWeights(RankingProfile $profile): string
+    {
+        $w = $profile->labelWeights;
+
+        return sprintf('{%s,%s,%s,%s}', Sql::float($w['D']), Sql::float($w['C']), Sql::float($w['B']), Sql::float($w['A']));
     }
 }

@@ -8,22 +8,14 @@ use Fuzzphony\Core\Definition\IndexDefinition;
 use Fuzzphony\Core\Definition\SyncMode;
 use Fuzzphony\Core\Definition\TriggerLevel;
 use Fuzzphony\Core\Definition\Watch;
-use Fuzzphony\Core\Exception\InvalidConfiguration;
 use Fuzzphony\Core\Schema\Statement;
+use Fuzzphony\Engine\Postgres\Schema\Names;
 use Fuzzphony\Engine\Postgres\Schema\PostgresSchemaGenerator;
 use Fuzzphony\Tests\Fixtures\Indexes;
 use PHPUnit\Framework\TestCase;
 
 final class SchemaGeneratorTest extends TestCase
 {
-    public function testAnInvalidExtensionSchemaIsRejected(): void
-    {
-        $this->expectException(InvalidConfiguration::class);
-        $this->expectExceptionMessage('Invalid extension schema "not a valid ident; drop table".');
-
-        new PostgresSchemaGenerator('not a valid ident; drop table');
-    }
-
     public function testSidecarColumnsFollowTheDefinition(): void
     {
         self::assertSame(
@@ -213,7 +205,7 @@ final class SchemaGeneratorTest extends TestCase
         $definition = IndexDefinition::builder($name)->fromTable('a_really_long_table_name_for_testing')->field('title')->build();
         $generator = new PostgresSchemaGenerator();
 
-        self::assertLessThanOrEqual(63, strlen($generator->syncFunctionName($definition, $definition->effectiveWatches()[0])));
+        self::assertLessThanOrEqual(63, strlen((new Names())->syncFunctionName($definition, $definition->effectiveWatches()[0])));
         foreach (array_keys($generator->indexes($definition)) as $index) {
             self::assertLessThanOrEqual(63, strlen($index));
         }

@@ -13,7 +13,7 @@ use Fuzzphony\Core\Query\Ast\Not;
 use Fuzzphony\Core\Query\Ast\Phrase;
 use Fuzzphony\Core\Query\Ast\Term;
 use Fuzzphony\Core\Ranking\Thresholds;
-use Fuzzphony\Engine\Postgres\Schema\PostgresSchemaGenerator;
+use Fuzzphony\Engine\Postgres\Schema\Names;
 
 /**
  * @internal Compiles the AST into the predicate and score of the typo-tolerant (fuzzy) branch.
@@ -51,7 +51,7 @@ final class FuzzyQueryCompiler
     public function __construct(
         private readonly IndexDefinition $index,
         private readonly Thresholds $thresholds,
-        private readonly string $extensionSchema = 'public',
+        private readonly Names $names = new Names(),
     ) {
         $this->tsquery = new TsQueryCompiler($index);
     }
@@ -164,8 +164,8 @@ final class FuzzyQueryCompiler
         if ($needle === null) {
             return ['predicate' => $exact, 'score' => sprintf('CASE WHEN %s THEN 1.0 ELSE 0.0 END', $exact), 'partial' => false];
         }
-        $norm = $this->column('fn', sprintf('%s(%s)', PostgresSchemaGenerator::NORM_FUNCTION, $params->add($needle)));
-        $schema = Sql::ident($this->extensionSchema);
+        $norm = $this->column('fn', sprintf('%s(%s)', $this->names->normFunction(), $params->add($needle)));
+        $schema = $this->names->extension();
 
         return [
             'predicate' => sprintf('(%s OR %s OPERATOR(%s.<%%) s.fz)', $exact, $norm, $schema),
@@ -241,7 +241,7 @@ final class FuzzyQueryCompiler
 
     private function matches(string $tsquery, ParameterBag $params): string
     {
-        return 's.tsv @@ ' . $this->column('ft', sprintf('to_tsquery(%s::regconfig, %s)', Sql::string($this->index->text->configName()), $params->add($tsquery)));
+        return 's.tsv @@ ' . $this->column('ft', sprintf('to_tsquery(%s, %s)', $this->names->regconfig($this->index->text), $params->add($tsquery)));
     }
 
     /** Adds a q column (ft<n> = tsquery, fn<n> = needle) and returns the reference to it. */

@@ -108,7 +108,8 @@ final class ExportersTest extends TestCase
             array_map(static fn($f): array => [$f->name, $f->type, $f->column()], $loaded->filters),
         );
         self::assertSame('gadget', $loaded->source->table);
-        self::assertSame('fuzzphony_german', $loaded->text->configName());
+        self::assertSame('german', $loaded->text->language);
+        self::assertTrue($loaded->text->unaccent);
     }
 
     public function testMultilineQueriesUseBlockScalars(): void

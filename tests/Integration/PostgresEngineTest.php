@@ -166,7 +166,7 @@ final class PostgresEngineTest extends TestCase
 
     public function testDoctorRecognizesAMissingTruncateTriggerWhenTheNameIsHashed(): void
     {
-        // a long index name makes Identifier::limit() hash the trigger names, so they no longer end in "_trn"
+        // a long index name makes Names::limit() hash the trigger names, so they no longer end in "_trn"
         $index = IndexDefinition::builder(str_repeat('long_index_name_', 3))
             ->fromQuery('SELECT p.id, p.name, b.name AS brand FROM fz_product p JOIN fz_brand b ON b.id = p.brand_id')
             ->watch('fz_product')

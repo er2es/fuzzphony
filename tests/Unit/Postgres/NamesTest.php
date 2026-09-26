@@ -1,0 +1,74 @@
+<?php
+
+declare(strict_types=1);
+
+namespace Fuzzphony\Tests\Unit\Postgres;
+
+use Fuzzphony\Core\Definition\IndexDefinition;
+use Fuzzphony\Core\Definition\TextConfig;
+use Fuzzphony\Core\Definition\Watch;
+use Fuzzphony\Core\Exception\InvalidConfiguration;
+use Fuzzphony\Engine\Postgres\Schema\Names;
+use Fuzzphony\Tests\Fixtures\Indexes;
+use PHPUnit\Framework\TestCase;
+
+final class NamesTest extends TestCase
+{
+    public function testObjectNames(): void
+    {
+        $names = new Names();
+        $index = Indexes::products();
+        $brand = new Watch('fz_brand');
+
+        self::assertSame('"public"', $names->extension());
+        self::assertSame('fuzzphony_products', $names->sidecarName($index));
+        self::assertSame('"fuzzphony_products"', $names->sidecar($index));
+        self::assertSame('fuzzphony_queue', $names->queue());
+        self::assertSame('fuzzphony_queue_order', $names->queueOrderIndex());
+        self::assertSame('fuzzphony_norm', $names->normFunction());
+        self::assertSame('fuzzphony_refresh_products', $names->refreshFunctionName($index));
+        self::assertSame('"fuzzphony_refresh_products"', $names->refreshFunction($index));
+        self::assertSame('fuzzphony_sync_products__fz_brand', $names->syncFunctionName($index, $brand));
+        self::assertSame('fuzzphony_sync_products__shop_brand', $names->syncFunctionName($index, new Watch('shop.brand')));
+        self::assertSame('"fuzzphony_sync_products__fz_brand"', $names->syncFunction($index, $brand));
+        self::assertSame('fuzzphony_sync_products__fz_brand', $names->triggerName($index, $brand));
+        self::assertSame('fuzzphony_sync_products__fz_brand_ins', $names->triggerName($index, $brand, '_ins'));
+        self::assertSame('fuzzphony_products_tsv', $names->indexName($index, 'tsv'));
+    }
+
+    public function testTextSearchNames(): void
+    {
+        $names = new Names();
+
+        self::assertSame('fuzzphony_german', $names->textConfigName(new TextConfig('german')));
+        self::assertSame('german', $names->textConfigName(new TextConfig('german', unaccent: false)));
+        self::assertSame('"fuzzphony_german"', $names->textConfig(new TextConfig('german')));
+        self::assertSame('"german"', $names->textConfig(new TextConfig('german', unaccent: false)));
+        self::assertSame("'fuzzphony_english'::regconfig", $names->regconfig(new TextConfig()));
+        self::assertSame("'simple'::regconfig", $names->regconfig(new TextConfig('simple', unaccent: false)));
+        self::assertSame('fuzzphony_german_stop', $names->stopDictionaryName(new TextConfig('german')));
+        self::assertSame('"fuzzphony_german_stop"', $names->stopDictionary(new TextConfig('german')));
+    }
+
+    public function testLongNamesAreCutToThePostgresLimitAndStayUnique(): void
+    {
+        $long = str_repeat('a', 70);
+
+        self::assertSame('short', Names::limit('short'));
+        self::assertSame(str_repeat('a', 63), Names::limit(str_repeat('a', 63)), 'exactly at the limit: unchanged');
+        self::assertSame(substr($long, 0, 54) . '_' . hash('crc32b', $long), Names::limit($long));
+        self::assertSame(63, strlen(Names::limit($long)));
+        self::assertSame(substr($long, 0, 11) . '_' . hash('crc32b', $long), Names::limit($long, 20));
+
+        $index = IndexDefinition::builder(str_repeat('long_index_name_', 3))->fromTable('t')->field('name')->build();
+        self::assertLessThanOrEqual(63, strlen((new Names())->triggerName($index, new Watch(str_repeat('watched_table_', 4)), '_trn')));
+    }
+
+    public function testAnInvalidExtensionSchemaIsAConfigurationError(): void
+    {
+        $this->expectException(InvalidConfiguration::class);
+        $this->expectExceptionMessage('Invalid extension schema "not a valid ident; drop table".');
+
+        new Names('not a valid ident; drop table');
+    }
+}

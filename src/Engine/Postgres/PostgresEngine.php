@@ -35,7 +35,9 @@ use Fuzzphony\Core\Search\ScoreBreakdown;
 use Fuzzphony\Core\Search\SearchResult;
 use Fuzzphony\Core\Support\Coerce;
 use Fuzzphony\Engine\Postgres\Inspection\PostgresInspector;
+use Fuzzphony\Engine\Postgres\Schema\Names;
 use Fuzzphony\Engine\Postgres\Schema\PostgresSchemaGenerator;
+use Fuzzphony\Engine\Postgres\Schema\Types;
 use Fuzzphony\Engine\Postgres\Sql\DocumentSql;
 use Fuzzphony\Engine\Postgres\Sql\FilterCompiler;
 use Fuzzphony\Engine\Postgres\Sql\FuzzyQueryCompiler;
@@ -47,13 +49,15 @@ final class PostgresEngine implements Engine
 {
     private const PROBE_LABEL = 'relaxation probe';
 
+    private readonly Names $names;
     private readonly PostgresSchemaGenerator $schema;
 
     public function __construct(
         private readonly Connection $connection,
-        private readonly string $extensionSchema = 'public',
+        string $extensionSchema = 'public',
     ) {
-        $this->schema = new PostgresSchemaGenerator($extensionSchema);
+        $this->names = new Names($extensionSchema);
+        $this->schema = new PostgresSchemaGenerator($this->names);
     }
 
     public function name(): string
@@ -124,7 +128,7 @@ final class PostgresEngine implements Engine
         }
 
         return $this->guard('refresh', fn(): int => Coerce::int($this->connection->fetchValue(
-            sprintf('SELECT %s(CAST(:ids AS %s[]))', Sql::ident($this->schema->refreshFunctionName($index)), $index->idType->sqlType()),
+            sprintf('SELECT %s(CAST(:ids AS %s[]))', $this->names->refreshFunction($index), Types::id($index->idType)),
             ['ids' => Sql::arrayLiteral(array_values($ids))],
         )), 'Run "fuzzphony:schema --apply" to create the refresh function, then "fuzzphony:doctor".');
     }
@@ -134,7 +138,7 @@ final class PostgresEngine implements Engine
         $params = ['limit' => $limit];
         $where = '';
         if ($after !== null) {
-            $where = sprintf('WHERE doc.fz_id > CAST(:after AS %s)', $index->idType->sqlType());
+            $where = sprintf('WHERE doc.fz_id > CAST(:after AS %s)', Types::id($index->idType));
             $params['after'] = (string) $after;
         }
         $rows = $this->guard('source ids', fn(): array => $this->connection->fetchAll(sprintf(
@@ -153,6 +157,7 @@ final class PostgresEngine implements Engine
         }
         // Keyset pagination over the sidecar: each statement checks (and locks) at most one batch,
         // and the whole run reads every indexed id once. Same anti-join as the refresh function.
+        $sidecar = $this->names->sidecar($index);
         $sql = static fn(bool $first): string => sprintf(
             <<<'SQL'
                 WITH batch AS (
@@ -168,8 +173,8 @@ final class PostgresEngine implements Engine
                        (SELECT b.id::text FROM batch AS b ORDER BY b.id DESC LIMIT 1) AS last,
                        (SELECT count(*) FROM removed) AS removed
                 SQL,
-            Sql::ident($index->sidecarTable()),
-            $first ? '' : sprintf('WHERE s.id > CAST(:after AS %s)', $index->idType->sqlType()),
+            $sidecar,
+            $first ? '' : sprintf('WHERE s.id > CAST(:after AS %s)', Types::id($index->idType)),
             DocumentSql::select($index),
         );
 
@@ -211,9 +216,9 @@ final class PostgresEngine implements Engine
                 )
                 SELECT (SELECT count(*) FROM batch) FROM refreshed
                 SQL,
-            PostgresSchemaGenerator::QUEUE_TABLE,
-            Sql::ident($this->schema->refreshFunctionName($index)),
-            $index->idType->sqlType(),
+            $this->names->queue(),
+            $this->names->refreshFunction($index),
+            Types::id($index->idType),
         );
 
         return $this->guard(
@@ -228,7 +233,7 @@ final class PostgresEngine implements Engine
     public function queueSize(IndexDefinition $index): int
     {
         return $this->guard('queue size', fn(): int => Coerce::int($this->connection->fetchValue(
-            sprintf('SELECT count(*) FROM %s WHERE index_name = :index', PostgresSchemaGenerator::QUEUE_TABLE),
+            sprintf('SELECT count(*) FROM %s WHERE index_name = :index', $this->names->queue()),
             ['index' => $index->name],
         )), 'Run "fuzzphony:schema --apply" to create the queue table.');
     }
@@ -318,7 +323,7 @@ final class PostgresEngine implements Engine
         $highlights = [];
         if ($query->highlight !== [] && $tsquery !== null && $rows !== []) {
             $headline = $tsquery;
-            $highlights = $this->guard('highlighting', fn(): array => (new Highlighter($this->connection))->highlight(
+            $highlights = $this->guard('highlighting', fn(): array => (new Highlighter($this->connection, $this->names))->highlight(
                 $index,
                 $query->highlight,
                 $headline,
@@ -385,14 +390,14 @@ final class PostgresEngine implements Engine
         $plain = implode(' ', TsQueryCompiler::lexemes(implode(' ', NodeInspector::positiveWords($root))));
 
         // Typo tolerance is per word (FuzzyQueryCompiler); it needs at least one positive word long enough for it.
-        $fuzzy = new FuzzyQueryCompiler($index, $thresholds, $this->extensionSchema);
+        $fuzzy = new FuzzyQueryCompiler($index, $thresholds, $this->names);
         $fuzzyRoot = $root !== null
             && $index->hasFuzzy()
             && $profile->fuzzy > 0.0
             && $thresholds->fuzzyMode !== FuzzyMode::Never
             && $fuzzy->hasFuzzyLeaf($root) ? $root : null;
 
-        $builder = new SearchSqlBuilder($index, $this->extensionSchema);
+        $builder = new SearchSqlBuilder($index, $this->names);
         $statements = [];
         $usedFuzzy = false;
         $threshold = null;
@@ -485,7 +490,7 @@ final class PostgresEngine implements Engine
             return null;
         }
 
-        $statement = ['label' => self::PROBE_LABEL] + (new SearchSqlBuilder($index, $this->extensionSchema))->probe($probed, $fuzzy, $conditions, $thresholds, $empty);
+        $statement = ['label' => self::PROBE_LABEL] + (new SearchSqlBuilder($index, $this->names))->probe($probed, $fuzzy, $conditions, $thresholds, $empty);
         $row = $this->run($statement, $fuzzy ? $thresholds->fuzzySimilarity : null)[0] ?? [];
         $ignored = [];
         foreach ($probed as $i => $leaf) {
@@ -511,8 +516,8 @@ final class PostgresEngine implements Engine
     {
         $rows = $this->guard('search', fn(): array => $this->connection->fetchAll(
             sprintf(
-                'SELECT t.q FROM unnest(CAST(:queries AS text[])) AS t(q) WHERE numnode(to_tsquery(%s::regconfig, t.q)) = 0',
-                Sql::string($index->text->configName()),
+                'SELECT t.q FROM unnest(CAST(:queries AS text[])) AS t(q) WHERE numnode(to_tsquery(%s, t.q)) = 0',
+                $this->names->regconfig($index->text),
             ),
             ['queries' => Sql::arrayLiteral($queries)],
         ), 'Run "bin/console fuzzphony:doctor" to check the index.');

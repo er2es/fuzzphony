@@ -34,6 +34,10 @@ changes; they are always listed under **Breaking** and explained in [UPGRADE.md]
   likewise. `ReindexResult` has `written`, `pruned` (null when pruning did not run) and
   `pruneSkippedEmptySource`, which replace the `onPruned` / `onPruneSkipped` callbacks. A batch size
   below 1 throws `InvalidArgument` when the options are created.
+- PostgreSQL naming and types left Core: `IndexDefinition::sidecarTable()`, `TextConfig::configName()`,
+  `IdType::sqlType()`, `FilterType::sqlType()`, `FilterType::compatibleSqlTypes()`,
+  `RankingProfile::tsRankWeights()` and `Identifier::limit()` are removed. They now live in the
+  engine (`Fuzzphony\Engine\Postgres\Schema\Names` and `Types`, both internal).
 
 ### Added
 

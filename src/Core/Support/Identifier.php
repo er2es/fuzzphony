@@ -38,16 +38,6 @@ final class Identifier
         ));
     }
 
-    /** Keeps generated object names within PostgreSQL's 63 byte limit while staying unique. */
-    public static function limit(string $name, int $max = 63): string
-    {
-        if (strlen($name) <= $max) {
-            return $name;
-        }
-
-        return substr($name, 0, $max - 9) . '_' . hash('crc32b', $name);
-    }
-
     public static function snake(string $value): string
     {
         return strtolower((string) preg_replace('/(?<!^)[A-Z]/', '_$0', $value));

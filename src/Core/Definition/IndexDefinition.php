@@ -48,11 +48,6 @@ final readonly class IndexDefinition
         return new IndexBuilder($name);
     }
 
-    public function sidecarTable(): string
-    {
-        return 'fuzzphony_' . $this->name;
-    }
-
     public function field(string $name): ?FieldDefinition
     {
         foreach ($this->fields as $field) {
