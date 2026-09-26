@@ -68,7 +68,7 @@ final class SchemaGeneratorTest extends TestCase
 
     public function testRowLevelTriggers(): void
     {
-        $definition = Indexes::products('queue')->with(triggerLevel: TriggerLevel::Row);
+        $definition = Indexes::products('queue')->withTriggerLevel(TriggerLevel::Row);
         $sql = (new PostgresSchemaGenerator())->index($definition)->toSql();
 
         self::assertStringContainsString('SELECT id FROM fz_product WHERE brand_id = NEW."id"', $sql);
@@ -81,7 +81,7 @@ final class SchemaGeneratorTest extends TestCase
     {
         foreach ([TriggerLevel::Statement, TriggerLevel::Row] as $level) {
             foreach (['queue', 'trigger'] as $sync) {
-                $sql = (new PostgresSchemaGenerator())->index(Indexes::products($sync)->with(triggerLevel: $level))->toSql();
+                $sql = (new PostgresSchemaGenerator())->index(Indexes::products($sync)->withTriggerLevel($level))->toSql();
 
                 foreach (['fz_product', 'fz_brand'] as $table) {
                     self::assertStringContainsString(
@@ -114,7 +114,7 @@ final class SchemaGeneratorTest extends TestCase
             ->build();
         foreach ([Indexes::products('queue'), Indexes::products('trigger'), $filtered] as $definition) {
             foreach ([TriggerLevel::Statement, TriggerLevel::Row] as $level) {
-                $definition = $definition->with(triggerLevel: $level);
+                $definition = $definition->withTriggerLevel($level);
                 foreach ((new PostgresSchemaGenerator())->index($definition)->statements as $statement) {
                     if (!str_contains($statement->sql, 'RETURNS trigger')) {
                         continue;
@@ -147,7 +147,7 @@ final class SchemaGeneratorTest extends TestCase
         );
         self::assertStringNotContainsString("DELETE FROM fuzzphony_queue WHERE index_name = 'articles'", $queue, 'never waits on the rows a worker holds');
 
-        $trigger = (new PostgresSchemaGenerator())->index($definition->with(sync: SyncMode::Trigger))->toSql();
+        $trigger = (new PostgresSchemaGenerator())->index($definition->withSync(SyncMode::Trigger))->toSql();
         self::assertStringContainsString($guard . sprintf($resync, 'PERFORM "fuzzphony_refresh_articles"(ARRAY(SELECT s.id FROM "fuzzphony_articles" AS s UNION'), $trigger);
         self::assertStringNotContainsString('fuzzphony_queue WHERE ctid', $trigger);
     }
@@ -157,7 +157,7 @@ final class SchemaGeneratorTest extends TestCase
         $definition = IndexDefinition::builder('articles')->fromTable('article')->field('title')->watch('comment', 'SELECT article_id FROM comment WHERE id = :id')->build();
         foreach (['queue', 'trigger'] as $sync) {
             $functions = array_values(array_filter(
-                (new PostgresSchemaGenerator())->index($definition->with(sync: SyncMode::from($sync)))->statements,
+                (new PostgresSchemaGenerator())->index($definition->withSync(SyncMode::from($sync)))->statements,
                 static fn($statement): bool => str_contains($statement->sql, 'CREATE OR REPLACE FUNCTION "fuzzphony_sync_articles__comment"'),
             ));
             self::assertCount(1, $functions);
@@ -281,7 +281,7 @@ final class SchemaGeneratorTest extends TestCase
 
     public function testRowLevelTriggersSkipUnchangedColumns(): void
     {
-        $definition = Indexes::products('queue')->with(triggerLevel: TriggerLevel::Row, tenant: null);
+        $definition = Indexes::products('queue')->withTriggerLevel(TriggerLevel::Row)->withTenant(null);
         // Force a self-watch scenario isn't available on this query-sourced fixture; instead prove
         // the guard is emitted for a watch that DOES have relevant columns via an explicit list.
         $definition = IndexDefinition::builder($definition->name)
@@ -326,7 +326,7 @@ final class SchemaGeneratorTest extends TestCase
 
     public function testRowLevelTriggersWithoutColumnsAreUnchanged(): void
     {
-        $definition = Indexes::products('queue')->with(triggerLevel: TriggerLevel::Row);
+        $definition = Indexes::products('queue')->withTriggerLevel(TriggerLevel::Row);
         $sql = (new PostgresSchemaGenerator())->index($definition)->toSql();
 
         self::assertStringNotContainsString("TG_OP = 'UPDATE' AND NOT", $sql);

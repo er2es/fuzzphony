@@ -22,6 +22,12 @@ changes; they are always listed under **Breaking** and explained in [UPGRADE.md]
   highlighting, the doctor and `SchemaPlan::apply()` arrive as `EngineFailure` (the driver
   exception is its previous exception). `fuzzphony:schema --dump-migration` into a directory that
   cannot be created prints the error and exits 1 instead of throwing.
+- `IndexDefinition::with(...)` is removed. It accepted any named argument, ignored unknown keys
+  and silently kept the old value on a wrong type. Use the typed withers instead: `withName()`,
+  `withSource()`, `withFields()`, `withFilters()`, `withWatches()`, `withIdType()`, `withSync()`,
+  `withText()`, `withBoostColumn()`, `withRecencyColumn()`, `withProfiles()`,
+  `withThresholds()`, `withEntityClass()`, `withTriggerLevel()`, `withTenant()`. A wrong type is
+  now a PHP `TypeError` at the call site.
 
 ### Added
 

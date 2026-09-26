@@ -12,6 +12,12 @@ and the [CHANGELOG](CHANGELOG.md) has the full list of changes.
    `InvalidDefinition`; if you caught `\PDOException` or DBAL exceptions around `explain()`,
    highlighting, the doctor or `SchemaPlan::apply()`, catch `EngineFailure` (the driver exception
    is `getPrevious()`). `catch (\InvalidArgumentException)` keeps working.
+2. **`IndexDefinition::with()` is gone.** Replace each named argument with its wither, and chain
+   them: `$definition->with(sync: SyncMode::Manual, tenant: null)` becomes
+   `$definition->withSync(SyncMode::Manual)->withTenant(null)`. The names are the property names:
+   `name`, `source`, `fields`, `filters`, `watches`, `idType`, `sync`, `text`, `boostColumn`,
+   `recencyColumn`, `profiles`, `thresholds`, `entityClass`, `triggerLevel`, `tenant` →
+   `withName()` … `withTenant()`. Withers do not validate; registering the definition does.
 
 ## From 0.3.1 to 0.3.2
 

@@ -16,7 +16,7 @@ final class WorkerTest extends TestCase
     {
         $products = Indexes::products();
         $other = Indexes::products('queue', 'fz_other');
-        $other = $other->with(name: 'other');
+        $other = $other->withName('other');
 
         // Each index's queue yields exactly one non-empty batch, then reports empty.
         $remaining = [$products->name => 2, $other->name => 3];

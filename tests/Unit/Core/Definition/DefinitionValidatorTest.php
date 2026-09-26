@@ -68,7 +68,7 @@ final class DefinitionValidatorTest extends TestCase
 
     public function testWatchMustReferenceIdExactlyOnce(): void
     {
-        $definition = Indexes::products()->with(watches: [new Watch('fz_brand', 'SELECT id FROM fz_product WHERE brand_id = :ids')]);
+        $definition = Indexes::products()->withWatches([new Watch('fz_brand', 'SELECT id FROM fz_product WHERE brand_id = :ids')]);
 
         self::assertStringContainsString('":id" exactly once', DefinitionValidator::validate($definition)[0]);
     }

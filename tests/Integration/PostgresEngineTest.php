@@ -87,7 +87,7 @@ final class PostgresEngineTest extends TestCase
     public function testSwitchingTriggerLevelLeavesNoDuplicates(): void
     {
         $this->fuzzphony('queue');
-        $row = Indexes::products('queue')->with(triggerLevel: TriggerLevel::Row);
+        $row = Indexes::products('queue')->withTriggerLevel(TriggerLevel::Row);
         $fuzzphony = new Fuzzphony($this->engine, new IndexRegistry([$row]));
         $fuzzphony->schema()->apply($this->connection);
 
@@ -226,7 +226,7 @@ final class PostgresEngineTest extends TestCase
     {
         // Create a custom index with explicit columns on a watch to test column-aware filtering
         $index = Indexes::products('queue')
-            ->with(watches: [
+            ->withWatches([
                 new \Fuzzphony\Core\Definition\Watch('fz_product', columns: ['name', 'price']),
                 new \Fuzzphony\Core\Definition\Watch('fz_brand', 'SELECT id FROM fz_product WHERE brand_id = :id', 'id', ['name']),
             ]);
@@ -249,7 +249,7 @@ final class PostgresEngineTest extends TestCase
     public function testDoctorReportsAnErrorForAWatchColumnThatDoesNotExist(): void
     {
         $index = Indexes::products('queue')
-            ->with(watches: [
+            ->withWatches([
                 new \Fuzzphony\Core\Definition\Watch('fz_product'),
                 new \Fuzzphony\Core\Definition\Watch('fz_brand', 'SELECT id FROM fz_product WHERE brand_id = :id', 'id', ['nmae']),
             ]);
@@ -559,7 +559,7 @@ final class PostgresEngineTest extends TestCase
     public function testDoctorWarnsAboutLeftoverTriggersFromAPreviousSyncLevel(): void
     {
         $this->fuzzphony('queue'); // installs the default statement-level triggers
-        $rowIndex = Indexes::products('queue')->with(triggerLevel: TriggerLevel::Row);
+        $rowIndex = Indexes::products('queue')->withTriggerLevel(TriggerLevel::Row);
         $rowFuzzphony = new Fuzzphony($this->engine, new IndexRegistry([$rowIndex]));
 
         $leftover = array_values(array_filter(
@@ -575,7 +575,7 @@ final class PostgresEngineTest extends TestCase
 
     public function testDoctorWarnsAboutVeryTolerantFuzzySimilarityAndAHighCandidateLimit(): void
     {
-        $index = Indexes::products('manual')->with(thresholds: new Thresholds(fuzzySimilarity: 0.1, candidateLimit: 6_000));
+        $index = Indexes::products('manual')->withThresholds(new Thresholds(fuzzySimilarity: 0.1, candidateLimit: 6_000));
         $fuzzphony = new Fuzzphony($this->engine, new IndexRegistry([$index]));
         $fuzzphony->schema()->apply($this->connection);
         $fuzzphony->reindex('products');

@@ -21,7 +21,7 @@ final class ExportersTest extends TestCase
 {
     public function testArrayExportRoundTripsThroughTheLoader(): void
     {
-        $original = Indexes::products()->with(thresholds: (new Thresholds())->with(['min_score' => 0.05, 'fuzzy_mode' => 'always']));
+        $original = Indexes::products()->withThresholds((new Thresholds())->with(['min_score' => 0.05, 'fuzzy_mode' => 'always']));
 
         $reloaded = (new ArrayDefinitionLoader())->load('products', (new ArrayExporter())->export($original));
 
@@ -30,7 +30,7 @@ final class ExportersTest extends TestCase
 
     public function testRelaxWhenEmptyRoundTripsAndIsOnlyExportedWhenChanged(): void
     {
-        $original = Indexes::products()->with(thresholds: (new Thresholds())->with(['relax_when_empty' => false]));
+        $original = Indexes::products()->withThresholds((new Thresholds())->with(['relax_when_empty' => false]));
         $exported = (new ArrayExporter())->export($original);
 
         self::assertSame(['relax_when_empty' => false], $exported['thresholds'] ?? null);
@@ -53,7 +53,7 @@ final class ExportersTest extends TestCase
 
     public function testAttributeDefinitionsRoundTripToo(): void
     {
-        $original = (new AttributeDefinitionLoader())->load(Product::class)->with(entityClass: null);
+        $original = (new AttributeDefinitionLoader())->load(Product::class)->withEntityClass(null);
 
         self::assertEquals($original, (new ArrayDefinitionLoader())->load('products', (new ArrayExporter())->export($original)));
     }

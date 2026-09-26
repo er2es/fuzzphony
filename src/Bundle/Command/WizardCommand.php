@@ -85,7 +85,7 @@ final class WizardCommand extends Command
             $keep = $io->askQuestion((new ChoiceQuestion('Searchable fields to keep (comma-separated, Enter = all)', $fields, implode(',', array_keys($fields))))->setMultiselect(true));
             $kept = array_values(array_filter($index->fields, static fn($f): bool => in_array($f->name, (array) $keep, true)));
             if ($kept !== $index->fields && $kept !== []) {
-                $index = $index->with(fields: $kept);
+                $index = $index->withFields($kept);
             }
         }
 
