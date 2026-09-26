@@ -13,7 +13,8 @@ changes; they are always listed under **Breaking** and explained in [UPGRADE.md]
   `@default` mutator set against `src/`, running both the unit and integration test suites,
   multi-threaded (each worker gets its own throwaway database). A monthly CI job records the
   baseline MSI; pull requests only mutate their changed lines. No `minMsi` gate yet — see
-  [docs/roadmap.md](docs/roadmap.md#mutation-testing).
+  [docs/roadmap.md](docs/roadmap.md#mutation-testing). The first full run scored 85% (3,944
+  mutants, 17 minutes); the README shows the current score as a badge.
 
 ### Changed
 

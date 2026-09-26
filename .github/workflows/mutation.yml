@@ -52,10 +52,8 @@ jobs:
   full:
     if: github.event_name != 'pull_request'
     runs-on: ubuntu-latest
-    # ~3,944 mutants at 3-9 s each on one thread; with one database per worker (TEST_TOKEN) four
-    # threads run ~3.5x faster, so a full run should take roughly 1-3.5 h. GitHub caps a job at 6 h:
-    # if it ever doesn't fit, shard src/ across a build matrix (one Postgres service per shard).
-    timeout-minutes: 360
+    # The first full run (3,944 mutants, four threads) took 17 minutes.
+    timeout-minutes: 120
     services:
       postgres:
         image: postgres:17
@@ -69,8 +67,7 @@ jobs:
           --health-interval 2s --health-retries 20
     env:
       FUZZPHONY_TEST_DSN: "pgsql:host=127.0.0.1;port=5432;dbname=fuzzphony;user=fuzzphony;password=fuzzphony"
-      # Only set on the upstream repository; forks and contributors never have it. The dashboard
-      # step below is skipped cleanly (not run at all) while it is unset.
+      # Only set on the upstream repository; forks never have it.
       STRYKER_DASHBOARD_API_KEY: ${{ secrets.STRYKER_DASHBOARD_API_KEY }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -80,17 +77,13 @@ jobs:
           extensions: pdo_pgsql, mbstring
           coverage: pcov
       - run: composer install --no-progress --prefer-dist
-      - run: vendor/bin/infection --threads=max --only-covering-test-cases --show-mutations=0 --logger-github
+      # One pass: infection-dashboard.json5 is infection.json5 plus the Stryker Dashboard report,
+      # which only warns (doesn't fail) when STRYKER_DASHBOARD_API_KEY is unset, e.g. on forks.
+      - run: >-
+          vendor/bin/infection --threads=max --only-covering-test-cases --show-mutations=0
+          --configuration=infection-dashboard.json5 --logger-github
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        if: always()
         with:
           name: infection-report
           path: build/infection/
-      # infection-dashboard.json5 is infection.json5 plus a `logs.stryker` entry. Infection's
-      # StrykerReporter already no-ops (with a warning, not a failure) when the API key is
-      # missing, but that would still re-run the whole mutation pass for nothing; the `if:`
-      # here skips it instead of paying that cost until the secret exists.
-      - name: Report mutation score to Stryker Dashboard
-        if: env.STRYKER_DASHBOARD_API_KEY != ''
-        run: >-
-          vendor/bin/infection --threads=max --only-covering-test-cases --show-mutations=0
-          --configuration=infection-dashboard.json5

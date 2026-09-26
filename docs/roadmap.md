@@ -94,9 +94,10 @@ engine skip that round trip when no outer transaction is open.
 
 ### Mutation testing
 
-Set up: Infection runs in CI (a monthly baseline, plus changed-lines-only on pull requests). Next
-is raising the Mutation Score Indicator toward a `minMsi` gate and an MSI badge, to show the tests
-catch bugs, not just run every line.
+Infection runs in CI: a full run monthly, and only the changed lines on pull requests. The first
+full run (September 2026) killed 85% of 3,944 mutants; the score is on the README badge. Next:
+write tests for the 561 surviving mutants that point to real gaps, reach 90%, then add a
+`minMsi` gate so the score can't slip.
 
 ## After 1.0
 
