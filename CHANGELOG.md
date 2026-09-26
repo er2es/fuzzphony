@@ -28,6 +28,12 @@ changes; they are always listed under **Breaking** and explained in [UPGRADE.md]
   `withText()`, `withBoostColumn()`, `withRecencyColumn()`, `withProfiles()`,
   `withThresholds()`, `withEntityClass()`, `withTriggerLevel()`, `withTenant()`. A wrong type is
   now a PHP `TypeError` at the call site.
+- `Fuzzphony::reindex(string $index, ReindexOptions $options = new ReindexOptions()): ReindexResult`
+  replaces the positional `$batchSize, $onBatch, $onPruned, $prune, $pruneEmpty, $onPruneSkipped`
+  and the `int` return value; `Reindexer::run(IndexDefinition, ReindexOptions): ReindexResult`
+  likewise. `ReindexResult` has `written`, `pruned` (null when pruning did not run) and
+  `pruneSkippedEmptySource`, which replace the `onPruned` / `onPruneSkipped` callbacks. A batch size
+  below 1 throws `InvalidArgument` when the options are created.
 
 ### Added
 

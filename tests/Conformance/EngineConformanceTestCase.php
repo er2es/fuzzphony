@@ -11,6 +11,7 @@ use Fuzzphony\Core\Fuzzphony;
 use Fuzzphony\Core\Registry\IndexRegistry;
 use Fuzzphony\Core\Search\SearchResult;
 use Fuzzphony\Core\Sync\Reindexer;
+use Fuzzphony\Core\Sync\ReindexOptions;
 use Fuzzphony\Tests\Fixtures\Indexes;
 use PHPUnit\Framework\TestCase;
 
@@ -330,17 +331,13 @@ abstract class EngineConformanceTestCase extends TestCase
     {
         $index = $this->fuzzphony->registry()->get('products');
         $this->connection->execute('DELETE FROM fz_product WHERE id = 4');
-        $pruned = [];
-        $onPruned = static function (int $removed) use (&$pruned): void {
-            $pruned[] = $removed;
-        };
 
-        (new Reindexer($this->engine))->run($index, 5_000, 1, null, $onPruned);
-        self::assertSame([], $pruned, 'a resumed run covers only part of the source');
+        $resumed = (new Reindexer($this->engine))->run($index, new ReindexOptions(resumeAfter: 1));
+        self::assertNull($resumed->pruned, 'a resumed run covers only part of the source');
         self::assertContains(4, $this->ids($this->fuzzphony->in('products')->get()));
 
-        (new Reindexer($this->engine))->run($index, 5_000, null, null, $onPruned);
-        self::assertSame([1], $pruned);
+        $full = (new Reindexer($this->engine))->run($index, new ReindexOptions());
+        self::assertSame(1, $full->pruned);
         self::assertNotContains(4, $this->ids($this->fuzzphony->in('products')->get()));
     }
 

@@ -11,6 +11,7 @@ use Fuzzphony\Core\Fuzzphony;
 use Fuzzphony\Core\Inspection\CheckStatus;
 use Fuzzphony\Core\Registry\IndexRegistry;
 use Fuzzphony\Core\Support\Coerce;
+use Fuzzphony\Core\Sync\ReindexOptions;
 use Fuzzphony\Core\Wizard\DefinitionSuggester;
 use Fuzzphony\Core\Wizard\Export\AttributeExporter;
 use Fuzzphony\Core\Wizard\Export\BuilderExporter;
@@ -124,7 +125,9 @@ final class WizardCommand extends Command
         $fuzzphony = new Fuzzphony($this->engine, new IndexRegistry([$index]));
         $io->section('Trying it');
         $fuzzphony->schema()->apply($this->connection);
-        $count = $fuzzphony->reindex($index->name, 5_000, static fn(int $done) => $io->write(sprintf("\r  indexed %s", number_format($done))));
+        $count = $fuzzphony->reindex($index->name, new ReindexOptions(onBatch: static function (int $done) use ($io): void {
+            $io->write(sprintf("\r  indexed %s", number_format($done)));
+        }))->written;
         $io->newLine();
         $report = $fuzzphony->inspect($index->name);
         $io->writeln(sprintf('  %s documents, doctor: <%s>%s</>', number_format($count), $report->status() === CheckStatus::Ok ? 'info' : 'comment', $report->status()->value));

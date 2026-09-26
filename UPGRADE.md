@@ -18,6 +18,20 @@ and the [CHANGELOG](CHANGELOG.md) has the full list of changes.
    `name`, `source`, `fields`, `filters`, `watches`, `idType`, `sync`, `text`, `boostColumn`,
    `recencyColumn`, `profiles`, `thresholds`, `entityClass`, `triggerLevel`, `tenant` →
    `withName()` … `withTenant()`. Withers do not validate; registering the definition does.
+3. **Reindexing from PHP.** `reindex()` takes a `ReindexOptions` and returns a `ReindexResult`:
+
+   ```php
+   // 0.3
+   $written = $fuzzphony->reindex('products', 10_000, $onBatch, onPruned: fn(int $n) => ..., prune: false);
+   // 0.4
+   $result = $fuzzphony->reindex('products', new ReindexOptions(batchSize: 10_000, onBatch: $onBatch(...), prune: false));
+   $written = $result->written;
+   $pruned = $result->pruned;                        // was onPruned; null when pruning did not run
+   $skipped = $result->pruneSkippedEmptySource;      // was onPruneSkipped
+   ```
+
+   `onBatch` must be a `\Closure` (use `$callable(...)` for other callables). The console command
+   is unchanged.
 
 ## From 0.3.1 to 0.3.2
 

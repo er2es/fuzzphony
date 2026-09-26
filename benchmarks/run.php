@@ -17,6 +17,7 @@ use Fuzzphony\Core\Database\PdoConnection;
 use Fuzzphony\Core\Definition\IndexDefinition;
 use Fuzzphony\Core\Fuzzphony;
 use Fuzzphony\Core\Registry\IndexRegistry;
+use Fuzzphony\Core\Sync\ReindexOptions;
 use Fuzzphony\Engine\Postgres\PostgresEngine;
 
 $dsn = getenv('FUZZPHONY_BENCH_DSN') ?: exit("Set FUZZPHONY_BENCH_DSN.\n");
@@ -42,7 +43,7 @@ $fuzzphony = new Fuzzphony(new PostgresEngine($connection), new IndexRegistry([$
 if (in_array('--setup', $argv, true) || in_array('--setup-only', $argv, true)) {
     $t = microtime(true);
     $fuzzphony->schema()->apply($connection);
-    $n = $fuzzphony->reindex('bench', 10_000, static function (int $done): void { fwrite(STDERR, "\r  indexed " . number_format($done)); });
+    $n = $fuzzphony->reindex('bench', new ReindexOptions(batchSize: 10_000, onBatch: static function (int $done): void { fwrite(STDERR, "\r  indexed " . number_format($done)); }))->written;
     $pdo->exec('ANALYZE fuzzphony_bench');
     fprintf(STDERR, "\nSetup: %s documents in %.1fs\n", number_format($n), microtime(true) - $t);
     if (in_array('--setup-only', $argv, true)) {

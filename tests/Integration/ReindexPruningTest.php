@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Fuzzphony\Tests\Integration;
 
 use Fuzzphony\Core\Support\Coerce;
+use Fuzzphony\Core\Sync\ReindexOptions;
 use Fuzzphony\Tests\Integration\Command\CommandTestCase;
 use PHPUnit\Framework\TestCase;
 
@@ -22,53 +23,37 @@ final class ReindexPruningTest extends TestCase
     public function testPrunesByDefaultAndReportsHowMany(): void
     {
         $this->context->connection->execute('DELETE FROM fz_product WHERE id = 4'); // manual sync: 4 is an orphan
-        $pruned = [];
 
-        $this->context->fuzzphony->reindex('products', onPruned: static function (int $removed) use (&$pruned): void {
-            $pruned[] = $removed;
-        });
+        $result = $this->context->fuzzphony->reindex('products');
 
-        self::assertSame([1], $pruned);
+        self::assertSame(1, $result->pruned);
         self::assertSame(4, $this->indexed());
     }
 
     public function testPruneFalseLeavesTheIndexAlone(): void
     {
         $this->context->connection->execute('DELETE FROM fz_product WHERE id = 4');
-        $called = false;
 
-        $this->context->fuzzphony->reindex('products', onPruned: static function () use (&$called): void {
-            $called = true;
-        }, prune: false);
+        $result = $this->context->fuzzphony->reindex('products', new ReindexOptions(prune: false));
 
-        self::assertFalse($called);
+        self::assertNull($result->pruned);
         self::assertSame(5, $this->indexed());
     }
 
     public function testASourceWithoutRowsIsNotPrunedUnlessForced(): void
     {
         $this->context->connection->execute('DELETE FROM fz_product');
-        $events = [];
 
-        $written = $this->context->fuzzphony->reindex(
-            'products',
-            onPruned: static function (int $removed) use (&$events): void {
-                $events[] = 'pruned ' . $removed;
-            },
-            onPruneSkipped: static function () use (&$events): void {
-                $events[] = 'skipped';
-            },
-        );
+        $result = $this->context->fuzzphony->reindex('products');
 
-        self::assertSame(0, $written);
-        self::assertSame(['skipped'], $events);
+        self::assertSame(0, $result->written);
+        self::assertTrue($result->pruneSkippedEmptySource);
+        self::assertNull($result->pruned);
         self::assertSame(5, $this->indexed());
 
-        $this->context->fuzzphony->reindex('products', onPruned: static function (int $removed) use (&$events): void {
-            $events[] = 'pruned ' . $removed;
-        }, pruneEmpty: true);
+        $forced = $this->context->fuzzphony->reindex('products', new ReindexOptions(pruneEmpty: true));
 
-        self::assertSame(['skipped', 'pruned 5'], $events);
+        self::assertSame(5, $forced->pruned);
         self::assertSame(0, $this->indexed());
     }
 

@@ -11,6 +11,8 @@ use Fuzzphony\Core\Registry\IndexRegistry;
 use Fuzzphony\Core\Schema\SchemaPlan;
 use Fuzzphony\Core\Search\SearchBuilder;
 use Fuzzphony\Core\Sync\Reindexer;
+use Fuzzphony\Core\Sync\ReindexOptions;
+use Fuzzphony\Core\Sync\ReindexResult;
 
 /** The one service applications talk to. */
 final readonly class Fuzzphony
@@ -49,21 +51,12 @@ final readonly class Fuzzphony
     }
 
     /**
-     * Rebuilds the whole index from the source and, unless $prune is false, removes the documents the
-     * source no longer returns. Pruning is relative to what this connection sees (row-level security,
-     * search_path, current_setting() in a query source): pass $prune = false when it sees less than the
-     * application. A source that returns no row at all is not pruned unless $pruneEmpty is set;
-     * $onPruneSkipped is then called.
-     *
-     * @param callable(int $processed, int|string $lastId): void|null $onBatch
-     * @param callable(int $removed): void|null                         $onPruned
-     * @param callable(): void|null                                     $onPruneSkipped
-     *
-     * @return int total documents written
+     * Rebuilds the whole index from the source and, unless $options->prune is false, removes the
+     * documents the source no longer returns. See ReindexOptions for resuming and pruning.
      */
-    public function reindex(string $index, int $batchSize = 5_000, ?callable $onBatch = null, ?callable $onPruned = null, bool $prune = true, bool $pruneEmpty = false, ?callable $onPruneSkipped = null): int
+    public function reindex(string $index, ReindexOptions $options = new ReindexOptions()): ReindexResult
     {
-        return (new Reindexer($this->engine))->run($this->registry->get($index), $batchSize, null, $onBatch, $onPruned, $prune, $pruneEmpty, $onPruneSkipped);
+        return (new Reindexer($this->engine))->run($this->registry->get($index), $options);
     }
 
     public function registry(): IndexRegistry
