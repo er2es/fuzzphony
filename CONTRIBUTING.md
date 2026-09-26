@@ -43,6 +43,9 @@ run) nothing changes. There is no CI gate on the MSI yet; see
 - One topic per pull request, with tests. Fix php-cs-fixer findings with `composer cs:fix`.
 - Cover the code you add: the goal is 100% line coverage of `src/`. Codecov reports the coverage
   of each pull request's changes; CI fails below 90% in total.
+- Make the tests catch bugs, not just run the lines: assert results, boundaries and callback
+  arguments. The `mutation / diff` check mutates the lines a pull request changes; fix the
+  mutants it reports as escaped in the same pull request.
 - Add a line to the `## [Unreleased]` section of [CHANGELOG.md](CHANGELOG.md) under Added,
   Changed, Fixed or Breaking.
 - Commit messages are short imperative sentences that say why ("Fix the fuzzy branch ignoring
