@@ -241,8 +241,8 @@ pruning). v1.0 brings a stable API and a backward-compatibility promise, Postgre
   observability hooks, search analytics, transaction-aware connections.
 - Security: audit logging, rate limiting, Symfony Security integration, a tenant resolver for the
   integrations.
-- Quality: mutation testing (Infection) in CI with an MSI badge, to show the tests catch bugs, not
-  just run every line.
+- Quality: mutation testing (Infection) is set up in CI; next is raising the Mutation Score
+  Indicator toward a gate and an MSI badge.
 - Docs: a documentation site with a "Migrating from `LIKE`" guide and recipes.
 
 After 1.0: a Laravel Scout driver. Details in

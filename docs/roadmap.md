@@ -94,8 +94,9 @@ engine skip that round trip when no outer transaction is open.
 
 ### Mutation testing
 
-Mutation testing (Infection) in CI with an MSI badge, to show the tests catch bugs, not just run
-every line.
+Set up: Infection runs in CI (a weekly baseline, plus changed-lines-only on pull requests). Next
+is raising the Mutation Score Indicator toward a `minMsi` gate and an MSI badge, to show the tests
+catch bugs, not just run every line.
 
 ## After 1.0
 

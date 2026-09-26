@@ -24,6 +24,17 @@ composer qa      # php-cs-fixer (PER-CS 2.0), PHPStan (level max + strict rules)
 Without `FUZZPHONY_TEST_DSN` the integration tests are skipped. CI additionally runs the suite
 against PHP 8.4 / 8.5, PostgreSQL 15 to 18, Symfony 7.4 / 8.0 and the lowest allowed dependencies.
 
+### Mutation testing
+
+`composer mutation` runs [Infection](https://infection.github.io) with pcov coverage against
+`src/`; it needs the same `FUZZPHONY_TEST_DSN` as the tests. The Mutation Score Indicator (MSI) is
+the share of mutants a passing test suite actually kills, not just covers — a low MSI next to 100%
+line coverage means the tests run the code but don't assert on it. It always runs with a single
+thread: the integration tests share one database, and running Infection's workers in parallel
+against it produces mutants "killed" by an unrelated `PDOException` race instead of a real
+assertion. There is no CI gate on the MSI yet; see
+[docs/roadmap.md](docs/roadmap.md#mutation-testing).
+
 ## Pull requests
 
 - `main` is protected: every change, the maintainer's too, lands through a pull request once the

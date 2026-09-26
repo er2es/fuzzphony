@@ -7,6 +7,13 @@ changes; they are always listed under **Breaking** and explained in [UPGRADE.md]
 
 ## [Unreleased]
 
+### Added
+
+- Mutation testing with [Infection](https://infection.github.io) (`composer mutation`): the
+  `@default` mutator set against `src/`, running both the unit and integration test suites. A
+  weekly CI job records the baseline MSI; pull requests only mutate their changed lines. No
+  `minMsi` gate yet — see [docs/roadmap.md](docs/roadmap.md#mutation-testing).
+
 ### Changed
 
 - README: shortened to what the library does, the demo, install and quickstart; the details moved
