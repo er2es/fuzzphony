@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Fuzzphony\Tests\Integration;
 
+use Fuzzphony\Core\Exception\InvalidArgument;
 use Fuzzphony\Core\Fuzzphony;
 use Fuzzphony\Core\Registry\IndexRegistry;
 use Fuzzphony\Core\Wizard\ColumnKind;
@@ -49,7 +50,7 @@ final class WizardTest extends TestCase
 
     public function testUnknownTable(): void
     {
-        $this->expectException(\InvalidArgumentException::class);
+        $this->expectException(InvalidArgument::class);
         (new PostgresIntrospector(PostgresTestCase::connect()))->describe('no_such_table');
     }
 

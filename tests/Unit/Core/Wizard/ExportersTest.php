@@ -7,6 +7,7 @@ namespace Fuzzphony\Tests\Unit\Core\Wizard;
 use Fuzzphony\Core\Definition\ArrayDefinitionLoader;
 use Fuzzphony\Core\Definition\AttributeDefinitionLoader;
 use Fuzzphony\Core\Definition\IndexDefinition;
+use Fuzzphony\Core\Exception\InvalidArgument;
 use Fuzzphony\Core\Ranking\Thresholds;
 use Fuzzphony\Core\Wizard\Export\ArrayExporter;
 use Fuzzphony\Core\Wizard\Export\AttributeExporter;
@@ -185,7 +186,7 @@ final class ExportersTest extends TestCase
 
     public function testAttributeExportThrowsForUnsupportedSources(): void
     {
-        $this->expectException(\LogicException::class);
+        $this->expectException(InvalidArgument::class);
         $this->expectExceptionMessage('Only table sources without extra watches can be expressed with attributes; export YAML instead.');
         (new AttributeExporter())->export(Indexes::products());
     }

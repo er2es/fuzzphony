@@ -6,6 +6,7 @@ namespace Fuzzphony\Core\Sync;
 
 use Fuzzphony\Core\Definition\IndexDefinition;
 use Fuzzphony\Core\Engine\Engine;
+use Fuzzphony\Core\Exception\InvalidArgument;
 
 /**
  * Batched, resumable backfill using keyset pagination over source ids.
@@ -41,7 +42,7 @@ final class Reindexer
         ?callable $onPruneSkipped = null,
     ): int {
         if ($batchSize < 1) {
-            throw new \InvalidArgumentException('Batch size must be >= 1.');
+            throw new InvalidArgument('Batch size must be >= 1.');
         }
         $total = 0;
         $seen = 0;

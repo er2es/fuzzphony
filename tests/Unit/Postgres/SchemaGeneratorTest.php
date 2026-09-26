@@ -8,6 +8,7 @@ use Fuzzphony\Core\Definition\IndexDefinition;
 use Fuzzphony\Core\Definition\SyncMode;
 use Fuzzphony\Core\Definition\TriggerLevel;
 use Fuzzphony\Core\Definition\Watch;
+use Fuzzphony\Core\Exception\InvalidConfiguration;
 use Fuzzphony\Core\Schema\Statement;
 use Fuzzphony\Engine\Postgres\Schema\PostgresSchemaGenerator;
 use Fuzzphony\Tests\Fixtures\Indexes;
@@ -17,7 +18,7 @@ final class SchemaGeneratorTest extends TestCase
 {
     public function testAnInvalidExtensionSchemaIsRejected(): void
     {
-        $this->expectException(\InvalidArgumentException::class);
+        $this->expectException(InvalidConfiguration::class);
         $this->expectExceptionMessage('Invalid extension schema "not a valid ident; drop table".');
 
         new PostgresSchemaGenerator('not a valid ident; drop table');

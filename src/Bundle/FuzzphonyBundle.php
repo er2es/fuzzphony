@@ -22,6 +22,7 @@ use Fuzzphony\Bundle\Registry\RegistryFactory;
 use Fuzzphony\Bundle\Twig\SearchComponent;
 use Fuzzphony\Core\Database\Connection;
 use Fuzzphony\Core\Engine\Engine;
+use Fuzzphony\Core\Exception\InvalidConfiguration;
 use Fuzzphony\Core\Fuzzphony;
 use Fuzzphony\Core\Registry\IndexRegistry;
 use Fuzzphony\Core\Support\Coerce;
@@ -148,7 +149,7 @@ final class FuzzphonyBundle extends AbstractBundle
         if ($ormSyncAsync) {
             if (!interface_exists(\Symfony\Component\Messenger\MessageBusInterface::class)) {
                 // symfony/messenger is a dev dependency, so the test run can't reach this line.
-                throw new \LogicException('fuzzphony.orm_sync.async requires symfony/messenger: composer require symfony/messenger'); // @codeCoverageIgnore
+                throw new InvalidConfiguration('fuzzphony.orm_sync.async requires symfony/messenger: composer require symfony/messenger'); // @codeCoverageIgnore
             }
             $services->set('fuzzphony.refresh_dispatcher', MessengerRefreshDispatcher::class)
                 ->args([service('messenger.default_bus'), $ormSyncChunkSize]);

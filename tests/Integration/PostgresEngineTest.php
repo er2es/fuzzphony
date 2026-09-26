@@ -8,6 +8,7 @@ use Fuzzphony\Core\Database\Connection;
 use Fuzzphony\Core\Definition\IndexDefinition;
 use Fuzzphony\Core\Definition\TriggerLevel;
 use Fuzzphony\Core\Exception\EngineFailure;
+use Fuzzphony\Core\Exception\InvalidArgument;
 use Fuzzphony\Core\Exception\InvalidQuery;
 use Fuzzphony\Core\Fuzzphony;
 use Fuzzphony\Core\Inspection\Check;
@@ -377,7 +378,7 @@ final class PostgresEngineTest extends TestCase
 
     public function testPruneOrphansRejectsANonPositiveBatchSize(): void
     {
-        $this->expectException(\InvalidArgumentException::class);
+        $this->expectException(InvalidArgument::class);
         $this->expectExceptionMessage('Batch size must be >= 1.');
 
         $this->engine->pruneOrphans(Indexes::products(), 0);
@@ -464,7 +465,8 @@ final class PostgresEngineTest extends TestCase
      * DROP VIEW then also fails, and that second failure must be swallowed, not thrown in place
      * of the original. The aborted transaction still poisons whatever inspect() tries next
      * (this is what running the doctor inside someone else's transaction costs), so the overall
-     * call still fails, but with PostgreSQL's own "transaction is aborted" error, not a
+     * call still fails, but with PostgreSQL's own "transaction is aborted" error (kept as the
+     * EngineFailure's previous exception, since inspect() is a guarded operation), not a
      * confusing "view does not exist" from the cleanup itself.
      */
     public function testASourceQueryErrorInsideTheCallersTransactionLeavesItAborted(): void
@@ -476,9 +478,13 @@ final class PostgresEngineTest extends TestCase
             ->build();
         $fuzzphony = new Fuzzphony($this->engine, new IndexRegistry([$index]));
 
-        $this->expectException(\PDOException::class);
-        $this->expectExceptionMessageMatches('/current transaction is aborted/');
-        $this->connection->transactional(fn(): mixed => $fuzzphony->inspect('products_direct'));
+        try {
+            $this->connection->transactional(fn(): mixed => $fuzzphony->inspect('products_direct'));
+            self::fail('EngineFailure expected');
+        } catch (EngineFailure $e) {
+            self::assertInstanceOf(\PDOException::class, $e->getPrevious());
+            self::assertMatchesRegularExpression('/current transaction is aborted/', $e->getPrevious()->getMessage());
+        }
     }
 
     public function testDoctorReportsAUuidIdTypeMismatch(): void

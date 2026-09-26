@@ -8,6 +8,7 @@ use Doctrine\ORM\EntityManagerInterface;
 use Doctrine\ORM\Mapping\ClassMetadata;
 use Fuzzphony\Bridge\Doctrine\DoctrineNamingStrategy;
 use Fuzzphony\Core\Definition\IdType;
+use Fuzzphony\Core\Exception\InvalidDefinition;
 use Fuzzphony\Tests\Fixtures\Doctrine\Article;
 use PHPUnit\Framework\TestCase;
 
@@ -50,7 +51,7 @@ final class DoctrineNamingStrategyTest extends TestCase
 
         $strategy = new DoctrineNamingStrategy($this->entityManagerFor($metadata));
 
-        $this->expectException(\LogicException::class);
+        $this->expectException(InvalidDefinition::class);
         $this->expectExceptionMessage(Article::class . ' has a composite identifier; Fuzzphony indexes need a single-column id.');
 
         $strategy->idColumn(Article::class);

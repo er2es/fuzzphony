@@ -11,6 +11,7 @@ use Fuzzphony\Core\Definition\SyncMode;
 use Fuzzphony\Core\Definition\TextConfig;
 use Fuzzphony\Core\Definition\TriggerLevel;
 use Fuzzphony\Core\Definition\Watch;
+use Fuzzphony\Core\Exception\InvalidConfiguration;
 use Fuzzphony\Core\Schema\SchemaPlan;
 use Fuzzphony\Core\Schema\Statement;
 use Fuzzphony\Core\Support\Identifier;
@@ -32,7 +33,7 @@ final class PostgresSchemaGenerator
     public function __construct(private readonly string $extensionSchema = 'public')
     {
         if (!Identifier::isColumn($extensionSchema)) {
-            throw new \InvalidArgumentException(sprintf('Invalid extension schema "%s".', $extensionSchema));
+            throw new InvalidConfiguration(sprintf('Invalid extension schema "%s".', $extensionSchema));
         }
     }
 

@@ -11,6 +11,7 @@ use Fuzzphony\Core\Engine\Capability;
 use Fuzzphony\Core\Engine\Engine;
 use Fuzzphony\Core\Exception\EngineFailure;
 use Fuzzphony\Core\Exception\FuzzphonyException;
+use Fuzzphony\Core\Exception\InvalidArgument;
 use Fuzzphony\Core\Exception\InvalidQuery;
 use Fuzzphony\Core\Inspection\InspectionReport;
 use Fuzzphony\Core\Inspection\InspectOptions;
@@ -102,7 +103,7 @@ final class PostgresEngine implements Engine
             }
         }
         if ($last !== null) {
-            $plan = $this->connection->transactional(fn(Connection $c): array => self::withSimilarityThreshold(
+            $plan = $this->guard('explain', fn(): array => $this->connection->transactional(fn(Connection $c): array => self::withSimilarityThreshold(
                 $c,
                 $run['threshold'],
                 static function () use ($c, $last, $analyze): array {
@@ -110,7 +111,7 @@ final class PostgresEngine implements Engine
 
                     return array_map(static fn(array $row): string => Coerce::str(reset($row)), $rows);
                 },
-            ));
+            )), 'Run "bin/console fuzzphony:doctor" to check the index.');
         }
 
         return new Explanation($run['result']->interpretedAs ?? '', $run['statements'], $plan, $run['result']);
@@ -136,11 +137,11 @@ final class PostgresEngine implements Engine
             $where = sprintf('WHERE doc.fz_id > CAST(:after AS %s)', $index->idType->sqlType());
             $params['after'] = (string) $after;
         }
-        $rows = $this->connection->fetchAll(sprintf(
+        $rows = $this->guard('source ids', fn(): array => $this->connection->fetchAll(sprintf(
             'SELECT doc.fz_id::text AS id FROM (%s) AS doc %s ORDER BY doc.fz_id LIMIT :limit',
             DocumentSql::select($index),
             $where,
-        ), $params);
+        ), $params), 'Run "bin/console fuzzphony:doctor": it checks that the source can be queried.');
 
         return array_map(static fn(array $row): int|string => $index->idType->cast(Coerce::str($row['id'])), $rows);
     }
@@ -148,7 +149,7 @@ final class PostgresEngine implements Engine
     public function pruneOrphans(IndexDefinition $index, int $batchSize = 5_000): int
     {
         if ($batchSize < 1) {
-            throw new \InvalidArgumentException('Batch size must be >= 1.');
+            throw new InvalidArgument('Batch size must be >= 1.');
         }
         // Keyset pagination over the sidecar: each statement checks (and locks) at most one batch,
         // and the whole run reads every indexed id once. Same anti-join as the refresh function.
@@ -226,15 +227,19 @@ final class PostgresEngine implements Engine
 
     public function queueSize(IndexDefinition $index): int
     {
-        return Coerce::int($this->connection->fetchValue(
+        return $this->guard('queue size', fn(): int => Coerce::int($this->connection->fetchValue(
             sprintf('SELECT count(*) FROM %s WHERE index_name = :index', PostgresSchemaGenerator::QUEUE_TABLE),
             ['index' => $index->name],
-        ));
+        )), 'Run "fuzzphony:schema --apply" to create the queue table.');
     }
 
     public function inspect(IndexDefinition $index, InspectOptions $options = new InspectOptions()): InspectionReport
     {
-        return (new PostgresInspector($this->connection, $this->schema))->inspect($index, $options);
+        return $this->guard(
+            'inspection',
+            fn(): InspectionReport => (new PostgresInspector($this->connection, $this->schema))->inspect($index, $options),
+            'Check that this connection can read the catalog and the source.',
+        );
     }
 
     /**
@@ -312,12 +317,13 @@ final class PostgresEngine implements Engine
 
         $highlights = [];
         if ($query->highlight !== [] && $tsquery !== null && $rows !== []) {
-            $highlights = (new Highlighter($this->connection))->highlight(
+            $headline = $tsquery;
+            $highlights = $this->guard('highlighting', fn(): array => (new Highlighter($this->connection))->highlight(
                 $index,
                 $query->highlight,
-                $tsquery,
+                $headline,
                 array_map(static fn(array $r): int|string => $index->idType->cast(Coerce::str($r['id'])), $rows),
-            );
+            ), 'Run "bin/console fuzzphony:doctor" to check the index.');
         }
 
         $hits = [];

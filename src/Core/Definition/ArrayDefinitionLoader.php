@@ -73,10 +73,10 @@ final class ArrayDefinitionLoader
         $this->assertKnownKeys($definition->name, $config);
         $changes = [];
         if (isset($config['sync'])) {
-            $changes['sync'] = SyncMode::from(self::str($config['sync'], ''));
+            $changes['sync'] = EnumOption::parse(SyncMode::class, self::str($config['sync'], ''), $definition->name, 'sync mode');
         }
         if (isset($config['trigger_level'])) {
-            $changes['triggerLevel'] = TriggerLevel::from(self::str($config['trigger_level'], ''));
+            $changes['triggerLevel'] = EnumOption::parse(TriggerLevel::class, self::str($config['trigger_level'], ''), $definition->name, 'trigger level');
         }
         if (isset($config['language']) || isset($config['unaccent'])) {
             $changes['text'] = new TextConfig(self::str($config['language'] ?? null, $definition->text->language), (bool) ($config['unaccent'] ?? $definition->text->unaccent));

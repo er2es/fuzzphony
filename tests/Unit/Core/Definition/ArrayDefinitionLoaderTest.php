@@ -190,4 +190,22 @@ final class ArrayDefinitionLoaderTest extends TestCase
         self::assertSame('price', $merged->recencyColumn);
         self::assertContains('brand', array_map(static fn(Watch $w): string => $w->table, $merged->watches));
     }
+
+    public function testAnOverrideTypoInSyncOrTriggerLevelIsAnInvalidDefinition(): void
+    {
+        $loader = new ArrayDefinitionLoader();
+        $attributes = (new AttributeDefinitionLoader())->load(Product::class);
+
+        try {
+            $loader->override($attributes, ['sync' => 'realtime']);
+            self::fail('InvalidDefinition expected');
+        } catch (InvalidDefinition $e) {
+            self::assertSame($attributes->name, $e->index);
+            self::assertSame(['Unknown sync mode "realtime". Allowed: orm, trigger, queue, manual.'], $e->violations);
+        }
+
+        $this->expectException(InvalidDefinition::class);
+        $this->expectExceptionMessage('Unknown trigger level "each". Allowed: statement, row.');
+        $loader->override($attributes, ['trigger_level' => 'each']);
+    }
 }

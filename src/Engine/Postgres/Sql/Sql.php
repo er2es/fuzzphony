@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Fuzzphony\Engine\Postgres\Sql;
 
+use Fuzzphony\Core\Exception\InvalidArgument;
 use Fuzzphony\Core\Support\Identifier;
 
 /** @internal SQL literal helpers. Only ever used with validated, developer-defined values. */
@@ -22,7 +23,7 @@ final class Sql
     public static function float(float $value): string
     {
         if (!is_finite($value)) {
-            throw new \InvalidArgumentException('Non-finite number in SQL.');
+            throw new InvalidArgument('Non-finite number in SQL.');
         }
         $formatted = rtrim(rtrim(sprintf('%.6F', $value), '0'), '.');
 

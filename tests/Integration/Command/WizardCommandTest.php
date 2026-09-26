@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Fuzzphony\Tests\Integration\Command;
 
 use Fuzzphony\Bundle\Command\WizardCommand;
+use Fuzzphony\Core\Exception\InvalidArgument;
 use Fuzzphony\Engine\Postgres\Wizard\PostgresIntrospector;
 use PHPUnit\Framework\TestCase;
 use Symfony\Component\Console\Command\Command;
@@ -88,7 +89,7 @@ final class WizardCommandTest extends TestCase
 
     public function testUnknownTableThrows(): void
     {
-        $this->expectException(\InvalidArgumentException::class);
+        $this->expectException(InvalidArgument::class);
         $this->tester->execute(['table' => 'no_such_table'], ['interactive' => false]);
     }
 }

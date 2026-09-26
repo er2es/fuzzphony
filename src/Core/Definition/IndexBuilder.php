@@ -67,14 +67,16 @@ final class IndexBuilder
 
     public function field(string $name, Weight|string $weight = Weight::B, bool $fuzzy = false, bool $highlight = true, ?string $column = null): self
     {
-        $this->fields[] = new FieldDefinition($name, Weight::parse($weight), $fuzzy, $highlight, $column);
+        $weight = $weight instanceof Weight ? $weight : EnumOption::parse(Weight::class, strtoupper($weight), $this->name, 'weight', sprintf(' of field "%s"', $name));
+        $this->fields[] = new FieldDefinition($name, $weight, $fuzzy, $highlight, $column);
 
         return $this;
     }
 
     public function filter(string $name, FilterType|string $type, ?string $column = null): self
     {
-        $this->filters[] = new FilterDefinition($name, $type instanceof FilterType ? $type : FilterType::from($type), $column);
+        $type = $type instanceof FilterType ? $type : EnumOption::parse(FilterType::class, $type, $this->name, 'filter type', sprintf(' of filter "%s"', $name));
+        $this->filters[] = new FilterDefinition($name, $type, $column);
 
         return $this;
     }
@@ -99,21 +101,21 @@ final class IndexBuilder
 
     public function idType(IdType|string $type): self
     {
-        $this->idType = $type instanceof IdType ? $type : IdType::from($type);
+        $this->idType = $type instanceof IdType ? $type : EnumOption::parse(IdType::class, $type, $this->name, 'id type');
 
         return $this;
     }
 
     public function sync(SyncMode|string $mode): self
     {
-        $this->sync = $mode instanceof SyncMode ? $mode : SyncMode::from($mode);
+        $this->sync = $mode instanceof SyncMode ? $mode : EnumOption::parse(SyncMode::class, $mode, $this->name, 'sync mode');
 
         return $this;
     }
 
     public function triggerLevel(TriggerLevel|string $level): self
     {
-        $this->triggerLevel = $level instanceof TriggerLevel ? $level : TriggerLevel::from($level);
+        $this->triggerLevel = $level instanceof TriggerLevel ? $level : EnumOption::parse(TriggerLevel::class, $level, $this->name, 'trigger level');
 
         return $this;
     }

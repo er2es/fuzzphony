@@ -3,6 +3,16 @@
 Before 1.0, a minor version may contain breaking changes. Each section lists what to change,
 and the [CHANGELOG](CHANGELOG.md) has the full list of changes.
 
+## From 0.3 to 0.4
+
+1. **Exceptions.** Catch `Fuzzphony\Core\Exception\FuzzphonyException` to handle everything
+   Fuzzphony throws. If you caught `\ValueError` around definition building (a YAML or builder
+   enum typo), catch `InvalidDefinition`; if you caught `\LogicException` from
+   `AttributeExporter::export()` or `DoctrineNamingStrategy`, catch `InvalidArgument` /
+   `InvalidDefinition`; if you caught `\PDOException` or DBAL exceptions around `explain()`,
+   highlighting, the doctor or `SchemaPlan::apply()`, catch `EngineFailure` (the driver exception
+   is `getPrevious()`). `catch (\InvalidArgumentException)` keeps working.
+
 ## From 0.3.1 to 0.3.2
 
 Nothing to do: only the generated search statements change (the trigram operator is now

@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Fuzzphony\Engine\Postgres\Wizard;
 
 use Fuzzphony\Core\Database\Connection;
+use Fuzzphony\Core\Exception\InvalidArgument;
 use Fuzzphony\Core\Support\Coerce;
 use Fuzzphony\Core\Support\Identifier;
 use Fuzzphony\Core\Wizard\ColumnKind;
@@ -46,7 +47,7 @@ final readonly class PostgresIntrospector implements SourceIntrospector
     public function describe(string $table, bool $withRelations = true): TableProfile
     {
         if (!Identifier::isTable($table) || $this->connection->fetchValue('SELECT to_regclass(:t)', ['t' => $table]) === null) {
-            throw new \InvalidArgumentException(sprintf('Table "%s" does not exist (or is not visible on the search_path).', $table));
+            throw new InvalidArgument(sprintf('Table "%s" does not exist (or is not visible on the search_path).', $table));
         }
 
         $columns = $this->connection->fetchAll(

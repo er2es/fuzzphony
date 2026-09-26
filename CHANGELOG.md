@@ -7,6 +7,22 @@ changes; they are always listed under **Breaking** and explained in [UPGRADE.md]
 
 ## [Unreleased]
 
+### Breaking
+
+- Every exception Fuzzphony throws implements `FuzzphonyException`, except `\LogicException` for
+  internal invariants. New `InvalidArgument` (a wrong runtime argument: batch size below 1, an
+  unknown table in the wizard, `AttributeExporter::export()` on a definition it cannot express, a
+  non-finite number) and `InvalidConfiguration` (an invalid extension schema, `orm_sync.async`
+  without Messenger, no index configured); both extend `\InvalidArgumentException`, so existing
+  `catch (\InvalidArgumentException)` blocks still work. An enum typo in the builder or YAML
+  (`sync: realtime`, `->field('name', 'E')`) is an `InvalidDefinition` naming the allowed values
+  instead of a `\ValueError`; a composite Doctrine identifier is an `InvalidDefinition` instead of
+  a `\LogicException`; `AttributeExporter::export()` on a joined source throws `InvalidArgument`
+  instead of `\LogicException`. Driver errors from `sourceIds()`, `queueSize()`, `explain()`,
+  highlighting, the doctor and `SchemaPlan::apply()` arrive as `EngineFailure` (the driver
+  exception is its previous exception). `fuzzphony:schema --dump-migration` into a directory that
+  cannot be created prints the error and exits 1 instead of throwing.
+
 ### Added
 
 - Mutation testing with [Infection](https://infection.github.io) (`composer mutation`): the
