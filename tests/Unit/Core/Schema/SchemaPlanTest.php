@@ -67,4 +67,48 @@ final class SchemaPlanTest extends TestCase
         }
         self::assertSame(['SELECT 1'], $connection->executed);
     }
+
+    public function testOnStatementSeesEveryStatementBeforeItRuns(): void
+    {
+        /** @var \ArrayObject<int, string> $log */
+        $log = new \ArrayObject();
+        $connection = new class ($log) implements Connection {
+            /** @param \ArrayObject<int, string> $log */
+            public function __construct(private readonly \ArrayObject $log) {}
+
+            public function fetchAll(string $sql, array $params = []): array
+            {
+                return [];
+            }
+
+            public function fetchValue(string $sql, array $params = []): mixed
+            {
+                return null;
+            }
+
+            public function execute(string $sql, array $params = []): int
+            {
+                $this->log[] = 'execute ' . $sql;
+
+                return 0;
+            }
+
+            public function transactional(callable $callback): mixed
+            {
+                return $callback($this);
+            }
+        };
+        $plan = new SchemaPlan([new Statement('CREATE INDEX CONCURRENTLY x', 'late', false), new Statement('SELECT 1', 'early')]);
+
+        $plan->apply($connection, static function (Statement $s) use ($log): bool {
+            $log[] = 'announce ' . $s->description;
+
+            return false; // the callback's return value must not matter
+        });
+
+        self::assertSame(
+            ['announce early', 'execute SELECT 1', 'announce late', 'execute CREATE INDEX CONCURRENTLY x'],
+            $log->getArrayCopy(),
+        );
+    }
 }

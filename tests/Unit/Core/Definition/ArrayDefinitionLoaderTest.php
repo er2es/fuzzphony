@@ -60,6 +60,20 @@ final class ArrayDefinitionLoaderTest extends TestCase
         (new ArrayDefinitionLoader())->load('x', ['feilds' => []]);
     }
 
+    public function testUnknownOverrideKeysAreRejected(): void
+    {
+        $base = (new AttributeDefinitionLoader())->load(Product::class);
+
+        try {
+            (new ArrayDefinitionLoader())->override($base, ['sync' => 'queue', 'feilds' => []]);
+            self::fail('InvalidDefinition expected');
+        } catch (InvalidDefinition $e) {
+            self::assertSame($base->name, $e->index);
+            self::assertCount(1, $e->violations);
+            self::assertStringStartsWith('Unknown option(s): feilds. Allowed: ', $e->violations[0]);
+        }
+    }
+
     public function testTenantKeySetsTheTenantScope(): void
     {
         $definition = (new ArrayDefinitionLoader())->load('articles', [

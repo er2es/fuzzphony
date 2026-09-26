@@ -66,7 +66,8 @@ final class WizardCommandTest extends TestCase
         self::assertSame(Command::SUCCESS, $status);
         $display = $this->tester->getDisplay();
         self::assertStringContainsString('Trying it', $display);
-        self::assertStringContainsString('documents, doctor:', $display);
+        self::assertStringContainsString("\r  indexed 5\n", $display, 'the progress line overwrites itself, then ends with a newline');
+        self::assertStringContainsString('  5 documents, doctor:', $display);
         self::assertNotNull(
             $this->context->connection->fetchValue("SELECT to_regclass('fuzzphony_fz_products')"),
             'the --try run must have actually applied the schema for the suggested index',

@@ -26,7 +26,7 @@ final class EnumOption
                 $what,
                 $value,
                 $context,
-                implode(', ', array_map(static fn(\BackedEnum $c): string => (string) $c->value, $enum::cases())),
+                implode(', ', array_column($enum::cases(), 'value')),
             )]);
         }
 

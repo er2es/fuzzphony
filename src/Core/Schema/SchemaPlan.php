@@ -36,7 +36,9 @@ final readonly class SchemaPlan
 
     private static function run(Connection $connection, Statement $statement, ?callable $onStatement): void
     {
-        $onStatement !== null && $onStatement($statement);
+        if ($onStatement !== null) {
+            $onStatement($statement);
+        }
         try {
             $connection->execute($statement->sql);
         } catch (\Throwable $e) {
