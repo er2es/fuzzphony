@@ -88,7 +88,7 @@
         "stan": "phpstan analyse",
         "cs": "php-cs-fixer fix --dry-run --diff",
         "cs:fix": "php-cs-fixer fix",
-        "mutation": "infection --threads=1 --only-covering-test-cases --show-mutations=0",
+        "mutation": "infection --threads=max --only-covering-test-cases --show-mutations=0",
         "qa": [
             "@cs",
             "@stan",

@@ -10,12 +10,15 @@ changes; they are always listed under **Breaking** and explained in [UPGRADE.md]
 ### Added
 
 - Mutation testing with [Infection](https://infection.github.io) (`composer mutation`): the
-  `@default` mutator set against `src/`, running both the unit and integration test suites. A
-  weekly CI job records the baseline MSI; pull requests only mutate their changed lines. No
-  `minMsi` gate yet — see [docs/roadmap.md](docs/roadmap.md#mutation-testing).
+  `@default` mutator set against `src/`, running both the unit and integration test suites,
+  multi-threaded (each worker gets its own throwaway database). A monthly CI job records the
+  baseline MSI; pull requests only mutate their changed lines. No `minMsi` gate yet — see
+  [docs/roadmap.md](docs/roadmap.md#mutation-testing).
 
 ### Changed
 
+- Roadmap: record linkage (matching people and companies, with explainable match scores) is
+  planned after 1.0.
 - README: shortened to what the library does, the demo, install and quickstart; the details moved
   to `docs/`, the install command is `composer require fuzzphony/fuzzphony` (the bundle is not a
   separate package), and new badges show PHPStan, OpenSSF Best Practices, PHP, PostgreSQL and

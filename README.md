@@ -245,7 +245,8 @@ pruning). v1.0 brings a stable API and a backward-compatibility promise, Postgre
   Indicator toward a gate and an MSI badge.
 - Docs: a documentation site with a "Migrating from `LIKE`" guide and recipes.
 
-After 1.0: a Laravel Scout driver. Details in
+After 1.0: a Laravel Scout driver, and record linkage (matching people and companies across
+records, with explainable match scores). Details in
 [docs/roadmap.md](https://github.com/er2es/fuzzphony/blob/main/docs/roadmap.md).
 
 ## Contributing and license
