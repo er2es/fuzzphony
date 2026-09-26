@@ -53,6 +53,11 @@ jobs:
   full:
     if: github.event_name != 'pull_request'
     runs-on: ubuntu-latest
+    # GitHub-hosted runners hard-cap a job at 6h regardless of this setting. The phase-1 baseline
+    # (see the report linked above) measured 3-9s per mutant across ~3,944 mutants: this may not
+    # fit in a single job. If it doesn't, shard by directory across a build matrix (each shard
+    # gets its own throwaway `services:` Postgres, so no cross-shard DB races) -- not needed yet.
+    timeout-minutes: 360
     services:
       postgres:
         image: postgres:17
