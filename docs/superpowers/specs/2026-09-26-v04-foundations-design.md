@@ -140,9 +140,12 @@ Made in auto mode; each says why and what it costs if wrong.
   runs `CREATE SCHEMA IF NOT EXISTS`. Triggers necessarily stay on the watched tables; they call the
   schema-qualified sync function.
 - Every generated and runtime SQL reference is **schema-qualified** through `Names`; nothing relies on
-  `search_path` any more (0.3.2 already did this for the extensions). Generated functions also get
-  `SET search_path = pg_catalog, pg_temp`, the hardening PostgreSQL recommends for functions, so a
-  caller's `search_path` can't redirect an unqualified name inside them.
+  `search_path` any more (0.3.2 already did this for the extensions). `fuzzphony_norm` gets
+  `SET search_path = pg_catalog, pg_temp`, the hardening PostgreSQL recommends. The refresh and sync
+  functions embed the developer's own (unqualified) source and watch SQL, so they get
+  `SET search_path FROM CURRENT` instead: the `search_path` of the session that ran apply.
+  `CREATE SCHEMA IF NOT EXISTS` is emitted only for a schema other than `public` (PostgreSQL checks
+  the database CREATE privilege before IF NOT EXISTS).
 - The doctor looks objects up by schema (`to_regclass('schema.name')`, `pg_ts_config` joined to its
   namespace). The wizard's introspector hides the Fuzzphony schema and `fuzzphony_*` objects in it.
 - Moving an existing install from `public` to another schema is not automatic: the doctor warns when
@@ -162,8 +165,9 @@ Made in auto mode; each says why and what it costs if wrong.
   `applied_at timestamptz not null`, `reindexed_at timestamptz`. One row per index, plus a row named
   `*` for the shared objects.
 - `layout_version`: a constant in the schema generator (starts at 1 = the 0.4 layout). Later
-  milestones bump it and add an upgrade step; the generator runs the steps from the stored version up.
-  0.4 ships the mechanism with no steps.
+  milestones bump it and add an upgrade step. 0.4 stores it and the doctor compares it; the step
+  runner arrives with the first real step in 0.5 (a runner with no steps would be untestable dead
+  code).
 - `definition_hash`: sha256 of the definition parts that shape DDL (fields, filters, id type, watches,
   sync mode, trigger level, text config, tenant). `documents_hash`: sha256 of the parts that shape
   document content (source, fields and weights, filters, text config, boost/recency columns), written
@@ -176,6 +180,10 @@ Made in auto mode; each says why and what it costs if wrong.
   differs or missing → warning "documents were built from another definition, run
   `fuzzphony:reindex <index>`".
 - `schema --drop` deletes the index's meta row.
+- `Engine` gains `recordReindex(IndexDefinition)`, which `Reindexer` calls after a completed full run
+  (not a resumed run, not a skipped empty source) to write `documents_hash`. Breaking for custom
+  engines.
+- `definition_hash` also covers the source query and the boost/recency columns (both shape DDL).
 - Cost if wrong: the hash inputs can be refined later; a changed hash only produces a doctor message.
 
 ### R8 Doctrine Migrations
