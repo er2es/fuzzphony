@@ -2,6 +2,9 @@
 
 What each version shipped and what is planned for 1.0. Back to the [README](../README.md).
 
+Milestones are ordered by what other things build on: a milestone comes before anything that
+depends on it, so nothing built early has to be refactored once a later milestone lands.
+
 ## Released
 
 - v0.1: PostgreSQL engine, attributes / YAML / builder, query language, ranking profiles,
@@ -12,40 +15,18 @@ What each version shipped and what is planned for 1.0. Back to the [README](../R
 - v0.3 (current): per-word typo tolerance, empty-result relaxation, `TRUNCATE` sync and orphan
   pruning, a production-like demo stack.
 
-## v1.0
+## v0.4: Foundations
 
-Enterprise readiness, a stable API and a backward-compatibility promise. PostgreSQL only: no other
-engine is planned before 1.0.
+API stability and schema groundwork for every milestone after this one.
 
-### Search-as-you-type
+### API cleanup
 
-A dedicated, fast `suggest()` API for prefix suggestions, and a debounced dropdown in the Live
-Component.
-
-### Synonyms
-
-Synonyms per index (`tv` ↔ `television`, domain abbreviations), expanded on the query side without
-dictionary files on the database server.
-
-### Facets
-
-Counts per filter value for the current query ("Kitchen (120) · Office (45)"), and an opt-in exact
-`total` for queries whose matches exceed `candidate_limit`.
-
-### Exact field scoping
-
-Per-field text and trigram columns, so `brand:x` searches that field only (not its whole weight
-group) and a scoped typo can't match another fuzzy field.
-
-### Length-aware typo tolerance
-
-A stricter similarity for short words and a looser one for long words, so `mouse` stops matching
-`monitor` without losing typos in long words.
-
-### Did you mean
-
-A spelling suggestion from the index's own vocabulary when a word matches nothing (`hedphones` →
-"headphones?"), next to the existing empty-result relaxation.
+One exception hierarchy instead of scattered exception classes. Typed withers instead of
+`IndexDefinition::with(...)`'s loose, untyped argument list, so IDEs and PHPStan catch mistakes at
+the call site. A `ReindexOptions` value object instead of a growing parameter list on the reindex
+methods. `@internal` boundaries marked on classes that are implementation detail, not public API.
+PostgreSQL-specific details taken out of Core, so Core stays engine-neutral ahead of any other
+engine. The unused `Analyzer` interface dropped.
 
 ### Dedicated schema
 
@@ -55,43 +36,46 @@ sync functions in their own schema, so the application's schema gets no new tabl
 default stays `public`, so existing installations are unaffected. There is one sidecar table per
 index (not per source table), plus the shared queue table.
 
+### Sidecar schema version
+
+A version marker on the sidecar tables (the queue table and each index's own table), plus a
+migration path between versions. Later features, such as partition-aware sync, transaction-aware
+connections and the vocabulary table, change the sidecar layout; without a version marker an
+upgrade has no way to tell an old layout from a new one. The doctor command checks the marker and
+reports when a migration is needed.
+
+### Doctrine Migrations integration
+
+Generate a migration class from the schema, next to `--dump-migration`.
+
+## v0.5: Index lifecycle
+
+Reindexing and sync, built on the 0.4 schema.
+
 ### Zero-downtime reindex
 
 Build the new index in a shadow table and swap it in, so a definition change or a full rebuild
 never serves partial results. A `TRUNCATE` on a watched table then queues one full-resync job
 instead of every document id.
 
+### Exact field scoping
+
+Per-field text and trigram columns, so `brand:x` searches that field only (not its whole weight
+group) and a scoped typo can't match another fuzzy field.
+
 ### Partition-aware sync
 
 The `TRUNCATE` trigger on every partition, and the doctor reporting new partitions that miss it.
 
-### Search analytics
+## v0.6: Events
 
-The most frequent queries and the queries that found nothing, for the people who own the content.
-
-### Doctrine Migrations integration
-
-Generate a migration class from the schema, next to `--dump-migration`.
-
-### Documentation site
-
-With a "Migrating from `LIKE`" guide and recipes (admin panel, shop, multi-tenant SaaS).
+Hooks for the index lifecycle, so 0.9's analytics, audit logging and rate limiting have events to
+attach to.
 
 ### Observability
 
-Hooks and events for query latency, queue lag and error rate, wired for Symfony Messenger
-middleware and any metrics backend.
-
-### Federated search
-
-Query several indexes at once, with one merged, cross-index ranking.
-
-### Security
-
-Audit logging (who searched what, when) and per-tenant / per-user rate limiting. Symfony Security
-integration for index- and field-level authorization (for example, keeping a field out of
-highlights unless the viewer is authorized). A tenant resolver (for example from the Symfony
-Security user) for the API Platform filter, the Live Component and `fuzzphony:search`.
+Hooks and events for search, sync and reindex: query latency, queue lag and error rate, wired for
+Symfony Messenger middleware and any metrics backend.
 
 ### Transaction-aware connections
 
@@ -100,12 +84,79 @@ caller's own transaction is left untouched. That costs one extra database round 
 statement. An optional, non-breaking `Connection` capability (`inTransaction()`) would let the
 engine skip that round trip when no outer transaction is open.
 
+## v0.7: Relevance
+
+Matching quality, including the vocabulary table that 0.8's `suggest()` reuses.
+
+### Length-aware typo tolerance
+
+A stricter similarity for short words and a looser one for long words, so `mouse` stops matching
+`monitor` without losing typos in long words.
+
+### Synonyms
+
+Synonyms per index (`tv` ↔ `television`, domain abbreviations), expanded on the query side without
+dictionary files on the database server.
+
+### Did you mean
+
+A spelling suggestion from the index's own vocabulary table when a word matches nothing
+(`hedphones` → "headphones?"), next to the existing empty-result relaxation.
+
+## v0.8: Search features
+
+New query-side features. `suggest()` reuses the 0.7 vocabulary table, and federated search comes
+last because it needs final ranking to be settled.
+
+### Search-as-you-type
+
+A dedicated, fast `suggest()` API for prefix suggestions, and a debounced dropdown in the Live
+Component.
+
+### Facets
+
+Counts per filter value for the current query ("Kitchen (120) · Office (45)"), and an opt-in exact
+`total` for queries whose matches exceed `candidate_limit`.
+
+### Federated search
+
+Query several indexes at once, with one merged, cross-index ranking.
+
+## v0.9: Security and analytics
+
+Built on the 0.6 events.
+
+### Search analytics
+
+The most frequent queries and the queries that found nothing, for the people who own the content.
+
+### Security
+
+Audit logging (who searched what, when) and per-tenant / per-user rate limiting. Symfony Security
+integration for index- and field-level authorization (for example, keeping a field out of
+highlights unless the viewer is authorized). A tenant resolver (for example from the Symfony
+Security user) for the API Platform filter, the Live Component and `fuzzphony:search`.
+
+## v1.0: Stable
+
+Enterprise readiness, a stable API and a backward-compatibility promise. PostgreSQL only: no other
+engine is planned before 1.0.
+
+### Documentation site
+
+With a "Migrating from `LIKE`" guide and recipes (admin panel, shop, multi-tenant SaaS).
+
 ### Mutation testing
 
 Infection runs in CI: a full run monthly, and only the changed lines on pull requests. The first
 full run (September 2026) killed 85% of 3,944 mutants; the score is on the README badge. Next:
 write tests for the 561 surviving mutants that point to real gaps, reach 90%, then add a
-`minMsi` gate so the score can't slip.
+`minMsi` gate so the score can't slip, raised continuously by every pull request after that.
+
+### Backward-compatibility promise
+
+A documented policy for what counts as a breaking change after 1.0, and how deprecations are
+announced and removed.
 
 ## After 1.0
 

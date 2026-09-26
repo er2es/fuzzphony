@@ -233,18 +233,19 @@ Details in [docs/limitations.md](https://github.com/er2es/fuzzphony/blob/main/do
 ## Roadmap
 
 Current: v0.3 (per-word typo tolerance, empty-result relaxation, `TRUNCATE` sync and orphan
-pruning). v1.0 brings a stable API and a backward-compatibility promise, PostgreSQL only:
+pruning). Milestones build in order, each one a foundation for the next, up to v1.0's stable API
+and backward-compatibility promise. PostgreSQL only before 1.0:
 
-- Search: `suggest()` for search-as-you-type, synonyms, facets with an opt-in exact `total`,
-  "did you mean", federated search across indexes.
-- Precision: exact field scoping, length-aware typo tolerance.
-- Operations: a dedicated schema for Fuzzphony's tables, zero-downtime reindex, partition-aware
-  sync, Doctrine Migrations integration, observability hooks, search analytics,
-  transaction-aware connections.
-- Security: audit logging, rate limiting, Symfony Security integration, a tenant resolver for the
-  integrations.
-- Quality: raise the mutation score (85% in the first full run) to 90%, then gate on it in CI.
-- Docs: a documentation site with a "Migrating from `LIKE`" guide and recipes.
+- v0.4 Foundations: API cleanup, a dedicated schema, sidecar schema versioning, Doctrine
+  Migrations integration.
+- v0.5 Index lifecycle: zero-downtime reindex, exact field scoping, partition-aware sync.
+- v0.6 Events: observability hooks/events, transaction-aware connections.
+- v0.7 Relevance: length-aware typo tolerance, synonyms, a vocabulary table, "did you mean".
+- v0.8 Search features: `suggest()`, facets with an opt-in exact `total`, federated search.
+- v0.9 Security and analytics: search analytics, audit logging, rate limiting, Symfony Security
+  integration, a tenant resolver.
+- v1.0 Stable: a documentation site with a "Migrating from `LIKE`" guide, mutation score 90% with
+  a CI gate, the backward-compatibility promise.
 
 After 1.0: a Laravel Scout driver, and record linkage (matching people and companies across
 records, with explainable match scores). Details in
