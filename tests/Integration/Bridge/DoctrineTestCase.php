@@ -12,7 +12,7 @@ use Doctrine\ORM\EntityManager;
 use Doctrine\ORM\EntityManagerInterface;
 use Doctrine\ORM\ORMSetup;
 use Fuzzphony\Core\Database\Connection;
-use PHPUnit\Framework\Assert;
+use Fuzzphony\Tests\Integration\PostgresTestCase;
 
 /** @internal Builds a real Doctrine ORM EntityManager against the same disposable Postgres used by PostgresTestCase. */
 final class DoctrineTestCase
@@ -29,10 +29,7 @@ final class DoctrineTestCase
     /** @param list<DbalMiddleware> $middlewares DBAL middlewares must be registered before the connection is first used. */
     public static function dbalConnection(array $middlewares = []): DbalConnection
     {
-        $dsn = getenv('FUZZPHONY_TEST_DSN');
-        if (!is_string($dsn) || $dsn === '') {
-            Assert::markTestSkipped('Set FUZZPHONY_TEST_DSN to a disposable PostgreSQL 15+ database to run integration tests (see docker-compose.yml).');
-        }
+        $dsn = PostgresTestCase::dsn();
 
         $dbalConfig = new DbalConfiguration();
         $dbalConfig->setMiddlewares($middlewares);

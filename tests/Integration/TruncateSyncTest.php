@@ -161,7 +161,7 @@ final class TruncateSyncTest extends TestCase
         $this->connection->execute("INSERT INTO fuzzphony_queue (index_name, doc_id) VALUES ('items', '7')");
         self::assertSame(2, $this->engine->queueSize($index));
 
-        $worker = new \PDO((string) getenv('FUZZPHONY_TEST_DSN'), null, null, [\PDO::ATTR_ERRMODE => \PDO::ERRMODE_EXCEPTION]);
+        $worker = new \PDO(PostgresTestCase::dsn(), null, null, [\PDO::ATTR_ERRMODE => \PDO::ERRMODE_EXCEPTION]);
         $worker->beginTransaction();
         $worker->exec("SELECT 1 FROM fuzzphony_queue WHERE index_name = 'items' AND doc_id = '6' FOR UPDATE");
         try {

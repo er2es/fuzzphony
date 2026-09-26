@@ -1,0 +1,96 @@
+name: Mutation testing
+
+# Infection mutation testing. Pull requests only mutate their changed lines (fast, gives quick
+# feedback); the full baseline across src/ runs monthly and on demand. No minMsi gate yet -- see
+# docs/roadmap.md#mutation-testing. Not part of the required `ci-ok` check in ci.yml.
+on:
+  schedule:
+    - cron: '23 3 1 * *'
+  workflow_dispatch: {}
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  # Fast feedback on a pull request: mutates only the added/modified lines against origin/main.
+  diff:
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_DB: fuzzphony
+          POSTGRES_USER: fuzzphony
+          POSTGRES_PASSWORD: fuzzphony
+        ports: ['5432:5432']
+        options: >-
+          --health-cmd "pg_isready -U fuzzphony"
+          --health-interval 2s --health-retries 20
+    env:
+      FUZZPHONY_TEST_DSN: "pgsql:host=127.0.0.1;port=5432;dbname=fuzzphony;user=fuzzphony;password=fuzzphony"
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+      - uses: shivammathur/setup-php@f3e473d116dcccaddc5834248c87452386958240 # 2.37.2
+        with:
+          php-version: '8.4'
+          extensions: pdo_pgsql, mbstring
+          coverage: pcov
+      - run: composer install --no-progress --prefer-dist
+      # The integration tests share one database and a handful of tables; PostgresTestCase::dsn()
+      # gives each Infection worker (TEST_TOKEN=1, 2, ...) its own database, so --threads=max is
+      # safe.
+      - run: >-
+          vendor/bin/infection --threads=max --only-covering-test-cases --show-mutations=0
+          --git-diff-lines --git-diff-base=origin/main
+          --logger-github
+
+  # The full baseline across all of src/, monthly or on demand.
+  full:
+    if: github.event_name != 'pull_request'
+    runs-on: ubuntu-latest
+    # ~3,944 mutants at 3-9 s each on one thread; with one database per worker (TEST_TOKEN) four
+    # threads run ~3.5x faster, so a full run should take roughly 1-3.5 h. GitHub caps a job at 6 h:
+    # if it ever doesn't fit, shard src/ across a build matrix (one Postgres service per shard).
+    timeout-minutes: 360
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_DB: fuzzphony
+          POSTGRES_USER: fuzzphony
+          POSTGRES_PASSWORD: fuzzphony
+        ports: ['5432:5432']
+        options: >-
+          --health-cmd "pg_isready -U fuzzphony"
+          --health-interval 2s --health-retries 20
+    env:
+      FUZZPHONY_TEST_DSN: "pgsql:host=127.0.0.1;port=5432;dbname=fuzzphony;user=fuzzphony;password=fuzzphony"
+      # Only set on the upstream repository; forks and contributors never have it. The dashboard
+      # step below is skipped cleanly (not run at all) while it is unset.
+      STRYKER_DASHBOARD_API_KEY: ${{ secrets.STRYKER_DASHBOARD_API_KEY }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: shivammathur/setup-php@f3e473d116dcccaddc5834248c87452386958240 # 2.37.2
+        with:
+          php-version: '8.4'
+          extensions: pdo_pgsql, mbstring
+          coverage: pcov
+      - run: composer install --no-progress --prefer-dist
+      - run: vendor/bin/infection --threads=max --only-covering-test-cases --show-mutations=0 --logger-github
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: infection-report
+          path: build/infection/
+      # infection-dashboard.json5 is infection.json5 plus a `logs.stryker` entry. Infection's
+      # StrykerReporter already no-ops (with a warning, not a failure) when the API key is
+      # missing, but that would still re-run the whole mutation pass for nothing; the `if:`
+      # here skips it instead of paying that cost until the secret exists.
+      - name: Report mutation score to Stryker Dashboard
+        if: env.STRYKER_DASHBOARD_API_KEY != ''
+        run: >-
+          vendor/bin/infection --threads=max --only-covering-test-cases --show-mutations=0
+          --configuration=infection-dashboard.json5

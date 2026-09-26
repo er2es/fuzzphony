@@ -1,0 +1,35 @@
+// Same as infection.json5, plus the Stryker Dashboard reporter. Kept as a separate file because
+// that reporter needs STRYKER_DASHBOARD_API_KEY resolvable at runtime (it warns and skips
+// sending when it isn't, but there is no point re-running mutation testing just for that): the
+// "Report mutation score to Stryker Dashboard" step in .github/workflows/mutation.yml only uses
+// this file, and only when the secret is configured. Everyone else -- local runs, PRs, the main
+// weekly baseline -- uses infection.json5.
+{
+    "$schema": "vendor/infection/infection/resources/schema.json",
+
+    "source": {
+        "directories": [
+            "src"
+        ]
+    },
+
+    "testFramework": "phpunit",
+
+    "timeout": 30,
+    // See infection.json5: threads > 1 corrupts results against the shared integration database.
+    "threads": 1,
+
+    "logs": {
+        "text": "build/infection/infection-log.txt",
+        "summary": "build/infection/summary-log.txt",
+        "html": "build/infection/infection.html",
+        "github": true,
+        "stryker": {
+            "report": "main"
+        }
+    },
+
+    "mutators": {
+        "@default": true
+    }
+}
