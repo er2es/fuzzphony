@@ -238,8 +238,9 @@ pruning). v1.0 brings a stable API and a backward-compatibility promise, Postgre
 - Search: `suggest()` for search-as-you-type, synonyms, facets with an opt-in exact `total`,
   "did you mean", federated search across indexes.
 - Precision: exact field scoping, length-aware typo tolerance.
-- Operations: zero-downtime reindex, partition-aware sync, Doctrine Migrations integration,
-  observability hooks, search analytics, transaction-aware connections.
+- Operations: a dedicated schema for Fuzzphony's tables, zero-downtime reindex, partition-aware
+  sync, Doctrine Migrations integration, observability hooks, search analytics,
+  transaction-aware connections.
 - Security: audit logging, rate limiting, Symfony Security integration, a tenant resolver for the
   integrations.
 - Quality: raise the mutation score (85% in the first full run) to 90%, then gate on it in CI.

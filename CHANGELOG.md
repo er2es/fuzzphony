@@ -18,6 +18,7 @@ changes; they are always listed under **Breaking** and explained in [UPGRADE.md]
 
 ### Changed
 
+- Roadmap: a dedicated schema for Fuzzphony's tables (`schema: fuzzphony`), default `public`.
 - Roadmap: record linkage (matching people and companies, with explainable match scores) is
   planned after 1.0.
 - README: shortened to what the library does, the demo, install and quickstart; the details moved

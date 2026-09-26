@@ -47,6 +47,14 @@ A stricter similarity for short words and a looser one for long words, so `mouse
 A spelling suggestion from the index's own vocabulary when a word matches nothing (`hedphones` →
 "headphones?"), next to the existing empty-result relaxation.
 
+### Dedicated schema
+
+A `schema` setting (for example `fuzzphony`) puts every sidecar table, the queue table and the
+sync functions in their own schema, so the application's schema gets no new tables, and
+`DROP SCHEMA fuzzphony CASCADE` removes them all. Permissions can be granted per schema. The
+default stays `public`, so existing installations are unaffected. There is one sidecar table per
+index (not per source table), plus the shared queue table.
+
 ### Zero-downtime reindex
 
 Build the new index in a shadow table and swap it in, so a definition change or a full rebuild
