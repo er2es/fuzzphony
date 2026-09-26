@@ -3,6 +3,7 @@
 /.phpunit.cache/
 /.php-cs-fixer.cache
 /var/
+/build/
 
 demo/vendor/
 demo/var/

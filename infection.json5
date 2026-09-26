@@ -1,0 +1,44 @@
+{
+    "$schema": "vendor/infection/infection/resources/schema.json",
+
+    // Every class under src/ is a mutation target; the coverage that decides which tests to
+    // re-run for each mutant comes from running the full PHPUnit config below (unit + integration).
+    "source": {
+        "directories": [
+            "src"
+        ]
+    },
+
+    // Uses the project's own tests/phpunit.xml.dist (both the "unit" and "integration" test
+    // suites: phpunit runs every <testsuite> when no --testsuite filter is given, and several
+    // src/ classes -- anything behind PostgreSQL-specific SQL -- are only exercised by the
+    // integration suite). Requires FUZZPHONY_TEST_DSN to be set in the environment Infection runs in.
+    "testFramework": "phpunit",
+
+    "timeout": 30,
+    // The integration suite shares one PostgreSQL database and a handful of tables; several
+    // tests DROP/CREATE/TRUNCATE them (see tests/Integration/PostgresTestCase::createFixtures()).
+    // With threads > 1, Infection's worker processes run different mutants' test subsets
+    // concurrently against that same database, and one worker's DROP/CREATE can land between
+    // another's, producing mutants that are wrongly "killed" by an unrelated PDOException
+    // instead of by a real assertion (measured: the same 37 mutants on one file went from 9
+    // escaped at threads=1 to 1 escaped at threads=4 -- not a real MSI improvement, DB
+    // contamination). 1 is the only setting that gives reproducible results until the
+    // integration suite gets a per-worker schema or database.
+    "threads": 1,
+
+    "logs": {
+        "text": "build/infection/infection-log.txt",
+        "summary": "build/infection/summary-log.txt",
+        "html": "build/infection/infection.html",
+        // Annotates escaped mutants on changed lines when Infection runs with --logger-github
+        // (used by the pull_request job in .github/workflows/mutation.yml).
+        "github": true
+    },
+
+    // @default: every mutator Infection ships except the ones it flags as not-covered-by-default
+    // (for example ones needing profiling). No minMsi gate yet -- phase 1 is only the baseline.
+    "mutators": {
+        "@default": true
+    }
+}
