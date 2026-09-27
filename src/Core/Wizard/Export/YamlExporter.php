@@ -10,7 +10,12 @@ use Fuzzphony\Core\Support\Coerce;
 /** Writes config/packages/fuzzphony.yaml content without depending on symfony/yaml. */
 final class YamlExporter
 {
-    public function __construct(private readonly ArrayExporter $arrays = new ArrayExporter()) {}
+    private readonly ArrayExporter $arrays;
+
+    public function __construct()
+    {
+        $this->arrays = new ArrayExporter();
+    }
 
     public function export(IndexDefinition $index): string
     {

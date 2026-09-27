@@ -70,6 +70,31 @@ final class MetaTableTest extends TestCase
         self::assertSame(['Schema version' => CheckStatus::Warning], $this->statuses(), 'an install from before 0.4');
     }
 
+    public function testARoleThatCannotReadTheVersionTableGetsAWarningInsteadOfAFailure(): void
+    {
+        $this->context->applySchemaAndReindex();
+        $connection = $this->context->connection;
+        $role = 'fz_doctor_nometa_' . getmypid(); // roles are cluster-wide; parallel (Infection) runs must not share one
+        $connection->execute('DROP ROLE IF EXISTS ' . $role);
+        $connection->execute('CREATE ROLE ' . $role);
+        try {
+            $connection->execute('GRANT SELECT ON ALL TABLES IN SCHEMA public TO ' . $role);
+            $connection->execute('REVOKE SELECT ON fuzzphony_meta FROM ' . $role);
+            $connection->execute('SET ROLE ' . $role);
+            $checks = $this->context->fuzzphony->inspect('products')->checks;
+        } finally {
+            $connection->execute('RESET ROLE');
+            $connection->execute('DROP OWNED BY ' . $role);
+            $connection->execute('DROP ROLE ' . $role);
+        }
+
+        $versionChecks = array_values(array_filter($checks, static fn(Check $c): bool => in_array($c->name, ['Schema version', 'Definition', 'Documents'], true)));
+        self::assertCount(1, $versionChecks);
+        self::assertSame(CheckStatus::Warning, $versionChecks[0]->status);
+        self::assertSame('Role ' . $role . ' cannot read "public"."fuzzphony_meta" (no SELECT privilege), so the version is unknown.', $versionChecks[0]->message);
+        self::assertSame('GRANT SELECT ON "public"."fuzzphony_meta" TO "' . $role . '";', $versionChecks[0]->fix);
+    }
+
     public function testDropForgetsTheRowAndWorksWithoutTheTable(): void
     {
         $this->context->applySchemaAndReindex();

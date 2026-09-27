@@ -62,7 +62,9 @@ interface Engine
 
     /**
      * Called by the reindexer after a full run (not a resumed one) rebuilt every document from
-     * $index. Engines that do not track which definition built the documents do nothing.
+     * $index. Not called when the source returned no row, unless the run was told to prune an
+     * empty source (pruneEmpty). Engines that do not track which definition built the documents
+     * do nothing.
      */
     public function recordReindex(IndexDefinition $index): void;
 

@@ -49,8 +49,10 @@ and the [CHANGELOG](CHANGELOG.md) has the full list of changes.
    `bin/console fuzzphony:reindex`, `fuzzphony:doctor` warns that the documents' definition is
    unknown (check "Documents"); search works without it, but run one reindex before
    `fuzzphony:doctor --strict` in CI. The role that runs `fuzzphony:reindex` needs `SELECT` and
-   `UPDATE` on `fuzzphony_meta`; a schema-wide `GRANT … ON ALL TABLES IN SCHEMA` covers only the
-   tables that exist, so re-run it after the first 0.4 `schema --apply` (the table is new).
+   `UPDATE` on `fuzzphony_meta`, and the role that runs `fuzzphony:doctor` needs `SELECT` on it
+   (without it the "Schema version" check warns, which fails `--strict`); a schema-wide
+   `GRANT … ON ALL TABLES IN SCHEMA` covers only the tables that exist, so re-run it after the
+   first 0.4 `schema --apply` (the table is new).
 6. **Custom engines** implement `Engine::recordReindex(IndexDefinition $index): void`; an empty
    body is fine if the engine does not track which definition built its documents.
 7. **Internal classes.** Only the classes listed under
@@ -66,13 +68,21 @@ Optional. Nothing moves by itself. The sync triggers on your tables keep their n
 schema, so the new `schema --apply` re-points them to the new functions; a `--drop` with the old
 configuration run *afterwards* would remove them again. Two ways:
 
-**Without downtime** (search keeps working from the old tables until the reindex is done):
+**Without downtime** (the deployed application keeps searching the old tables until you deploy
+the new setting):
 
-1. Set `fuzzphony.schema: fuzzphony` (or pass `schema:` to `PostgresEngine`).
-2. `bin/console fuzzphony:schema --apply`: creates the schema and every object in it and
-   re-points the triggers to the new functions.
-3. `bin/console fuzzphony:reindex`: fills the new sidecar tables.
-4. Drop the old objects by hand (never with `--drop`, see above):
+1. Keep the deployed application on the old setting. Prepare the new one,
+   `fuzzphony.schema: fuzzphony` (or `schema:` for `PostgresEngine`), somewhere only a one-off
+   process uses it: a separate checkout or release directory, or a short PHP script with
+   `new PostgresEngine($connection, schema: 'fuzzphony')`.
+2. From that process: `bin/console fuzzphony:schema --apply`. It creates the schema and every
+   object in it and re-points the triggers to the new functions, so from now on trigger and queue
+   sync feed the new objects (queued changes wait in the new queue) and the old tables go stale.
+3. From that process: `bin/console fuzzphony:reindex`: fills the new sidecar tables. Search still
+   works meanwhile, from the old, increasingly stale tables.
+4. Deploy the new setting. With ORM sync, the old deployment refreshed the old tables until now:
+   run `bin/console fuzzphony:reindex` once more.
+5. Last, drop the old objects by hand (never with `--drop`, see above):
 
    ```sql
    DROP TABLE public.fuzzphony_<index>;              -- one per index
@@ -89,14 +99,17 @@ configuration run *afterwards* would remove them again. Two ways:
    configurations stay and can be dropped as above).
 2. Set the schema, `bin/console fuzzphony:schema --apply`, `bin/console fuzzphony:reindex`.
 
-`fuzzphony:doctor` warns ("Schema") while an old sidecar table is still in `public`.
+`fuzzphony:doctor` warns ("Schema") when the configured schema has no sidecar table for an index but
+`public` still has one.
 
 ### Doctrine Migrations
 
 With DoctrineBundle the bundle now sets the DBAL `schema_filter` of Fuzzphony's connection, so
 `doctrine:migrations:diff` stops proposing to drop the `fuzzphony_*` tables. If your connection
-has its own `schema_filter`, nothing changes and `fuzzphony:doctor` warns with the regex to merge
-into yours. A migration generated with `fuzzphony:schema --dump-migration` can be generated again
+has its own `schema_filter`, the bundle leaves it alone, and `fuzzphony:doctor` warns with the
+regex to merge until your filter hides Fuzzphony's tables. If `connection` or `schema` is set
+from a parameter or an environment variable, the bundle cannot resolve it early enough: it sets
+no filter and the doctor does not check yours, so add Fuzzphony's regex yourself. A migration generated with `fuzzphony:schema --dump-migration` can be generated again
 after upgrading; it now ends with the version record.
 
 ## From 0.3.1 to 0.3.2

@@ -51,6 +51,18 @@ final class SchemaFilterTest extends TestCase
         self::assertSame([], array_values(array_filter($tables, static fn(string $t): bool => str_contains($t, 'fuzzphony_'))));
     }
 
+    /** Positive control: without the filter the same introspection does see Fuzzphony's tables. */
+    public function testWithoutTheFilterFuzzphonysTablesAreIntrospected(): void
+    {
+        $this->apply('public');
+        $this->apply(self::SCHEMA);
+
+        $tables = $this->introspectedTables('~~');
+
+        self::assertContains('fuzzphony_queue', $tables);
+        self::assertContains(self::SCHEMA . '.fuzzphony_queue', $tables);
+    }
+
     public function testADedicatedSchemaIsHiddenAsAWhole(): void
     {
         $this->apply(self::SCHEMA);

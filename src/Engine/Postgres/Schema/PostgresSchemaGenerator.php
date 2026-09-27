@@ -53,10 +53,10 @@ final class PostgresSchemaGenerator
             new Statement(sprintf('CREATE EXTENSION IF NOT EXISTS pg_trgm WITH SCHEMA %s', Sql::ident($schema)), 'Trigram matching for typo tolerance'),
             new Statement(sprintf('CREATE EXTENSION IF NOT EXISTS unaccent WITH SCHEMA %s', Sql::ident($schema)), 'Accent folding'),
             new Statement(sprintf(
-                "CREATE OR REPLACE FUNCTION %s(text) RETURNS text\nLANGUAGE sql IMMUTABLE PARALLEL SAFE STRICT\nSET search_path = pg_catalog, pg_temp\nAS " . self::TAG . " SELECT btrim(regexp_replace(lower(%s.unaccent('%s.unaccent'::regdictionary, \$1)), '[^[:alnum:]]+', ' ', 'g')) " . self::TAG,
+                "CREATE OR REPLACE FUNCTION %s(text) RETURNS text\nLANGUAGE sql IMMUTABLE PARALLEL SAFE STRICT\nSET search_path = pg_catalog, pg_temp\nAS " . self::TAG . " SELECT btrim(regexp_replace(lower(%s.unaccent(%s::regdictionary, \$1)), '[^[:alnum:]]+', ' ', 'g')) " . self::TAG,
                 $this->names->normFunction(),
                 Sql::ident($schema),
-                $schema,
+                Sql::string(Sql::ident($schema) . '.unaccent'),
             ), 'Normaliser for trigram / exact matching: lowercase, no accents, alphanumerics only'),
             new Statement(sprintf(
                 "CREATE TABLE IF NOT EXISTS %s (\n    index_name text NOT NULL,\n    doc_id text NOT NULL,\n    queued_at timestamptz NOT NULL DEFAULT clock_timestamp(),\n    PRIMARY KEY (index_name, doc_id)\n)",
@@ -326,10 +326,13 @@ ON CONFLICT (index_name) DO UPDATE SET layout_version = EXCLUDED.layout_version,
     }
 
     /**
-     * `SET search_path FROM CURRENT` keeps the search_path of the session that applied the schema:
-     * the embedded source query and watch SQL resolve their (usually unqualified) tables as they did
-     * then, and a caller's search_path cannot redirect anything inside. Fuzzphony's own objects are
-     * schema-qualified anyway.
+     * `SET search_path FROM CURRENT` stores the search_path setting of the session that applied the
+     * schema, as written: the embedded source query and watch SQL resolve their (usually
+     * unqualified) tables through it, whatever the caller's own search_path is. The setting is
+     * stored, not the schemas it named then: with the default `"$user", public`, `$user` is
+     * evaluated when the function runs, as the calling role (the functions are SECURITY INVOKER),
+     * so a caller with a schema of its own name can still shadow a source table. Fuzzphony's own
+     * objects are schema-qualified and never depend on it.
      */
     private function refreshFunction(IndexDefinition $index): string
     {

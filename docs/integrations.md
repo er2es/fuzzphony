@@ -27,14 +27,19 @@ the indexes are built `CONCURRENTLY`, and `down()` is irreversible (use
 Doctrine's schema tools must not see Fuzzphony's tables, or `doctrine:migrations:diff` proposes
 dropping them. With DoctrineBundle, the bundle sets the connection's `schema_filter` for you:
 `~^(?!(public\.)?fuzzphony_)~`, or `~^(?!fuzzphony\.)~` with `schema: fuzzphony`. If your
-connection already has a `schema_filter`, the bundle leaves it alone and `fuzzphony:doctor` warns;
-merge the two, for example:
+connection already has a `schema_filter`, the bundle leaves it alone and `fuzzphony:doctor` warns,
+with the regex to merge, as long as your filter lets Fuzzphony's tables through; merge the two and
+the warning goes away, for example:
 
 ```yaml
 doctrine:
   dbal:
-    schema_filter: '~^(?!(public\.)?(fuzzphony_|legacy_))~'
+    schema_filter: '~^(?!(public\.)?(fuzzphony_|legacy_))~'   # or '~^(?!(fuzzphony\.|legacy_))~' with schema: fuzzphony
 ```
+
+If `fuzzphony.connection` or `fuzzphony.schema` comes from a parameter or an environment variable
+(`%env(...)%`), the bundle cannot read it when the filter is set up: it sets no filter and the
+doctor does not check yours, so add Fuzzphony's regex to your connection yourself.
 
 ## API Platform
 

@@ -36,4 +36,22 @@ final class SchemaAssetFilterTest extends TestCase
         self::assertSame('~^(?!(public\.)?fuzzphony_)~', SchemaAssetFilter::regex('public'));
         self::assertSame('~^(?!fuzzphony\.)~', SchemaAssetFilter::regex('fuzzphony'));
     }
+
+    /** @return iterable<string, array{string, string, bool}> application filter, Fuzzphony's schema, lets Fuzzphony's tables through */
+    public static function applicationFilters(): iterable
+    {
+        yield 'public: unrelated filter' => ['~^(?!legacy_)~', 'public', true];
+        yield 'public: merged' => ['~^(?!(public\.)?(fuzzphony_|legacy_))~', 'public', false];
+        yield 'public: only unqualified names hidden' => ['~^(?!fuzzphony_)~', 'public', true];
+        yield 'public: only qualified names hidden' => ['~^(?!public\.fuzzphony_)~', 'public', true];
+        yield 'dedicated: unrelated filter' => ['~^(?!legacy_)~', 'fuzzphony', true];
+        yield 'dedicated: merged' => ['~^(?!(fuzzphony\.|legacy_))~', 'fuzzphony', false];
+        yield 'dedicated: merged for public only' => ['~^(?!(public\.)?fuzzphony_)~', 'fuzzphony', true];
+    }
+
+    #[DataProvider('applicationFilters')]
+    public function testAnApplicationFilterLetsFuzzphonysTablesThroughUntilItIsMerged(string $filter, string $schema, bool $through): void
+    {
+        self::assertSame($through, SchemaAssetFilter::letsThrough($filter, $schema));
+    }
 }

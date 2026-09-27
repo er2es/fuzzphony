@@ -18,4 +18,15 @@ final class SchemaAssetFilter
             ? '~^(?!(public\.)?fuzzphony_)~'
             : sprintf('~^(?!%s\.)~', $schema);
     }
+
+    /**
+     * Whether an application's own schema_filter keeps one of Fuzzphony's tables (the sync queue,
+     * as DBAL would name it) visible to Doctrine's schema tools, i.e. has not merged regex($schema).
+     */
+    public static function letsThrough(string $applicationFilter, string $schema): bool
+    {
+        $names = $schema === 'public' ? ['fuzzphony_queue', 'public.fuzzphony_queue'] : [$schema . '.fuzzphony_queue'];
+
+        return array_any($names, static fn(string $name): bool => preg_match($applicationFilter, $name) === 1);
+    }
 }

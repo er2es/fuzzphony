@@ -82,7 +82,21 @@ final class PostgresInspector
     /** @return list<Check> */
     private function schemaVersion(IndexDefinition $index): array
     {
-        $row = $this->regclass($this->names->meta())
+        $exists = $this->regclass($this->names->meta());
+        // the role, only when it may not read the table (reading it would fail the whole report)
+        $denied = $exists
+            ? $this->connection->fetchValue("SELECT current_user WHERE NOT has_table_privilege(:meta, 'SELECT')", ['meta' => $this->names->meta()])
+            : null;
+        if ($denied !== null) {
+            $role = Coerce::str($denied);
+
+            return [Check::warning(
+                'Schema version',
+                sprintf('Role %s cannot read %s (no SELECT privilege), so the version is unknown.', $role, $this->names->meta()),
+                sprintf('GRANT SELECT ON %s TO %s;', $this->names->meta(), Sql::ident($role)),
+            )];
+        }
+        $row = $exists
             ? ($this->connection->fetchAll(
                 sprintf('SELECT layout_version, definition_hash, documents_hash, library_version FROM %s WHERE index_name = :index', $this->names->meta()),
                 ['index' => $index->name],

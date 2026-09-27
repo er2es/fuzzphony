@@ -109,6 +109,70 @@ final class PublicApiTest extends TestCase
         self::assertCount(120, self::classes());
     }
 
+    public function testThePublicApiExposesNoInternalType(): void
+    {
+        $leaks = [];
+        foreach (self::PUBLIC as $class) {
+            $reflection = new \ReflectionClass($class);
+            foreach ($reflection->getMethods(\ReflectionMethod::IS_PUBLIC) as $method) {
+                if (!str_starts_with($method->getDeclaringClass()->getName(), 'Fuzzphony\\') || self::isInternal($method)) {
+                    continue;
+                }
+                foreach ($method->getParameters() as $parameter) {
+                    $leaks = [...$leaks, ...self::internalTypes($parameter->getType(), sprintf('%s::%s() $%s', $class, $method->getName(), $parameter->getName()))];
+                }
+                $leaks = [...$leaks, ...self::internalTypes($method->getReturnType(), sprintf('%s::%s() return', $class, $method->getName()))];
+            }
+            foreach ($reflection->getProperties(\ReflectionProperty::IS_PUBLIC) as $property) {
+                if (str_starts_with($property->getDeclaringClass()->getName(), 'Fuzzphony\\') && !self::isInternal($property)) {
+                    $leaks = [...$leaks, ...self::internalTypes($property->getType(), sprintf('%s::$%s', $class, $property->getName()))];
+                }
+            }
+        }
+
+        self::assertSame([], $leaks);
+    }
+
+    public function testTheLeakCheckSeesInternalTypes(): void
+    {
+        $method = new \ReflectionMethod(\Fuzzphony\Core\Fuzzphony::class, 'engine');
+
+        self::assertSame([], self::internalTypes($method->getReturnType(), 'engine'), 'Engine is public API');
+        self::assertSame(
+            ['x: Fuzzphony\Core\Support\Coerce'],
+            self::internalTypes((new \ReflectionFunction(static fn(\Fuzzphony\Core\Support\Coerce|int|null $c): null => null))->getParameters()[0]->getType(), 'x'),
+        );
+    }
+
+    /** @return list<string> */
+    private static function internalTypes(?\ReflectionType $type, string $where): array
+    {
+        $named = match (true) {
+            $type instanceof \ReflectionNamedType => [$type],
+            $type instanceof \ReflectionUnionType, $type instanceof \ReflectionIntersectionType => $type->getTypes(),
+            default => [],
+        };
+        $leaks = [];
+        foreach ($named as $single) {
+            if (!$single instanceof \ReflectionNamedType || $single->isBuiltin()) {
+                continue;
+            }
+            /** @var class-string $name a non-builtin named type */
+            $name = $single->getName();
+            if (str_starts_with($name, 'Fuzzphony\\') && self::isInternal(new \ReflectionClass($name))) {
+                $leaks[] = sprintf('%s: %s', $where, $name);
+            }
+        }
+
+        return $leaks;
+    }
+
+    /** @param \ReflectionClass<object>|\ReflectionMethod|\ReflectionProperty $reflection */
+    private static function isInternal(\ReflectionClass|\ReflectionMethod|\ReflectionProperty $reflection): bool
+    {
+        return str_contains((string) $reflection->getDocComment(), '@internal');
+    }
+
     public function testTheArchitectureDocListsExactlyThePublicApi(): void
     {
         $docs = (string) file_get_contents(dirname(__DIR__, 2) . '/docs/architecture.md');

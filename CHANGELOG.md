@@ -45,11 +45,16 @@ changes; they are always listed under **Breaking** and explained in [UPGRADE.md]
   [UPGRADE.md](UPGRADE.md#from-03-to-04), step 5.
 - `Engine` has a new method `recordReindex(IndexDefinition $index): void`, called after a full
   reindex. Custom engines must implement it (an empty body is fine).
+- The new `fuzzphony_meta` table needs grants: `SELECT` and `UPDATE` for the role that runs
+  `fuzzphony:reindex`, `SELECT` for the role that runs `fuzzphony:doctor`. Without `SELECT` the
+  doctor's "Schema version" check is a warning with the `GRANT` to run (so `--strict` fails)
+  instead of an inspection failure. A schema-wide `GRANT … ON ALL TABLES` must be re-run after the
+  first 0.4 `schema --apply`.
 - The public API is now explicit ([docs/architecture.md](docs/architecture.md#public-api)): 51
   classes are marked `@internal` (loaders, validators, the query parser and AST, the reindexer and
   worker, the console command classes, the SQL compilers, the schema generator, the doctor, the
   introspector, …) and may change in any release. The unused `Core\Engine\Analyzer` interface is
-  removed.
+  removed, and `YamlExporter`'s constructor no longer takes an (internal) `ArrayExporter`.
 
 ### Added
 
@@ -72,9 +77,11 @@ changes; they are always listed under **Breaking** and explained in [UPGRADE.md]
   library's, a definition changed since the last apply, and documents built from another
   definition. `--drop` deletes the index's record; `--dump-migration` includes the upsert.
 - Doctrine Migrations: with DoctrineBundle, the bundle sets the DBAL `schema_filter` of
-  Fuzzphony's connection so `doctrine:migrations:diff` never proposes dropping Fuzzphony's tables;
-  an application that sets its own filter keeps it and `fuzzphony:doctor` prints the regex to
-  merge. `doctrine/migrations` is suggested.
+  Fuzzphony's connection so `doctrine:migrations:diff` never proposes dropping Fuzzphony's tables.
+  An application that sets its own filter keeps it; `fuzzphony:doctor` warns, with the regex to
+  merge, only while that filter still lets Fuzzphony's tables through, so a merged filter passes
+  `--strict`. With `connection` or `schema` set from a parameter or `%env()%`, the bundle sets no
+  filter and the doctor does not check it. `doctrine/migrations` is suggested.
 
 ### Changed
 
@@ -102,6 +109,11 @@ changes; they are always listed under **Breaking** and explained in [UPGRADE.md]
 - Demo: runs on `schema: fuzzphony`; the application role is granted the `fuzzphony` schema's
   tables instead of the `fuzzphony_*` tables in `public`. An existing demo needs
   `docker compose down -v` once.
+
+### Fixed
+
+- An `extension_schema` whose name needs quoting (upper-case letters, e.g. `Ext`) broke the
+  normaliser function: its `unaccent` dictionary was looked up as `ext.unaccent`.
 
 ## [0.3.2] - 2026-09-25
 

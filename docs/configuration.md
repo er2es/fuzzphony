@@ -127,11 +127,15 @@ schema-qualified sync function.
 Every statement Fuzzphony generates or runs names its objects with their schema, so neither
 Fuzzphony's schema nor the extensions' schema has to be on the `search_path`. The generated
 functions are pinned too: the normaliser runs with `search_path = pg_catalog, pg_temp`, the
-refresh and sync functions with the `search_path` of the session that ran `schema --apply`
-(`SET search_path FROM CURRENT`), so your source query and watch SQL resolve their tables the way
-they did then, whatever the writing session's `search_path` is. Only highlighting and
-`fuzzphony:reindex` run your source query in the calling session, so that session must see your
-source tables.
+refresh and sync functions with the `search_path` setting of the session that ran `schema --apply`
+(`SET search_path FROM CURRENT`), so your source query and watch SQL resolve their tables through
+that setting, whatever the writing session's `search_path` is. The setting is kept as written, not
+the schemas it resolved to then: with the default `"$user", public`, `$user` is evaluated each time
+the function runs, as the role that wrote the row (the functions are `SECURITY INVOKER`), so a role
+with a schema of its own name can still shadow an unqualified source table. Qualify your source
+tables, or apply with an explicit `search_path`, if that matters to you. Fuzzphony's own references
+are always schema-qualified. Only highlighting and `fuzzphony:reindex` run your source query in the
+calling session, so that session must see your source tables.
 
 With a dedicated schema, grant the application role what it needs there (the doctor and
 `schema --apply` need more; run those as the owner):
@@ -142,14 +146,15 @@ GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA fuzzphony TO app;
 ```
 
 The role that runs `fuzzphony:reindex` needs `SELECT` and `UPDATE` on `fuzzphony_meta` too (a full
-reindex records there which definition built the documents). `ON ALL TABLES IN SCHEMA` covers only
-the tables that exist when it runs: re-run it after the first 0.4 `schema --apply`, which creates
-`fuzzphony_meta`.
+reindex records there which definition built the documents), and the role that runs
+`fuzzphony:doctor` needs `SELECT` on it (without it, the "Schema version" check warns and prints the
+`GRANT`). `ON ALL TABLES IN SCHEMA` covers only the tables that exist when it runs: re-run it after
+the first 0.4 `schema --apply`, which creates `fuzzphony_meta`.
 
 `DROP SCHEMA fuzzphony CASCADE` then removes every index at once (drop the triggers on your tables
 with `fuzzphony:schema --drop --apply` first). Moving an existing install out of `public` is not
-automatic, see [UPGRADE.md](../UPGRADE.md#moving-to-a-dedicated-schema); until then the doctor
-warns about the objects left in `public`.
+automatic, see [UPGRADE.md](../UPGRADE.md#moving-to-a-dedicated-schema); the doctor warns (check
+"Schema") when the configured schema has no sidecar table for an index but `public` still has one.
 
 ## Bundle configuration
 

@@ -231,7 +231,7 @@ final class FuzzphonyBundleTest extends TestCase
 
         self::assertSame([['dbal' => ['connections' => ['default' => ['schema_filter' => '~^(?!(public\.)?fuzzphony_)~']]]]], $public->getExtensionConfig('doctrine'));
         self::assertSame(['dbal' => ['connections' => ['main' => ['schema_filter' => '~^(?!fuzzphony\.)~']]]], $dedicated->getExtensionConfig('doctrine')[0]);
-        self::assertFalse($dedicated->hasParameter('fuzzphony.schema_filter_conflict'));
+        self::assertFalse($dedicated->hasParameter('fuzzphony.app_schema_filter'));
     }
 
     /** @return iterable<string, array{array<string, mixed>}> */
@@ -239,20 +239,47 @@ final class FuzzphonyBundleTest extends TestCase
     {
         yield 'shorthand dbal config' => [['dbal' => ['schema_filter' => '~^(?!legacy_)~']]];
         yield 'named connection' => [['dbal' => ['connections' => ['default' => ['schema_filter' => '~^(?!legacy_)~']]]]];
+        yield 'the named connection wins' => [['dbal' => ['schema_filter' => '~^(?!other_)~', 'connections' => ['default' => ['schema_filter' => '~^(?!legacy_)~']]]]];
     }
 
     /** @param array<string, mixed> $doctrine */
     #[DataProvider('ownFilters')]
-    public function testAnApplicationFilterIsLeftAloneAndReportedByTheDoctor(array $doctrine): void
+    public function testAnApplicationFilterIsLeftAloneAndHandedToTheDoctor(array $doctrine): void
     {
-        $container = $this->prepended([], $doctrine);
+        $container = $this->prepended(['schema' => 'fuzzphony'], $doctrine);
 
         self::assertSame([$doctrine], $container->getExtensionConfig('doctrine'), 'nothing prepended');
-        self::assertSame('~^(?!(public\.)?fuzzphony_)~', $container->getParameter('fuzzphony.schema_filter_conflict'));
+        self::assertSame('~^(?!legacy_)~', $container->getParameter('fuzzphony.app_schema_filter'));
 
         $extension = $container->getExtension('fuzzphony');
         $extension->load($container->getExtensionConfig('fuzzphony'), $container);
-        self::assertSame('~^(?!(public\.)?fuzzphony_)~', $container->getDefinition(DoctorCommand::class)->getArgument(1));
+        self::assertSame(['~^(?!legacy_)~', 'fuzzphony'], array_slice($container->getDefinition(DoctorCommand::class)->getArguments(), 1));
+    }
+
+    public function testAnotherConnectionsFilterDoesNotCount(): void
+    {
+        $container = $this->prepended([], ['dbal' => ['connections' => ['legacy' => ['schema_filter' => '~^(?!legacy_)~']]]]);
+
+        self::assertFalse($container->hasParameter('fuzzphony.app_schema_filter'));
+        self::assertSame(['dbal' => ['connections' => ['default' => ['schema_filter' => '~^(?!(public\.)?fuzzphony_)~']]]], $container->getExtensionConfig('doctrine')[0]);
+    }
+
+    /** @return iterable<string, array{array<string, mixed>}> */
+    public static function parameterisedSettings(): iterable
+    {
+        yield 'env connection' => [['connection' => '%env(FUZZPHONY_CONNECTION)%']];
+        yield 'env schema' => [['schema' => '%env(FUZZPHONY_SCHEMA)%']];
+        yield 'parameter schema' => [['schema' => '%fuzzphony_schema%']];
+    }
+
+    /** @param array<string, mixed> $fuzzphony */
+    #[DataProvider('parameterisedSettings')]
+    public function testAParameterisedConnectionOrSchemaSkipsThePrepend(array $fuzzphony): void
+    {
+        $container = $this->prepended($fuzzphony, ['dbal' => ['schema_filter' => '~^(?!legacy_)~']]);
+
+        self::assertSame([['dbal' => ['schema_filter' => '~^(?!legacy_)~']]], $container->getExtensionConfig('doctrine'), 'nothing prepended');
+        self::assertFalse($container->hasParameter('fuzzphony.app_schema_filter'), 'and nothing for the doctor to check');
     }
 
     public function testWithoutDoctrineNothingIsPrepended(): void
@@ -260,9 +287,9 @@ final class FuzzphonyBundleTest extends TestCase
         $container = $this->prepended([], null, withDoctrine: false);
 
         self::assertSame([], $container->getExtensionConfig('doctrine'));
-        self::assertFalse($container->hasParameter('fuzzphony.schema_filter_conflict'));
+        self::assertFalse($container->hasParameter('fuzzphony.app_schema_filter'));
         $container->getExtension('fuzzphony')->load($container->getExtensionConfig('fuzzphony'), $container);
-        self::assertNull($container->getDefinition(DoctorCommand::class)->getArgument(1));
+        self::assertSame([null, 'public'], array_slice($container->getDefinition(DoctorCommand::class)->getArguments(), 1));
     }
 
     /**

@@ -98,7 +98,12 @@ final class FuzzphonyBundle extends AbstractBundle
     /**
      * With DoctrineBundle, hide Fuzzphony's tables from Doctrine's schema tools (migrations:diff
      * would otherwise propose dropping them). An application that sets its own schema_filter keeps
-     * it: merging regexes is its call, and fuzzphony:doctor prints the one to merge.
+     * it: merging regexes is its call. Its filter is handed to fuzzphony:doctor, which warns (with
+     * the regex to merge) while it still lets Fuzzphony's tables through.
+     *
+     * The prepend phase sees the raw configuration, so a `connection` or `schema` given as a
+     * parameter or an environment variable (`%…%`, `%env(…)%`) cannot be resolved here: then
+     * nothing is prepended and the doctor does not check the filter; set the filter yourself.
      */
     public function prependExtension(ContainerConfigurator $container, ContainerBuilder $builder): void
     {
@@ -111,18 +116,23 @@ final class FuzzphonyBundle extends AbstractBundle
             $connection = is_string($config['connection'] ?? null) ? $config['connection'] : $connection;
             $schema = is_string($config['schema'] ?? null) ? $config['schema'] : $schema;
         }
-        $filter = SchemaAssetFilter::regex($schema);
+        if (str_contains($connection, '%') || str_contains($schema, '%')) {
+            return;
+        }
+        $applicationFilter = null;
         foreach ($builder->getExtensionConfig('doctrine') as $doctrine) {
             $dbal = is_array($doctrine['dbal'] ?? null) ? $doctrine['dbal'] : [];
             $connections = is_array($dbal['connections'] ?? null) ? $dbal['connections'] : [];
             $named = is_array($connections[$connection] ?? null) ? $connections[$connection] : [];
-            if (isset($dbal['schema_filter']) || isset($named['schema_filter'])) {
-                $builder->setParameter('fuzzphony.schema_filter_conflict', $filter);
-
-                return;
-            }
+            $own = $named['schema_filter'] ?? $dbal['schema_filter'] ?? null;
+            $applicationFilter = is_string($own) ? $own : $applicationFilter;
         }
-        $builder->prependExtensionConfig('doctrine', ['dbal' => ['connections' => [$connection => ['schema_filter' => $filter]]]]);
+        if ($applicationFilter !== null) {
+            $builder->setParameter('fuzzphony.app_schema_filter', $applicationFilter);
+
+            return;
+        }
+        $builder->prependExtensionConfig('doctrine', ['dbal' => ['connections' => [$connection => ['schema_filter' => SchemaAssetFilter::regex($schema)]]]]);
     }
 
     /** @param array<array-key, mixed> $config */
@@ -151,8 +161,8 @@ final class FuzzphonyBundle extends AbstractBundle
         $ormSyncAsync = (bool) ($ormSync['async'] ?? false);
         $ormSyncChunkSizeRaw = Coerce::int($ormSync['chunk_size'] ?? null);
         $ormSyncChunkSize = $ormSyncChunkSizeRaw !== 0 ? $ormSyncChunkSizeRaw : 500;
-        $schemaFilterConflict = $builder->hasParameter('fuzzphony.schema_filter_conflict')
-            ? Coerce::str($builder->getParameter('fuzzphony.schema_filter_conflict'))
+        $applicationSchemaFilter = $builder->hasParameter('fuzzphony.app_schema_filter')
+            ? Coerce::str($builder->getParameter('fuzzphony.app_schema_filter'))
             : null;
 
         $services->set('fuzzphony.connection', DbalConnection::class)
@@ -227,7 +237,7 @@ final class FuzzphonyBundle extends AbstractBundle
 
         $commands = [
             SchemaCommand::class => [service('fuzzphony'), service('fuzzphony.connection')],
-            DoctorCommand::class => [service('fuzzphony'), $schemaFilterConflict],
+            DoctorCommand::class => [service('fuzzphony'), $applicationSchemaFilter, $names->schema],
             ReindexCommand::class => [service('fuzzphony')],
             WorkerCommand::class => [service('fuzzphony'), $workerBatchSize, $workerIdleSleep],
             SearchCommand::class => [service('fuzzphony')],

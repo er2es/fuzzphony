@@ -45,8 +45,11 @@ It checks:
 - that the source can be queried;
 - id, field, filter, boost and recency column mapping and types, and the source key;
 - sidecar column drift, and missing or INVALID indexes;
-- objects left in `public` after switching to a dedicated `schema`;
-- with DoctrineBundle, an application `schema_filter` that would let `migrations:diff` drop Fuzzphony's tables;
+- objects left in `public` after switching to a dedicated `schema` (a warning when the configured
+  schema has no sidecar table for an index but `public` still has one);
+- with DoctrineBundle, an application `schema_filter` that still lets Fuzzphony's tables through,
+  so `migrations:diff` would drop them (a warning with the regex to merge; none once your filter
+  hides them);
 - missing or disabled triggers, including the `TRUNCATE` trigger, which an index set up with an
   older version lacks until `fuzzphony:schema --apply` runs again;
 - queue backlog and age;
@@ -56,7 +59,8 @@ It checks:
 - the schema version: which layout and definition the index was last applied with (an error when
   the definition changed since, or the layout is older or newer than this library's) and whether
   the documents were built from the current definition (a warning until a full
-  `fuzzphony:reindex` records it).
+  `fuzzphony:reindex` records it). The role running the doctor needs `SELECT` on `fuzzphony_meta`;
+  without it this check is a warning with the `GRANT` to run.
 
 ## The configuration wizard
 

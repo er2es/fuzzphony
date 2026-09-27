@@ -189,6 +189,13 @@ final class SchemaGeneratorTest extends TestCase
         self::assertStringContainsString('AND NOT EXISTS (SELECT 1 FROM', $sql);
     }
 
+    public function testTheNormaliserQuotesAMixedCaseExtensionSchema(): void
+    {
+        $sql = (new PostgresSchemaGenerator(new Names('Ext')))->global(Indexes::products())->toSql();
+
+        self::assertStringContainsString("SELECT btrim(regexp_replace(lower(\"Ext\".unaccent('\"Ext\".unaccent'::regdictionary, \$1)), '[^[:alnum:]]+', ' ', 'g'))", $sql);
+    }
+
     public function testGlobalSchemaCreatesOneTextConfigPerLanguage(): void
     {
         $german = IndexDefinition::builder('articles')->fromTable('article')->field('title')->language('german')->build();
