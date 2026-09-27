@@ -1,6 +1,9 @@
 # The demo index: products joined with brands and categories (tables from ../benchmarks/seed.sql).
 # Generated with `bin/console fuzzphony:wizard bench_product --name=catalog`, then tuned by hand.
 fuzzphony:
+  # Every Fuzzphony table, function and text search configuration lives in its own schema; the application's
+  # tables (bench_product, lang_product, ...) stay in public. fuzzphony:schema --apply creates it.
+  schema: fuzzphony
   indexes:
     catalog:
       source:
@@ -34,7 +37,7 @@ fuzzphony:
         min_score: 0.01
 
     # The /languages page: one small hand-written catalogue (sql/lang_product.sql), one index per language.
-    # Each index stems and removes stop words with its own language and folds accents (fuzzphony_<language>).
+    # Each index stems and removes stop words with its own language and folds accents (fuzzphony.fuzzphony_<language>).
     lang_en: &lang
       source:
         query: "SELECT id, name, description, category FROM lang_product WHERE lang = 'en'"

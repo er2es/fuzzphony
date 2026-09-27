@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Fuzzphony\Engine\Postgres\Wizard;
 
 use Fuzzphony\Core\Database\Connection;
+use Fuzzphony\Core\Exception\InvalidArgument;
 use Fuzzphony\Core\Support\Coerce;
 use Fuzzphony\Core\Support\Identifier;
 use Fuzzphony\Core\Wizard\ColumnKind;
@@ -15,7 +16,7 @@ use Fuzzphony\Core\Wizard\TableProfile;
 use Fuzzphony\Engine\Postgres\Sql\Sql;
 
 /**
- * Reads catalog + planner statistics (pg_stats). Tables that were never analysed are
+ * @internal Reads catalog + planner statistics (pg_stats). Tables that were never analysed are
  * sampled (first 1000 rows) instead, so the wizard also works on fresh databases.
  * Read-only.
  */
@@ -23,22 +24,27 @@ final readonly class PostgresIntrospector implements SourceIntrospector
 {
     private const int SAMPLE = 1000;
 
-    public function __construct(private Connection $connection) {}
+    public function __construct(
+        private Connection $connection,
+        /** Fuzzphony's schema: when it is not "public" it holds nothing to search, so it is hidden as a whole. */
+        private string $schema = 'public',
+    ) {}
 
     public function tables(): array
     {
-        $rows = $this->connection->fetchAll(<<<'SQL'
+        $hideSchema = $this->schema !== 'public';
+        $rows = $this->connection->fetchAll(sprintf(<<<'SQL'
             SELECT CASE WHEN n.nspname = 'public' THEN c.relname ELSE n.nspname || '.' || c.relname END AS table_name,
                    greatest(c.reltuples, 0)::bigint AS rows
             FROM pg_class c
             JOIN pg_namespace n ON n.oid = c.relnamespace
             WHERE c.relkind IN ('r', 'p')
               AND n.nspname NOT IN ('pg_catalog', 'information_schema')
-              AND n.nspname NOT LIKE 'pg_toast%'
-              AND c.relname NOT LIKE 'fuzzphony\_%'
-              AND NOT c.relispartition
+              AND n.nspname NOT LIKE 'pg_toast%%'
+              AND c.relname NOT LIKE 'fuzzphony\_%%'
+              AND NOT c.relispartition%s
             ORDER BY c.reltuples DESC, 1
-            SQL);
+            SQL, $hideSchema ? "\n  AND n.nspname <> :schema" : ''), $hideSchema ? ['schema' => $this->schema] : []);
 
         return array_map(static fn(array $r): array => ['table' => Coerce::str($r['table_name']), 'rows' => Coerce::int($r['rows'])], $rows);
     }
@@ -46,7 +52,7 @@ final readonly class PostgresIntrospector implements SourceIntrospector
     public function describe(string $table, bool $withRelations = true): TableProfile
     {
         if (!Identifier::isTable($table) || $this->connection->fetchValue('SELECT to_regclass(:t)', ['t' => $table]) === null) {
-            throw new \InvalidArgumentException(sprintf('Table "%s" does not exist (or is not visible on the search_path).', $table));
+            throw new InvalidArgument(sprintf('Table "%s" does not exist (or is not visible on the search_path).', $table));
         }
 
         $columns = $this->connection->fetchAll(

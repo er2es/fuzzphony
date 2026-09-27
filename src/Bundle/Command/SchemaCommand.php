@@ -19,6 +19,7 @@ use Symfony\Component\Console\Input\InputOption;
 use Symfony\Component\Console\Output\OutputInterface;
 use Symfony\Component\Console\Style\SymfonyStyle;
 
+/** @internal The fuzzphony:schema console command; its CLI is public, the class is not. */
 #[AsCommand(name: 'fuzzphony:schema', description: 'Show, apply or export the SQL that creates the search indexes', aliases: ['fuzzphony:install'])]
 final class SchemaCommand extends Command
 {
@@ -69,6 +70,11 @@ final class SchemaCommand extends Command
         $directory = $input->getOption('dump-migration');
         if (is_string($directory)) {
             $file = $this->writeMigration($plan, $directory, Coerce::str($input->getOption('namespace')));
+            if ($file === null) {
+                $io->error(sprintf('Cannot create directory "%s".', $directory));
+
+                return Command::FAILURE;
+            }
             $io->success(sprintf('Migration written to %s (non-transactional, because indexes are built concurrently).', $file));
 
             return Command::SUCCESS;
@@ -98,7 +104,7 @@ final class SchemaCommand extends Command
         }
     }
 
-    private function writeMigration(SchemaPlan $plan, string $directory, string $namespace): string
+    private function writeMigration(SchemaPlan $plan, string $directory, string $namespace): ?string
     {
         $class = 'Version' . date('YmdHis');
         $up = implode("\n", array_map(
@@ -143,7 +149,7 @@ final class SchemaCommand extends Command
             PHP;
 
         if (!is_dir($directory) && !mkdir($directory, 0o775, true) && !is_dir($directory)) {
-            throw new \RuntimeException(sprintf('Cannot create directory "%s".', $directory));
+            return null;
         }
         $file = rtrim($directory, '/') . '/' . $class . '.php';
         file_put_contents($file, $code);

@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Fuzzphony\Core\Query\Ast;
 
+/** @internal AST node: negates its child node. */
 final readonly class Not implements Node
 {
     public function __construct(public Node $node) {}

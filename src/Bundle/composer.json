@@ -17,6 +17,7 @@
         }
     },
     "suggest": {
+        "doctrine/migrations": "Run the migration fuzzphony:schema --dump-migration writes (the bundle hides Fuzzphony's tables from migrations:diff)",
         "symfony/messenger": "Asynchronous refresh in ORM sync mode (fuzzphony.orm_sync.async)",
         "symfony/ux-live-component": "<twig:Fuzzphony:Search> search-as-you-type component",
         "api-platform/doctrine-orm": "FuzzphonySearchFilter for API Platform collections"

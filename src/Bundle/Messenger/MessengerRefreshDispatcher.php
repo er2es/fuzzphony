@@ -8,6 +8,7 @@ use Fuzzphony\Core\Definition\IndexDefinition;
 use Fuzzphony\Core\Sync\RefreshDispatcher;
 use Symfony\Component\Messenger\MessageBusInterface;
 
+/** @internal Symfony Messenger implementation of RefreshDispatcher: dispatches one RefreshDocuments message per chunk of ids. */
 final readonly class MessengerRefreshDispatcher implements RefreshDispatcher
 {
     public function __construct(

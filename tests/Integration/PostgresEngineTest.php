@@ -8,6 +8,7 @@ use Fuzzphony\Core\Database\Connection;
 use Fuzzphony\Core\Definition\IndexDefinition;
 use Fuzzphony\Core\Definition\TriggerLevel;
 use Fuzzphony\Core\Exception\EngineFailure;
+use Fuzzphony\Core\Exception\InvalidArgument;
 use Fuzzphony\Core\Exception\InvalidQuery;
 use Fuzzphony\Core\Fuzzphony;
 use Fuzzphony\Core\Inspection\Check;
@@ -86,7 +87,7 @@ final class PostgresEngineTest extends TestCase
     public function testSwitchingTriggerLevelLeavesNoDuplicates(): void
     {
         $this->fuzzphony('queue');
-        $row = Indexes::products('queue')->with(triggerLevel: TriggerLevel::Row);
+        $row = Indexes::products('queue')->withTriggerLevel(TriggerLevel::Row);
         $fuzzphony = new Fuzzphony($this->engine, new IndexRegistry([$row]));
         $fuzzphony->schema()->apply($this->connection);
 
@@ -165,7 +166,7 @@ final class PostgresEngineTest extends TestCase
 
     public function testDoctorRecognizesAMissingTruncateTriggerWhenTheNameIsHashed(): void
     {
-        // a long index name makes Identifier::limit() hash the trigger names, so they no longer end in "_trn"
+        // a long index name makes Names::limit() hash the trigger names, so they no longer end in "_trn"
         $index = IndexDefinition::builder(str_repeat('long_index_name_', 3))
             ->fromQuery('SELECT p.id, p.name, b.name AS brand FROM fz_product p JOIN fz_brand b ON b.id = p.brand_id')
             ->watch('fz_product')
@@ -225,7 +226,7 @@ final class PostgresEngineTest extends TestCase
     {
         // Create a custom index with explicit columns on a watch to test column-aware filtering
         $index = Indexes::products('queue')
-            ->with(watches: [
+            ->withWatches([
                 new \Fuzzphony\Core\Definition\Watch('fz_product', columns: ['name', 'price']),
                 new \Fuzzphony\Core\Definition\Watch('fz_brand', 'SELECT id FROM fz_product WHERE brand_id = :id', 'id', ['name']),
             ]);
@@ -248,7 +249,7 @@ final class PostgresEngineTest extends TestCase
     public function testDoctorReportsAnErrorForAWatchColumnThatDoesNotExist(): void
     {
         $index = Indexes::products('queue')
-            ->with(watches: [
+            ->withWatches([
                 new \Fuzzphony\Core\Definition\Watch('fz_product'),
                 new \Fuzzphony\Core\Definition\Watch('fz_brand', 'SELECT id FROM fz_product WHERE brand_id = :id', 'id', ['nmae']),
             ]);
@@ -377,7 +378,7 @@ final class PostgresEngineTest extends TestCase
 
     public function testPruneOrphansRejectsANonPositiveBatchSize(): void
     {
-        $this->expectException(\InvalidArgumentException::class);
+        $this->expectException(InvalidArgument::class);
         $this->expectExceptionMessage('Batch size must be >= 1.');
 
         $this->engine->pruneOrphans(Indexes::products(), 0);
@@ -464,7 +465,8 @@ final class PostgresEngineTest extends TestCase
      * DROP VIEW then also fails, and that second failure must be swallowed, not thrown in place
      * of the original. The aborted transaction still poisons whatever inspect() tries next
      * (this is what running the doctor inside someone else's transaction costs), so the overall
-     * call still fails, but with PostgreSQL's own "transaction is aborted" error, not a
+     * call still fails, but with PostgreSQL's own "transaction is aborted" error (kept as the
+     * EngineFailure's previous exception, since inspect() is a guarded operation), not a
      * confusing "view does not exist" from the cleanup itself.
      */
     public function testASourceQueryErrorInsideTheCallersTransactionLeavesItAborted(): void
@@ -476,9 +478,13 @@ final class PostgresEngineTest extends TestCase
             ->build();
         $fuzzphony = new Fuzzphony($this->engine, new IndexRegistry([$index]));
 
-        $this->expectException(\PDOException::class);
-        $this->expectExceptionMessageMatches('/current transaction is aborted/');
-        $this->connection->transactional(fn(): mixed => $fuzzphony->inspect('products_direct'));
+        try {
+            $this->connection->transactional(fn(): mixed => $fuzzphony->inspect('products_direct'));
+            self::fail('EngineFailure expected');
+        } catch (EngineFailure $e) {
+            self::assertInstanceOf(\PDOException::class, $e->getPrevious());
+            self::assertMatchesRegularExpression('/current transaction is aborted/', $e->getPrevious()->getMessage());
+        }
     }
 
     public function testDoctorReportsAUuidIdTypeMismatch(): void
@@ -534,6 +540,29 @@ final class PostgresEngineTest extends TestCase
         self::assertSame('Column "no_such_recency" not found in source.', $problems['Recency column']);
     }
 
+    public function testDoctorReportsIncompatibleFilterBoostAndRecencyColumnTypes(): void
+    {
+        $index = IndexDefinition::builder('products_direct')
+            ->fromTable('fz_product')
+            ->field('name', 'A')
+            ->filter('label', 'int', 'name')
+            ->boostBy('name')
+            ->recencyBy('price')
+            ->sync('manual')
+            ->build();
+        $fuzzphony = new Fuzzphony($this->engine, new IndexRegistry([$index]));
+        $fuzzphony->schema()->apply($this->connection);
+
+        $problems = [];
+        foreach ($fuzzphony->inspect('products_direct')->problems() as $check) {
+            $problems[$check->name] = [$check->status, $check->message];
+        }
+
+        self::assertSame([CheckStatus::Warning, 'Column "name" is text; declared as "int" (values are cast on indexing).'], $problems['Filter label']);
+        self::assertSame([CheckStatus::Error, 'Column "name" is text; expected a numeric type.'], $problems['Boost column']);
+        self::assertSame([CheckStatus::Error, 'Column "price" is integer; expected a date/timestamp type.'], $problems['Recency column']);
+    }
+
     public function testDoctorWarnsAboutExtraSidecarColumns(): void
     {
         $fuzzphony = $this->fuzzphony('manual');
@@ -547,13 +576,13 @@ final class PostgresEngineTest extends TestCase
         self::assertCount(1, $extra);
         self::assertSame(CheckStatus::Warning, $extra[0]->status);
         self::assertStringContainsString('extra_junk', $extra[0]->message);
-        self::assertStringContainsString('ALTER TABLE "fuzzphony_products" DROP COLUMN "extra_junk";', (string) $extra[0]->fix);
+        self::assertStringContainsString('ALTER TABLE "public"."fuzzphony_products" DROP COLUMN "extra_junk";', (string) $extra[0]->fix);
     }
 
     public function testDoctorWarnsAboutLeftoverTriggersFromAPreviousSyncLevel(): void
     {
         $this->fuzzphony('queue'); // installs the default statement-level triggers
-        $rowIndex = Indexes::products('queue')->with(triggerLevel: TriggerLevel::Row);
+        $rowIndex = Indexes::products('queue')->withTriggerLevel(TriggerLevel::Row);
         $rowFuzzphony = new Fuzzphony($this->engine, new IndexRegistry([$rowIndex]));
 
         $leftover = array_values(array_filter(
@@ -569,7 +598,7 @@ final class PostgresEngineTest extends TestCase
 
     public function testDoctorWarnsAboutVeryTolerantFuzzySimilarityAndAHighCandidateLimit(): void
     {
-        $index = Indexes::products('manual')->with(thresholds: new Thresholds(fuzzySimilarity: 0.1, candidateLimit: 6_000));
+        $index = Indexes::products('manual')->withThresholds(new Thresholds(fuzzySimilarity: 0.1, candidateLimit: 6_000));
         $fuzzphony = new Fuzzphony($this->engine, new IndexRegistry([$index]));
         $fuzzphony->schema()->apply($this->connection);
         $fuzzphony->reindex('products');

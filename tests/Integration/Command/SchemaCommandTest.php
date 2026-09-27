@@ -66,6 +66,15 @@ final class SchemaCommandTest extends TestCase
             self::assertIsString($contents);
             self::assertStringContainsString('Fuzzphony search indexes', $contents);
             self::assertStringContainsString('isTransactional', $contents);
+            // every plan records itself: the shared objects' row "*" (end of the global plan), then one row per index
+            $upsert = '$this->addSql(\'INSERT INTO "public"."fuzzphony_meta" (index_name, layout_version,';
+            self::assertSame(2, substr_count($contents, $upsert));
+            self::assertStringContainsString("VALUES (\\'*\\', 1, ", $contents);
+            // the last statement of up() records the index's layout and definition (var_export escapes the quotes)
+            $last = substr($contents, (int) strrpos($contents, '$this->addSql('));
+            self::assertStringStartsWith($upsert, $last);
+            self::assertStringContainsString("VALUES (\\'products\\', 1, ", $last);
+            self::assertStringContainsString('ON CONFLICT (index_name) DO UPDATE SET layout_version = EXCLUDED.layout_version', $last);
             self::assertNull($this->context->connection->fetchValue("SELECT to_regclass('fuzzphony_products')"), 'dumping a migration must not apply anything');
         } finally {
             $leftover = glob($directory . '/*.php');
@@ -79,21 +88,19 @@ final class SchemaCommandTest extends TestCase
     public function testDumpMigrationFailsCleanlyWhenTheDirectoryCannotBeCreated(): void
     {
         // A plain file already occupies that path, so mkdir() cannot turn it into a directory.
-        // mkdir() itself raises a PHP warning on failure (which SchemaCommand deliberately lets
-        // through before throwing its own, clearer RuntimeException); a temporary error handler
-        // keeps that expected, non-actionable warning from failing the test run.
+        // mkdir() raises a PHP warning on failure, which a temporary error handler swallows.
         $path = sys_get_temp_dir() . '/fuzzphony-schema-command-test-blocked-' . bin2hex(random_bytes(4));
         file_put_contents($path, 'not a directory');
         set_error_handler(static fn(int $errno, string $errstr): bool => str_contains($errstr, 'mkdir()'));
         try {
-            $this->expectException(\RuntimeException::class);
-            $this->expectExceptionMessage(sprintf('Cannot create directory "%s".', $path));
-
-            $this->tester->execute(['--dump-migration' => $path], ['interactive' => false]);
+            $status = $this->tester->execute(['--dump-migration' => $path], ['interactive' => false]);
         } finally {
             restore_error_handler();
             unlink($path);
         }
+
+        self::assertSame(Command::FAILURE, $status);
+        self::assertStringContainsString('Cannot create directory', $this->tester->getDisplay());
     }
 
     public function testCompletesIndexNames(): void

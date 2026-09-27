@@ -13,23 +13,29 @@ use Fuzzphony\Core\Inspection\InspectionReport;
 use Fuzzphony\Core\Inspection\InspectOptions;
 use Fuzzphony\Core\Ranking\FuzzyMode;
 use Fuzzphony\Core\Support\Coerce;
-use Fuzzphony\Core\Support\Identifier;
+use Fuzzphony\Engine\Postgres\Schema\Fingerprint;
+use Fuzzphony\Engine\Postgres\Schema\Names;
 use Fuzzphony\Engine\Postgres\Schema\PostgresSchemaGenerator;
+use Fuzzphony\Engine\Postgres\Schema\Types;
 use Fuzzphony\Engine\Postgres\Sql\DocumentSql;
 use Fuzzphony\Engine\Postgres\Sql\Sql;
 
 /**
- * "fuzzphony:doctor": verifies that the database matches the definition and says how to fix
+ * @internal "fuzzphony:doctor": verifies that the database matches the definition and says how to fix
  * what does not. Read-only (the probe view is temporary and dropped immediately).
  */
 final class PostgresInspector
 {
     private const string APPLY = 'bin/console fuzzphony:schema --apply';
 
+    private readonly Names $names;
+
     public function __construct(
         private readonly Connection $connection,
         private readonly PostgresSchemaGenerator $schema,
-    ) {}
+    ) {
+        $this->names = $schema->names();
+    }
 
     public function inspect(IndexDefinition $index, InspectOptions $options): InspectionReport
     {
@@ -37,7 +43,7 @@ final class PostgresInspector
         $checks[] = $this->version();
         array_push($checks, ...$this->extensions($index));
         $checks[] = $this->textConfig($index);
-        $checks[] = $this->function(PostgresSchemaGenerator::NORM_FUNCTION . '(text)', 'Normaliser function');
+        $checks[] = $this->function($this->names->normFunction() . '(text)', 'Normaliser function');
 
         $sourceColumns = $this->sourceColumns($index, $checks);
         if ($sourceColumns !== null) {
@@ -47,15 +53,16 @@ final class PostgresInspector
             $checks[] = $this->sourceKey($index);
         }
 
-        $sidecarExists = $this->regclass($index->sidecarTable());
+        $sidecarExists = $this->regclass($this->names->sidecar($index));
         if (!$sidecarExists) {
-            $checks[] = Check::error('Sidecar table', sprintf('Table "%s" does not exist.', $index->sidecarTable()), self::APPLY);
+            $checks[] = Check::error('Sidecar table', sprintf('Table %s does not exist.', $this->names->sidecar($index)), self::APPLY);
+            array_push($checks, ...$this->location($index));
         } else {
             array_push($checks, ...$this->sidecarColumns($index));
             array_push($checks, ...$this->sidecarIndexes($index));
         }
         $checks[] = $this->function(
-            sprintf('%s(%s[])', $this->schema->refreshFunctionName($index), $index->idType->sqlType()),
+            sprintf('%s(%s[])', $this->names->refreshFunction($index), Types::id($index->idType)),
             'Refresh function',
         );
         array_push($checks, ...$this->triggers($index));
@@ -67,8 +74,55 @@ final class PostgresInspector
         array_push($checks, ...$this->configuration($index));
         array_push($checks, ...$this->tenantScoping($index));
         array_push($checks, ...$this->columnAwareFiltering($index));
+        array_push($checks, ...$this->schemaVersion($index)); // last: earlier checks keep their order
 
         return new InspectionReport($index->name, $checks);
+    }
+
+    /** @return list<Check> */
+    private function schemaVersion(IndexDefinition $index): array
+    {
+        $exists = $this->regclass($this->names->meta());
+        // the role, only when it may not read the table (reading it would fail the whole report)
+        $denied = $exists
+            ? $this->connection->fetchValue("SELECT current_user WHERE NOT has_table_privilege(:meta, 'SELECT')", ['meta' => $this->names->meta()])
+            : null;
+        if ($denied !== null) {
+            $role = Coerce::str($denied);
+
+            return [Check::warning(
+                'Schema version',
+                sprintf('Role %s cannot read %s (no SELECT privilege), so the version is unknown.', $role, $this->names->meta()),
+                sprintf('GRANT SELECT ON %s TO %s;', $this->names->meta(), Sql::ident($role)),
+            )];
+        }
+        $row = $exists
+            ? ($this->connection->fetchAll(
+                sprintf('SELECT layout_version, definition_hash, documents_hash, library_version FROM %s WHERE index_name = :index', $this->names->meta()),
+                ['index' => $index->name],
+            )[0] ?? null)
+            : null;
+        if ($row === null) {
+            return [Check::warning('Schema version', 'No version record: built before 0.4, or never applied.', self::APPLY)];
+        }
+
+        $layout = Coerce::int($row['layout_version']);
+        $current = PostgresSchemaGenerator::LAYOUT_VERSION;
+        $by = Coerce::str($row['library_version']);
+
+        return [
+            match (true) {
+                $layout < $current => Check::error('Schema version', sprintf('Layout %d is older than this library\'s layout %d.', $layout, $current), self::APPLY),
+                $layout > $current => Check::error('Schema version', sprintf('Layout %d was applied by a newer Fuzzphony (%s); this library knows layout %d.', $layout, $by, $current), sprintf('Upgrade fuzzphony/fuzzphony to %s or later.', $by)),
+                default => Check::ok('Schema version', sprintf('layout %d, applied by %s', $layout, $by)),
+            },
+            Coerce::str($row['definition_hash']) === Fingerprint::definition($index)
+                ? Check::ok('Definition', 'unchanged since the last apply')
+                : Check::error('Definition', 'The definition changed since the last apply.', self::APPLY),
+            Coerce::str($row['documents_hash']) === Fingerprint::documents($index)
+                ? Check::ok('Documents', 'built from the current definition')
+                : Check::warning('Documents', 'The documents were built from another definition, or not fully reindexed since 0.4.', sprintf('bin/console fuzzphony:reindex %s', $index->name)),
+        ];
     }
 
     private function version(): Check
@@ -104,21 +158,27 @@ final class PostgresInspector
 
     private function textConfig(IndexDefinition $index): Check
     {
-        $name = $index->text->configName();
-        $exists = (bool) $this->connection->fetchValue('SELECT count(*) > 0 FROM pg_ts_config WHERE cfgname = :name', ['name' => $name]);
+        $label = $this->names->textConfig($index->text);
+        $sql = 'SELECT count(*) > 0 FROM pg_ts_config c JOIN pg_namespace n ON n.oid = c.cfgnamespace WHERE c.cfgname = :name';
+        $params = ['name' => $this->names->textConfigName($index->text)];
+        if ($index->text->unaccent) {
+            // Fuzzphony's own copy must be in Fuzzphony's schema; a built-in one may be anywhere
+            $sql .= ' AND n.nspname = :schema';
+            $params['schema'] = $this->names->schema;
+        }
 
-        if (!$exists) {
-            return Check::error('Text search configuration', sprintf('"%s" is missing.', $name), self::APPLY);
+        if (!(bool) $this->connection->fetchValue($sql, $params)) {
+            return Check::error('Text search configuration', sprintf('%s is missing.', $label), self::APPLY);
         }
         if ($index->text->unaccent && $this->keepsAccentedStopWords($index)) {
             return Check::error(
                 'Text search configuration',
-                sprintf('"%s" keeps accented stop words (such as "für", "és", "à"): the stop-word dictionary "%s" does not run before unaccent.', $name, $this->schema->stopDictionaryName($index->text)),
+                sprintf('%s keeps accented stop words (such as "für", "és", "à"): the stop-word dictionary %s does not run before unaccent.', $label, $this->names->stopDictionary($index->text)),
                 self::APPLY . sprintf(', then bin/console fuzzphony:reindex %s', $index->name),
             );
         }
 
-        return Check::ok('Text search configuration', $name);
+        return Check::ok('Text search configuration', $label);
     }
 
     /** A 0.3.0 configuration: the stem dictionary has a stop-word list, but "word" tokens do not start with the stop-word dictionary. */
@@ -130,14 +190,36 @@ final class PostgresInspector
                    AND NOT EXISTS (
                        SELECT 1
                        FROM pg_ts_config c
+                       JOIN pg_namespace n ON n.oid = c.cfgnamespace
                        JOIN pg_ts_config_map m ON m.mapcfg = c.oid AND m.mapseqno = 1
                        JOIN pg_ts_dict d ON d.oid = m.mapdict
-                       WHERE c.cfgname = :name AND d.dictname = :stop
+                       WHERE c.cfgname = :name AND n.nspname = :schema AND d.dictname = :stop
                          AND m.maptokentype = (SELECT t.tokid FROM ts_token_type(c.cfgparser) AS t WHERE t.alias = 'word')
                    )
                 SQL,
-            ['stem' => $this->schema->stemDictionaryName($index->text), 'name' => $index->text->configName(), 'stop' => $this->schema->stopDictionaryName($index->text)],
+            ['stem' => $this->schema->stemDictionaryName($index->text), 'name' => $this->names->textConfigName($index->text), 'stop' => $this->names->stopDictionaryName($index->text), 'schema' => $this->names->schema],
         );
+    }
+
+    /**
+     * A dedicated schema that lacks this index while "public" still has it: an install from
+     * before the "schema" setting, which is not moved automatically. (Only called when the
+     * sidecar is missing, so with schema "public" the lookup below finds nothing either.)
+     *
+     * @return list<Check>
+     */
+    private function location(IndexDefinition $index): array
+    {
+        $legacy = Sql::ident('public.' . $this->names->sidecarName($index));
+        if (!$this->regclass($legacy)) {
+            return [];
+        }
+
+        return [Check::warning(
+            'Schema',
+            sprintf('%s has no sidecar table for this index, but %s exists: an install from before the dedicated schema.', $this->names->quotedSchema(), $legacy),
+            'See UPGRADE.md, "Moving to a dedicated schema": fuzzphony:schema --apply, fuzzphony:reindex, then drop the old objects.',
+        )];
     }
 
     private function function(string $signature, string $label): Check
@@ -226,7 +308,7 @@ final class PostgresInspector
             $type = $columns[$filter->column()] ?? null;
             $checks[] = match (true) {
                 $type === null => Check::error('Filter ' . $filter->name, sprintf('Column "%s" not found in source.', $filter->column())),
-                !in_array($type, $filter->type->compatibleSqlTypes(), true) => Check::warning(
+                !in_array($type, Types::compatible($filter->type), true) => Check::warning(
                     'Filter ' . $filter->name,
                     sprintf('Column "%s" is %s; declared as "%s" (values are cast on indexing).', $filter->column(), $type, $filter->type->value),
                 ),
@@ -241,7 +323,7 @@ final class PostgresInspector
             $actual = $columns[$column] ?? null;
             $checks[] = match (true) {
                 $actual === null => Check::error($label, sprintf('Column "%s" not found in source.', $column)),
-                !in_array($actual, $type->compatibleSqlTypes(), true) => Check::error($label, sprintf('Column "%s" is %s; expected a %s type.', $column, $actual, $type === FilterType::Float ? 'numeric' : 'date/timestamp')),
+                !in_array($actual, Types::compatible($type), true) => Check::error($label, sprintf('Column "%s" is %s; expected a %s type.', $column, $actual, $type === FilterType::Float ? 'numeric' : 'date/timestamp')),
                 default => Check::ok($label, sprintf('%s (%s)', $column, $actual)),
             };
         }
@@ -275,7 +357,7 @@ final class PostgresInspector
     {
         $actual = array_map(Coerce::str(...), array_column($this->connection->fetchAll(
             'SELECT attname FROM pg_attribute WHERE attrelid = to_regclass(:table) AND attnum > 0 AND NOT attisdropped',
-            ['table' => $index->sidecarTable()],
+            ['table' => $this->names->sidecar($index)],
         ), 'attname'));
         $expected = array_keys($this->schema->columns($index));
         $missing = array_diff($expected, $actual);
@@ -286,10 +368,11 @@ final class PostgresInspector
             ? Check::ok('Sidecar columns', sprintf('%d column(s) match the definition', count($expected)))
             : Check::error('Sidecar columns', sprintf('Schema drift, missing: %s.', implode(', ', $missing)), self::APPLY);
         if ($extra !== []) {
+            $sidecar = $this->names->sidecar($index);
             $checks[] = Check::warning(
                 'Sidecar columns',
                 sprintf('Columns no longer in the definition: %s (harmless, but they waste space).', implode(', ', $extra)),
-                implode(' ', array_map(static fn(string $c): string => sprintf('ALTER TABLE %s DROP COLUMN %s;', Sql::ident($index->sidecarTable()), Sql::ident($c)), $extra)),
+                implode(' ', array_map(static fn(string $c): string => sprintf('ALTER TABLE %s DROP COLUMN %s;', $sidecar, Sql::ident($c)), $extra)),
             );
         }
 
@@ -301,7 +384,7 @@ final class PostgresInspector
     {
         $rows = $this->connection->fetchAll(
             'SELECT c.relname, i.indisvalid FROM pg_index i JOIN pg_class c ON c.oid = i.indexrelid WHERE i.indrelid = to_regclass(:table)',
-            ['table' => $index->sidecarTable()],
+            ['table' => $this->names->sidecar($index)],
         );
         $valid = [];
         foreach ($rows as $row) {
@@ -310,7 +393,7 @@ final class PostgresInspector
 
         $checks = [];
         foreach ($this->schema->indexes($index) as $name => $definition) {
-            $create = sprintf('CREATE INDEX CONCURRENTLY IF NOT EXISTS %s ON %s %s;', Sql::ident($name), Sql::ident($index->sidecarTable()), $definition);
+            $create = sprintf('CREATE INDEX CONCURRENTLY IF NOT EXISTS %s ON %s %s;', Sql::ident($name), $this->names->sidecar($index), $definition);
             $checks[] = match (true) {
                 !array_key_exists($name, $valid) => Check::error('Index ' . $name, 'missing', $create),
                 !$valid[$name] => Check::error('Index ' . $name, 'INVALID (an interrupted concurrent build); it is ignored by the planner', sprintf('DROP INDEX CONCURRENTLY %s; %s', Sql::ident($name), $create)),
@@ -340,8 +423,8 @@ final class PostgresInspector
 
             if ($missing !== []) {
                 // An index set up before the TRUNCATE trigger existed only lacks that one.
-                // (compared by name: Identifier::limit() hashes a long name, which then no longer ends in "_trn")
-                $truncateTrigger = Identifier::limit($this->schema->syncFunctionName($index, $watch) . '_trn');
+                // (compared by name: Names::limit() hashes a long name, which then no longer ends in "_trn")
+                $truncateTrigger = $this->names->triggerName($index, $watch, '_trn');
                 $truncateOnly = array_all($missing, static fn(string $t): bool => $t === $truncateTrigger);
                 $checks[] = Check::error($label, sprintf(
                     $truncateOnly ? 'missing %s: a TRUNCATE of this table leaves stale documents in the index' : 'missing %s: changes to this table are not indexed',
@@ -368,11 +451,11 @@ final class PostgresInspector
 
     private function queue(IndexDefinition $index, InspectOptions $options): Check
     {
-        if (!$this->regclass(PostgresSchemaGenerator::QUEUE_TABLE)) {
+        if (!$this->regclass($this->names->queue())) {
             return Check::error('Sync queue', 'Queue table is missing.', self::APPLY);
         }
         $row = $this->connection->fetchAll(
-            sprintf('SELECT count(*) AS n, coalesce(extract(epoch FROM now() - min(queued_at)), 0)::bigint AS age FROM %s WHERE index_name = :index', PostgresSchemaGenerator::QUEUE_TABLE),
+            sprintf('SELECT count(*) AS n, coalesce(extract(epoch FROM now() - min(queued_at)), 0)::bigint AS age FROM %s WHERE index_name = :index', $this->names->queue()),
             ['index' => $index->name],
         )[0];
         $size = Coerce::int($row['n']);
@@ -392,7 +475,7 @@ final class PostgresInspector
     {
         if ($options->deep) {
             $source = Coerce::int($this->connection->fetchValue(sprintf('SELECT count(*) FROM (%s) AS d', DocumentSql::raw($index))));
-            $indexed = Coerce::int($this->connection->fetchValue(sprintf('SELECT count(*) FROM %s', Sql::ident($index->sidecarTable()))));
+            $indexed = Coerce::int($this->connection->fetchValue(sprintf('SELECT count(*) FROM %s', $this->names->sidecar($index))));
             $how = 'exact';
         } else {
             if ($index->source->table === null) {
@@ -400,7 +483,7 @@ final class PostgresInspector
             }
             $estimate = 'SELECT greatest(reltuples, 0)::bigint FROM pg_class WHERE oid = to_regclass(:t)';
             $source = Coerce::int($this->connection->fetchValue($estimate, ['t' => $index->source->table]));
-            $indexed = Coerce::int($this->connection->fetchValue($estimate, ['t' => $index->sidecarTable()]));
+            $indexed = Coerce::int($this->connection->fetchValue($estimate, ['t' => $this->names->sidecar($index)]));
             $how = 'estimated';
         }
 
@@ -422,7 +505,7 @@ final class PostgresInspector
         }
         $orphans = Coerce::int($this->connection->fetchValue(sprintf(
             'SELECT count(*) FROM %s AS s WHERE NOT EXISTS (SELECT 1 FROM (%s) AS doc WHERE doc.fz_id = s.id)',
-            Sql::ident($index->sidecarTable()),
+            $this->names->sidecar($index),
             DocumentSql::select($index),
         )));
 

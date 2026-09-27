@@ -33,6 +33,20 @@ final class ReindexCommandTest extends TestCase
         self::assertSame(4, $this->indexed());
     }
 
+    public function testPrintsProgressPerBatchAndASummary(): void
+    {
+        // Source rows 1, 2, 3, 5 (4 was deleted in setUp), two per batch.
+        $status = $this->tester->execute(['index' => 'products', '--batch' => '2'], ['interactive' => false]);
+
+        $display = $this->tester->getDisplay();
+        self::assertSame(Command::SUCCESS, $status, $display);
+        // The rate must be a positive number of documents per second (generous bounds so slow CI can't flake).
+        self::assertMatchesRegularExpression('~^  2 documents, [1-9][\d,]*/s, last id 2 \(resume: --from=2\)$~m', $display);
+        self::assertMatchesRegularExpression('~^  4 documents, [1-9][\d,]*/s, last id 5 \(resume: --from=5\)$~m', $display);
+        // The elapsed time is a small number of seconds, not an epoch-sized sum.
+        self::assertMatchesRegularExpression('~^  4 documents in \d{1,3}\.\ds$~m', $display);
+    }
+
     public function testAResumedRunLeavesOrphansAlone(): void
     {
         $status = $this->tester->execute(['index' => 'products', '--from' => '2'], ['interactive' => false]);

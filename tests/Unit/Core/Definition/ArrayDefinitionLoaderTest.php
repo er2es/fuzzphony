@@ -31,7 +31,8 @@ final class ArrayDefinitionLoaderTest extends TestCase
 
         self::assertStringEndsNotWith(';', (string) $definition->source->query);
         self::assertSame(Weight::C, $definition->field('body')?->weight);
-        self::assertSame('fuzzphony_german', $definition->text->configName());
+        self::assertSame('german', $definition->text->language);
+        self::assertTrue($definition->text->unaccent);
         self::assertArrayHasKey('default', $definition->profiles);
         self::assertSame(0.5, $definition->profile('fresh')->recency);
         self::assertSame(FuzzyMode::Always, $definition->thresholds->fuzzyMode);
@@ -58,6 +59,20 @@ final class ArrayDefinitionLoaderTest extends TestCase
         $this->expectException(InvalidDefinition::class);
         $this->expectExceptionMessageMatches('/Unknown option\(s\): feilds/');
         (new ArrayDefinitionLoader())->load('x', ['feilds' => []]);
+    }
+
+    public function testUnknownOverrideKeysAreRejected(): void
+    {
+        $base = (new AttributeDefinitionLoader())->load(Product::class);
+
+        try {
+            (new ArrayDefinitionLoader())->override($base, ['sync' => 'queue', 'feilds' => []]);
+            self::fail('InvalidDefinition expected');
+        } catch (InvalidDefinition $e) {
+            self::assertSame($base->name, $e->index);
+            self::assertCount(1, $e->violations);
+            self::assertStringStartsWith('Unknown option(s): feilds. Allowed: ', $e->violations[0]);
+        }
     }
 
     public function testTenantKeySetsTheTenantScope(): void
@@ -189,5 +204,23 @@ final class ArrayDefinitionLoaderTest extends TestCase
         self::assertSame('price', $merged->boostColumn);
         self::assertSame('price', $merged->recencyColumn);
         self::assertContains('brand', array_map(static fn(Watch $w): string => $w->table, $merged->watches));
+    }
+
+    public function testAnOverrideTypoInSyncOrTriggerLevelIsAnInvalidDefinition(): void
+    {
+        $loader = new ArrayDefinitionLoader();
+        $attributes = (new AttributeDefinitionLoader())->load(Product::class);
+
+        try {
+            $loader->override($attributes, ['sync' => 'realtime']);
+            self::fail('InvalidDefinition expected');
+        } catch (InvalidDefinition $e) {
+            self::assertSame($attributes->name, $e->index);
+            self::assertSame(['Unknown sync mode "realtime". Allowed: orm, trigger, queue, manual.'], $e->violations);
+        }
+
+        $this->expectException(InvalidDefinition::class);
+        $this->expectExceptionMessage('Unknown trigger level "each". Allowed: statement, row.');
+        $loader->override($attributes, ['trigger_level' => 'each']);
     }
 }

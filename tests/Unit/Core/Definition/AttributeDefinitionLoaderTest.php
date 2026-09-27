@@ -26,7 +26,8 @@ final class AttributeDefinitionLoaderTest extends TestCase
         self::assertSame('product', $definition->source->table);
         self::assertSame(IdType::Int, $definition->idType);
         self::assertSame(SyncMode::Trigger, $definition->sync);
-        self::assertSame('fuzzphony_hungarian', $definition->text->configName());
+        self::assertSame('hungarian', $definition->text->language);
+        self::assertTrue($definition->text->unaccent);
         self::assertSame(Product::class, $definition->entityClass);
 
         self::assertSame(Weight::A, $definition->field('name')?->weight);

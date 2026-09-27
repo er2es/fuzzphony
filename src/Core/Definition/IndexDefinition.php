@@ -11,6 +11,9 @@ use Fuzzphony\Core\Ranking\Thresholds;
 /**
  * Complete, immutable description of one search index. Build it with IndexDefinition::builder(),
  * from #[Searchable] attributes, or from YAML/array configuration.
+ *
+ * Withers return a changed copy and do not validate; `IndexRegistry::register()` validates every
+ * definition it accepts.
  */
 final readonly class IndexDefinition
 {
@@ -43,11 +46,6 @@ final readonly class IndexDefinition
     public static function builder(string $name): IndexBuilder
     {
         return new IndexBuilder($name);
-    }
-
-    public function sidecarTable(): string
-    {
-        return 'fuzzphony_' . $this->name;
     }
 
     public function field(string $name): ?FieldDefinition
@@ -121,98 +119,130 @@ final readonly class IndexDefinition
         return $watches;
     }
 
-    /**
-     * Returns a copy with some properties replaced (used to merge YAML overrides into attribute definitions).
-     * Each override is validated against its real property type; an absent or wrong-typed key keeps the current value.
-     */
-    public function with(mixed ...$changes): self
+    public function withName(string $name): self
     {
-        $name = $changes['name'] ?? null;
-        $source = $changes['source'] ?? null;
-        $fields = $changes['fields'] ?? null;
-        $filters = $changes['filters'] ?? null;
-        $watches = $changes['watches'] ?? null;
-        $idType = $changes['idType'] ?? null;
-        $sync = $changes['sync'] ?? null;
-        $text = $changes['text'] ?? null;
-        $boostColumn = array_key_exists('boostColumn', $changes) ? $changes['boostColumn'] : $this->boostColumn;
-        $recencyColumn = array_key_exists('recencyColumn', $changes) ? $changes['recencyColumn'] : $this->recencyColumn;
-        $profiles = $changes['profiles'] ?? null;
-        $thresholds = $changes['thresholds'] ?? null;
-        $entityClass = array_key_exists('entityClass', $changes) ? $changes['entityClass'] : $this->entityClass;
-        $triggerLevel = $changes['triggerLevel'] ?? null;
-        $tenant = array_key_exists('tenant', $changes) ? $changes['tenant'] : $this->tenant;
+        return $this->copy(name: $name);
+    }
 
-        $entityClassOverride = $this->entityClass;
-        if (array_key_exists('entityClass', $changes)) {
-            $candidate = $changes['entityClass'];
-            if ($candidate === null) {
-                $entityClassOverride = null;
-            } elseif (is_string($candidate) && class_exists($candidate)) {
-                $entityClassOverride = $candidate;
-            }
-        }
+    public function withSource(Source $source): self
+    {
+        return $this->copy(source: $source);
+    }
 
+    /** @param list<FieldDefinition> $fields */
+    public function withFields(array $fields): self
+    {
+        return $this->copy(fields: $fields);
+    }
+
+    /** @param list<FilterDefinition> $filters */
+    public function withFilters(array $filters): self
+    {
+        return $this->copy(filters: $filters);
+    }
+
+    /** @param list<Watch> $watches */
+    public function withWatches(array $watches): self
+    {
+        return $this->copy(watches: $watches);
+    }
+
+    public function withIdType(IdType $idType): self
+    {
+        return $this->copy(idType: $idType);
+    }
+
+    public function withSync(SyncMode $sync): self
+    {
+        return $this->copy(sync: $sync);
+    }
+
+    public function withText(TextConfig $text): self
+    {
+        return $this->copy(text: $text);
+    }
+
+    public function withBoostColumn(?string $column): self
+    {
+        return $this->copy(boostColumn: $column);
+    }
+
+    public function withRecencyColumn(?string $column): self
+    {
+        return $this->copy(recencyColumn: $column);
+    }
+
+    /** @param array<string, RankingProfile> $profiles must contain "default" */
+    public function withProfiles(array $profiles): self
+    {
+        return $this->copy(profiles: $profiles);
+    }
+
+    public function withThresholds(Thresholds $thresholds): self
+    {
+        return $this->copy(thresholds: $thresholds);
+    }
+
+    /** @param class-string|null $entityClass */
+    public function withEntityClass(?string $entityClass): self
+    {
+        return $this->copy(entityClass: $entityClass);
+    }
+
+    public function withTriggerLevel(TriggerLevel $level): self
+    {
+        return $this->copy(triggerLevel: $level);
+    }
+
+    /** @param string|null $filter the tenant filter's name; null = not tenant-scoped */
+    public function withTenant(?string $filter): self
+    {
+        return $this->copy(tenant: $filter);
+    }
+
+    /**
+     * The one place a copy is made, through the constructor. null keeps an object/array value;
+     * false keeps a nullable string (so null can clear it).
+     *
+     * @param list<FieldDefinition>|null         $fields
+     * @param list<FilterDefinition>|null        $filters
+     * @param list<Watch>|null                   $watches
+     * @param array<string, RankingProfile>|null $profiles
+     * @param class-string|false|null            $entityClass
+     */
+    private function copy(
+        ?string $name = null,
+        ?Source $source = null,
+        ?array $fields = null,
+        ?array $filters = null,
+        ?array $watches = null,
+        ?IdType $idType = null,
+        ?SyncMode $sync = null,
+        ?TextConfig $text = null,
+        string|false|null $boostColumn = false,
+        string|false|null $recencyColumn = false,
+        ?array $profiles = null,
+        ?Thresholds $thresholds = null,
+        string|false|null $entityClass = false,
+        ?TriggerLevel $triggerLevel = null,
+        string|false|null $tenant = false,
+    ): self {
         return new self(
-            name: is_string($name) ? $name : $this->name,
-            source: $source instanceof Source ? $source : $this->source,
-            fields: self::typedList($fields, FieldDefinition::class) ?? $this->fields,
-            filters: self::typedList($filters, FilterDefinition::class) ?? $this->filters,
-            watches: self::typedList($watches, Watch::class) ?? $this->watches,
-            idType: $idType instanceof IdType ? $idType : $this->idType,
-            sync: $sync instanceof SyncMode ? $sync : $this->sync,
-            text: $text instanceof TextConfig ? $text : $this->text,
-            boostColumn: is_string($boostColumn) || $boostColumn === null ? $boostColumn : $this->boostColumn,
-            recencyColumn: is_string($recencyColumn) || $recencyColumn === null ? $recencyColumn : $this->recencyColumn,
-            profiles: self::typedMap($profiles, RankingProfile::class) ?? $this->profiles,
-            thresholds: $thresholds instanceof Thresholds ? $thresholds : $this->thresholds,
-            entityClass: $entityClassOverride,
-            triggerLevel: $triggerLevel instanceof TriggerLevel ? $triggerLevel : $this->triggerLevel,
-            tenant: is_string($tenant) || $tenant === null ? $tenant : $this->tenant,
+            name: $name ?? $this->name,
+            source: $source ?? $this->source,
+            fields: $fields ?? $this->fields,
+            filters: $filters ?? $this->filters,
+            watches: $watches ?? $this->watches,
+            idType: $idType ?? $this->idType,
+            sync: $sync ?? $this->sync,
+            text: $text ?? $this->text,
+            boostColumn: $boostColumn === false ? $this->boostColumn : $boostColumn,
+            recencyColumn: $recencyColumn === false ? $this->recencyColumn : $recencyColumn,
+            profiles: $profiles ?? $this->profiles,
+            thresholds: $thresholds ?? $this->thresholds,
+            entityClass: $entityClass === false ? $this->entityClass : $entityClass,
+            triggerLevel: $triggerLevel ?? $this->triggerLevel,
+            tenant: $tenant === false ? $this->tenant : $tenant,
         );
-    }
-
-    /**
-     * @template T of object
-     *
-     * @param class-string<T> $of
-     *
-     * @return list<T>|null
-     */
-    private static function typedList(mixed $value, string $of): ?array
-    {
-        if (!is_array($value)) {
-            return null;
-        }
-        foreach ($value as $item) {
-            if (!$item instanceof $of) {
-                return null;
-            }
-        }
-
-        return array_values($value);
-    }
-
-    /**
-     * @template T of object
-     *
-     * @param class-string<T> $of
-     *
-     * @return array<string, T>|null
-     */
-    private static function typedMap(mixed $value, string $of): ?array
-    {
-        if (!is_array($value)) {
-            return null;
-        }
-        $result = [];
-        foreach ($value as $key => $item) {
-            if (!is_string($key) || !$item instanceof $of) {
-                return null;
-            }
-            $result[$key] = $item;
-        }
-
-        return $result;
     }
 }

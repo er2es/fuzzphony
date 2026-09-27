@@ -8,7 +8,7 @@ use Fuzzphony\Core\Exception\InvalidDefinition;
 use Fuzzphony\Core\Ranking\RankingProfile;
 
 /**
- * Builds or overrides definitions from plain arrays (YAML config). Shape:
+ * @internal Builds or overrides definitions from plain arrays (YAML config). Shape:
  *
  *   products:
  *     source: { table: product, id: id }            # or { query: "SELECT ...", id: id }
@@ -70,38 +70,39 @@ final class ArrayDefinitionLoader
      */
     public function override(IndexDefinition $definition, array $config): IndexDefinition
     {
-        $this->assertKnownKeys($definition->name, $config);
-        $changes = [];
+        $name = $definition->name;
+        $this->assertKnownKeys($name, $config);
+        $merged = $definition;
         if (isset($config['sync'])) {
-            $changes['sync'] = SyncMode::from(self::str($config['sync'], ''));
+            $merged = $merged->withSync(EnumOption::parse(SyncMode::class, self::str($config['sync'], ''), $name, 'sync mode'));
         }
         if (isset($config['trigger_level'])) {
-            $changes['triggerLevel'] = TriggerLevel::from(self::str($config['trigger_level'], ''));
+            $merged = $merged->withTriggerLevel(EnumOption::parse(TriggerLevel::class, self::str($config['trigger_level'], ''), $name, 'trigger level'));
         }
         if (isset($config['language']) || isset($config['unaccent'])) {
-            $changes['text'] = new TextConfig(self::str($config['language'] ?? null, $definition->text->language), (bool) ($config['unaccent'] ?? $definition->text->unaccent));
+            $merged = $merged->withText(new TextConfig(self::str($config['language'] ?? null, $definition->text->language), (bool) ($config['unaccent'] ?? $definition->text->unaccent)));
         }
         if (isset($config['boost'])) {
-            $changes['boostColumn'] = self::str($config['boost'], '');
+            $merged = $merged->withBoostColumn(self::str($config['boost'], ''));
         }
         if (isset($config['recency'])) {
-            $changes['recencyColumn'] = self::str($config['recency'], '');
+            $merged = $merged->withRecencyColumn(self::str($config['recency'], ''));
         }
         if (isset($config['tenant'])) {
-            $changes['tenant'] = self::str($config['tenant'], '');
+            $merged = $merged->withTenant(self::str($config['tenant'], ''));
         }
         if (isset($config['profiles'])) {
-            $changes['profiles'] = $this->profiles($config['profiles']) + $definition->profiles;
+            $merged = $merged->withProfiles($this->profiles($config['profiles']) + $definition->profiles);
         }
         if (isset($config['thresholds'])) {
-            $changes['thresholds'] = $definition->thresholds->with($this->map($config['thresholds']));
+            $merged = $merged->withThresholds($definition->thresholds->with($this->map($config['thresholds'])));
         }
+        $watches = $definition->watches;
         foreach ($this->map($config['watch'] ?? []) as $table => $options) {
             $options = is_string($options) ? ['ids' => $options] : $this->map($options);
-            $changes['watches'] = [...($changes['watches'] ?? $definition->watches), new Watch($table, self::str($options['ids'] ?? null, 'SELECT :id'), self::str($options['key'] ?? null, 'id'), self::stringList($definition->name, $options['columns'] ?? null))];
+            $watches[] = new Watch($table, self::str($options['ids'] ?? null, 'SELECT :id'), self::str($options['key'] ?? null, 'id'), self::stringList($name, $options['columns'] ?? null));
         }
-
-        $merged = $definition->with(...$changes);
+        $merged = $merged->withWatches($watches);
         DefinitionValidator::assertValid($merged);
 
         return $merged;

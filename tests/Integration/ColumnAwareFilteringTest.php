@@ -11,6 +11,7 @@ use Fuzzphony\Core\Fuzzphony;
 use Fuzzphony\Core\Registry\IndexRegistry;
 use Fuzzphony\Core\Support\Coerce;
 use Fuzzphony\Engine\Postgres\PostgresEngine;
+use Fuzzphony\Engine\Postgres\Schema\Names;
 use Fuzzphony\Tests\Conformance\EngineConformanceTestCase;
 use PHPUnit\Framework\TestCase;
 
@@ -50,7 +51,7 @@ final class ColumnAwareFilteringTest extends TestCase
             ->build();
         $this->apply($connection, $index);
 
-        $before = Coerce::int($connection->fetchValue("SELECT count(*) FROM {$index->sidecarTable()}"));
+        $before = Coerce::int($connection->fetchValue(sprintf('SELECT count(*) FROM %s', (new Names())->sidecar($index))));
         $connection->execute('UPDATE fz_product SET popularity = 999 WHERE id = 1');
 
         $queued = Coerce::int($connection->fetchValue(
@@ -58,7 +59,7 @@ final class ColumnAwareFilteringTest extends TestCase
             ['n' => 'products_direct'],
         ));
         self::assertSame(0, $queued, 'updating an unrelated column must not enqueue a refresh');
-        self::assertSame($before, Coerce::int($connection->fetchValue("SELECT count(*) FROM {$index->sidecarTable()}")));
+        self::assertSame($before, Coerce::int($connection->fetchValue(sprintf('SELECT count(*) FROM %s', (new Names())->sidecar($index)))));
     }
 
     public function testSelfWatchEnqueuesOnARelevantColumnUpdate(): void
@@ -92,7 +93,7 @@ final class ColumnAwareFilteringTest extends TestCase
             ->build();
         $this->apply($connection, $index);
 
-        $before = Coerce::int($connection->fetchValue("SELECT count(*) FROM {$index->sidecarTable()}"));
+        $before = Coerce::int($connection->fetchValue(sprintf('SELECT count(*) FROM %s', (new Names())->sidecar($index))));
         $connection->execute('UPDATE fz_product SET popularity = 999 WHERE id = 1');
 
         $queued = Coerce::int($connection->fetchValue(
@@ -100,7 +101,7 @@ final class ColumnAwareFilteringTest extends TestCase
             ['n' => 'products_direct'],
         ));
         self::assertSame(0, $queued, 'updating an unrelated column at row level must not enqueue a refresh');
-        self::assertSame($before, Coerce::int($connection->fetchValue("SELECT count(*) FROM {$index->sidecarTable()}")));
+        self::assertSame($before, Coerce::int($connection->fetchValue(sprintf('SELECT count(*) FROM %s', (new Names())->sidecar($index)))));
     }
 
     /** Row-level mirror of testSelfWatchEnqueuesOnARelevantColumnUpdate() (spec requires coverage at both trigger levels). */
@@ -140,15 +141,15 @@ final class ColumnAwareFilteringTest extends TestCase
             ->build();
         $this->apply($connection, $index);
 
-        $initial = Coerce::str($connection->fetchValue("SELECT indexed_at::text FROM {$index->sidecarTable()} WHERE id = 1"));
+        $initial = Coerce::str($connection->fetchValue(sprintf('SELECT indexed_at::text FROM %s WHERE id = 1', (new Names())->sidecar($index))));
 
         $connection->execute('UPDATE fz_product SET popularity = 999 WHERE id = 1');
-        $afterIrrelevant = Coerce::str($connection->fetchValue("SELECT indexed_at::text FROM {$index->sidecarTable()} WHERE id = 1"));
+        $afterIrrelevant = Coerce::str($connection->fetchValue(sprintf('SELECT indexed_at::text FROM %s WHERE id = 1', (new Names())->sidecar($index))));
         self::assertSame($initial, $afterIrrelevant, 'an irrelevant column update must not advance indexed_at');
 
         $connection->execute('SELECT pg_sleep(0.01)'); // guarantee a measurable now() difference
         $connection->execute("UPDATE fz_product SET name = 'Renamed' WHERE id = 1");
-        $afterRelevant = Coerce::str($connection->fetchValue("SELECT indexed_at::text FROM {$index->sidecarTable()} WHERE id = 1"));
+        $afterRelevant = Coerce::str($connection->fetchValue(sprintf('SELECT indexed_at::text FROM %s WHERE id = 1', (new Names())->sidecar($index))));
         self::assertNotSame($initial, $afterRelevant, 'a relevant column update must advance indexed_at');
     }
 

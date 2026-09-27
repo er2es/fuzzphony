@@ -11,6 +11,7 @@ use Fuzzphony\Core\Fuzzphony;
 use Fuzzphony\Core\Inspection\CheckStatus;
 use Fuzzphony\Core\Registry\IndexRegistry;
 use Fuzzphony\Core\Support\Coerce;
+use Fuzzphony\Core\Sync\ReindexOptions;
 use Fuzzphony\Core\Wizard\DefinitionSuggester;
 use Fuzzphony\Core\Wizard\Export\AttributeExporter;
 use Fuzzphony\Core\Wizard\Export\BuilderExporter;
@@ -27,6 +28,7 @@ use Symfony\Component\Console\Output\OutputInterface;
 use Symfony\Component\Console\Question\ChoiceQuestion;
 use Symfony\Component\Console\Style\SymfonyStyle;
 
+/** @internal The fuzzphony:wizard console command; its CLI is public, the class is not. */
 #[AsCommand(name: 'fuzzphony:wizard', description: 'Suggest a search index for a table, explain it, export it and optionally try it right away')]
 final class WizardCommand extends Command
 {
@@ -85,7 +87,7 @@ final class WizardCommand extends Command
             $keep = $io->askQuestion((new ChoiceQuestion('Searchable fields to keep (comma-separated, Enter = all)', $fields, implode(',', array_keys($fields))))->setMultiselect(true));
             $kept = array_values(array_filter($index->fields, static fn($f): bool => in_array($f->name, (array) $keep, true)));
             if ($kept !== $index->fields && $kept !== []) {
-                $index = $index->with(fields: $kept);
+                $index = $index->withFields($kept);
             }
         }
 
@@ -124,7 +126,9 @@ final class WizardCommand extends Command
         $fuzzphony = new Fuzzphony($this->engine, new IndexRegistry([$index]));
         $io->section('Trying it');
         $fuzzphony->schema()->apply($this->connection);
-        $count = $fuzzphony->reindex($index->name, 5_000, static fn(int $done) => $io->write(sprintf("\r  indexed %s", number_format($done))));
+        $count = $fuzzphony->reindex($index->name, new ReindexOptions(onBatch: static function (int $done) use ($io): void {
+            $io->write(sprintf("\r  indexed %s", number_format($done)));
+        }))->written;
         $io->newLine();
         $report = $fuzzphony->inspect($index->name);
         $io->writeln(sprintf('  %s documents, doctor: <%s>%s</>', number_format($count), $report->status() === CheckStatus::Ok ? 'info' : 'comment', $report->status()->value));

@@ -7,8 +7,9 @@ namespace Fuzzphony\Bridge\Doctrine;
 use Doctrine\ORM\EntityManagerInterface;
 use Fuzzphony\Core\Definition\IdType;
 use Fuzzphony\Core\Definition\NamingStrategy;
+use Fuzzphony\Core\Exception\InvalidDefinition;
 
-/** Uses the real table / column names from Doctrine ORM mapping, so #[Searchable] needs no names. */
+/** @internal Uses the real table / column names from Doctrine ORM mapping, so #[Searchable] needs no names. */
 final readonly class DoctrineNamingStrategy implements NamingStrategy
 {
     public function __construct(private EntityManagerInterface $entityManager) {}
@@ -39,7 +40,7 @@ final readonly class DoctrineNamingStrategy implements NamingStrategy
         $metadata = $this->entityManager->getClassMetadata($class);
         $identifier = $metadata->getIdentifierFieldNames();
         if (count($identifier) !== 1) {
-            throw new \LogicException(sprintf('%s has a composite identifier; Fuzzphony indexes need a single-column id.', $class));
+            throw new InvalidDefinition($class, [sprintf('%s has a composite identifier; Fuzzphony indexes need a single-column id.', $class)]);
         }
 
         return $metadata->getColumnName($identifier[0]);

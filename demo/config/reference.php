@@ -983,6 +983,7 @@ use Symfony\Component\Config\Loader\ParamConfigurator as Param;
  * @psalm-type FuzzphonyConfig = array{
  *     connection?: scalar|Param|null, // Doctrine DBAL connection name // Default: "default"
  *     extension_schema?: scalar|Param|null, // Schema of the pg_trgm and unaccent extensions // Default: "public"
+ *     schema?: scalar|Param|null, // Schema of Fuzzphony's own tables, functions and text search configurations (created by fuzzphony:schema --apply) // Default: "public"
  *     discover_entities?: bool|Param, // Register every Doctrine entity with #[Searchable] // Default: true
  *     worker?: array{
  *         batch_size?: int|Param, // Default: 500

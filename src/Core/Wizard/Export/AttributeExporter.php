@@ -8,6 +8,7 @@ use Fuzzphony\Core\Definition\FilterType;
 use Fuzzphony\Core\Definition\IndexDefinition;
 use Fuzzphony\Core\Definition\SyncMode;
 use Fuzzphony\Core\Definition\TriggerLevel;
+use Fuzzphony\Core\Exception\InvalidArgument;
 
 /**
  * Emits the attributes to put on a Doctrine entity. Only table sources can be expressed with
@@ -23,7 +24,7 @@ final class AttributeExporter
     public function export(IndexDefinition $index, string $className = 'Product'): string
     {
         if (!$this->supports($index)) {
-            throw new \LogicException('Only table sources without extra watches can be expressed with attributes; export YAML instead.');
+            throw new InvalidArgument('Only table sources without extra watches can be expressed with attributes; export YAML instead.');
         }
         $e = static fn(mixed $v): string => var_export($v, true);
 

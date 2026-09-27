@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Fuzzphony\Tests\Integration\Command;
 
 use Fuzzphony\Bundle\Command\WizardCommand;
+use Fuzzphony\Core\Exception\InvalidArgument;
 use Fuzzphony\Engine\Postgres\Wizard\PostgresIntrospector;
 use PHPUnit\Framework\TestCase;
 use Symfony\Component\Console\Command\Command;
@@ -65,7 +66,8 @@ final class WizardCommandTest extends TestCase
         self::assertSame(Command::SUCCESS, $status);
         $display = $this->tester->getDisplay();
         self::assertStringContainsString('Trying it', $display);
-        self::assertStringContainsString('documents, doctor:', $display);
+        self::assertStringContainsString("\r  indexed 5\n", $display, 'the progress line overwrites itself, then ends with a newline');
+        self::assertStringContainsString('  5 documents, doctor:', $display);
         self::assertNotNull(
             $this->context->connection->fetchValue("SELECT to_regclass('fuzzphony_fz_products')"),
             'the --try run must have actually applied the schema for the suggested index',
@@ -88,7 +90,7 @@ final class WizardCommandTest extends TestCase
 
     public function testUnknownTableThrows(): void
     {
-        $this->expectException(\InvalidArgumentException::class);
+        $this->expectException(InvalidArgument::class);
         $this->tester->execute(['table' => 'no_such_table'], ['interactive' => false]);
     }
 }

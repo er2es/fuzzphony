@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Fuzzphony\Bundle\Command;
 
+use Fuzzphony\Bridge\Doctrine\SchemaAssetFilter;
 use Fuzzphony\Core\Fuzzphony;
 use Fuzzphony\Core\Inspection\CheckStatus;
 use Fuzzphony\Core\Inspection\InspectOptions;
@@ -11,17 +12,24 @@ use Symfony\Component\Console\Attribute\AsCommand;
 use Symfony\Component\Console\Command\Command;
 use Symfony\Component\Console\Completion\CompletionInput;
 use Symfony\Component\Console\Completion\CompletionSuggestions;
+use Symfony\Component\Console\Formatter\OutputFormatter;
 use Symfony\Component\Console\Input\InputArgument;
 use Symfony\Component\Console\Input\InputInterface;
 use Symfony\Component\Console\Input\InputOption;
 use Symfony\Component\Console\Output\OutputInterface;
 use Symfony\Component\Console\Style\SymfonyStyle;
 
+/** @internal The fuzzphony:doctor console command; its CLI is public, the class is not. */
 #[AsCommand(name: 'fuzzphony:doctor', description: 'Check that the database matches the index definitions, with fixes')]
 final class DoctorCommand extends Command
 {
-    public function __construct(private readonly Fuzzphony $fuzzphony)
-    {
+    public function __construct(
+        private readonly Fuzzphony $fuzzphony,
+        /** The application's own DBAL schema_filter on Fuzzphony's connection; null = Fuzzphony's filter is in place. */
+        private readonly ?string $applicationSchemaFilter = null,
+        /** Fuzzphony's schema, whose tables that filter must hide. */
+        private readonly string $schema = 'public',
+    ) {
         parent::__construct();
     }
 
@@ -67,6 +75,16 @@ final class DoctorCommand extends Command
                 $report->status() === CheckStatus::Warning && $worst === CheckStatus::Ok => CheckStatus::Warning,
                 default => $worst,
             };
+        }
+
+        if ($this->applicationSchemaFilter !== null && SchemaAssetFilter::letsThrough($this->applicationSchemaFilter, $this->schema)) {
+            $io->section('Doctrine schema filter');
+            $io->writeln(sprintf(
+                ' <comment>!</comment> Your DBAL connection\'s schema_filter %s lets Fuzzphony\'s tables through, so "doctrine:migrations:diff" will propose dropping them. Merge Fuzzphony\'s filter into yours: %s',
+                OutputFormatter::escape($this->applicationSchemaFilter),
+                SchemaAssetFilter::regex($this->schema),
+            ));
+            $worst = $worst === CheckStatus::Ok ? CheckStatus::Warning : $worst;
         }
 
         $strict = $input->getOption('strict') === true;

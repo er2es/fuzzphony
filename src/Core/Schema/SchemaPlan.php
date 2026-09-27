@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Fuzzphony\Core\Schema;
 
 use Fuzzphony\Core\Database\Connection;
+use Fuzzphony\Core\Exception\EngineFailure;
 
 /** Ordered DDL. Idempotent: every statement can be re-run safely. */
 final readonly class SchemaPlan
@@ -25,13 +26,27 @@ final readonly class SchemaPlan
 
         $connection->transactional(static function (Connection $c) use ($transactional, $onStatement): void {
             foreach ($transactional as $statement) {
-                $onStatement !== null && $onStatement($statement);
-                $c->execute($statement->sql);
+                self::run($c, $statement, $onStatement);
             }
         });
         foreach ($separate as $statement) {
-            $onStatement !== null && $onStatement($statement);
+            self::run($connection, $statement, $onStatement);
+        }
+    }
+
+    private static function run(Connection $connection, Statement $statement, ?callable $onStatement): void
+    {
+        if ($onStatement !== null) {
+            $onStatement($statement);
+        }
+        try {
             $connection->execute($statement->sql);
+        } catch (\Throwable $e) {
+            throw EngineFailure::wrap(
+                sprintf('schema statement "%s"', $statement->description),
+                $e,
+                'Review the SQL with "bin/console fuzzphony:schema" (without --apply); every statement is safe to re-run.',
+            );
         }
     }
 

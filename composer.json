@@ -32,6 +32,7 @@
     },
     "suggest": {
         "doctrine/dbal": "Use an existing Doctrine DBAL connection (Fuzzphony\\Bridge\\Doctrine\\DbalConnection)",
+        "doctrine/migrations": "Run the migration fuzzphony:schema --dump-migration writes (the bundle hides Fuzzphony's tables from migrations:diff)",
         "doctrine/orm": "Load results as entities (EntityLoader) and sync in ORM mode (OrmSyncListener)",
         "symfony/framework-bundle": "Symfony integration: configuration, autowiring and the fuzzphony:* console commands",
         "symfony/messenger": "Asynchronous refresh in ORM sync mode (fuzzphony.orm_sync.async)",

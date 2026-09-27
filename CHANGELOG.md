@@ -7,6 +7,55 @@ changes; they are always listed under **Breaking** and explained in [UPGRADE.md]
 
 ## [Unreleased]
 
+### Breaking
+
+- Every exception Fuzzphony throws implements `FuzzphonyException`, except `\LogicException` for
+  internal invariants. New `InvalidArgument` (a wrong runtime argument: batch size below 1, an
+  unknown table in the wizard, `AttributeExporter::export()` on a definition it cannot express, a
+  non-finite number) and `InvalidConfiguration` (an invalid extension schema, `orm_sync.async`
+  without Messenger, no index configured); both extend `\InvalidArgumentException`, so existing
+  `catch (\InvalidArgumentException)` blocks still work. An enum typo in the builder or YAML
+  (`sync: realtime`, `->field('name', 'E')`) is an `InvalidDefinition` naming the allowed values
+  instead of a `\ValueError`; a composite Doctrine identifier is an `InvalidDefinition` instead of
+  a `\LogicException`; `AttributeExporter::export()` on a joined source throws `InvalidArgument`
+  instead of `\LogicException`. Driver errors from `sourceIds()`, `queueSize()`, `explain()`,
+  highlighting, the doctor and `SchemaPlan::apply()` arrive as `EngineFailure` (the driver
+  exception is its previous exception). `fuzzphony:schema --dump-migration` into a directory that
+  cannot be created prints the error and exits 1 instead of throwing.
+- `IndexDefinition::with(...)` is removed. It accepted any named argument, ignored unknown keys
+  and silently kept the old value on a wrong type. Use the typed withers instead: `withName()`,
+  `withSource()`, `withFields()`, `withFilters()`, `withWatches()`, `withIdType()`, `withSync()`,
+  `withText()`, `withBoostColumn()`, `withRecencyColumn()`, `withProfiles()`,
+  `withThresholds()`, `withEntityClass()`, `withTriggerLevel()`, `withTenant()`. A wrong type is
+  now a PHP `TypeError` at the call site.
+- `Fuzzphony::reindex(string $index, ReindexOptions $options = new ReindexOptions()): ReindexResult`
+  replaces the positional `$batchSize, $onBatch, $onPruned, $prune, $pruneEmpty, $onPruneSkipped`
+  and the `int` return value; `Reindexer::run(IndexDefinition, ReindexOptions): ReindexResult`
+  likewise. `ReindexResult` has `written`, `pruned` (null when pruning did not run) and
+  `pruneSkippedEmptySource`, which replace the `onPruned` / `onPruneSkipped` callbacks. A batch size
+  below 1 throws `InvalidArgument` when the options are created.
+- PostgreSQL naming and types left Core: `IndexDefinition::sidecarTable()`, `TextConfig::configName()`,
+  `IdType::sqlType()`, `FilterType::sqlType()`, `FilterType::compatibleSqlTypes()`,
+  `RankingProfile::tsRankWeights()` and `Identifier::limit()` are removed. They now live in the
+  engine (`Fuzzphony\Engine\Postgres\Schema\Names` and `Types`, both internal).
+- Fuzzphony no longer uses the `search_path` to place or find its objects: they are created in and
+  read from one configured schema (`public` unless `schema` is set), and the generated functions are
+  re-created with a pinned `search_path`. After upgrading, run `fuzzphony:schema --apply`; an
+  install whose objects live outside `public` must set `schema` to that schema. See
+  [UPGRADE.md](UPGRADE.md#from-03-to-04), step 5.
+- `Engine` has a new method `recordReindex(IndexDefinition $index): void`, called after a full
+  reindex. Custom engines must implement it (an empty body is fine).
+- The new `fuzzphony_meta` table needs grants: `SELECT` and `UPDATE` for the role that runs
+  `fuzzphony:reindex`, `SELECT` for the role that runs `fuzzphony:doctor`. Without `SELECT` the
+  doctor's "Schema version" check is a warning with the `GRANT` to run (so `--strict` fails)
+  instead of an inspection failure. A schema-wide `GRANT … ON ALL TABLES` must be re-run after the
+  first 0.4 `schema --apply`.
+- The public API is now explicit ([docs/architecture.md](docs/architecture.md#public-api)): 51
+  classes are marked `@internal` (loaders, validators, the query parser and AST, the reindexer and
+  worker, the console command classes, the SQL compilers, the schema generator, the doctor, the
+  introspector, …) and may change in any release. The unused `Core\Engine\Analyzer` interface is
+  removed, and `YamlExporter`'s constructor no longer takes an (internal) `ArrayExporter`.
+
 ### Added
 
 - Mutation testing with [Infection](https://infection.github.io) (`composer mutation`): the
@@ -15,15 +64,39 @@ changes; they are always listed under **Breaking** and explained in [UPGRADE.md]
   baseline MSI; pull requests only mutate their changed lines. No `minMsi` gate yet — see
   [docs/roadmap.md](docs/roadmap.md#mutation-testing). The first full run scored 85% (3,944
   mutants, 17 minutes); the README shows the current score as a badge.
+- `PostgresEngine` takes a `schema` argument (default `public`): the schema of every object
+  Fuzzphony creates. `fuzzphony:schema --apply` creates it when it is not `public`.
+- `fuzzphony.schema` bundle setting (default `public`) for Fuzzphony's own schema; an invalid name
+  fails the container build with `InvalidConfiguration`. The doctor looks its objects up in that
+  schema and warns when an index is still in `public` from before the setting; the wizard hides
+  the dedicated schema.
+- `fuzzphony_meta`: `fuzzphony:schema --apply` records per index the sidecar layout version (1),
+  a hash of the definition parts that shape the DDL, and the library version; a full reindex
+  records a hash of the parts that shape the documents. The doctor's new "Schema version",
+  "Definition" and "Documents" checks report a missing record, a layout older or newer than the
+  library's, a definition changed since the last apply, and documents built from another
+  definition. `--drop` deletes the index's record; `--dump-migration` includes the upsert.
+- Doctrine Migrations: with DoctrineBundle, the bundle sets the DBAL `schema_filter` of
+  Fuzzphony's connection so `doctrine:migrations:diff` never proposes dropping Fuzzphony's tables.
+  An application that sets its own filter keeps it; `fuzzphony:doctor` warns, with the regex to
+  merge, only while that filter still lets Fuzzphony's tables through, so a merged filter passes
+  `--strict`. With `connection` or `schema` set from a parameter or `%env()%`, the bundle sets no
+  filter and the doctor does not check it. `doctrine/migrations` is suggested.
 
 ### Changed
 
+- Every generated and runtime statement schema-qualifies Fuzzphony's own objects. The normaliser
+  function runs with `search_path = pg_catalog, pg_temp`; the refresh and sync functions keep the
+  `search_path` of the session that applied the schema (`SET search_path FROM CURRENT`).
 - Roadmap: reordered into milestones 0.4-1.0, so what other features build on ships first (API
   cleanup and the dedicated schema before reindex, events before analytics, the vocabulary table
   before `suggest()`).
 - Roadmap: a dedicated schema for Fuzzphony's tables (`schema: fuzzphony`), default `public`.
 - Roadmap: record linkage (matching people and companies, with explainable match scores) is
   planned after 1.0.
+- Roadmap: the v0.4 Foundations items (API cleanup, dedicated schema, sidecar schema version,
+  Doctrine Migrations integration) are listed as done; the sidecar layout's upgrade step runner
+  moves to 0.5, with the first layout change.
 - README: shortened to what the library does, the demo, install and quickstart; the details moved
   to `docs/`, the install command is `composer require fuzzphony/fuzzphony` (the bundle is not a
   separate package), and new badges show PHPStan, OpenSSF Best Practices, PHP, PostgreSQL and
@@ -33,6 +106,14 @@ changes; they are always listed under **Breaking** and explained in [UPGRADE.md]
 - Demo: the compare page shows Fuzzphony's results at once and loads the ILIKE column
   separately (`GET /compare/ilike`), so the page feels as fast as Fuzzphony is instead of waiting
   on ILIKE's ~400 ms full scan too.
+- Demo: runs on `schema: fuzzphony`; the application role is granted the `fuzzphony` schema's
+  tables instead of the `fuzzphony_*` tables in `public`. An existing demo needs
+  `docker compose down -v` once.
+
+### Fixed
+
+- An `extension_schema` whose name needs quoting (upper-case letters, e.g. `Ext`) broke the
+  normaliser function: its `unaccent` dictionary was looked up as `ext.unaccent`.
 
 ## [0.3.2] - 2026-09-25
 

@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Fuzzphony\Tests\Integration;
 
+use Fuzzphony\Core\Exception\InvalidArgument;
 use Fuzzphony\Core\Fuzzphony;
 use Fuzzphony\Core\Registry\IndexRegistry;
 use Fuzzphony\Core\Wizard\ColumnKind;
@@ -38,7 +39,7 @@ final class WizardTest extends TestCase
         $engine = new PostgresEngine($connection);
         $fuzzphony = new Fuzzphony($engine, new IndexRegistry([$index]));
         $fuzzphony->schema()->apply($connection);
-        self::assertSame(5, $fuzzphony->reindex('wizard_products'));
+        self::assertSame(5, $fuzzphony->reindex('wizard_products')->written);
 
         self::assertContains(2, $fuzzphony->in('wizard_products')->query('razer')->get()->ids());
         self::assertSame([1], $fuzzphony->in('wizard_products')->query('wireless')->where('in_stock', true)->where('price', '<', 5000)->get()->ids());
@@ -49,7 +50,7 @@ final class WizardTest extends TestCase
 
     public function testUnknownTable(): void
     {
-        $this->expectException(\InvalidArgumentException::class);
+        $this->expectException(InvalidArgument::class);
         (new PostgresIntrospector(PostgresTestCase::connect()))->describe('no_such_table');
     }
 

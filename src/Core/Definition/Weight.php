@@ -14,6 +14,6 @@ enum Weight: string
 
     public static function parse(self|string $value): self
     {
-        return $value instanceof self ? $value : self::from(strtoupper($value));
+        return $value instanceof self ? $value : EnumOption::parse(self::class, strtoupper($value), 'weight', 'weight');
     }
 }

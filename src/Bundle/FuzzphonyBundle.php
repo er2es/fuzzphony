@@ -9,6 +9,7 @@ use Fuzzphony\Bridge\Doctrine\DbalConnection;
 use Fuzzphony\Bridge\Doctrine\DoctrineIndexDiscovery;
 use Fuzzphony\Bridge\Doctrine\EntityLoader;
 use Fuzzphony\Bridge\Doctrine\OrmSyncListener;
+use Fuzzphony\Bridge\Doctrine\SchemaAssetFilter;
 use Fuzzphony\Bundle\ApiPlatform\FuzzphonySearchFilter;
 use Fuzzphony\Bundle\Command\DoctorCommand;
 use Fuzzphony\Bundle\Command\ReindexCommand;
@@ -22,6 +23,7 @@ use Fuzzphony\Bundle\Registry\RegistryFactory;
 use Fuzzphony\Bundle\Twig\SearchComponent;
 use Fuzzphony\Core\Database\Connection;
 use Fuzzphony\Core\Engine\Engine;
+use Fuzzphony\Core\Exception\InvalidConfiguration;
 use Fuzzphony\Core\Fuzzphony;
 use Fuzzphony\Core\Registry\IndexRegistry;
 use Fuzzphony\Core\Support\Coerce;
@@ -29,6 +31,7 @@ use Fuzzphony\Core\Sync\ImmediateRefreshDispatcher;
 use Fuzzphony\Core\Sync\RefreshDispatcher;
 use Fuzzphony\Core\Wizard\SourceIntrospector;
 use Fuzzphony\Engine\Postgres\PostgresEngine;
+use Fuzzphony\Engine\Postgres\Schema\Names;
 use Fuzzphony\Engine\Postgres\Wizard\PostgresIntrospector;
 use Symfony\Component\Config\Definition\Configurator\DefinitionConfigurator;
 use Symfony\Component\DependencyInjection\ContainerBuilder;
@@ -43,6 +46,7 @@ use function Symfony\Component\DependencyInjection\Loader\Configurator\service;
  *   fuzzphony:
  *     connection: default          # DBAL connection name
  *     extension_schema: public     # where pg_trgm / unaccent live
+ *     schema: public               # where Fuzzphony's own tables and functions live (e.g. fuzzphony)
  *     discover_entities: true      # pick up #[Searchable] entities automatically
  *     worker: { batch_size: 500, idle_sleep: 1.0 }
  *     orm_sync: { async: false }   # true: refresh through Messenger (route RefreshDocuments to a transport)
@@ -67,6 +71,7 @@ final class FuzzphonyBundle extends AbstractBundle
             ->children()
                 ->scalarNode('connection')->defaultValue('default')->info('Doctrine DBAL connection name')->end()
                 ->scalarNode('extension_schema')->defaultValue('public')->info('Schema of the pg_trgm and unaccent extensions')->end()
+                ->scalarNode('schema')->defaultValue('public')->info('Schema of Fuzzphony\'s own tables, functions and text search configurations (created by fuzzphony:schema --apply)')->end()
                 ->booleanNode('discover_entities')->defaultTrue()->info('Register every Doctrine entity with #[Searchable]')->end()
                 ->arrayNode('worker')
                     ->addDefaultsIfNotSet()
@@ -90,6 +95,46 @@ final class FuzzphonyBundle extends AbstractBundle
             ->end();
     }
 
+    /**
+     * With DoctrineBundle, hide Fuzzphony's tables from Doctrine's schema tools (migrations:diff
+     * would otherwise propose dropping them). An application that sets its own schema_filter keeps
+     * it: merging regexes is its call. Its filter is handed to fuzzphony:doctor, which warns (with
+     * the regex to merge) while it still lets Fuzzphony's tables through.
+     *
+     * The prepend phase sees the raw configuration, so a `connection` or `schema` given as a
+     * parameter or an environment variable (`%…%`, `%env(…)%`) cannot be resolved here: then
+     * nothing is prepended and the doctor does not check the filter; set the filter yourself.
+     */
+    public function prependExtension(ContainerConfigurator $container, ContainerBuilder $builder): void
+    {
+        if (!$builder->hasExtension('doctrine')) {
+            return;
+        }
+        $connection = 'default';
+        $schema = 'public';
+        foreach ($builder->getExtensionConfig('fuzzphony') as $config) {
+            $connection = is_string($config['connection'] ?? null) ? $config['connection'] : $connection;
+            $schema = is_string($config['schema'] ?? null) ? $config['schema'] : $schema;
+        }
+        if (str_contains($connection, '%') || str_contains($schema, '%')) {
+            return;
+        }
+        $applicationFilter = null;
+        foreach ($builder->getExtensionConfig('doctrine') as $doctrine) {
+            $dbal = is_array($doctrine['dbal'] ?? null) ? $doctrine['dbal'] : [];
+            $connections = is_array($dbal['connections'] ?? null) ? $dbal['connections'] : [];
+            $named = is_array($connections[$connection] ?? null) ? $connections[$connection] : [];
+            $own = $named['schema_filter'] ?? $dbal['schema_filter'] ?? null;
+            $applicationFilter = is_string($own) ? $own : $applicationFilter;
+        }
+        if ($applicationFilter !== null) {
+            $builder->setParameter('fuzzphony.app_schema_filter', $applicationFilter);
+
+            return;
+        }
+        $builder->prependExtensionConfig('doctrine', ['dbal' => ['connections' => [$connection => ['schema_filter' => SchemaAssetFilter::regex($schema)]]]]);
+    }
+
     /** @param array<array-key, mixed> $config */
     public function loadExtension(array $config, ContainerConfigurator $container, ContainerBuilder $builder): void
     {
@@ -102,6 +147,9 @@ final class FuzzphonyBundle extends AbstractBundle
         $connectionName = $connectionRaw !== '' ? $connectionRaw : 'default';
         $extensionSchemaRaw = Coerce::str($config['extension_schema'] ?? null);
         $extensionSchema = $extensionSchemaRaw !== '' ? $extensionSchemaRaw : 'public';
+        $schemaRaw = Coerce::str($config['schema'] ?? null);
+        // validated here, so an invalid name fails the container build instead of the first request
+        $names = new Names($extensionSchema, $schemaRaw !== '' ? $schemaRaw : 'public');
         $discoverEntities = (bool) ($config['discover_entities'] ?? true);
         $indexes = is_array($config['indexes'] ?? null) ? $config['indexes'] : [];
         $worker = is_array($config['worker'] ?? null) ? $config['worker'] : [];
@@ -113,13 +161,16 @@ final class FuzzphonyBundle extends AbstractBundle
         $ormSyncAsync = (bool) ($ormSync['async'] ?? false);
         $ormSyncChunkSizeRaw = Coerce::int($ormSync['chunk_size'] ?? null);
         $ormSyncChunkSize = $ormSyncChunkSizeRaw !== 0 ? $ormSyncChunkSizeRaw : 500;
+        $applicationSchemaFilter = $builder->hasParameter('fuzzphony.app_schema_filter')
+            ? Coerce::str($builder->getParameter('fuzzphony.app_schema_filter'))
+            : null;
 
         $services->set('fuzzphony.connection', DbalConnection::class)
             ->args([service(sprintf('doctrine.dbal.%s_connection', $connectionName))]);
         $services->alias(Connection::class, 'fuzzphony.connection');
 
         $services->set('fuzzphony.engine', PostgresEngine::class)
-            ->args([service('fuzzphony.connection'), $extensionSchema]);
+            ->args([service('fuzzphony.connection'), $names->extensionSchema, $names->schema]);
         $services->alias(Engine::class, 'fuzzphony.engine')->public();
 
         if ($hasOrm) {
@@ -142,13 +193,13 @@ final class FuzzphonyBundle extends AbstractBundle
             ->args([service('fuzzphony.engine'), service('fuzzphony.registry')]);
         $services->alias(Fuzzphony::class, 'fuzzphony')->public();
 
-        $services->set('fuzzphony.introspector', PostgresIntrospector::class)->args([service('fuzzphony.connection')]);
+        $services->set('fuzzphony.introspector', PostgresIntrospector::class)->args([service('fuzzphony.connection'), $names->schema]);
         $services->alias(SourceIntrospector::class, 'fuzzphony.introspector');
 
         if ($ormSyncAsync) {
             if (!interface_exists(\Symfony\Component\Messenger\MessageBusInterface::class)) {
                 // symfony/messenger is a dev dependency, so the test run can't reach this line.
-                throw new \LogicException('fuzzphony.orm_sync.async requires symfony/messenger: composer require symfony/messenger'); // @codeCoverageIgnore
+                throw new InvalidConfiguration('fuzzphony.orm_sync.async requires symfony/messenger: composer require symfony/messenger'); // @codeCoverageIgnore
             }
             $services->set('fuzzphony.refresh_dispatcher', MessengerRefreshDispatcher::class)
                 ->args([service('messenger.default_bus'), $ormSyncChunkSize]);
@@ -186,7 +237,7 @@ final class FuzzphonyBundle extends AbstractBundle
 
         $commands = [
             SchemaCommand::class => [service('fuzzphony'), service('fuzzphony.connection')],
-            DoctorCommand::class => [service('fuzzphony')],
+            DoctorCommand::class => [service('fuzzphony'), $applicationSchemaFilter, $names->schema],
             ReindexCommand::class => [service('fuzzphony')],
             WorkerCommand::class => [service('fuzzphony'), $workerBatchSize, $workerIdleSleep],
             SearchCommand::class => [service('fuzzphony')],

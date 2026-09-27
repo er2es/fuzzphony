@@ -112,14 +112,6 @@ final readonly class RankingProfile
         ];
     }
 
-    /** PostgreSQL ts_rank weights array literal, ordered {D, C, B, A}. */
-    public function tsRankWeights(): string
-    {
-        $w = $this->labelWeights;
-
-        return sprintf('{%s,%s,%s,%s}', self::num($w['D']), self::num($w['C']), self::num($w['B']), self::num($w['A']));
-    }
-
     /** @param array<string, mixed> $config */
     private static function float(array $config, string $key, float $default): float
     {
@@ -129,12 +121,5 @@ final readonly class RankingProfile
         }
 
         return (float) $value;
-    }
-
-    private static function num(float $value): string
-    {
-        $trimmed = rtrim(rtrim(sprintf('%.6F', $value), '0'), '.');
-
-        return $trimmed !== '' ? $trimmed : '0';
     }
 }

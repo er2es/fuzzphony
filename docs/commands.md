@@ -7,7 +7,7 @@ The `fuzzphony:*` commands, the doctor and the configuration wizard. Back to the
 
 | Command | Purpose |
 |---|---|
-| `fuzzphony:schema [index] [--apply\|--drop\|--dump-migration=dir]` | show / apply / export idempotent DDL (alias `fuzzphony:install`) |
+| `fuzzphony:schema [index] [--apply\|--drop\|--dump-migration=dir]` | show / apply / export idempotent DDL (alias `fuzzphony:install`); `--dump-migration` writes a Doctrine migration, see [Doctrine Migrations](integrations.md#doctrine-migrations) |
 | `fuzzphony:reindex [index] [--batch=5000] [--from=id] [--no-prune] [--prune-empty]` | resumable backfill with progress; a full run also removes orphaned documents (`--no-prune` keeps them; an empty source is only pruned with `--prune-empty`) |
 | `fuzzphony:worker [--once] [--time-limit=s] [--index=x]` | drain the sync queue; graceful on SIGTERM |
 | `fuzzphony:doctor [index] [--deep] [--strict]` | health check with fixes |
@@ -40,16 +40,27 @@ The exit code is non-zero on errors (with `--strict`, also on warnings), so it b
 
 It checks:
 
-- server version, extensions, text configuration and helper functions;
+- server version, extensions, text configuration and helper functions (looked up in Fuzzphony's
+  schema);
 - that the source can be queried;
 - id, field, filter, boost and recency column mapping and types, and the source key;
 - sidecar column drift, and missing or INVALID indexes;
+- objects left in `public` after switching to a dedicated `schema` (a warning when the configured
+  schema has no sidecar table for an index but `public` still has one);
+- with DoctrineBundle, an application `schema_filter` that still lets Fuzzphony's tables through,
+  so `migrations:diff` would drop them (a warning with the regex to merge; none once your filter
+  hides them);
 - missing or disabled triggers, including the `TRUNCATE` trigger, which an index set up with an
   older version lacks until `fuzzphony:schema --apply` runs again;
 - queue backlog and age;
 - coverage (estimated, or exact with `--deep`);
 - orphaned documents (with `--deep`; fixed by `fuzzphony:reindex`);
-- risky thresholds.
+- risky thresholds;
+- the schema version: which layout and definition the index was last applied with (an error when
+  the definition changed since, or the layout is older or newer than this library's) and whether
+  the documents were built from the current definition (a warning until a full
+  `fuzzphony:reindex` records it). The role running the doctor needs `SELECT` on `fuzzphony_meta`;
+  without it this check is a warning with the `GRANT` to run.
 
 ## The configuration wizard
 

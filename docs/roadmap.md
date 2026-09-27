@@ -5,7 +5,7 @@ What each version shipped and what is planned for 1.0. Back to the [README](../R
 Milestones are ordered by what other things build on: a milestone comes before anything that
 depends on it, so nothing built early has to be refactored once a later milestone lands.
 
-## Released
+## Done
 
 - v0.1: PostgreSQL engine, attributes / YAML / builder, query language, ranking profiles,
   thresholds, queue / trigger / ORM sync, doctor, CLI.
@@ -14,43 +14,19 @@ depends on it, so nothing built early has to be refactored once a later mileston
   multi-tenancy, column-aware trigger filtering.
 - v0.3 (current): per-word typo tolerance, empty-result relaxation, `TRUNCATE` sync and orphan
   pruning, a production-like demo stack.
-
-## v0.4: Foundations
-
-API stability and schema groundwork for every milestone after this one.
-
-### API cleanup
-
-One exception hierarchy instead of scattered exception classes. Typed withers instead of
-`IndexDefinition::with(...)`'s loose, untyped argument list, so IDEs and PHPStan catch mistakes at
-the call site. A `ReindexOptions` value object instead of a growing parameter list on the reindex
-methods. `@internal` boundaries marked on classes that are implementation detail, not public API.
-PostgreSQL-specific details taken out of Core, so Core stays engine-neutral ahead of any other
-engine. The unused `Analyzer` interface dropped.
-
-### Dedicated schema
-
-A `schema` setting (for example `fuzzphony`) puts every sidecar table, the queue table and the
-sync functions in their own schema, so the application's schema gets no new tables, and
-`DROP SCHEMA fuzzphony CASCADE` removes them all. Permissions can be granted per schema. The
-default stays `public`, so existing installations are unaffected. There is one sidecar table per
-index (not per source table), plus the shared queue table.
-
-### Sidecar schema version
-
-A version marker on the sidecar tables (the queue table and each index's own table), plus a
-migration path between versions. Later features, such as partition-aware sync, transaction-aware
-connections and the vocabulary table, change the sidecar layout; without a version marker an
-upgrade has no way to tell an old layout from a new one. The doctor command checks the marker and
-reports when a migration is needed.
-
-### Doctrine Migrations integration
-
-Generate a migration class from the schema, next to `--dump-migration`.
+- v0.4 Foundations (unreleased): one exception hierarchy, typed withers instead of
+  `IndexDefinition::with(...)`, `ReindexOptions` / `ReindexResult`, an explicit public API
+  (`@internal` everywhere else) with the PostgreSQL details out of Core; a dedicated schema
+  (`schema: fuzzphony`, default `public`); a sidecar schema version (`fuzzphony_meta`, checked by
+  the doctor); Doctrine Migrations integration (the bundle's `schema_filter`, the version record in
+  `--dump-migration`). See the [CHANGELOG](../CHANGELOG.md#unreleased) and
+  [UPGRADE.md](../UPGRADE.md#from-03-to-04).
 
 ## v0.5: Index lifecycle
 
-Reindexing and sync, built on the 0.4 schema.
+Reindexing and sync, built on the 0.4 schema. The first change to the sidecar layout brings the
+step runner that upgrades an older layout; 0.4 records the layout version and the doctor reports a
+mismatch.
 
 ### Zero-downtime reindex
 

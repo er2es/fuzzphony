@@ -7,7 +7,7 @@ namespace Fuzzphony\Core\Definition;
 use Fuzzphony\Core\Exception\InvalidDefinition;
 use Fuzzphony\Core\Support\Identifier;
 
-/** Collects ALL problems of a definition at once, each with a concrete fix. */
+/** @internal Collects ALL problems of a definition at once, each with a concrete fix. */
 final class DefinitionValidator
 {
     /**

@@ -4,8 +4,8 @@ declare(strict_types=1);
 
 namespace Fuzzphony\Engine\Postgres\Schema;
 
+use Composer\InstalledVersions;
 use Fuzzphony\Core\Definition\DefinitionValidator;
-use Fuzzphony\Core\Definition\FilterType;
 use Fuzzphony\Core\Definition\IndexDefinition;
 use Fuzzphony\Core\Definition\SyncMode;
 use Fuzzphony\Core\Definition\TextConfig;
@@ -13,64 +13,87 @@ use Fuzzphony\Core\Definition\TriggerLevel;
 use Fuzzphony\Core\Definition\Watch;
 use Fuzzphony\Core\Schema\SchemaPlan;
 use Fuzzphony\Core\Schema\Statement;
-use Fuzzphony\Core\Support\Identifier;
 use Fuzzphony\Engine\Postgres\Sql\DocumentSql;
 use Fuzzphony\Engine\Postgres\Sql\FilterCompiler;
 use Fuzzphony\Engine\Postgres\Sql\Sql;
 
 /**
- * Generates idempotent DDL. Nothing here ever alters the source tables, except for
+ * @internal Generates idempotent DDL. Nothing here ever alters the source tables, except for
  * (optional) AFTER triggers that feed the sync queue.
  */
 final class PostgresSchemaGenerator
 {
-    public const string QUEUE_TABLE = 'fuzzphony_queue';
-    public const string NORM_FUNCTION = 'fuzzphony_norm';
+    /**
+     * The sidecar layout this version generates (1 = the 0.4 layout), recorded in fuzzphony_meta.
+     * The milestone that first changes the layout bumps it and adds the upgrade step that runs
+     * from the stored version up, together with its test; 0.4 has no step to run.
+     */
+    public const int LAYOUT_VERSION = 1;
+
     /** Every generated function body / DO block is quoted with this tag; the validator keeps it out of embedded SQL. */
     private const string TAG = DefinitionValidator::DOLLAR_QUOTE_TAG;
 
-    public function __construct(private readonly string $extensionSchema = 'public')
+    public function __construct(private readonly Names $names = new Names()) {}
+
+    public function names(): Names
     {
-        if (!Identifier::isColumn($extensionSchema)) {
-            throw new \InvalidArgumentException(sprintf('Invalid extension schema "%s".', $extensionSchema));
-        }
+        return $this->names;
     }
 
     public function global(IndexDefinition ...$indexes): SchemaPlan
     {
-        $schema = $this->extensionSchema;
-        $statements = [
+        $schema = $this->names->extensionSchema;
+        $statements = [];
+        if ($this->names->schema !== 'public') {
+            // not for public: PostgreSQL checks CREATE on the database before IF NOT EXISTS
+            $statements[] = new Statement(sprintf('CREATE SCHEMA IF NOT EXISTS %s', $this->names->quotedSchema()), "Fuzzphony's own schema");
+        }
+        array_push(
+            $statements,
             new Statement(sprintf('CREATE EXTENSION IF NOT EXISTS pg_trgm WITH SCHEMA %s', Sql::ident($schema)), 'Trigram matching for typo tolerance'),
             new Statement(sprintf('CREATE EXTENSION IF NOT EXISTS unaccent WITH SCHEMA %s', Sql::ident($schema)), 'Accent folding'),
             new Statement(sprintf(
-                "CREATE OR REPLACE FUNCTION %s(text) RETURNS text\nLANGUAGE sql IMMUTABLE PARALLEL SAFE STRICT\nAS " . self::TAG . " SELECT btrim(regexp_replace(lower(%s.unaccent('%s.unaccent'::regdictionary, \$1)), '[^[:alnum:]]+', ' ', 'g')) " . self::TAG,
-                self::NORM_FUNCTION,
+                "CREATE OR REPLACE FUNCTION %s(text) RETURNS text\nLANGUAGE sql IMMUTABLE PARALLEL SAFE STRICT\nSET search_path = pg_catalog, pg_temp\nAS " . self::TAG . " SELECT btrim(regexp_replace(lower(%s.unaccent(%s::regdictionary, \$1)), '[^[:alnum:]]+', ' ', 'g')) " . self::TAG,
+                $this->names->normFunction(),
                 Sql::ident($schema),
-                $schema,
+                Sql::string(Sql::ident($schema) . '.unaccent'),
             ), 'Normaliser for trigram / exact matching: lowercase, no accents, alphanumerics only'),
             new Statement(sprintf(
                 "CREATE TABLE IF NOT EXISTS %s (\n    index_name text NOT NULL,\n    doc_id text NOT NULL,\n    queued_at timestamptz NOT NULL DEFAULT clock_timestamp(),\n    PRIMARY KEY (index_name, doc_id)\n)",
-                self::QUEUE_TABLE,
+                $this->names->queue(),
             ), 'Sync queue shared by all indexes'),
-            new Statement(sprintf('CREATE INDEX IF NOT EXISTS fuzzphony_queue_order ON %s (index_name, queued_at)', self::QUEUE_TABLE), 'Queue processing order'),
-        ];
+            new Statement(sprintf('CREATE INDEX IF NOT EXISTS %s ON %s (index_name, queued_at)', $this->names->queueOrderIndex(), $this->names->queue()), 'Queue processing order'),
+            new Statement(sprintf(
+                "CREATE TABLE IF NOT EXISTS %s (
+    index_name text PRIMARY KEY,
+    layout_version integer NOT NULL,
+    definition_hash text NOT NULL,
+    documents_hash text,
+    library_version text NOT NULL,
+    applied_at timestamptz NOT NULL,
+    reindexed_at timestamptz
+)",
+                $this->names->meta(),
+            ), 'Layout and definition each index was built from'),
+        );
 
         $configs = [];
         foreach ($indexes as $index) {
             if ($index->text->unaccent) {
-                $configs[$index->text->configName()] = $index->text;
+                $configs[$this->names->textConfigName($index->text)] = $index->text;
             }
         }
         foreach ($configs as $config) {
             $statements[] = $this->textConfig($config);
         }
+        $statements[] = $this->recordApply('*', Fingerprint::shared($this->names), 'Record the layout of the shared objects');
 
         return new SchemaPlan($statements);
     }
 
     public function index(IndexDefinition $index): SchemaPlan
     {
-        $table = Sql::ident($index->sidecarTable());
+        $table = $this->names->sidecar($index);
         $columns = $this->columns($index);
 
         $definitions = array_map(static fn(string $name, string $type): string => sprintf('    %s %s', Sql::ident($name), $type), array_keys($columns), $columns);
@@ -86,7 +109,6 @@ final class PostgresSchemaGenerator
         $statements[] = new Statement($this->refreshFunction($index), 'Builds / removes documents by id');
 
         foreach ($index->effectiveWatches() as $watch) {
-            $function = $this->syncFunctionName($index, $watch);
             $watched = Sql::ident($watch->table);
             foreach ($this->obsoleteTriggerNames($index, $watch) as $obsolete) {
                 $statements[] = new Statement(sprintf('DROP TRIGGER IF EXISTS %s ON %s', Sql::ident($obsolete), $watched), sprintf('Remove trigger not used in "%s" sync / %s level', $index->sync->value, $index->triggerLevel->value));
@@ -100,7 +122,7 @@ final class PostgresSchemaGenerator
             );
             foreach ($this->triggerDefinitions($index, $watch) as $name => $definition) {
                 $statements[] = new Statement(
-                    sprintf('CREATE OR REPLACE TRIGGER %s %s ON %s %s EXECUTE FUNCTION %s()', Sql::ident($name), $definition['timing'], $watched, $definition['for'], Sql::ident($function)),
+                    sprintf('CREATE OR REPLACE TRIGGER %s %s ON %s %s EXECUTE FUNCTION %s()', Sql::ident($name), $definition['timing'], $watched, $definition['for'], $this->names->syncFunction($index, $watch)),
                     sprintf('%s sync on %s (%s level)', ucfirst($index->sync->value), $watch->table, $index->triggerLevel->value),
                 );
             }
@@ -113,6 +135,7 @@ final class PostgresSchemaGenerator
                 transactional: false,
             );
         }
+        $statements[] = $this->recordApply($index->name, Fingerprint::definition($index), sprintf('Record the layout and definition "%s" was built from', $index->name));
 
         return new SchemaPlan($statements);
     }
@@ -121,22 +144,63 @@ final class PostgresSchemaGenerator
     {
         $statements = [];
         foreach ($index->effectiveWatches() as $watch) {
-            $function = $this->syncFunctionName($index, $watch);
             foreach ($this->allTriggerNames($index, $watch) as $trigger) {
                 $statements[] = new Statement(sprintf('DROP TRIGGER IF EXISTS %s ON %s', Sql::ident($trigger), Sql::ident($watch->table)), 'Remove sync trigger');
             }
-            $statements[] = new Statement(sprintf('DROP FUNCTION IF EXISTS %s()', Sql::ident($function)), 'Remove sync function');
+            $statements[] = new Statement(sprintf('DROP FUNCTION IF EXISTS %s()', $this->names->syncFunction($index, $watch)), 'Remove sync function');
         }
-        $statements[] = new Statement(sprintf('DROP FUNCTION IF EXISTS %s(%s[])', Sql::ident($this->refreshFunctionName($index)), $index->idType->sqlType()), 'Remove refresh function');
-        $statements[] = new Statement(sprintf('DROP TABLE IF EXISTS %s', Sql::ident($index->sidecarTable())), 'Remove sidecar table');
+        $statements[] = new Statement(sprintf('DROP FUNCTION IF EXISTS %s(%s[])', $this->names->refreshFunction($index), Types::id($index->idType)), 'Remove refresh function');
+        $statements[] = new Statement(sprintf('DROP TABLE IF EXISTS %s', $this->names->sidecar($index)), 'Remove sidecar table');
         $statements[] = new Statement(sprintf(
-            "DO " . self::TAG . " BEGIN IF to_regclass('%s') IS NOT NULL THEN DELETE FROM %s WHERE index_name = %s; END IF; END " . self::TAG,
-            self::QUEUE_TABLE,
-            self::QUEUE_TABLE,
+            "DO " . self::TAG . " BEGIN IF to_regclass(%s) IS NOT NULL THEN DELETE FROM %s WHERE index_name = %s; END IF; END " . self::TAG,
+            Sql::string($this->names->queue()),
+            $this->names->queue(),
             Sql::string($index->name),
         ), 'Forget queued items');
+        $statements[] = new Statement(sprintf(
+            'DO ' . self::TAG . ' BEGIN IF to_regclass(%s) IS NOT NULL THEN DELETE FROM %s WHERE index_name = %s; END IF; END ' . self::TAG,
+            Sql::string($this->names->meta()),
+            $this->names->meta(),
+            Sql::string($index->name),
+        ), 'Forget the version record');
 
         return new SchemaPlan($statements);
+    }
+
+    /** Records that a full reindex rebuilt every document from this definition; a no-op before the meta table exists. */
+    public function reindexed(IndexDefinition $index): string
+    {
+        return sprintf(
+            'DO ' . self::TAG . ' BEGIN IF to_regclass(%s) IS NOT NULL THEN UPDATE %s SET documents_hash = %s, reindexed_at = now() WHERE index_name = %s; END IF; END ' . self::TAG,
+            Sql::string($this->names->meta()),
+            $this->names->meta(),
+            Sql::string(Fingerprint::documents($index)),
+            Sql::string($index->name),
+        );
+    }
+
+    /**
+     * The meta row upsert. Not transactional, so SchemaPlan::apply() runs it after everything else,
+     * including the concurrent index builds: the row only claims what was actually built.
+     */
+    private function recordApply(string $indexName, string $definitionHash, string $description): Statement
+    {
+        return new Statement(sprintf(
+            "INSERT INTO %s (index_name, layout_version, definition_hash, library_version, applied_at)
+VALUES (%s, %d, %s, %s, now())
+ON CONFLICT (index_name) DO UPDATE SET layout_version = EXCLUDED.layout_version, definition_hash = EXCLUDED.definition_hash, library_version = EXCLUDED.library_version, applied_at = EXCLUDED.applied_at",
+            $this->names->meta(),
+            Sql::string($indexName),
+            self::LAYOUT_VERSION,
+            Sql::string($definitionHash),
+            Sql::string(self::libraryVersion()),
+        ), $description, transactional: false);
+    }
+
+    /** For the record only: the monorepo package, or the engine package when installed split (as in the demo). */
+    private static function libraryVersion(): string
+    {
+        return InstalledVersions::getPrettyVersion(InstalledVersions::isInstalled('fuzzphony/fuzzphony') ? 'fuzzphony/fuzzphony' : 'fuzzphony/postgres-engine') ?? 'unknown';
     }
 
     /**
@@ -147,7 +211,7 @@ final class PostgresSchemaGenerator
     public function columns(IndexDefinition $index): array
     {
         $columns = [
-            'id' => $index->idType->sqlType() . ' PRIMARY KEY',
+            'id' => Types::id($index->idType) . ' PRIMARY KEY',
             'tsv' => 'tsvector NOT NULL',
             'fz' => "text NOT NULL DEFAULT ''",
             'exact' => "text NOT NULL DEFAULT ''",
@@ -159,7 +223,7 @@ final class PostgresSchemaGenerator
             $columns['recency_at'] = 'timestamptz';
         }
         foreach ($index->filters as $filter) {
-            $columns['f_' . $filter->name] = $filter->type->sqlType();
+            $columns['f_' . $filter->name] = Types::filter($filter->type);
         }
         $columns['indexed_at'] = 'timestamptz NOT NULL DEFAULT now()';
 
@@ -207,26 +271,15 @@ final class PostgresSchemaGenerator
      */
     public function indexes(IndexDefinition $index): array
     {
-        $sidecar = $index->sidecarTable();
-        $indexes = [Identifier::limit($sidecar . '_tsv') => 'USING gin (tsv)'];
+        $indexes = [$this->names->indexName($index, 'tsv') => 'USING gin (tsv)'];
         if ($index->hasFuzzy()) {
-            $indexes[Identifier::limit($sidecar . '_fz')] = sprintf('USING gin (fz %s.gin_trgm_ops)', Sql::ident($this->extensionSchema));
+            $indexes[$this->names->indexName($index, 'fz')] = sprintf('USING gin (fz %s.gin_trgm_ops)', $this->names->extension());
         }
         foreach ($index->filters as $filter) {
-            $indexes[Identifier::limit($sidecar . '_f_' . $filter->name)] = sprintf('(%s)', FilterCompiler::column($filter->name));
+            $indexes[$this->names->indexName($index, 'f_' . $filter->name)] = sprintf('(%s)', FilterCompiler::column($filter->name));
         }
 
         return $indexes;
-    }
-
-    public function refreshFunctionName(IndexDefinition $index): string
-    {
-        return Identifier::limit('fuzzphony_refresh_' . $index->name);
-    }
-
-    public function syncFunctionName(IndexDefinition $index, Watch $watch): string
-    {
-        return Identifier::limit('fuzzphony_sync_' . $index->name . '__' . str_replace('.', '_', $watch->table));
     }
 
     /**
@@ -239,33 +292,30 @@ final class PostgresSchemaGenerator
         if (!$index->sync->usesTriggers()) {
             return [];
         }
-        $function = $this->syncFunctionName($index, $watch);
         // PostgreSQL never runs DELETE triggers for TRUNCATE and only allows TRUNCATE triggers per
         // statement (without transition tables), so both levels get the same extra trigger.
-        $truncate = [Identifier::limit($function . '_trn') => ['timing' => 'AFTER TRUNCATE', 'for' => 'FOR EACH STATEMENT']];
+        $truncate = [$this->names->triggerName($index, $watch, '_trn') => ['timing' => 'AFTER TRUNCATE', 'for' => 'FOR EACH STATEMENT']];
         if ($index->triggerLevel === TriggerLevel::Row) {
-            return [$function => ['timing' => 'AFTER INSERT OR UPDATE OR DELETE', 'for' => 'FOR EACH ROW']] + $truncate;
+            return [$this->names->triggerName($index, $watch) => ['timing' => 'AFTER INSERT OR UPDATE OR DELETE', 'for' => 'FOR EACH ROW']] + $truncate;
         }
 
         // Transition tables require one trigger per event.
         return [
-            Identifier::limit($function . '_ins') => ['timing' => 'AFTER INSERT', 'for' => 'REFERENCING NEW TABLE AS fz_new FOR EACH STATEMENT'],
-            Identifier::limit($function . '_upd') => ['timing' => 'AFTER UPDATE', 'for' => 'REFERENCING OLD TABLE AS fz_old NEW TABLE AS fz_new FOR EACH STATEMENT'],
-            Identifier::limit($function . '_del') => ['timing' => 'AFTER DELETE', 'for' => 'REFERENCING OLD TABLE AS fz_old FOR EACH STATEMENT'],
+            $this->names->triggerName($index, $watch, '_ins') => ['timing' => 'AFTER INSERT', 'for' => 'REFERENCING NEW TABLE AS fz_new FOR EACH STATEMENT'],
+            $this->names->triggerName($index, $watch, '_upd') => ['timing' => 'AFTER UPDATE', 'for' => 'REFERENCING OLD TABLE AS fz_old NEW TABLE AS fz_new FOR EACH STATEMENT'],
+            $this->names->triggerName($index, $watch, '_del') => ['timing' => 'AFTER DELETE', 'for' => 'REFERENCING OLD TABLE AS fz_old FOR EACH STATEMENT'],
         ] + $truncate;
     }
 
     /** @return list<string> every trigger name this watch can ever have */
     public function allTriggerNames(IndexDefinition $index, Watch $watch): array
     {
-        $function = $this->syncFunctionName($index, $watch);
-
         return [
-            $function,
-            Identifier::limit($function . '_ins'),
-            Identifier::limit($function . '_upd'),
-            Identifier::limit($function . '_del'),
-            Identifier::limit($function . '_trn'),
+            $this->names->triggerName($index, $watch),
+            $this->names->triggerName($index, $watch, '_ins'),
+            $this->names->triggerName($index, $watch, '_upd'),
+            $this->names->triggerName($index, $watch, '_del'),
+            $this->names->triggerName($index, $watch, '_trn'),
         ];
     }
 
@@ -275,9 +325,18 @@ final class PostgresSchemaGenerator
         return array_values(array_diff($this->allTriggerNames($index, $watch), array_keys($this->triggerDefinitions($index, $watch))));
     }
 
+    /**
+     * `SET search_path FROM CURRENT` stores the search_path setting of the session that applied the
+     * schema, as written: the embedded source query and watch SQL resolve their (usually
+     * unqualified) tables through it, whatever the caller's own search_path is. The setting is
+     * stored, not the schemas it named then: with the default `"$user", public`, `$user` is
+     * evaluated when the function runs, as the calling role (the functions are SECURITY INVOKER),
+     * so a caller with a schema of its own name can still shadow a source table. Fuzzphony's own
+     * objects are schema-qualified and never depend on it.
+     */
     private function refreshFunction(IndexDefinition $index): string
     {
-        $table = Sql::ident($index->sidecarTable());
+        $table = $this->names->sidecar($index);
         $columns = ['id', 'tsv', 'fz', 'exact'];
         $values = ['doc.fz_id', $this->tsvectorExpression($index), $this->fuzzyExpression($index), $this->exactExpression($index)];
         if ($index->boostColumn !== null) {
@@ -290,7 +349,7 @@ final class PostgresSchemaGenerator
         }
         foreach ($index->filters as $filter) {
             $columns[] = 'f_' . $filter->name;
-            $values[] = sprintf('doc.%s::%s', Sql::ident('flt_' . $filter->name), $filter->type === FilterType::Int ? 'bigint' : $filter->type->sqlType());
+            $values[] = sprintf('doc.%s::%s', Sql::ident('flt_' . $filter->name), Types::filter($filter->type));
         }
         $columns[] = 'indexed_at';
         $values[] = 'now()';
@@ -304,7 +363,7 @@ final class PostgresSchemaGenerator
         return sprintf(
             <<<'SQL'
                 CREATE OR REPLACE FUNCTION %1$s(p_ids %2$s[]) RETURNS integer
-                LANGUAGE plpgsql AS %8$s
+                LANGUAGE plpgsql SET search_path FROM CURRENT AS %8$s
                 DECLARE
                     written integer;
                 BEGIN
@@ -330,8 +389,8 @@ final class PostgresSchemaGenerator
                 END
                 %8$s
                 SQL,
-            Sql::ident($this->refreshFunctionName($index)),
-            $index->idType->sqlType(),
+            $this->names->refreshFunction($index),
+            Types::id($index->idType),
             $table,
             implode(', ', array_map(Sql::ident(...), $columns)),
             implode(",\n        ", $values),
@@ -361,13 +420,13 @@ final class PostgresSchemaGenerator
             $action = $index->sync === SyncMode::Trigger
                 ? sprintf(
                     'PERFORM %s(ARRAY(SELECT a.doc_id::%s FROM (%s) AS a(doc_id) WHERE a.doc_id IS NOT NULL));',
-                    Sql::ident($this->refreshFunctionName($index)),
-                    $index->idType->sqlType(),
+                    $this->names->refreshFunction($index),
+                    Types::id($index->idType),
                     $affected,
                 )
                 : sprintf(
                     "INSERT INTO %s (index_name, doc_id)\n        SELECT %s, a.doc_id::text FROM (%s) AS a(doc_id) WHERE a.doc_id IS NOT NULL\n        ON CONFLICT (index_name, doc_id) DO NOTHING;",
-                    self::QUEUE_TABLE,
+                    $this->names->queue(),
                     Sql::string($index->name),
                     $affected,
                 );
@@ -375,8 +434,8 @@ final class PostgresSchemaGenerator
         }
 
         return sprintf(
-            "CREATE OR REPLACE FUNCTION %s() RETURNS trigger\nLANGUAGE plpgsql AS " . self::TAG . "\nBEGIN\n%s\n    RETURN NULL;\nEND\n" . self::TAG,
-            Sql::ident($this->syncFunctionName($index, $watch)),
+            "CREATE OR REPLACE FUNCTION %s() RETURNS trigger\nLANGUAGE plpgsql SET search_path FROM CURRENT AS " . self::TAG . "\nBEGIN\n%s\n    RETURN NULL;\nEND\n" . self::TAG,
+            $this->names->syncFunction($index, $watch),
             implode("\n", $body),
         );
     }
@@ -390,8 +449,8 @@ final class PostgresSchemaGenerator
 
         // The TRUNCATE branch comes first, so a TRUNCATE never reaches a transition table (none is registered for it).
         return sprintf(
-            "CREATE OR REPLACE FUNCTION %s() RETURNS trigger\nLANGUAGE plpgsql AS " . self::TAG . "\nBEGIN\n%s\n%s\n    RETURN NULL;\nEND\n" . self::TAG,
-            Sql::ident($this->syncFunctionName($index, $watch)),
+            "CREATE OR REPLACE FUNCTION %s() RETURNS trigger\nLANGUAGE plpgsql SET search_path FROM CURRENT AS " . self::TAG . "\nBEGIN\n%s\n%s\n    RETURN NULL;\nEND\n" . self::TAG,
+            $this->names->syncFunction($index, $watch),
             $this->truncateBranch($index, $watch),
             $body,
         );
@@ -413,20 +472,20 @@ final class PostgresSchemaGenerator
      */
     private function truncateBranch(IndexDefinition $index, Watch $watch): string
     {
-        $sidecar = Sql::ident($index->sidecarTable());
+        $sidecar = $this->names->sidecar($index);
         $ids = sprintf(
             'SELECT s.id FROM %s AS s UNION SELECT doc.fz_id::%s FROM (%s) AS doc WHERE doc.fz_id IS NOT NULL',
             $sidecar,
-            $index->idType->sqlType(),
+            Types::id($index->idType),
             DocumentSql::select($index),
         );
         $resync = $index->sync === SyncMode::Trigger
-            ? sprintf('PERFORM %s(ARRAY(%s));', Sql::ident($this->refreshFunctionName($index)), $ids)
+            ? sprintf('PERFORM %s(ARRAY(%s));', $this->names->refreshFunction($index), $ids)
             : sprintf(
                 "INSERT INTO %s (index_name, doc_id)
         SELECT %s, t.id::text FROM (%s) AS t(id)
         ON CONFLICT (index_name, doc_id) DO NOTHING;",
-                self::QUEUE_TABLE,
+                $this->names->queue(),
                 Sql::string($index->name),
                 $ids,
             );
@@ -441,7 +500,7 @@ final class PostgresSchemaGenerator
         if ($index->sync === SyncMode::Queue) {
             $wipe[] = sprintf(
                 'DELETE FROM %1$s WHERE ctid IN (SELECT ctid FROM %1$s WHERE index_name = %2$s FOR UPDATE SKIP LOCKED);',
-                self::QUEUE_TABLE,
+                $this->names->queue(),
                 Sql::string($index->name),
             );
         }
@@ -525,24 +584,18 @@ final class PostgresSchemaGenerator
         return $index->sync === SyncMode::Trigger
             ? sprintf(
                 'PERFORM %s(ARRAY(SELECT DISTINCT a.doc_id::%s FROM %s WHERE %s));',
-                Sql::ident($this->refreshFunctionName($index)),
-                $index->idType->sqlType(),
+                $this->names->refreshFunction($index),
+                Types::id($index->idType),
                 $source,
                 $where,
             )
             : sprintf(
                 "INSERT INTO %s (index_name, doc_id)\n        SELECT DISTINCT %s, a.doc_id::text FROM %s WHERE %s\n        ON CONFLICT (index_name, doc_id) DO NOTHING;",
-                self::QUEUE_TABLE,
+                $this->names->queue(),
                 Sql::string($index->name),
                 $source,
                 $where,
             );
-    }
-
-    /** The dictionary the accent-folding configuration consults for stop words, before unaccent. */
-    public function stopDictionaryName(TextConfig $config): string
-    {
-        return 'fuzzphony_' . $config->language . '_stop';
     }
 
     /** The dictionary that stems (and, for most languages, drops stop words) in the configuration. */
@@ -561,8 +614,8 @@ final class PostgresSchemaGenerator
      */
     private function textConfig(TextConfig $config): Statement
     {
-        $name = $config->configName();
-        $stop = $this->stopDictionaryName($config);
+        $name = $this->names->textConfigName($config);
+        $stop = $this->names->stopDictionaryName($config);
 
         return new Statement(sprintf(
             <<<'SQL'
@@ -570,7 +623,7 @@ final class PostgresSchemaGenerator
                 DECLARE
                     v_stopwords text;
                 BEGIN
-                    IF NOT EXISTS (SELECT 1 FROM pg_ts_config WHERE cfgname = %1$s) THEN
+                    IF NOT EXISTS (SELECT 1 FROM pg_ts_config c JOIN pg_namespace n ON n.oid = c.cfgnamespace WHERE c.cfgname = %1$s AND n.nspname = %10$s) THEN
                         CREATE TEXT SEARCH CONFIGURATION %2$s (COPY = %3$s);
                     END IF;
                     SELECT substring(dictinitoption FROM 'stopwords *= *''([[:alnum:]_]+)''') INTO v_stopwords
@@ -579,8 +632,8 @@ final class PostgresSchemaGenerator
                         ALTER TEXT SEARCH CONFIGURATION %2$s
                             ALTER MAPPING FOR hword, hword_part, word WITH %4$s.unaccent, %6$s;
                     ELSE
-                        IF NOT EXISTS (SELECT 1 FROM pg_ts_dict WHERE dictname = %7$s) THEN
-                            EXECUTE format('CREATE TEXT SEARCH DICTIONARY %%I (TEMPLATE = pg_catalog.simple, STOPWORDS = %%L, ACCEPT = false)', %7$s, v_stopwords);
+                        IF NOT EXISTS (SELECT 1 FROM pg_ts_dict d JOIN pg_namespace n ON n.oid = d.dictnamespace WHERE d.dictname = %7$s AND n.nspname = %10$s) THEN
+                            EXECUTE format('CREATE TEXT SEARCH DICTIONARY %%I.%%I (TEMPLATE = pg_catalog.simple, STOPWORDS = %%L, ACCEPT = false)', %10$s, %7$s, v_stopwords);
                         END IF;
                         ALTER TEXT SEARCH CONFIGURATION %2$s
                             ALTER MAPPING FOR hword, hword_part, word WITH %9$s, %4$s.unaccent, %6$s;
@@ -589,20 +642,21 @@ final class PostgresSchemaGenerator
                 %8$s
                 SQL,
             Sql::string($name),
-            Sql::ident($name),
+            $this->names->textConfig($config),
             Sql::ident($config->language),
-            Sql::ident($this->extensionSchema),
+            $this->names->extension(),
             Sql::string(Sql::ident($this->stemDictionaryName($config))),
             Sql::ident($this->stemDictionaryName($config)),
             Sql::string($stop),
             self::TAG,
-            Sql::ident($stop),
+            $this->names->stopDictionary($config),
+            Sql::string($this->names->schema),
         ), sprintf('Text search configuration "%s" (%s stemming + accent folding, accented stop words dropped)', $name, $config->language));
     }
 
     private function tsvectorExpression(IndexDefinition $index): string
     {
-        $config = Sql::string($index->text->configName()) . '::regconfig';
+        $config = $this->names->regconfig($index->text);
 
         return implode("\n            || ", array_map(
             static fn($field): string => sprintf(
@@ -621,15 +675,16 @@ final class PostgresSchemaGenerator
         if ($fields === []) {
             return "''";
         }
+        $norm = $this->names->normFunction();
 
         return sprintf("coalesce(concat_ws(' ', %s), '')", implode(', ', array_map(
-            static fn($field): string => sprintf('%s(doc.%s::text)', self::NORM_FUNCTION, Sql::ident('fld_' . $field->name)),
+            static fn($field): string => sprintf('%s(doc.%s::text)', $norm, Sql::ident('fld_' . $field->name)),
             $fields,
         )));
     }
 
     private function exactExpression(IndexDefinition $index): string
     {
-        return sprintf("coalesce(%s(doc.%s::text), '')", self::NORM_FUNCTION, Sql::ident('fld_' . $index->primaryField()->name));
+        return sprintf("coalesce(%s(doc.%s::text), '')", $this->names->normFunction(), Sql::ident('fld_' . $index->primaryField()->name));
     }
 }

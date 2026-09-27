@@ -6,6 +6,7 @@ namespace App\Controller;
 
 use App\Service\Catalog;
 use App\Service\Measure;
+use Fuzzphony\Core\Exception\FuzzphonyException;
 use Fuzzphony\Core\Fuzzphony;
 use Fuzzphony\Core\Inspection\InspectOptions;
 use Fuzzphony\Core\Wizard\DefinitionSuggester;
@@ -62,7 +63,7 @@ final class PagesController extends AbstractController
                             : '// Joined sources cannot be expressed with attributes; use the YAML or builder version.',
                     ];
                 }
-            } catch (\InvalidArgumentException $e) {
+            } catch (FuzzphonyException $e) {
                 $error = $e->getMessage();
             }
         }

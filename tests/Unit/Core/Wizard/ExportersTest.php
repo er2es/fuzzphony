@@ -7,6 +7,7 @@ namespace Fuzzphony\Tests\Unit\Core\Wizard;
 use Fuzzphony\Core\Definition\ArrayDefinitionLoader;
 use Fuzzphony\Core\Definition\AttributeDefinitionLoader;
 use Fuzzphony\Core\Definition\IndexDefinition;
+use Fuzzphony\Core\Exception\InvalidArgument;
 use Fuzzphony\Core\Ranking\Thresholds;
 use Fuzzphony\Core\Wizard\Export\ArrayExporter;
 use Fuzzphony\Core\Wizard\Export\AttributeExporter;
@@ -20,7 +21,7 @@ final class ExportersTest extends TestCase
 {
     public function testArrayExportRoundTripsThroughTheLoader(): void
     {
-        $original = Indexes::products()->with(thresholds: (new Thresholds())->with(['min_score' => 0.05, 'fuzzy_mode' => 'always']));
+        $original = Indexes::products()->withThresholds((new Thresholds())->with(['min_score' => 0.05, 'fuzzy_mode' => 'always']));
 
         $reloaded = (new ArrayDefinitionLoader())->load('products', (new ArrayExporter())->export($original));
 
@@ -29,7 +30,7 @@ final class ExportersTest extends TestCase
 
     public function testRelaxWhenEmptyRoundTripsAndIsOnlyExportedWhenChanged(): void
     {
-        $original = Indexes::products()->with(thresholds: (new Thresholds())->with(['relax_when_empty' => false]));
+        $original = Indexes::products()->withThresholds((new Thresholds())->with(['relax_when_empty' => false]));
         $exported = (new ArrayExporter())->export($original);
 
         self::assertSame(['relax_when_empty' => false], $exported['thresholds'] ?? null);
@@ -52,7 +53,7 @@ final class ExportersTest extends TestCase
 
     public function testAttributeDefinitionsRoundTripToo(): void
     {
-        $original = (new AttributeDefinitionLoader())->load(Product::class)->with(entityClass: null);
+        $original = (new AttributeDefinitionLoader())->load(Product::class)->withEntityClass(null);
 
         self::assertEquals($original, (new ArrayDefinitionLoader())->load('products', (new ArrayExporter())->export($original)));
     }
@@ -107,7 +108,8 @@ final class ExportersTest extends TestCase
             array_map(static fn($f): array => [$f->name, $f->type, $f->column()], $loaded->filters),
         );
         self::assertSame('gadget', $loaded->source->table);
-        self::assertSame('fuzzphony_german', $loaded->text->configName());
+        self::assertSame('german', $loaded->text->language);
+        self::assertTrue($loaded->text->unaccent);
     }
 
     public function testMultilineQueriesUseBlockScalars(): void
@@ -185,7 +187,7 @@ final class ExportersTest extends TestCase
 
     public function testAttributeExportThrowsForUnsupportedSources(): void
     {
-        $this->expectException(\LogicException::class);
+        $this->expectException(InvalidArgument::class);
         $this->expectExceptionMessage('Only table sources without extra watches can be expressed with attributes; export YAML instead.');
         (new AttributeExporter())->export(Indexes::products());
     }

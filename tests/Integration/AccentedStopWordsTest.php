@@ -168,7 +168,7 @@ final class AccentedStopWordsTest extends TestCase
         $check = $this->textConfigCheck($fuzzphony, 'items_german');
 
         self::assertSame(CheckStatus::Error, $check->status);
-        self::assertSame('"fuzzphony_german" is missing.', $check->message);
+        self::assertSame('"public"."fuzzphony_german" is missing.', $check->message);
     }
 
     public function testApplyRepairsAConfigurationCreatedByVersion030(): void

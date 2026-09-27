@@ -92,11 +92,13 @@ source, so it never removes anything.
 Pruning is relative to what the reindexing session can see. When that session sees fewer rows
 than your application (row-level security on the source, a query source using
 `current_setting(...)`, a different `search_path` for the CLI user), a full reindex removes the
-difference from the index. Pass `--no-prune` (or `prune: false` to `$fuzzphony->reindex()`) there.
+difference from the index. Pass `--no-prune` (or `new ReindexOptions(prune: false)` to
+`$fuzzphony->reindex()`) there.
 
-A full run whose source returns no row at all does not prune, and says so. That is far more likely
-a visibility problem than intent (a real `TRUNCATE` is handled by its trigger). `--prune-empty`
-(`pruneEmpty: true`) forces it.
+A full run whose source returns no row at all does not prune, and says so
+(`ReindexResult::$pruneSkippedEmptySource`). That is far more likely a visibility problem than
+intent (a real `TRUNCATE` is handled by its trigger). `--prune-empty`
+(`new ReindexOptions(pruneEmpty: true)`) forces it.
 
 ## Messenger (orm mode)
 

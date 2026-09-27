@@ -25,6 +25,59 @@ final class DoctorCommandTest extends TestCase
         $this->tester = new CommandTester(new DoctorCommand($this->context->fuzzphony));
     }
 
+    public function testAnApplicationSchemaFilterThatLetsFuzzphonysTablesThroughIsAWarningWithTheRegexToMerge(): void
+    {
+        $this->context->applySchemaAndReindex();
+        $tester = new CommandTester(new DoctorCommand($this->context->fuzzphony, '~^(?!legacy_)~'));
+
+        self::assertSame(Command::SUCCESS, $tester->execute([], ['interactive' => false]), $tester->getDisplay());
+        self::assertStringContainsString('Doctrine schema filter', $tester->getDisplay());
+        self::assertStringContainsString(
+            '! Your DBAL connection\'s schema_filter ~^(?!legacy_)~ lets Fuzzphony\'s tables through, so "doctrine:migrations:diff" will propose dropping them. Merge Fuzzphony\'s filter into yours: ~^(?!(public\.)?fuzzphony_)~',
+            preg_replace('/\s+/', ' ', $tester->getDisplay()) ?? '',
+        );
+        self::assertStringContainsString('Healthy, with warnings', $tester->getDisplay());
+        self::assertSame(Command::FAILURE, $tester->execute(['--strict' => true], ['interactive' => false]));
+    }
+
+    public function testAMergedApplicationSchemaFilterIsNotReported(): void
+    {
+        $this->context->applySchemaAndReindex();
+        $tester = new CommandTester(new DoctorCommand($this->context->fuzzphony, '~^(?!(public\.)?(fuzzphony_|legacy_))~'));
+
+        self::assertSame(Command::SUCCESS, $tester->execute(['--strict' => true], ['interactive' => false]), $tester->getDisplay());
+        self::assertStringNotContainsString('Doctrine schema filter', $tester->getDisplay());
+        self::assertStringContainsString('All checks passed', $tester->getDisplay());
+    }
+
+    public function testTheSchemaFilterIsCheckedAgainstFuzzphonysSchema(): void
+    {
+        $this->context->applySchemaAndReindex();
+        $tester = new CommandTester(new DoctorCommand($this->context->fuzzphony, '~^(?!(public\.)?(fuzzphony_|legacy_))~', 'fuzzphony'));
+
+        $tester->execute([], ['interactive' => false]);
+
+        self::assertStringContainsString('Merge Fuzzphony\'s filter into yours: ~^(?!fuzzphony\.)~', preg_replace('/\s+/', ' ', $tester->getDisplay()) ?? '', 'merged for public, not for the dedicated schema');
+    }
+
+    public function testTheApplicationFilterIsPrintedVerbatim(): void
+    {
+        $this->context->applySchemaAndReindex();
+        $tester = new CommandTester(new DoctorCommand($this->context->fuzzphony, '~^(?!<info>)~'));
+
+        $tester->execute([], ['interactive' => false]);
+
+        self::assertStringContainsString('schema_filter ~^(?!<info>)~ lets', $tester->getDisplay());
+    }
+
+    public function testTheSchemaFilterWarningDoesNotHideAnError(): void
+    {
+        $tester = new CommandTester(new DoctorCommand($this->context->fuzzphony, '~^(?!legacy_)~'));
+
+        self::assertSame(Command::FAILURE, $tester->execute([], ['interactive' => false])); // schema never applied
+        self::assertStringContainsString('Problems found', $tester->getDisplay());
+    }
+
     public function testHealthyIndexExitsZero(): void
     {
         $this->context->applySchemaAndReindex();

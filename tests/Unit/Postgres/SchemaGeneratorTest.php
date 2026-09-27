@@ -4,25 +4,21 @@ declare(strict_types=1);
 
 namespace Fuzzphony\Tests\Unit\Postgres;
 
+use Composer\InstalledVersions;
 use Fuzzphony\Core\Definition\IndexDefinition;
 use Fuzzphony\Core\Definition\SyncMode;
 use Fuzzphony\Core\Definition\TriggerLevel;
 use Fuzzphony\Core\Definition\Watch;
 use Fuzzphony\Core\Schema\Statement;
+use Fuzzphony\Engine\Postgres\Schema\Fingerprint;
+use Fuzzphony\Engine\Postgres\Schema\Names;
 use Fuzzphony\Engine\Postgres\Schema\PostgresSchemaGenerator;
+use Fuzzphony\Engine\Postgres\Sql\Sql;
 use Fuzzphony\Tests\Fixtures\Indexes;
 use PHPUnit\Framework\TestCase;
 
 final class SchemaGeneratorTest extends TestCase
 {
-    public function testAnInvalidExtensionSchemaIsRejected(): void
-    {
-        $this->expectException(\InvalidArgumentException::class);
-        $this->expectExceptionMessage('Invalid extension schema "not a valid ident; drop table".');
-
-        new PostgresSchemaGenerator('not a valid ident; drop table');
-    }
-
     public function testSidecarColumnsFollowTheDefinition(): void
     {
         self::assertSame(
@@ -49,8 +45,8 @@ final class SchemaGeneratorTest extends TestCase
         $trigger = (new PostgresSchemaGenerator())->index(Indexes::products('trigger'))->toSql();
         $manual = (new PostgresSchemaGenerator())->index(Indexes::products('manual'))->toSql();
 
-        self::assertStringContainsString('INSERT INTO fuzzphony_queue', $queue);
-        self::assertStringContainsString('PERFORM "fuzzphony_refresh_products"', $trigger);
+        self::assertStringContainsString('INSERT INTO "public"."fuzzphony_queue"', $queue);
+        self::assertStringContainsString('PERFORM "public"."fuzzphony_refresh_products"', $trigger);
         self::assertStringNotContainsString('CREATE OR REPLACE TRIGGER', $manual);
         self::assertStringContainsString('DROP TRIGGER IF EXISTS "fuzzphony_sync_products__fz_brand" ON "fz_brand"', $manual);
         self::assertStringContainsString('DROP TRIGGER IF EXISTS "fuzzphony_sync_products__fz_brand_upd" ON "fz_brand"', $manual);
@@ -67,7 +63,7 @@ final class SchemaGeneratorTest extends TestCase
 
     public function testRowLevelTriggers(): void
     {
-        $definition = Indexes::products('queue')->with(triggerLevel: TriggerLevel::Row);
+        $definition = Indexes::products('queue')->withTriggerLevel(TriggerLevel::Row);
         $sql = (new PostgresSchemaGenerator())->index($definition)->toSql();
 
         self::assertStringContainsString('SELECT id FROM fz_product WHERE brand_id = NEW."id"', $sql);
@@ -80,11 +76,11 @@ final class SchemaGeneratorTest extends TestCase
     {
         foreach ([TriggerLevel::Statement, TriggerLevel::Row] as $level) {
             foreach (['queue', 'trigger'] as $sync) {
-                $sql = (new PostgresSchemaGenerator())->index(Indexes::products($sync)->with(triggerLevel: $level))->toSql();
+                $sql = (new PostgresSchemaGenerator())->index(Indexes::products($sync)->withTriggerLevel($level))->toSql();
 
                 foreach (['fz_product', 'fz_brand'] as $table) {
                     self::assertStringContainsString(
-                        sprintf('CREATE OR REPLACE TRIGGER "fuzzphony_sync_products__%1$s_trn" AFTER TRUNCATE ON "%1$s" FOR EACH STATEMENT EXECUTE FUNCTION "fuzzphony_sync_products__%1$s"()', $table),
+                        sprintf('CREATE OR REPLACE TRIGGER "fuzzphony_sync_products__%1$s_trn" AFTER TRUNCATE ON "%1$s" FOR EACH STATEMENT EXECUTE FUNCTION "public"."fuzzphony_sync_products__%1$s"()', $table),
                         $sql,
                         sprintf('%s sync, %s level', $sync, $level->value),
                     );
@@ -113,7 +109,7 @@ final class SchemaGeneratorTest extends TestCase
             ->build();
         foreach ([Indexes::products('queue'), Indexes::products('trigger'), $filtered] as $definition) {
             foreach ([TriggerLevel::Statement, TriggerLevel::Row] as $level) {
-                $definition = $definition->with(triggerLevel: $level);
+                $definition = $definition->withTriggerLevel($level);
                 foreach ((new PostgresSchemaGenerator())->index($definition)->statements as $statement) {
                     if (!str_contains($statement->sql, 'RETURNS trigger')) {
                         continue;
@@ -131,7 +127,7 @@ final class SchemaGeneratorTest extends TestCase
         $definition = IndexDefinition::builder('articles')->fromTable('article')->field('title')->build();
         $guard = "IF TG_OP = 'TRUNCATE' THEN
         IF NOT EXISTS (SELECT 1 FROM \"article\") THEN
-            DELETE FROM \"fuzzphony_articles\";";
+            DELETE FROM \"public\".\"fuzzphony_articles\";";
         $resync = "
         ELSE
             %s";
@@ -139,16 +135,16 @@ final class SchemaGeneratorTest extends TestCase
         $queue = (new PostgresSchemaGenerator())->index($definition)->toSql();
         self::assertStringContainsString(
             $guard . "
-            DELETE FROM fuzzphony_queue WHERE ctid IN (SELECT ctid FROM fuzzphony_queue WHERE index_name = 'articles' FOR UPDATE SKIP LOCKED);"
-            . sprintf($resync, "INSERT INTO fuzzphony_queue (index_name, doc_id)
+            DELETE FROM \"public\".\"fuzzphony_queue\" WHERE ctid IN (SELECT ctid FROM \"public\".\"fuzzphony_queue\" WHERE index_name = 'articles' FOR UPDATE SKIP LOCKED);"
+            . sprintf($resync, "INSERT INTO \"public\".\"fuzzphony_queue\" (index_name, doc_id)
 "),
             $queue,
         );
-        self::assertStringNotContainsString("DELETE FROM fuzzphony_queue WHERE index_name = 'articles'", $queue, 'never waits on the rows a worker holds');
+        self::assertStringNotContainsString("DELETE FROM \"public\".\"fuzzphony_queue\" WHERE index_name = 'articles'", $queue, 'never waits on the rows a worker holds');
 
-        $trigger = (new PostgresSchemaGenerator())->index($definition->with(sync: SyncMode::Trigger))->toSql();
-        self::assertStringContainsString($guard . sprintf($resync, 'PERFORM "fuzzphony_refresh_articles"(ARRAY(SELECT s.id FROM "fuzzphony_articles" AS s UNION'), $trigger);
-        self::assertStringNotContainsString('fuzzphony_queue WHERE ctid', $trigger);
+        $trigger = (new PostgresSchemaGenerator())->index($definition->withSync(SyncMode::Trigger))->toSql();
+        self::assertStringContainsString($guard . sprintf($resync, 'PERFORM "public"."fuzzphony_refresh_articles"(ARRAY(SELECT s.id FROM "public"."fuzzphony_articles" AS s UNION'), $trigger);
+        self::assertStringNotContainsString('"public"."fuzzphony_queue" WHERE ctid', $trigger);
     }
 
     public function testASecondWatchedTableOfATableSourceNeverWipesTheIndex(): void
@@ -156,14 +152,14 @@ final class SchemaGeneratorTest extends TestCase
         $definition = IndexDefinition::builder('articles')->fromTable('article')->field('title')->watch('comment', 'SELECT article_id FROM comment WHERE id = :id')->build();
         foreach (['queue', 'trigger'] as $sync) {
             $functions = array_values(array_filter(
-                (new PostgresSchemaGenerator())->index($definition->with(sync: SyncMode::from($sync)))->statements,
-                static fn($statement): bool => str_contains($statement->sql, 'CREATE OR REPLACE FUNCTION "fuzzphony_sync_articles__comment"'),
+                (new PostgresSchemaGenerator())->index($definition->withSync(SyncMode::from($sync)))->statements,
+                static fn($statement): bool => str_contains($statement->sql, 'CREATE OR REPLACE FUNCTION "public"."fuzzphony_sync_articles__comment"'),
             ));
             self::assertCount(1, $functions);
-            self::assertStringNotContainsString('DELETE FROM "fuzzphony_articles";', $functions[0]->sql, $sync);
+            self::assertStringNotContainsString('DELETE FROM "public"."fuzzphony_articles";', $functions[0]->sql, $sync);
             self::assertStringNotContainsString('NOT EXISTS (SELECT 1 FROM "article")', $functions[0]->sql, $sync);
             self::assertStringContainsString("IF TG_OP = 'TRUNCATE' THEN
-        " . ($sync === 'queue' ? 'INSERT INTO fuzzphony_queue' : 'PERFORM "fuzzphony_refresh_articles"'), $functions[0]->sql, $sync);
+        " . ($sync === 'queue' ? 'INSERT INTO "public"."fuzzphony_queue"' : 'PERFORM "public"."fuzzphony_refresh_articles"'), $functions[0]->sql, $sync);
         }
     }
 
@@ -171,14 +167,14 @@ final class SchemaGeneratorTest extends TestCase
     {
         $queue = (new PostgresSchemaGenerator())->index(Indexes::products('queue'))->toSql();
         self::assertStringContainsString(
-            "IF TG_OP = 'TRUNCATE' THEN\n        INSERT INTO fuzzphony_queue (index_name, doc_id)\n        SELECT 'products', t.id::text FROM (SELECT s.id FROM \"fuzzphony_products\" AS s UNION SELECT doc.fz_id::bigint FROM (SELECT d.\"id\" AS fz_id",
+            "IF TG_OP = 'TRUNCATE' THEN\n        INSERT INTO \"public\".\"fuzzphony_queue\" (index_name, doc_id)\n        SELECT 'products', t.id::text FROM (SELECT s.id FROM \"public\".\"fuzzphony_products\" AS s UNION SELECT doc.fz_id::bigint FROM (SELECT d.\"id\" AS fz_id",
             $queue,
         );
-        self::assertStringNotContainsString('DELETE FROM "fuzzphony_products";', $queue, 'a query source is never emptied wholesale');
+        self::assertStringNotContainsString('DELETE FROM "public"."fuzzphony_products";', $queue, 'a query source is never emptied wholesale');
 
         $trigger = (new PostgresSchemaGenerator())->index(Indexes::products('trigger'))->toSql();
         self::assertStringContainsString(
-            "IF TG_OP = 'TRUNCATE' THEN\n        PERFORM \"fuzzphony_refresh_products\"(ARRAY(SELECT s.id FROM \"fuzzphony_products\" AS s UNION SELECT doc.fz_id::bigint FROM (SELECT d.\"id\" AS fz_id",
+            "IF TG_OP = 'TRUNCATE' THEN\n        PERFORM \"public\".\"fuzzphony_refresh_products\"(ARRAY(SELECT s.id FROM \"public\".\"fuzzphony_products\" AS s UNION SELECT doc.fz_id::bigint FROM (SELECT d.\"id\" AS fz_id",
             $trigger,
         );
     }
@@ -188,9 +184,16 @@ final class SchemaGeneratorTest extends TestCase
         $sql = (new PostgresSchemaGenerator())->index(Indexes::products())->toSql();
 
         self::assertStringContainsString('SELECT DISTINCT ON (doc.fz_id)', $sql);
-        self::assertStringContainsString("setweight(to_tsvector('fuzzphony_english'::regconfig, coalesce(doc.\"fld_name\"::text, '')), 'A')", $sql);
+        self::assertStringContainsString("setweight(to_tsvector('\"public\".\"fuzzphony_english\"'::regconfig, coalesce(doc.\"fld_name\"::text, '')), 'A')", $sql);
         self::assertStringContainsString('ON CONFLICT (id) DO UPDATE SET', $sql);
         self::assertStringContainsString('AND NOT EXISTS (SELECT 1 FROM', $sql);
+    }
+
+    public function testTheNormaliserQuotesAMixedCaseExtensionSchema(): void
+    {
+        $sql = (new PostgresSchemaGenerator(new Names('Ext')))->global(Indexes::products())->toSql();
+
+        self::assertStringContainsString("SELECT btrim(regexp_replace(lower(\"Ext\".unaccent('\"Ext\".unaccent'::regdictionary, \$1)), '[^[:alnum:]]+', ' ', 'g'))", $sql);
     }
 
     public function testGlobalSchemaCreatesOneTextConfigPerLanguage(): void
@@ -198,11 +201,11 @@ final class SchemaGeneratorTest extends TestCase
         $german = IndexDefinition::builder('articles')->fromTable('article')->field('title')->language('german')->build();
         $sql = (new PostgresSchemaGenerator())->global(Indexes::products(), Indexes::products(), $german)->toSql();
 
-        self::assertSame(1, substr_count($sql, 'CREATE TEXT SEARCH CONFIGURATION "fuzzphony_english"'));
+        self::assertSame(1, substr_count($sql, 'CREATE TEXT SEARCH CONFIGURATION "public"."fuzzphony_english"'));
         self::assertStringContainsString('WITH "public".unaccent, "german_stem"', $sql, 'for a language without a stop-word list');
-        self::assertStringContainsString('WITH "fuzzphony_german_stop", "public".unaccent, "german_stem"', $sql, 'accented stop words are dropped before unaccent');
+        self::assertStringContainsString('WITH "public"."fuzzphony_german_stop", "public".unaccent, "german_stem"', $sql, 'accented stop words are dropped before unaccent');
         self::assertStringContainsString("FROM pg_ts_dict WHERE oid = '\"german_stem\"'::regdictionary", $sql, 'the stop-word list comes from the catalog');
-        self::assertStringContainsString("EXECUTE format('CREATE TEXT SEARCH DICTIONARY %I (TEMPLATE = pg_catalog.simple, STOPWORDS = %L, ACCEPT = false)', 'fuzzphony_german_stop', v_stopwords)", $sql);
+        self::assertStringContainsString("EXECUTE format('CREATE TEXT SEARCH DICTIONARY %I.%I (TEMPLATE = pg_catalog.simple, STOPWORDS = %L, ACCEPT = false)', 'public', 'fuzzphony_german_stop', v_stopwords)", $sql);
         self::assertMatchesRegularExpression('/COPY = "english"\);\s+END IF;\s+SELECT substring/', $sql, 'only the CREATE is conditional, so --apply repairs an existing configuration');
     }
 
@@ -212,7 +215,7 @@ final class SchemaGeneratorTest extends TestCase
         $definition = IndexDefinition::builder($name)->fromTable('a_really_long_table_name_for_testing')->field('title')->build();
         $generator = new PostgresSchemaGenerator();
 
-        self::assertLessThanOrEqual(63, strlen($generator->syncFunctionName($definition, $definition->effectiveWatches()[0])));
+        self::assertLessThanOrEqual(63, strlen((new Names())->syncFunctionName($definition, $definition->effectiveWatches()[0])));
         foreach (array_keys($generator->indexes($definition)) as $index) {
             self::assertLessThanOrEqual(63, strlen($index));
         }
@@ -222,8 +225,33 @@ final class SchemaGeneratorTest extends TestCase
     {
         $sql = (new PostgresSchemaGenerator())->drop(Indexes::products())->toSql();
 
-        self::assertStringContainsString('DROP TABLE IF EXISTS "fuzzphony_products"', $sql);
+        self::assertStringContainsString('DROP TABLE IF EXISTS "public"."fuzzphony_products"', $sql);
         self::assertStringNotContainsString('DROP TABLE IF EXISTS "fz_product"', $sql);
+    }
+
+    public function testDropRemovesEveryTriggerAndFunctionAndForgetsQueuedItems(): void
+    {
+        $sql = (new PostgresSchemaGenerator())->drop(Indexes::products())->toSql();
+
+        self::assertStringContainsString('DROP TRIGGER IF EXISTS "fuzzphony_sync_products__fz_brand_trn" ON "fz_brand"', $sql);
+        self::assertStringContainsString('DROP FUNCTION IF EXISTS "public"."fuzzphony_sync_products__fz_brand"()', $sql);
+        self::assertStringContainsString('DROP FUNCTION IF EXISTS "public"."fuzzphony_refresh_products"(bigint[])', $sql);
+        self::assertStringContainsString("IF to_regclass('\"public\".\"fuzzphony_queue\"') IS NOT NULL THEN DELETE FROM \"public\".\"fuzzphony_queue\" WHERE index_name = 'products'; END IF;", $sql);
+    }
+
+    public function testSecondaryIndexAndTriggerNames(): void
+    {
+        $generator = new PostgresSchemaGenerator();
+        $index = Indexes::products();
+
+        self::assertSame(
+            ['fuzzphony_products_tsv', 'fuzzphony_products_fz', 'fuzzphony_products_f_price', 'fuzzphony_products_f_in_stock', 'fuzzphony_products_f_published_at', 'fuzzphony_products_f_brand_id'],
+            array_keys($generator->indexes($index)),
+        );
+        self::assertSame(
+            ['fuzzphony_sync_products__fz_brand', 'fuzzphony_sync_products__fz_brand_ins', 'fuzzphony_sync_products__fz_brand_upd', 'fuzzphony_sync_products__fz_brand_del', 'fuzzphony_sync_products__fz_brand_trn'],
+            $generator->allTriggerNames($index, new Watch('fz_brand')),
+        );
     }
 
     public function testRelevantColumnsAutoDerivesForTheSelfWatchOnATableSource(): void
@@ -280,7 +308,7 @@ final class SchemaGeneratorTest extends TestCase
 
     public function testRowLevelTriggersSkipUnchangedColumns(): void
     {
-        $definition = Indexes::products('queue')->with(triggerLevel: TriggerLevel::Row, tenant: null);
+        $definition = Indexes::products('queue')->withTriggerLevel(TriggerLevel::Row)->withTenant(null);
         // Force a self-watch scenario isn't available on this query-sourced fixture; instead prove
         // the guard is emitted for a watch that DOES have relevant columns via an explicit list.
         $definition = IndexDefinition::builder($definition->name)
@@ -325,7 +353,7 @@ final class SchemaGeneratorTest extends TestCase
 
     public function testRowLevelTriggersWithoutColumnsAreUnchanged(): void
     {
-        $definition = Indexes::products('queue')->with(triggerLevel: TriggerLevel::Row);
+        $definition = Indexes::products('queue')->withTriggerLevel(TriggerLevel::Row);
         $sql = (new PostgresSchemaGenerator())->index($definition)->toSql();
 
         self::assertStringNotContainsString("TG_OP = 'UPDATE' AND NOT", $sql);
@@ -374,5 +402,104 @@ final class SchemaGeneratorTest extends TestCase
         self::assertSame(1, $deleteMatched);
         self::assertStringNotContainsString('fz_old', $insertBranch[1] ?? '');
         self::assertStringNotContainsString('fz_new', $deleteBranch[1] ?? '');
+    }
+
+    public function testTheDefaultSchemaNeedsNoCreateSchema(): void
+    {
+        // PostgreSQL checks CREATE on the database before IF NOT EXISTS: a 0.3 install must still apply as a role without it.
+        self::assertStringNotContainsString('CREATE SCHEMA', (new PostgresSchemaGenerator())->global(Indexes::products())->toSql());
+    }
+
+    public function testADedicatedSchemaIsCreatedFirstAndHoldsEveryObject(): void
+    {
+        $generator = new PostgresSchemaGenerator(new Names(schema: 'fuzzphony_s'));
+        $global = $generator->global(Indexes::products());
+        $sql = $global->merge($generator->index(Indexes::products()))->toSql();
+
+        self::assertSame('CREATE SCHEMA IF NOT EXISTS "fuzzphony_s"', $global->statements[0]->sql);
+        self::assertStringContainsString('CREATE TABLE IF NOT EXISTS "fuzzphony_s"."fuzzphony_queue"', $sql);
+        self::assertStringContainsString('CREATE INDEX IF NOT EXISTS fuzzphony_queue_order ON "fuzzphony_s"."fuzzphony_queue"', $sql);
+        self::assertStringContainsString('CREATE TABLE IF NOT EXISTS "fuzzphony_s"."fuzzphony_products"', $sql);
+        self::assertStringContainsString('CREATE OR REPLACE FUNCTION "fuzzphony_s"."fuzzphony_norm"(text)', $sql);
+        self::assertStringContainsString('CREATE OR REPLACE FUNCTION "fuzzphony_s"."fuzzphony_refresh_products"(p_ids bigint[])', $sql);
+        self::assertStringContainsString('EXECUTE FUNCTION "fuzzphony_s"."fuzzphony_sync_products__fz_brand"()', $sql);
+        self::assertStringContainsString('CREATE INDEX CONCURRENTLY IF NOT EXISTS "fuzzphony_products_tsv" ON "fuzzphony_s"."fuzzphony_products"', $sql);
+        self::assertStringContainsString('INSERT INTO "fuzzphony_s"."fuzzphony_queue" (index_name, doc_id)', $sql);
+        self::assertStringContainsString("setweight(to_tsvector('\"fuzzphony_s\".\"fuzzphony_english\"'::regconfig", $sql);
+        self::assertStringContainsString('"fuzzphony_s"."fuzzphony_norm"(doc."fld_name"::text)', $sql);
+    }
+
+    public function testGeneratedFunctionsPinTheirSearchPath(): void
+    {
+        $generator = new PostgresSchemaGenerator();
+        $sql = $generator->global(Indexes::products())->merge($generator->index(Indexes::products()))->toSql();
+
+        self::assertStringContainsString("RETURNS text\nLANGUAGE sql IMMUTABLE PARALLEL SAFE STRICT\nSET search_path = pg_catalog, pg_temp\nAS \$fuzzphony\$", $sql);
+        self::assertStringContainsString("RETURNS integer\nLANGUAGE plpgsql SET search_path FROM CURRENT AS \$fuzzphony\$", $sql);
+        self::assertSame(2, substr_count($sql, "RETURNS trigger\nLANGUAGE plpgsql SET search_path FROM CURRENT AS \$fuzzphony\$"), 'both sync functions');
+
+        $row = $generator->index(Indexes::products()->withTriggerLevel(TriggerLevel::Row))->toSql();
+        self::assertSame(2, substr_count($row, "RETURNS trigger\nLANGUAGE plpgsql SET search_path FROM CURRENT AS \$fuzzphony\$"), 'row-level sync functions too');
+    }
+
+    public function testCatalogLookupsCompareTheExactSchemaName(): void
+    {
+        $sql = (new PostgresSchemaGenerator(new Names(schema: 'Fz')))->global(Indexes::products())->toSql();
+
+        self::assertStringContainsString("WHERE c.cfgname = 'fuzzphony_english' AND n.nspname = 'Fz'", $sql);
+        self::assertStringContainsString("WHERE d.dictname = 'fuzzphony_english_stop' AND n.nspname = 'Fz'", $sql);
+        self::assertStringContainsString("EXECUTE format('CREATE TEXT SEARCH DICTIONARY %I.%I (TEMPLATE = pg_catalog.simple, STOPWORDS = %L, ACCEPT = false)', 'Fz', 'fuzzphony_english_stop', v_stopwords)", $sql);
+        self::assertStringContainsString('CREATE TEXT SEARCH CONFIGURATION "Fz"."fuzzphony_english" (COPY = "english")', $sql);
+        self::assertStringContainsString('WITH "Fz"."fuzzphony_english_stop", "public".unaccent, "english_stem"', $sql);
+    }
+
+    public function testApplyCreatesTheMetaTableAndRecordsTheSharedObjectsLast(): void
+    {
+        $statements = (new PostgresSchemaGenerator())->global(Indexes::products())->statements;
+        $sql = implode("\n", array_map(static fn(Statement $s): string => $s->sql, $statements));
+        $last = $statements[count($statements) - 1];
+
+        self::assertStringContainsString(
+            "CREATE TABLE IF NOT EXISTS \"public\".\"fuzzphony_meta\" (\n    index_name text PRIMARY KEY,\n    layout_version integer NOT NULL,\n    definition_hash text NOT NULL,\n    documents_hash text,\n    library_version text NOT NULL,\n    applied_at timestamptz NOT NULL,\n    reindexed_at timestamptz\n)",
+            $sql,
+        );
+        self::assertFalse($last->transactional, 'after everything else');
+        self::assertSame(self::upsert('*', Fingerprint::shared(new Names())), $last->sql);
+    }
+
+    public function testApplyRecordsTheIndexLayoutAndDefinitionAfterTheConcurrentIndexBuilds(): void
+    {
+        $statements = (new PostgresSchemaGenerator())->index(Indexes::products())->statements;
+        $last = $statements[count($statements) - 1];
+
+        self::assertSame(1, PostgresSchemaGenerator::LAYOUT_VERSION);
+        self::assertFalse($last->transactional);
+        self::assertSame(self::upsert('products', Fingerprint::definition(Indexes::products())), $last->sql);
+        self::assertSame('Record the layout and definition "products" was built from', $last->description);
+    }
+
+    public function testDropForgetsTheVersionRecordAndAReindexRecordsTheDocuments(): void
+    {
+        $generator = new PostgresSchemaGenerator();
+        $drop = $generator->drop(Indexes::products())->statements;
+
+        self::assertSame(
+            "DO \$fuzzphony\$ BEGIN IF to_regclass('\"public\".\"fuzzphony_meta\"') IS NOT NULL THEN DELETE FROM \"public\".\"fuzzphony_meta\" WHERE index_name = 'products'; END IF; END \$fuzzphony\$",
+            $drop[count($drop) - 1]->sql,
+        );
+        self::assertSame(
+            sprintf("DO \$fuzzphony\$ BEGIN IF to_regclass('\"public\".\"fuzzphony_meta\"') IS NOT NULL THEN UPDATE \"public\".\"fuzzphony_meta\" SET documents_hash = '%s', reindexed_at = now() WHERE index_name = 'products'; END IF; END \$fuzzphony\$", Fingerprint::documents(Indexes::products())),
+            $generator->reindexed(Indexes::products()),
+        );
+    }
+
+    private static function upsert(string $index, string $hash): string
+    {
+        return sprintf(
+            "INSERT INTO \"public\".\"fuzzphony_meta\" (index_name, layout_version, definition_hash, library_version, applied_at)\nVALUES ('%s', 1, '%s', %s, now())\nON CONFLICT (index_name) DO UPDATE SET layout_version = EXCLUDED.layout_version, definition_hash = EXCLUDED.definition_hash, library_version = EXCLUDED.library_version, applied_at = EXCLUDED.applied_at",
+            $index,
+            $hash,
+            Sql::string((string) InstalledVersions::getPrettyVersion('fuzzphony/fuzzphony')),
+        );
     }
 }

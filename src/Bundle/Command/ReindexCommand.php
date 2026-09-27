@@ -6,7 +6,7 @@ namespace Fuzzphony\Bundle\Command;
 
 use Fuzzphony\Core\Fuzzphony;
 use Fuzzphony\Core\Support\Coerce;
-use Fuzzphony\Core\Sync\Reindexer;
+use Fuzzphony\Core\Sync\ReindexOptions;
 use Symfony\Component\Console\Attribute\AsCommand;
 use Symfony\Component\Console\Command\Command;
 use Symfony\Component\Console\Completion\CompletionInput;
@@ -17,6 +17,7 @@ use Symfony\Component\Console\Input\InputOption;
 use Symfony\Component\Console\Output\OutputInterface;
 use Symfony\Component\Console\Style\SymfonyStyle;
 
+/** @internal The fuzzphony:reindex console command; its CLI is public, the class is not. */
 #[AsCommand(name: 'fuzzphony:reindex', description: 'Rebuild index documents from the source in resumable batches')]
 final class ReindexCommand extends Command
 {
@@ -42,26 +43,24 @@ final class ReindexCommand extends Command
         $from = $input->getOption('from');
         $noPrune = $input->getOption('no-prune') === true;
         $pruneEmpty = $input->getOption('prune-empty') === true;
-        $reindexer = new Reindexer($this->fuzzphony->engine());
 
         foreach (IndexArgument::resolve($this->fuzzphony, $input) as $index) {
             $io->section(sprintf('Reindexing "%s"', $index->name));
             $started = microtime(true);
-            $resume = is_string($from) ? $index->idType->cast($from) : null;
-            $pruned = null;
-            $skipped = false;
-            $total = $reindexer->run($index, $batch, $resume, static function (int $done, int|string $lastId) use ($io, $started): void {
-                $rate = $done / max(0.001, microtime(true) - $started);
-                $io->writeln(sprintf('  %s documents, %s/s, last id %s <comment>(resume: --from=%s)</comment>', number_format($done), number_format($rate), $lastId, $lastId));
-            }, static function (int $removed) use (&$pruned): void {
-                $pruned = $removed;
-            }, !$noPrune, $pruneEmpty, static function () use (&$skipped): void {
-                $skipped = true;
-            });
-            $io->writeln(sprintf('  <info>%s documents in %.1fs</info>', number_format($total), microtime(true) - $started));
+            $result = $this->fuzzphony->reindex($index->name, new ReindexOptions(
+                batchSize: $batch,
+                resumeAfter: is_string($from) ? $index->idType->cast($from) : null,
+                prune: !$noPrune,
+                pruneEmpty: $pruneEmpty,
+                onBatch: static function (int $done, int|string $lastId) use ($io, $started): void {
+                    $rate = $done / max(0.001, microtime(true) - $started);
+                    $io->writeln(sprintf('  %s documents, %s/s, last id %s <comment>(resume: --from=%s)</comment>', number_format($done), number_format($rate), $lastId, $lastId));
+                },
+            ));
+            $io->writeln(sprintf('  <info>%s documents in %.1fs</info>', number_format($result->written), microtime(true) - $started));
             $io->writeln(match (true) {
-                $pruned !== null => sprintf('  %s orphaned document(s) removed (no longer in the source)', number_format($pruned)),
-                $skipped => '  <comment>The source returned no rows for this session, so nothing was pruned (row-level security or search_path? a TRUNCATE is handled by its trigger). Use --prune-empty to remove every indexed document anyway.</comment>',
+                $result->pruned !== null => sprintf('  %s orphaned document(s) removed (no longer in the source)', number_format($result->pruned)),
+                $result->pruneSkippedEmptySource => '  <comment>The source returned no rows for this session, so nothing was pruned (row-level security or search_path? a TRUNCATE is handled by its trigger). Use --prune-empty to remove every indexed document anyway.</comment>',
                 $noPrune => '  <comment>Pruning skipped (--no-prune).</comment>',
                 default => '  <comment>Orphaned documents are only removed by a full run (without --from).</comment>',
             });
