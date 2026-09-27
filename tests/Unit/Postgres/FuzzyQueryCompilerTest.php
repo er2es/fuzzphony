@@ -27,7 +27,7 @@ final class FuzzyQueryCompilerTest extends TestCase
 
         self::assertNotNull($match);
         // the values are q columns (bound once each); predicate and score only reference them
-        self::assertSame(["to_tsquery('fuzzphony_english'::regconfig, :p0) AS ft0", 'fuzzphony_norm(:p1) AS fn1'], $match->columns);
+        self::assertSame(["to_tsquery('\"public\".\"fuzzphony_english\"'::regconfig, :p0) AS ft0", '"public"."fuzzphony_norm"(:p1) AS fn1'], $match->columns);
         self::assertSame('(s.tsv @@ q.ft0 OR q.fn1 OPERATOR("public".<%) s.fz)', $match->predicate);
         self::assertSame('GREATEST("public".word_similarity(q.fn1, s.fz), CASE WHEN s.tsv @@ q.ft0 THEN 1.0 ELSE 0.0 END)', $match->score);
         self::assertSame(['p0' => "'mouse'", 'p1' => 'mouse'], $params->all());
@@ -181,7 +181,7 @@ final class FuzzyQueryCompilerTest extends TestCase
         self::assertNotNull($first);
         self::assertNotNull($second);
         self::assertCount(4, $first->columns);
-        self::assertSame(["to_tsquery('fuzzphony_english'::regconfig, :p0) AS ft0", 'fuzzphony_norm(:p1) AS fn1'], $second->columns);
+        self::assertSame(["to_tsquery('\"public\".\"fuzzphony_english\"'::regconfig, :p0) AS ft0", '"public"."fuzzphony_norm"(:p1) AS fn1'], $second->columns);
         self::assertSame('(s.tsv @@ q.ft0 OR q.fn1 OPERATOR("public".<%) s.fz)', $second->predicate);
         self::assertSame(['p0' => "'lamp'", 'p1' => 'lamp'], $secondParams->all());
     }
@@ -258,11 +258,11 @@ final class FuzzyQueryCompilerTest extends TestCase
         // exact or trigram, like the fuzzy branch; below fuzzyMinLength exact only; a stop word has none
         self::assertSame(['(s.tsv @@ q.ft0 OR q.fn1 OPERATOR("public".<%) s.fz)', 's.tsv @@ q.ft2', null, '(s.tsv @@ q.ft3 OR q.fn4 OPERATOR("public".<%) s.fz)'], $conditions['predicates']);
         self::assertSame([
-            "to_tsquery('fuzzphony_english'::regconfig, :p0) AS ft0",
-            'fuzzphony_norm(:p1) AS fn1',
-            "to_tsquery('fuzzphony_english'::regconfig, :p2) AS ft2",
-            "to_tsquery('fuzzphony_english'::regconfig, :p3) AS ft3",
-            'fuzzphony_norm(:p4) AS fn4',
+            "to_tsquery('\"public\".\"fuzzphony_english\"'::regconfig, :p0) AS ft0",
+            '"public"."fuzzphony_norm"(:p1) AS fn1',
+            "to_tsquery('\"public\".\"fuzzphony_english\"'::regconfig, :p2) AS ft2",
+            "to_tsquery('\"public\".\"fuzzphony_english\"'::regconfig, :p3) AS ft3",
+            '"public"."fuzzphony_norm"(:p4) AS fn4',
         ], $conditions['columns']);
         self::assertSame(['p0' => "'wireless'", 'p1' => 'wireless', 'p2' => "'ab'", 'p3' => "'aluminum'", 'p4' => 'aluminum'], $params->all());
     }

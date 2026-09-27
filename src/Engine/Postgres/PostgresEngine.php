@@ -52,11 +52,16 @@ final class PostgresEngine implements Engine
     private readonly Names $names;
     private readonly PostgresSchemaGenerator $schema;
 
+    /**
+     * @param string $extensionSchema schema of the pg_trgm and unaccent extensions
+     * @param string $schema          schema of Fuzzphony's own tables, functions and text search configurations
+     */
     public function __construct(
         private readonly Connection $connection,
         string $extensionSchema = 'public',
+        string $schema = 'public',
     ) {
-        $this->names = new Names($extensionSchema);
+        $this->names = new Names($extensionSchema, $schema);
         $this->schema = new PostgresSchemaGenerator($this->names);
     }
 

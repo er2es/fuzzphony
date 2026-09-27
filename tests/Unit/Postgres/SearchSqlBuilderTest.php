@@ -23,7 +23,7 @@ final class SearchSqlBuilderTest extends TestCase
         // q.tsq, q.norm, the per-word fuzzy values (q.ft0, q.fn1), fts filter, fuzzy filter
         self::assertSame(['p0' => "'mouse'", 'p1' => 'mouse', 'p2' => "'mouse'", 'p3' => 'mouse', 'p4' => 500, 'p5' => 500], $statement['params']);
         self::assertStringContainsString(
-            "q AS MATERIALIZED (SELECT to_tsquery('fuzzphony_english'::regconfig, :p0) AS tsq, fuzzphony_norm(:p1) AS norm, to_tsquery('fuzzphony_english'::regconfig, :p2) AS ft0, fuzzphony_norm(:p3) AS fn1)",
+            "q AS MATERIALIZED (SELECT to_tsquery('\"public\".\"fuzzphony_english\"'::regconfig, :p0) AS tsq, \"public\".\"fuzzphony_norm\"(:p1) AS norm, to_tsquery('\"public\".\"fuzzphony_english\"'::regconfig, :p2) AS ft0, \"public\".\"fuzzphony_norm\"(:p3) AS fn1)",
             $statement['sql'],
         );
         self::assertStringContainsString("ts_rank_cd('{0.1,0.2,0.4,1}'::real[]", $statement['sql']);
@@ -63,9 +63,9 @@ final class SearchSqlBuilderTest extends TestCase
 
         self::assertSame(
             <<<'SQL'
-                WITH q AS MATERIALIZED (SELECT to_tsquery('fuzzphony_english'::regconfig, :p0) AS ft0, to_tsquery('fuzzphony_english'::regconfig, :p1) AS ft1),
-                     m0 AS MATERIALIZED (SELECT 1 FROM "fuzzphony_products" AS s CROSS JOIN q WHERE s.tsv @@ q.ft0 AND s."f_brand_id" = :p2),
-                     m2 AS MATERIALIZED (SELECT 1 FROM "fuzzphony_products" AS s CROSS JOIN q WHERE s.tsv @@ q.ft1 AND s."f_brand_id" = :p3)
+                WITH q AS MATERIALIZED (SELECT to_tsquery('"public"."fuzzphony_english"'::regconfig, :p0) AS ft0, to_tsquery('"public"."fuzzphony_english"'::regconfig, :p1) AS ft1),
+                     m0 AS MATERIALIZED (SELECT 1 FROM "public"."fuzzphony_products" AS s CROSS JOIN q WHERE s.tsv @@ q.ft0 AND s."f_brand_id" = :p2),
+                     m2 AS MATERIALIZED (SELECT 1 FROM "public"."fuzzphony_products" AS s CROSS JOIN q WHERE s.tsv @@ q.ft1 AND s."f_brand_id" = :p3)
                 SELECT
                     EXISTS (SELECT 1 FROM m0) AS l0,
                     NULL::boolean AS l1,
@@ -80,7 +80,7 @@ final class SearchSqlBuilderTest extends TestCase
     {
         $statement = (new SearchSqlBuilder(Indexes::products()))->probe([new Term('wireless'), new Term('aluminum')], true, [], new Thresholds(), []);
 
-        self::assertStringContainsString('m0 AS MATERIALIZED (SELECT 1 FROM "fuzzphony_products" AS s CROSS JOIN q WHERE (s.tsv @@ q.ft0 OR q.fn1 OPERATOR("public".<%) s.fz) AND TRUE)', $statement['sql']);
+        self::assertStringContainsString('m0 AS MATERIALIZED (SELECT 1 FROM "public"."fuzzphony_products" AS s CROSS JOIN q WHERE (s.tsv @@ q.ft0 OR q.fn1 OPERATOR("public".<%) s.fz) AND TRUE)', $statement['sql']);
         self::assertStringContainsString('(s.tsv @@ q.ft2 OR q.fn3 OPERATOR("public".<%) s.fz)', $statement['sql']);
         self::assertStringNotContainsString('aluminum', $statement['sql']);
     }

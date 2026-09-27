@@ -13,7 +13,8 @@ use Fuzzphony\Engine\Postgres\Sql\Sql;
 
 /**
  * @internal Every database object name Fuzzphony creates, in one place. Methods ending in "Name"
- * return the bare name (catalog lookups, derived index and trigger names); the others return SQL.
+ * return the bare name (catalog lookups, derived index and trigger names); the others return SQL,
+ * quoted and qualified with Fuzzphony's schema, so no statement depends on the caller's search_path.
  * Index and trigger names are never qualified: an index lives in its table's schema, a trigger on
  * its table.
  */
@@ -26,9 +27,17 @@ final readonly class Names
     public function __construct(
         /** Schema of the pg_trgm and unaccent extensions. */
         public string $extensionSchema = 'public',
+        /** Schema of Fuzzphony's own tables, functions and text search configurations. */
+        public string $schema = 'public',
     ) {
         if (!Identifier::isColumn($extensionSchema)) {
             throw new InvalidConfiguration(sprintf('Invalid extension schema "%s".', $extensionSchema));
+        }
+        if (!Identifier::isColumn($schema)) {
+            throw new InvalidConfiguration(sprintf('Invalid schema "%s": use a plain identifier such as "fuzzphony".', $schema));
+        }
+        if (str_starts_with($schema, 'pg_')) {
+            throw new InvalidConfiguration(sprintf('Invalid schema "%s": names starting with "pg_" are reserved by PostgreSQL.', $schema));
         }
     }
 
@@ -47,6 +56,11 @@ final readonly class Names
         return Sql::ident($this->extensionSchema);
     }
 
+    public function quotedSchema(): string
+    {
+        return Sql::ident($this->schema);
+    }
+
     public function sidecarName(IndexDefinition $index): string
     {
         return self::PREFIX . $index->name;
@@ -59,7 +73,7 @@ final readonly class Names
 
     public function queue(): string
     {
-        return self::PREFIX . 'queue';
+        return $this->qualify(self::PREFIX . 'queue');
     }
 
     public function queueOrderIndex(): string
@@ -69,7 +83,7 @@ final readonly class Names
 
     public function normFunction(): string
     {
-        return self::PREFIX . 'norm';
+        return $this->qualify(self::PREFIX . 'norm');
     }
 
     public function refreshFunctionName(IndexDefinition $index): string
@@ -119,7 +133,7 @@ final readonly class Names
     /** The configuration as a SQL value, for to_tsvector() / to_tsquery() / ts_headline(). */
     public function regconfig(TextConfig $config): string
     {
-        return Sql::string($this->textConfigName($config)) . '::regconfig';
+        return Sql::string($this->textConfig($config)) . '::regconfig';
     }
 
     /** The dictionary the accent-folding configuration consults for stop words, before unaccent. */
@@ -135,6 +149,6 @@ final readonly class Names
 
     private function qualify(string $name): string
     {
-        return Sql::ident($name);
+        return Sql::ident($this->schema . '.' . $name);
     }
 }

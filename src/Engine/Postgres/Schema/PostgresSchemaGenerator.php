@@ -35,11 +35,17 @@ final class PostgresSchemaGenerator
     public function global(IndexDefinition ...$indexes): SchemaPlan
     {
         $schema = $this->names->extensionSchema;
-        $statements = [
+        $statements = [];
+        if ($this->names->schema !== 'public') {
+            // not for public: PostgreSQL checks CREATE on the database before IF NOT EXISTS
+            $statements[] = new Statement(sprintf('CREATE SCHEMA IF NOT EXISTS %s', $this->names->quotedSchema()), "Fuzzphony's own schema");
+        }
+        array_push(
+            $statements,
             new Statement(sprintf('CREATE EXTENSION IF NOT EXISTS pg_trgm WITH SCHEMA %s', Sql::ident($schema)), 'Trigram matching for typo tolerance'),
             new Statement(sprintf('CREATE EXTENSION IF NOT EXISTS unaccent WITH SCHEMA %s', Sql::ident($schema)), 'Accent folding'),
             new Statement(sprintf(
-                "CREATE OR REPLACE FUNCTION %s(text) RETURNS text\nLANGUAGE sql IMMUTABLE PARALLEL SAFE STRICT\nAS " . self::TAG . " SELECT btrim(regexp_replace(lower(%s.unaccent('%s.unaccent'::regdictionary, \$1)), '[^[:alnum:]]+', ' ', 'g')) " . self::TAG,
+                "CREATE OR REPLACE FUNCTION %s(text) RETURNS text\nLANGUAGE sql IMMUTABLE PARALLEL SAFE STRICT\nSET search_path = pg_catalog, pg_temp\nAS " . self::TAG . " SELECT btrim(regexp_replace(lower(%s.unaccent('%s.unaccent'::regdictionary, \$1)), '[^[:alnum:]]+', ' ', 'g')) " . self::TAG,
                 $this->names->normFunction(),
                 Sql::ident($schema),
                 $schema,
@@ -49,7 +55,7 @@ final class PostgresSchemaGenerator
                 $this->names->queue(),
             ), 'Sync queue shared by all indexes'),
             new Statement(sprintf('CREATE INDEX IF NOT EXISTS %s ON %s (index_name, queued_at)', $this->names->queueOrderIndex(), $this->names->queue()), 'Queue processing order'),
-        ];
+        );
 
         $configs = [];
         foreach ($indexes as $index) {
@@ -255,6 +261,12 @@ final class PostgresSchemaGenerator
         return array_values(array_diff($this->allTriggerNames($index, $watch), array_keys($this->triggerDefinitions($index, $watch))));
     }
 
+    /**
+     * `SET search_path FROM CURRENT` keeps the search_path of the session that applied the schema:
+     * the embedded source query and watch SQL resolve their (usually unqualified) tables as they did
+     * then, and a caller's search_path cannot redirect anything inside. Fuzzphony's own objects are
+     * schema-qualified anyway.
+     */
     private function refreshFunction(IndexDefinition $index): string
     {
         $table = $this->names->sidecar($index);
@@ -284,7 +296,7 @@ final class PostgresSchemaGenerator
         return sprintf(
             <<<'SQL'
                 CREATE OR REPLACE FUNCTION %1$s(p_ids %2$s[]) RETURNS integer
-                LANGUAGE plpgsql AS %8$s
+                LANGUAGE plpgsql SET search_path FROM CURRENT AS %8$s
                 DECLARE
                     written integer;
                 BEGIN
@@ -355,7 +367,7 @@ final class PostgresSchemaGenerator
         }
 
         return sprintf(
-            "CREATE OR REPLACE FUNCTION %s() RETURNS trigger\nLANGUAGE plpgsql AS " . self::TAG . "\nBEGIN\n%s\n    RETURN NULL;\nEND\n" . self::TAG,
+            "CREATE OR REPLACE FUNCTION %s() RETURNS trigger\nLANGUAGE plpgsql SET search_path FROM CURRENT AS " . self::TAG . "\nBEGIN\n%s\n    RETURN NULL;\nEND\n" . self::TAG,
             $this->names->syncFunction($index, $watch),
             implode("\n", $body),
         );
@@ -370,7 +382,7 @@ final class PostgresSchemaGenerator
 
         // The TRUNCATE branch comes first, so a TRUNCATE never reaches a transition table (none is registered for it).
         return sprintf(
-            "CREATE OR REPLACE FUNCTION %s() RETURNS trigger\nLANGUAGE plpgsql AS " . self::TAG . "\nBEGIN\n%s\n%s\n    RETURN NULL;\nEND\n" . self::TAG,
+            "CREATE OR REPLACE FUNCTION %s() RETURNS trigger\nLANGUAGE plpgsql SET search_path FROM CURRENT AS " . self::TAG . "\nBEGIN\n%s\n%s\n    RETURN NULL;\nEND\n" . self::TAG,
             $this->names->syncFunction($index, $watch),
             $this->truncateBranch($index, $watch),
             $body,
@@ -544,7 +556,7 @@ final class PostgresSchemaGenerator
                 DECLARE
                     v_stopwords text;
                 BEGIN
-                    IF NOT EXISTS (SELECT 1 FROM pg_ts_config WHERE cfgname = %1$s) THEN
+                    IF NOT EXISTS (SELECT 1 FROM pg_ts_config c JOIN pg_namespace n ON n.oid = c.cfgnamespace WHERE c.cfgname = %1$s AND n.nspname = %10$s) THEN
                         CREATE TEXT SEARCH CONFIGURATION %2$s (COPY = %3$s);
                     END IF;
                     SELECT substring(dictinitoption FROM 'stopwords *= *''([[:alnum:]_]+)''') INTO v_stopwords
@@ -553,8 +565,8 @@ final class PostgresSchemaGenerator
                         ALTER TEXT SEARCH CONFIGURATION %2$s
                             ALTER MAPPING FOR hword, hword_part, word WITH %4$s.unaccent, %6$s;
                     ELSE
-                        IF NOT EXISTS (SELECT 1 FROM pg_ts_dict WHERE dictname = %7$s) THEN
-                            EXECUTE format('CREATE TEXT SEARCH DICTIONARY %%I (TEMPLATE = pg_catalog.simple, STOPWORDS = %%L, ACCEPT = false)', %7$s, v_stopwords);
+                        IF NOT EXISTS (SELECT 1 FROM pg_ts_dict d JOIN pg_namespace n ON n.oid = d.dictnamespace WHERE d.dictname = %7$s AND n.nspname = %10$s) THEN
+                            EXECUTE format('CREATE TEXT SEARCH DICTIONARY %%I.%%I (TEMPLATE = pg_catalog.simple, STOPWORDS = %%L, ACCEPT = false)', %10$s, %7$s, v_stopwords);
                         END IF;
                         ALTER TEXT SEARCH CONFIGURATION %2$s
                             ALTER MAPPING FOR hword, hword_part, word WITH %9$s, %4$s.unaccent, %6$s;
@@ -571,6 +583,7 @@ final class PostgresSchemaGenerator
             Sql::string($stop),
             self::TAG,
             $this->names->stopDictionary($config),
+            Sql::string($this->names->schema),
         ), sprintf('Text search configuration "%s" (%s stemming + accent folding, accented stop words dropped)', $name, $config->language));
     }
 

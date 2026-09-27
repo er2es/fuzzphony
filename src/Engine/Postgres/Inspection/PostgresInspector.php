@@ -54,13 +54,13 @@ final class PostgresInspector
 
         $sidecarExists = $this->regclass($this->names->sidecar($index));
         if (!$sidecarExists) {
-            $checks[] = Check::error('Sidecar table', sprintf('Table "%s" does not exist.', $this->names->sidecarName($index)), self::APPLY);
+            $checks[] = Check::error('Sidecar table', sprintf('Table %s does not exist.', $this->names->sidecar($index)), self::APPLY);
         } else {
             array_push($checks, ...$this->sidecarColumns($index));
             array_push($checks, ...$this->sidecarIndexes($index));
         }
         $checks[] = $this->function(
-            sprintf('%s(%s[])', $this->names->refreshFunctionName($index), Types::id($index->idType)),
+            sprintf('%s(%s[])', $this->names->refreshFunction($index), Types::id($index->idType)),
             'Refresh function',
         );
         array_push($checks, ...$this->triggers($index));

@@ -576,7 +576,7 @@ final class PostgresEngineTest extends TestCase
         self::assertCount(1, $extra);
         self::assertSame(CheckStatus::Warning, $extra[0]->status);
         self::assertStringContainsString('extra_junk', $extra[0]->message);
-        self::assertStringContainsString('ALTER TABLE "fuzzphony_products" DROP COLUMN "extra_junk";', (string) $extra[0]->fix);
+        self::assertStringContainsString('ALTER TABLE "public"."fuzzphony_products" DROP COLUMN "extra_junk";', (string) $extra[0]->fix);
     }
 
     public function testDoctorWarnsAboutLeftoverTriggersFromAPreviousSyncLevel(): void

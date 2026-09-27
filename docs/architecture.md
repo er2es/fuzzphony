@@ -25,7 +25,9 @@ conformance test suite (`tests/Conformance`). PostgreSQL is the only engine thro
 
 ## Sidecar table
 
-Fuzzphony never alters your tables. Each index lives in its own table, `fuzzphony_<index>`
+Fuzzphony never alters your tables. Each index lives in its own table, `fuzzphony_<index>`, in
+Fuzzphony's schema (`public` unless configured, see
+[Fuzzphony's schema](configuration.md#fuzzphonys-schema))
 ([ADR 0001](adr/0001-sidecar-table.md)); see [Index definitions](configuration.md#concepts) for
 what it contains.
 

@@ -47,9 +47,16 @@ changes; they are always listed under **Breaking** and explained in [UPGRADE.md]
   baseline MSI; pull requests only mutate their changed lines. No `minMsi` gate yet — see
   [docs/roadmap.md](docs/roadmap.md#mutation-testing). The first full run scored 85% (3,944
   mutants, 17 minutes); the README shows the current score as a badge.
+- `PostgresEngine` takes a `schema` argument (default `public`): the schema of every object
+  Fuzzphony creates. `fuzzphony:schema --apply` creates it when it is not `public`.
 
 ### Changed
 
+- Every generated and runtime statement schema-qualifies Fuzzphony's own objects, so nothing
+  depends on the `search_path` any more. The normaliser function runs with
+  `search_path = pg_catalog, pg_temp`; the refresh and sync functions keep the `search_path` of the
+  session that applied the schema (`SET search_path FROM CURRENT`). Run `fuzzphony:schema --apply`
+  once after upgrading.
 - Roadmap: reordered into milestones 0.4-1.0, so what other features build on ships first (API
   cleanup and the dedicated schema before reindex, events before analytics, the vocabulary table
   before `suggest()`).

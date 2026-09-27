@@ -37,6 +37,13 @@ and the [CHANGELOG](CHANGELOG.md) has the full list of changes.
    `RankingProfile::tsRankWeights()` and `Identifier::limit()` are gone. Nothing replaces them in
    the public API: the engine derives these names itself. If you queried the sidecar table by
    hand, its name is `fuzzphony_<index>` in Fuzzphony's schema (see step 6).
+5. **Apply the schema once.** `bin/console fuzzphony:schema --apply` re-creates the functions
+   with a fixed `search_path` and schema-qualified names. Nothing moves: without a `schema`
+   setting everything stays in `public`. Everything is now created in and read from one
+   configured schema, so a setup that relied on the `search_path` to place or find Fuzzphony's
+   objects (one set per tenant schema, say) no longer works that way. The refresh and sync
+   functions resolve your source tables with the `search_path` of the session that applies the
+   schema: apply it with the same role and settings as your application.
 
 ## From 0.3.1 to 0.3.2
 

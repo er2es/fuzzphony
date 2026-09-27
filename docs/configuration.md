@@ -114,6 +114,24 @@ $fuzzphony->schema()->apply($connection);
 $fuzzphony->reindex('products');
 ```
 
+## Fuzzphony's schema
+
+Every object Fuzzphony creates (sidecar tables, the sync queue, the version table, the helper
+functions, the text search configurations and their stop-word dictionaries) lives in one schema,
+`public` by default. `new PostgresEngine($connection, schema: 'fuzzphony')` (bundle:
+`fuzzphony.schema`) puts them in their own schema instead; `fuzzphony:schema --apply` creates it.
+Triggers stay on your tables, since PostgreSQL attaches a trigger to its table; they call the
+schema-qualified sync function.
+
+Every statement Fuzzphony generates or runs names its objects with their schema, so neither
+Fuzzphony's schema nor the extensions' schema has to be on the `search_path`. The generated
+functions are pinned too: the normaliser runs with `search_path = pg_catalog, pg_temp`, the
+refresh and sync functions with the `search_path` of the session that ran `schema --apply`
+(`SET search_path FROM CURRENT`), so your source query and watch SQL resolve their tables the way
+they did then, whatever the writing session's `search_path` is. Only highlighting and
+`fuzzphony:reindex` run your source query in the calling session, so that session must see your
+source tables.
+
 ## Bundle configuration
 
 ```yaml
