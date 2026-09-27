@@ -87,6 +87,9 @@ changes; they are always listed under **Breaking** and explained in [UPGRADE.md]
 - Roadmap: a dedicated schema for Fuzzphony's tables (`schema: fuzzphony`), default `public`.
 - Roadmap: record linkage (matching people and companies, with explainable match scores) is
   planned after 1.0.
+- Roadmap: the v0.4 Foundations items (API cleanup, dedicated schema, sidecar schema version,
+  Doctrine Migrations integration) are listed as done; the sidecar layout's upgrade step runner
+  moves to 0.5, with the first layout change.
 - README: shortened to what the library does, the demo, install and quickstart; the details moved
   to `docs/`, the install command is `composer require fuzzphony/fuzzphony` (the bundle is not a
   separate package), and new badges show PHPStan, OpenSSF Best Practices, PHP, PostgreSQL and
@@ -96,6 +99,9 @@ changes; they are always listed under **Breaking** and explained in [UPGRADE.md]
 - Demo: the compare page shows Fuzzphony's results at once and loads the ILIKE column
   separately (`GET /compare/ilike`), so the page feels as fast as Fuzzphony is instead of waiting
   on ILIKE's ~400 ms full scan too.
+- Demo: runs on `schema: fuzzphony`; the application role is granted the `fuzzphony` schema's
+  tables instead of the `fuzzphony_*` tables in `public`. An existing demo needs
+  `docker compose down -v` once.
 
 ## [0.3.2] - 2026-09-25
 

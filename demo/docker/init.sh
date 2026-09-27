@@ -68,7 +68,7 @@ php bin/console fuzzphony:schema --apply --no-interaction
 # triggers + the worker, so a full reindex on every start would only cost time. Decided per index.
 needs_reindex() { # <index> <its source was just seeded: 0|1>
     case "$DEMO_REINDEX" in always) return 0 ;; never) return 1 ;; esac
-    [ "$2" = 1 ] || [ "$(psql -tAc "SELECT EXISTS (SELECT 1 FROM fuzzphony_$1)")" != t ]
+    [ "$2" = 1 ] || [ "$(psql -tAc "SELECT EXISTS (SELECT 1 FROM fuzzphony.fuzzphony_$1)")" != t ]
 }
 for index in catalog lang_en lang_de lang_fr lang_es lang_hu; do
     case "$index" in catalog) fresh=$seeded ;; *) fresh=$lang_seeded ;; esac
@@ -80,13 +80,14 @@ for index in catalog lang_en lang_de lang_fr lang_es lang_hu; do
     fi
 done
 
-# Read access to the catalogue, write access only to Fuzzphony's own tables (the index and the sync queue).
+# Read access to the catalogue, and to Fuzzphony's own schema what the search, the sync triggers and the worker need
+# (the index tables, the sync queue, the version table); no DDL anywhere.
 log "granting $APP_ROLE access"
 psql -q -v ON_ERROR_STOP=1 -v role="$APP_ROLE" <<'SQL'
 GRANT USAGE ON SCHEMA public TO :"role";
 GRANT SELECT ON ALL TABLES IN SCHEMA public TO :"role";
-SELECT format('GRANT INSERT, UPDATE, DELETE ON %I.%I TO %I', schemaname, tablename, :'role')
-FROM pg_tables WHERE schemaname = 'public' AND tablename LIKE 'fuzzphony\_%' \gexec
+GRANT USAGE ON SCHEMA fuzzphony TO :"role";
+GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA fuzzphony TO :"role";
 SQL
 
 php bin/console fuzzphony:doctor --no-interaction

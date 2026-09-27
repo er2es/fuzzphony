@@ -15,7 +15,8 @@ An index definition has:
 You can write a definition three ways: attributes on an entity (the main way), YAML (overrides, or
 indexes defined only in YAML), or the fluent builder.
 
-Fuzzphony stores each index in a sidecar table, `fuzzphony_<index>`. It holds a weighted
+Fuzzphony stores each index in a sidecar table, `fuzzphony_<index>` in Fuzzphony's schema (see
+[Fuzzphony's schema](#fuzzphonys-schema)). It holds a weighted
 `tsvector`, a normalised text for trigram matching, typed filter columns and the ranking inputs,
 each with the right index (GIN, GIN trigram, btree). Your schema is untouched. Dropping the index
 is one command.

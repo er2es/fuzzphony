@@ -43,7 +43,7 @@ brand, and the `worker` service refreshed them (`docker compose logs worker`).
 | `web` | nginx (unprivileged) | serves the compiled, fingerprinted assets (gzip, 1-year `immutable` cache), proxies everything else to `php`; security headers, timeouts, `/healthz` |
 | `php` | php-fpm 8.4 (Alpine) | the Symfony app, `APP_ENV=prod`; dynamic pool of up to 16 children, opcache without timestamp checks + preload |
 | `worker` | same image | `fuzzphony:worker`, drains the sync queue; recycled hourly, stops on SIGTERM after the current batch |
-| `init` | same image | one-shot bootstrap: wait for the database, seed only if `bench_product` / `lang_product` are missing, `fuzzphony:schema --apply`, reindex each index only if it is empty, `fuzzphony:doctor`. `php` and `worker` start only after it succeeded |
+| `init` | same image | one-shot bootstrap: wait for the database, seed only if `bench_product` / `lang_product` are missing, `fuzzphony:schema --apply` (creates the `fuzzphony` schema: every index table, the sync queue and the version table live there, the catalogue stays in `public`), reindex each index only if it is empty, `fuzzphony:doctor`. `php` and `worker` start only after it succeeded |
 | `db` | postgres 18 | named volume `pgdata`, tuned for the demo (see `command:`), healthcheck |
 
 The image is built once from the repository root (`demo/Dockerfile`, multi-stage): dependencies
@@ -59,7 +59,8 @@ port is published on `127.0.0.1` only.
 The stack is published on `127.0.0.1` only. `DEMO_BIND=0.0.0.0` (web) and `DEMO_DB_BIND=0.0.0.0`
 (database) expose it; `init` then refuses to start while `DEMO_APP_SECRET` / `DEMO_DB_PASSWORD`
 are the documented defaults (generate values with `openssl rand -hex 32`). php-fpm and the worker
-connect as `fuzzphony_app` (not a superuser, no DDL, `statement_timeout = 5s`); `init` uses the
+connect as `fuzzphony_app` (not a superuser, no DDL, read-only on the catalogue, read/write on the
+`fuzzphony` schema's tables, `statement_timeout = 5s`); `init` uses the
 owner role without a timeout, so seeding and reindexing are unaffected. The expensive diagnostics
 are opt-in: `DEMO_ALLOW_ANALYZE=1` enables EXPLAIN ANALYZE in the playground and
 `DEMO_ALLOW_DEEP_DOCTOR=1` enables `/doctor?deep=1` (both 0 by default, 1 in
@@ -91,8 +92,8 @@ docker compose up --build   # seeds again (about 60 s for the 500 000-row defaul
 `docker compose down` (without `-v`) keeps the data. A demo started before the PostgreSQL 18 default
 needs `down -v` once, because PostgreSQL 18 can't open a 17 data directory. To rebuild only the index: `DEMO_REINDEX=always docker compose run --rm init`.
 
-A demo whose data predates 0.4 keeps its index, so the doctor warns ("Documents") that the
-documents' definition is unknown until that one full reindex runs.
+A demo started before 0.4 has its indexes in `public`; `docker compose down -v` once (the doctor
+warns about the old tables otherwise).
 
 ## Live-edit development
 
@@ -132,6 +133,9 @@ On Linux set `DEMO_UID` / `DEMO_GID` to your own ids so files written into the m
 
 The numbers below were measured on PostgreSQL 17.11. On PostgreSQL 18.6, the current default, the
 same stack came up in 46 s from an empty volume, and every page returned 200.
+On the 0.4 layout (`schema: fuzzphony`, PostgreSQL 18.6, same machine) the catalogue reindexed in
+23.9 s and the Fuzzphony warm timings on `/benchmark` stayed within noise of the table below
+(9.7-33.1 ms).
 
 Verified end to end in an isolated `docker compose -p` project of its own (its own image names, host
 ports and volume; torn down afterwards) on the same machine as below: 16 cores, Docker Desktop assigned

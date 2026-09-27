@@ -91,6 +91,14 @@ configuration run *afterwards* would remove them again. Two ways:
 
 `fuzzphony:doctor` warns ("Schema") while an old sidecar table is still in `public`.
 
+### Doctrine Migrations
+
+With DoctrineBundle the bundle now sets the DBAL `schema_filter` of Fuzzphony's connection, so
+`doctrine:migrations:diff` stops proposing to drop the `fuzzphony_*` tables. If your connection
+has its own `schema_filter`, nothing changes and `fuzzphony:doctor` warns with the regex to merge
+into yours. A migration generated with `fuzzphony:schema --dump-migration` can be generated again
+after upgrading; it now ends with the version record.
+
 ## From 0.3.1 to 0.3.2
 
 Nothing to do: only the generated search statements change (the trigram operator is now

@@ -16,14 +16,15 @@ use Doctrine\DBAL\Connection;
 final readonly class Languages
 {
     /**
-     * code => settings. `config` is what `fuzzphony:schema --apply` creates for the index (built-in configuration,
-     * stop words dropped, then unaccent before the stemmer), `builtin` the configuration it copies (used to show what
-     * folding changed).
+     * code => settings. `config` is what `fuzzphony:schema --apply` creates for the index in Fuzzphony's schema
+     * (`fuzzphony`, see config/packages/fuzzphony.yaml): the built-in configuration, stop words dropped, then unaccent
+     * before the stemmer. The qualified name casts to regconfig without depending on the search_path. `builtin` is the
+     * configuration it copies (used to show what folding changed).
      * Preset captions mark words with backticks; the template renders those as <code>.
      */
     public const array LANGUAGES = [
         'en' => [
-            'name' => 'English', 'native' => 'English', 'index' => 'lang_en', 'config' => 'fuzzphony_english', 'builtin' => 'english',
+            'name' => 'English', 'native' => 'English', 'index' => 'lang_en', 'config' => 'fuzzphony.fuzzphony_english', 'builtin' => 'english',
             'presets' => [
                 ['kind' => 'plural', 'q' => 'drills', 'caption' => '`drills` finds `drill`: the stemmer cuts the plural -s.'],
                 ['kind' => 'word form', 'q' => 'running', 'caption' => '`running` finds `run` and `runs`: -ing is stemmed away too.'],
@@ -34,7 +35,7 @@ final readonly class Languages
             ],
         ],
         'de' => [
-            'name' => 'German', 'native' => 'Deutsch', 'index' => 'lang_de', 'config' => 'fuzzphony_german', 'builtin' => 'german',
+            'name' => 'German', 'native' => 'Deutsch', 'index' => 'lang_de', 'config' => 'fuzzphony.fuzzphony_german', 'builtin' => 'german',
             'presets' => [
                 ['kind' => 'plural', 'q' => 'Häuser', 'caption' => '`Häuser` finds `Haus`: the umlaut is folded, then the plural ending stemmed.'],
                 ['kind' => 'plural', 'q' => 'Mäuse', 'caption' => '`Mäuse` finds `Maus`, although in English `mice` cannot find `mouse`.'],
@@ -45,7 +46,7 @@ final readonly class Languages
             ],
         ],
         'fr' => [
-            'name' => 'French', 'native' => 'Français', 'index' => 'lang_fr', 'config' => 'fuzzphony_french', 'builtin' => 'french',
+            'name' => 'French', 'native' => 'Français', 'index' => 'lang_fr', 'config' => 'fuzzphony.fuzzphony_french', 'builtin' => 'french',
             'presets' => [
                 ['kind' => 'plural', 'q' => 'chevaux', 'caption' => '`chevaux` finds `cheval`: the French stemmer knows the -aux plural.'],
                 ['kind' => 'plural', 'q' => 'crèmes', 'caption' => '`crèmes` finds every `crème`, singular or plural.'],
@@ -56,7 +57,7 @@ final readonly class Languages
             ],
         ],
         'es' => [
-            'name' => 'Spanish', 'native' => 'Español', 'index' => 'lang_es', 'config' => 'fuzzphony_spanish', 'builtin' => 'spanish',
+            'name' => 'Spanish', 'native' => 'Español', 'index' => 'lang_es', 'config' => 'fuzzphony.fuzzphony_spanish', 'builtin' => 'spanish',
             'presets' => [
                 ['kind' => 'plural', 'q' => 'canciones', 'caption' => '`canciones` finds `canción`: accent folded, plural stemmed.'],
                 ['kind' => 'accents', 'q' => 'lampara', 'caption' => '`lampara` without the accent finds `Lámpara` and `Lámparas`.'],
@@ -66,7 +67,7 @@ final readonly class Languages
             ],
         ],
         'hu' => [
-            'name' => 'Hungarian', 'native' => 'Magyar', 'index' => 'lang_hu', 'config' => 'fuzzphony_hungarian', 'builtin' => 'hungarian',
+            'name' => 'Hungarian', 'native' => 'Magyar', 'index' => 'lang_hu', 'config' => 'fuzzphony.fuzzphony_hungarian', 'builtin' => 'hungarian',
             'presets' => [
                 ['kind' => 'plural', 'q' => 'házak', 'caption' => '`házak` finds `ház`: the Hungarian stemmer reduces the plural.'],
                 ['kind' => 'plural', 'q' => 'könyvek', 'caption' => '`könyvek` finds `Könyv`.'],
