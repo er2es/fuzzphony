@@ -39,7 +39,7 @@ Status: v0.3. The API may still change before 1.0. Breaking changes are listed i
 
 ## Try the demo
 
-⭐ A full Symfony app on a seeded product catalogue, in one command:
+A full Symfony app on a seeded product catalogue, in one command:
 
 ```bash
 git clone https://github.com/er2es/fuzzphony
