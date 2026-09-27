@@ -19,13 +19,18 @@ final class SchemaAssetFilter
             : sprintf('~^(?!%s\.)~', $schema);
     }
 
+    /** Shared table names to probe: the sync queue, the sidecar-layout marker, and a generic sidecar shape. */
+    private const array TABLES = ['fuzzphony_queue', 'fuzzphony_meta', 'fuzzphony_x'];
+
     /**
-     * Whether an application's own schema_filter keeps one of Fuzzphony's tables (the sync queue,
-     * as DBAL would name it) visible to Doctrine's schema tools, i.e. has not merged regex($schema).
+     * Whether an application's own schema_filter keeps any of Fuzzphony's shared tables (as DBAL
+     * would name them) visible to Doctrine's schema tools, i.e. has not merged regex($schema).
      */
     public static function letsThrough(string $applicationFilter, string $schema): bool
     {
-        $names = $schema === 'public' ? ['fuzzphony_queue', 'public.fuzzphony_queue'] : [$schema . '.fuzzphony_queue'];
+        $names = $schema === 'public'
+            ? array_merge(self::TABLES, array_map(static fn(string $t): string => 'public.' . $t, self::TABLES))
+            : array_map(static fn(string $t): string => $schema . '.' . $t, self::TABLES);
 
         return array_any($names, static fn(string $name): bool => preg_match($applicationFilter, $name) === 1);
     }

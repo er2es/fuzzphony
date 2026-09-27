@@ -114,6 +114,9 @@ changes; they are always listed under **Breaking** and explained in [UPGRADE.md]
 
 - An `extension_schema` whose name needs quoting (upper-case letters, e.g. `Ext`) broke the
   normaliser function: its `unaccent` dictionary was looked up as `ext.unaccent`.
+- `fuzzphony:doctor`'s Doctrine schema filter check probed only the sync queue table, so an
+  application filter that hid it but not `fuzzphony_meta` (or another shared table) passed
+  silently; it now probes every shared table name and warns if any of them gets through.
 
 ## [0.3.2] - 2026-09-25
 
