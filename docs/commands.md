@@ -7,7 +7,7 @@ The `fuzzphony:*` commands, the doctor and the configuration wizard. Back to the
 
 | Command | Purpose |
 |---|---|
-| `fuzzphony:schema [index] [--apply\|--drop\|--dump-migration=dir]` | show / apply / export idempotent DDL (alias `fuzzphony:install`) |
+| `fuzzphony:schema [index] [--apply\|--drop\|--dump-migration=dir]` | show / apply / export idempotent DDL (alias `fuzzphony:install`); `--dump-migration` writes a Doctrine migration, see [Doctrine Migrations](integrations.md#doctrine-migrations) |
 | `fuzzphony:reindex [index] [--batch=5000] [--from=id] [--no-prune] [--prune-empty]` | resumable backfill with progress; a full run also removes orphaned documents (`--no-prune` keeps them; an empty source is only pruned with `--prune-empty`) |
 | `fuzzphony:worker [--once] [--time-limit=s] [--index=x]` | drain the sync queue; graceful on SIGTERM |
 | `fuzzphony:doctor [index] [--deep] [--strict]` | health check with fixes |
@@ -46,6 +46,7 @@ It checks:
 - id, field, filter, boost and recency column mapping and types, and the source key;
 - sidecar column drift, and missing or INVALID indexes;
 - objects left in `public` after switching to a dedicated `schema`;
+- with DoctrineBundle, an application `schema_filter` that would let `migrations:diff` drop Fuzzphony's tables;
 - missing or disabled triggers, including the `TRUNCATE` trigger, which an index set up with an
   older version lacks until `fuzzphony:schema --apply` runs again;
 - queue backlog and age;

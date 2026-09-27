@@ -25,6 +25,26 @@ final class DoctorCommandTest extends TestCase
         $this->tester = new CommandTester(new DoctorCommand($this->context->fuzzphony));
     }
 
+    public function testAnApplicationSchemaFilterIsAWarningWithTheRegexToMerge(): void
+    {
+        $this->context->applySchemaAndReindex();
+        $tester = new CommandTester(new DoctorCommand($this->context->fuzzphony, '~^(?!(public\.)?fuzzphony_)~'));
+
+        self::assertSame(Command::SUCCESS, $tester->execute([], ['interactive' => false]), $tester->getDisplay());
+        self::assertStringContainsString('Doctrine schema filter', $tester->getDisplay());
+        self::assertStringContainsString('~^(?!(public\.)?fuzzphony_)~', $tester->getDisplay());
+        self::assertStringContainsString('Healthy, with warnings', $tester->getDisplay());
+        self::assertSame(Command::FAILURE, $tester->execute(['--strict' => true], ['interactive' => false]));
+    }
+
+    public function testTheSchemaFilterWarningDoesNotHideAnError(): void
+    {
+        $tester = new CommandTester(new DoctorCommand($this->context->fuzzphony, '~^(?!(public\.)?fuzzphony_)~'));
+
+        self::assertSame(Command::FAILURE, $tester->execute([], ['interactive' => false])); // schema never applied
+        self::assertStringContainsString('Problems found', $tester->getDisplay());
+    }
+
     public function testHealthyIndexExitsZero(): void
     {
         $this->context->applySchemaAndReindex();

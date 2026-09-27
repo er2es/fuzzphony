@@ -20,8 +20,11 @@ use Symfony\Component\Console\Style\SymfonyStyle;
 #[AsCommand(name: 'fuzzphony:doctor', description: 'Check that the database matches the index definitions, with fixes')]
 final class DoctorCommand extends Command
 {
-    public function __construct(private readonly Fuzzphony $fuzzphony)
-    {
+    public function __construct(
+        private readonly Fuzzphony $fuzzphony,
+        /** The schema_filter regex to merge when the application sets its own DBAL schema_filter; null = Fuzzphony's filter is in place. */
+        private readonly ?string $schemaFilter = null,
+    ) {
         parent::__construct();
     }
 
@@ -67,6 +70,15 @@ final class DoctorCommand extends Command
                 $report->status() === CheckStatus::Warning && $worst === CheckStatus::Ok => CheckStatus::Warning,
                 default => $worst,
             };
+        }
+
+        if ($this->schemaFilter !== null) {
+            $io->section('Doctrine schema filter');
+            $io->writeln(sprintf(
+                ' <comment>!</comment> Your DBAL connection sets its own schema_filter, so Fuzzphony added none, and "doctrine:migrations:diff" will propose dropping Fuzzphony\'s tables. Exclude them in your filter; Fuzzphony\'s own would be: %s',
+                $this->schemaFilter,
+            ));
+            $worst = $worst === CheckStatus::Ok ? CheckStatus::Warning : $worst;
         }
 
         $strict = $input->getOption('strict') === true;

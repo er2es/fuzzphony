@@ -14,6 +14,28 @@ Doctrine, API Platform, Symfony UX Live Component and Messenger. Back to the
   [Keeping the index in sync](sync.md)).
 - With the bundle, every Doctrine entity with `#[Searchable]` is registered as an index.
 
+## Doctrine Migrations
+
+`bin/console fuzzphony:schema --dump-migration=migrations` writes the schema as a Doctrine
+migration class (needs `doctrine/migrations`). Every statement is idempotent (`IF NOT EXISTS`,
+`CREATE OR REPLACE`), so it is safe to commit and to run again. Each part records itself in
+`fuzzphony_meta` once its objects exist: the shared objects first, then every index after its own
+statements, so the migration ends with the last index's record. It is not transactional, because
+the indexes are built `CONCURRENTLY`, and `down()` is irreversible (use
+`fuzzphony:schema --drop --apply`).
+
+Doctrine's schema tools must not see Fuzzphony's tables, or `doctrine:migrations:diff` proposes
+dropping them. With DoctrineBundle, the bundle sets the connection's `schema_filter` for you:
+`~^(?!(public\.)?fuzzphony_)~`, or `~^(?!fuzzphony\.)~` with `schema: fuzzphony`. If your
+connection already has a `schema_filter`, the bundle leaves it alone and `fuzzphony:doctor` warns;
+merge the two, for example:
+
+```yaml
+doctrine:
+  dbal:
+    schema_filter: '~^(?!(public\.)?(fuzzphony_|legacy_))~'
+```
+
 ## API Platform
 
 Relevance search for any collection whose entity is searchable (requires

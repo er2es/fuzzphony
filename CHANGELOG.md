@@ -66,6 +66,10 @@ changes; they are always listed under **Breaking** and explained in [UPGRADE.md]
   "Definition" and "Documents" checks report a missing record, a layout older or newer than the
   library's, a definition changed since the last apply, and documents built from another
   definition. `--drop` deletes the index's record; `--dump-migration` includes the upsert.
+- Doctrine Migrations: with DoctrineBundle, the bundle sets the DBAL `schema_filter` of
+  Fuzzphony's connection so `doctrine:migrations:diff` never proposes dropping Fuzzphony's tables;
+  an application that sets its own filter keeps it and `fuzzphony:doctor` prints the regex to
+  merge. `doctrine/migrations` is suggested.
 
 ### Changed
 

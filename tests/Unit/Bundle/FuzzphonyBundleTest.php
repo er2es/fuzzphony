@@ -9,6 +9,12 @@ use Doctrine\DBAL\Connection as DbalConnection;
 use Doctrine\ORM\EntityManagerInterface;
 use Fuzzphony\Bridge\Doctrine\EntityLoader;
 use Fuzzphony\Bundle\ApiPlatform\FuzzphonySearchFilter;
+use Fuzzphony\Bundle\Command\DoctorCommand;
+use Fuzzphony\Bundle\Command\ReindexCommand;
+use Fuzzphony\Bundle\Command\SchemaCommand;
+use Fuzzphony\Bundle\Command\SearchCommand;
+use Fuzzphony\Bundle\Command\WizardCommand;
+use Fuzzphony\Bundle\Command\WorkerCommand;
 use Fuzzphony\Bundle\FuzzphonyBundle;
 use Fuzzphony\Bundle\Messenger\MessengerRefreshDispatcher;
 use Fuzzphony\Bundle\Twig\SearchComponent;
@@ -18,10 +24,12 @@ use Fuzzphony\Core\Fuzzphony;
 use Fuzzphony\Core\Registry\IndexRegistry;
 use Fuzzphony\Core\Sync\ImmediateRefreshDispatcher;
 use Fuzzphony\Engine\Postgres\PostgresEngine;
+use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\TestCase;
 use Symfony\Component\Config\Definition\Exception\InvalidConfigurationException;
 use Symfony\Component\DependencyInjection\ContainerBuilder;
 use Symfony\Component\DependencyInjection\Extension\Extension;
+use Symfony\Component\DependencyInjection\Extension\PrependExtensionInterface;
 use Symfony\Component\DependencyInjection\Reference;
 use Symfony\Component\Messenger\MessageBusInterface;
 
@@ -204,6 +212,92 @@ final class FuzzphonyBundleTest extends TestCase
         }
 
         self::assertFileExists($template);
+    }
+
+    public function testEveryCommandIsRegisteredAsAConsoleCommand(): void
+    {
+        $container = $this->buildContainer(withOrm: false);
+
+        self::assertSame(
+            [SchemaCommand::class, DoctorCommand::class, ReindexCommand::class, WorkerCommand::class, SearchCommand::class, WizardCommand::class],
+            array_keys($container->findTaggedServiceIds('console.command')),
+        );
+    }
+
+    public function testTheSchemaFilterIsPrependedForTheFuzzphonyConnection(): void
+    {
+        $public = $this->prepended(['connection' => 'default'], null);
+        $dedicated = $this->prepended(['connection' => 'main', 'schema' => 'fuzzphony'], ['dbal' => ['url' => 'pgsql://x']]);
+
+        self::assertSame([['dbal' => ['connections' => ['default' => ['schema_filter' => '~^(?!(public\.)?fuzzphony_)~']]]]], $public->getExtensionConfig('doctrine'));
+        self::assertSame(['dbal' => ['connections' => ['main' => ['schema_filter' => '~^(?!fuzzphony\.)~']]]], $dedicated->getExtensionConfig('doctrine')[0]);
+        self::assertFalse($dedicated->hasParameter('fuzzphony.schema_filter_conflict'));
+    }
+
+    /** @return iterable<string, array{array<string, mixed>}> */
+    public static function ownFilters(): iterable
+    {
+        yield 'shorthand dbal config' => [['dbal' => ['schema_filter' => '~^(?!legacy_)~']]];
+        yield 'named connection' => [['dbal' => ['connections' => ['default' => ['schema_filter' => '~^(?!legacy_)~']]]]];
+    }
+
+    /** @param array<string, mixed> $doctrine */
+    #[DataProvider('ownFilters')]
+    public function testAnApplicationFilterIsLeftAloneAndReportedByTheDoctor(array $doctrine): void
+    {
+        $container = $this->prepended([], $doctrine);
+
+        self::assertSame([$doctrine], $container->getExtensionConfig('doctrine'), 'nothing prepended');
+        self::assertSame('~^(?!(public\.)?fuzzphony_)~', $container->getParameter('fuzzphony.schema_filter_conflict'));
+
+        $extension = $container->getExtension('fuzzphony');
+        $extension->load($container->getExtensionConfig('fuzzphony'), $container);
+        self::assertSame('~^(?!(public\.)?fuzzphony_)~', $container->getDefinition(DoctorCommand::class)->getArgument(1));
+    }
+
+    public function testWithoutDoctrineNothingIsPrepended(): void
+    {
+        $container = $this->prepended([], null, withDoctrine: false);
+
+        self::assertSame([], $container->getExtensionConfig('doctrine'));
+        self::assertFalse($container->hasParameter('fuzzphony.schema_filter_conflict'));
+        $container->getExtension('fuzzphony')->load($container->getExtensionConfig('fuzzphony'), $container);
+        self::assertNull($container->getDefinition(DoctorCommand::class)->getArgument(1));
+    }
+
+    /**
+     * Registers Fuzzphony's extension (and a fake "doctrine" one), loads the given configs and
+     * runs the prepend phase, as a kernel does before loading the extensions.
+     *
+     * @param array<string, mixed>      $fuzzphony
+     * @param array<string, mixed>|null $doctrine
+     */
+    private function prepended(array $fuzzphony, ?array $doctrine, bool $withDoctrine = true): ContainerBuilder
+    {
+        $container = new ContainerBuilder();
+        foreach (['kernel.environment' => 'test', 'kernel.debug' => false, 'kernel.project_dir' => dirname(__DIR__, 3), 'kernel.cache_dir' => sys_get_temp_dir(), 'kernel.build_dir' => sys_get_temp_dir()] as $name => $value) {
+            $container->setParameter($name, $value);
+        }
+        if ($withDoctrine) {
+            $container->registerExtension(new class extends Extension {
+                public function load(array $configs, ContainerBuilder $container): void {}
+
+                public function getAlias(): string
+                {
+                    return 'doctrine';
+                }
+            });
+        }
+        $extension = (new FuzzphonyBundle())->getContainerExtension();
+        self::assertInstanceOf(PrependExtensionInterface::class, $extension);
+        $container->registerExtension($extension);
+        $container->loadFromExtension('fuzzphony', $fuzzphony);
+        if ($doctrine !== null) {
+            $container->loadFromExtension('doctrine', $doctrine);
+        }
+        $extension->prepend($container);
+
+        return $container;
     }
 
     /** @param array<string, mixed> $config */
