@@ -16,7 +16,7 @@ use Fuzzphony\Core\Wizard\TableProfile;
 use Fuzzphony\Engine\Postgres\Sql\Sql;
 
 /**
- * Reads catalog + planner statistics (pg_stats). Tables that were never analysed are
+ * @internal Reads catalog + planner statistics (pg_stats). Tables that were never analysed are
  * sampled (first 1000 rows) instead, so the wizard also works on fresh databases.
  * Read-only.
  */

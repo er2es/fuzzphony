@@ -5,7 +5,7 @@ declare(strict_types=1);
 namespace Fuzzphony\Core\Support;
 
 /**
- * Narrows a mixed value (a PDO row column, a Console argument, ...) to the
+ * @internal Narrows a mixed value (a PDO row column, a Console argument, ...) to the
  * scalar type the caller already knows it holds, without an unchecked cast.
  */
 final class Coerce

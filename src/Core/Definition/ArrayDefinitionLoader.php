@@ -8,7 +8,7 @@ use Fuzzphony\Core\Exception\InvalidDefinition;
 use Fuzzphony\Core\Ranking\RankingProfile;
 
 /**
- * Builds or overrides definitions from plain arrays (YAML config). Shape:
+ * @internal Builds or overrides definitions from plain arrays (YAML config). Shape:
  *
  *   products:
  *     source: { table: product, id: id }            # or { query: "SELECT ...", id: id }

@@ -17,6 +17,7 @@ use Symfony\Component\Console\Input\InputOption;
 use Symfony\Component\Console\Output\OutputInterface;
 use Symfony\Component\Console\Style\SymfonyStyle;
 
+/** @internal The fuzzphony:doctor console command; its CLI is public, the class is not. */
 #[AsCommand(name: 'fuzzphony:doctor', description: 'Check that the database matches the index definitions, with fixes')]
 final class DoctorCommand extends Command
 {

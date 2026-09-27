@@ -8,7 +8,7 @@ use Fuzzphony\Core\Definition\IndexDefinition;
 use Fuzzphony\Core\Engine\Engine;
 
 /**
- * Batched, resumable backfill using keyset pagination over source ids.
+ * @internal Batched, resumable backfill using keyset pagination over source ids.
  * Safe on live data: each batch is an idempotent upsert.
  *
  * A full run (no ReindexOptions::$resumeAfter) finally removes the indexed documents the source no

@@ -17,6 +17,7 @@ use Symfony\Component\Console\Input\InputOption;
 use Symfony\Component\Console\Output\OutputInterface;
 use Symfony\Component\Console\Style\SymfonyStyle;
 
+/** @internal The fuzzphony:reindex console command; its CLI is public, the class is not. */
 #[AsCommand(name: 'fuzzphony:reindex', description: 'Rebuild index documents from the source in resumable batches')]
 final class ReindexCommand extends Command
 {

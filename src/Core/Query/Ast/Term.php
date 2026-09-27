@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Fuzzphony\Core\Query\Ast;
 
+/** @internal AST node: a single word, optionally a prefix ("keyb*"). */
 final readonly class Term implements Node
 {
     public function __construct(

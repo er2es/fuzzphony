@@ -45,6 +45,11 @@ changes; they are always listed under **Breaking** and explained in [UPGRADE.md]
   [UPGRADE.md](UPGRADE.md#from-03-to-04), step 5.
 - `Engine` has a new method `recordReindex(IndexDefinition $index): void`, called after a full
   reindex. Custom engines must implement it (an empty body is fine).
+- The public API is now explicit ([docs/architecture.md](docs/architecture.md#public-api)): 51
+  classes are marked `@internal` (loaders, validators, the query parser and AST, the reindexer and
+  worker, the console command classes, the SQL compilers, the schema generator, the doctor, the
+  introspector, …) and may change in any release. The unused `Core\Engine\Analyzer` interface is
+  removed.
 
 ### Added
 

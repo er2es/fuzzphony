@@ -55,9 +55,10 @@ run) nothing changes. There is no CI gate on the MSI yet; see
 
 Until 1.0, a minor version (0.x) may contain breaking changes. Each one is listed under
 **Breaking** in the CHANGELOG and explained in [UPGRADE.md](UPGRADE.md); patch versions never
-break. From 1.0 on the project follows Semantic Versioning: classes and methods marked
-`@internal` are not covered, and anything removed is deprecated for at least one minor version
-first.
+break. From 1.0 on the project follows Semantic Versioning for the [public
+API](docs/architecture.md#public-api): classes and methods marked `@internal` are not covered,
+and anything removed is deprecated for at least one minor version first. A new class is
+`@internal` unless it is added to that list (and to `tests/Unit/PublicApiTest.php`).
 
 ## Security
 

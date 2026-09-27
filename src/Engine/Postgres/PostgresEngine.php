@@ -90,6 +90,7 @@ final class PostgresEngine implements Engine
         return $this->schema->drop($index);
     }
 
+    /** @internal */
     public function schemaGenerator(): PostgresSchemaGenerator
     {
         return $this->schema;

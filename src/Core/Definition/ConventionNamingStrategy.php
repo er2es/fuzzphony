@@ -6,7 +6,7 @@ namespace Fuzzphony\Core\Definition;
 
 use Fuzzphony\Core\Support\Identifier;
 
-/** Product::$createdAt -> table "product", column "created_at", id "id" (typed by the $id property). */
+/** @internal Product::$createdAt -> table "product", column "created_at", id "id" (typed by the $id property). */
 final class ConventionNamingStrategy implements NamingStrategy
 {
     public function table(string $class): string

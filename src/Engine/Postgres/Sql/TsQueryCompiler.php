@@ -14,7 +14,7 @@ use Fuzzphony\Core\Query\Ast\Phrase;
 use Fuzzphony\Core\Query\Ast\Term;
 
 /**
- * Compiles the AST into to_tsquery() input. Every lexeme is reduced to letters and digits,
+ * @internal Compiles the AST into to_tsquery() input. Every lexeme is reduced to letters and digits,
  * so the result is always syntactically valid and injection-free; it is still bound as a
  * parameter. PostgreSQL then applies the language configuration (stemming, accents).
  *

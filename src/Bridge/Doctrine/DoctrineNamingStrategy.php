@@ -9,7 +9,7 @@ use Fuzzphony\Core\Definition\IdType;
 use Fuzzphony\Core\Definition\NamingStrategy;
 use Fuzzphony\Core\Exception\InvalidDefinition;
 
-/** Uses the real table / column names from Doctrine ORM mapping, so #[Searchable] needs no names. */
+/** @internal Uses the real table / column names from Doctrine ORM mapping, so #[Searchable] needs no names. */
 final readonly class DoctrineNamingStrategy implements NamingStrategy
 {
     public function __construct(private EntityManagerInterface $entityManager) {}

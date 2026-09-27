@@ -6,6 +6,7 @@ namespace Fuzzphony\Bundle\Messenger;
 
 use Fuzzphony\Core\Fuzzphony;
 
+/** @internal Messenger handler for RefreshDocuments: reindexes the given ids through Fuzzphony::refresh(). */
 final readonly class RefreshDocumentsHandler
 {
     public function __construct(private Fuzzphony $fuzzphony) {}

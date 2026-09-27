@@ -8,7 +8,7 @@ use Doctrine\ORM\EntityManagerInterface;
 use Fuzzphony\Core\Definition\AttributeDefinitionLoader;
 use Fuzzphony\Core\Definition\IndexDefinition;
 
-/** Finds every mapped entity carrying #[Searchable]. Zero configuration. */
+/** @internal Finds every mapped entity carrying #[Searchable]. Zero configuration. */
 final readonly class DoctrineIndexDiscovery
 {
     public function __construct(private EntityManagerInterface $entityManager) {}

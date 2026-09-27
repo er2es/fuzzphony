@@ -8,7 +8,7 @@ use Fuzzphony\Core\Definition\IndexDefinition;
 use Fuzzphony\Core\Engine\Engine;
 
 /**
- * Drains the sync queue. Run it long-lived (supervisor/systemd) or with runOnce() from cron
+ * @internal Drains the sync queue. Run it long-lived (supervisor/systemd) or with runOnce() from cron
  * on hosts without long-running processes.
  */
 final class Worker

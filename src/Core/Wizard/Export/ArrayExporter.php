@@ -11,7 +11,7 @@ use Fuzzphony\Core\Ranking\RankingProfile;
 use Fuzzphony\Core\Ranking\Thresholds;
 
 /**
- * Definition -> the array shape read by ArrayDefinitionLoader (round-trips).
+ * @internal Definition -> the array shape read by ArrayDefinitionLoader (round-trips).
  * Defaults are omitted so the exported configuration stays short.
  */
 final class ArrayExporter

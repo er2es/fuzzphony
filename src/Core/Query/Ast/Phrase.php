@@ -4,7 +4,7 @@ declare(strict_types=1);
 
 namespace Fuzzphony\Core\Query\Ast;
 
-/** Words that must appear next to each other, in order: "wireless mouse". */
+/** @internal Words that must appear next to each other, in order: "wireless mouse". */
 final readonly class Phrase implements Node
 {
     /** @param non-empty-list<string> $words */

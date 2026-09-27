@@ -18,7 +18,7 @@ use Fuzzphony\Engine\Postgres\Sql\FilterCompiler;
 use Fuzzphony\Engine\Postgres\Sql\Sql;
 
 /**
- * Generates idempotent DDL. Nothing here ever alters the source tables, except for
+ * @internal Generates idempotent DDL. Nothing here ever alters the source tables, except for
  * (optional) AFTER triggers that feed the sync queue.
  */
 final class PostgresSchemaGenerator

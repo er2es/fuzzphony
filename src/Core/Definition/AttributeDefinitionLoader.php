@@ -10,6 +10,7 @@ use Fuzzphony\Core\Attribute\SearchFilter;
 use Fuzzphony\Core\Exception\InvalidDefinition;
 use Fuzzphony\Core\Support\Identifier;
 
+/** @internal Builds a definition from #[Searchable] attributes on a Doctrine/plain entity class. */
 final class AttributeDefinitionLoader
 {
     public function __construct(private readonly NamingStrategy $naming = new ConventionNamingStrategy()) {}

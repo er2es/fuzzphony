@@ -4,7 +4,7 @@ declare(strict_types=1);
 
 namespace Fuzzphony\Core\Definition;
 
-/** Resolves table / column names for attribute-based definitions (Doctrine metadata or conventions). */
+/** @internal Resolves table / column names for attribute-based definitions (Doctrine metadata or conventions). */
 interface NamingStrategy
 {
     /** @param class-string $class */

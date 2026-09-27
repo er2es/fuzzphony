@@ -4,7 +4,7 @@ declare(strict_types=1);
 
 namespace Fuzzphony\Core\Query\Ast;
 
-/** Read-only helpers over the AST that every engine needs. */
+/** @internal Read-only helpers over the AST that every engine needs. */
 final class NodeInspector
 {
     /** True when the expression can match something on its own (not only exclusions). */

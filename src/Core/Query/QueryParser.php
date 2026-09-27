@@ -13,7 +13,7 @@ use Fuzzphony\Core\Query\Ast\Phrase;
 use Fuzzphony\Core\Query\Ast\Term;
 
 /**
- * Parses end-user search syntax into an AST. It NEVER throws: malformed input degrades
+ * @internal Parses end-user search syntax into an AST. It NEVER throws: malformed input degrades
  * gracefully and every correction is reported as a warning.
  *
  *   wireless mouse          both words (AND is implicit)

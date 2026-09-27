@@ -28,6 +28,7 @@ use Symfony\Component\Console\Output\OutputInterface;
 use Symfony\Component\Console\Question\ChoiceQuestion;
 use Symfony\Component\Console\Style\SymfonyStyle;
 
+/** @internal The fuzzphony:wizard console command; its CLI is public, the class is not. */
 #[AsCommand(name: 'fuzzphony:wizard', description: 'Suggest a search index for a table, explain it, export it and optionally try it right away')]
 final class WizardCommand extends Command
 {

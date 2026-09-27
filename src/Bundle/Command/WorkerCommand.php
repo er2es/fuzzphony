@@ -15,6 +15,7 @@ use Symfony\Component\Console\Input\InputOption;
 use Symfony\Component\Console\Output\OutputInterface;
 use Symfony\Component\Console\Style\SymfonyStyle;
 
+/** @internal The fuzzphony:worker console command; its CLI is public, the class is not. */
 #[AsCommand(name: 'fuzzphony:worker', description: 'Process the sync queue (long-running, or --once from cron)')]
 final class WorkerCommand extends Command implements SignalableCommandInterface
 {

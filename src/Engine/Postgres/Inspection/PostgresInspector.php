@@ -21,7 +21,7 @@ use Fuzzphony\Engine\Postgres\Sql\DocumentSql;
 use Fuzzphony\Engine\Postgres\Sql\Sql;
 
 /**
- * "fuzzphony:doctor": verifies that the database matches the definition and says how to fix
+ * @internal "fuzzphony:doctor": verifies that the database matches the definition and says how to fix
  * what does not. Read-only (the probe view is temporary and dropped immediately).
  */
 final class PostgresInspector

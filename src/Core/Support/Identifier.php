@@ -5,7 +5,7 @@ declare(strict_types=1);
 namespace Fuzzphony\Core\Support;
 
 /**
- * SQL identifier validation. Fuzzphony never interpolates user input into SQL;
+ * @internal SQL identifier validation. Fuzzphony never interpolates user input into SQL;
  * identifiers come from definitions and are validated here before use.
  */
 final class Identifier

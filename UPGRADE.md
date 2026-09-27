@@ -53,6 +53,12 @@ and the [CHANGELOG](CHANGELOG.md) has the full list of changes.
    tables that exist, so re-run it after the first 0.4 `schema --apply` (the table is new).
 6. **Custom engines** implement `Engine::recordReindex(IndexDefinition $index): void`; an empty
    body is fine if the engine does not track which definition built its documents.
+7. **Internal classes.** Only the classes listed under
+   [Public API](docs/architecture.md#public-api) are covered by the upgrade notes from now on. If
+   you use an `@internal` class directly (`Reindexer`, `Worker`, `ArrayDefinitionLoader`,
+   `QueryParser`, `DefinitionValidator`, …), move to the public entry points (`Fuzzphony`,
+   `IndexDefinition::builder()`, the bundle's configuration) or open an issue describing the use
+   case. PHPStan reports such uses (`@internal` from outside the `Fuzzphony` namespace).
 
 ### Moving to a dedicated schema
 
