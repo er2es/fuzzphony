@@ -33,7 +33,7 @@ foreach ($result as $hit) {
 }
 ```
 
-Status: v0.3. The API may still change before 1.0. Breaking changes are listed in the
+Status: v0.4. The API may still change before 1.0. Breaking changes are listed in the
 [CHANGELOG](https://github.com/er2es/fuzzphony/blob/main/CHANGELOG.md) and explained in
 [UPGRADE.md](https://github.com/er2es/fuzzphony/blob/main/UPGRADE.md).
 
@@ -233,12 +233,10 @@ Details in [docs/limitations.md](https://github.com/er2es/fuzzphony/blob/main/do
 
 ## Roadmap
 
-Current: v0.3 (per-word typo tolerance, empty-result relaxation, `TRUNCATE` sync and orphan
-pruning). Milestones build in order, each one a foundation for the next, up to v1.0's stable API
+Current: v0.4 (one exception hierarchy, typed withers, a dedicated schema, sidecar schema
+versioning, Doctrine Migrations integration, an explicit public API). Milestones build in order, each one a foundation for the next, up to v1.0's stable API
 and backward-compatibility promise. PostgreSQL only before 1.0:
 
-- v0.4 Foundations (done, unreleased): API cleanup, a dedicated schema, sidecar schema versioning,
-  Doctrine Migrations integration.
 - v0.5 Index lifecycle: zero-downtime reindex, exact field scoping, partition-aware sync.
 - v0.6 Events: observability hooks/events, transaction-aware connections.
 - v0.7 Relevance: length-aware typo tolerance, synonyms, a vocabulary table, "did you mean".

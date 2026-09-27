@@ -7,6 +7,12 @@ changes; they are always listed under **Breaking** and explained in [UPGRADE.md]
 
 ## [Unreleased]
 
+## [0.4.0] - 2026-09-27
+
+**After upgrading, run `fuzzphony:schema --apply`, then one full `fuzzphony:reindex`**, and grant the new
+`fuzzphony_meta` table to the roles that run the doctor (`SELECT`) and the reindex (`SELECT`,
+`UPDATE`). See [UPGRADE.md](UPGRADE.md#from-03-to-04).
+
 ### Breaking
 
 - Every exception Fuzzphony throws implements `FuzzphonyException`, except `\LogicException` for
@@ -349,7 +355,8 @@ on its own:
 - Sync modes: queue (default), trigger, ORM, manual; watches for joined tables.
 - Doctor with fixes; CLI commands for schema, reindex, worker, search and explain.
 
-[Unreleased]: https://github.com/er2es/fuzzphony/compare/v0.3.2...HEAD
+[Unreleased]: https://github.com/er2es/fuzzphony/compare/v0.4.0...HEAD
+[0.4.0]: https://github.com/er2es/fuzzphony/compare/v0.3.2...v0.4.0
 [0.3.2]: https://github.com/er2es/fuzzphony/compare/v0.3.1...v0.3.2
 [0.3.1]: https://github.com/er2es/fuzzphony/compare/v0.3.0...v0.3.1
 [0.3.0]: https://github.com/er2es/fuzzphony/compare/v0.2.0...v0.3.0
