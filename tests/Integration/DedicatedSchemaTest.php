@@ -93,7 +93,8 @@ final class DedicatedSchemaTest extends TestCase
     {
         $fuzzphony = $this->fuzzphony('trigger');
 
-        $this->connection->execute("UPDATE fz_brand SET name = 'Zebra' WHERE id = 1");
+        $this->connection->execute('SET search_path TO pg_catalog');
+        $this->connection->execute("UPDATE public.fz_brand SET name = 'Zebra' WHERE id = 1");
 
         self::assertEqualsCanonicalizing([1, 4], $fuzzphony->in('products')->query('zebra')->thresholds(['fuzzy_mode' => 'never'])->get()->ids());
     }

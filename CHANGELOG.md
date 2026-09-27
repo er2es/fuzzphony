@@ -38,6 +38,11 @@ changes; they are always listed under **Breaking** and explained in [UPGRADE.md]
   `IdType::sqlType()`, `FilterType::sqlType()`, `FilterType::compatibleSqlTypes()`,
   `RankingProfile::tsRankWeights()` and `Identifier::limit()` are removed. They now live in the
   engine (`Fuzzphony\Engine\Postgres\Schema\Names` and `Types`, both internal).
+- Fuzzphony no longer uses the `search_path` to place or find its objects: they are created in and
+  read from one configured schema (`public` unless `schema` is set), and the generated functions are
+  re-created with a pinned `search_path`. After upgrading, run `fuzzphony:schema --apply`; an
+  install whose objects live outside `public` must set `schema` to that schema. See
+  [UPGRADE.md](UPGRADE.md#from-03-to-04), step 5.
 
 ### Added
 
@@ -52,11 +57,9 @@ changes; they are always listed under **Breaking** and explained in [UPGRADE.md]
 
 ### Changed
 
-- Every generated and runtime statement schema-qualifies Fuzzphony's own objects, so nothing
-  depends on the `search_path` any more. The normaliser function runs with
-  `search_path = pg_catalog, pg_temp`; the refresh and sync functions keep the `search_path` of the
-  session that applied the schema (`SET search_path FROM CURRENT`). Run `fuzzphony:schema --apply`
-  once after upgrading.
+- Every generated and runtime statement schema-qualifies Fuzzphony's own objects. The normaliser
+  function runs with `search_path = pg_catalog, pg_temp`; the refresh and sync functions keep the
+  `search_path` of the session that applied the schema (`SET search_path FROM CURRENT`).
 - Roadmap: reordered into milestones 0.4-1.0, so what other features build on ships first (API
   cleanup and the dedicated schema before reindex, events before analytics, the vocabulary table
   before `suggest()`).
