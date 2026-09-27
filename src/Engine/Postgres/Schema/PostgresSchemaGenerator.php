@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Fuzzphony\Engine\Postgres\Schema;
 
+use Composer\InstalledVersions;
 use Fuzzphony\Core\Definition\DefinitionValidator;
 use Fuzzphony\Core\Definition\IndexDefinition;
 use Fuzzphony\Core\Definition\SyncMode;
@@ -23,6 +24,13 @@ use Fuzzphony\Engine\Postgres\Sql\Sql;
 final class PostgresSchemaGenerator
 {
     /** Every generated function body / DO block is quoted with this tag; the validator keeps it out of embedded SQL. */
+    /**
+     * The sidecar layout this version generates (1 = the 0.4 layout), recorded in fuzzphony_meta.
+     * The milestone that first changes the layout bumps it and adds the upgrade step that runs
+     * from the stored version up, together with its test; 0.4 has no step to run.
+     */
+    public const int LAYOUT_VERSION = 1;
+
     private const string TAG = DefinitionValidator::DOLLAR_QUOTE_TAG;
 
     public function __construct(private readonly Names $names = new Names()) {}
@@ -55,6 +63,18 @@ final class PostgresSchemaGenerator
                 $this->names->queue(),
             ), 'Sync queue shared by all indexes'),
             new Statement(sprintf('CREATE INDEX IF NOT EXISTS %s ON %s (index_name, queued_at)', $this->names->queueOrderIndex(), $this->names->queue()), 'Queue processing order'),
+            new Statement(sprintf(
+                "CREATE TABLE IF NOT EXISTS %s (
+    index_name text PRIMARY KEY,
+    layout_version integer NOT NULL,
+    definition_hash text NOT NULL,
+    documents_hash text,
+    library_version text NOT NULL,
+    applied_at timestamptz NOT NULL,
+    reindexed_at timestamptz
+)",
+                $this->names->meta(),
+            ), 'Layout and definition each index was built from'),
         );
 
         $configs = [];
@@ -66,6 +86,7 @@ final class PostgresSchemaGenerator
         foreach ($configs as $config) {
             $statements[] = $this->textConfig($config);
         }
+        $statements[] = $this->recordApply('*', Fingerprint::shared($this->names), 'Record the layout of the shared objects');
 
         return new SchemaPlan($statements);
     }
@@ -114,6 +135,7 @@ final class PostgresSchemaGenerator
                 transactional: false,
             );
         }
+        $statements[] = $this->recordApply($index->name, Fingerprint::definition($index), sprintf('Record the layout and definition "%s" was built from', $index->name));
 
         return new SchemaPlan($statements);
     }
@@ -135,8 +157,50 @@ final class PostgresSchemaGenerator
             $this->names->queue(),
             Sql::string($index->name),
         ), 'Forget queued items');
+        $statements[] = new Statement(sprintf(
+            'DO ' . self::TAG . ' BEGIN IF to_regclass(%s) IS NOT NULL THEN DELETE FROM %s WHERE index_name = %s; END IF; END ' . self::TAG,
+            Sql::string($this->names->meta()),
+            $this->names->meta(),
+            Sql::string($index->name),
+        ), 'Forget the version record');
 
         return new SchemaPlan($statements);
+    }
+
+    /** Records that a full reindex rebuilt every document from this definition; a no-op before the meta table exists. */
+    public function reindexed(IndexDefinition $index): string
+    {
+        return sprintf(
+            'DO ' . self::TAG . ' BEGIN IF to_regclass(%s) IS NOT NULL THEN UPDATE %s SET documents_hash = %s, reindexed_at = now() WHERE index_name = %s; END IF; END ' . self::TAG,
+            Sql::string($this->names->meta()),
+            $this->names->meta(),
+            Sql::string(Fingerprint::documents($index)),
+            Sql::string($index->name),
+        );
+    }
+
+    /**
+     * The meta row upsert. Not transactional, so SchemaPlan::apply() runs it after everything else,
+     * including the concurrent index builds: the row only claims what was actually built.
+     */
+    private function recordApply(string $indexName, string $definitionHash, string $description): Statement
+    {
+        return new Statement(sprintf(
+            "INSERT INTO %s (index_name, layout_version, definition_hash, library_version, applied_at)
+VALUES (%s, %d, %s, %s, now())
+ON CONFLICT (index_name) DO UPDATE SET layout_version = EXCLUDED.layout_version, definition_hash = EXCLUDED.definition_hash, library_version = EXCLUDED.library_version, applied_at = EXCLUDED.applied_at",
+            $this->names->meta(),
+            Sql::string($indexName),
+            self::LAYOUT_VERSION,
+            Sql::string($definitionHash),
+            Sql::string(self::libraryVersion()),
+        ), $description, transactional: false);
+    }
+
+    /** For the record only: the monorepo package, or the engine package when installed split (as in the demo). */
+    private static function libraryVersion(): string
+    {
+        return InstalledVersions::getPrettyVersion(InstalledVersions::isInstalled('fuzzphony/fuzzphony') ? 'fuzzphony/fuzzphony' : 'fuzzphony/postgres-engine') ?? 'unknown';
     }
 
     /**

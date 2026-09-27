@@ -43,6 +43,8 @@ changes; they are always listed under **Breaking** and explained in [UPGRADE.md]
   re-created with a pinned `search_path`. After upgrading, run `fuzzphony:schema --apply`; an
   install whose objects live outside `public` must set `schema` to that schema. See
   [UPGRADE.md](UPGRADE.md#from-03-to-04), step 5.
+- `Engine` has a new method `recordReindex(IndexDefinition $index): void`, called after a full
+  reindex. Custom engines must implement it (an empty body is fine).
 
 ### Added
 
@@ -58,6 +60,12 @@ changes; they are always listed under **Breaking** and explained in [UPGRADE.md]
   fails the container build with `InvalidConfiguration`. The doctor looks its objects up in that
   schema and warns when an index is still in `public` from before the setting; the wizard hides
   the dedicated schema.
+- `fuzzphony_meta`: `fuzzphony:schema --apply` records per index the sidecar layout version (1),
+  a hash of the definition parts that shape the DDL, and the library version; a full reindex
+  records a hash of the parts that shape the documents. The doctor's new "Schema version",
+  "Definition" and "Documents" checks report a missing record, a layout older or newer than the
+  library's, a definition changed since the last apply, and documents built from another
+  definition. `--drop` deletes the index's record; `--dump-migration` includes the upsert.
 
 ### Changed
 

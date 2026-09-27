@@ -31,6 +31,10 @@ Fuzzphony's schema (`public` unless configured, see
 ([ADR 0001](adr/0001-sidecar-table.md)); see [Index definitions](configuration.md#concepts) for
 what it contains.
 
+`fuzzphony_meta` (same schema) records, per index, the sidecar layout version, a hash of the
+definition it was applied with and a hash of the definition its documents were built from;
+`fuzzphony:doctor` compares them with the current definition.
+
 ## Design decisions
 
 Recorded as ADRs in [`docs/adr`](adr/).

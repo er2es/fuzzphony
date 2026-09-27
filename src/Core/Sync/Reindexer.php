@@ -42,12 +42,17 @@ final class Reindexer
         } while (count($ids) === $options->batchSize);
 
         if ($options->resumeAfter !== null || !$options->prune) {
-            return new ReindexResult($written);
+            $result = new ReindexResult($written);
+        } elseif ($seen === 0 && !$options->pruneEmpty) {
+            $result = new ReindexResult($written, pruneSkippedEmptySource: true);
+        } else {
+            $result = new ReindexResult($written, $this->engine->pruneOrphans($index, $options->batchSize));
         }
-        if ($seen === 0 && !$options->pruneEmpty) {
-            return new ReindexResult($written, pruneSkippedEmptySource: true);
+        // a resumed run covers part of the source; a skipped empty source is likely a visibility problem
+        if ($options->resumeAfter === null && !$result->pruneSkippedEmptySource) {
+            $this->engine->recordReindex($index);
         }
 
-        return new ReindexResult($written, $this->engine->pruneOrphans($index, $options->batchSize));
+        return $result;
     }
 }

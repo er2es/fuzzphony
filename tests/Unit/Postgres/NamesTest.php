@@ -27,6 +27,8 @@ final class NamesTest extends TestCase
         self::assertSame('"public"."fuzzphony_products"', $names->sidecar($index));
         self::assertSame('"public"."fuzzphony_queue"', $names->queue());
         self::assertSame('fuzzphony_queue_order', $names->queueOrderIndex());
+        self::assertSame('fuzzphony_meta', $names->metaName());
+        self::assertSame('"public"."fuzzphony_meta"', $names->meta());
         self::assertSame('"public"."fuzzphony_norm"', $names->normFunction());
         self::assertSame('fuzzphony_refresh_products', $names->refreshFunctionName($index));
         self::assertSame('"public"."fuzzphony_refresh_products"', $names->refreshFunction($index));

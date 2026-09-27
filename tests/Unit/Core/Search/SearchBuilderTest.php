@@ -72,6 +72,11 @@ final class SearchBuilderTest extends TestCase
                 throw new \LogicException('not used by this test');
             }
 
+            public function recordReindex(IndexDefinition $index): void
+            {
+                throw new \LogicException('not used by this test');
+            }
+
             public function processQueue(IndexDefinition $index, int $limit): int
             {
                 throw new \LogicException('not used by this test');

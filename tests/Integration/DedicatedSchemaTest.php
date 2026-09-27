@@ -46,7 +46,7 @@ final class DedicatedSchemaTest extends TestCase
     {
         $this->fuzzphony('queue');
 
-        foreach (['fuzzphony_products', 'fuzzphony_queue'] as $table) {
+        foreach (['fuzzphony_products', 'fuzzphony_queue', 'fuzzphony_meta'] as $table) {
             self::assertNotNull($this->connection->fetchValue(sprintf("SELECT to_regclass('%s.%s')", self::SCHEMA, $table)), $table);
             self::assertNull($this->connection->fetchValue(sprintf("SELECT to_regclass('public.%s')", $table)), $table . ' must not be created in public');
         }

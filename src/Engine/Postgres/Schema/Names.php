@@ -81,6 +81,17 @@ final readonly class Names
         return self::PREFIX . 'queue_order';
     }
 
+    public function metaName(): string
+    {
+        return self::PREFIX . 'meta';
+    }
+
+    /** One row per index (plus "*" for the shared objects): the layout and definition it was built from. */
+    public function meta(): string
+    {
+        return $this->qualify($this->metaName());
+    }
+
     public function normFunction(): string
     {
         return $this->qualify(self::PREFIX . 'norm');

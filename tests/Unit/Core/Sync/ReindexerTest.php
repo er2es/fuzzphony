@@ -18,6 +18,7 @@ final class ReindexerTest extends TestCase
         $engine = $this->engine([[1, 2], [3]]);
         $engine->expects(self::exactly(2))->method('refresh')->willReturnOnConsecutiveCalls(2, 1);
         $engine->expects(self::once())->method('pruneOrphans')->with(self::anything(), 2)->willReturn(4);
+        $engine->expects(self::once())->method('recordReindex');
         $progress = [];
 
         $result = (new Reindexer($engine))->run(Indexes::products(), new ReindexOptions(
@@ -39,6 +40,7 @@ final class ReindexerTest extends TestCase
         $engine->expects(self::once())->method('sourceIds')->with(self::anything(), 7, 5_000)->willReturn([8]);
         $engine->method('refresh')->willReturn(1);
         $engine->expects(self::never())->method('pruneOrphans');
+        $engine->expects(self::never())->method('recordReindex');
 
         $result = (new Reindexer($engine))->run(Indexes::products(), new ReindexOptions(resumeAfter: 7));
 
@@ -51,6 +53,7 @@ final class ReindexerTest extends TestCase
         $engine = $this->engine([[1]]);
         $engine->method('refresh')->willReturn(1);
         $engine->expects(self::never())->method('pruneOrphans');
+        $engine->expects(self::once())->method('recordReindex'); // a full run without pruning still rebuilt every document
 
         self::assertNull((new Reindexer($engine))->run(Indexes::products(), new ReindexOptions(prune: false))->pruned);
     }
@@ -59,6 +62,7 @@ final class ReindexerTest extends TestCase
     {
         $engine = $this->engine([[]]);
         $engine->expects(self::never())->method('pruneOrphans');
+        $engine->expects(self::never())->method('recordReindex');
 
         $result = (new Reindexer($engine))->run(Indexes::products(), new ReindexOptions());
 
@@ -68,6 +72,7 @@ final class ReindexerTest extends TestCase
 
         $forced = $this->engine([[]]);
         $forced->expects(self::once())->method('pruneOrphans')->willReturn(5);
+        $forced->expects(self::once())->method('recordReindex');
         $result = (new Reindexer($forced))->run(Indexes::products(), new ReindexOptions(pruneEmpty: true));
 
         self::assertSame(5, $result->pruned);

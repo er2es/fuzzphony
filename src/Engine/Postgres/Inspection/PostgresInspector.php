@@ -13,6 +13,7 @@ use Fuzzphony\Core\Inspection\InspectionReport;
 use Fuzzphony\Core\Inspection\InspectOptions;
 use Fuzzphony\Core\Ranking\FuzzyMode;
 use Fuzzphony\Core\Support\Coerce;
+use Fuzzphony\Engine\Postgres\Schema\Fingerprint;
 use Fuzzphony\Engine\Postgres\Schema\Names;
 use Fuzzphony\Engine\Postgres\Schema\PostgresSchemaGenerator;
 use Fuzzphony\Engine\Postgres\Schema\Types;
@@ -73,8 +74,41 @@ final class PostgresInspector
         array_push($checks, ...$this->configuration($index));
         array_push($checks, ...$this->tenantScoping($index));
         array_push($checks, ...$this->columnAwareFiltering($index));
+        array_push($checks, ...$this->schemaVersion($index)); // last: earlier checks keep their order
 
         return new InspectionReport($index->name, $checks);
+    }
+
+    /** @return list<Check> */
+    private function schemaVersion(IndexDefinition $index): array
+    {
+        $row = $this->regclass($this->names->meta())
+            ? ($this->connection->fetchAll(
+                sprintf('SELECT layout_version, definition_hash, documents_hash, library_version FROM %s WHERE index_name = :index', $this->names->meta()),
+                ['index' => $index->name],
+            )[0] ?? null)
+            : null;
+        if ($row === null) {
+            return [Check::warning('Schema version', 'No version record: built before 0.4, or never applied.', self::APPLY)];
+        }
+
+        $layout = Coerce::int($row['layout_version']);
+        $current = PostgresSchemaGenerator::LAYOUT_VERSION;
+        $by = Coerce::str($row['library_version']);
+
+        return [
+            match (true) {
+                $layout < $current => Check::error('Schema version', sprintf('Layout %d is older than this library\'s layout %d.', $layout, $current), self::APPLY),
+                $layout > $current => Check::error('Schema version', sprintf('Layout %d was applied by a newer Fuzzphony (%s); this library knows layout %d.', $layout, $by, $current), sprintf('Upgrade fuzzphony/fuzzphony to %s or later.', $by)),
+                default => Check::ok('Schema version', sprintf('layout %d, applied by %s', $layout, $by)),
+            },
+            Coerce::str($row['definition_hash']) === Fingerprint::definition($index)
+                ? Check::ok('Definition', 'unchanged since the last apply')
+                : Check::error('Definition', 'The definition changed since the last apply.', self::APPLY),
+            Coerce::str($row['documents_hash']) === Fingerprint::documents($index)
+                ? Check::ok('Documents', 'built from the current definition')
+                : Check::warning('Documents', 'The documents were built from another definition, or not fully reindexed since 0.4.', sprintf('bin/console fuzzphony:reindex %s', $index->name)),
+        ];
     }
 
     private function version(): Check

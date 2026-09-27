@@ -44,7 +44,13 @@ and the [CHANGELOG](CHANGELOG.md) has the full list of changes.
    configured schema, so a setup that relied on the `search_path` to place or find Fuzzphony's
    objects (one set per tenant schema, say) no longer works that way. The refresh and sync
    functions resolve your source tables with the `search_path` of the session that applies the
-   schema: apply it with the same role and settings as your application.
+   schema: apply it with the same role and settings as your application. It also creates
+   `fuzzphony_meta` and records each index's layout and definition. Until the next full
+   `bin/console fuzzphony:reindex`, `fuzzphony:doctor` warns that the documents' definition is
+   unknown (check "Documents"); search works without it, but run one reindex before
+   `fuzzphony:doctor --strict` in CI.
+6. **Custom engines** implement `Engine::recordReindex(IndexDefinition $index): void`; an empty
+   body is fine if the engine does not track which definition built its documents.
 
 ### Moving to a dedicated schema
 

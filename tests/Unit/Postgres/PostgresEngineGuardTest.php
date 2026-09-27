@@ -23,6 +23,10 @@ final class PostgresEngineGuardTest extends TestCase
     {
         $always = static fn(string $sql): bool => true;
         yield 'source ids' => ['source ids', 'Run "bin/console fuzzphony:doctor": it checks that the source can be queried.', $always, static fn(PostgresEngine $e): mixed => $e->sourceIds(Indexes::products(), null, 10)];
+        yield 'reindex record' => ['reindex record', 'Run "fuzzphony:schema --apply".', $always, static function (PostgresEngine $e): null {
+            $e->recordReindex(Indexes::products());
+            return null;
+        }];
         yield 'queue size' => ['queue size', 'Run "fuzzphony:schema --apply" to create the queue table.', $always, static fn(PostgresEngine $e): mixed => $e->queueSize(Indexes::products())];
         yield 'inspection' => ['inspection', 'Check that this connection can read the catalog and the source.', $always, static fn(PostgresEngine $e): mixed => $e->inspect(Indexes::products())];
         yield 'explain' => ['explain', self::DOCTOR, static fn(string $sql): bool => str_starts_with($sql, 'EXPLAIN'), static fn(PostgresEngine $e): mixed => self::fuzzphony($e)->in('products')->query('mouse')->explain()];

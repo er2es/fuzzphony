@@ -200,6 +200,11 @@ final class PostgresEngine implements Engine
         }, 'Run "fuzzphony:schema --apply" and check "fuzzphony:doctor".');
     }
 
+    public function recordReindex(IndexDefinition $index): void
+    {
+        $this->guard('reindex record', fn(): int => $this->connection->execute($this->schema->reindexed($index)), 'Run "fuzzphony:schema --apply".');
+    }
+
     public function processQueue(IndexDefinition $index, int $limit): int
     {
         // Taking the batch and refreshing it happen in ONE statement and transaction:

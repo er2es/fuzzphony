@@ -51,7 +51,11 @@ It checks:
 - queue backlog and age;
 - coverage (estimated, or exact with `--deep`);
 - orphaned documents (with `--deep`; fixed by `fuzzphony:reindex`);
-- risky thresholds.
+- risky thresholds;
+- the schema version: which layout and definition the index was last applied with (an error when
+  the definition changed since, or the layout is older or newer than this library's) and whether
+  the documents were built from the current definition (a warning until a full
+  `fuzzphony:reindex` records it).
 
 ## The configuration wizard
 

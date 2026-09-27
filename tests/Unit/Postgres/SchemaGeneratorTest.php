@@ -4,13 +4,16 @@ declare(strict_types=1);
 
 namespace Fuzzphony\Tests\Unit\Postgres;
 
+use Composer\InstalledVersions;
 use Fuzzphony\Core\Definition\IndexDefinition;
 use Fuzzphony\Core\Definition\SyncMode;
 use Fuzzphony\Core\Definition\TriggerLevel;
 use Fuzzphony\Core\Definition\Watch;
 use Fuzzphony\Core\Schema\Statement;
+use Fuzzphony\Engine\Postgres\Schema\Fingerprint;
 use Fuzzphony\Engine\Postgres\Schema\Names;
 use Fuzzphony\Engine\Postgres\Schema\PostgresSchemaGenerator;
+use Fuzzphony\Engine\Postgres\Sql\Sql;
 use Fuzzphony\Tests\Fixtures\Indexes;
 use PHPUnit\Framework\TestCase;
 
@@ -441,5 +444,55 @@ final class SchemaGeneratorTest extends TestCase
         self::assertStringContainsString("EXECUTE format('CREATE TEXT SEARCH DICTIONARY %I.%I (TEMPLATE = pg_catalog.simple, STOPWORDS = %L, ACCEPT = false)', 'Fz', 'fuzzphony_english_stop', v_stopwords)", $sql);
         self::assertStringContainsString('CREATE TEXT SEARCH CONFIGURATION "Fz"."fuzzphony_english" (COPY = "english")', $sql);
         self::assertStringContainsString('WITH "Fz"."fuzzphony_english_stop", "public".unaccent, "english_stem"', $sql);
+    }
+
+    public function testApplyCreatesTheMetaTableAndRecordsTheSharedObjectsLast(): void
+    {
+        $statements = (new PostgresSchemaGenerator())->global(Indexes::products())->statements;
+        $sql = implode("\n", array_map(static fn(Statement $s): string => $s->sql, $statements));
+        $last = $statements[count($statements) - 1];
+
+        self::assertStringContainsString(
+            "CREATE TABLE IF NOT EXISTS \"public\".\"fuzzphony_meta\" (\n    index_name text PRIMARY KEY,\n    layout_version integer NOT NULL,\n    definition_hash text NOT NULL,\n    documents_hash text,\n    library_version text NOT NULL,\n    applied_at timestamptz NOT NULL,\n    reindexed_at timestamptz\n)",
+            $sql,
+        );
+        self::assertFalse($last->transactional, 'after everything else');
+        self::assertSame(self::upsert('*', Fingerprint::shared(new Names())), $last->sql);
+    }
+
+    public function testApplyRecordsTheIndexLayoutAndDefinitionAfterTheConcurrentIndexBuilds(): void
+    {
+        $statements = (new PostgresSchemaGenerator())->index(Indexes::products())->statements;
+        $last = $statements[count($statements) - 1];
+
+        self::assertSame(1, PostgresSchemaGenerator::LAYOUT_VERSION);
+        self::assertFalse($last->transactional);
+        self::assertSame(self::upsert('products', Fingerprint::definition(Indexes::products())), $last->sql);
+        self::assertSame('Record the layout and definition "products" was built from', $last->description);
+    }
+
+    public function testDropForgetsTheVersionRecordAndAReindexRecordsTheDocuments(): void
+    {
+        $generator = new PostgresSchemaGenerator();
+        $drop = $generator->drop(Indexes::products())->statements;
+
+        self::assertSame(
+            "DO \$fuzzphony\$ BEGIN IF to_regclass('\"public\".\"fuzzphony_meta\"') IS NOT NULL THEN DELETE FROM \"public\".\"fuzzphony_meta\" WHERE index_name = 'products'; END IF; END \$fuzzphony\$",
+            $drop[count($drop) - 1]->sql,
+        );
+        self::assertSame(
+            sprintf("DO \$fuzzphony\$ BEGIN IF to_regclass('\"public\".\"fuzzphony_meta\"') IS NOT NULL THEN UPDATE \"public\".\"fuzzphony_meta\" SET documents_hash = '%s', reindexed_at = now() WHERE index_name = 'products'; END IF; END \$fuzzphony\$", Fingerprint::documents(Indexes::products())),
+            $generator->reindexed(Indexes::products()),
+        );
+    }
+
+    private static function upsert(string $index, string $hash): string
+    {
+        return sprintf(
+            "INSERT INTO \"public\".\"fuzzphony_meta\" (index_name, layout_version, definition_hash, library_version, applied_at)\nVALUES ('%s', 1, '%s', %s, now())\nON CONFLICT (index_name) DO UPDATE SET layout_version = EXCLUDED.layout_version, definition_hash = EXCLUDED.definition_hash, library_version = EXCLUDED.library_version, applied_at = EXCLUDED.applied_at",
+            $index,
+            $hash,
+            Sql::string((string) InstalledVersions::getPrettyVersion('fuzzphony/fuzzphony')),
+        );
     }
 }

@@ -91,6 +91,9 @@ docker compose up --build   # seeds again (about 60 s for the 500 000-row defaul
 `docker compose down` (without `-v`) keeps the data. A demo started before the PostgreSQL 18 default
 needs `down -v` once, because PostgreSQL 18 can't open a 17 data directory. To rebuild only the index: `DEMO_REINDEX=always docker compose run --rm init`.
 
+A demo whose data predates 0.4 keeps its index, so the doctor warns ("Documents") that the
+documents' definition is unknown until that one full reindex runs.
+
 ## Live-edit development
 
 The production stack is immutable. To edit the demo (or `../src`) and see the change on reload, add the dev override:
