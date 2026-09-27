@@ -202,7 +202,12 @@ final class PostgresEngine implements Engine
 
     public function recordReindex(IndexDefinition $index): void
     {
-        $this->guard('reindex record', fn(): int => $this->connection->execute($this->schema->reindexed($index)), 'Run "fuzzphony:schema --apply".');
+        // a missing table is a no-op (the statement checks), so a failure is almost always a missing privilege
+        $this->guard(
+            'reindex record',
+            fn(): int => $this->connection->execute($this->schema->reindexed($index)),
+            sprintf('The role running the reindex needs SELECT and UPDATE on %s.', $this->names->meta()),
+        );
     }
 
     public function processQueue(IndexDefinition $index, int $limit): int

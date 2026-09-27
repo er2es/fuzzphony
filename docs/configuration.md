@@ -140,6 +140,11 @@ GRANT USAGE ON SCHEMA fuzzphony TO app;
 GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA fuzzphony TO app;
 ```
 
+The role that runs `fuzzphony:reindex` needs `SELECT` and `UPDATE` on `fuzzphony_meta` too (a full
+reindex records there which definition built the documents). `ON ALL TABLES IN SCHEMA` covers only
+the tables that exist when it runs: re-run it after the first 0.4 `schema --apply`, which creates
+`fuzzphony_meta`.
+
 `DROP SCHEMA fuzzphony CASCADE` then removes every index at once (drop the triggers on your tables
 with `fuzzphony:schema --drop --apply` first). Moving an existing install out of `public` is not
 automatic, see [UPGRADE.md](../UPGRADE.md#moving-to-a-dedicated-schema); until then the doctor

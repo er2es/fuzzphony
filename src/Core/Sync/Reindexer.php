@@ -48,8 +48,8 @@ final class Reindexer
         } else {
             $result = new ReindexResult($written, $this->engine->pruneOrphans($index, $options->batchSize));
         }
-        // a resumed run covers part of the source; a skipped empty source is likely a visibility problem
-        if ($options->resumeAfter === null && !$result->pruneSkippedEmptySource) {
+        // a resumed run covers part of the source; an empty one is likely a visibility problem (as for pruning)
+        if ($options->resumeAfter === null && ($seen > 0 || $options->pruneEmpty)) {
             $this->engine->recordReindex($index);
         }
 

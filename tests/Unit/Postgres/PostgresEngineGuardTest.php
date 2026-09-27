@@ -23,7 +23,7 @@ final class PostgresEngineGuardTest extends TestCase
     {
         $always = static fn(string $sql): bool => true;
         yield 'source ids' => ['source ids', 'Run "bin/console fuzzphony:doctor": it checks that the source can be queried.', $always, static fn(PostgresEngine $e): mixed => $e->sourceIds(Indexes::products(), null, 10)];
-        yield 'reindex record' => ['reindex record', 'Run "fuzzphony:schema --apply".', $always, static function (PostgresEngine $e): null {
+        yield 'reindex record' => ['reindex record', 'The role running the reindex needs SELECT and UPDATE on "public"."fuzzphony_meta".', $always, static function (PostgresEngine $e): null {
             $e->recordReindex(Indexes::products());
             return null;
         }];
@@ -48,6 +48,18 @@ final class PostgresEngineGuardTest extends TestCase
         } catch (EngineFailure $e) {
             self::assertSame(sprintf("Fuzzphony %s failed: boom\nHint: %s", $operation, $hint), $e->getMessage());
             self::assertInstanceOf(\PDOException::class, $e->getPrevious());
+        }
+    }
+
+    public function testTheReindexRecordHintNamesTheConfiguredSchema(): void
+    {
+        $engine = new PostgresEngine(self::connection(static fn(string $sql): bool => true), schema: 'fuzzphony');
+
+        try {
+            $engine->recordReindex(Indexes::products());
+            self::fail('EngineFailure expected');
+        } catch (EngineFailure $e) {
+            self::assertStringEndsWith('Hint: The role running the reindex needs SELECT and UPDATE on "fuzzphony"."fuzzphony_meta".', $e->getMessage());
         }
     }
 

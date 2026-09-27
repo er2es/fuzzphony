@@ -23,7 +23,6 @@ use Fuzzphony\Engine\Postgres\Sql\Sql;
  */
 final class PostgresSchemaGenerator
 {
-    /** Every generated function body / DO block is quoted with this tag; the validator keeps it out of embedded SQL. */
     /**
      * The sidecar layout this version generates (1 = the 0.4 layout), recorded in fuzzphony_meta.
      * The milestone that first changes the layout bumps it and adds the upgrade step that runs
@@ -31,6 +30,7 @@ final class PostgresSchemaGenerator
      */
     public const int LAYOUT_VERSION = 1;
 
+    /** Every generated function body / DO block is quoted with this tag; the validator keeps it out of embedded SQL. */
     private const string TAG = DefinitionValidator::DOLLAR_QUOTE_TAG;
 
     public function __construct(private readonly Names $names = new Names()) {}

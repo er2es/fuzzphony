@@ -79,6 +79,24 @@ final class ReindexerTest extends TestCase
         self::assertFalse($result->pruneSkippedEmptySource);
     }
 
+    public function testAnEmptySourceIsNotRecordedAsReindexedWithoutPruning(): void
+    {
+        $engine = $this->engine([[]]);
+        $engine->expects(self::never())->method('pruneOrphans');
+        $engine->expects(self::never())->method('recordReindex');
+
+        $result = (new Reindexer($engine))->run(Indexes::products(), new ReindexOptions(prune: false));
+
+        self::assertSame(0, $result->written);
+        self::assertNull($result->pruned);
+        self::assertFalse($result->pruneSkippedEmptySource, 'pruning was not asked for, so it was not skipped either');
+
+        $forced = $this->engine([[]]);
+        $forced->expects(self::never())->method('pruneOrphans');
+        $forced->expects(self::once())->method('recordReindex');
+        (new Reindexer($forced))->run(Indexes::products(), new ReindexOptions(prune: false, pruneEmpty: true));
+    }
+
     /**
      * @param list<list<int>> $batches what sourceIds() returns, call by call
      *

@@ -48,7 +48,9 @@ and the [CHANGELOG](CHANGELOG.md) has the full list of changes.
    `fuzzphony_meta` and records each index's layout and definition. Until the next full
    `bin/console fuzzphony:reindex`, `fuzzphony:doctor` warns that the documents' definition is
    unknown (check "Documents"); search works without it, but run one reindex before
-   `fuzzphony:doctor --strict` in CI.
+   `fuzzphony:doctor --strict` in CI. The role that runs `fuzzphony:reindex` needs `SELECT` and
+   `UPDATE` on `fuzzphony_meta`; a schema-wide `GRANT … ON ALL TABLES IN SCHEMA` covers only the
+   tables that exist, so re-run it after the first 0.4 `schema --apply` (the table is new).
 6. **Custom engines** implement `Engine::recordReindex(IndexDefinition $index): void`; an empty
    body is fine if the engine does not track which definition built its documents.
 
