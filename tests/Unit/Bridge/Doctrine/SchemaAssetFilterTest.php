@@ -44,9 +44,13 @@ final class SchemaAssetFilterTest extends TestCase
         yield 'public: merged' => ['~^(?!(public\.)?(fuzzphony_|legacy_))~', 'public', false];
         yield 'public: only unqualified names hidden' => ['~^(?!fuzzphony_)~', 'public', true];
         yield 'public: only qualified names hidden' => ['~^(?!public\.fuzzphony_)~', 'public', true];
+        yield 'public: hides the queue but not meta' => ['~^(?!fuzzphony_queue)~', 'public', true];
         yield 'dedicated: unrelated filter' => ['~^(?!legacy_)~', 'fuzzphony', true];
         yield 'dedicated: merged' => ['~^(?!(fuzzphony\.|legacy_))~', 'fuzzphony', false];
         yield 'dedicated: merged for public only' => ['~^(?!(public\.)?fuzzphony_)~', 'fuzzphony', true];
+        // A filter matching only the bare "schema." prefix (no table name after it) must not be
+        // read as hiding the actual, fully-qualified table names, which all have one.
+        yield 'dedicated: a filter on the bare schema prefix hides no real table' => ['~^(?!fuzzphony\.$)~', 'fuzzphony', true];
     }
 
     #[DataProvider('applicationFilters')]

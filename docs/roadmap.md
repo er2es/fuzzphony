@@ -12,14 +12,14 @@ depends on it, so nothing built early has to be refactored once a later mileston
 - v0.2: configuration wizard (CLI + web), statement-level triggers, per-query ranking overrides,
   Messenger for ORM sync, API Platform filter, Live Component, demo app, benchmark in CI,
   multi-tenancy, column-aware trigger filtering.
-- v0.3 (current): per-word typo tolerance, empty-result relaxation, `TRUNCATE` sync and orphan
+- v0.3: per-word typo tolerance, empty-result relaxation, `TRUNCATE` sync and orphan
   pruning, a production-like demo stack.
-- v0.4 Foundations (unreleased): one exception hierarchy, typed withers instead of
+- v0.4 Foundations (current): one exception hierarchy, typed withers instead of
   `IndexDefinition::with(...)`, `ReindexOptions` / `ReindexResult`, an explicit public API
   (`@internal` everywhere else) with the PostgreSQL details out of Core; a dedicated schema
   (`schema: fuzzphony`, default `public`); a sidecar schema version (`fuzzphony_meta`, checked by
   the doctor); Doctrine Migrations integration (the bundle's `schema_filter`, the version record in
-  `--dump-migration`). See the [CHANGELOG](../CHANGELOG.md#unreleased) and
+  `--dump-migration`). See the [CHANGELOG](../CHANGELOG.md#040---2026-09-27) and
   [UPGRADE.md](../UPGRADE.md#from-03-to-04).
 
 ## v0.5: Index lifecycle

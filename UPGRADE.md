@@ -73,8 +73,7 @@ the new setting):
 
 1. Keep the deployed application on the old setting. Prepare the new one,
    `fuzzphony.schema: fuzzphony` (or `schema:` for `PostgresEngine`), somewhere only a one-off
-   process uses it: a separate checkout or release directory, or a short PHP script with
-   `new PostgresEngine($connection, schema: 'fuzzphony')`.
+   process uses it: a separate checkout or release directory pointed at the same database.
 2. From that process: `bin/console fuzzphony:schema --apply`. It creates the schema and every
    object in it and re-points the triggers to the new functions, so from now on trigger and queue
    sync feed the new objects (queued changes wait in the new queue) and the old tables go stale.
@@ -109,8 +108,9 @@ With DoctrineBundle the bundle now sets the DBAL `schema_filter` of Fuzzphony's 
 has its own `schema_filter`, the bundle leaves it alone, and `fuzzphony:doctor` warns with the
 regex to merge until your filter hides Fuzzphony's tables. If `connection` or `schema` is set
 from a parameter or an environment variable, the bundle cannot resolve it early enough: it sets
-no filter and the doctor does not check yours, so add Fuzzphony's regex yourself. A migration generated with `fuzzphony:schema --dump-migration` can be generated again
-after upgrading; it now ends with the version record.
+no filter and the doctor does not check yours, so add Fuzzphony's regex yourself. A migration
+generated with `fuzzphony:schema --dump-migration` can be generated again after upgrading; it now
+ends with the version record.
 
 ## From 0.3.1 to 0.3.2
 
