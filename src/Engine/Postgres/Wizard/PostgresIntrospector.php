@@ -24,22 +24,27 @@ final readonly class PostgresIntrospector implements SourceIntrospector
 {
     private const int SAMPLE = 1000;
 
-    public function __construct(private Connection $connection) {}
+    public function __construct(
+        private Connection $connection,
+        /** Fuzzphony's schema: when it is not "public" it holds nothing to search, so it is hidden as a whole. */
+        private string $schema = 'public',
+    ) {}
 
     public function tables(): array
     {
-        $rows = $this->connection->fetchAll(<<<'SQL'
+        $hideSchema = $this->schema !== 'public';
+        $rows = $this->connection->fetchAll(sprintf(<<<'SQL'
             SELECT CASE WHEN n.nspname = 'public' THEN c.relname ELSE n.nspname || '.' || c.relname END AS table_name,
                    greatest(c.reltuples, 0)::bigint AS rows
             FROM pg_class c
             JOIN pg_namespace n ON n.oid = c.relnamespace
             WHERE c.relkind IN ('r', 'p')
               AND n.nspname NOT IN ('pg_catalog', 'information_schema')
-              AND n.nspname NOT LIKE 'pg_toast%'
-              AND c.relname NOT LIKE 'fuzzphony\_%'
-              AND NOT c.relispartition
+              AND n.nspname NOT LIKE 'pg_toast%%'
+              AND c.relname NOT LIKE 'fuzzphony\_%%'
+              AND NOT c.relispartition%s
             ORDER BY c.reltuples DESC, 1
-            SQL);
+            SQL, $hideSchema ? "\n  AND n.nspname <> :schema" : ''), $hideSchema ? ['schema' => $this->schema] : []);
 
         return array_map(static fn(array $r): array => ['table' => Coerce::str($r['table_name']), 'rows' => Coerce::int($r['rows'])], $rows);
     }

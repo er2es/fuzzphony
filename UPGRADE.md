@@ -36,7 +36,8 @@ and the [CHANGELOG](CHANGELOG.md) has the full list of changes.
    `IdType::sqlType()`, `FilterType::sqlType()`, `FilterType::compatibleSqlTypes()`,
    `RankingProfile::tsRankWeights()` and `Identifier::limit()` are gone. Nothing replaces them in
    the public API: the engine derives these names itself. If you queried the sidecar table by
-   hand, its name is `fuzzphony_<index>` in Fuzzphony's schema (see step 6).
+   hand, its name is `fuzzphony_<index>` in Fuzzphony's schema (`public` unless you set one, see
+   [Moving to a dedicated schema](#moving-to-a-dedicated-schema)).
 5. **Apply the schema once.** `bin/console fuzzphony:schema --apply` re-creates the functions
    with a fixed `search_path` and schema-qualified names. Nothing moves: without a `schema`
    setting everything stays in `public`. Everything is now created in and read from one
@@ -44,6 +45,37 @@ and the [CHANGELOG](CHANGELOG.md) has the full list of changes.
    objects (one set per tenant schema, say) no longer works that way. The refresh and sync
    functions resolve your source tables with the `search_path` of the session that applies the
    schema: apply it with the same role and settings as your application.
+
+### Moving to a dedicated schema
+
+Optional. Nothing moves by itself. The sync triggers on your tables keep their names in the new
+schema, so the new `schema --apply` re-points them to the new functions; a `--drop` with the old
+configuration run *afterwards* would remove them again. Two ways:
+
+**Without downtime** (search keeps working from the old tables until the reindex is done):
+
+1. Set `fuzzphony.schema: fuzzphony` (or pass `schema:` to `PostgresEngine`).
+2. `bin/console fuzzphony:schema --apply`: creates the schema and every object in it and
+   re-points the triggers to the new functions.
+3. `bin/console fuzzphony:reindex`: fills the new sidecar tables.
+4. Drop the old objects by hand (never with `--drop`, see above):
+
+   ```sql
+   DROP TABLE public.fuzzphony_<index>;              -- one per index
+   DROP TABLE public.fuzzphony_queue, public.fuzzphony_meta;
+   DROP FUNCTION public.fuzzphony_refresh_<index>, public.fuzzphony_sync_<index>__<table>, public.fuzzphony_norm;
+   DROP TEXT SEARCH CONFIGURATION public.fuzzphony_<language>;
+   DROP TEXT SEARCH DICTIONARY public.fuzzphony_<language>_stop;
+   ```
+
+**With a short search outage:**
+
+1. With the old configuration: `bin/console fuzzphony:schema --drop --apply` (removes the
+   triggers, functions and sidecar tables; the queue table, `fuzzphony_norm` and the text search
+   configurations stay and can be dropped as above).
+2. Set the schema, `bin/console fuzzphony:schema --apply`, `bin/console fuzzphony:reindex`.
+
+`fuzzphony:doctor` warns ("Schema") while an old sidecar table is still in `public`.
 
 ## From 0.3.1 to 0.3.2
 

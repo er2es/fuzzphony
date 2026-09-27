@@ -73,7 +73,8 @@ A good fit when:
 
 - The database is not yours to change: a legacy system, an ERP, tables another team owns. No
   column is added; the index is filled from your table or from a SQL query. If even a trigger is
-  too much, the `orm` and `manual` sync modes need none.
+  too much, the `orm` and `manual` sync modes need none. With `schema: fuzzphony` not even a table
+  lands in your schema.
 - You're replacing `LIKE` in admin panels, back offices, CRMs and support tools.
 - One more service is one too many.
 - The data must stay in the database, under the same backups and roles, for compliance or privacy.

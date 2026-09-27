@@ -132,12 +132,26 @@ they did then, whatever the writing session's `search_path` is. Only highlightin
 `fuzzphony:reindex` run your source query in the calling session, so that session must see your
 source tables.
 
+With a dedicated schema, grant the application role what it needs there (the doctor and
+`schema --apply` need more; run those as the owner):
+
+```sql
+GRANT USAGE ON SCHEMA fuzzphony TO app;
+GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA fuzzphony TO app;
+```
+
+`DROP SCHEMA fuzzphony CASCADE` then removes every index at once (drop the triggers on your tables
+with `fuzzphony:schema --drop --apply` first). Moving an existing install out of `public` is not
+automatic, see [UPGRADE.md](../UPGRADE.md#moving-to-a-dedicated-schema); until then the doctor
+warns about the objects left in `public`.
+
 ## Bundle configuration
 
 ```yaml
 fuzzphony:
   connection: default          # Doctrine DBAL connection name
   extension_schema: public     # schema of the pg_trgm and unaccent extensions
+  schema: public               # Fuzzphony's own schema, e.g. fuzzphony (see below)
   discover_entities: true      # register every Doctrine entity with #[Searchable]
   worker: { batch_size: 500, idle_sleep: 1.0 }
   orm_sync: { async: false, chunk_size: 500 }

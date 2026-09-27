@@ -54,6 +54,10 @@ changes; they are always listed under **Breaking** and explained in [UPGRADE.md]
   mutants, 17 minutes); the README shows the current score as a badge.
 - `PostgresEngine` takes a `schema` argument (default `public`): the schema of every object
   Fuzzphony creates. `fuzzphony:schema --apply` creates it when it is not `public`.
+- `fuzzphony.schema` bundle setting (default `public`) for Fuzzphony's own schema; an invalid name
+  fails the container build with `InvalidConfiguration`. The doctor looks its objects up in that
+  schema and warns when an index is still in `public` from before the setting; the wizard hides
+  the dedicated schema.
 
 ### Changed
 

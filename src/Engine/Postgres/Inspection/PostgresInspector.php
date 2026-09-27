@@ -55,6 +55,7 @@ final class PostgresInspector
         $sidecarExists = $this->regclass($this->names->sidecar($index));
         if (!$sidecarExists) {
             $checks[] = Check::error('Sidecar table', sprintf('Table %s does not exist.', $this->names->sidecar($index)), self::APPLY);
+            array_push($checks, ...$this->location($index));
         } else {
             array_push($checks, ...$this->sidecarColumns($index));
             array_push($checks, ...$this->sidecarIndexes($index));
@@ -109,21 +110,27 @@ final class PostgresInspector
 
     private function textConfig(IndexDefinition $index): Check
     {
-        $name = $this->names->textConfigName($index->text);
-        $exists = (bool) $this->connection->fetchValue('SELECT count(*) > 0 FROM pg_ts_config WHERE cfgname = :name', ['name' => $name]);
+        $label = $this->names->textConfig($index->text);
+        $sql = 'SELECT count(*) > 0 FROM pg_ts_config c JOIN pg_namespace n ON n.oid = c.cfgnamespace WHERE c.cfgname = :name';
+        $params = ['name' => $this->names->textConfigName($index->text)];
+        if ($index->text->unaccent) {
+            // Fuzzphony's own copy must be in Fuzzphony's schema; a built-in one may be anywhere
+            $sql .= ' AND n.nspname = :schema';
+            $params['schema'] = $this->names->schema;
+        }
 
-        if (!$exists) {
-            return Check::error('Text search configuration', sprintf('"%s" is missing.', $name), self::APPLY);
+        if (!(bool) $this->connection->fetchValue($sql, $params)) {
+            return Check::error('Text search configuration', sprintf('%s is missing.', $label), self::APPLY);
         }
         if ($index->text->unaccent && $this->keepsAccentedStopWords($index)) {
             return Check::error(
                 'Text search configuration',
-                sprintf('"%s" keeps accented stop words (such as "für", "és", "à"): the stop-word dictionary "%s" does not run before unaccent.', $name, $this->names->stopDictionaryName($index->text)),
+                sprintf('%s keeps accented stop words (such as "für", "és", "à"): the stop-word dictionary %s does not run before unaccent.', $label, $this->names->stopDictionary($index->text)),
                 self::APPLY . sprintf(', then bin/console fuzzphony:reindex %s', $index->name),
             );
         }
 
-        return Check::ok('Text search configuration', $name);
+        return Check::ok('Text search configuration', $label);
     }
 
     /** A 0.3.0 configuration: the stem dictionary has a stop-word list, but "word" tokens do not start with the stop-word dictionary. */
@@ -135,14 +142,36 @@ final class PostgresInspector
                    AND NOT EXISTS (
                        SELECT 1
                        FROM pg_ts_config c
+                       JOIN pg_namespace n ON n.oid = c.cfgnamespace
                        JOIN pg_ts_config_map m ON m.mapcfg = c.oid AND m.mapseqno = 1
                        JOIN pg_ts_dict d ON d.oid = m.mapdict
-                       WHERE c.cfgname = :name AND d.dictname = :stop
+                       WHERE c.cfgname = :name AND n.nspname = :schema AND d.dictname = :stop
                          AND m.maptokentype = (SELECT t.tokid FROM ts_token_type(c.cfgparser) AS t WHERE t.alias = 'word')
                    )
                 SQL,
-            ['stem' => $this->schema->stemDictionaryName($index->text), 'name' => $this->names->textConfigName($index->text), 'stop' => $this->names->stopDictionaryName($index->text)],
+            ['stem' => $this->schema->stemDictionaryName($index->text), 'name' => $this->names->textConfigName($index->text), 'stop' => $this->names->stopDictionaryName($index->text), 'schema' => $this->names->schema],
         );
+    }
+
+    /**
+     * A dedicated schema that lacks this index while "public" still has it: an install from
+     * before the "schema" setting, which is not moved automatically. (Only called when the
+     * sidecar is missing, so with schema "public" the lookup below finds nothing either.)
+     *
+     * @return list<Check>
+     */
+    private function location(IndexDefinition $index): array
+    {
+        $legacy = Sql::ident('public.' . $this->names->sidecarName($index));
+        if (!$this->regclass($legacy)) {
+            return [];
+        }
+
+        return [Check::warning(
+            'Schema',
+            sprintf('%s has no sidecar table for this index, but %s exists: an install from before the dedicated schema.', $this->names->quotedSchema(), $legacy),
+            'See UPGRADE.md, "Moving to a dedicated schema": fuzzphony:schema --apply, fuzzphony:reindex, then drop the old objects.',
+        )];
     }
 
     private function function(string $signature, string $label): Check

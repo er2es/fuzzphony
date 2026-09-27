@@ -30,6 +30,7 @@ use Fuzzphony\Core\Sync\ImmediateRefreshDispatcher;
 use Fuzzphony\Core\Sync\RefreshDispatcher;
 use Fuzzphony\Core\Wizard\SourceIntrospector;
 use Fuzzphony\Engine\Postgres\PostgresEngine;
+use Fuzzphony\Engine\Postgres\Schema\Names;
 use Fuzzphony\Engine\Postgres\Wizard\PostgresIntrospector;
 use Symfony\Component\Config\Definition\Configurator\DefinitionConfigurator;
 use Symfony\Component\DependencyInjection\ContainerBuilder;
@@ -44,6 +45,7 @@ use function Symfony\Component\DependencyInjection\Loader\Configurator\service;
  *   fuzzphony:
  *     connection: default          # DBAL connection name
  *     extension_schema: public     # where pg_trgm / unaccent live
+ *     schema: public               # where Fuzzphony's own tables and functions live (e.g. fuzzphony)
  *     discover_entities: true      # pick up #[Searchable] entities automatically
  *     worker: { batch_size: 500, idle_sleep: 1.0 }
  *     orm_sync: { async: false }   # true: refresh through Messenger (route RefreshDocuments to a transport)
@@ -68,6 +70,7 @@ final class FuzzphonyBundle extends AbstractBundle
             ->children()
                 ->scalarNode('connection')->defaultValue('default')->info('Doctrine DBAL connection name')->end()
                 ->scalarNode('extension_schema')->defaultValue('public')->info('Schema of the pg_trgm and unaccent extensions')->end()
+                ->scalarNode('schema')->defaultValue('public')->info('Schema of Fuzzphony\'s own tables, functions and text search configurations (created by fuzzphony:schema --apply)')->end()
                 ->booleanNode('discover_entities')->defaultTrue()->info('Register every Doctrine entity with #[Searchable]')->end()
                 ->arrayNode('worker')
                     ->addDefaultsIfNotSet()
@@ -103,6 +106,9 @@ final class FuzzphonyBundle extends AbstractBundle
         $connectionName = $connectionRaw !== '' ? $connectionRaw : 'default';
         $extensionSchemaRaw = Coerce::str($config['extension_schema'] ?? null);
         $extensionSchema = $extensionSchemaRaw !== '' ? $extensionSchemaRaw : 'public';
+        $schemaRaw = Coerce::str($config['schema'] ?? null);
+        // validated here, so an invalid name fails the container build instead of the first request
+        $names = new Names($extensionSchema, $schemaRaw !== '' ? $schemaRaw : 'public');
         $discoverEntities = (bool) ($config['discover_entities'] ?? true);
         $indexes = is_array($config['indexes'] ?? null) ? $config['indexes'] : [];
         $worker = is_array($config['worker'] ?? null) ? $config['worker'] : [];
@@ -120,7 +126,7 @@ final class FuzzphonyBundle extends AbstractBundle
         $services->alias(Connection::class, 'fuzzphony.connection');
 
         $services->set('fuzzphony.engine', PostgresEngine::class)
-            ->args([service('fuzzphony.connection'), $extensionSchema]);
+            ->args([service('fuzzphony.connection'), $names->extensionSchema, $names->schema]);
         $services->alias(Engine::class, 'fuzzphony.engine')->public();
 
         if ($hasOrm) {
@@ -143,7 +149,7 @@ final class FuzzphonyBundle extends AbstractBundle
             ->args([service('fuzzphony.engine'), service('fuzzphony.registry')]);
         $services->alias(Fuzzphony::class, 'fuzzphony')->public();
 
-        $services->set('fuzzphony.introspector', PostgresIntrospector::class)->args([service('fuzzphony.connection')]);
+        $services->set('fuzzphony.introspector', PostgresIntrospector::class)->args([service('fuzzphony.connection'), $names->schema]);
         $services->alias(SourceIntrospector::class, 'fuzzphony.introspector');
 
         if ($ormSyncAsync) {

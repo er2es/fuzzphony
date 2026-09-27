@@ -13,6 +13,7 @@ use Fuzzphony\Bundle\FuzzphonyBundle;
 use Fuzzphony\Bundle\Messenger\MessengerRefreshDispatcher;
 use Fuzzphony\Bundle\Twig\SearchComponent;
 use Fuzzphony\Core\Engine\Engine;
+use Fuzzphony\Core\Exception\InvalidConfiguration;
 use Fuzzphony\Core\Fuzzphony;
 use Fuzzphony\Core\Registry\IndexRegistry;
 use Fuzzphony\Core\Sync\ImmediateRefreshDispatcher;
@@ -47,6 +48,28 @@ final class FuzzphonyBundleTest extends TestCase
         ]);
 
         self::assertTrue($container->hasDefinition('fuzzphony'));
+    }
+
+    public function testTheSchemaReachesTheEngineAndTheIntrospector(): void
+    {
+        $default = $this->buildContainer(withOrm: false);
+        $custom = $this->buildContainer(withOrm: false, config: ['schema' => 'fuzzphony', 'extension_schema' => 'extensions']);
+        $empty = $this->buildContainer(withOrm: false, config: ['schema' => '']);
+
+        self::assertSame('public', $default->getDefinition('fuzzphony.engine')->getArgument(2));
+        self::assertSame('public', $default->getDefinition('fuzzphony.introspector')->getArgument(1));
+        self::assertSame('extensions', $custom->getDefinition('fuzzphony.engine')->getArgument(1));
+        self::assertSame('fuzzphony', $custom->getDefinition('fuzzphony.engine')->getArgument(2));
+        self::assertSame('fuzzphony', $custom->getDefinition('fuzzphony.introspector')->getArgument(1));
+        self::assertSame('public', $empty->getDefinition('fuzzphony.engine')->getArgument(2), 'an empty schema falls back to public');
+    }
+
+    public function testAnInvalidSchemaFailsTheContainerBuild(): void
+    {
+        $this->expectException(InvalidConfiguration::class);
+        $this->expectExceptionMessage('Invalid schema "bad name": use a plain identifier such as "fuzzphony".');
+
+        $this->buildContainer(withOrm: false, config: ['schema' => 'bad name']);
     }
 
     public function testInvalidConfigIsRejectedWithAClearError(): void

@@ -40,10 +40,12 @@ The exit code is non-zero on errors (with `--strict`, also on warnings), so it b
 
 It checks:
 
-- server version, extensions, text configuration and helper functions;
+- server version, extensions, text configuration and helper functions (looked up in Fuzzphony's
+  schema);
 - that the source can be queried;
 - id, field, filter, boost and recency column mapping and types, and the source key;
 - sidecar column drift, and missing or INVALID indexes;
+- objects left in `public` after switching to a dedicated `schema`;
 - missing or disabled triggers, including the `TRUNCATE` trigger, which an index set up with an
   older version lacks until `fuzzphony:schema --apply` runs again;
 - queue backlog and age;

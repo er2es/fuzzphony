@@ -6,10 +6,13 @@ namespace Fuzzphony\Tests\Integration;
 
 use Fuzzphony\Core\Database\Connection;
 use Fuzzphony\Core\Fuzzphony;
+use Fuzzphony\Core\Inspection\Check;
+use Fuzzphony\Core\Inspection\CheckStatus;
 use Fuzzphony\Core\Registry\IndexRegistry;
 use Fuzzphony\Core\Support\Coerce;
 use Fuzzphony\Core\Sync\Worker;
 use Fuzzphony\Engine\Postgres\PostgresEngine;
+use Fuzzphony\Engine\Postgres\Wizard\PostgresIntrospector;
 use Fuzzphony\Tests\Conformance\EngineConformanceTestCase;
 use Fuzzphony\Tests\Fixtures\Indexes;
 use PHPUnit\Framework\TestCase;
@@ -109,6 +112,72 @@ final class DedicatedSchemaTest extends TestCase
         self::assertNull($this->connection->fetchValue(sprintf("SELECT to_regclass('%s.fuzzphony_products')", self::SCHEMA)));
         self::assertSame(0, Coerce::int($this->connection->fetchValue(sprintf('SELECT count(*) FROM %s.fuzzphony_queue', self::SCHEMA))));
         self::assertSame(0, Coerce::int($this->connection->fetchValue("SELECT count(*) FROM pg_trigger WHERE tgname LIKE 'fuzzphony\\_sync\\_products%'")));
+    }
+
+    public function testTheDoctorFindsEverythingInTheSchema(): void
+    {
+        $report = $this->fuzzphony('queue')->inspect('products');
+
+        self::assertSame([], array_map(static fn(Check $c): string => $c->name . ': ' . $c->message, $report->problems()));
+    }
+
+    public function testTheDoctorWarnsAboutAnInstallLeftInPublic(): void
+    {
+        // what 0.3 built: everything in public
+        (new Fuzzphony(new PostgresEngine($this->connection), new IndexRegistry([Indexes::products('manual')])))->schema()->apply($this->connection);
+        $fuzzphony = new Fuzzphony(new PostgresEngine($this->connection, schema: self::SCHEMA), new IndexRegistry([Indexes::products('manual')]));
+
+        $checks = array_column($fuzzphony->inspect('products')->problems(), null, 'name');
+
+        self::assertSame(CheckStatus::Warning, $checks['Schema']->status);
+        self::assertSame('"fuzzphony_s" has no sidecar table for this index, but "public"."fuzzphony_products" exists: an install from before the dedicated schema.', $checks['Schema']->message);
+        self::assertSame('See UPGRADE.md, "Moving to a dedicated schema": fuzzphony:schema --apply, fuzzphony:reindex, then drop the old objects.', $checks['Schema']->fix);
+    }
+
+    public function testNoLocationWarningWithoutAnOldInstall(): void
+    {
+        $fuzzphony = new Fuzzphony(new PostgresEngine($this->connection, schema: self::SCHEMA), new IndexRegistry([Indexes::products('manual')]));
+
+        $names = array_map(static fn(Check $c): string => $c->name, $fuzzphony->inspect('products')->checks);
+
+        self::assertContains('Sidecar table', $names, 'never applied');
+        self::assertNotContains('Schema', $names, 'and nothing left in public either');
+    }
+
+    public function testTheWizardDoesNotOfferTablesFromFuzzphonysSchema(): void
+    {
+        $this->fuzzphony('manual');
+        $this->connection->execute(sprintf('CREATE TABLE %s.not_ours (id int)', self::SCHEMA));
+
+        $hidden = array_column((new PostgresIntrospector($this->connection, self::SCHEMA))->tables(), 'table');
+        $visible = array_column((new PostgresIntrospector($this->connection))->tables(), 'table');
+
+        self::assertContains('fz_product', $hidden);
+        self::assertNotContains(self::SCHEMA . '.not_ours', $hidden);
+        self::assertContains(self::SCHEMA . '.not_ours', $visible, 'without the setting only fuzzphony_* tables are hidden');
+    }
+
+    public function testATextConfigurationWithTheSameNameInPublicDoesNotCount(): void
+    {
+        $fuzzphony = $this->fuzzphony('manual');
+        (new Fuzzphony(new PostgresEngine($this->connection), new IndexRegistry([Indexes::products('manual')])))->schema()->apply($this->connection); // "public"."fuzzphony_english" exists too
+        $this->connection->execute(sprintf('DROP TEXT SEARCH CONFIGURATION %s.fuzzphony_english CASCADE', self::SCHEMA));
+
+        $checks = array_column($fuzzphony->inspect('products')->problems(), null, 'name');
+
+        self::assertSame('"fuzzphony_s"."fuzzphony_english" is missing.', $checks['Text search configuration']->message);
+    }
+
+    public function testARepairedConfigurationWithTheSameNameInPublicDoesNotHideA030OneInTheSchema(): void
+    {
+        $fuzzphony = $this->fuzzphony('manual');
+        // the 0.3.0 mapping in Fuzzphony's schema: unaccent straight in front of the stem dictionary
+        $this->connection->execute(sprintf('ALTER TEXT SEARCH CONFIGURATION %s.fuzzphony_english ALTER MAPPING FOR hword, hword_part, word WITH public.unaccent, english_stem', self::SCHEMA));
+        (new Fuzzphony(new PostgresEngine($this->connection), new IndexRegistry([Indexes::products('manual')])))->schema()->apply($this->connection); // a correct "public"."fuzzphony_english"
+
+        $checks = array_column($fuzzphony->inspect('products')->problems(), null, 'name');
+
+        self::assertStringStartsWith('"fuzzphony_s"."fuzzphony_english" keeps accented stop words', $checks['Text search configuration']->message);
     }
 
     private function fuzzphony(string $sync): Fuzzphony
