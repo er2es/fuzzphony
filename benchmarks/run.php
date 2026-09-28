@@ -5,7 +5,7 @@ declare(strict_types=1);
 /*
  * ILIKE vs Fuzzphony on the synthetic catalogue (benchmarks/seed.sql).
  *
- *   FUZZPHONY_BENCH_DSN="pgsql:host=127.0.0.1;dbname=fuzzphony;user=fuzzphony;password=fuzzphony" php benchmarks/run.php [--setup]
+ *   FUZZPHONY_BENCH_DSN="pgsql:host=127.0.0.1;dbname=fuzzphony_bench;user=fuzzphony;password=fuzzphony" php benchmarks/run.php [--setup]
  *
  * Reports the first ("cold") run and the median of the next 5 ("warm") runs per query.
  * Output: text (default), --markdown (GitHub job summary) or --json.
@@ -21,6 +21,19 @@ use Fuzzphony\Core\Sync\ReindexOptions;
 use Fuzzphony\Engine\Postgres\PostgresEngine;
 
 $dsn = getenv('FUZZPHONY_BENCH_DSN') ?: exit("Set FUZZPHONY_BENCH_DSN.\n");
+
+// Refuses to run against a database that isn't clearly disposable: the benchmark drops and
+// reseeds the bench_* tables (see benchmarks/seed.sql). Case-insensitive substring check, same
+// rule as the integration tests' guard (PostgresTestCase::assertDisposable()).
+preg_match('/dbname=([^;]+)/', $dsn, $match);
+$dbName = $match[1] ?? '';
+if (stripos($dbName, 'bench') === false && stripos($dbName, 'test') === false) {
+    exit(sprintf(
+        "Refusing to run the benchmark against database \"%s\": it drops and reseeds the bench_* tables; use a database whose name contains \"bench\".\n",
+        $dbName,
+    ));
+}
+
 $pdo = new PDO($dsn);
 $connection = new PdoConnection($pdo);
 

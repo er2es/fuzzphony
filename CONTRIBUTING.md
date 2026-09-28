@@ -12,17 +12,23 @@ Thanks for helping! A few rules keep Fuzzphony predictable:
 ## Running the checks
 
 The integration tests need PostgreSQL 15+ with `pg_trgm` and `unaccent`; the root
-`docker-compose.yml` starts one on port 5432.
+`docker-compose.yml` starts one on port 5432, seeded with a database named `fuzzphony_test`.
 
 ```bash
 docker compose up -d
 composer install
-FUZZPHONY_TEST_DSN="pgsql:host=127.0.0.1;dbname=fuzzphony;user=fuzzphony;password=fuzzphony" composer test:all
+FUZZPHONY_TEST_DSN="pgsql:host=127.0.0.1;dbname=fuzzphony_test;user=fuzzphony;password=fuzzphony" composer test:all
 composer qa      # php-cs-fixer (PER-CS 2.0), PHPStan (level max + strict rules), unit tests
 ```
 
 Without `FUZZPHONY_TEST_DSN` the integration tests are skipped. CI additionally runs the suite
 against PHP 8.4 / 8.5, PostgreSQL 15 to 18, Symfony 7.4 / 8.0 and the lowest allowed dependencies.
+
+The integration tests drop and recreate tables, so `PostgresTestCase::dsn()` refuses to run
+against a database whose name doesn't contain "test" (a case-insensitive substring check, so
+`fuzzphony_test`, `test_fuzzphony` and even `contest` are all accepted; a DSN without `dbname=`
+is refused too) -- a hard test failure, not a skip, telling you the database name it saw. This is
+to stop `FUZZPHONY_TEST_DSN` from ever being pointed at a real database by mistake.
 
 ### Mutation testing
 

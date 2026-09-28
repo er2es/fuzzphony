@@ -9,6 +9,14 @@ How Fuzzphony compares with a naive `ILIKE`, and how to measure it yourself. Bac
 `benchmarks/run.php` compares a naive `ILIKE` with Fuzzphony: the first ("cold") run and the median
 of the next 5 ("warm"), 20 results each.
 
+```bash
+FUZZPHONY_BENCH_DSN="pgsql:host=127.0.0.1;dbname=fuzzphony_bench;user=fuzzphony;password=fuzzphony" php benchmarks/run.php --setup
+```
+
+`benchmarks/run.php` drops and reseeds the `bench_*` tables, so it refuses to run unless
+`FUZZPHONY_BENCH_DSN`'s database name contains "bench" or "test" (case-insensitive substring
+check) -- point it at a disposable database, never a real one.
+
 The [Benchmark workflow](https://github.com/er2es/fuzzphony/actions/workflows/benchmark.yml) runs
 it on every push to `main` and publishes the current table in its job summary.
 

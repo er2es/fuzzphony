@@ -15,6 +15,7 @@ use Symfony\Component\Console\Input\InputArgument;
 use Symfony\Component\Console\Input\InputInterface;
 use Symfony\Component\Console\Input\InputOption;
 use Symfony\Component\Console\Output\OutputInterface;
+use Symfony\Component\Console\Question\ConfirmationQuestion;
 use Symfony\Component\Console\Style\SymfonyStyle;
 
 /** @internal The fuzzphony:reindex console command; its CLI is public, the class is not. */
@@ -33,7 +34,8 @@ final class ReindexCommand extends Command
             ->addOption('batch', 'b', InputOption::VALUE_REQUIRED, 'Documents per batch', '5000')
             ->addOption('from', null, InputOption::VALUE_REQUIRED, 'Resume after this id (printed while running)')
             ->addOption('no-prune', null, InputOption::VALUE_NONE, 'Do not remove indexed documents this session cannot see in the source (row-level security, search_path)')
-            ->addOption('prune-empty', null, InputOption::VALUE_NONE, 'Prune even when the source returns no row at all (wipes the whole index)');
+            ->addOption('prune-empty', null, InputOption::VALUE_NONE, 'Prune even when the source returns no row at all (wipes the whole index)')
+            ->addOption('force', null, InputOption::VALUE_NONE, 'Skip the "--prune-empty" confirmation prompt (required in non-interactive runs)');
     }
 
     protected function execute(InputInterface $input, OutputInterface $output): int
@@ -43,6 +45,10 @@ final class ReindexCommand extends Command
         $from = $input->getOption('from');
         $noPrune = $input->getOption('no-prune') === true;
         $pruneEmpty = $input->getOption('prune-empty') === true;
+
+        if ($pruneEmpty && !$this->confirmPruneEmpty($input, $io)) {
+            return Command::FAILURE;
+        }
 
         foreach (IndexArgument::resolve($this->fuzzphony, $input) as $index) {
             $io->section(sprintf('Reindexing "%s"', $index->name));
@@ -75,5 +81,22 @@ final class ReindexCommand extends Command
         if ($input->mustSuggestArgumentValuesFor('index')) {
             $suggestions->suggestValues(IndexArgument::names($this->fuzzphony));
         }
+    }
+
+    private function confirmPruneEmpty(InputInterface $input, SymfonyStyle $io): bool
+    {
+        if ($input->getOption('force') === true) {
+            return true;
+        }
+
+        $io->writeln('This will remove every indexed document of any index whose source returns no row this run (row-level security, search_path, or the source is genuinely empty); an index with at least one source row is pruned as usual.');
+
+        if (!$input->isInteractive()) {
+            $io->writeln('<error>Refusing to prune an empty source without confirmation: pass --force in non-interactive runs.</error>');
+
+            return false;
+        }
+
+        return (bool) $io->askQuestion(new ConfirmationQuestion('Prune every document of an empty source? (yes/no) [no]:', false));
     }
 }

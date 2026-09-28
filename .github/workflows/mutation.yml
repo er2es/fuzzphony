@@ -21,7 +21,7 @@ jobs:
       postgres:
         image: postgres:17
         env:
-          POSTGRES_DB: fuzzphony
+          POSTGRES_DB: fuzzphony_test
           POSTGRES_USER: fuzzphony
           POSTGRES_PASSWORD: fuzzphony
         ports: ['5432:5432']
@@ -29,7 +29,7 @@ jobs:
           --health-cmd "pg_isready -U fuzzphony"
           --health-interval 2s --health-retries 20
     env:
-      FUZZPHONY_TEST_DSN: "pgsql:host=127.0.0.1;port=5432;dbname=fuzzphony;user=fuzzphony;password=fuzzphony"
+      FUZZPHONY_TEST_DSN: "pgsql:host=127.0.0.1;port=5432;dbname=fuzzphony_test;user=fuzzphony;password=fuzzphony"
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -58,7 +58,7 @@ jobs:
       postgres:
         image: postgres:17
         env:
-          POSTGRES_DB: fuzzphony
+          POSTGRES_DB: fuzzphony_test
           POSTGRES_USER: fuzzphony
           POSTGRES_PASSWORD: fuzzphony
         ports: ['5432:5432']
@@ -66,7 +66,7 @@ jobs:
           --health-cmd "pg_isready -U fuzzphony"
           --health-interval 2s --health-retries 20
     env:
-      FUZZPHONY_TEST_DSN: "pgsql:host=127.0.0.1;port=5432;dbname=fuzzphony;user=fuzzphony;password=fuzzphony"
+      FUZZPHONY_TEST_DSN: "pgsql:host=127.0.0.1;port=5432;dbname=fuzzphony_test;user=fuzzphony;password=fuzzphony"
       # Only set on the upstream repository; forks never have it.
       STRYKER_DASHBOARD_API_KEY: ${{ secrets.STRYKER_DASHBOARD_API_KEY }}
     steps:

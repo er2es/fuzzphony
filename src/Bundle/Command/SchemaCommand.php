@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Fuzzphony\Bundle\Command;
 
 use Fuzzphony\Core\Database\Connection;
+use Fuzzphony\Core\Definition\IndexDefinition;
 use Fuzzphony\Core\Fuzzphony;
 use Fuzzphony\Core\Schema\SchemaPlan;
 use Fuzzphony\Core\Schema\Statement;
@@ -17,6 +18,7 @@ use Symfony\Component\Console\Input\InputArgument;
 use Symfony\Component\Console\Input\InputInterface;
 use Symfony\Component\Console\Input\InputOption;
 use Symfony\Component\Console\Output\OutputInterface;
+use Symfony\Component\Console\Question\ConfirmationQuestion;
 use Symfony\Component\Console\Style\SymfonyStyle;
 
 /** @internal The fuzzphony:schema console command; its CLI is public, the class is not. */
@@ -36,6 +38,7 @@ final class SchemaCommand extends Command
             ->addArgument('index', InputArgument::OPTIONAL, 'Only this index (default: all)')
             ->addOption('apply', null, InputOption::VALUE_NONE, 'Execute the SQL (idempotent, safe to re-run)')
             ->addOption('drop', null, InputOption::VALUE_NONE, 'Remove the index objects instead (source tables are never touched)')
+            ->addOption('force', null, InputOption::VALUE_NONE, 'Skip the "--drop --apply" confirmation prompt (required in non-interactive runs)')
             ->addOption('dump-migration', null, InputOption::VALUE_REQUIRED, 'Write a Doctrine migration into this directory instead of applying')
             ->addOption('namespace', null, InputOption::VALUE_REQUIRED, 'Namespace of the generated migration', 'DoctrineMigrations')
             ->setHelp(<<<'HELP'
@@ -87,6 +90,10 @@ final class SchemaCommand extends Command
             return Command::SUCCESS;
         }
 
+        if ($input->getOption('drop') === true && !$this->confirmDrop($input, $io, $indexes)) {
+            return Command::FAILURE;
+        }
+
         $io->progressStart(count($plan->statements));
         $plan->apply($this->connection, static function (Statement $statement) use ($io): void {
             $io->progressAdvance();
@@ -102,6 +109,27 @@ final class SchemaCommand extends Command
         if ($input->mustSuggestArgumentValuesFor('index')) {
             $suggestions->suggestValues(IndexArgument::names($this->fuzzphony));
         }
+    }
+
+    /** @param list<IndexDefinition> $indexes */
+    private function confirmDrop(InputInterface $input, SymfonyStyle $io, array $indexes): bool
+    {
+        if ($input->getOption('force') === true) {
+            return true;
+        }
+
+        $io->writeln(sprintf(
+            'This will drop the Fuzzphony objects for %s: the sidecar table, its triggers, functions and queued rows; your source tables are not touched.',
+            implode(', ', array_map(static fn(IndexDefinition $index): string => $index->name, $indexes)),
+        ));
+
+        if (!$input->isInteractive()) {
+            $io->writeln('<error>Refusing to drop without confirmation: pass --force in non-interactive runs.</error>');
+
+            return false;
+        }
+
+        return (bool) $io->askQuestion(new ConfirmationQuestion('Drop these Fuzzphony objects? (yes/no) [no]:', false));
     }
 
     private function writeMigration(SchemaPlan $plan, string $directory, string $namespace): ?string

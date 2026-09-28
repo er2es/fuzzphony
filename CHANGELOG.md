@@ -23,6 +23,9 @@ changes; they are always listed under **Breaking** and explained in [UPGRADE.md]
   `-(brand:x | cable)`) excludes by that field only. A scoped word of a field that is not fuzzy is
   matched exactly only. The index table stores one `tsvector` per field and one normalised text
   per fuzzy field (roughly one more copy of the indexed text).
+- `fuzzphony:schema --drop --apply` and `fuzzphony:reindex --prune-empty` now explain what they
+  are about to remove and ask for confirmation (default no); a script that ran either
+  non-interactively needs the new `--force` option.
 
 ### Added
 
@@ -31,6 +34,12 @@ changes; they are always listed under **Breaking** and explained in [UPGRADE.md]
 - Doctor: a "Shared objects" check of the shared objects' version row (`*` in `fuzzphony_meta`): a
   warning when it is missing, an error when its layout is older or newer than the library's, or
   when the schema or extension schema changed since the last apply.
+- `fuzzphony:schema --drop --apply` and `fuzzphony:reindex --prune-empty` ask for confirmation
+  before running (`--force` skips it, and is required in non-interactive runs).
+- The integration tests (`PostgresTestCase::dsn()`) and `benchmarks/run.php` refuse to run against
+  a database whose name doesn't contain "test" (integration tests) or "bench"/"test" (benchmark),
+  case-insensitive, so `FUZZPHONY_TEST_DSN` / `FUZZPHONY_BENCH_DSN` can no longer be pointed at a
+  real database by mistake; see [CONTRIBUTING.md](CONTRIBUTING.md).
 
 ## [0.4.0] - 2026-09-27
 

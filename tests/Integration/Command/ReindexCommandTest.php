@@ -82,11 +82,88 @@ final class ReindexCommandTest extends TestCase
     {
         $this->context->connection->execute('DELETE FROM fz_product');
 
-        $status = $this->tester->execute(['index' => 'products', '--prune-empty' => true], ['interactive' => false]);
+        $status = $this->tester->execute(['index' => 'products', '--prune-empty' => true, '--force' => true], ['interactive' => false]);
 
         self::assertSame(Command::SUCCESS, $status, $this->tester->getDisplay());
         self::assertStringContainsString('5 orphaned document(s) removed', $this->tester->getDisplay());
         self::assertSame(0, $this->indexed());
+    }
+
+    public function testPruneEmptyWithForceSkipsTheConfirmationEntirely(): void
+    {
+        $this->context->connection->execute('DELETE FROM fz_product');
+
+        $status = $this->tester->execute(['index' => 'products', '--prune-empty' => true, '--force' => true], ['interactive' => true]);
+
+        self::assertSame(Command::SUCCESS, $status, $this->tester->getDisplay());
+        self::assertStringNotContainsString('Prune every document of an empty source?', $this->tester->getDisplay());
+        self::assertSame(0, $this->indexed());
+    }
+
+    public function testPruneEmptyRefusesNonInteractivelyWithoutForce(): void
+    {
+        $this->context->connection->execute('DELETE FROM fz_product');
+
+        $status = $this->tester->execute(['index' => 'products', '--prune-empty' => true], ['interactive' => false]);
+
+        self::assertSame(Command::FAILURE, $status, $this->tester->getDisplay());
+        self::assertStringContainsString('Refusing to prune an empty source without confirmation: pass --force in non-interactive runs.', $this->tester->getDisplay());
+        self::assertSame(5, $this->indexed(), 'nothing should have been pruned');
+    }
+
+    public function testPruneEmptyAsksAndProceedsOnYes(): void
+    {
+        $this->context->connection->execute('DELETE FROM fz_product');
+        $this->tester->setInputs(['yes']);
+
+        $status = $this->tester->execute(['index' => 'products', '--prune-empty' => true]);
+
+        self::assertSame(Command::SUCCESS, $status, $this->tester->getDisplay());
+        self::assertStringContainsString('Prune every document of an empty source? (yes/no) [no]:', $this->tester->getDisplay());
+        self::assertSame(0, $this->indexed());
+    }
+
+    public function testPruneEmptyAsksAndRefusesOnNo(): void
+    {
+        $this->context->connection->execute('DELETE FROM fz_product');
+        $this->tester->setInputs(['no']);
+
+        $status = $this->tester->execute(['index' => 'products', '--prune-empty' => true]);
+
+        self::assertSame(Command::FAILURE, $status, $this->tester->getDisplay());
+        self::assertStringContainsString('Prune every document of an empty source? (yes/no) [no]:', $this->tester->getDisplay());
+        self::assertSame(5, $this->indexed(), 'nothing should have been pruned');
+    }
+
+    public function testPruneEmptyAsksAndDefaultsToNoOnEmptyAnswer(): void
+    {
+        $this->context->connection->execute('DELETE FROM fz_product');
+        $this->tester->setInputs(['']);
+
+        $status = $this->tester->execute(['index' => 'products', '--prune-empty' => true]);
+
+        self::assertSame(Command::FAILURE, $status, $this->tester->getDisplay());
+        self::assertSame(5, $this->indexed(), 'nothing should have been pruned');
+    }
+
+    public function testPruneEmptyExplainsWhatWillHappenBeforeAsking(): void
+    {
+        $this->context->connection->execute('DELETE FROM fz_product');
+
+        $this->tester->execute(['index' => 'products', '--prune-empty' => true], ['interactive' => false]);
+
+        self::assertStringContainsString(
+            'This will remove every indexed document of any index whose source returns no row this run (row-level security, search_path, or the source is genuinely empty); an index with at least one source row is pruned as usual.',
+            $this->tester->getDisplay(),
+        );
+    }
+
+    public function testPruneEmptyIsOnlyAskedWhenTheOptionIsGiven(): void
+    {
+        $status = $this->tester->execute(['index' => 'products'], ['interactive' => false]);
+
+        self::assertSame(Command::SUCCESS, $status, $this->tester->getDisplay());
+        self::assertStringNotContainsString('Prune every document of an empty source?', $this->tester->getDisplay());
     }
 
     public function testCompletesIndexNames(): void

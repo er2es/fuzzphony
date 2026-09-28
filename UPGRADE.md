@@ -14,6 +14,13 @@ and the [CHANGELOG](CHANGELOG.md) has the full list of changes.
    behaviour, search without the field prefix. The index table grows by roughly one more copy of
    the indexed text; the new columns are filled by the reindex of step 1 (until then field-scoped
    words find nothing in documents indexed before the upgrade).
+3. **`--drop --apply` and `--prune-empty` ask for confirmation.** `fuzzphony:schema --drop --apply`
+   now prints what it is about to remove and asks `Drop these Fuzzphony objects? (yes/no) [no]:`;
+   `fuzzphony:reindex --prune-empty` asks `Prune every document of an empty source? (yes/no)
+   [no]:`. Both default to no. A script or cron job that runs either non-interactively must add
+   `--force`, or it now fails with exit code 1 and a message telling you to. This does not apply to
+   plain `fuzzphony:schema --apply` or `fuzzphony:reindex` (without `--prune-empty`), and never to
+   the PHP API (`Fuzzphony::schema()`, `Fuzzphony::reindex()`), which never prompts.
 
 ## From 0.3 to 0.4
 

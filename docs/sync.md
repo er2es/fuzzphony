@@ -98,7 +98,10 @@ difference from the index. Pass `--no-prune` (or `new ReindexOptions(prune: fals
 A full run whose source returns no row at all does not prune, and says so
 (`ReindexResult::$pruneSkippedEmptySource`). That is far more likely a visibility problem than
 intent (a real `TRUNCATE` is handled by its trigger). `--prune-empty`
-(`new ReindexOptions(pruneEmpty: true)`) forces it.
+(`new ReindexOptions(pruneEmpty: true)`) forces it: because it can wipe every indexed document,
+`fuzzphony:reindex --prune-empty` explains that and asks for confirmation first (default no);
+`--force` skips the question and is required to use `--prune-empty` non-interactively. The PHP
+API (`ReindexOptions(pruneEmpty: true)`) never asks.
 
 ## Messenger (orm mode)
 

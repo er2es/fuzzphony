@@ -7,8 +7,8 @@ The `fuzzphony:*` commands, the doctor and the configuration wizard. Back to the
 
 | Command | Purpose |
 |---|---|
-| `fuzzphony:schema [index] [--apply\|--drop\|--dump-migration=dir]` | show / apply / export idempotent DDL (alias `fuzzphony:install`); `--dump-migration` writes a Doctrine migration, see [Doctrine Migrations](integrations.md#doctrine-migrations) |
-| `fuzzphony:reindex [index] [--batch=5000] [--from=id] [--no-prune] [--prune-empty]` | resumable backfill with progress; a full run also removes orphaned documents (`--no-prune` keeps them; an empty source is only pruned with `--prune-empty`) |
+| `fuzzphony:schema [index] [--apply\|--drop\|--dump-migration=dir] [--force]` | show / apply / export idempotent DDL (alias `fuzzphony:install`); `--dump-migration` writes a Doctrine migration, see [Doctrine Migrations](integrations.md#doctrine-migrations) |
+| `fuzzphony:reindex [index] [--batch=5000] [--from=id] [--no-prune] [--prune-empty] [--force]` | resumable backfill with progress; a full run also removes orphaned documents (`--no-prune` keeps them; an empty source is only pruned with `--prune-empty`) |
 | `fuzzphony:worker [--once] [--time-limit=s] [--index=x]` | drain the sync queue; graceful on SIGTERM |
 | `fuzzphony:doctor [index] [--deep] [--strict]` | health check with fixes |
 | `fuzzphony:search index 'query' [-w filter] [--explain [--analyze]]` | try queries, see score breakdowns, SQL and plans |
@@ -17,6 +17,13 @@ The `fuzzphony:*` commands, the doctor and the configuration wizard. Back to the
 `fuzzphony:schema` without `--apply` only prints the SQL, so you can review it first. See
 [Reindexing and orphan pruning](sync.md#reindexing-and-orphan-pruning) for what `--no-prune` and
 `--prune-empty` are for.
+
+`fuzzphony:schema --drop --apply` and `fuzzphony:reindex --prune-empty` are destructive (the
+former removes the sidecar table, its triggers, functions and queued rows; the latter can wipe
+every indexed document). Both explain what will happen and ask for confirmation
+(default **no**); `--force` skips the question, and is required to run either non-interactively
+(`--no-interaction`) -- without it they refuse with exit code 1. The PHP API
+(`Fuzzphony::schema()`, `Fuzzphony::reindex()`) never prompts.
 
 ## The doctor
 
