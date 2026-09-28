@@ -38,7 +38,8 @@ changes; they are always listed under **Breaking** and explained in [UPGRADE.md]
   and a role with `CREATE` on Fuzzphony's schema that owns the index table (otherwise it runs in
   place, as before, and the command says so). After a swap `ReindexResult::$pruned` is `null` (the
   orphans went with the old index) and the new `ReindexResult::$swapped` is `true`. A second full
-  reindex of the same index while one runs fails with `InvalidArgument`.
+  reindex of the same index while one runs fails with the new `RebuildAlreadyRunning` (an
+  `\InvalidArgumentException`).
 - `fuzzphony:schema --apply` and `--drop --apply` fail while a full reindex of an index in their
   plan runs: run them again when the reindex has finished. A `--dump-migration` migration is not
   transactional, so it only refuses while a rebuild is running at its guard statement.
@@ -47,14 +48,27 @@ changes; they are always listed under **Breaking** and explained in [UPGRADE.md]
   uncaught exception); it stops at the first index that fails. A full `--in-place` run discards a
   rebuild a failed run left behind.
 - `Engine` has two new methods for the rebuild job a `TRUNCATE` queues:
-  `rebuildRequested(IndexDefinition $index): bool` (the worker asks whether a `TRUNCATE` queued a
-  full rebuild) and `requestRebuild(IndexDefinition $index): void` (the worker queues the job again
-  when the rebuild it ran failed). Custom engines must implement them (`return false;` and an empty body when their
-  queue has no such job).
+  `rebuildRequested(IndexDefinition $index): bool` (the worker asks whether a job is queued) and
+  `recordRebuildFailure(IndexDefinition $index, string $message): void` (the worker records that
+  the rebuild it ran failed, for the doctor). Custom engines must implement them; an engine whose
+  queue has no such job returns `false` from the first and leaves the second empty, and its worker
+  only drains the queue. The PostgreSQL engine completes the job when a full run succeeds: in the
+  swap, or in `pruneOrphans()` at the end of a full in-place run.
 - In `queue` mode a `TRUNCATE` that needs a full resync queues one job, the queue row
   `(index_name, '*')`, instead of every document id, and the worker runs it as a full rebuild.
-  Code that reads `fuzzphony_queue` directly must skip that row. The worker role builds next to the
-  live index when it may (see the reindex entry above), else in place.
+  Code that reads `fuzzphony_queue` directly must skip that row, and a string document id `*` is
+  reserved (changes to such a document queue a full rebuild). The job stays queued until a full
+  run that started after it succeeds (the worker's, or any full `fuzzphony:reindex`, `--in-place`
+  included); a run that fails or is killed keeps it, and a `TRUNCATE` during a run keeps a newer
+  one. The `TRUNCATE` trigger now updates that row (`ON CONFLICT … DO UPDATE`), so a role that
+  truncates watched tables needs `UPDATE` on `fuzzphony_queue` as well as `INSERT`. The worker role
+  builds next to the live index when it may (see the reindex entry above), else in place.
+- A full rebuild that fails never stops `fuzzphony:worker`: it writes the error to stderr, keeps
+  the job, syncs the index's queued ids and the other indexes as usual, and tries the job again
+  after a back-off (1 minute, doubling, at most 1 hour). `fuzzphony:worker --once` then exits with
+  code 1. The shared meta table has three new columns (`rebuild_failed_at`, `rebuild_failures`,
+  `rebuild_error`, added by `fuzzphony:schema --apply`) and the doctor's "Sync queue" check warns
+  "a full rebuild keeps failing" until a full run succeeds.
 
 ### Added
 

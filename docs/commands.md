@@ -9,7 +9,7 @@ The `fuzzphony:*` commands, the doctor and the configuration wizard. Back to the
 |---|---|
 | `fuzzphony:schema [index] [--apply\|--drop\|--dump-migration=dir] [--force]` | show / apply / export idempotent DDL (alias `fuzzphony:install`); `--dump-migration` writes a Doctrine migration, see [Doctrine Migrations](integrations.md#doctrine-migrations) |
 | `fuzzphony:reindex [index] [--batch=5000] [--from=id] [--in-place] [--no-prune] [--prune-empty] [--force]` | rebuild next to the live index and swap it in (zero downtime; `--in-place` writes the live index directly), resumable, with progress; a failed run exits with code 1 and prints the command to resume with, and the command stops at the first index that fails; see [Reindexing](sync.md#reindexing-and-orphan-pruning) |
-| `fuzzphony:worker [--once] [--time-limit=s] [--index=x]` | drain the sync queue, including the full rebuilds a `TRUNCATE` queued; graceful on SIGTERM |
+| `fuzzphony:worker [--once] [--time-limit=s] [--index=x]` | drain the sync queue, including the full rebuilds a `TRUNCATE` queued (a failed one is retried after a back-off; `--once` then exits with code 1); graceful on SIGTERM |
 | `fuzzphony:doctor [index] [--deep] [--strict]` | health check with fixes |
 | `fuzzphony:search index 'query' [-w filter] [--explain [--analyze]]` | try queries, see score breakdowns, SQL and plans |
 | `fuzzphony:wizard [table] [--format=yaml\|builder\|attributes] [--write=file] [--try]` | suggest, explain and export a definition |
@@ -59,7 +59,8 @@ It checks:
   hides them);
 - missing or disabled triggers, including the `TRUNCATE` trigger, which an index set up with an
   older version lacks until `fuzzphony:schema --apply` runs again;
-- queue backlog and age;
+- queue backlog and age, a pending full-rebuild job a `TRUNCATE` queued, and whether the worker's
+  rebuild of it keeps failing (the last error, how often, when);
 - a full reindex that did not finish (its rebuild table, change log or change log trigger is left
   over, so every change keeps being logged; fixed by resuming it with `--from` or by a full
   `fuzzphony:reindex`; an error when the trigger is left without its log, which fails every write

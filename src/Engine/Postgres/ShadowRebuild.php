@@ -7,7 +7,7 @@ namespace Fuzzphony\Engine\Postgres;
 use Fuzzphony\Core\Database\Connection;
 use Fuzzphony\Core\Definition\IndexDefinition;
 use Fuzzphony\Core\Exception\EngineFailure;
-use Fuzzphony\Core\Exception\InvalidArgument;
+use Fuzzphony\Core\Exception\RebuildAlreadyRunning;
 use Fuzzphony\Core\Support\Coerce;
 use Fuzzphony\Engine\Postgres\Schema\Names;
 use Fuzzphony\Engine\Postgres\Schema\PostgresSchemaGenerator;
@@ -24,6 +24,10 @@ use Fuzzphony\Engine\Postgres\Sql\Sql;
  * session-level advisory lock, held from begin() until finish() or abort(). A logged id whose
  * writer has not committed yet is locked (the log's ON CONFLICT DO UPDATE): the batches skip it,
  * the final catch-up under the lock takes it.
+ *
+ * A full run notes when it started (the database clock); when it succeeds (the swap, or the orphan
+ * pruning that ends a full in-place run, see complete()) it completes the rebuild request a
+ * TRUNCATE queued before that. Nothing is deleted before: a run that fails or is killed keeps the job.
  */
 final class ShadowRebuild
 {
@@ -45,6 +49,9 @@ final class ShadowRebuild
     private const string LOCK_NOT_AVAILABLE = '55P03';
 
     private readonly Names $names;
+
+    /** @var array<string, string> when the full run of each index in this process started, by index name */
+    private array $started = [];
 
     /** @var \Closure(int): void */
     private readonly \Closure $pause;
@@ -68,16 +75,17 @@ final class ShadowRebuild
      */
     public function begin(IndexDefinition $index, bool $resume): bool
     {
+        unset($this->started[$index->name]);
         if ($this->inTransaction()) {
             return false;
         }
         if (!(bool) $this->connection->fetchValue('SELECT pg_try_advisory_lock(hashtext(:key))', ['key' => $this->names->rebuildLockKey($index)])) {
-            throw new InvalidArgument(sprintf('A rebuild of "%s" is already running.', $index->name));
+            throw new RebuildAlreadyRunning(sprintf('A rebuild of "%s" is already running.', $index->name));
         }
         try {
             if (!$resume) {
-                // this full rebuild covers a pending request ("*"), also when it falls back to in place
-                $this->connection->execute($this->schema->clearRebuildRequest($index));
+                // this full run (also when it falls back to in place) completes the requests queued before now
+                $this->start($index);
             }
             $shadow = $resume ? $this->leftOver($index) : $this->possible($index);
             if ($shadow && !$resume) {
@@ -135,6 +143,7 @@ final class ShadowRebuild
             $this->batch($index);
             ($this->pause)(self::backoff($attempt, mt_rand() / mt_getrandmax()));
         }
+        unset($this->started[$index->name]);
         $this->unlock($index);
     }
 
@@ -144,8 +153,16 @@ final class ShadowRebuild
         return (int) ((100_000 << $attempt) * (1 + $random));
     }
 
+    /** The end of a full in-place run (its orphans are pruned): completes the rebuild request queued before it started. */
+    public function complete(IndexDefinition $index): void
+    {
+        $this->completeRequest($this->connection, $index);
+        unset($this->started[$index->name]);
+    }
+
     public function abort(IndexDefinition $index, bool $keepShadow): void
     {
+        unset($this->started[$index->name]);
         if (!$keepShadow) {
             $this->connection->execute($this->schema->discardRebuild($index));
         }
@@ -169,6 +186,9 @@ final class ShadowRebuild
      */
     public function discardLeftover(IndexDefinition $index): bool
     {
+        // the start of a full in-place run
+        $this->start($index);
+
         return $this->connection->transactional(function (Connection $c) use ($index): bool {
             if ($c->fetchValue('SELECT pg_try_advisory_xact_lock(hashtext(:key))', ['key' => $this->names->rebuildLockKey($index)]) !== true) {
                 return false;
@@ -244,6 +264,7 @@ final class ShadowRebuild
                 $c->execute(sprintf('LOCK TABLE %s, %s IN ACCESS EXCLUSIVE MODE', $this->names->sidecar($index), $this->names->shadow($index)));
                 $this->catchUp($c, $index, null);
                 $c->execute($this->schema->swap($index));
+                $this->completeRequest($c, $index);
             });
         } catch (\Throwable $e) {
             if (!self::lockNotAvailable($e)) {
@@ -288,6 +309,19 @@ final class ShadowRebuild
         );
 
         return Coerce::int($c->fetchValue($sql, $limit === null ? [] : ['limit' => $limit]));
+    }
+
+    private function start(IndexDefinition $index): void
+    {
+        $this->started[$index->name] = Coerce::str($this->connection->fetchValue('SELECT clock_timestamp()::text'));
+    }
+
+    /** Only after a start this process noted: a resumed run completes nothing (its rebuild may predate the TRUNCATE). */
+    private function completeRequest(Connection $c, IndexDefinition $index): void
+    {
+        if (isset($this->started[$index->name])) {
+            $c->execute($this->schema->completeRebuildRequest($index, $this->started[$index->name]));
+        }
     }
 
     private function unlock(IndexDefinition $index): void

@@ -187,7 +187,7 @@ final class PostgresEngine implements Engine
             DocumentSql::select($index),
         );
 
-        return $this->guard('orphan pruning', function () use ($sql, $batchSize): int {
+        return $this->guard('orphan pruning', function () use ($index, $sql, $batchSize): int {
             $removed = 0;
             $after = null;
             do {
@@ -199,6 +199,8 @@ final class PostgresEngine implements Engine
                 $removed += Coerce::int($row['removed']);
                 $after = $row['last'] === null ? null : Coerce::str($row['last']);
             } while ($after !== null && Coerce::int($row['scanned']) === $batchSize);
+            // the end of a full in-place run
+            $this->rebuild->complete($index);
 
             return $removed;
         }, 'Run "fuzzphony:schema --apply" and check "fuzzphony:doctor".');
@@ -298,12 +300,12 @@ final class PostgresEngine implements Engine
         ), 'Run "fuzzphony:schema --apply" and check "fuzzphony:doctor".');
     }
 
-    public function requestRebuild(IndexDefinition $index): void
+    public function recordRebuildFailure(IndexDefinition $index, string $message): void
     {
-        $this->guard('queue processing', fn(): int => $this->connection->execute(
-            sprintf("INSERT INTO %s (index_name, doc_id) VALUES (:index, '*') ON CONFLICT (index_name, doc_id) DO NOTHING", $this->names->queue()),
-            ['index' => $index->name],
-        ), 'Run "fuzzphony:schema --apply" and check "fuzzphony:doctor".');
+        $this->guard('rebuild failure record', fn(): int => $this->connection->execute(
+            sprintf('UPDATE %s SET rebuild_failed_at = now(), rebuild_failures = coalesce(rebuild_failures, 0) + 1, rebuild_error = :message WHERE index_name = :index', $this->names->meta()),
+            ['index' => $index->name, 'message' => $message],
+        ), sprintf('Run "fuzzphony:schema --apply" (it adds the failure columns); the worker role needs SELECT and UPDATE on %s.', $this->names->meta()));
     }
 
     public function inspect(IndexDefinition $index, InspectOptions $options = new InspectOptions()): InspectionReport

@@ -501,9 +501,16 @@ final class PostgresInspector
         )[0];
         $size = Coerce::int($row['n']);
         $age = Coerce::int($row['age']);
-        $waiting = sprintf('%d item(s) waiting%s', $size, $row['rebuild'] === true ? ', one of them a full rebuild (queued by a TRUNCATE)' : '');
+        $rebuild = $row['rebuild'] === true;
+        $waiting = sprintf('%d item(s) waiting%s', $size, $rebuild ? ', one of them a full rebuild (queued by a TRUNCATE)' : '');
+        $failure = $rebuild ? $this->rebuildFailure($index) : null;
 
         return match (true) {
+            $failure !== null => Check::warning(
+                'Sync queue',
+                sprintf('%s; a full rebuild keeps failing: %s (%d times, last at %s)', $waiting, Coerce::str($failure['rebuild_error']), Coerce::int($failure['rebuild_failures']), Coerce::str($failure['failed_at'])),
+                sprintf('fix the cause; the worker retries with a back-off, or run: bin/console fuzzphony:reindex %s', $index->name),
+            ),
             $size > $options->maxQueueBacklog || ($size > 0 && $age > $options->maxQueueAgeSeconds) => Check::warning(
                 'Sync queue',
                 sprintf('%s, oldest %ds: is the worker running?', $waiting, $age),
@@ -511,6 +518,25 @@ final class PostgresInspector
             ),
             default => Check::ok('Sync queue', $waiting),
         };
+    }
+
+    /**
+     * The last failure the worker recorded for the index's rebuild job; null without one, or when
+     * the meta table (an older schema: no failure columns) cannot tell.
+     *
+     * @return array<string, mixed>|null
+     */
+    private function rebuildFailure(IndexDefinition $index): ?array
+    {
+        $readable = $this->connection->fetchValue(
+            "SELECT CASE WHEN EXISTS (SELECT 1 FROM pg_attribute WHERE attrelid = to_regclass(:meta) AND attname = 'rebuild_failures' AND NOT attisdropped) THEN has_table_privilege(:table, 'SELECT') ELSE false END",
+            ['meta' => $this->names->meta(), 'table' => $this->names->meta()],
+        );
+
+        return $readable === true ? ($this->connection->fetchAll(
+            sprintf("SELECT rebuild_failures, rebuild_error, to_char(rebuild_failed_at AT TIME ZONE 'UTC', 'YYYY-MM-DD HH24:MI:SS') || ' UTC' AS failed_at FROM %s WHERE index_name = :index AND rebuild_failures IS NOT NULL", $this->names->meta()),
+            ['index' => $index->name],
+        )[0] ?? null) : null;
     }
 
     private function coverage(IndexDefinition $index, InspectOptions $options): Check

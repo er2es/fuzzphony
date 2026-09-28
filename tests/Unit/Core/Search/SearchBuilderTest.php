@@ -117,7 +117,7 @@ final class SearchBuilderTest extends TestCase
                 throw new \LogicException('not used by this test');
             }
 
-            public function requestRebuild(IndexDefinition $index): void
+            public function recordRebuildFailure(IndexDefinition $index, string $message): void
             {
                 throw new \LogicException('not used by this test');
             }

@@ -7,7 +7,7 @@ namespace Fuzzphony\Tests\Integration;
 use Fuzzphony\Core\Database\Connection;
 use Fuzzphony\Core\Definition\IndexDefinition;
 use Fuzzphony\Core\Exception\EngineFailure;
-use Fuzzphony\Core\Exception\InvalidArgument;
+use Fuzzphony\Core\Exception\RebuildAlreadyRunning;
 use Fuzzphony\Core\Fuzzphony;
 use Fuzzphony\Core\Inspection\Check;
 use Fuzzphony\Core\Inspection\CheckStatus;
@@ -187,8 +187,8 @@ final class ZeroDowntimeReindexTest extends TestCase
         try {
             try {
                 $fuzzphony->reindex('noted');
-                self::fail('InvalidArgument expected');
-            } catch (InvalidArgument $e) {
+                self::fail('RebuildAlreadyRunning expected');
+            } catch (RebuildAlreadyRunning $e) {
                 self::assertSame('A rebuild of "noted" is already running.', $e->getMessage());
             }
             $check = $this->check($fuzzphony, 'Rebuild');

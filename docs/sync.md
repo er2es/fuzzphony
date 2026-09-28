@@ -84,6 +84,21 @@ In `trigger` and `queue` mode a `TRUNCATE` is followed by a separate statement-l
     index runs it in place. Like `fuzzphony:reindex`, the rebuild reads the source in the worker's
     session, so that session must see the source tables on its `search_path`. The doctor's queue
     check names a pending job.
+
+    The job is the queue row `(index_name, '*')`; a string document id `*` is therefore reserved
+    (a change to such a document would queue a full rebuild, and the worker never refreshes a
+    document with that id). The job stays queued until a full run that started after it succeeds:
+    the worker's rebuild, or any full `fuzzphony:reindex` (`--in-place` included, not a resumed or
+    `--no-prune` one). A run that fails or is killed keeps it, and a `TRUNCATE` while a run is
+    going moves the job's time on, so it stays for the next run.
+
+    A rebuild runs inside the worker's cycle, so it delays the sync of the other indexes that
+    worker serves; for big indexes run one worker per index (`fuzzphony:worker --index=<name>`).
+    A rebuild that fails never stops the worker: it writes the error to stderr, keeps the job, syncs
+    the index's queued ids and the other indexes as usual, and tries the job again after 1 minute,
+    doubling up to 1 hour. `fuzzphony:worker --once` processes everything else and exits with code
+    1. The doctor's queue check warns "a full rebuild keeps failing" with the last error until a
+    full run succeeds.
   - In `trigger` mode there is no worker to hand the job to: every indexed document, plus every
     document the source now returns, is resynced inside the truncating transaction. On a
     1M-document index that took 42.8 s, holding an `ACCESS EXCLUSIVE` lock on the truncated table

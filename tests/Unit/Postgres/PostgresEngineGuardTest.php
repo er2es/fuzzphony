@@ -29,8 +29,8 @@ final class PostgresEngineGuardTest extends TestCase
         }];
         yield 'rebuild' => ['rebuild', 'Run "fuzzphony:schema --apply" and "fuzzphony:doctor".', $always, static fn(PostgresEngine $e): mixed => $e->refreshShadow(Indexes::products(), [1])];
         yield 'rebuild request' => ['queue processing', 'Run "fuzzphony:schema --apply" and check "fuzzphony:doctor".', $always, static fn(PostgresEngine $e): mixed => $e->rebuildRequested(Indexes::products())];
-        yield 'new rebuild request' => ['queue processing', 'Run "fuzzphony:schema --apply" and check "fuzzphony:doctor".', $always, static function (PostgresEngine $e): null {
-            $e->requestRebuild(Indexes::products());
+        yield 'rebuild failure record' => ['rebuild failure record', 'Run "fuzzphony:schema --apply" (it adds the failure columns); the worker role needs SELECT and UPDATE on "public"."fuzzphony_meta".', $always, static function (PostgresEngine $e): null {
+            $e->recordRebuildFailure(Indexes::products(), 'boom');
 
             return null;
         }];

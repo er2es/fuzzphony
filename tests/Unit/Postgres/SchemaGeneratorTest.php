@@ -157,7 +157,7 @@ final class SchemaGeneratorTest extends TestCase
         self::assertStringContainsString(
             $guard . "
             IF to_regclass('\"public\".\"fuzzphony_articles__changes\"') IS NULL THEN DELETE FROM \"public\".\"fuzzphony_queue\" WHERE ctid IN (SELECT ctid FROM \"public\".\"fuzzphony_queue\" WHERE index_name = 'articles' FOR UPDATE SKIP LOCKED); END IF;"
-            . sprintf($resync, "INSERT INTO \"public\".\"fuzzphony_queue\" (index_name, doc_id) VALUES ('articles', '*')\n            ON CONFLICT (index_name, doc_id) DO NOTHING;"),
+            . sprintf($resync, "INSERT INTO \"public\".\"fuzzphony_queue\" (index_name, doc_id, queued_at) VALUES ('articles', '*', clock_timestamp())\n            ON CONFLICT (index_name, doc_id) DO UPDATE SET queued_at = clock_timestamp();"),
             $queue,
         );
         self::assertStringNotContainsString("DELETE FROM \"public\".\"fuzzphony_queue\" WHERE index_name = 'articles'", $queue, 'never waits on the rows a worker holds');
@@ -187,7 +187,7 @@ final class SchemaGeneratorTest extends TestCase
     {
         $queue = (new PostgresSchemaGenerator())->index(Indexes::products('queue'))->toSql();
         self::assertStringContainsString(
-            "IF TG_OP = 'TRUNCATE' THEN\n        INSERT INTO \"public\".\"fuzzphony_queue\" (index_name, doc_id) VALUES ('products', '*')\n        ON CONFLICT (index_name, doc_id) DO NOTHING;\n        RETURN NULL;\n    END IF;",
+            "IF TG_OP = 'TRUNCATE' THEN\n        INSERT INTO \"public\".\"fuzzphony_queue\" (index_name, doc_id, queued_at) VALUES ('products', '*', clock_timestamp())\n        ON CONFLICT (index_name, doc_id) DO UPDATE SET queued_at = clock_timestamp();\n        RETURN NULL;\n    END IF;",
             $queue,
             'one rebuild job instead of every document id',
         );
@@ -366,11 +366,12 @@ final class SchemaGeneratorTest extends TestCase
         );
     }
 
-    public function testAFullRebuildTakesThePendingRequestWhenAllowedTo(): void
+    public function testASucceededFullRunCompletesTheRequestsQueuedBeforeItStartedWhenAllowedTo(): void
     {
         self::assertSame(
-            "DO \$fuzzphony\$ BEGIN IF to_regclass('\"public\".\"fuzzphony_queue\"') IS NOT NULL THEN IF has_table_privilege('\"public\".\"fuzzphony_queue\"', 'SELECT') AND has_table_privilege('\"public\".\"fuzzphony_queue\"', 'DELETE') THEN DELETE FROM \"public\".\"fuzzphony_queue\" WHERE index_name = 'products' AND doc_id = '*'; END IF; END IF; END \$fuzzphony\$",
-            (new PostgresSchemaGenerator())->clearRebuildRequest(Indexes::products()),
+            "DO \$fuzzphony\$ BEGIN IF to_regclass('\"public\".\"fuzzphony_queue\"') IS NOT NULL THEN IF has_table_privilege('\"public\".\"fuzzphony_queue\"', 'SELECT') AND has_table_privilege('\"public\".\"fuzzphony_queue\"', 'DELETE') THEN DELETE FROM \"public\".\"fuzzphony_queue\" WHERE index_name = 'products' AND doc_id = '*' AND queued_at <= '2026-09-28 10:00:00.123456+00'::timestamptz; END IF; END IF; "
+            . "IF EXISTS (SELECT 1 FROM pg_attribute WHERE attrelid = to_regclass('\"public\".\"fuzzphony_meta\"') AND attname = 'rebuild_failures' AND NOT attisdropped) THEN IF has_table_privilege('\"public\".\"fuzzphony_meta\"', 'SELECT') AND has_table_privilege('\"public\".\"fuzzphony_meta\"', 'UPDATE') THEN UPDATE \"public\".\"fuzzphony_meta\" SET rebuild_failed_at = NULL, rebuild_failures = NULL, rebuild_error = NULL WHERE index_name = 'products' AND rebuild_failures IS NOT NULL; END IF; END IF; END \$fuzzphony\$",
+            (new PostgresSchemaGenerator())->completeRebuildRequest(Indexes::products(), '2026-09-28 10:00:00.123456+00'),
         );
     }
 
@@ -617,6 +618,9 @@ final class SchemaGeneratorTest extends TestCase
             "CREATE TABLE IF NOT EXISTS \"public\".\"fuzzphony_meta\" (\n    index_name text PRIMARY KEY,\n    layout_version integer NOT NULL,\n    definition_hash text NOT NULL,\n    documents_hash text,\n    library_version text NOT NULL,\n    applied_at timestamptz NOT NULL,\n    reindexed_at timestamptz\n)",
             $sql,
         );
+        foreach (['rebuild_failed_at timestamptz', 'rebuild_failures integer', 'rebuild_error text'] as $column) {
+            self::assertStringContainsString('ALTER TABLE "public"."fuzzphony_meta" ADD COLUMN IF NOT EXISTS ' . $column . "\n", $sql . "\n", 'the last failure of a rebuild job, for the doctor');
+        }
         self::assertFalse($last->transactional, 'after everything else');
         self::assertSame(self::upsert('*', Fingerprint::shared(new Names())), $last->sql);
     }

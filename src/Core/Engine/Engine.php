@@ -55,6 +55,8 @@ interface Engine
      * Removes indexed documents whose id the source no longer returns ("orphans", e.g. left by a
      * TRUNCATE before the TRUNCATE sync trigger existed, or by changes made while sync was off).
      * Works through the index in batches of $batchSize, so no single statement holds its locks long.
+     * It ends a full in-place run, so it also completes the rebuild requests queued before that run
+     * started (see rebuildRequested()).
      *
      * @return int number of documents removed
      */
@@ -71,7 +73,7 @@ interface Engine
     /**
      * Starts a full rebuild next to the live index, which searches keep reading until
      * finishRebuild() swaps the rebuild in (zero-downtime reindex). Takes the index's rebuild
-     * lock for the whole run and throws InvalidArgument when another run holds it. A new run
+     * lock for the whole run and throws RebuildAlreadyRunning when another run holds it. A new run
      * ($resume false) discards a leftover rebuild and starts an empty one; a resumed run
      * continues a leftover one. Returns false, with the lock released, when the run must write
      * the live index in place instead: $resume without a leftover rebuild, or an engine or a
@@ -104,7 +106,8 @@ interface Engine
      * index (a resume could not complete that rebuild consistently afterwards). One transaction,
      * never a session lock (safe behind a transaction-pooling proxy): true when it discarded
      * something; false, changing nothing, when a rebuild is running or nothing is left over.
-     * Engines without rebuilds return false.
+     * Either way it marks the start of that full in-place run (see rebuildRequested()). Engines
+     * without rebuilds return false.
      */
     public function discardLeftoverRebuild(IndexDefinition $index): bool;
 
@@ -116,16 +119,19 @@ interface Engine
     /**
      * Whether a full rebuild of the index was requested ("queue" mode: a TRUNCATE that needs a
      * full resync queues one such job instead of every document id). The worker runs it before
-     * the queued ids. A full rebuild that starts afterwards (beginRebuild() without $resume, or a
-     * full in-place run it falls back to) takes the request.
+     * the queued ids. A full run that succeeds completes the requests queued before it started:
+     * finishRebuild() of a run begun without $resume, or pruneOrphans() at the end of a full
+     * in-place run (one begun with beginRebuild() or discardLeftoverRebuild()). A run that fails,
+     * or is killed, keeps them.
      */
     public function rebuildRequested(IndexDefinition $index): bool;
 
     /**
-     * Queues a full rebuild of the index again (a no-op while one is queued): the worker calls it
-     * when the rebuild it ran failed after taking the request. Engines without a queue do nothing.
+     * Records that the full rebuild the worker ran for a request failed (when, how often in a row,
+     * the message), for the doctor. The next full run that succeeds clears it. Engines without
+     * such requests do nothing.
      */
-    public function requestRebuild(IndexDefinition $index): void;
+    public function recordRebuildFailure(IndexDefinition $index, string $message): void;
 
     public function inspect(IndexDefinition $index, InspectOptions $options = new InspectOptions()): InspectionReport;
 }

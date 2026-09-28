@@ -242,6 +242,71 @@ final class TruncateSyncTest extends TestCase
         self::assertSame([5], $fuzzphony->in('noted')->query('torch')->get()->ids());
     }
 
+    public function testAKilledRebuildKeepsTheJob(): void
+    {
+        $index = $this->notedIndex('queue', TriggerLevel::Statement);
+        $this->install($index);
+        $this->connection->execute('TRUNCATE fz_hidden');
+
+        // another process starts the rebuild, writes a batch, and dies (SIGKILL, OOM, lost connection)
+        $killed = new PostgresEngine(PostgresTestCase::connect());
+        self::assertTrue($killed->beginRebuild($index));
+        $killed->refreshShadow($index, [1, 2]);
+        self::assertTrue($this->engine->rebuildRequested($index), 'nothing is completed before the run succeeds');
+        unset($killed); // closes its session: the rebuild lock goes with it
+        gc_collect_cycles();
+
+        self::assertSame(1, $this->converge($index), 'the next worker cycle runs the job');
+        self::assertFalse($this->engine->rebuildRequested($index));
+    }
+
+    public function testAFailedReindexKeepsTheJob(): void
+    {
+        $index = $this->notedIndex('queue', TriggerLevel::Statement);
+        $fuzzphony = $this->install($index);
+        $this->connection->execute('TRUNCATE fz_hidden');
+
+        foreach ([false, true] as $inPlace) {
+            try {
+                $fuzzphony->reindex('noted', new ReindexOptions(batchSize: 2, inPlace: $inPlace, onBatch: static function (): void {
+                    throw new \RuntimeException('killed');
+                }));
+                self::fail('the failure reaches the caller');
+            } catch (\RuntimeException $e) {
+                self::assertSame('killed', $e->getMessage());
+            }
+            self::assertTrue($this->engine->rebuildRequested($index), $inPlace ? 'in place' : 'next to the live index');
+        }
+    }
+
+    public function testAFullInPlaceReindexCompletesTheJobUnlessATruncateCameDuringIt(): void
+    {
+        $index = $this->notedIndex('queue', TriggerLevel::Statement);
+        $fuzzphony = $this->install($index);
+        $this->connection->execute('TRUNCATE fz_hidden');
+
+        $fuzzphony->reindex('noted', new ReindexOptions(inPlace: true));
+        self::assertFalse($this->engine->rebuildRequested($index));
+        self::assertSame([5], $fuzzphony->in('noted')->query('torch')->get()->ids());
+
+        $this->connection->execute('TRUNCATE fz_hidden');
+        $fuzzphony->reindex('noted', new ReindexOptions(batchSize: 2, inPlace: true, onBatch: function (): void {
+            $this->connection->execute('TRUNCATE fz_note');
+        }));
+        self::assertTrue($this->engine->rebuildRequested($index), 'a TRUNCATE during the run moved the job on: it stays');
+    }
+
+    public function testAResumedOrUnprunedRunLeavesTheJobAlone(): void
+    {
+        $index = $this->notedIndex('queue', TriggerLevel::Statement);
+        $fuzzphony = $this->install($index);
+        $this->connection->execute('TRUNCATE fz_hidden');
+
+        $fuzzphony->reindex('noted', new ReindexOptions(prune: false));
+        $fuzzphony->reindex('noted', new ReindexOptions(resumeAfter: 0));
+        self::assertTrue($this->engine->rebuildRequested($index), 'neither covers the documents a TRUNCATE left behind');
+    }
+
     /** Joined table fz_note (LEFT JOIN) and an anti-join on fz_hidden, both watched. */
     private function notedIndex(string $sync, TriggerLevel $level): IndexDefinition
     {

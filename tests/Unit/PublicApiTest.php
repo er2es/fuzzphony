@@ -46,6 +46,7 @@ final class PublicApiTest extends TestCase
         \Fuzzphony\Core\Exception\InvalidConfiguration::class,
         \Fuzzphony\Core\Exception\InvalidDefinition::class,
         \Fuzzphony\Core\Exception\InvalidQuery::class,
+        \Fuzzphony\Core\Exception\RebuildAlreadyRunning::class,
         \Fuzzphony\Core\Exception\UnknownIndex::class,
         \Fuzzphony\Core\Fuzzphony::class,
         \Fuzzphony\Core\Inspection\Check::class,
@@ -105,8 +106,8 @@ final class PublicApiTest extends TestCase
         }
 
         self::assertSame([], $wrong);
-        self::assertCount(69, self::PUBLIC);
-        self::assertCount(121, self::classes());
+        self::assertCount(70, self::PUBLIC);
+        self::assertCount(122, self::classes());
     }
 
     public function testThePublicApiExposesNoInternalType(): void

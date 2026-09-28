@@ -77,6 +77,12 @@ final class PostgresSchemaGenerator
                 $this->names->meta(),
             ), 'Layout and definition each index was built from'),
         );
+        foreach (['rebuild_failed_at' => 'timestamptz', 'rebuild_failures' => 'integer', 'rebuild_error' => 'text'] as $column => $type) {
+            $statements[] = new Statement(
+                sprintf('ALTER TABLE %s ADD COLUMN IF NOT EXISTS %s %s', $this->names->meta(), $column, $type),
+                'The last failure of the full rebuild a TRUNCATE queued (the doctor reports it)',
+            );
+        }
 
         $configs = [];
         foreach ($indexes as $index) {
@@ -658,18 +664,23 @@ ON CONFLICT (index_name) DO UPDATE SET layout_version = EXCLUDED.layout_version,
     }
 
     /**
-     * Takes a pending full-rebuild request (the "*" queue row, see truncateBranch()): the full
-     * rebuild starting now reads the source after that TRUNCATE. A request queued while it runs
-     * stays for the next one. Skipped without the queue table, or without the rights to clear it.
+     * Completes a pending full-rebuild request (the "*" queue row, see truncateBranch()) after a
+     * full run that started at $started (the database clock) succeeded: only a job queued before
+     * that, since the run read the source after its TRUNCATE; a newer one stays for the next run.
+     * Clears the index's recorded rebuild failure too. Each half is skipped without its table (or
+     * the failure columns of an older schema) or without the rights to change it.
      */
-    public function clearRebuildRequest(IndexDefinition $index): string
+    public function completeRebuildRequest(IndexDefinition $index, string $started): string
     {
         return sprintf(
-            'DO %1$s BEGIN IF to_regclass(%2$s) IS NOT NULL THEN IF has_table_privilege(%2$s, \'SELECT\') AND has_table_privilege(%2$s, \'DELETE\') THEN DELETE FROM %3$s WHERE index_name = %4$s AND doc_id = \'*\'; END IF; END IF; END %1$s',
+            'DO %1$s BEGIN IF to_regclass(%2$s) IS NOT NULL THEN IF has_table_privilege(%2$s, \'SELECT\') AND has_table_privilege(%2$s, \'DELETE\') THEN DELETE FROM %3$s WHERE index_name = %4$s AND doc_id = \'*\' AND queued_at <= %5$s::timestamptz; END IF; END IF; IF EXISTS (SELECT 1 FROM pg_attribute WHERE attrelid = to_regclass(%6$s) AND attname = \'rebuild_failures\' AND NOT attisdropped) THEN IF has_table_privilege(%6$s, \'SELECT\') AND has_table_privilege(%6$s, \'UPDATE\') THEN UPDATE %7$s SET rebuild_failed_at = NULL, rebuild_failures = NULL, rebuild_error = NULL WHERE index_name = %4$s AND rebuild_failures IS NOT NULL; END IF; END IF; END %1$s',
             self::TAG,
             Sql::string($this->names->queue()),
             $this->names->queue(),
             Sql::string($index->name),
+            Sql::string($started),
+            Sql::string($this->names->meta()),
+            $this->names->meta(),
         );
     }
 
@@ -744,7 +755,9 @@ ON CONFLICT (index_name) DO UPDATE SET layout_version = EXCLUDED.layout_version,
      *   documents cannot be told apart. Trigger mode resyncs every document that is indexed or that
      *   the source now returns, inside the truncating transaction (expensive on a big index). Queue
      *   mode queues one full-rebuild job, the queue row (index, '*'), which the worker runs next to
-     *   the live index; processQueue() never takes it.
+     *   the live index; processQueue() never takes it. A TRUNCATE while it is queued moves its
+     *   queued_at on (the statement's clock, not the transaction's): a full run completes only a
+     *   job queued before it started (completeRebuildRequest()).
      */
     private function truncateBranch(IndexDefinition $index, Watch $watch): string
     {
@@ -758,8 +771,8 @@ ON CONFLICT (index_name) DO UPDATE SET layout_version = EXCLUDED.layout_version,
         $resync = $index->sync === SyncMode::Trigger
             ? sprintf('PERFORM %s(ARRAY(%s));', $this->names->refreshFunction($index), $ids)
             : sprintf(
-                "INSERT INTO %s (index_name, doc_id) VALUES (%s, '*')
-        ON CONFLICT (index_name, doc_id) DO NOTHING;",
+                "INSERT INTO %s (index_name, doc_id, queued_at) VALUES (%s, '*', clock_timestamp())
+        ON CONFLICT (index_name, doc_id) DO UPDATE SET queued_at = clock_timestamp();",
                 $this->names->queue(),
                 Sql::string($index->name),
             );

@@ -5,8 +5,9 @@ declare(strict_types=1);
 namespace Fuzzphony\Tests\Integration\Command;
 
 use Fuzzphony\Bundle\Command\WorkerCommand;
-use Fuzzphony\Core\Exception\EngineFailure;
 use Fuzzphony\Core\Fuzzphony;
+use Fuzzphony\Core\Inspection\Check;
+use Fuzzphony\Core\Inspection\CheckStatus;
 use Fuzzphony\Core\Registry\IndexRegistry;
 use Fuzzphony\Core\Support\Coerce;
 use Fuzzphony\Core\Sync\Worker;
@@ -90,16 +91,41 @@ final class WorkerCommandTest extends TestCase
         $fuzzphony = $this->queueModeFuzzphony();
         $this->context->connection->execute('TRUNCATE fz_brand CASCADE');
 
-        $this->asRole(false, static function () use ($fuzzphony): void {
-            try {
-                (new Worker($fuzzphony->engine()))->runOnce([$fuzzphony->registry()->get('products')]);
-                self::fail('the failure reaches the caller');
-            } catch (EngineFailure $e) {
-                self::assertStringContainsString('permission denied', $e->getMessage());
-            }
+        $tester = new CommandTester(new WorkerCommand($fuzzphony));
+        $status = null;
+        $this->asRole(false, static function () use ($tester, &$status): void {
+            $status = $tester->execute(['--once' => true], ['interactive' => false, 'capture_stderr_separately' => true]);
         });
 
+        self::assertSame(Command::FAILURE, $status, 'after processing everything else');
+        self::assertStringContainsString('Processed 0 queued item(s).', $tester->getDisplay());
+        self::assertStringContainsString('The full rebuild of "products" a TRUNCATE queued failed; the job stays queued: ', $tester->getErrorOutput());
+        self::assertStringContainsString('permission denied', $tester->getErrorOutput());
         self::assertSame(['*'], $this->queued(), 'the next cycle runs it again');
+        $check = array_find($fuzzphony->inspect('products')->checks, static fn(Check $c): bool => $c->name === 'Sync queue') ?? self::fail('no queue check');
+        self::assertSame(CheckStatus::Warning, $check->status);
+        self::assertMatchesRegularExpression('/^1 item\(s\) waiting, one of them a full rebuild \(queued by a TRUNCATE\); a full rebuild keeps failing: .*permission denied.* \(1 times, last at \d{4}-\d\d-\d\d \d\d:\d\d:\d\d UTC\)$/s', $check->message);
+        self::assertSame('fix the cause; the worker retries with a back-off, or run: bin/console fuzzphony:reindex products', $check->fix);
+
+        self::assertSame(1, (new Worker($fuzzphony->engine()))->runOnce([$fuzzphony->registry()->get('products')]), 'with the rights back');
+        self::assertSame([], $this->queued());
+        self::assertNull($this->context->connection->fetchValue("SELECT rebuild_failures FROM fuzzphony_meta WHERE index_name = 'products'"), 'a success clears the failure');
+    }
+
+    public function testALongRunningWorkerReportsAFailedRebuildAndKeepsRunning(): void
+    {
+        $fuzzphony = $this->queueModeFuzzphony();
+        $this->context->connection->execute('TRUNCATE fz_brand CASCADE');
+
+        $tester = new CommandTester(new WorkerCommand($fuzzphony, idleSleep: 0.02));
+        $status = null;
+        $this->asRole(false, static function () use ($tester, &$status): void {
+            $status = $tester->execute(['--time-limit' => '1'], ['interactive' => false, 'capture_stderr_separately' => true]);
+        });
+
+        self::assertSame(Command::SUCCESS, $status);
+        self::assertSame(1, substr_count($tester->getErrorOutput(), 'The full rebuild of "products" a TRUNCATE queued failed'), 'once: the next attempt waits a minute');
+        self::assertMatchesRegularExpression('/Stopped after 0 item\(s\)\./', $tester->getDisplay());
     }
 
     /** Runs $work as a role like the demo's worker, with read access to the source only when $source. */

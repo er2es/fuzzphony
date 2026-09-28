@@ -37,8 +37,8 @@ and the [CHANGELOG](CHANGELOG.md) has the full list of changes.
    asks for that explicitly, and `--no-prune` always runs in place. After a swap
    `ReindexResult::$pruned` is `null` (the orphans went with the old index): check
    `ReindexResult::$swapped`. A second full reindex of the same index while one runs throws
-   `InvalidArgument`. A run that fails leaves a rebuild behind (the doctor warns): resume it with
-   `--from`, or run a full reindex again.
+   `RebuildAlreadyRunning` (an `\InvalidArgumentException`). A run that fails leaves a rebuild
+   behind (the doctor warns): resume it with `--from`, or run a full reindex again.
    Call `Fuzzphony::reindex()` outside a transaction (inside one it writes in place), and do not
    run `fuzzphony:schema --apply` while a full reindex runs: it refuses, run it again afterwards.
 6. **`TRUNCATE` in queue mode.** A `TRUNCATE` of a joined table (or of a query source's table)
@@ -46,9 +46,14 @@ and the [CHANGELOG](CHANGELOG.md) has the full list of changes.
    document id; the worker runs it before the queued ids. If you read the queue yourself, skip that
    row. For a zero-downtime rebuild the worker's role needs the reindex rights of step 5; without
    them it rebuilds in place. Either way the rebuild reads the source in the worker's session, like
-   `fuzzphony:reindex`: its `search_path` must see the source tables. Custom engines implement
-   `rebuildRequested()` and `requestRebuild()` (`return false;` and an empty body keep the old
-   behaviour).
+   `fuzzphony:reindex`: its `search_path` must see the source tables. A role that truncates watched
+   tables needs `UPDATE` on `fuzzphony_queue` (the trigger moves a queued job's time on), and a
+   string document id `*` is reserved for the job. A rebuild that fails does not stop the worker
+   (it retries after a back-off and the doctor warns), but `fuzzphony:worker --once` then exits
+   with code 1: check a cron job that alerts on it. `fuzzphony:schema --apply` adds the failure
+   columns to the meta table. Custom engines implement `rebuildRequested()` and
+   `recordRebuildFailure()`; an engine whose queue has no rebuild job returns `false` from the
+   first and leaves the second empty.
 
 ## From 0.3 to 0.4
 
