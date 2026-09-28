@@ -38,14 +38,17 @@ Made in auto mode; each says why and what it costs if wrong.
   `fuzzphony_refresh_<index>__next(ids)`, identical to the live one except for its target table.
   Two static functions keep today's plan-cached, non-dynamic SQL; no `EXECUTE format()` per batch.
 - Changes made while the shadow is being built still reach the live table as today (trigger or
-  queue sync). At the end the reindexer **catches up** the shadow: it re-refreshes into the shadow
-  every id whose live row has `indexed_at >= build start`, and prunes the shadow's orphans against
-  the source (deletes during the build). Then, in one transaction holding an `ACCESS EXCLUSIVE` lock
-  on the live table, it repeats the catch-up for the (now tiny) remaining delta and swaps:
-  rename live → `__old`, shadow → live name, rename every index and the primary key constraint to
-  the live names, drop `__old`. The lock is held only for the delta and the renames.
-- plpgsql functions resolve the table by name; the drop of `__old` invalidates cached plans, so the
-  live refresh function writes into the new table from the next call.
+  queue sync). `beginRebuild()` adds a row trigger on the live table that logs every changed id to
+  `<schema>.fuzzphony_<index>__changes` (amended by the plan, see ADR 0008: the original idea of
+  re-reading `indexed_at >= build start` scanned an unindexed column under the lock and could miss
+  late deletes and long transactions). `finishRebuild()` catches the shadow up from that log in
+  batches, then, in one transaction holding an `ACCESS EXCLUSIVE` lock on the live table (which waits
+  for every writer, so the log is complete), applies the last entries and swaps: the shadow takes the
+  live name, every index and the primary key constraint get the live names, the old live table is
+  dropped, and its grants and owner are copied. The lock is held only for the last entries and the
+  renames.
+- plpgsql functions resolve the table by name; the drop of the old table invalidates cached plans,
+  so the live refresh function writes into the new table from the next call.
 - One rebuild per index at a time: the reindexer takes `pg_advisory_lock(hashtext('fuzzphony:' ||
   schema || '.' || index))` for the whole run; a second run fails fast with `InvalidArgument`
   ("a rebuild of <index> is already running").
@@ -56,9 +59,12 @@ Made in auto mode; each says why and what it costs if wrong.
 - A crashed build leaves the shadow table behind: the next full run drops and restarts it (unless
   resumed with `--from`); the doctor warns "a rebuild of <index> did not finish" with the fix
   `fuzzphony:reindex <index>`.
-- Engine SPI (breaking for custom engines): `Engine::beginRebuild(IndexDefinition): void`,
-  `refreshShadow(IndexDefinition, array $ids): int`, `finishRebuild(IndexDefinition, \DateTimeImmutable
-  $startedAt): void`, `abortRebuild(IndexDefinition): void`. `Reindexer` stays engine-agnostic.
+- Engine SPI (breaking for custom engines), as refined by the plan:
+  `beginRebuild(IndexDefinition, bool $resume = false): bool` (takes the advisory lock; false means
+  run in place, e.g. a role without CREATE/ownership or 0.5 functions not applied yet),
+  `refreshShadow(IndexDefinition, array $ids): int`, `finishRebuild(IndexDefinition): void`,
+  `abortRebuild(IndexDefinition, bool $keepShadow = false): void`, and
+  `rebuildRequested(IndexDefinition): bool` for the worker (R2). `Reindexer` stays engine-agnostic.
 - Disk: a full rebuild needs room for a second copy of the sidecar and its indexes; documented.
 - Cost if wrong: medium; the swap is the risky part, so the plan tests it under concurrent writes in
   both sync modes.
@@ -68,8 +74,10 @@ Made in auto mode; each says why and what it costs if wrong.
 - Queue mode: when a `TRUNCATE` hits a watched table and a full resync is needed (joined table,
   query source, or a non-empty source after `TRUNCATE ONLY`), the trigger inserts **one** queue row
   `(index_name, '*')` instead of every document id (`ON CONFLICT DO NOTHING`).
-- The worker claims a `'*'` row (`DELETE … RETURNING` with `SKIP LOCKED`) before normal batches and
-  runs a full shadow rebuild (R1) for that index; `processQueue` never casts `'*'` to the id type.
+- The worker sees the `'*'` row (`rebuildRequested()`) before normal batches and runs a full shadow
+  rebuild (R1) for that index; the rebuild clears the row once it holds the lock, so a failed rebuild
+  keeps the job and a job queued during a rebuild survives for the next one. `processQueue` never
+  casts `'*'` to the id type.
   Ids queued for that index before the job are still processed normally (harmless).
 - `queueSize` counts it as one item; the doctor's queue check names a pending rebuild job.
 - Trigger mode keeps the inline resync (there is no worker to hand a job to); docs say so and
