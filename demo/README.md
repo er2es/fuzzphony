@@ -54,6 +54,29 @@ dropped (PostgreSQL keeps the five it needs to start), memory limits, rotated lo
 `restart: unless-stopped`. Two networks: `frontend` (web, php) and `backend` (php, worker, init, db). The database
 port is published on `127.0.0.1` only.
 
+## How the indexes run
+
+Everything below comes from [`config/packages/fuzzphony.yaml`](config/packages/fuzzphony.yaml); settings not
+listed there use the library's defaults, shown here with "default".
+
+| Setting | Demo value | |
+|---|---|---|
+| Indexes | `catalog` (500 000 products), `lang_en`, `lang_de`, `lang_fr`, `lang_es`, `lang_hu` (30 products each) | |
+| Schema | `fuzzphony` | every index table, the sync queue, the version table, the functions and the text search configurations; the demo data stays in `public` |
+| Extension schema | `public` (default) | where `pg_trgm` and `unaccent` live |
+| Sync mode | `queue` (default) | database triggers queue the changed ids, the `worker` service refreshes them |
+| Trigger level | `statement` (default) | one trigger call per statement, with transition tables; `TRUNCATE` is followed too |
+| Watched tables | `catalog`: `bench_product`, `bench_brand`, `bench_category`; `lang_*`: `lang_product` | a brand or category change queues every product that uses it |
+| Worker | `fuzzphony:worker --time-limit=3600`, batch of 500 ids, 1 s sleep when idle (defaults) | recycled hourly by Docker's restart policy; stops after the current batch on SIGTERM |
+| Fields (`catalog`) | `name` A fuzzy, `brand` B fuzzy, `category` C, `description` D | A–D are the full-text weights; fuzzy fields get typo tolerance |
+| Filters (`catalog`) | `price`, `in_stock`, `brand_id`, `category_id`, `published_at` | |
+| Ranking (`catalog`) | boost by `popularity`, recency by `published_at`; profile `popular` (boost 0.03, recency 0.3, 60-day half-life) | |
+| Thresholds (`catalog`) | `min_score` 0.01; otherwise defaults: `fuzzy_mode` fallback, `fallback_below` 5, `fuzzy_similarity` 0.3, `fuzzy_min_length` 3, `candidate_limit` 2000, `max_query_length` 256, `max_terms` 16, `relax_when_empty` on | typo tolerance kicks in when fewer than 5 documents match exactly |
+| Thresholds (`lang_*`) | `fallback_below` 1 | typo tolerance only when nothing matches exactly, so the stemming examples stay clean |
+| Language | `catalog`: English; `lang_*`: its own language, accent folding on (default) | text search configuration `fuzzphony.fuzzphony_<language>` |
+| Reindex at start | `init` reindexes an index only when it is empty (`DEMO_REINDEX=auto`), 20 000 ids per batch | `always` / `never` change that, see Settings |
+| Database roles | `init` runs as the owner `fuzzphony`; `php` and `worker` run as `fuzzphony_app` | `fuzzphony_app`: no DDL, read-only on the demo data, read/write on the `fuzzphony` schema's tables, `statement_timeout` 5 s |
+
 ## Security defaults
 
 The stack is published on `127.0.0.1` only. `DEMO_BIND=0.0.0.0` (web) and `DEMO_DB_BIND=0.0.0.0`
