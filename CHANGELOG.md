@@ -46,6 +46,15 @@ changes; they are always listed under **Breaking** and explained in [UPGRADE.md]
   `--in-place` / `--no-prune` when the run wrote in place), and exits with code 1 (instead of an
   uncaught exception); it stops at the first index that fails. A full `--in-place` run discards a
   rebuild a failed run left behind.
+- `Engine` has two new methods for the rebuild job a `TRUNCATE` queues:
+  `rebuildRequested(IndexDefinition $index): bool` (the worker asks whether a `TRUNCATE` queued a
+  full rebuild) and `requestRebuild(IndexDefinition $index): void` (the worker queues the job again
+  when the rebuild it ran failed). Custom engines must implement them (`return false;` and an empty body when their
+  queue has no such job).
+- In `queue` mode a `TRUNCATE` that needs a full resync queues one job, the queue row
+  `(index_name, '*')`, instead of every document id, and the worker runs it as a full rebuild.
+  Code that reads `fuzzphony_queue` directly must skip that row. The worker role builds next to the
+  live index when it may (see the reindex entry above), else in place.
 
 ### Added
 

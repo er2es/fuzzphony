@@ -41,6 +41,14 @@ and the [CHANGELOG](CHANGELOG.md) has the full list of changes.
    `--from`, or run a full reindex again.
    Call `Fuzzphony::reindex()` outside a transaction (inside one it writes in place), and do not
    run `fuzzphony:schema --apply` while a full reindex runs: it refuses, run it again afterwards.
+6. **`TRUNCATE` in queue mode.** A `TRUNCATE` of a joined table (or of a query source's table)
+   queues one full-rebuild job, the row `(index_name, '*')` in `fuzzphony_queue`, instead of every
+   document id; the worker runs it before the queued ids. If you read the queue yourself, skip that
+   row. For a zero-downtime rebuild the worker's role needs the reindex rights of step 5; without
+   them it rebuilds in place. Either way the rebuild reads the source in the worker's session, like
+   `fuzzphony:reindex`: its `search_path` must see the source tables. Custom engines implement
+   `rebuildRequested()` and `requestRebuild()` (`return false;` and an empty body keep the old
+   behaviour).
 
 ## From 0.3 to 0.4
 

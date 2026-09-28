@@ -257,7 +257,7 @@ final class PostgresEngine implements Engine
                     DELETE FROM %1$s
                     WHERE (index_name, doc_id) IN (
                         SELECT index_name, doc_id FROM %1$s
-                        WHERE index_name = :index
+                        WHERE index_name = :index AND doc_id <> '*'
                         ORDER BY queued_at
                         LIMIT :limit
                         FOR UPDATE SKIP LOCKED
@@ -288,6 +288,22 @@ final class PostgresEngine implements Engine
             sprintf('SELECT count(*) FROM %s WHERE index_name = :index', $this->names->queue()),
             ['index' => $index->name],
         )), 'Run "fuzzphony:schema --apply" to create the queue table.');
+    }
+
+    public function rebuildRequested(IndexDefinition $index): bool
+    {
+        return $this->guard('queue processing', fn(): bool => (bool) $this->connection->fetchValue(
+            sprintf("SELECT EXISTS (SELECT 1 FROM %s WHERE index_name = :index AND doc_id = '*')", $this->names->queue()),
+            ['index' => $index->name],
+        ), 'Run "fuzzphony:schema --apply" and check "fuzzphony:doctor".');
+    }
+
+    public function requestRebuild(IndexDefinition $index): void
+    {
+        $this->guard('queue processing', fn(): int => $this->connection->execute(
+            sprintf("INSERT INTO %s (index_name, doc_id) VALUES (:index, '*') ON CONFLICT (index_name, doc_id) DO NOTHING", $this->names->queue()),
+            ['index' => $index->name],
+        ), 'Run "fuzzphony:schema --apply" and check "fuzzphony:doctor".');
     }
 
     public function inspect(IndexDefinition $index, InspectOptions $options = new InspectOptions()): InspectionReport

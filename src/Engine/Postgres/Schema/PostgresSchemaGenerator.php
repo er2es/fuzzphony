@@ -657,6 +657,22 @@ ON CONFLICT (index_name) DO UPDATE SET layout_version = EXCLUDED.layout_version,
         );
     }
 
+    /**
+     * Takes a pending full-rebuild request (the "*" queue row, see truncateBranch()): the full
+     * rebuild starting now reads the source after that TRUNCATE. A request queued while it runs
+     * stays for the next one. Skipped without the queue table, or without the rights to clear it.
+     */
+    public function clearRebuildRequest(IndexDefinition $index): string
+    {
+        return sprintf(
+            'DO %1$s BEGIN IF to_regclass(%2$s) IS NOT NULL THEN IF has_table_privilege(%2$s, \'SELECT\') AND has_table_privilege(%2$s, \'DELETE\') THEN DELETE FROM %3$s WHERE index_name = %4$s AND doc_id = \'*\'; END IF; END IF; END %1$s',
+            self::TAG,
+            Sql::string($this->names->queue()),
+            $this->names->queue(),
+            Sql::string($index->name),
+        );
+    }
+
     private function syncFunction(IndexDefinition $index, Watch $watch): string
     {
         $columns = $this->relevantColumns($index, $watch);
@@ -725,8 +741,10 @@ ON CONFLICT (index_name) DO UPDATE SET layout_version = EXCLUDED.layout_version,
      *   worker refreshes those ids itself and the refresh deletes them from the now empty index.
      *   While a full reindex runs, the queue is kept: the worker's refreshes log the ids for it.
      * - Any other watched table (or a source that is not empty): its rows are gone, so the affected
-     *   documents cannot be told apart; every document that is indexed or that the source now
-     *   returns is resynced. Expensive on a big index, but a TRUNCATE is rare.
+     *   documents cannot be told apart. Trigger mode resyncs every document that is indexed or that
+     *   the source now returns, inside the truncating transaction (expensive on a big index). Queue
+     *   mode queues one full-rebuild job, the queue row (index, '*'), which the worker runs next to
+     *   the live index; processQueue() never takes it.
      */
     private function truncateBranch(IndexDefinition $index, Watch $watch): string
     {
@@ -740,12 +758,10 @@ ON CONFLICT (index_name) DO UPDATE SET layout_version = EXCLUDED.layout_version,
         $resync = $index->sync === SyncMode::Trigger
             ? sprintf('PERFORM %s(ARRAY(%s));', $this->names->refreshFunction($index), $ids)
             : sprintf(
-                "INSERT INTO %s (index_name, doc_id)
-        SELECT %s, t.id::text FROM (%s) AS t(id)
+                "INSERT INTO %s (index_name, doc_id) VALUES (%s, '*')
         ON CONFLICT (index_name, doc_id) DO NOTHING;",
                 $this->names->queue(),
                 Sql::string($index->name),
-                $ids,
             );
         if ($index->source->table === null || $watch->table !== $index->source->table) {
             return sprintf("    IF TG_OP = 'TRUNCATE' THEN

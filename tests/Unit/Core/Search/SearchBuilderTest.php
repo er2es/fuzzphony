@@ -112,6 +112,16 @@ final class SearchBuilderTest extends TestCase
                 throw new \LogicException('not used by this test');
             }
 
+            public function rebuildRequested(IndexDefinition $index): bool
+            {
+                throw new \LogicException('not used by this test');
+            }
+
+            public function requestRebuild(IndexDefinition $index): void
+            {
+                throw new \LogicException('not used by this test');
+            }
+
             public function inspect(IndexDefinition $index, InspectOptions $options = new InspectOptions()): InspectionReport
             {
                 throw new \LogicException('not used by this test');

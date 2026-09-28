@@ -27,40 +27,6 @@ afterwards; it also removes the orphaned documents.
 
 Planned fix: [partition-aware sync](roadmap.md#partition-aware-sync).
 
-## TRUNCATE on a watched table
-
-`TRUNCATE` is followed in `trigger` and `queue` mode (see [TRUNCATE](sync.md#truncate)).
-
-Truncating the index's own source table is cheap. The sidecar is emptied, but only after checking
-that the source really is empty. A `TRUNCATE ONLY` on a table-inheritance parent leaves the child
-tables' rows in the source, so it resyncs like the case below.
-
-Truncating a joined or otherwise watched table is not cheap. Every indexed document, plus every
-document the source returns now, is resynced: in `trigger` mode inside the truncating transaction,
-in `queue` mode by queueing all those ids for the worker. Measured on a 1M-document index:
-
-| Mode | `TRUNCATE` took | Side effects |
-|---|---|---|
-| `trigger` | 42.8 s | holds an `ACCESS EXCLUSIVE` lock on the truncated table and row locks on the sidecar the whole time |
-| `queue` | 8.5 s | plus 1M queued ids |
-
-For big indexes that watch joined tables, prefer `queue` sync, or truncate in a maintenance window.
-A query source's main table counts as a watched table here, since Fuzzphony cannot tell that the
-source is now empty.
-
-In `queue` mode a `TRUNCATE` never waits for the queue rows a running worker holds when it empties
-the index. The joined-table resync can still wait for a conflicting row the worker holds. In the
-worst case a deadlock makes the `TRUNCATE` fail (the window is a few microseconds per worker
-batch): retry it, the queue keeps its ids.
-
-Truncating a single partition of a partitioned source fires nothing (see
-[Partitioned tables](#partitioned-tables)). Indexes set up with an older version get the `TRUNCATE`
-trigger from `fuzzphony:schema --apply` (`fuzzphony:doctor` reports it missing until then). `orm`
-and `manual` mode never see a `TRUNCATE`: run `fuzzphony:reindex`.
-
-Planned fix: [zero-downtime reindex](roadmap.md#zero-downtime-reindex) queues one full-resync job
-instead of every document id.
-
 ## Ranking is approximate beyond `candidate_limit`
 
 With very frequent words, ranking considers the first `candidate_limit` matches, so ordering is

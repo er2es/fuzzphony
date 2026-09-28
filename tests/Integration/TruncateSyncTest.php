@@ -8,8 +8,12 @@ use Fuzzphony\Core\Database\Connection;
 use Fuzzphony\Core\Definition\IndexDefinition;
 use Fuzzphony\Core\Definition\TriggerLevel;
 use Fuzzphony\Core\Fuzzphony;
+use Fuzzphony\Core\Inspection\Check;
+use Fuzzphony\Core\Inspection\CheckStatus;
+use Fuzzphony\Core\Inspection\InspectOptions;
 use Fuzzphony\Core\Registry\IndexRegistry;
 use Fuzzphony\Core\Support\Coerce;
+use Fuzzphony\Core\Sync\ReindexOptions;
 use Fuzzphony\Core\Sync\Worker;
 use Fuzzphony\Engine\Postgres\PostgresEngine;
 use Fuzzphony\Tests\Conformance\EngineConformanceTestCase;
@@ -27,7 +31,7 @@ final class TruncateSyncTest extends TestCase
         $this->connection = PostgresTestCase::connect();
         $this->engine = new PostgresEngine($this->connection);
         PostgresTestCase::createFixtures($this->connection, EngineConformanceTestCase::fixtureRows());
-        $this->connection->execute('DROP TABLE IF EXISTS fz_note, fz_hidden, fuzzphony_items, fuzzphony_noted, fuzzphony_inherited, inh_child, inh_parent CASCADE');
+        $this->connection->execute('DROP TABLE IF EXISTS fz_note, fz_hidden, fuzzphony_items, fuzzphony_noted, fuzzphony_inherited, fuzzphony_items__next, fuzzphony_items__changes, fuzzphony_noted__next, fuzzphony_noted__changes, fuzzphony_inherited__next, fuzzphony_inherited__changes, inh_child, inh_parent CASCADE');
         // no foreign keys: each table can be truncated on its own
         $this->connection->execute('CREATE TABLE fz_note (id bigint PRIMARY KEY, product_id bigint NOT NULL, note text NOT NULL)');
         $this->connection->execute('CREATE TABLE fz_hidden (product_id bigint PRIMARY KEY)');
@@ -79,9 +83,16 @@ final class TruncateSyncTest extends TestCase
         $this->connection->execute('TRUNCATE fz_note');
 
         if ($sync === 'queue') {
-            self::assertEqualsCanonicalizing([1, 2, 3, 4], $this->queued($index), 'every indexed document is queued');
+            self::assertSame(['*'], $this->queued($index), 'one rebuild job instead of every document id');
+            self::assertSame(1, $this->engine->queueSize($index));
+            $check = array_find($fuzzphony->inspect('noted')->checks, static fn(Check $c): bool => $c->name === 'Sync queue') ?? self::fail('no queue check');
+            self::assertSame('1 item(s) waiting, one of them a full rebuild (queued by a TRUNCATE)', $check->message);
+            $backlog = array_find($fuzzphony->inspect('noted', new InspectOptions(maxQueueBacklog: 0))->checks, static fn(Check $c): bool => $c->name === 'Sync queue') ?? self::fail('no queue check');
+            self::assertSame(CheckStatus::Warning, $backlog->status);
+            self::assertMatchesRegularExpression('/^1 item\(s\) waiting, one of them a full rebuild \(queued by a TRUNCATE\), oldest \d+s: is the worker running\?$/', $backlog->message);
             self::assertEqualsCanonicalizing([1, 3], $search('fragile'), 'nothing changes before the worker runs');
-            $this->converge($index);
+            self::assertSame(1, $this->converge($index));
+            self::assertFalse($this->engine->rebuildRequested($index));
         }
         self::assertSame([], $search('fragile'));
         self::assertSame([], $search('refurbished'));
@@ -97,7 +108,7 @@ final class TruncateSyncTest extends TestCase
 
         $this->connection->execute('TRUNCATE fz_hidden');
         if ($sync === 'queue') {
-            self::assertEqualsCanonicalizing([1, 2, 3, 4, 5], $this->queued($index));
+            self::assertSame(['*'], $this->queued($index));
         }
         $this->converge($index);
 
@@ -117,7 +128,7 @@ final class TruncateSyncTest extends TestCase
         $this->connection->execute("UPDATE fz_product SET name = 'Ergonomic vertical mouse' WHERE id = 2");
         $this->connection->execute('DELETE FROM fz_product WHERE id = 4');
         if ($sync === 'queue') {
-            self::assertEqualsCanonicalizing([1, 2, 4], $this->queued($index), 'only the affected documents are queued');
+            self::assertEqualsCanonicalizing(['1', '2', '4'], $this->queued($index), 'only the affected documents are queued');
         }
         $this->converge($index);
 
@@ -144,7 +155,7 @@ final class TruncateSyncTest extends TestCase
 
         self::assertSame(2, $this->rows('inh_parent'), 'the source still returns the child rows');
         if ($sync === 'queue') {
-            self::assertEqualsCanonicalizing([1, 2, 3], $this->queued($index), 'resynced, not wiped');
+            self::assertSame(['*'], $this->queued($index), 'resynced, not wiped: one rebuild job');
             $this->converge($index);
         }
         self::assertSame(2, $this->rows('fuzzphony_inherited'), 'only the truncated parent row is gone');
@@ -193,11 +204,42 @@ final class TruncateSyncTest extends TestCase
         $this->connection->execute('TRUNCATE fz_note');
 
         if ($sync === 'queue') {
-            self::assertEqualsCanonicalizing([1, 2, 3, 4, 5], $this->queued($index), 'every document is queued, none deleted');
+            self::assertSame(['*'], $this->queued($index), 'one rebuild job, nothing deleted');
             $this->converge($index);
         }
         self::assertSame(5, $this->rows('fuzzphony_items'), 'the source still has all its rows');
         self::assertNotSame([], $fuzzphony->in('items')->query('mouse')->get()->ids());
+    }
+
+    public function testIdsQueuedBeforeTheJobAreStillProcessed(): void
+    {
+        $index = $this->notedIndex('queue', TriggerLevel::Statement);
+        $fuzzphony = $this->install($index);
+        $search = static fn(string $text): array => $fuzzphony->in('noted')->query($text)->thresholds(['fuzzy_mode' => 'never'])->get()->ids();
+
+        $this->connection->execute("UPDATE fz_note SET note = 'refurbished' WHERE id = 1"); // queues product 1
+        $this->connection->execute('TRUNCATE fz_hidden'); // one job
+        self::assertEqualsCanonicalizing(['1', '*'], $this->queued($index));
+
+        self::assertSame(2, $this->converge($index), 'the rebuild, then id 1');
+        self::assertSame(0, $this->engine->queueSize($index));
+        self::assertEqualsCanonicalizing([1, 4], $search('refurbished'));
+        self::assertSame([5], $search('torch'));
+    }
+
+    public function testATruncateDuringARebuildQueuesAnotherOne(): void
+    {
+        $index = $this->notedIndex('queue', TriggerLevel::Statement);
+        $fuzzphony = $this->install($index);
+
+        $fuzzphony->reindex('noted', new ReindexOptions(batchSize: 2, onBatch: function (): void {
+            $this->connection->execute('TRUNCATE fz_hidden');
+        }));
+
+        self::assertTrue($this->engine->rebuildRequested($index), 'the running rebuild may have read the table before the TRUNCATE: the job stays');
+        self::assertSame(1, $this->converge($index));
+        self::assertFalse($this->engine->rebuildRequested($index));
+        self::assertSame([5], $fuzzphony->in('noted')->query('torch')->get()->ids());
     }
 
     /** Joined table fz_note (LEFT JOIN) and an anti-join on fz_hidden, both watched. */
@@ -228,16 +270,16 @@ final class TruncateSyncTest extends TestCase
         return $fuzzphony;
     }
 
-    private function converge(IndexDefinition $index): void
+    private function converge(IndexDefinition $index): int
     {
-        (new Worker($this->engine))->runOnce([$index]);
+        return (new Worker($this->engine))->runOnce([$index]);
     }
 
-    /** @return list<int> */
+    /** @return list<string> */
     private function queued(IndexDefinition $index): array
     {
         return array_map(
-            static fn(array $row): int => Coerce::int($row['doc_id']),
+            static fn(array $row): string => Coerce::str($row['doc_id']),
             $this->connection->fetchAll('SELECT doc_id FROM fuzzphony_queue WHERE index_name = :index', ['index' => $index->name]),
         );
     }

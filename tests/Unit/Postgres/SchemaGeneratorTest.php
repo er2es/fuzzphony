@@ -157,8 +157,7 @@ final class SchemaGeneratorTest extends TestCase
         self::assertStringContainsString(
             $guard . "
             IF to_regclass('\"public\".\"fuzzphony_articles__changes\"') IS NULL THEN DELETE FROM \"public\".\"fuzzphony_queue\" WHERE ctid IN (SELECT ctid FROM \"public\".\"fuzzphony_queue\" WHERE index_name = 'articles' FOR UPDATE SKIP LOCKED); END IF;"
-            . sprintf($resync, "INSERT INTO \"public\".\"fuzzphony_queue\" (index_name, doc_id)
-"),
+            . sprintf($resync, "INSERT INTO \"public\".\"fuzzphony_queue\" (index_name, doc_id) VALUES ('articles', '*')\n            ON CONFLICT (index_name, doc_id) DO NOTHING;"),
             $queue,
         );
         self::assertStringNotContainsString("DELETE FROM \"public\".\"fuzzphony_queue\" WHERE index_name = 'articles'", $queue, 'never waits on the rows a worker holds');
@@ -188,9 +187,11 @@ final class SchemaGeneratorTest extends TestCase
     {
         $queue = (new PostgresSchemaGenerator())->index(Indexes::products('queue'))->toSql();
         self::assertStringContainsString(
-            "IF TG_OP = 'TRUNCATE' THEN\n        INSERT INTO \"public\".\"fuzzphony_queue\" (index_name, doc_id)\n        SELECT 'products', t.id::text FROM (SELECT s.id FROM \"public\".\"fuzzphony_products\" AS s UNION SELECT doc.fz_id::bigint FROM (SELECT d.\"id\" AS fz_id",
+            "IF TG_OP = 'TRUNCATE' THEN\n        INSERT INTO \"public\".\"fuzzphony_queue\" (index_name, doc_id) VALUES ('products', '*')\n        ON CONFLICT (index_name, doc_id) DO NOTHING;\n        RETURN NULL;\n    END IF;",
             $queue,
+            'one rebuild job instead of every document id',
         );
+        self::assertStringNotContainsString("SELECT 'products', t.id::text", $queue);
         self::assertStringNotContainsString('DELETE FROM "public"."fuzzphony_products";', $queue, 'a query source is never emptied wholesale');
 
         $trigger = (new PostgresSchemaGenerator())->index(Indexes::products('trigger'))->toSql();
@@ -362,6 +363,14 @@ final class SchemaGeneratorTest extends TestCase
         self::assertSame(
             "DO \$fuzzphony\$ BEGIN IF to_regclass('\"public\".\"fuzzphony_products\"') IS NOT NULL THEN DROP TRIGGER IF EXISTS \"fuzzphony_track_products\" ON \"public\".\"fuzzphony_products\"; END IF; DROP TABLE IF EXISTS \"public\".\"fuzzphony_products__next\"; DROP TABLE IF EXISTS \"public\".\"fuzzphony_products__changes\"; END \$fuzzphony\$",
             (new PostgresSchemaGenerator())->discardRebuild(Indexes::products()),
+        );
+    }
+
+    public function testAFullRebuildTakesThePendingRequestWhenAllowedTo(): void
+    {
+        self::assertSame(
+            "DO \$fuzzphony\$ BEGIN IF to_regclass('\"public\".\"fuzzphony_queue\"') IS NOT NULL THEN IF has_table_privilege('\"public\".\"fuzzphony_queue\"', 'SELECT') AND has_table_privilege('\"public\".\"fuzzphony_queue\"', 'DELETE') THEN DELETE FROM \"public\".\"fuzzphony_queue\" WHERE index_name = 'products' AND doc_id = '*'; END IF; END IF; END \$fuzzphony\$",
+            (new PostgresSchemaGenerator())->clearRebuildRequest(Indexes::products()),
         );
     }
 

@@ -75,6 +75,10 @@ final class ShadowRebuild
             throw new InvalidArgument(sprintf('A rebuild of "%s" is already running.', $index->name));
         }
         try {
+            if (!$resume) {
+                // this full rebuild covers a pending request ("*"), also when it falls back to in place
+                $this->connection->execute($this->schema->clearRebuildRequest($index));
+            }
             $shadow = $resume ? $this->leftOver($index) : $this->possible($index);
             if ($shadow && !$resume) {
                 $this->connection->execute($this->schema->beginRebuild($index));

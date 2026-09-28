@@ -28,6 +28,12 @@ final class PostgresEngineGuardTest extends TestCase
             return null;
         }];
         yield 'rebuild' => ['rebuild', 'Run "fuzzphony:schema --apply" and "fuzzphony:doctor".', $always, static fn(PostgresEngine $e): mixed => $e->refreshShadow(Indexes::products(), [1])];
+        yield 'rebuild request' => ['queue processing', 'Run "fuzzphony:schema --apply" and check "fuzzphony:doctor".', $always, static fn(PostgresEngine $e): mixed => $e->rebuildRequested(Indexes::products())];
+        yield 'new rebuild request' => ['queue processing', 'Run "fuzzphony:schema --apply" and check "fuzzphony:doctor".', $always, static function (PostgresEngine $e): null {
+            $e->requestRebuild(Indexes::products());
+
+            return null;
+        }];
         yield 'queue size' => ['queue size', 'Run "fuzzphony:schema --apply" to create the queue table.', $always, static fn(PostgresEngine $e): mixed => $e->queueSize(Indexes::products())];
         yield 'inspection' => ['inspection', 'Check that this connection can read the catalog and the source.', $always, static fn(PostgresEngine $e): mixed => $e->inspect(Indexes::products())];
         yield 'explain' => ['explain', self::DOCTOR, static fn(string $sql): bool => str_starts_with($sql, 'EXPLAIN'), static fn(PostgresEngine $e): mixed => self::fuzzphony($e)->in('products')->query('mouse')->explain()];

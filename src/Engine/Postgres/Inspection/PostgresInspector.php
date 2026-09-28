@@ -496,19 +496,20 @@ final class PostgresInspector
             return Check::error('Sync queue', 'Queue table is missing.', self::APPLY);
         }
         $row = $this->connection->fetchAll(
-            sprintf('SELECT count(*) AS n, coalesce(extract(epoch FROM now() - min(queued_at)), 0)::bigint AS age FROM %s WHERE index_name = :index', $this->names->queue()),
+            sprintf("SELECT count(*) AS n, coalesce(bool_or(doc_id = '*'), false) AS rebuild, coalesce(extract(epoch FROM now() - min(queued_at)), 0)::bigint AS age FROM %s WHERE index_name = :index", $this->names->queue()),
             ['index' => $index->name],
         )[0];
         $size = Coerce::int($row['n']);
         $age = Coerce::int($row['age']);
+        $waiting = sprintf('%d item(s) waiting%s', $size, $row['rebuild'] === true ? ', one of them a full rebuild (queued by a TRUNCATE)' : '');
 
         return match (true) {
             $size > $options->maxQueueBacklog || ($size > 0 && $age > $options->maxQueueAgeSeconds) => Check::warning(
                 'Sync queue',
-                sprintf('%d item(s) waiting, oldest %ds: is the worker running?', $size, $age),
+                sprintf('%s, oldest %ds: is the worker running?', $waiting, $age),
                 'bin/console fuzzphony:worker   (or from cron: bin/console fuzzphony:worker --once)',
             ),
-            default => Check::ok('Sync queue', sprintf('%d item(s) waiting', $size)),
+            default => Check::ok('Sync queue', $waiting),
         };
     }
 

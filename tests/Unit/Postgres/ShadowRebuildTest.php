@@ -46,6 +46,7 @@ final class ShadowRebuildTest extends TestCase
         self::assertSame([
             ...self::PROBE,
             [self::LOCK, self::KEY],
+            [$generator->clearRebuildRequest(Indexes::products()), []],
             [self::POSSIBLE, self::POSSIBLE_PARAMS],
             [$generator->beginRebuild(Indexes::products()), []],
         ], $connection->log, 'the lock is kept for the rest of the run');
@@ -67,14 +68,16 @@ final class ShadowRebuildTest extends TestCase
     public function testWithoutTheRightsOrTheFunctionsTheRunGoesInPlaceAndReleasesTheLock(): void
     {
         $connection = new RecordingConnection(static fn(string $sql): mixed => $sql === self::LOCK ? true : null);
+        $generator = new PostgresSchemaGenerator();
 
-        self::assertFalse((new ShadowRebuild($connection, new PostgresSchemaGenerator()))->begin(Indexes::products(), false));
+        self::assertFalse((new ShadowRebuild($connection, $generator))->begin(Indexes::products(), false));
         self::assertSame([
             ...self::PROBE,
             [self::LOCK, self::KEY],
+            [$generator->clearRebuildRequest(Indexes::products()), []],
             [self::POSSIBLE, self::POSSIBLE_PARAMS],
             [self::UNLOCK, self::KEY],
-        ], $connection->log);
+        ], $connection->log, 'an in-place run covers the request too');
     }
 
     public function testInsideACallerTransactionTheRunGoesInPlaceWithoutLocking(): void

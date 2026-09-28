@@ -88,8 +88,11 @@ final class DedicatedSchemaTest extends TestCase
         self::assertEqualsCanonicalizing([1, 4], $fuzzphony->in('products')->query('brand:"logitech g"')->thresholds(['fuzzy_mode' => 'never'])->get()->ids());
 
         $this->connection->execute('TRUNCATE public.fz_product');
-        (new Worker($engine))->runOnce([$index]);
+        // a rebuild job reads the source like a reindex: the source tables must be visible, Fuzzphony's schema need not be
+        $this->connection->execute('SET search_path TO public');
+        self::assertSame(1, (new Worker($engine))->runOnce([$index]));
         self::assertSame(0, $fuzzphony->in('products')->get()->total);
+        self::assertNull($this->connection->fetchValue("SELECT to_regclass('public.fuzzphony_products')"), 'the rebuild was built in the configured schema, not on the search_path');
     }
 
     public function testTriggerSyncCallsTheQualifiedRefreshFunction(): void

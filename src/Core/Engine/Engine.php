@@ -113,5 +113,19 @@ interface Engine
 
     public function queueSize(IndexDefinition $index): int;
 
+    /**
+     * Whether a full rebuild of the index was requested ("queue" mode: a TRUNCATE that needs a
+     * full resync queues one such job instead of every document id). The worker runs it before
+     * the queued ids. A full rebuild that starts afterwards (beginRebuild() without $resume, or a
+     * full in-place run it falls back to) takes the request.
+     */
+    public function rebuildRequested(IndexDefinition $index): bool;
+
+    /**
+     * Queues a full rebuild of the index again (a no-op while one is queued): the worker calls it
+     * when the rebuild it ran failed after taking the request. Engines without a queue do nothing.
+     */
+    public function requestRebuild(IndexDefinition $index): void;
+
     public function inspect(IndexDefinition $index, InspectOptions $options = new InspectOptions()): InspectionReport;
 }

@@ -218,9 +218,6 @@ Details in [docs/limitations.md](https://github.com/er2es/fuzzphony/blob/main/do
 
 - [Typo tolerance is lenient](https://github.com/er2es/fuzzphony/blob/main/docs/limitations.md#typo-tolerance-is-lenient): at the default similarity, `mouse`
   also matches `monitor`. Fix planned: [length-aware typo tolerance](https://github.com/er2es/fuzzphony/blob/main/docs/roadmap.md#length-aware-typo-tolerance).
-- [`TRUNCATE` on a joined table](https://github.com/er2es/fuzzphony/blob/main/docs/limitations.md#truncate-on-a-watched-table) resyncs every document: 42.8 s
-  (`trigger`) or 8.5 s (`queue`) on 1M documents. Fix planned:
-  [zero-downtime reindex](https://github.com/er2es/fuzzphony/blob/main/docs/roadmap.md#zero-downtime-reindex).
 - [Partitions](https://github.com/er2es/fuzzphony/blob/main/docs/limitations.md#partitioned-tables): statement-level triggers go on the parent (a PostgreSQL
   rule), and truncating a single partition is not followed. Fix planned:
   [partition-aware sync](https://github.com/er2es/fuzzphony/blob/main/docs/roadmap.md#partition-aware-sync).

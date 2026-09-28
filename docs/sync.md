@@ -73,10 +73,22 @@ In `trigger` and `queue` mode a `TRUNCATE` is followed by a separate statement-l
 `AFTER TRUNCATE` trigger:
 
 - Truncating a table-sourced index's own table empties the index right away when the source is
-  then really empty, and drops its queued ids.
-- Truncating any other watched table resyncs every document, because the removed rows can no
-  longer tell which documents they belonged to. On a big index this is expensive; see
-  [limitations](limitations.md#truncate-on-a-watched-table).
+  then really empty, and drops its queued ids. A `TRUNCATE` never waits for the queue rows a
+  running worker holds.
+- Truncating any other watched table (a joined table, a query source's tables), or a source that
+  still returns rows afterwards (`TRUNCATE ONLY` on a table-inheritance parent), needs a full
+  resync: the removed rows can no longer tell which documents they belonged to.
+  - In `queue` mode the trigger queues one full-rebuild job, so the `TRUNCATE` itself stays cheap.
+    The worker runs it before the queued ids, as a zero-downtime rebuild (see
+    [Reindexing](#reindexing-and-orphan-pruning)); a worker role that cannot build next to the live
+    index runs it in place. Like `fuzzphony:reindex`, the rebuild reads the source in the worker's
+    session, so that session must see the source tables on its `search_path`. The doctor's queue
+    check names a pending job.
+  - In `trigger` mode there is no worker to hand the job to: every indexed document, plus every
+    document the source now returns, is resynced inside the truncating transaction. On a
+    1M-document index that took 42.8 s, holding an `ACCESS EXCLUSIVE` lock on the truncated table
+    and row locks on the index the whole time. Prefer `queue` mode for large indexes that watch
+    joined tables, or truncate in a maintenance window.
 
 `orm` and `manual` mode never see a `TRUNCATE`: run `fuzzphony:reindex`. Indexes set up with an
 older version get the `TRUNCATE` trigger from `fuzzphony:schema --apply`
