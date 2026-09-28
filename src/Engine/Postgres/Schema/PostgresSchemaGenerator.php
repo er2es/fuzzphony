@@ -124,6 +124,8 @@ final class PostgresSchemaGenerator
                 $statements[] = new Statement(sprintf('DROP TRIGGER IF EXISTS %s ON %s', Sql::ident($obsolete), $watched), sprintf('Remove trigger not used in "%s" sync / %s level', $index->sync->value, $index->triggerLevel->value));
             }
             if (!$index->sync->usesTriggers()) {
+                $statements[] = $this->partitionTriggers($index, $watch, false);
+
                 continue;
             }
             $statements[] = new Statement(
@@ -136,6 +138,7 @@ final class PostgresSchemaGenerator
                     sprintf('%s sync on %s (%s level)', ucfirst($index->sync->value), $watch->table, $index->triggerLevel->value),
                 );
             }
+            $statements[] = $this->partitionTriggers($index, $watch, true);
         }
 
         foreach ($this->indexes($index) as $name => $definition) {
@@ -186,6 +189,7 @@ final class PostgresSchemaGenerator
             foreach ($this->allTriggerNames($index, $watch) as $trigger) {
                 $statements[] = new Statement(sprintf('DROP TRIGGER IF EXISTS %s ON %s', Sql::ident($trigger), Sql::ident($watch->table)), 'Remove sync trigger');
             }
+            $statements[] = $this->partitionTriggers($index, $watch, false);
             $statements[] = new Statement(sprintf('DROP FUNCTION IF EXISTS %s()', $this->names->syncFunction($index, $watch)), 'Remove sync function');
         }
         $statements[] = new Statement(sprintf('DROP FUNCTION IF EXISTS %s(%s[])', $this->names->refreshFunction($index), Types::id($index->idType)), 'Remove refresh function');
@@ -393,6 +397,40 @@ ON CONFLICT (index_name) DO UPDATE SET layout_version = EXCLUDED.layout_version,
     public function obsoleteTriggerNames(IndexDefinition $index, Watch $watch): array
     {
         return array_values(array_diff($this->allTriggerNames($index, $watch), array_keys($this->triggerDefinitions($index, $watch))));
+    }
+
+    /**
+     * The TRUNCATE trigger on every partition of a partitioned watched table, at every level:
+     * truncating one partition fires only that partition's triggers. pg_partition_tree() lists the
+     * partitions when the plan runs (so the plan stays database-free) and nothing for a table that
+     * is not partitioned. Each partition's schema and name go through %I, so any name is quoted
+     * right. The trigger name is the parent's: trigger names are per table. Row-level triggers are
+     * cloned to partitions by PostgreSQL; statement-level ones cannot go on them. Without $create
+     * (a sync mode without triggers, drop()) the same loop removes them.
+     */
+    private function partitionTriggers(IndexDefinition $index, Watch $watch, bool $create): Statement
+    {
+        $trigger = Sql::string($this->names->triggerName($index, $watch, '_trn'));
+        $action = $create
+            ? sprintf("format('CREATE OR REPLACE TRIGGER %%I AFTER TRUNCATE ON %%I.%%I FOR EACH STATEMENT EXECUTE FUNCTION %%s()', %s, r.nspname, r.relname, %s)", $trigger, Sql::string($this->names->syncFunction($index, $watch)))
+            : sprintf("format('DROP TRIGGER IF EXISTS %%I ON %%I.%%I', %s, r.nspname, r.relname)", $trigger);
+
+        return new Statement(sprintf(
+            <<<'SQL'
+                DO %1$s
+                DECLARE
+                    r record;
+                BEGIN
+                    FOR r IN SELECT n.nspname, c.relname FROM pg_partition_tree(to_regclass(%2$s)) AS t JOIN pg_class AS c ON c.oid = t.relid JOIN pg_namespace AS n ON n.oid = c.relnamespace WHERE t.level > 0 LOOP
+                        EXECUTE %3$s;
+                    END LOOP;
+                END
+                %1$s
+                SQL,
+            self::TAG,
+            Sql::string(Sql::ident($watch->table)),
+            $action,
+        ), sprintf($create ? 'TRUNCATE sync on every partition of %s' : 'No TRUNCATE sync on the partitions of %s', $watch->table));
     }
 
     /**

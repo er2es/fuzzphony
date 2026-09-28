@@ -218,9 +218,6 @@ Details in [docs/limitations.md](https://github.com/er2es/fuzzphony/blob/main/do
 
 - [Typo tolerance is lenient](https://github.com/er2es/fuzzphony/blob/main/docs/limitations.md#typo-tolerance-is-lenient): at the default similarity, `mouse`
   also matches `monitor`. Fix planned: [length-aware typo tolerance](https://github.com/er2es/fuzzphony/blob/main/docs/roadmap.md#length-aware-typo-tolerance).
-- [Partitions](https://github.com/er2es/fuzzphony/blob/main/docs/limitations.md#partitioned-tables): statement-level triggers go on the parent (a PostgreSQL
-  rule), and truncating a single partition is not followed. Fix planned:
-  [partition-aware sync](https://github.com/er2es/fuzzphony/blob/main/docs/roadmap.md#partition-aware-sync).
 - [Ranking is approximate beyond `candidate_limit`](https://github.com/er2es/fuzzphony/blob/main/docs/limitations.md#ranking-is-approximate-beyond-candidate_limit),
   and `total` is then a lower bound. Fix planned: an opt-in exact `total`, part of
   [facets](https://github.com/er2es/fuzzphony/blob/main/docs/roadmap.md#facets).

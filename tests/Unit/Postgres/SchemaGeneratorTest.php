@@ -675,4 +675,48 @@ final class SchemaGeneratorTest extends TestCase
             Sql::string((string) InstalledVersions::getPrettyVersion('fuzzphony/fuzzphony')),
         );
     }
+
+    public function testTheTruncateTriggerGoesOnEveryPartitionWhenTheSchemaIsApplied(): void
+    {
+        $statements = (new PostgresSchemaGenerator())->index(Indexes::products('queue'))->statements;
+        $partitions = array_values(array_filter($statements, static fn(Statement $s): bool => $s->description === 'TRUNCATE sync on every partition of fz_brand'));
+
+        self::assertCount(1, $partitions);
+        self::assertSame(<<<'SQL'
+            DO $fuzzphony$
+            DECLARE
+                r record;
+            BEGIN
+                FOR r IN SELECT n.nspname, c.relname FROM pg_partition_tree(to_regclass('"fz_brand"')) AS t JOIN pg_class AS c ON c.oid = t.relid JOIN pg_namespace AS n ON n.oid = c.relnamespace WHERE t.level > 0 LOOP
+                    EXECUTE format('CREATE OR REPLACE TRIGGER %I AFTER TRUNCATE ON %I.%I FOR EACH STATEMENT EXECUTE FUNCTION %s()', 'fuzzphony_sync_products__fz_brand_trn', r.nspname, r.relname, '"public"."fuzzphony_sync_products__fz_brand"');
+                END LOOP;
+            END
+            $fuzzphony$
+            SQL, $partitions[0]->sql);
+        self::assertTrue($partitions[0]->transactional);
+        $trn = array_search('fz_brand', array_map(static fn(Statement $s): string => str_contains($s->sql, 'AFTER TRUNCATE ON "fz_brand"') ? 'fz_brand' : '', $statements), true);
+        self::assertIsInt($trn);
+        self::assertSame($statements[$trn + 1], $partitions[0], 'right after the triggers of the watched table');
+    }
+
+    public function testWithoutTriggersAndOnDropThePartitionTriggersGo(): void
+    {
+        $drop = "EXECUTE format('DROP TRIGGER IF EXISTS %I ON %I.%I', 'fuzzphony_sync_products__fz_brand_trn', r.nspname, r.relname);";
+
+        $manual = (new PostgresSchemaGenerator())->index(Indexes::products('manual'));
+        self::assertContains('No TRUNCATE sync on the partitions of fz_brand', array_map(static fn(Statement $s): string => $s->description, $manual->statements));
+        self::assertContains('No TRUNCATE sync on the partitions of fz_product', array_map(static fn(Statement $s): string => $s->description, $manual->statements));
+        self::assertStringContainsString($drop, $manual->toSql());
+        self::assertStringNotContainsString('AFTER TRUNCATE ON %I', $manual->toSql());
+
+        $sql = (new PostgresSchemaGenerator())->drop(Indexes::products())->toSql();
+        $triggerAt = strpos($sql, 'DROP TRIGGER IF EXISTS "fuzzphony_sync_products__fz_brand_trn" ON "fz_brand"');
+        $dropAt = strpos($sql, $drop);
+        $functionAt = strpos($sql, 'DROP FUNCTION IF EXISTS "public"."fuzzphony_sync_products__fz_brand"()');
+        self::assertIsInt($triggerAt);
+        self::assertIsInt($dropAt);
+        self::assertIsInt($functionAt);
+        self::assertLessThan($dropAt, $triggerAt);
+        self::assertLessThan($functionAt, $dropAt, 'before the function the triggers depend on');
+    }
 }

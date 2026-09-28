@@ -3,8 +3,7 @@
 What Fuzzphony does not do well yet, and the planned fix for each. Back to the
 [README](../README.md).
 
-Each of these has a planned fix on the [roadmap](roadmap.md), except the partition trigger rule,
-which PostgreSQL imposes.
+Each of these has a planned fix on the [roadmap](roadmap.md).
 
 ## Typo tolerance is lenient
 
@@ -15,17 +14,6 @@ frequent words these near-misses can use up `candidate_limit` before ranking. Ra
 `fuzzy_similarity` (0.4 to 0.5 is stricter) or `candidate_limit` when that matters.
 
 Planned fix: [length-aware typo tolerance](roadmap.md#length-aware-typo-tolerance).
-
-## Partitioned tables
-
-Statement-level triggers cannot be attached to individual partitions (a PostgreSQL rule). Watch
-the partitioned parent, or use `trigger_level: row`.
-
-The `TRUNCATE` trigger on a partitioned parent fires when the parent is truncated, but not when a
-single partition is truncated directly (`TRUNCATE product_2024`). Run `fuzzphony:reindex`
-afterwards; it also removes the orphaned documents.
-
-Planned fix: [partition-aware sync](roadmap.md#partition-aware-sync).
 
 ## Ranking is approximate beyond `candidate_limit`
 

@@ -8,6 +8,8 @@ use Fuzzphony\Core\Database\Connection;
 use Fuzzphony\Core\Definition\FilterType;
 use Fuzzphony\Core\Definition\IdType;
 use Fuzzphony\Core\Definition\IndexDefinition;
+use Fuzzphony\Core\Definition\TriggerLevel;
+use Fuzzphony\Core\Definition\Watch;
 use Fuzzphony\Core\Inspection\Check;
 use Fuzzphony\Core\Inspection\CheckStatus;
 use Fuzzphony\Core\Inspection\InspectionReport;
@@ -445,6 +447,41 @@ final class PostgresInspector
         return $checks;
     }
 
+    /**
+     * A partitioned watched table: every partition, at every level, needs the TRUNCATE trigger (a
+     * partition attached after the last apply lacks it). Statement-level triggers cannot go on
+     * partitions, so at that level a write that targets a partition directly is not synced.
+     *
+     * @return list<Check>
+     */
+    private function partitions(IndexDefinition $index, Watch $watch): array
+    {
+        $trigger = $this->names->triggerName($index, $watch, '_trn');
+        $rows = $this->connection->fetchAll(
+            'SELECT t.relid::regclass::text AS part, EXISTS (SELECT 1 FROM pg_trigger AS g WHERE g.tgrelid = t.relid AND g.tgname = :trigger) AS synced
+               FROM pg_partition_tree(to_regclass(:table)) AS t WHERE t.level > 0 ORDER BY t.relid::regclass::text COLLATE "C"',
+            ['trigger' => $trigger, 'table' => $watch->table],
+        );
+        if ($rows === []) {
+            return [];
+        }
+        $label = 'Partitions of ' . $watch->table;
+        $missing = [];
+        foreach ($rows as $row) {
+            if ($row['synced'] !== true) {
+                $missing[] = Coerce::str($row['part']);
+            }
+        }
+        $checks = [$missing === []
+            ? Check::ok($label, sprintf('%d partition(s), each with the TRUNCATE trigger', count($rows)))
+            : Check::error($label, sprintf('%s missing on %s: a TRUNCATE of such a partition leaves stale documents in the index.', $trigger, implode(', ', $missing)), self::APPLY)];
+        if ($index->triggerLevel === TriggerLevel::Statement) {
+            $checks[] = Check::warning($label, 'Writes that target a partition directly are not synced (statement-level triggers cannot go on partitions); use trigger_level: row, or write through the parent.');
+        }
+
+        return $checks;
+    }
+
     /** @return list<Check> */
     private function triggers(IndexDefinition $index): array
     {
@@ -481,6 +518,9 @@ final class PostgresInspector
             }
             if ($leftover !== []) {
                 $checks[] = Check::warning($label, sprintf('Leftover trigger(s) %s do not match "%s" sync / %s level and cause double work.', implode(', ', $leftover), $index->sync->value, $index->triggerLevel->value), self::APPLY);
+            }
+            if ($index->sync->usesTriggers()) {
+                array_push($checks, ...$this->partitions($index, $watch));
             }
         }
         if (!$index->sync->usesTriggers()) {

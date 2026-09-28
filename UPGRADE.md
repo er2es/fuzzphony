@@ -54,6 +54,9 @@ and the [CHANGELOG](CHANGELOG.md) has the full list of changes.
    columns to the meta table. Custom engines implement `rebuildRequested()` and
    `recordRebuildFailure()`; an engine whose queue has no rebuild job returns `false` from the
    first and leaves the second empty.
+7. **Partitioned tables.** The apply of step 1 puts the `TRUNCATE` trigger on every partition of a
+   watched partitioned table. Run `fuzzphony:schema --apply` again after attaching a partition
+   (the doctor lists the ones without the trigger).
 
 ## From 0.3 to 0.4
 

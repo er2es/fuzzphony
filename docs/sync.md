@@ -43,8 +43,8 @@ Triggers are statement-level by default. They read PostgreSQL transition tables,
 is idempotent and the doctor flags leftovers. See
 [ADR 0006](adr/0006-statement-level-triggers.md).
 
-Statement-level triggers cannot be attached to individual partitions: watch the partitioned parent
-or use `trigger_level: row` (see [limitations](limitations.md#partitioned-tables)).
+Statement-level triggers cannot be attached to individual partitions (a PostgreSQL rule): see
+[Partitioned tables](#partitioned-tables).
 
 ## The worker
 
@@ -108,6 +108,22 @@ In `trigger` and `queue` mode a `TRUNCATE` is followed by a separate statement-l
 `orm` and `manual` mode never see a `TRUNCATE`: run `fuzzphony:reindex`. Indexes set up with an
 older version get the `TRUNCATE` trigger from `fuzzphony:schema --apply`
 (`fuzzphony:doctor` reports it missing until then).
+
+## Partitioned tables
+
+Watch the partitioned parent. Writes through the parent are synced at both trigger levels.
+PostgreSQL clones row-level triggers to every partition, so with `trigger_level: row` a write that
+targets a partition directly (`INSERT INTO product_2024 …`) is synced too. Statement-level triggers
+cannot go on partitions, so with the default `trigger_level: statement` such a write is not synced
+(the doctor warns): write through the parent, or use `trigger_level: row`.
+
+`fuzzphony:schema --apply` puts the `TRUNCATE` trigger on every partition, at every level, so
+truncating a single partition (`TRUNCATE product_2024`) is followed like any `TRUNCATE` of a
+watched table (see [TRUNCATE](#truncate)). A partition attached after the last apply has no such
+trigger yet: the doctor lists it, and `fuzzphony:schema --apply` adds it. Truncating the parent
+fires the trigger of the parent and of every partition. For a table-sourced index's own table
+that empties the index as usual; for any other watched table it is still one rebuild job in
+`queue` mode, but one resync per partition in `trigger` mode.
 
 ## Reindexing and orphan pruning
 
