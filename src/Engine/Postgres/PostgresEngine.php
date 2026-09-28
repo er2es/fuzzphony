@@ -398,10 +398,13 @@ final class PostgresEngine implements Engine
     {
         $warnings = [];
         $tsquery = null;
+        $scopedRoot = null;
         if ($root !== null) {
             $compiler = new TsQueryCompiler($index);
             $tsquery = $compiler->compile($root);
             $warnings = $compiler->warnings();
+            // a word scoped to a field the index has is rechecked against that field's own column
+            $scopedRoot = $compiler->hasFieldScope($root) ? $root : null;
         }
         $plain = implode(' ', TsQueryCompiler::lexemes(implode(' ', NodeInspector::positiveWords($root))));
 
@@ -418,7 +421,8 @@ final class PostgresEngine implements Engine
         $usedFuzzy = false;
         $threshold = null;
         $browse = false;
-        $emptyQueries = null;
+        // the recheck drops stop words as the strict tsquery does, so it needs them up front
+        $emptyQueries = $scopedRoot === null ? null : $this->emptyQueries($index, $fuzzy->leafQueries($scopedRoot));
 
         if ($tsquery === null && $plain === '') {
             $statement = ['label' => $labelPrefix . 'browse'] + $builder->browse($conditions, $profile, $thresholds, $query->limit, $query->offset);
@@ -430,7 +434,7 @@ final class PostgresEngine implements Engine
                 && ($thresholds->fuzzyMode === FuzzyMode::Always || $tsquery === null)
                 && $fuzzy->hasFuzzyLeaf($fuzzyRoot, $emptyQueries = $this->emptyQueries($index, $fuzzy->leafQueries($fuzzyRoot)));
             $statement = ['label' => $labelPrefix . ($alwaysFuzzy ? 'full-text + fuzzy' : 'full-text')]
-                + $builder->ranked($tsquery, $plain, $alwaysFuzzy ? $fuzzyRoot : null, $conditions, $profile, $thresholds, $query->limit, $query->offset, $emptyQueries ?? []);
+                + $builder->ranked($tsquery, $plain, $alwaysFuzzy ? $fuzzyRoot : null, $conditions, $profile, $thresholds, $query->limit, $query->offset, $emptyQueries ?? [], $scopedRoot);
             $threshold = $alwaysFuzzy ? $thresholds->fuzzySimilarity : null;
             $rows = $this->run($statement, $threshold);
             $statements[] = $statement;
@@ -444,7 +448,7 @@ final class PostgresEngine implements Engine
                 && $fuzzy->hasFuzzyLeaf($fuzzyRoot, $emptyQueries = $this->emptyQueries($index, $fuzzy->leafQueries($fuzzyRoot)))
             ) {
                 $statement = ['label' => $labelPrefix . 'fallback: full-text + fuzzy']
-                    + $builder->ranked($tsquery, $plain, $fuzzyRoot, $conditions, $profile, $thresholds, $query->limit, $query->offset, $emptyQueries);
+                    + $builder->ranked($tsquery, $plain, $fuzzyRoot, $conditions, $profile, $thresholds, $query->limit, $query->offset, $emptyQueries, $scopedRoot);
                 $threshold = $thresholds->fuzzySimilarity;
                 $rows = $this->run($statement, $threshold);
                 $statements[] = $statement;

@@ -143,4 +143,25 @@ final class SearchSqlBuilderTest extends TestCase
         self::assertStringContainsString("ts_rank_cd('{0.1,0.2,0.4,1}'::real[], s.tsv, q.tsq, 32)", $default['sql']);
         self::assertStringContainsString("ts_rank_cd('{0,0.2,0.8,1}'::real[], s.tsv, q.tsq, 32)", $custom['sql']);
     }
+
+    public function testAFieldScopedQueryRechecksTheFieldInTheFullTextBranch(): void
+    {
+        $root = (new QueryParser())->parse('brand:razr')->root;
+        self::assertNotNull($root);
+        $statement = (new SearchSqlBuilder(Indexes::products()))->ranked("'razr':B", 'razr', $root, [], new RankingProfile(), new Thresholds(), 10, 0, [], $root);
+
+        // q.tsq, q.norm, the recheck (q.sft0), then the fuzzy branch's own values (q.ft0, q.fn1)
+        self::assertSame(['p0' => "'razr':B", 'p1' => 'razr', 'p2' => "'razr':B", 'p3' => "'razr':B", 'p4' => 'razr'], $statement['params']);
+        self::assertStringContainsString('WHERE s.tsv @@ q.tsq AND (s.tsv @@ q.sft0 AND s."t_brand" @@ q.sft0) AND TRUE', $statement['sql']);
+        self::assertStringContainsString('WHERE ((s.tsv @@ q.ft0 AND s."t_brand" @@ q.ft0) OR (q.fn1 OPERATOR("public".<%) s.fz AND q.fn1 OPERATOR("public".<%) s."z_brand")) AND TRUE', $statement['sql']);
+        self::assertStringContainsString("ts_rank_cd('{0.1,0.2,0.4,1}'::real[], s.tsv, q.tsq, 32)", $statement['sql'], 'ranked by the weighted tsv, like an unscoped word');
+    }
+
+    public function testWithoutAScopeTheFullTextBranchIsUnchanged(): void
+    {
+        $statement = (new SearchSqlBuilder(Indexes::products()))->ranked("'mouse'", 'mouse', null, [], new RankingProfile(), new Thresholds(), 10, 0);
+
+        self::assertStringContainsString("WHERE s.tsv @@ q.tsq AND TRUE\n", $statement['sql']);
+        self::assertStringNotContainsString('sft', $statement['sql']);
+    }
 }

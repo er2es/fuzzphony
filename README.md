@@ -176,7 +176,7 @@ Search text from end users never throws. Malformed input is repaired and reporte
 | `mouse OR trackpad`, `mouse \| trackpad` | either |
 | `-cable`, `NOT cable`, `!cable` | exclude |
 | `keyb*` | prefix |
-| `brand:logitech`, `name:"mx master"` | only in one field (per weight group) |
+| `brand:logitech`, `name:"mx master"` | only in that field, typos included (an unknown field searches every field, with a warning) |
 | `(mouse OR trackpad) -cable` | grouping |
 
 Typos are tolerated per word, within the query's AND / OR / NOT. A multi-word query that finds
@@ -216,9 +216,6 @@ Report vulnerabilities privately: see
 
 Details in [docs/limitations.md](https://github.com/er2es/fuzzphony/blob/main/docs/limitations.md).
 
-- [Field scoping](https://github.com/er2es/fuzzphony/blob/main/docs/limitations.md#field-scoping-works-per-weight-group) (`brand:x`) covers the whole weight
-  group, and any fuzzy field once typo tolerance runs. Fix planned:
-  [exact field scoping](https://github.com/er2es/fuzzphony/blob/main/docs/roadmap.md#exact-field-scoping).
 - [Typo tolerance is lenient](https://github.com/er2es/fuzzphony/blob/main/docs/limitations.md#typo-tolerance-is-lenient): at the default similarity, `mouse`
   also matches `monitor`. Fix planned: [length-aware typo tolerance](https://github.com/er2es/fuzzphony/blob/main/docs/roadmap.md#length-aware-typo-tolerance).
 - [`TRUNCATE` on a joined table](https://github.com/er2es/fuzzphony/blob/main/docs/limitations.md#truncate-on-a-watched-table) resyncs every document: 42.8 s

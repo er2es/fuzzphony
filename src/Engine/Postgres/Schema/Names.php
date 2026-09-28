@@ -130,6 +130,28 @@ final readonly class Names
         return self::limit($this->sidecarName($index) . '_' . $suffix);
     }
 
+    /** The sidecar column with one field's own weighted tsvector (layout 2): a field-scoped word is checked against it. */
+    public function fieldVectorName(string $field): string
+    {
+        return self::limit('t_' . $field);
+    }
+
+    public function fieldVector(string $field): string
+    {
+        return Sql::ident($this->fieldVectorName($field));
+    }
+
+    /** The sidecar column with one fuzzy field's normalised text (layout 2): a field-scoped typo is checked against it. */
+    public function fieldFuzzyName(string $field): string
+    {
+        return self::limit('z_' . $field);
+    }
+
+    public function fieldFuzzy(string $field): string
+    {
+        return Sql::ident($this->fieldFuzzyName($field));
+    }
+
     /** The configuration an index uses: Fuzzphony's accent-folding copy, or the built-in one. */
     public function textConfigName(TextConfig $config): string
     {

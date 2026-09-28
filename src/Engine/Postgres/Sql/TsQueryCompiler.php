@@ -20,6 +20,10 @@ use Fuzzphony\Core\Query\Ast\Term;
  *
  *   wireless "usb receiver" -cable   ->   ('wireless' & ('usb' <-> 'receiver') & !'cable')
  *   name:mouse keyb*                 ->   ('mouse':A & 'keyb':*)
+ *
+ * A word scoped to a field the index has keeps that field's weight label here; the search also
+ * checks it against the field's own column (FuzzyQueryCompiler::scope()). An excluded one is left
+ * out of this tsquery entirely: "!'sony':B" would also exclude every other field of weight B.
  */
 final class TsQueryCompiler
 {
@@ -41,6 +45,22 @@ final class TsQueryCompiler
         return $this->warnings;
     }
 
+    /** True when the query has a word (included or excluded) scoped to a field the index has. */
+    public function hasFieldScope(Node $node): bool
+    {
+        return match (true) {
+            $node instanceof FieldScoped => $this->knownScope($node),
+            $node instanceof AllOf, $node instanceof AnyOf => array_any($node->nodes, $this->hasFieldScope(...)),
+            $node instanceof Not => $this->hasFieldScope($node->node),
+            default => false,
+        };
+    }
+
+    private function knownScope(Node $node): bool
+    {
+        return $node instanceof FieldScoped && $this->index->field($node->field) !== null;
+    }
+
     /** @return list<string> */
     public static function lexemes(string $text): array
     {
@@ -57,6 +77,7 @@ final class TsQueryCompiler
             $node instanceof FieldScoped => $this->scoped($node),
             $node instanceof AllOf => $this->group($node->nodes, ' & ', $weights),
             $node instanceof AnyOf => $this->group($node->nodes, ' | ', $weights),
+            $node instanceof Not && $this->knownScope($node->node) => null,
             $node instanceof Not => ($inner = $this->node($node->node, $weights)) === null ? null : '!' . $inner,
             default => null,
         };

@@ -9,6 +9,11 @@ and the [CHANGELOG](CHANGELOG.md) has the full list of changes.
    layout 2. Then run one full `fuzzphony:reindex`; until then the doctor's "Documents" check is a
    warning (so `fuzzphony:doctor --strict` fails in CI). With Doctrine Migrations,
    `fuzzphony:schema --dump-migration` contains the upgrade step.
+2. **Field-scoped queries are exact.** `brand:x` no longer matches other fields of the same
+   weight, and a scoped typo no longer matches another fuzzy field. If you relied on the old
+   behaviour, search without the field prefix. The index table grows by roughly one more copy of
+   the indexed text; the new columns are filled by the reindex of step 1 (until then field-scoped
+   words find nothing in documents indexed before the upgrade).
 
 ## From 0.3 to 0.4
 

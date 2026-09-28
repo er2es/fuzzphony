@@ -6,6 +6,7 @@ namespace Fuzzphony\Engine\Postgres\Schema;
 
 use Composer\InstalledVersions;
 use Fuzzphony\Core\Definition\DefinitionValidator;
+use Fuzzphony\Core\Definition\FieldDefinition;
 use Fuzzphony\Core\Definition\IndexDefinition;
 use Fuzzphony\Core\Definition\SyncMode;
 use Fuzzphony\Core\Definition\TextConfig;
@@ -248,6 +249,12 @@ ON CONFLICT (index_name) DO UPDATE SET layout_version = EXCLUDED.layout_version,
             'fz' => "text NOT NULL DEFAULT ''",
             'exact' => "text NOT NULL DEFAULT ''",
         ];
+        foreach ($index->fields as $field) {
+            $columns[$this->names->fieldVectorName($field->name)] = "tsvector NOT NULL DEFAULT ''";
+            if ($field->fuzzy) {
+                $columns[$this->names->fieldFuzzyName($field->name)] = "text NOT NULL DEFAULT ''";
+            }
+        }
         if ($index->boostColumn !== null) {
             $columns['boost'] = 'double precision';
         }
@@ -371,6 +378,14 @@ ON CONFLICT (index_name) DO UPDATE SET layout_version = EXCLUDED.layout_version,
         $table = $this->names->sidecar($index);
         $columns = ['id', 'tsv', 'fz', 'exact'];
         $values = ['doc.fz_id', $this->tsvectorExpression($index), $this->fuzzyExpression($index), $this->exactExpression($index)];
+        foreach ($index->fields as $field) {
+            $columns[] = $this->names->fieldVectorName($field->name);
+            $values[] = $this->fieldVectorExpression($index, $field);
+            if ($field->fuzzy) {
+                $columns[] = $this->names->fieldFuzzyName($field->name);
+                $values[] = sprintf("coalesce(%s, '')", $this->fieldFuzzyExpression($field));
+            }
+        }
         if ($index->boostColumn !== null) {
             $columns[] = 'boost';
             $values[] = 'doc.fz_boost::double precision';
@@ -688,17 +703,21 @@ ON CONFLICT (index_name) DO UPDATE SET layout_version = EXCLUDED.layout_version,
 
     private function tsvectorExpression(IndexDefinition $index): string
     {
-        $config = $this->names->regconfig($index->text);
-
         return implode("\n            || ", array_map(
-            static fn($field): string => sprintf(
-                "setweight(to_tsvector(%s, coalesce(doc.%s::text, '')), '%s')",
-                $config,
-                Sql::ident('fld_' . $field->name),
-                $field->weight->value,
-            ),
+            fn(FieldDefinition $field): string => $this->fieldVectorExpression($index, $field),
             $index->fields,
         ));
+    }
+
+    /** One field's part of tsv, and its own t_<field> column. */
+    private function fieldVectorExpression(IndexDefinition $index, FieldDefinition $field): string
+    {
+        return sprintf(
+            "setweight(to_tsvector(%s, coalesce(doc.%s::text, '')), '%s')",
+            $this->names->regconfig($index->text),
+            Sql::ident('fld_' . $field->name),
+            $field->weight->value,
+        );
     }
 
     private function fuzzyExpression(IndexDefinition $index): string
@@ -707,12 +726,14 @@ ON CONFLICT (index_name) DO UPDATE SET layout_version = EXCLUDED.layout_version,
         if ($fields === []) {
             return "''";
         }
-        $norm = $this->names->normFunction();
 
-        return sprintf("coalesce(concat_ws(' ', %s), '')", implode(', ', array_map(
-            static fn($field): string => sprintf('%s(doc.%s::text)', $norm, Sql::ident('fld_' . $field->name)),
-            $fields,
-        )));
+        return sprintf("coalesce(concat_ws(' ', %s), '')", implode(', ', array_map($this->fieldFuzzyExpression(...), $fields)));
+    }
+
+    /** One fuzzy field's normalised text: its part of fz, and (coalesced) its own z_<field> column. */
+    private function fieldFuzzyExpression(FieldDefinition $field): string
+    {
+        return sprintf('%s(doc.%s::text)', $this->names->normFunction(), Sql::ident('fld_' . $field->name));
     }
 
     private function exactExpression(IndexDefinition $index): string

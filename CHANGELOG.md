@@ -16,6 +16,12 @@ changes; they are always listed under **Breaking** and explained in [UPGRADE.md]
   the index's plan, also in `--dump-migration`) and clears its documents record, so the doctor's
   "Documents" check asks for one full `fuzzphony:reindex`. The documents hash now includes the
   layout.
+- Field-scoped queries are exact: `brand:x` searches the `brand` field only, on the full-text and
+  on the typo-tolerant side. 0.4 searched every field of the same weight, and any fuzzy field once
+  typo tolerance ran, so results of field-scoped queries change (`name:sony` no longer returns
+  Sony-brand products). A scoped word of a field that is not fuzzy is matched exactly only. The
+  index table stores one `tsvector` per field and one normalised text per fuzzy field (roughly one
+  more copy of the indexed text).
 
 ### Added
 

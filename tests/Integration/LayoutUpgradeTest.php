@@ -66,6 +66,25 @@ final class LayoutUpgradeTest extends TestCase
         self::assertNull($connection->fetchValue("SELECT to_regclass('fuzzphony_meta')"));
     }
 
+    public function testALayout1SidecarGetsThePerFieldColumns(): void
+    {
+        $connection = $this->context->connection;
+        $connection->execute('ALTER TABLE fuzzphony_products DROP COLUMN t_name, DROP COLUMN z_name, DROP COLUMN t_brand, DROP COLUMN z_brand, DROP COLUMN t_description');
+        $connection->execute("UPDATE fuzzphony_meta SET layout_version = 1 WHERE index_name IN ('products', '*')");
+        self::assertSame(CheckStatus::Error, $this->check('Sidecar columns')->status);
+
+        $this->context->fuzzphony->schema()->apply($connection);
+
+        self::assertSame(CheckStatus::Ok, $this->check('Sidecar columns')->status);
+        self::assertSame('', $connection->fetchValue('SELECT z_brand FROM fuzzphony_products WHERE id = 2'), 'empty until the reindex');
+        self::assertSame(CheckStatus::Warning, $this->check('Documents')->status);
+
+        $this->context->fuzzphony->reindex('products');
+
+        self::assertSame('razer', $connection->fetchValue('SELECT z_brand FROM fuzzphony_products WHERE id = 2'));
+        self::assertSame([2], $this->context->fuzzphony->in('products')->query('brand:razer')->thresholds(['fuzzy_mode' => 'never'])->get()->ids());
+    }
+
     /** @return array<string, mixed> */
     private function row(): array
     {

@@ -6,22 +6,6 @@ What Fuzzphony does not do well yet, and the planned fix for each. Back to the
 Each of these has a planned fix on the [roadmap](roadmap.md), except the partition trigger rule,
 which PostgreSQL imposes.
 
-## Field scoping works per weight group
-
-Field-scoped queries (`brand:x`) search every field that shares the scoped field's weight, not only
-that field.
-
-Planned fix: [exact field scoping](roadmap.md#exact-field-scoping).
-
-## Field scoping is exact-only on the typo-tolerant side
-
-The fuzzy fields are stored as one trigram-indexed text. So a scoped word that is not found exactly
-may match any fuzzy field once the typo-tolerant branch runs. On the demo catalogue `name:sony`
-finds no product with "sony" in its name, falls back to typo tolerance and returns Sony-brand
-products. `name:kettel` (a typo) still finds kettles.
-
-Planned fix: per-field trigram columns, [exact field scoping](roadmap.md#exact-field-scoping).
-
 ## Typo tolerance is lenient
 
 Typo tolerance is per word and deliberately lenient. At the default `fuzzy_similarity` of 0.3 a

@@ -22,9 +22,29 @@ final class SchemaGeneratorTest extends TestCase
     public function testSidecarColumnsFollowTheDefinition(): void
     {
         self::assertSame(
-            ['id', 'tsv', 'fz', 'exact', 'boost', 'recency_at', 'f_price', 'f_in_stock', 'f_published_at', 'f_brand_id', 'indexed_at'],
+            ['id', 'tsv', 'fz', 'exact', 't_name', 'z_name', 't_brand', 'z_brand', 't_description', 'boost', 'recency_at', 'f_price', 'f_in_stock', 'f_published_at', 'f_brand_id', 'indexed_at'],
             array_keys((new PostgresSchemaGenerator())->columns(Indexes::products())),
         );
+    }
+
+    public function testTheRefreshFunctionFillsThePerFieldColumns(): void
+    {
+        $sql = (new PostgresSchemaGenerator())->index(Indexes::products())->toSql();
+
+        self::assertStringContainsString('ALTER TABLE "public"."fuzzphony_products" ADD COLUMN IF NOT EXISTS "t_brand" tsvector NOT NULL DEFAULT \'\'', $sql);
+        self::assertStringContainsString('ALTER TABLE "public"."fuzzphony_products" ADD COLUMN IF NOT EXISTS "z_brand" text NOT NULL DEFAULT \'\'', $sql);
+        self::assertStringNotContainsString('"z_description"', $sql, 'description is not fuzzy');
+        self::assertStringContainsString(
+            'INSERT INTO "public"."fuzzphony_products" AS s ("id", "tsv", "fz", "exact", "t_name", "z_name", "t_brand", "z_brand", "t_description", "boost", "recency_at", "f_price", "f_in_stock", "f_published_at", "f_brand_id", "indexed_at")',
+            $sql,
+        );
+        self::assertStringContainsString(
+            "setweight(to_tsvector('\"public\".\"fuzzphony_english\"'::regconfig, coalesce(doc.\"fld_brand\"::text, '')), 'B'),\n        coalesce(\"public\".\"fuzzphony_norm\"(doc.\"fld_brand\"::text), ''),\n        setweight(to_tsvector('\"public\".\"fuzzphony_english\"'::regconfig, coalesce(doc.\"fld_description\"::text, '')), 'D'),\n        doc.fz_boost::double precision",
+            $sql,
+            'each field its own weighted vector (the same as its part of tsv) and, when fuzzy, its normalised text',
+        );
+        self::assertStringContainsString('"t_brand" = EXCLUDED."t_brand"', $sql);
+        self::assertStringContainsString('"z_brand" = EXCLUDED."z_brand"', $sql);
     }
 
     public function testIndexesAreBuiltConcurrentlyOutsideTransactions(): void

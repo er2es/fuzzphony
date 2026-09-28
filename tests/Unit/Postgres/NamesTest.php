@@ -38,6 +38,10 @@ final class NamesTest extends TestCase
         self::assertSame('fuzzphony_sync_products__fz_brand', $names->triggerName($index, $brand));
         self::assertSame('fuzzphony_sync_products__fz_brand_ins', $names->triggerName($index, $brand, '_ins'));
         self::assertSame('fuzzphony_products_tsv', $names->indexName($index, 'tsv'));
+        self::assertSame('t_brand', $names->fieldVectorName('brand'));
+        self::assertSame('"t_brand"', $names->fieldVector('brand'));
+        self::assertSame('z_brand', $names->fieldFuzzyName('brand'));
+        self::assertSame('"z_brand"', $names->fieldFuzzy('brand'));
     }
 
     public function testTextSearchNames(): void
@@ -68,6 +72,13 @@ final class NamesTest extends TestCase
 
         $index = IndexDefinition::builder(str_repeat('long_index_name_', 3))->fromTable('t')->field('name')->build();
         self::assertLessThanOrEqual(63, strlen((new Names())->triggerName($index, new Watch(str_repeat('watched_table_', 4)), '_trn')));
+
+        $names = new Names();
+        $long = str_repeat('f', 62);
+        self::assertSame(63, strlen($names->fieldVectorName($long)));
+        self::assertStringStartsWith('t_ff', $names->fieldVectorName($long));
+        self::assertSame(63, strlen($names->fieldFuzzyName($long)));
+        self::assertStringStartsWith('z_ff', $names->fieldFuzzyName($long));
     }
 
     public function testAnInvalidExtensionSchemaIsAConfigurationError(): void
