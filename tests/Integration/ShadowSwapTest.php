@@ -16,6 +16,7 @@ use Fuzzphony\Core\Support\Coerce;
 use Fuzzphony\Core\Sync\Worker;
 use Fuzzphony\Engine\Postgres\PostgresEngine;
 use Fuzzphony\Engine\Postgres\Schema\PostgresSchemaGenerator;
+use Fuzzphony\Engine\Postgres\ShadowRebuild;
 use Fuzzphony\Engine\Postgres\Sql\Sql;
 use Fuzzphony\Tests\Conformance\EngineConformanceTestCase;
 use Fuzzphony\Tests\Fixtures\Indexes;
@@ -196,6 +197,7 @@ final class ShadowSwapTest extends TestCase
         try {
             $this->connection->execute(sprintf('GRANT SELECT ON fuzzphony_products TO %s WITH GRANT OPTION', $reader));
             $this->connection->execute(sprintf('GRANT UPDATE ON fuzzphony_products TO %s', $reader));
+            $this->connection->execute(sprintf('GRANT CREATE ON SCHEMA public TO %s', $owner)); // an owner that could have created the table
             $this->connection->execute(sprintf('ALTER TABLE fuzzphony_products OWNER TO %s', $owner));
 
             $this->rebuild($index);
@@ -255,14 +257,12 @@ final class ShadowSwapTest extends TestCase
         $writer->transactional(function (Connection $writer) use ($index): void {
             // written through the sync trigger, logged, not committed yet
             $writer->execute("UPDATE fz_product SET name = 'Silent office mouse' WHERE id = 1");
-            $this->connection->execute("SET lock_timeout = '200ms'");
             try {
-                $this->engine->finishRebuild($index);
+                $this->impatient()->finish($index);
                 self::fail('the swap must wait for the writer');
             } catch (EngineFailure $e) {
-                self::assertStringContainsString('lock timeout', $e->getMessage());
-            } finally {
-                $this->connection->execute('RESET lock_timeout');
+                self::assertStringContainsString('the swap could not lock "public"."fuzzphony_products" within 100ms, 6 times', $e->getMessage());
+                self::assertStringContainsString('lock timeout', $e->getPrevious()?->getMessage() ?? '');
             }
             self::assertNotNull($this->connection->fetchValue("SELECT to_regclass('fuzzphony_products__next')"), 'the failed swap changed nothing');
             self::assertSame('wireless mouse', $this->connection->fetchValue('SELECT exact FROM fuzzphony_products WHERE id = 1'), 'searches still read the old live table');
@@ -274,6 +274,73 @@ final class ShadowSwapTest extends TestCase
 
         self::assertSame('silent office mouse', $this->connection->fetchValue('SELECT exact FROM fuzzphony_products WHERE id = 1'), 'the committed write was caught up');
         self::assertNull($this->connection->fetchValue("SELECT to_regclass('fuzzphony_products__next')"));
+    }
+
+    /**
+     * The lost update: an id logged (and committed) before, changed again by a writer that has not
+     * committed yet. The writer's log insert conflicts with the logged row; the conflict must lock
+     * it, or a catch-up batch takes the id and refreshes it from the state before the writer.
+     */
+    public function testACatchUpBatchNeverTakesAnIdWhoseChangeIsNotCommittedYet(): void
+    {
+        $index = $this->install('trigger');
+        self::assertTrue($this->engine->beginRebuild($index));
+        self::assertSame(5, $this->engine->refreshShadow($index, [1, 2, 3, 4, 5]));
+        $this->connection->execute("UPDATE fz_product SET name = 'Logged mouse' WHERE id = 1");
+        self::assertSame(1, Coerce::int($this->connection->fetchValue('SELECT count(*) FROM fuzzphony_products__changes WHERE id = 1')));
+
+        PostgresTestCase::connect()->transactional(function (Connection $writer) use ($index): void {
+            $writer->execute("UPDATE fz_product SET name = 'Uncommitted mouse' WHERE id = 1");
+            try {
+                $this->impatient()->finish($index); // the batches run while the writer is open, then the swap times out
+                self::fail('the swap must wait for the writer');
+            } catch (EngineFailure) {
+            }
+            self::assertSame(1, Coerce::int($this->connection->fetchValue('SELECT count(*) FROM fuzzphony_products__changes WHERE id = 1')), 'still logged');
+        });
+
+        $this->engine->finishRebuild($index); // called again once the writer committed
+
+        self::assertSame('uncommitted mouse', $this->connection->fetchValue('SELECT exact FROM fuzzphony_products WHERE id = 1'));
+    }
+
+    public function testTheLiveTablesOwnerMustBeAbleToTakeTheRebuild(): void
+    {
+        $index = $this->install('manual');
+        $owner = 'fz_owner_' . getmypid();
+        $reindexer = 'fz_reindexer_' . getmypid();
+        $this->connection->execute(sprintf('DROP ROLE IF EXISTS %s, %s', $owner, $reindexer));
+        $this->connection->execute(sprintf('CREATE ROLE %s', $owner));
+        $this->connection->execute(sprintf('CREATE ROLE %s', $reindexer));
+        try {
+            $this->connection->execute(sprintf('ALTER TABLE fuzzphony_products OWNER TO %s', $owner));
+            self::assertFalse($this->engine->beginRebuild($index), 'the owner has no CREATE on the schema: the swap could not hand it the rebuild');
+
+            $this->connection->execute(sprintf('GRANT CREATE ON SCHEMA public TO %s, %s', $owner, $reindexer));
+            self::assertTrue($this->engine->beginRebuild($index));
+            $this->engine->abortRebuild($index);
+
+            if (Coerce::int($this->connection->fetchValue("SELECT current_setting('server_version_num')::integer")) >= 160000) {
+                $this->connection->execute(sprintf('GRANT %s TO %s WITH SET FALSE', $owner, $reindexer));
+                $this->connection->execute(sprintf('SET ROLE %s', $reindexer));
+                try {
+                    self::assertFalse($this->engine->beginRebuild($index), 'a member that cannot SET ROLE to the owner cannot hand it the rebuild');
+                } finally {
+                    $this->connection->execute('RESET ROLE');
+                }
+                $this->connection->execute(sprintf('GRANT %s TO %s WITH SET TRUE', $owner, $reindexer));
+                $this->connection->execute(sprintf('SET ROLE %s', $reindexer));
+                try {
+                    self::assertTrue($this->engine->beginRebuild($index));
+                    $this->engine->abortRebuild($index);
+                } finally {
+                    $this->connection->execute('RESET ROLE');
+                }
+            }
+        } finally {
+            $this->connection->execute(sprintf('DROP OWNED BY %s, %s', $owner, $reindexer));
+            $this->connection->execute(sprintf('DROP ROLE %s, %s', $owner, $reindexer));
+        }
     }
 
     public function testASecondRebuildFailsFastAndTheLockIsFreedAfterwards(): void
@@ -344,6 +411,12 @@ final class ShadowSwapTest extends TestCase
         self::assertSame(CheckStatus::Error, $check->status);
         self::assertSame('"public"."fuzzphony_refresh_products__next"(bigint[]) is missing.', $check->message);
         self::assertSame('bin/console fuzzphony:schema --apply', $check->fix);
+    }
+
+    /** The engine's rebuild, on this test's session, giving up on the swap lock after 100 ms, without backing off. */
+    private function impatient(): ShadowRebuild
+    {
+        return new ShadowRebuild($this->connection, new PostgresSchemaGenerator(), lockTimeout: '100ms', pause: static function (int $microseconds): void {});
     }
 
     private function install(string $sync, bool $tableSource = false): IndexDefinition

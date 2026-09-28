@@ -278,7 +278,7 @@ final class SchemaGeneratorTest extends TestCase
                   AND NOT EXISTS (SELECT 1 FROM (%s) AS doc WHERE doc.fz_id = s.id);
 
                 IF to_regclass('"public"."fuzzphony_products__changes"') IS NOT NULL THEN
-                    INSERT INTO "public"."fuzzphony_products__changes" (id) SELECT u.id FROM unnest(p_ids) AS u(id) WHERE u.id IS NOT NULL ON CONFLICT DO NOTHING;
+                    INSERT INTO "public"."fuzzphony_products__changes" (id) SELECT DISTINCT u.id FROM unnest(p_ids) AS u(id) WHERE u.id IS NOT NULL ORDER BY u.id ON CONFLICT (id) DO UPDATE SET id = EXCLUDED.id;
                 END IF;
 
                 RETURN written;
@@ -289,14 +289,17 @@ final class SchemaGeneratorTest extends TestCase
             LANGUAGE plpgsql SET search_path = pg_catalog, pg_temp AS $fuzzphony$
             BEGIN
                 IF TG_OP = 'DELETE' THEN
-                    INSERT INTO "public"."fuzzphony_products__changes" (id) VALUES (OLD.id) ON CONFLICT DO NOTHING;
+                    INSERT INTO "public"."fuzzphony_products__changes" (id) VALUES (OLD.id) ON CONFLICT (id) DO UPDATE SET id = EXCLUDED.id;
                 ELSE
-                    INSERT INTO "public"."fuzzphony_products__changes" (id) VALUES (NEW.id) ON CONFLICT DO NOTHING;
+                    INSERT INTO "public"."fuzzphony_products__changes" (id) VALUES (NEW.id) ON CONFLICT (id) DO UPDATE SET id = EXCLUDED.id;
                 END IF;
                 RETURN NULL;
             END
             $fuzzphony$
             SQL, $sql);
+        // a conflict locks the logged row (DO NOTHING would not): a catch-up batch cannot take an id
+        // whose change is not committed yet
+        self::assertStringNotContainsString('fuzzphony_products__changes" (id) VALUES (NEW.id) ON CONFLICT DO NOTHING', $sql);
     }
 
     public function testBeginRebuildStartsAnEmptyRebuildAndLogsTheLiveTable(): void
@@ -304,13 +307,14 @@ final class SchemaGeneratorTest extends TestCase
         $sql = (new PostgresSchemaGenerator())->beginRebuild(Indexes::products());
 
         self::assertStringStartsWith(
-            "DO \$fuzzphony\$\nDECLARE\n    r record;\nBEGIN\n    DROP TABLE IF EXISTS \"public\".\"fuzzphony_products__next\";\n    DROP TABLE IF EXISTS \"public\".\"fuzzphony_products__changes\";\n    CREATE TABLE \"public\".\"fuzzphony_products__changes\" (id bigint PRIMARY KEY);\n",
+            "DO \$fuzzphony\$\nDECLARE\n    r record;\nBEGIN\n    LOCK TABLE \"public\".\"fuzzphony_products\" IN SHARE ROW EXCLUSIVE MODE;\n    DROP TABLE IF EXISTS \"public\".\"fuzzphony_products__next\";\n    DROP TABLE IF EXISTS \"public\".\"fuzzphony_products__changes\";\n    CREATE TABLE \"public\".\"fuzzphony_products__changes\" (id bigint PRIMARY KEY);\n",
             $sql,
         );
-        // every role that may write the live table may write the log (its trigger runs as the writer)
+        // the live table first, then the log: the order writers take them in (dropping a leftover log first could deadlock)
+        // every role that may write the live table may write the log (its trigger runs as the writer; ON CONFLICT DO UPDATE needs SELECT and UPDATE)
         self::assertStringContainsString("FROM pg_class AS c, aclexplode(coalesce(c.relacl, acldefault('r', c.relowner))) AS a", $sql);
         self::assertStringContainsString("WHERE c.oid = '\"public\".\"fuzzphony_products\"'::regclass AND a.privilege_type IN ('INSERT', 'UPDATE', 'DELETE') LOOP", $sql);
-        self::assertStringContainsString("EXECUTE format('GRANT INSERT ON %s TO %s', '\"public\".\"fuzzphony_products__changes\"', CASE WHEN r.grantee = 0 THEN 'PUBLIC' ELSE quote_ident(pg_get_userbyid(r.grantee)) END);", $sql);
+        self::assertStringContainsString("EXECUTE format('GRANT SELECT, INSERT, UPDATE ON %s TO %s', '\"public\".\"fuzzphony_products__changes\"', CASE WHEN r.grantee = 0 THEN 'PUBLIC' ELSE quote_ident(pg_get_userbyid(r.grantee)) END);", $sql);
         self::assertStringContainsString("CREATE TABLE \"public\".\"fuzzphony_products__next\" (\n    \"id\" bigint NOT NULL,\n    \"tsv\" tsvector NOT NULL,\n", $sql);
         self::assertStringContainsString("    \"indexed_at\" timestamptz NOT NULL DEFAULT now(),\n    CONSTRAINT \"fuzzphony_products_pkey__next\" PRIMARY KEY (\"id\")\n)", $sql);
         self::assertStringEndsWith(

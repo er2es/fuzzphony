@@ -385,7 +385,8 @@ ON CONFLICT (index_name) DO UPDATE SET layout_version = EXCLUDED.layout_version,
      * the live table never had (queued or not yet refreshed when the rebuild loaded it, deleted
      * since) writes nothing there, so the change log trigger alone would miss it. The log comes after
      * the writes: the function takes the live table's lock before the log's, like the swap, so the two
-     * never deadlock.
+     * never deadlock. It locks the logged rows (see trackFunction()) in id order, one row per id
+     * (DO UPDATE cannot touch a row twice in one statement).
      */
     private function refreshFunction(IndexDefinition $index, bool $shadow = false): string
     {
@@ -462,7 +463,7 @@ ON CONFLICT (index_name) DO UPDATE SET layout_version = EXCLUDED.layout_version,
                 "
 
     IF to_regclass(%s) IS NOT NULL THEN
-        INSERT INTO %s (id) SELECT u.id FROM unnest(p_ids) AS u(id) WHERE u.id IS NOT NULL ON CONFLICT DO NOTHING;
+        INSERT INTO %s (id) SELECT DISTINCT u.id FROM unnest(p_ids) AS u(id) WHERE u.id IS NOT NULL ORDER BY u.id ON CONFLICT (id) DO UPDATE SET id = EXCLUDED.id;
     END IF;",
                 Sql::string($this->names->changes($index)),
                 $this->names->changes($index),
@@ -473,7 +474,9 @@ ON CONFLICT (index_name) DO UPDATE SET layout_version = EXCLUDED.layout_version,
     /**
      * Logs the id of every live document that changes while a full reindex runs (a row trigger
      * on the live table, created by beginRebuild(), gone with the old table after the swap). It
-     * runs as the writer, in the writer's transaction; beginRebuild() grants the log to them.
+     * runs as the writer, in the writer's transaction; beginRebuild() grants the log to them. A
+     * conflict updates the logged row, which locks it until the writer commits (DO NOTHING would
+     * not): a catch-up batch can neither take the id meanwhile nor refresh it from the old state.
      */
     private function trackFunction(IndexDefinition $index): string
     {
@@ -483,9 +486,9 @@ ON CONFLICT (index_name) DO UPDATE SET layout_version = EXCLUDED.layout_version,
                 LANGUAGE plpgsql SET search_path = pg_catalog, pg_temp AS %3$s
                 BEGIN
                     IF TG_OP = 'DELETE' THEN
-                        INSERT INTO %2$s (id) VALUES (OLD.id) ON CONFLICT DO NOTHING;
+                        INSERT INTO %2$s (id) VALUES (OLD.id) ON CONFLICT (id) DO UPDATE SET id = EXCLUDED.id;
                     ELSE
-                        INSERT INTO %2$s (id) VALUES (NEW.id) ON CONFLICT DO NOTHING;
+                        INSERT INTO %2$s (id) VALUES (NEW.id) ON CONFLICT (id) DO UPDATE SET id = EXCLUDED.id;
                     END IF;
                     RETURN NULL;
                 END
@@ -501,8 +504,10 @@ ON CONFLICT (index_name) DO UPDATE SET layout_version = EXCLUDED.layout_version,
      * Starts a full rebuild next to the live table, in one statement: drops a leftover one,
      * creates the change log (writable by every role that may write the live table) and the
      * empty rebuild table (the current layout, without secondary indexes: shadowIndexes() adds
-     * them after the load), and starts logging the live table. CREATE TRIGGER waits for the
-     * transactions writing the live table, so every later change is logged.
+     * them after the load), and starts logging the live table. It locks the live table first (the
+     * lock CREATE TRIGGER needs anyway), which waits for the transactions writing it, so every later
+     * change is logged; writers lock the live table before the log, so dropping a leftover log
+     * second cannot deadlock with them.
      */
     public function beginRebuild(IndexDefinition $index): string
     {
@@ -512,13 +517,14 @@ ON CONFLICT (index_name) DO UPDATE SET layout_version = EXCLUDED.layout_version,
                 DECLARE
                     r record;
                 BEGIN
+                    LOCK TABLE %9$s IN SHARE ROW EXCLUSIVE MODE;
                     DROP TABLE IF EXISTS %2$s;
                     DROP TABLE IF EXISTS %3$s;
                     CREATE TABLE %3$s (id %4$s PRIMARY KEY);
                     FOR r IN SELECT DISTINCT a.grantee
                              FROM pg_class AS c, aclexplode(coalesce(c.relacl, acldefault('r', c.relowner))) AS a
                              WHERE c.oid = %5$s::regclass AND a.privilege_type IN ('INSERT', 'UPDATE', 'DELETE') LOOP
-                        EXECUTE format('GRANT INSERT ON %%s TO %%s', %6$s, CASE WHEN r.grantee = 0 THEN 'PUBLIC' ELSE quote_ident(pg_get_userbyid(r.grantee)) END);
+                        EXECUTE format('GRANT SELECT, INSERT, UPDATE ON %%s TO %%s', %6$s, CASE WHEN r.grantee = 0 THEN 'PUBLIC' ELSE quote_ident(pg_get_userbyid(r.grantee)) END);
                     END LOOP;
                     %7$s;
                     CREATE OR REPLACE TRIGGER %8$s AFTER INSERT OR UPDATE OR DELETE ON %9$s FOR EACH ROW EXECUTE FUNCTION %10$s();

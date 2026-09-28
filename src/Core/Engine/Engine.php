@@ -88,7 +88,12 @@ interface Engine
      */
     public function refreshShadow(IndexDefinition $index, array $ids): int;
 
-    /** Catches the rebuild up with the changes made to the live index meanwhile, swaps it in atomically and releases the lock. */
+    /**
+     * Catches the rebuild up with the changes made to the live index meanwhile, swaps it in
+     * atomically and releases the lock. When it throws, nothing was swapped and the rebuild lock
+     * is still held: the caller calls finishRebuild() again or abortRebuild($index, keepShadow: true)
+     * (so a resumed run can continue the rebuild).
+     */
     public function finishRebuild(IndexDefinition $index): void;
 
     /** Releases the rebuild lock and discards the rebuild, unless $keepShadow (a failed run keeps it, so a resumed run can continue it). */

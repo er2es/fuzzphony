@@ -6,6 +6,7 @@ namespace Fuzzphony\Engine\Postgres;
 
 use Fuzzphony\Core\Database\Connection;
 use Fuzzphony\Core\Definition\IndexDefinition;
+use Fuzzphony\Core\Exception\EngineFailure;
 use Fuzzphony\Core\Exception\InvalidArgument;
 use Fuzzphony\Core\Support\Coerce;
 use Fuzzphony\Engine\Postgres\Schema\Names;
@@ -20,20 +21,43 @@ use Fuzzphony\Engine\Postgres\Sql\Sql;
  * refreshes the logged ids into the rebuild in batches, then takes ACCESS EXCLUSIVE on the live
  * table, which waits for every transaction that wrote it (so the log is complete), refreshes the
  * rest and swaps the tables in the same transaction. One rebuild per index at a time: a
- * session-level advisory lock, held from begin() until finish() or abort().
+ * session-level advisory lock, held from begin() until finish() or abort(). A logged id whose
+ * writer has not committed yet is locked (the log's ON CONFLICT DO UPDATE): the batches skip it,
+ * the final catch-up under the lock takes it.
  */
 final class ShadowRebuild
 {
     /** Logged ids refreshed per statement while catching up outside the swap lock. */
     private const int CATCH_UP_BATCH = 5_000;
 
+    /** At most this many batches before the swap: the rest (a write rate above the batch rate) is refreshed under the lock. */
+    private const int CATCH_UP_MAX_BATCHES = 20;
+
+    /**
+     * How long the swap waits for the live table's lock. Above deadlock_timeout (1s by default):
+     * PostgreSQL cancels an autovacuum that blocks the lock only after that.
+     */
+    private const string LOCK_TIMEOUT = '3s';
+
+    /** Swap attempts after the first one that timed out on the lock. */
+    private const int SWAP_RETRIES = 5;
+
+    private const string LOCK_NOT_AVAILABLE = '55P03';
+
     private readonly Names $names;
 
+    /** @var \Closure(int): void */
+    private readonly \Closure $pause;
+
+    /** @param (\Closure(int): void)|null $pause sleeps the given microseconds between swap attempts */
     public function __construct(
         private readonly Connection $connection,
         private readonly PostgresSchemaGenerator $schema,
+        private readonly string $lockTimeout = self::LOCK_TIMEOUT,
+        ?\Closure $pause = null,
     ) {
         $this->names = $schema->names();
+        $this->pause = $pause ?? usleep(...);
     }
 
     /**
@@ -75,21 +99,40 @@ final class ShadowRebuild
         ));
     }
 
+    /**
+     * Throws, keeping the rebuild and the lock (the caller aborts with $keepShadow, or calls this
+     * again), when the swap fails; on a lock timeout only after SWAP_RETRIES more attempts, each
+     * after one more batch and a back-off.
+     */
     public function finish(IndexDefinition $index): void
     {
         foreach ($this->schema->shadowIndexes($index) as $sql) {
             $this->connection->execute($sql);
         }
+        $batches = 0;
         do {
-            $taken = $this->connection->transactional(fn(Connection $c): int => $this->catchUp($c, $index, self::CATCH_UP_BATCH));
-        } while ($taken === self::CATCH_UP_BATCH);
-        $this->connection->transactional(function (Connection $c) use ($index): void {
-            // waits for every transaction that wrote the live table: after it, the log is complete
-            $c->execute(sprintf('LOCK TABLE %s, %s IN ACCESS EXCLUSIVE MODE', $this->names->sidecar($index), $this->names->shadow($index)));
-            $this->catchUp($c, $index, null);
-            $c->execute($this->schema->swap($index));
-        });
+            $taken = $this->batch($index);
+        } while ($taken === self::CATCH_UP_BATCH && ++$batches < self::CATCH_UP_MAX_BATCHES);
+        for ($attempt = 0; ($timedOut = $this->swap($index)) !== null; ++$attempt) {
+            if ($attempt === self::SWAP_RETRIES) {
+                throw new EngineFailure(sprintf(
+                    'Fuzzphony rebuild of "%1$s" failed: the swap could not lock %2$s within %3$s, %4$d times (long transactions or autovacuum hold it). The rebuild was kept: call finishRebuild() again, or resume the reindex ("fuzzphony:reindex %1$s --from …").',
+                    $index->name,
+                    $this->names->sidecar($index),
+                    $this->lockTimeout,
+                    self::SWAP_RETRIES + 1,
+                ), previous: $timedOut);
+            }
+            $this->batch($index);
+            ($this->pause)(self::backoff($attempt, mt_rand() / mt_getrandmax()));
+        }
         $this->unlock($index);
+    }
+
+    /** Microseconds to wait before swap attempt $attempt + 2: 0.1 s doubling, plus up to as much jitter ($random: 0 to 1). */
+    public static function backoff(int $attempt, float $random): int
+    {
+        return (int) ((100_000 << $attempt) * (1 + $random));
     }
 
     public function abort(IndexDefinition $index, bool $keepShadow): void
@@ -111,7 +154,9 @@ final class ShadowRebuild
 
     /**
      * Whether this role can build next to the live table (create tables in Fuzzphony's schema;
-     * drop and replace the live one: its owner or a member of the owning role) and schema --apply
+     * drop and replace the live one: its owner or a member of the owning role), hand the rebuild
+     * to the live table's owner (ALTER TABLE ... OWNER TO: SET membership, CREATE on the schema for
+     * the owner; SET membership is PostgreSQL 16+, plain membership before) and schema --apply
      * created the rebuild's functions. NULL (no live table) counts as no.
      */
     private function possible(IndexDefinition $index): bool
@@ -119,7 +164,9 @@ final class ShadowRebuild
         return (bool) $this->connection->fetchValue(
             <<<'SQL'
                 SELECT has_schema_privilege(:schema, 'CREATE')
+                   AND has_schema_privilege(c.relowner, :owner_schema, 'CREATE')
                    AND pg_has_role(c.relowner, 'USAGE')
+                   AND pg_has_role(c.relowner, CASE WHEN current_setting('server_version_num')::integer >= 160000 THEN 'SET' ELSE 'MEMBER' END)
                    AND to_regprocedure(:refresh) IS NOT NULL
                    AND to_regprocedure(:track) IS NOT NULL
                 FROM pg_class AS c
@@ -127,11 +174,51 @@ final class ShadowRebuild
                 SQL,
             [
                 'schema' => $this->names->schema,
+                'owner_schema' => $this->names->schema,
                 'refresh' => sprintf('%s(%s[])', $this->names->shadowRefreshFunction($index), Types::id($index->idType)),
                 'track' => $this->names->trackFunction($index) . '()',
                 'sidecar' => $this->names->sidecar($index),
             ],
         );
+    }
+
+    private function batch(IndexDefinition $index): int
+    {
+        return $this->connection->transactional(fn(Connection $c): int => $this->catchUp($c, $index, self::CATCH_UP_BATCH));
+    }
+
+    /** One swap attempt; the lock timeout when it could not take the lock (nothing changed), null when it swapped. */
+    private function swap(IndexDefinition $index): ?\Throwable
+    {
+        try {
+            $this->connection->transactional(function (Connection $c) use ($index): void {
+                $c->execute(sprintf('SET LOCAL lock_timeout = %s', Sql::string($this->lockTimeout)));
+                // waits for every transaction that wrote the live table: after it, the log is complete
+                $c->execute(sprintf('LOCK TABLE %s, %s IN ACCESS EXCLUSIVE MODE', $this->names->sidecar($index), $this->names->shadow($index)));
+                $this->catchUp($c, $index, null);
+                $c->execute($this->schema->swap($index));
+            });
+        } catch (\Throwable $e) {
+            if (!self::lockNotAvailable($e)) {
+                throw $e;
+            }
+            return $e;
+        }
+
+        return null;
+    }
+
+    /** SQLSTATE 55P03, from PDO (the code) or DBAL (getSQLState()), anywhere in the chain. */
+    private static function lockNotAvailable(\Throwable $e): bool
+    {
+        for ($cause = $e; $cause !== null; $cause = $cause->getPrevious()) {
+            $state = $cause instanceof \PDOException ? $cause->getCode() : (method_exists($cause, 'getSQLState') ? $cause->getSQLState() : null);
+            if ($state === self::LOCK_NOT_AVAILABLE) {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     /** Refreshes up to $limit logged ids (null: all) into the rebuild, in one statement: a failed refresh keeps them logged. */
@@ -149,7 +236,7 @@ final class ShadowRebuild
                 SELECT (SELECT count(*) FROM batch) FROM refreshed
                 SQL,
             $changes,
-            $limit === null ? '' : sprintf(' WHERE id IN (SELECT id FROM %s ORDER BY id LIMIT :limit)', $changes),
+            $limit === null ? '' : sprintf(' WHERE id IN (SELECT id FROM %s ORDER BY id LIMIT :limit FOR UPDATE SKIP LOCKED)', $changes),
             $this->names->shadowRefreshFunction($index),
         );
 
