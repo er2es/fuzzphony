@@ -62,10 +62,15 @@ final class ShadowRebuild
 
     /**
      * Takes the lock and starts (or, with $resume, continues) the rebuild; false, with the lock
-     * released, when the run must write the live index in place.
+     * released, when the run must write the live index in place. Inside a caller transaction it
+     * is always false (nothing is locked or created): the batches and the swap would join that
+     * transaction, which would hold the swap's ACCESS EXCLUSIVE lock until the caller commits.
      */
     public function begin(IndexDefinition $index, bool $resume): bool
     {
+        if ($this->inTransaction()) {
+            return false;
+        }
         if (!(bool) $this->connection->fetchValue('SELECT pg_try_advisory_lock(hashtext(:key))', ['key' => $this->names->rebuildLockKey($index)])) {
             throw new InvalidArgument(sprintf('A rebuild of "%s" is already running.', $index->name));
         }
@@ -141,6 +146,17 @@ final class ShadowRebuild
             $this->connection->execute($this->schema->discardRebuild($index));
         }
         $this->unlock($index);
+    }
+
+    /**
+     * Whether this session is inside a transaction block, from SQL (the Connection port cannot
+     * tell): a transaction-local setting outlives its statement only inside one.
+     */
+    private function inTransaction(): bool
+    {
+        $this->connection->fetchValue("SELECT set_config('fuzzphony.transaction_probe', 'on', true)");
+
+        return $this->connection->fetchValue("SELECT current_setting('fuzzphony.transaction_probe', true)") === 'on';
     }
 
     /** A resumed run continues the rebuild a failed run left behind. */

@@ -84,24 +84,57 @@ older version get the `TRUNCATE` trigger from `fuzzphony:schema --apply`
 
 ## Reindexing and orphan pruning
 
-`fuzzphony:reindex` backfills every row, batched and resumable. A full run (without `--from`)
-finishes by removing orphans, indexed documents whose row the source no longer returns, in
-batches, and reports how many it removed. A run resumed with `--from` covers only part of the
-source, so it never removes anything.
+`fuzzphony:reindex` rebuilds every document, in batches, with progress, resumable.
 
-Pruning is relative to what the reindexing session can see. When that session sees fewer rows
-than your application (row-level security on the source, a query source using
-`current_setting(...)`, a different `search_path` for the CLI user), a full reindex removes the
-difference from the index. Pass `--no-prune` (or `new ReindexOptions(prune: false)` to
-`$fuzzphony->reindex()`) there.
+A full run builds the new index next to the live one (`fuzzphony_<index>__next`) and swaps it in
+at the end: searches read the complete old index until then, never a half-built one. Changes made
+meanwhile reach the live index as usual (trigger or queue sync) and are logged; the reindex catches
+up with them, then swaps inside one short transaction that holds an `ACCESS EXCLUSIVE` lock on the
+live table (writers and searches wait for the last few logged changes and the renames). Documents
+the source no longer returns (orphans) go with the old table. The index keeps its grants and owner.
 
-A full run whose source returns no row at all does not prune, and says so
+A full run needs room for a second copy of the index while it runs, a role that can create tables
+in Fuzzphony's schema and owns the index table (or is a member of its owner), and a session
+connection (it holds an advisory lock: not a transaction-pooling PgBouncer). One rebuild per index
+runs at a time; a second one fails right away. A role without those rights, or an install where
+`fuzzphony:schema --apply` has not run since the upgrade, reindexes in place, and
+`fuzzphony:reindex` says so.
+
+`--in-place` (`new ReindexOptions(inPlace: true)`) writes the live index directly, as before 0.5:
+no second copy, but searches see a mix of old and new documents while it runs. It finishes by
+removing orphans in batches and reports how many.
+
+A run that fails or is killed leaves its rebuild behind, and every change to the live index is
+logged for it: `fuzzphony:doctor` warns ("a rebuild of … did not finish"). Resume it with `--from`
+(the last id it printed), or run a full reindex, which starts over. `--from` without a leftover
+rebuild writes in place and covers only part of the source, so it never removes anything.
+
+What a full run drops is relative to what the reindexing session can see. When that session sees
+fewer rows than your application (row-level security on the source, a query source using
+`current_setting(...)`, a different `search_path` for the CLI user), the difference disappears
+from the index. Pass `--no-prune` (or `new ReindexOptions(prune: false)` to
+`$fuzzphony->reindex()`) there; it always writes in place.
+
+A full run whose source returns no row at all keeps the index, and says so
 (`ReindexResult::$pruneSkippedEmptySource`). That is far more likely a visibility problem than
 intent (a real `TRUNCATE` is handled by its trigger). `--prune-empty`
-(`new ReindexOptions(pruneEmpty: true)`) forces it: because it can wipe every indexed document,
-`fuzzphony:reindex --prune-empty` explains that and asks for confirmation first (default no);
-`--force` skips the question and is required to use `--prune-empty` non-interactively. The PHP
-API (`ReindexOptions(pruneEmpty: true)`) never asks.
+(`new ReindexOptions(pruneEmpty: true)`) empties the index anyway: because it can wipe every
+indexed document, `fuzzphony:reindex --prune-empty` explains that and asks for confirmation first
+(default no); `--force` skips the question and is required to use `--prune-empty`
+non-interactively. The PHP API (`ReindexOptions(pruneEmpty: true)`) never asks.
+
+Call `Fuzzphony::reindex()` outside a transaction: the run commits batch by batch and swaps in a
+short transaction of its own. Inside your transaction the batches and the swap's lock would join
+it (searches blocked until you commit), so there it writes in place (`ReindexResult::$swapped` is
+false).
+
+`fuzzphony:schema --apply` refuses to run while a full reindex of an index in its plan is
+building (it would replace the functions the rebuild uses): run it again when the reindex has
+finished. A reindex started while an apply runs fails right away with "already running".
+
+When the swap cannot lock the live table (long transactions or autovacuum hold it) it retries 5
+times, 3 s each; then the run fails, keeps its rebuild, and `fuzzphony:reindex` exits with code 1
+and prints the `--from` to resume with.
 
 ## Messenger (orm mode)
 

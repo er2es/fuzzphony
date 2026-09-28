@@ -31,8 +31,13 @@ every transaction that wrote it, so the log is complete; `lock_timeout` 3 s, abo
 back-off with jitter and up to 5 retries, then a failure that keeps the rebuild for resuming),
 refreshes the remaining logged ids, copies grants and owner,
 drops the live table and renames the rebuild, its primary key and indexes to the live names. A
-session-level advisory lock allows one rebuild per index. A role that cannot do the DDL, and a
-reindex with `prune: false`, run in place as before.
+session-level advisory lock allows one rebuild per index; the reindex releases it on every failure
+after `beginRebuild()` (`abortRebuild()` keeping the rebuild), a failed swap included, since the
+lock stacks per session. A role that cannot do the DDL, a reindex with `prune: false`, and a
+reindex inside a caller's transaction (its batches and the swap's `ACCESS EXCLUSIVE` lock would
+join it; detected in SQL with a transaction-local setting) run in place as before. The index's
+schema plan starts with a guard that takes the same lock for its transaction, so
+`schema --apply` fails while a rebuild runs instead of replacing the functions it uses.
 
 ## Consequences
 + Searches never see a half-built index; the lock is held for the last few logged ids and the renames.

@@ -365,6 +365,18 @@ final class SchemaGeneratorTest extends TestCase
         );
     }
 
+    public function testTheIndexPlanFirstRefusesToRunWhileARebuildHoldsItsLock(): void
+    {
+        $first = (new PostgresSchemaGenerator(new Names('public', 'fz')))->index(Indexes::products())->statements[0];
+
+        self::assertSame(
+            "DO \$fuzzphony\$ BEGIN IF NOT pg_try_advisory_xact_lock(hashtext('fuzzphony:fz.products')) THEN RAISE EXCEPTION USING MESSAGE = 'A rebuild of \"products\" is running (fuzzphony:reindex): apply the schema again when it has finished, a new layout would break it.'; END IF; END \$fuzzphony\$",
+            $first->sql,
+        );
+        self::assertSame('Refuse while a full reindex of "products" runs', $first->description);
+        self::assertTrue($first->transactional, 'it holds the lock for the apply transaction');
+    }
+
     public function testSecondaryIndexAndTriggerNames(): void
     {
         $generator = new PostgresSchemaGenerator();

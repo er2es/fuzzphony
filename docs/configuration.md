@@ -150,7 +150,10 @@ The role that runs `fuzzphony:reindex` needs `SELECT` and `UPDATE` on `fuzzphony
 reindex records there which definition built the documents), and the role that runs
 `fuzzphony:doctor` needs `SELECT` on it (without it, the "Schema version" check warns and prints the
 `GRANT`). `ON ALL TABLES IN SCHEMA` covers only the tables that exist when it runs: re-run it after
-the first 0.4 `schema --apply`, which creates `fuzzphony_meta`.
+the first 0.4 `schema --apply`, which creates `fuzzphony_meta`. To build next to the live index
+and swap it in, that role also needs `CREATE` on the schema and ownership of the index tables (or
+membership in their owner); without them it reindexes in place (see
+[Reindexing](sync.md#reindexing-and-orphan-pruning)).
 
 `DROP SCHEMA fuzzphony CASCADE` then removes every index at once (drop the triggers on your tables
 with `fuzzphony:schema --drop --apply` first). Moving an existing install out of `public` is not

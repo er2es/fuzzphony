@@ -26,6 +26,20 @@ and the [CHANGELOG](CHANGELOG.md) has the full list of changes.
    `public function beginRebuild(IndexDefinition $index, bool $resume = false): bool { return false; }`
    (the reindex then writes in place) and empty bodies for the other three (`refreshShadow()`
    returns `0`).
+5. **A full reindex builds next to the live index.** `fuzzphony:reindex` and
+   `Fuzzphony::reindex()` fill `fuzzphony_<index>__next` and swap it in when it is complete, so
+   searches never see a half-built index. Plan for disk space for a second copy of the index
+   while it runs. The reindexing role needs `CREATE` on Fuzzphony's schema and must own the index
+   table (or be a member of its owner), and the connection must be a session (the run holds an
+   advisory lock; not a transaction-pooling PgBouncer). A role without those rights reindexes in
+   place, as in 0.4, and the command says so; `--in-place` / `new ReindexOptions(inPlace: true)`
+   asks for that explicitly, and `--no-prune` always runs in place. After a swap
+   `ReindexResult::$pruned` is `null` (the orphans went with the old index): check
+   `ReindexResult::$swapped`. A second full reindex of the same index while one runs throws
+   `InvalidArgument`. A run that fails leaves a rebuild behind (the doctor warns): resume it with
+   `--from`, or run a full reindex again.
+   Call `Fuzzphony::reindex()` outside a transaction (inside one it writes in place), and do not
+   run `fuzzphony:schema --apply` while a full reindex runs: it refuses, run it again afterwards.
 
 ## From 0.3 to 0.4
 

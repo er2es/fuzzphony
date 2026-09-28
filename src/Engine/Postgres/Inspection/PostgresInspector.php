@@ -61,6 +61,7 @@ final class PostgresInspector
         } else {
             array_push($checks, ...$this->sidecarColumns($index));
             array_push($checks, ...$this->sidecarIndexes($index));
+            array_push($checks, ...$this->rebuild($index));
         }
         $checks[] = $this->function(
             sprintf('%s(%s[])', $this->names->refreshFunction($index), Types::id($index->idType)),
@@ -620,6 +621,62 @@ final class PostgresInspector
             'SELECT attname FROM pg_attribute WHERE attrelid = to_regclass(:table) AND attnum > 0 AND NOT attisdropped',
             ['table' => $table],
         ), 'attname'));
+    }
+
+    /**
+     * What a full reindex leaves while it builds next to the live index (it holds the rebuild
+     * lock), or after it failed: the rebuild table, its change log and the trigger on the live
+     * table that fills the log (so the log grows with every change). With both tables a run with
+     * --from continues it; with less, only a full run (which drops the rest) helps, and the trigger
+     * without its log fails every write to the index.
+     *
+     * @return list<Check>
+     */
+    private function rebuild(IndexDefinition $index): array
+    {
+        $shadow = $this->names->shadow($index);
+        $changes = $this->names->changes($index);
+        $trigger = sprintf('trigger %s on %s', Sql::ident($this->names->trackFunctionName($index)), $this->names->sidecar($index));
+        $row = $this->connection->fetchAll(
+            'SELECT to_regclass(:shadow) IS NOT NULL AS shadow, to_regclass(:changes) IS NOT NULL AS changes,
+                    EXISTS (SELECT 1 FROM pg_trigger WHERE tgrelid = to_regclass(:sidecar) AND tgname = :trigger) AS trigger',
+            ['shadow' => $shadow, 'changes' => $changes, 'sidecar' => $this->names->sidecar($index), 'trigger' => $this->names->trackFunctionName($index)],
+        )[0];
+        $found = [$shadow => $row['shadow'] === true, $changes => $row['changes'] === true, $trigger => $row['trigger'] === true];
+        $left = array_keys(array_filter($found, static fn(bool $exists): bool => $exists));
+        if ($left === []) {
+            return [];
+        }
+        // a transaction-level probe: released when this transaction ends, never kept
+        $free = $this->connection->transactional(fn(Connection $c): mixed => $c->fetchValue(
+            'SELECT pg_try_advisory_xact_lock(hashtext(:key))',
+            ['key' => $this->names->rebuildLockKey($index)],
+        )) === true;
+        if (!$free) {
+            return [Check::ok('Rebuild', 'a full reindex is building the index next to the live one')];
+        }
+        $fix = sprintf('bin/console fuzzphony:reindex %s', $index->name);
+        if ($found[$shadow] && $found[$changes]) {
+            return [Check::warning(
+                'Rebuild',
+                sprintf('A rebuild of "%s" did not finish: %s is left over, and every change to the index is logged for it. Resume it with --from (the last id it printed), or run a full reindex, which starts over.', $index->name, $shadow),
+                $fix,
+            )];
+        }
+        $broken = $found[$trigger] && !$found[$changes];
+        $message = sprintf(
+            'A rebuild of "%s" did not finish and cannot be resumed: %s %s left over%s. Run a full reindex, which starts over.',
+            $index->name,
+            implode(', ', $left),
+            count($left) === 1 ? 'is' : 'are',
+            match (true) {
+                $broken => ', and every write to the index fails on its missing change log',
+                $found[$trigger] => ', and every change to the index is logged for it',
+                default => '',
+            },
+        );
+
+        return [$broken ? Check::error('Rebuild', $message, $fix) : Check::warning('Rebuild', $message, $fix)];
     }
 
     private function regclass(string $name): bool

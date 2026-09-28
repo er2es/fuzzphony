@@ -32,6 +32,16 @@ changes; they are always listed under **Breaking** and explained in [UPGRADE.md]
   $keepShadow = false): void`. Custom engines must implement them; an engine that cannot build
   next to the live index returns `false` from `beginRebuild()` (the reindex then runs in place) and
   leaves the others empty.
+- A full `fuzzphony:reindex` / `Fuzzphony::reindex()` builds the index next to the live one and
+  swaps it in (zero-downtime reindex). It needs disk for a second copy of the index while it runs,
+  and a role with `CREATE` on Fuzzphony's schema that owns the index table (otherwise it runs in
+  place, as before, and the command says so). After a swap `ReindexResult::$pruned` is `null` (the
+  orphans went with the old index) and the new `ReindexResult::$swapped` is `true`. A second full
+  reindex of the same index while one runs fails with `InvalidArgument`.
+- `fuzzphony:schema --apply` (and a `--dump-migration` migration) fails while a full reindex of
+  an index in its plan runs: run it again when the reindex has finished.
+- A failed `fuzzphony:reindex` prints the error and the `--from` to resume with, and exits with
+  code 1 (instead of an uncaught exception).
 
 ### Added
 
@@ -46,6 +56,10 @@ changes; they are always listed under **Breaking** and explained in [UPGRADE.md]
   a database whose name doesn't contain "test" (integration tests) or "bench"/"test" (benchmark),
   case-insensitive, so `FUZZPHONY_TEST_DSN` / `FUZZPHONY_BENCH_DSN` can no longer be pointed at a
   real database by mistake; see [CONTRIBUTING.md](CONTRIBUTING.md).
+- `ReindexOptions::$inPlace` and `fuzzphony:reindex --in-place` write the live index directly (the
+  0.4 behaviour: no second copy on disk).
+- Doctor: a "Rebuild" check reports a full reindex that did not finish (with how to resume it, or
+  what is left over when it cannot be resumed), and one that is running.
 
 ## [0.4.0] - 2026-09-27
 

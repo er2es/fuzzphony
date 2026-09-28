@@ -150,7 +150,7 @@ default `default`).
    ```bash
    bin/console fuzzphony:schema            # review the SQL first (nothing is executed)
    bin/console fuzzphony:schema --apply    # or: --dump-migration=migrations
-   bin/console fuzzphony:reindex           # backfill, batched and resumable
+   bin/console fuzzphony:reindex           # built next to the live index, swapped in; resumable
    bin/console fuzzphony:doctor            # verify everything, with fixes
    bin/console fuzzphony:search products 'wireles mouse' -w "price<=20000"
    ```

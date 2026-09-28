@@ -99,6 +99,7 @@ final class PostgresSchemaGenerator
 
         $definitions = array_map(static fn(string $name, string $type): string => sprintf('    %s %s', Sql::ident($name), $type), array_keys($columns), $columns);
         $statements = [
+            $this->rebuildGuard($index),
             new Statement(sprintf("CREATE TABLE IF NOT EXISTS %s (\n%s\n)", $table, implode(",\n", $definitions)), sprintf('Sidecar index table of "%s"', $index->name)),
         ];
         foreach (array_slice($columns, 1, null, true) as $name => $type) {
@@ -152,6 +153,22 @@ final class PostgresSchemaGenerator
         $statements[] = $this->recordApply($index->name, Fingerprint::definition($index), sprintf('Record the layout and definition "%s" was built from', $index->name));
 
         return new SchemaPlan($statements);
+    }
+
+    /**
+     * First in the apply transaction: fails it while a full reindex of the index runs (it holds
+     * the rebuild lock, Names::rebuildLockKey()), because the plan replaces the functions that
+     * rebuild uses (a new layout would break it), and holds the lock until the transaction ends,
+     * so no rebuild starts meanwhile. A DO block, so --dump-migration keeps the guard.
+     */
+    private function rebuildGuard(IndexDefinition $index): Statement
+    {
+        return new Statement(sprintf(
+            'DO %1$s BEGIN IF NOT pg_try_advisory_xact_lock(hashtext(%2$s)) THEN RAISE EXCEPTION USING MESSAGE = %3$s; END IF; END %1$s',
+            self::TAG,
+            Sql::string($this->names->rebuildLockKey($index)),
+            Sql::string(sprintf('A rebuild of "%s" is running (fuzzphony:reindex): apply the schema again when it has finished, a new layout would break it.', $index->name)),
+        ), sprintf('Refuse while a full reindex of "%s" runs', $index->name));
     }
 
     public function drop(IndexDefinition $index): SchemaPlan

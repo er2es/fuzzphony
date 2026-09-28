@@ -15,6 +15,7 @@ use PHPUnit\Framework\TestCase;
 /** The exact statements of a rebuild, in order: lock, start, catch-up, swap, release. */
 final class ShadowRebuildTest extends TestCase
 {
+    private const array PROBE = [["SELECT set_config('fuzzphony.transaction_probe', 'on', true)", []], ["SELECT current_setting('fuzzphony.transaction_probe', true)", []]];
     private const string LOCK = 'SELECT pg_try_advisory_lock(hashtext(:key))';
     private const string UNLOCK = 'SELECT pg_advisory_unlock(hashtext(:key))';
     private const array KEY = ['key' => 'fuzzphony:public.products'];
@@ -40,6 +41,7 @@ final class ShadowRebuildTest extends TestCase
 
         self::assertTrue((new ShadowRebuild($connection, $generator))->begin(Indexes::products(), false));
         self::assertSame([
+            ...self::PROBE,
             [self::LOCK, self::KEY],
             [self::POSSIBLE, self::POSSIBLE_PARAMS],
             [$generator->beginRebuild(Indexes::products()), []],
@@ -56,7 +58,7 @@ final class ShadowRebuildTest extends TestCase
         } catch (InvalidArgument $e) {
             self::assertSame('A rebuild of "products" is already running.', $e->getMessage());
         }
-        self::assertSame([[self::LOCK, self::KEY]], $connection->log);
+        self::assertSame([...self::PROBE, [self::LOCK, self::KEY]], $connection->log);
     }
 
     public function testWithoutTheRightsOrTheFunctionsTheRunGoesInPlaceAndReleasesTheLock(): void
@@ -65,21 +67,32 @@ final class ShadowRebuildTest extends TestCase
 
         self::assertFalse((new ShadowRebuild($connection, new PostgresSchemaGenerator()))->begin(Indexes::products(), false));
         self::assertSame([
+            ...self::PROBE,
             [self::LOCK, self::KEY],
             [self::POSSIBLE, self::POSSIBLE_PARAMS],
             [self::UNLOCK, self::KEY],
         ], $connection->log);
     }
 
+    public function testInsideACallerTransactionTheRunGoesInPlaceWithoutLocking(): void
+    {
+        foreach ([false, true] as $resume) {
+            $connection = new RecordingConnection(static fn(string $sql): mixed => str_contains($sql, 'current_setting') ? 'on' : true);
+
+            self::assertFalse((new ShadowRebuild($connection, new PostgresSchemaGenerator()))->begin(Indexes::products(), $resume));
+            self::assertSame(self::PROBE, $connection->log);
+        }
+    }
+
     public function testAResumedRunContinuesALeftOverRebuildOrGoesInPlace(): void
     {
         $leftOver = new RecordingConnection(static fn(string $sql): mixed => true);
         self::assertTrue((new ShadowRebuild($leftOver, new PostgresSchemaGenerator()))->begin(Indexes::products(), true));
-        self::assertSame([[self::LOCK, self::KEY], [self::LEFT_OVER, self::LEFT_OVER_PARAMS]], $leftOver->log, 'nothing is recreated, the lock is kept');
+        self::assertSame([...self::PROBE, [self::LOCK, self::KEY], [self::LEFT_OVER, self::LEFT_OVER_PARAMS]], $leftOver->log, 'nothing is recreated, the lock is kept');
 
         $none = new RecordingConnection(static fn(string $sql): mixed => $sql === self::LOCK);
         self::assertFalse((new ShadowRebuild($none, new PostgresSchemaGenerator()))->begin(Indexes::products(), true));
-        self::assertSame([[self::LOCK, self::KEY], [self::LEFT_OVER, self::LEFT_OVER_PARAMS], [self::UNLOCK, self::KEY]], $none->log);
+        self::assertSame([...self::PROBE, [self::LOCK, self::KEY], [self::LEFT_OVER, self::LEFT_OVER_PARAMS], [self::UNLOCK, self::KEY]], $none->log);
     }
 
     public function testAFailureWhileStartingReleasesTheLock(): void

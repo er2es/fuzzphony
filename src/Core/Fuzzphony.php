@@ -51,8 +51,14 @@ final readonly class Fuzzphony
     }
 
     /**
-     * Rebuilds the whole index from the source and, unless $options->prune is false, removes the
-     * documents the source no longer returns. See ReindexOptions for resuming and pruning.
+     * Rebuilds the whole index from the source, next to the live one, and swaps it in when it is
+     * complete; the documents the source no longer returns go with the old index. See
+     * ReindexOptions for writing in place, resuming and pruning.
+     *
+     * Call it outside a transaction: the run commits batch by batch and swaps in a short
+     * transaction of its own. Inside a caller's transaction every batch and the swap's ACCESS
+     * EXCLUSIVE lock would join it (searches blocked until the caller commits), so the engine
+     * writes the live index in place there, as before 0.5 (ReindexResult::$swapped is false).
      */
     public function reindex(string $index, ReindexOptions $options = new ReindexOptions()): ReindexResult
     {

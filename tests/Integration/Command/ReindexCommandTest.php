@@ -24,12 +24,49 @@ final class ReindexCommandTest extends TestCase
         $this->tester = new CommandTester(new ReindexCommand($this->context->fuzzphony));
     }
 
-    public function testAFullRunRemovesOrphansAndSaysHowMany(): void
+    public function testAFullRunSwapsInTheRebuiltIndex(): void
     {
         $status = $this->tester->execute(['index' => 'products'], ['interactive' => false]);
 
         self::assertSame(Command::SUCCESS, $status, $this->tester->getDisplay());
+        self::assertStringContainsString('Built next to the live index and swapped in: searches never saw a partial index, and documents the source no longer returns went with the old one.', $this->tester->getDisplay());
+        self::assertStringNotContainsString('Rebuilt in place:', $this->tester->getDisplay());
+        self::assertSame(4, $this->indexed());
+    }
+
+    public function testInPlaceRemovesOrphansAndSaysHowMany(): void
+    {
+        $status = $this->tester->execute(['index' => 'products', '--in-place' => true], ['interactive' => false]);
+
+        self::assertSame(Command::SUCCESS, $status, $this->tester->getDisplay());
         self::assertStringContainsString('1 orphaned document(s) removed', $this->tester->getDisplay());
+        self::assertStringNotContainsString('Rebuilt in place:', $this->tester->getDisplay());
+        self::assertSame(4, $this->indexed());
+    }
+
+    public function testARoleThatCannotBuildNextToTheLiveIndexRebuildsInPlaceAndSaysSo(): void
+    {
+        $connection = $this->context->connection;
+        $role = 'fz_reindexer_' . getmypid();
+        $connection->execute(sprintf('DROP ROLE IF EXISTS %s', $role));
+        $connection->execute(sprintf('CREATE ROLE %s', $role));
+        try {
+            $connection->execute(sprintf('GRANT SELECT ON fz_product, fz_brand TO %s', $role));
+            $connection->execute(sprintf('GRANT SELECT, INSERT, UPDATE, DELETE ON fuzzphony_products, fuzzphony_meta TO %s', $role));
+            $connection->execute(sprintf('SET ROLE %s', $role));
+            try {
+                $status = $this->tester->execute(['index' => 'products'], ['interactive' => false]);
+            } finally {
+                $connection->execute('RESET ROLE');
+            }
+        } finally {
+            $connection->execute(sprintf('DROP OWNED BY %s', $role));
+            $connection->execute(sprintf('DROP ROLE %s', $role));
+        }
+
+        self::assertSame(Command::SUCCESS, $status, $this->tester->getDisplay());
+        self::assertStringContainsString('1 orphaned document(s) removed', $this->tester->getDisplay());
+        self::assertStringContainsString("Rebuilt in place: this role cannot build the index next to the live one (it needs CREATE on Fuzzphony's schema and ownership of the index table), or fuzzphony:schema --apply has not run since the upgrade.", $this->tester->getDisplay());
         self::assertSame(4, $this->indexed());
     }
 
@@ -53,6 +90,7 @@ final class ReindexCommandTest extends TestCase
 
         self::assertSame(Command::SUCCESS, $status, $this->tester->getDisplay());
         self::assertStringContainsString('only removed by a full run', $this->tester->getDisplay());
+        self::assertStringNotContainsString('Rebuilt in place:', $this->tester->getDisplay());
         self::assertSame(5, $this->indexed());
     }
 
@@ -63,6 +101,7 @@ final class ReindexCommandTest extends TestCase
         self::assertSame(Command::SUCCESS, $status, $this->tester->getDisplay());
         self::assertStringContainsString('Pruning skipped (--no-prune)', $this->tester->getDisplay());
         self::assertStringNotContainsString('orphaned document(s) removed', $this->tester->getDisplay());
+        self::assertStringNotContainsString('Rebuilt in place:', $this->tester->getDisplay());
         self::assertSame(5, $this->indexed());
     }
 
@@ -75,6 +114,7 @@ final class ReindexCommandTest extends TestCase
         self::assertSame(Command::SUCCESS, $status, $this->tester->getDisplay());
         self::assertStringContainsString('source returned no rows for this session, so nothing was pruned', $this->tester->getDisplay());
         self::assertStringContainsString('--prune-empty', $this->tester->getDisplay());
+        self::assertStringNotContainsString('Rebuilt in place:', $this->tester->getDisplay());
         self::assertSame(5, $this->indexed());
     }
 
@@ -85,7 +125,7 @@ final class ReindexCommandTest extends TestCase
         $status = $this->tester->execute(['index' => 'products', '--prune-empty' => true, '--force' => true], ['interactive' => false]);
 
         self::assertSame(Command::SUCCESS, $status, $this->tester->getDisplay());
-        self::assertStringContainsString('5 orphaned document(s) removed', $this->tester->getDisplay());
+        self::assertStringContainsString('Built next to the live index and swapped in', $this->tester->getDisplay());
         self::assertSame(0, $this->indexed());
     }
 
