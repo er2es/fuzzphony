@@ -472,10 +472,25 @@ final class SchemaGeneratorTest extends TestCase
         $statements = (new PostgresSchemaGenerator())->index(Indexes::products())->statements;
         $last = $statements[count($statements) - 1];
 
-        self::assertSame(1, PostgresSchemaGenerator::LAYOUT_VERSION);
+        self::assertSame(2, PostgresSchemaGenerator::LAYOUT_VERSION);
         self::assertFalse($last->transactional);
         self::assertSame(self::upsert('products', Fingerprint::definition(Indexes::products())), $last->sql);
         self::assertSame('Record the layout and definition "products" was built from', $last->description);
+    }
+
+    public function testALayoutStepRunsOnlyForAnIndexStoredWithAnOlderLayout(): void
+    {
+        $statements = (new PostgresSchemaGenerator())->index(Indexes::products())->statements;
+        $steps = array_values(array_filter($statements, static fn(Statement $s): bool => str_starts_with($s->description, 'Layout step')));
+
+        self::assertCount(1, $steps);
+        self::assertTrue($steps[0]->transactional, 'in the apply transaction, so before the non-transactional meta upsert');
+        self::assertSame('Layout step to 2: the per-field columns of existing documents stay empty until a full reindex', $steps[0]->description);
+        self::assertSame(
+            "DO \$fuzzphony\$ BEGIN IF to_regclass('\"public\".\"fuzzphony_meta\"') IS NOT NULL THEN IF (SELECT layout_version FROM \"public\".\"fuzzphony_meta\" WHERE index_name = 'products') < 2 THEN UPDATE \"public\".\"fuzzphony_meta\" SET documents_hash = NULL WHERE index_name = 'products'; END IF; END IF; END \$fuzzphony\$",
+            $steps[0]->sql,
+        );
+        self::assertSame($steps[0], $statements[count($statements) - 2], 'right before the meta upsert, also in --dump-migration');
     }
 
     public function testDropForgetsTheVersionRecordAndAReindexRecordsTheDocuments(): void
@@ -496,7 +511,7 @@ final class SchemaGeneratorTest extends TestCase
     private static function upsert(string $index, string $hash): string
     {
         return sprintf(
-            "INSERT INTO \"public\".\"fuzzphony_meta\" (index_name, layout_version, definition_hash, library_version, applied_at)\nVALUES ('%s', 1, '%s', %s, now())\nON CONFLICT (index_name) DO UPDATE SET layout_version = EXCLUDED.layout_version, definition_hash = EXCLUDED.definition_hash, library_version = EXCLUDED.library_version, applied_at = EXCLUDED.applied_at",
+            "INSERT INTO \"public\".\"fuzzphony_meta\" (index_name, layout_version, definition_hash, library_version, applied_at)\nVALUES ('%s', 2, '%s', %s, now())\nON CONFLICT (index_name) DO UPDATE SET layout_version = EXCLUDED.layout_version, definition_hash = EXCLUDED.definition_hash, library_version = EXCLUDED.library_version, applied_at = EXCLUDED.applied_at",
             $index,
             $hash,
             Sql::string((string) InstalledVersions::getPrettyVersion('fuzzphony/fuzzphony')),

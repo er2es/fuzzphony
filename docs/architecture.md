@@ -83,6 +83,12 @@ what it contains.
 definition it was applied with and a hash of the definition its documents were built from;
 `fuzzphony:doctor` compares them with the current definition.
 
+`fuzzphony:schema --apply` upgrades an index built with an older sidecar layout: each layout step
+is a guarded `DO` block in the index's plan that runs only while the stored layout is older (so
+`--dump-migration` contains it too), before the meta row records the new layout. The `*` row
+records the shared objects (queue, normaliser, text configurations); the doctor's "Shared objects"
+check compares it.
+
 ## Design decisions
 
 Recorded as ADRs in [`docs/adr`](adr/).

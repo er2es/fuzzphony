@@ -3,6 +3,13 @@
 Before 1.0, a minor version may contain breaking changes. Each section lists what to change,
 and the [CHANGELOG](CHANGELOG.md) has the full list of changes.
 
+## From 0.4 to 0.5
+
+1. **Apply, then reindex.** Run `fuzzphony:schema --apply`: it upgrades every index to sidecar
+   layout 2. Then run one full `fuzzphony:reindex`; until then the doctor's "Documents" check is a
+   warning (so `fuzzphony:doctor --strict` fails in CI). With Doctrine Migrations,
+   `fuzzphony:schema --dump-migration` contains the upgrade step.
+
 ## From 0.3 to 0.4
 
 1. **Exceptions.** Catch `Fuzzphony\Core\Exception\FuzzphonyException` to handle everything

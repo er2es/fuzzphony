@@ -42,6 +42,8 @@ final class Fingerprint
             'text' => [$index->text->language, $index->text->unaccent],
             'boost' => $index->boostColumn,
             'recency' => $index->recencyColumn,
+            // documents built for an older sidecar layout never match
+            'layout' => PostgresSchemaGenerator::LAYOUT_VERSION,
         ]);
     }
 

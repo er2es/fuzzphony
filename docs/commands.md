@@ -56,6 +56,9 @@ It checks:
 - coverage (estimated, or exact with `--deep`);
 - orphaned documents (with `--deep`; fixed by `fuzzphony:reindex`);
 - risky thresholds;
+- the shared objects' version row (`*` in `fuzzphony_meta`): a warning when it is missing, an error
+  when its layout is older or newer than this library's, or when the schema or extension schema
+  changed since the last apply;
 - the schema version: which layout and definition the index was last applied with (an error when
   the definition changed since, or the layout is older or newer than this library's) and whether
   the documents were built from the current definition (a warning until a full

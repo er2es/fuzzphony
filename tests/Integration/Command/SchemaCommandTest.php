@@ -69,11 +69,11 @@ final class SchemaCommandTest extends TestCase
             // every plan records itself: the shared objects' row "*" (end of the global plan), then one row per index
             $upsert = '$this->addSql(\'INSERT INTO "public"."fuzzphony_meta" (index_name, layout_version,';
             self::assertSame(2, substr_count($contents, $upsert));
-            self::assertStringContainsString("VALUES (\\'*\\', 1, ", $contents);
+            self::assertStringContainsString("VALUES (\\'*\\', 2, ", $contents);
             // the last statement of up() records the index's layout and definition (var_export escapes the quotes)
             $last = substr($contents, (int) strrpos($contents, '$this->addSql('));
             self::assertStringStartsWith($upsert, $last);
-            self::assertStringContainsString("VALUES (\\'products\\', 1, ", $last);
+            self::assertStringContainsString("VALUES (\\'products\\', 2, ", $last);
             self::assertStringContainsString('ON CONFLICT (index_name) DO UPDATE SET layout_version = EXCLUDED.layout_version', $last);
             self::assertNull($this->context->connection->fetchValue("SELECT to_regclass('fuzzphony_products')"), 'dumping a migration must not apply anything');
         } finally {

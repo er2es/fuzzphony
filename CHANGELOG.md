@@ -7,6 +7,24 @@ changes; they are always listed under **Breaking** and explained in [UPGRADE.md]
 
 ## [Unreleased]
 
+**After upgrading, run `fuzzphony:schema --apply`, then one full `fuzzphony:reindex`.** See
+[UPGRADE.md](UPGRADE.md#from-04-to-05).
+
+### Breaking
+
+- The sidecar layout is 2. `fuzzphony:schema --apply` upgrades a layout-1 index (a guarded step in
+  the index's plan, also in `--dump-migration`) and clears its documents record, so the doctor's
+  "Documents" check asks for one full `fuzzphony:reindex`. The documents hash now includes the
+  layout.
+
+### Added
+
+- The layout step runner: `fuzzphony:schema --apply` upgrades an index built with an older sidecar
+  layout.
+- Doctor: a "Shared objects" check of the shared objects' version row (`*` in `fuzzphony_meta`): a
+  warning when it is missing, an error when its layout is older or newer than the library's, or
+  when the schema or extension schema changed since the last apply.
+
 ## [0.4.0] - 2026-09-27
 
 **After upgrading, run `fuzzphony:schema --apply`, then one full `fuzzphony:reindex`**, and grant the new
