@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Fuzzphony\Tests\Unit\Postgres;
 
 use Fuzzphony\Core\Query\Ast\AllOf;
+use Fuzzphony\Core\Query\Ast\AnyOf;
 use Fuzzphony\Core\Query\Ast\Node;
 use Fuzzphony\Core\Query\Ast\Term;
 use Fuzzphony\Core\Query\QueryParser;
@@ -33,6 +34,11 @@ final class TsQueryCompilerTest extends TestCase
         yield 'quotes and stray syntax are neutralised' => ["x' | !'y') --", "('x' | !'y')"];
         yield 'an excluded word of a known field is left to the field check' => ['mouse -brand:logitech', "'mouse'"];
         yield 'an excluded word of an unknown field stays' => ['mouse -colour:red', "('mouse' & !'red')"];
+        yield 'an OR with an excluded word of a known field sets no condition (dropping the branch would narrow it)' => ['wireless (mouse | -brand:logitech)', "'wireless'"];
+        yield 'an OR with an AND of only excluded known-field words sets no condition' => ['wireless (mouse | (-brand:sony -brand:logitech))', "'wireless'"];
+        yield 'an OR with an excluded word of no field keeps it' => ['wireless (mouse | -cable)', "('wireless' & ('mouse' | !'cable'))"];
+        yield 'an excluded group with a known-field word is left to the field check' => ['mouse -(brand:sony | cable)', "'mouse'"];
+        yield 'an excluded group without one stays' => ['mouse -(sony | cable)', "('mouse' & !('sony' | 'cable'))"];
     }
 
     #[DataProvider('cases')]
@@ -66,6 +72,13 @@ final class TsQueryCompilerTest extends TestCase
         self::assertSame("'mouse'", $compiled);
     }
 
+    public function testAnOrBranchThatIsEmptyIsStillJustDropped(): void
+    {
+        $compiled = (new TsQueryCompiler(Indexes::products()))->compile(new AllOf([new Term('wireless'), new AnyOf([new Term('+++'), new Term('mouse')])]));
+
+        self::assertSame("('wireless' & 'mouse')", $compiled, 'unlike a branch left to the field check');
+    }
+
     public function testAGroupWhereEveryChildDropsToNothingCompilesToNull(): void
     {
         $compiled = (new TsQueryCompiler(Indexes::products()))->compile(new AllOf([new Term('+++'), new Term('$$$')]));
@@ -95,6 +108,7 @@ final class TsQueryCompilerTest extends TestCase
             'mouse' => false,
             'colour:red' => false,
             'mouse -cable' => false,
+            'mouse -(brand:sony | cable)' => true,
         ];
         foreach ($cases as $query => $expected) {
             $root = (new QueryParser())->parse($query)->root;

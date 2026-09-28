@@ -170,36 +170,7 @@ final class EmptyResultRelaxationTest extends TestCase
     {
         $this->fuzzphony();
         $log = new \ArrayObject();
-        $recording = new class ($this->connection, $log) implements Connection {
-            /** @param \ArrayObject<int, string> $log */
-            public function __construct(private readonly Connection $inner, private readonly \ArrayObject $log) {}
-
-            public function fetchAll(string $sql, array $params = []): array
-            {
-                $this->log[] = $sql;
-
-                return $this->inner->fetchAll($sql, $params);
-            }
-
-            public function fetchValue(string $sql, array $params = []): mixed
-            {
-                $this->log[] = $sql;
-
-                return $this->inner->fetchValue($sql, $params);
-            }
-
-            public function execute(string $sql, array $params = []): int
-            {
-                $this->log[] = $sql;
-
-                return $this->inner->execute($sql, $params);
-            }
-
-            public function transactional(callable $callback): mixed
-            {
-                return $this->inner->transactional(fn(): mixed => $callback($this));
-            }
-        };
+        $recording = self::recording($this->connection, $log);
         $search = (new Fuzzphony(new PostgresEngine($recording), new IndexRegistry([Indexes::products('manual')])))->in('products');
 
         $result = $search->query('wireless mouse offfice')->get();
@@ -283,5 +254,53 @@ final class EmptyResultRelaxationTest extends TestCase
             'interpretedAs' => $result->interpretedAs,
             'warnings' => str_replace(['gaming', 'zzqqx'], 'WORD', $result->warnings),
         ];
+    }
+
+    public function testAFieldScopedSearchLooksUpItsStopWordsOnce(): void
+    {
+        $this->fuzzphony();
+        $log = new \ArrayObject();
+        $search = (new Fuzzphony(new PostgresEngine(self::recording($this->connection, $log)), new IndexRegistry([Indexes::products('manual')])))->in('products');
+
+        self::assertSame([2], $search->query('brand:razr')->get()->ids(), 'found by the fuzzy fallback');
+        self::assertSame([2], $search->query('brand:razr')->thresholds(['fuzzy_mode' => 'always'])->get()->ids());
+        $lookups = array_filter($log->getArrayCopy(), static fn(string $sql): bool => str_contains($sql, 'numnode('));
+        // fetched up front for the recheck, reused by the fuzzy branch
+        self::assertCount(2, $lookups);
+    }
+
+    /** @param \ArrayObject<int, string> $log */
+    private static function recording(Connection $inner, \ArrayObject $log): Connection
+    {
+        return new class ($inner, $log) implements Connection {
+            /** @param \ArrayObject<int, string> $log */
+            public function __construct(private readonly Connection $inner, private readonly \ArrayObject $log) {}
+
+            public function fetchAll(string $sql, array $params = []): array
+            {
+                $this->log[] = $sql;
+
+                return $this->inner->fetchAll($sql, $params);
+            }
+
+            public function fetchValue(string $sql, array $params = []): mixed
+            {
+                $this->log[] = $sql;
+
+                return $this->inner->fetchValue($sql, $params);
+            }
+
+            public function execute(string $sql, array $params = []): int
+            {
+                $this->log[] = $sql;
+
+                return $this->inner->execute($sql, $params);
+            }
+
+            public function transactional(callable $callback): mixed
+            {
+                return $this->inner->transactional(fn(): mixed => $callback($this));
+            }
+        };
     }
 }

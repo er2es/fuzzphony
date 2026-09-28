@@ -68,6 +68,23 @@ final class FieldScopingTest extends TestCase
         self::assertSame([2], $this->ids('products', 'mouse -brand:logitech', 'never'));
     }
 
+    public function testAnExcludedScopedWordInAnOrDoesNotNarrowTheCandidates(): void
+    {
+        self::assertEqualsCanonicalizing([1, 3], $this->ids('products', 'wireless (mouse | -brand:logitech)', 'never'), 'product 3 is no mouse and not Logitech');
+        self::assertEqualsCanonicalizing([1, 3], $this->ids('products', 'wireless (mouse | -brand:logitech)'), 'with typo tolerance too');
+        self::assertSame([1], $this->ids('products', 'wireless (mouse | -brand:sony)', 'never'));
+    }
+
+    public function testAnExcludedGroupExcludesAScopedWordOnlyByItsField(): void
+    {
+        $this->connection->execute("INSERT INTO fz_product VALUES (6, 'Travel mouse', 'Pairs with Sony laptops', 1, 1990, true, 1.0, now())");
+        $this->fuzzphony->reindex('shared_b');
+
+        self::assertEqualsCanonicalizing([1, 4, 6], $this->ids('shared_b', 'mouse -(brand:sony | cable)', 'never'), 'product 6 has "sony" in its description (weight B too), not in its brand; product 2 has a cable');
+        self::assertEqualsCanonicalizing([1, 4, 6], $this->ids('shared_b', 'mouse -(brand:sony | cable)'), 'with typo tolerance too');
+        self::assertEqualsCanonicalizing([1, 2, 4], $this->ids('shared_b', 'mouse -(description:sony | brand:sony)', 'never'));
+    }
+
     public function testAScopedStopWordIsIgnoredLikeAnyStopWord(): void
     {
         // same documents; the order may differ, since the exact / prefix bonuses compare the plain words ("the mouse")

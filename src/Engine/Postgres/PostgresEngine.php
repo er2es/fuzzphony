@@ -432,7 +432,7 @@ final class PostgresEngine implements Engine
         } else {
             $alwaysFuzzy = $fuzzyRoot !== null
                 && ($thresholds->fuzzyMode === FuzzyMode::Always || $tsquery === null)
-                && $fuzzy->hasFuzzyLeaf($fuzzyRoot, $emptyQueries = $this->emptyQueries($index, $fuzzy->leafQueries($fuzzyRoot)));
+                && $fuzzy->hasFuzzyLeaf($fuzzyRoot, $emptyQueries ??= $this->emptyQueries($index, $fuzzy->leafQueries($fuzzyRoot)));
             $statement = ['label' => $labelPrefix . ($alwaysFuzzy ? 'full-text + fuzzy' : 'full-text')]
                 + $builder->ranked($tsquery, $plain, $alwaysFuzzy ? $fuzzyRoot : null, $conditions, $profile, $thresholds, $query->limit, $query->offset, $emptyQueries ?? [], $scopedRoot);
             $threshold = $alwaysFuzzy ? $thresholds->fuzzySimilarity : null;
@@ -445,7 +445,7 @@ final class PostgresEngine implements Engine
                 && $fuzzyRoot !== null
                 && $thresholds->fuzzyMode === FuzzyMode::Fallback
                 && self::total($rows) < $thresholds->fallbackBelow
-                && $fuzzy->hasFuzzyLeaf($fuzzyRoot, $emptyQueries = $this->emptyQueries($index, $fuzzy->leafQueries($fuzzyRoot)))
+                && $fuzzy->hasFuzzyLeaf($fuzzyRoot, $emptyQueries ??= $this->emptyQueries($index, $fuzzy->leafQueries($fuzzyRoot)))
             ) {
                 $statement = ['label' => $labelPrefix . 'fallback: full-text + fuzzy']
                     + $builder->ranked($tsquery, $plain, $fuzzyRoot, $conditions, $profile, $thresholds, $query->limit, $query->offset, $emptyQueries, $scopedRoot);

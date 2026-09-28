@@ -19,9 +19,10 @@ changes; they are always listed under **Breaking** and explained in [UPGRADE.md]
 - Field-scoped queries are exact: `brand:x` searches the `brand` field only, on the full-text and
   on the typo-tolerant side. 0.4 searched every field of the same weight, and any fuzzy field once
   typo tolerance ran, so results of field-scoped queries change (`name:sony` no longer returns
-  Sony-brand products). A scoped word of a field that is not fuzzy is matched exactly only. The
-  index table stores one `tsvector` per field and one normalised text per fuzzy field (roughly one
-  more copy of the indexed text).
+  Sony-brand products). An excluded one (`-brand:x`, also inside a group such as
+  `-(brand:x | cable)`) excludes by that field only. A scoped word of a field that is not fuzzy is
+  matched exactly only. The index table stores one `tsvector` per field and one normalised text
+  per fuzzy field (roughly one more copy of the indexed text).
 
 ### Added
 
