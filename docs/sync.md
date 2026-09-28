@@ -102,7 +102,9 @@ runs at a time; a second one fails right away. A role without those rights, or a
 
 `--in-place` (`new ReindexOptions(inPlace: true)`) writes the live index directly, as before 0.5:
 no second copy, but searches see a mix of old and new documents while it runs. It finishes by
-removing orphans in batches and reports how many.
+removing orphans in batches and reports how many. A full `--in-place` run first discards a rebuild
+a failed run left behind, and a failed in-place run is resumed in place: the hints it prints read
+`--in-place --from=…` (or `--no-prune --from=…`).
 
 A run that fails or is killed leaves its rebuild behind, and every change to the live index is
 logged for it: `fuzzphony:doctor` warns ("a rebuild of … did not finish"). Resume it with `--from`
@@ -128,9 +130,11 @@ short transaction of its own. Inside your transaction the batches and the swap's
 it (searches blocked until you commit), so there it writes in place (`ReindexResult::$swapped` is
 false).
 
-`fuzzphony:schema --apply` refuses to run while a full reindex of an index in its plan is
-building (it would replace the functions the rebuild uses): run it again when the reindex has
-finished. A reindex started while an apply runs fails right away with "already running".
+`fuzzphony:schema --apply` (and `--drop --apply`) refuses to run while a full reindex of an index
+in its plan is building (it would replace the functions the rebuild uses): run it again when the
+reindex has finished. A reindex started while an apply runs fails right away with "already
+running". A `--dump-migration` migration contains the same guard, but it is not transactional, so
+it only refuses while a rebuild is running at the guard statement.
 
 When the swap cannot lock the live table (long transactions or autovacuum hold it) it retries 5
 times, 3 s each; then the run fails, keeps its rebuild, and `fuzzphony:reindex` exits with code 1

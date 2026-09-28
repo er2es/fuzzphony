@@ -49,6 +49,8 @@ final class ReindexCommand extends Command
         $noPrune = $input->getOption('no-prune') === true;
         $inPlace = $input->getOption('in-place') === true;
         $pruneEmpty = $input->getOption('prune-empty') === true;
+        // an in-place run resumes in place: a full run resumed from its id would continue a stale rebuild
+        $again = ($inPlace ? '--in-place ' : '') . ($noPrune ? '--no-prune ' : '');
 
         if ($pruneEmpty && !$this->confirmPruneEmpty($input, $io)) {
             return Command::FAILURE;
@@ -57,17 +59,17 @@ final class ReindexCommand extends Command
         foreach (IndexArgument::resolve($this->fuzzphony, $input) as $index) {
             $io->section(sprintf('Reindexing "%s"', $index->name));
             $started = microtime(true);
-            $lastId = null;
+            $lastId = is_string($from) ? $from : null;
             try {
                 $result = $this->fuzzphony->reindex($index->name, new ReindexOptions(
                     batchSize: $batch,
                     resumeAfter: is_string($from) ? $index->idType->cast($from) : null,
                     prune: !$noPrune,
                     pruneEmpty: $pruneEmpty,
-                    onBatch: static function (int $done, int|string $last) use ($io, $started, &$lastId): void {
+                    onBatch: static function (int $done, int|string $last) use ($io, $started, $again, &$lastId): void {
                         $lastId = $last;
                         $rate = $done / max(0.001, microtime(true) - $started);
-                        $io->writeln(sprintf('  %s documents, %s/s, last id %s <comment>(resume: --from=%s)</comment>', number_format($done), number_format($rate), $last, $last));
+                        $io->writeln(sprintf('  %s documents, %s/s, last id %s <comment>(resume: %s--from=%s)</comment>', number_format($done), number_format($rate), $last, $again, $last));
                     },
                     inPlace: $inPlace,
                 ));
@@ -75,7 +77,7 @@ final class ReindexCommand extends Command
                 // a failed run keeps what it built (a full run: its rebuild), so resuming continues it
                 $io->writeln(sprintf('  <error>%s</error>', OutputFormatter::escape($e->getMessage())));
                 if ($lastId !== null) {
-                    $io->writeln(sprintf('  Resume it: bin/console fuzzphony:reindex %s --from=%s', $index->name, $lastId));
+                    $io->writeln(sprintf('  Resume it: bin/console fuzzphony:reindex %s %s--from=%s', $index->name, $again, $lastId));
                 }
 
                 return Command::FAILURE;

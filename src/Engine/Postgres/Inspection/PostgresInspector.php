@@ -647,7 +647,8 @@ final class PostgresInspector
         if ($left === []) {
             return [];
         }
-        // a transaction-level probe: released when this transaction ends, never kept
+        // a transaction-level probe, released when this transaction ends; inside a caller's transaction
+        // it is held until that commits, and in the session holding the rebuild lock it re-enters (free)
         $free = $this->connection->transactional(fn(Connection $c): mixed => $c->fetchValue(
             'SELECT pg_try_advisory_xact_lock(hashtext(:key))',
             ['key' => $this->names->rebuildLockKey($index)],

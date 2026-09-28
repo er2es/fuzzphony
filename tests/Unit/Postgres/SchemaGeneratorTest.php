@@ -375,6 +375,11 @@ final class SchemaGeneratorTest extends TestCase
         );
         self::assertSame('Refuse while a full reindex of "products" runs', $first->description);
         self::assertTrue($first->transactional, 'it holds the lock for the apply transaction');
+
+        $drop = (new PostgresSchemaGenerator(new Names('public', 'fz')))->drop(Indexes::products())->statements[0];
+        self::assertSame($first->sql, $drop->sql, '--drop --apply would remove what the rebuild writes');
+        self::assertSame($first->description, $drop->description);
+        self::assertTrue($drop->transactional);
     }
 
     public function testSecondaryIndexAndTriggerNames(): void

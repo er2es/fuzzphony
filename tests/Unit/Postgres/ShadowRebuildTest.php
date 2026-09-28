@@ -203,7 +203,7 @@ final class ShadowRebuildTest extends TestCase
             self::fail('EngineFailure expected');
         } catch (EngineFailure $e) {
             self::assertSame(
-                'Fuzzphony rebuild of "products" failed: the swap could not lock "public"."fuzzphony_products" within 50ms, 6 times (long transactions or autovacuum hold it). The rebuild was kept: call finishRebuild() again, or resume the reindex ("fuzzphony:reindex products --from …").',
+                'Fuzzphony rebuild of "products" failed: the swap could not lock "public"."fuzzphony_products" within 50ms, 6 times (long transactions or autovacuum hold it). The rebuild was kept: run "fuzzphony:reindex products --from=<the last id it printed>" to resume it, or without --from to start over.',
                 $e->getMessage(),
             );
             self::assertInstanceOf(LockNotAvailable::class, $e->getPrevious());

@@ -131,6 +131,9 @@ On Linux set `DEMO_UID` / `DEMO_GID` to your own ids so files written into the m
 
 ### Proven on 500 000 rows
 
+The reindex timings below were measured with 0.4, which reindexed in place; since 0.5 a full
+reindex builds next to the live index and swaps it in, and has not been measured again.
+
 The numbers below were measured on PostgreSQL 17.11. On PostgreSQL 18.6, the current default, the
 same stack came up in 46 s from an empty volume, and every page returned 200.
 On the 0.4 layout (`schema: fuzzphony`, PostgreSQL 18.6, same machine) the catalogue reindexed in

@@ -159,7 +159,9 @@ final class PostgresSchemaGenerator
      * First in the apply transaction: fails it while a full reindex of the index runs (it holds
      * the rebuild lock, Names::rebuildLockKey()), because the plan replaces the functions that
      * rebuild uses (a new layout would break it), and holds the lock until the transaction ends,
-     * so no rebuild starts meanwhile. A DO block, so --dump-migration keeps the guard.
+     * so no rebuild starts meanwhile. Also first in drop(). A DO block, so --dump-migration keeps
+     * the guard, but a migration is not transactional: there it only refuses while a rebuild is
+     * running at that statement.
      */
     private function rebuildGuard(IndexDefinition $index): Statement
     {
@@ -173,7 +175,7 @@ final class PostgresSchemaGenerator
 
     public function drop(IndexDefinition $index): SchemaPlan
     {
-        $statements = [];
+        $statements = [$this->rebuildGuard($index)];
         foreach ($index->effectiveWatches() as $watch) {
             foreach ($this->allTriggerNames($index, $watch) as $trigger) {
                 $statements[] = new Statement(sprintf('DROP TRIGGER IF EXISTS %s ON %s', Sql::ident($trigger), Sql::ident($watch->table)), 'Remove sync trigger');

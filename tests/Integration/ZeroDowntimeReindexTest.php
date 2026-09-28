@@ -122,6 +122,21 @@ final class ZeroDowntimeReindexTest extends TestCase
         self::assertNull($this->connection->fetchValue("SELECT to_regclass('fuzzphony_noted__next')"));
     }
 
+    public function testAFullInPlaceRunAfterACrashDiscardsTheLeftOverRebuild(): void
+    {
+        $fuzzphony = $this->install($this->notedIndex('trigger'));
+        $this->crash($fuzzphony);
+
+        $result = $fuzzphony->reindex('noted', new ReindexOptions(batchSize: 2, inPlace: true));
+
+        self::assertFalse($result->swapped);
+        self::assertSame(4, $result->written);
+        self::assertNull($this->connection->fetchValue("SELECT to_regclass('fuzzphony_noted__next')"), 'a later --from must not continue it');
+        self::assertNull($this->connection->fetchValue("SELECT to_regclass('fuzzphony_noted__changes')"));
+        self::assertNull(array_find($fuzzphony->inspect('noted')->checks, static fn(Check $c): bool => $c->name === 'Rebuild'), 'nothing left: no Rebuild check');
+        self::assertTrue($this->lockIsFree());
+    }
+
     public function testASecondRunFailsFastWhileOneIsRunning(): void
     {
         $fuzzphony = $this->install($this->notedIndex('trigger'));

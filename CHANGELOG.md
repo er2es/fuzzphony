@@ -38,10 +38,13 @@ changes; they are always listed under **Breaking** and explained in [UPGRADE.md]
   place, as before, and the command says so). After a swap `ReindexResult::$pruned` is `null` (the
   orphans went with the old index) and the new `ReindexResult::$swapped` is `true`. A second full
   reindex of the same index while one runs fails with `InvalidArgument`.
-- `fuzzphony:schema --apply` (and a `--dump-migration` migration) fails while a full reindex of
-  an index in its plan runs: run it again when the reindex has finished.
-- A failed `fuzzphony:reindex` prints the error and the `--from` to resume with, and exits with
-  code 1 (instead of an uncaught exception).
+- `fuzzphony:schema --apply` and `--drop --apply` fail while a full reindex of an index in their
+  plan runs: run them again when the reindex has finished. A `--dump-migration` migration is not
+  transactional, so it only refuses while a rebuild is running at its guard statement.
+- A failed `fuzzphony:reindex` prints the error and the command to resume with (`--from`, plus
+  `--in-place` / `--no-prune` when the run wrote in place), and exits with code 1 (instead of an
+  uncaught exception); it stops at the first index that fails. A full `--in-place` run discards a
+  rebuild a failed run left behind.
 
 ### Added
 

@@ -121,7 +121,7 @@ final class ShadowRebuild
         for ($attempt = 0; ($timedOut = $this->swap($index)) !== null; ++$attempt) {
             if ($attempt === self::SWAP_RETRIES) {
                 throw new EngineFailure(sprintf(
-                    'Fuzzphony rebuild of "%1$s" failed: the swap could not lock %2$s within %3$s, %4$d times (long transactions or autovacuum hold it). The rebuild was kept: call finishRebuild() again, or resume the reindex ("fuzzphony:reindex %1$s --from …").',
+                    'Fuzzphony rebuild of "%1$s" failed: the swap could not lock %2$s within %3$s, %4$d times (long transactions or autovacuum hold it). The rebuild was kept: run "fuzzphony:reindex %1$s --from=<the last id it printed>" to resume it, or without --from to start over.',
                     $index->name,
                     $this->names->sidecar($index),
                     $this->lockTimeout,

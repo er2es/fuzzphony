@@ -125,13 +125,42 @@ final class ReindexerTest extends TestCase
 
     public function testInPlaceOrWithoutPruningNoRebuildIsStarted(): void
     {
-        foreach ([new ReindexOptions(inPlace: true), new ReindexOptions(prune: false)] as $options) {
-            $engine = $this->engine([[1]]);
+        foreach ([new ReindexOptions(inPlace: true, resumeAfter: 7), new ReindexOptions(prune: false)] as $options) {
+            $engine = $this->engine([[8]]);
             $engine->expects(self::never())->method('beginRebuild');
             $engine->expects(self::once())->method('refresh')->willReturn(1);
 
             self::assertFalse((new Reindexer($engine))->run(Indexes::products(), $options)->swapped);
         }
+    }
+
+    public function testAFullInPlaceRunFirstDiscardsALeftOverRebuild(): void
+    {
+        $order = [];
+        $engine = $this->engine([[1]]);
+        $engine->expects(self::once())->method('beginRebuild')->with(self::anything(), true)->willReturnCallback(static function () use (&$order): bool {
+            $order[] = 'begin';
+
+            return true;
+        });
+        $engine->expects(self::once())->method('abortRebuild')->with(self::anything(), false)->willReturnCallback(static function () use (&$order): void {
+            $order[] = 'discard';
+        });
+        $engine->expects(self::once())->method('refresh')->willReturnCallback(static function () use (&$order): int {
+            $order[] = 'refresh';
+
+            return 1;
+        });
+        $engine->expects(self::never())->method('refreshShadow');
+
+        self::assertFalse((new Reindexer($engine))->run(Indexes::products(), new ReindexOptions(inPlace: true))->swapped);
+        self::assertSame(['begin', 'discard', 'refresh'], $order, 'a later resume must not continue it: in place changed the live index');
+
+        $none = $this->engine([[1]]);
+        $none->expects(self::once())->method('beginRebuild')->with(self::anything(), true)->willReturn(false);
+        $none->expects(self::never())->method('abortRebuild');
+        $none->expects(self::once())->method('refresh')->willReturn(1);
+        (new Reindexer($none))->run(Indexes::products(), new ReindexOptions(inPlace: true));
     }
 
     public function testWhenTheEngineCannotBuildNextToTheLiveIndexTheRunGoesInPlace(): void

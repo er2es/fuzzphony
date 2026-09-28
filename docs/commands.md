@@ -8,7 +8,7 @@ The `fuzzphony:*` commands, the doctor and the configuration wizard. Back to the
 | Command | Purpose |
 |---|---|
 | `fuzzphony:schema [index] [--apply\|--drop\|--dump-migration=dir] [--force]` | show / apply / export idempotent DDL (alias `fuzzphony:install`); `--dump-migration` writes a Doctrine migration, see [Doctrine Migrations](integrations.md#doctrine-migrations) |
-| `fuzzphony:reindex [index] [--batch=5000] [--from=id] [--in-place] [--no-prune] [--prune-empty] [--force]` | rebuild next to the live index and swap it in (zero downtime; `--in-place` writes the live index directly), resumable, with progress; a failed run exits with code 1 and prints the `--from` to resume with; see [Reindexing](sync.md#reindexing-and-orphan-pruning) |
+| `fuzzphony:reindex [index] [--batch=5000] [--from=id] [--in-place] [--no-prune] [--prune-empty] [--force]` | rebuild next to the live index and swap it in (zero downtime; `--in-place` writes the live index directly), resumable, with progress; a failed run exits with code 1 and prints the command to resume with, and the command stops at the first index that fails; see [Reindexing](sync.md#reindexing-and-orphan-pruning) |
 | `fuzzphony:worker [--once] [--time-limit=s] [--index=x]` | drain the sync queue; graceful on SIGTERM |
 | `fuzzphony:doctor [index] [--deep] [--strict]` | health check with fixes |
 | `fuzzphony:search index 'query' [-w filter] [--explain [--analyze]]` | try queries, see score breakdowns, SQL and plans |

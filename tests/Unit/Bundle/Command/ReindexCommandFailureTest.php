@@ -39,6 +39,37 @@ final class ReindexCommandFailureTest extends TestCase
         self::assertStringNotContainsString('documents in', $display);
     }
 
+    public function testAnInPlaceRunIsResumedInPlace(): void
+    {
+        foreach (['--in-place' => '--in-place', '--no-prune' => '--no-prune'] as $option => $again) {
+            $engine = $this->createMock(Engine::class);
+            $engine->method('beginRebuild')->willReturn(false);
+            $engine->method('sourceIds')->willReturnOnConsecutiveCalls([1, 2], [3, 4]);
+            $engine->method('refresh')->willReturnOnConsecutiveCalls(2, self::throwException(new EngineFailure('refresh failed')));
+            $engine->expects(self::never())->method('refreshShadow');
+            $tester = $this->tester($engine);
+
+            $status = $tester->execute(['--batch' => '2', $option => true], ['interactive' => false]);
+
+            $display = $tester->getDisplay();
+            self::assertSame(Command::FAILURE, $status, $display);
+            self::assertStringContainsString(sprintf('last id 2 (resume: %s --from=2)', $again), $display);
+            self::assertStringContainsString(sprintf('  Resume it: bin/console fuzzphony:reindex products %s --from=2', $again), $display, 'a full run resumed from here would continue a stale rebuild');
+        }
+    }
+
+    public function testWithoutABatchTheHintKeepsTheGivenFrom(): void
+    {
+        $engine = $this->createMock(Engine::class);
+        $engine->method('beginRebuild')->willReturn(true);
+        $engine->method('sourceIds')->willReturn([]);
+        $engine->expects(self::once())->method('finishRebuild')->willThrowException(new EngineFailure('busy'));
+        $tester = $this->tester($engine);
+
+        self::assertSame(Command::FAILURE, $tester->execute(['--from' => '7'], ['interactive' => false]));
+        self::assertStringContainsString('  Resume it: bin/console fuzzphony:reindex products --from=7', $tester->getDisplay());
+    }
+
     public function testAFailureBeforeTheFirstBatchHasNothingToResume(): void
     {
         $engine = $this->createMock(Engine::class);
