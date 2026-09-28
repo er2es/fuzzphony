@@ -42,6 +42,18 @@ final class NamesTest extends TestCase
         self::assertSame('"t_brand"', $names->fieldVector('brand'));
         self::assertSame('z_brand', $names->fieldFuzzyName('brand'));
         self::assertSame('"z_brand"', $names->fieldFuzzy('brand'));
+        self::assertSame('fuzzphony_products__next', $names->shadowName($index));
+        self::assertSame('"public"."fuzzphony_products__next"', $names->shadow($index));
+        self::assertSame('fuzzphony_products__changes', $names->changesName($index));
+        self::assertSame('"public"."fuzzphony_products__changes"', $names->changes($index));
+        self::assertSame('fuzzphony_refresh_products__next', $names->shadowRefreshFunctionName($index));
+        self::assertSame('"public"."fuzzphony_refresh_products__next"', $names->shadowRefreshFunction($index));
+        self::assertSame('fuzzphony_track_products', $names->trackFunctionName($index));
+        self::assertSame('"public"."fuzzphony_track_products"', $names->trackFunction($index));
+        self::assertSame('fuzzphony_products_tsv__next', $names->shadowIndexName('fuzzphony_products_tsv'));
+        self::assertSame('"public"."fuzzphony_products_tsv"', $names->index('fuzzphony_products_tsv'));
+        self::assertSame('fuzzphony:public.products', $names->rebuildLockKey($index));
+        self::assertSame('fuzzphony:fz.products', (new Names(schema: 'fz'))->rebuildLockKey($index));
     }
 
     public function testTextSearchNames(): void
@@ -79,6 +91,20 @@ final class NamesTest extends TestCase
         self::assertStringStartsWith('t_ff', $names->fieldVectorName($long));
         self::assertSame(63, strlen($names->fieldFuzzyName($long)));
         self::assertStringStartsWith('z_ff', $names->fieldFuzzyName($long));
+
+        $longest = IndexDefinition::builder(str_repeat('x', 48))->fromTable('t')->field('title')->build();
+        $rebuild = [
+            $names->shadowName($longest),
+            $names->changesName($longest),
+            $names->shadowRefreshFunctionName($longest),
+            $names->trackFunctionName($longest),
+            $names->shadowIndexName($names->indexName($longest, 'pkey')),
+        ];
+        foreach ($rebuild as $name) {
+            self::assertLessThanOrEqual(63, strlen($name), $name);
+        }
+        self::assertNotSame($names->sidecarName($longest), $names->shadowName($longest));
+        self::assertCount(5, array_unique($rebuild));
     }
 
     public function testAnInvalidExtensionSchemaIsAConfigurationError(): void

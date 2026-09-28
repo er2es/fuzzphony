@@ -66,6 +66,11 @@ final class PostgresInspector
             sprintf('%s(%s[])', $this->names->refreshFunction($index), Types::id($index->idType)),
             'Refresh function',
         );
+        $checks[] = $this->function(
+            sprintf('%s(%s[])', $this->names->shadowRefreshFunction($index), Types::id($index->idType)),
+            'Rebuild refresh function',
+        );
+        $checks[] = $this->function($this->names->trackFunction($index) . '()', 'Rebuild change log function');
         array_push($checks, ...$this->triggers($index));
         $checks[] = $this->queue($index, $options);
         if ($sidecarExists && $sourceColumns !== null) {

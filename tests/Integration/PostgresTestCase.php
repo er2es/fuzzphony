@@ -72,7 +72,7 @@ final class PostgresTestCase
     /** @param array{brands: list<array{int, string}>, products: list<array{int, string, string, int, int, bool, float, string}>} $rows */
     public static function createFixtures(Connection $connection, array $rows): void
     {
-        $connection->execute('DROP TABLE IF EXISTS fz_product, fz_brand, fuzzphony_products, fuzzphony_queue, fuzzphony_meta CASCADE');
+        $connection->execute('DROP TABLE IF EXISTS fz_product, fz_brand, fuzzphony_products, fuzzphony_products__next, fuzzphony_products__changes, fuzzphony_queue, fuzzphony_meta CASCADE');
         $connection->execute("CREATE TABLE fz_brand (id bigint PRIMARY KEY, name text NOT NULL, country text NOT NULL DEFAULT '')");
         $connection->execute(<<<'SQL'
             CREATE TABLE fz_product (

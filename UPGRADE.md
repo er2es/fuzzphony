@@ -21,6 +21,11 @@ and the [CHANGELOG](CHANGELOG.md) has the full list of changes.
    `--force`, or it now fails with exit code 1 and a message telling you to. This does not apply to
    plain `fuzzphony:schema --apply` or `fuzzphony:reindex` (without `--prune-empty`), and never to
    the PHP API (`Fuzzphony::schema()`, `Fuzzphony::reindex()`), which never prompts.
+4. **Custom engines** implement `beginRebuild()`, `refreshShadow()`, `finishRebuild()` and
+   `abortRebuild()`. The minimal implementation keeps the 0.4 behaviour:
+   `public function beginRebuild(IndexDefinition $index, bool $resume = false): bool { return false; }`
+   (the reindex then writes in place) and empty bodies for the other three (`refreshShadow()`
+   returns `0`).
 
 ## From 0.3 to 0.4
 

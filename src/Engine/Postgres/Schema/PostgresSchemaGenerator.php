@@ -108,6 +108,8 @@ final class PostgresSchemaGenerator
             );
         }
         $statements[] = new Statement($this->refreshFunction($index), 'Builds / removes documents by id');
+        $statements[] = new Statement($this->refreshFunction($index, shadow: true), 'Builds / removes documents by id in the table a full reindex builds next to the live one');
+        $statements[] = new Statement($this->trackFunction($index), 'Logs which documents change while a full reindex runs');
 
         foreach ($index->effectiveWatches() as $watch) {
             $watched = Sql::ident($watch->table);
@@ -163,6 +165,10 @@ final class PostgresSchemaGenerator
         }
         $statements[] = new Statement(sprintf('DROP FUNCTION IF EXISTS %s(%s[])', $this->names->refreshFunction($index), Types::id($index->idType)), 'Remove refresh function');
         $statements[] = new Statement(sprintf('DROP TABLE IF EXISTS %s', $this->names->sidecar($index)), 'Remove sidecar table');
+        $statements[] = new Statement(sprintf('DROP TABLE IF EXISTS %s', $this->names->shadow($index)), 'Remove a rebuild that did not finish');
+        $statements[] = new Statement(sprintf('DROP TABLE IF EXISTS %s', $this->names->changes($index)), 'Remove its change log');
+        $statements[] = new Statement(sprintf('DROP FUNCTION IF EXISTS %s(%s[])', $this->names->shadowRefreshFunction($index), Types::id($index->idType)), 'Remove the rebuild refresh function');
+        $statements[] = new Statement(sprintf('DROP FUNCTION IF EXISTS %s()', $this->names->trackFunction($index)), 'Remove the change log function');
         $statements[] = new Statement(sprintf(
             "DO " . self::TAG . " BEGIN IF to_regclass(%s) IS NOT NULL THEN DELETE FROM %s WHERE index_name = %s; END IF; END " . self::TAG,
             Sql::string($this->names->queue()),
@@ -371,11 +377,19 @@ ON CONFLICT (index_name) DO UPDATE SET layout_version = EXCLUDED.layout_version,
      * stored, not the schemas it named then: with the default `"$user", public`, `$user` is
      * evaluated when the function runs, as the calling role (the functions are SECURITY INVOKER),
      * so a caller with a schema of its own name can still shadow a source table. Fuzzphony's own
-     * objects are schema-qualified and never depend on it.
+     * objects are schema-qualified and never depend on it. With $shadow, the same function for the
+     * table a full reindex builds (Names::shadow()): two static functions keep the SQL plan-cached,
+     * no EXECUTE per batch.
+     *
+     * While a full reindex runs, the live function logs every id it is given (ADR 0008): a document
+     * the live table never had (queued or not yet refreshed when the rebuild loaded it, deleted
+     * since) writes nothing there, so the change log trigger alone would miss it. The log comes after
+     * the writes: the function takes the live table's lock before the log's, like the swap, so the two
+     * never deadlock.
      */
-    private function refreshFunction(IndexDefinition $index): string
+    private function refreshFunction(IndexDefinition $index, bool $shadow = false): string
     {
-        $table = $this->names->sidecar($index);
+        $table = $shadow ? $this->names->shadow($index) : $this->names->sidecar($index);
         $columns = ['id', 'tsv', 'fz', 'exact'];
         $values = ['doc.fz_id', $this->tsvectorExpression($index), $this->fuzzyExpression($index), $this->exactExpression($index)];
         foreach ($index->fields as $field) {
@@ -430,13 +444,13 @@ ON CONFLICT (index_name) DO UPDATE SET layout_version = EXCLUDED.layout_version,
 
                     DELETE FROM %3$s AS s
                     WHERE s.id = ANY(p_ids)
-                      AND NOT EXISTS (SELECT 1 FROM (%6$s) AS doc WHERE doc.fz_id = s.id);
+                      AND NOT EXISTS (SELECT 1 FROM (%6$s) AS doc WHERE doc.fz_id = s.id);%9$s
 
                     RETURN written;
                 END
                 %8$s
                 SQL,
-            $this->names->refreshFunction($index),
+            $shadow ? $this->names->shadowRefreshFunction($index) : $this->names->refreshFunction($index),
             Types::id($index->idType),
             $table,
             implode(', ', array_map(Sql::ident(...), $columns)),
@@ -444,6 +458,177 @@ ON CONFLICT (index_name) DO UPDATE SET layout_version = EXCLUDED.layout_version,
             $document,
             $updates,
             self::TAG,
+            $shadow ? '' : sprintf(
+                "
+
+    IF to_regclass(%s) IS NOT NULL THEN
+        INSERT INTO %s (id) SELECT u.id FROM unnest(p_ids) AS u(id) WHERE u.id IS NOT NULL ON CONFLICT DO NOTHING;
+    END IF;",
+                Sql::string($this->names->changes($index)),
+                $this->names->changes($index),
+            ),
+        );
+    }
+
+    /**
+     * Logs the id of every live document that changes while a full reindex runs (a row trigger
+     * on the live table, created by beginRebuild(), gone with the old table after the swap). It
+     * runs as the writer, in the writer's transaction; beginRebuild() grants the log to them.
+     */
+    private function trackFunction(IndexDefinition $index): string
+    {
+        return sprintf(
+            <<<'SQL'
+                CREATE OR REPLACE FUNCTION %1$s() RETURNS trigger
+                LANGUAGE plpgsql SET search_path = pg_catalog, pg_temp AS %3$s
+                BEGIN
+                    IF TG_OP = 'DELETE' THEN
+                        INSERT INTO %2$s (id) VALUES (OLD.id) ON CONFLICT DO NOTHING;
+                    ELSE
+                        INSERT INTO %2$s (id) VALUES (NEW.id) ON CONFLICT DO NOTHING;
+                    END IF;
+                    RETURN NULL;
+                END
+                %3$s
+                SQL,
+            $this->names->trackFunction($index),
+            $this->names->changes($index),
+            self::TAG,
+        );
+    }
+
+    /**
+     * Starts a full rebuild next to the live table, in one statement: drops a leftover one,
+     * creates the change log (writable by every role that may write the live table) and the
+     * empty rebuild table (the current layout, without secondary indexes: shadowIndexes() adds
+     * them after the load), and starts logging the live table. CREATE TRIGGER waits for the
+     * transactions writing the live table, so every later change is logged.
+     */
+    public function beginRebuild(IndexDefinition $index): string
+    {
+        return sprintf(
+            <<<'SQL'
+                DO %1$s
+                DECLARE
+                    r record;
+                BEGIN
+                    DROP TABLE IF EXISTS %2$s;
+                    DROP TABLE IF EXISTS %3$s;
+                    CREATE TABLE %3$s (id %4$s PRIMARY KEY);
+                    FOR r IN SELECT DISTINCT a.grantee
+                             FROM pg_class AS c, aclexplode(coalesce(c.relacl, acldefault('r', c.relowner))) AS a
+                             WHERE c.oid = %5$s::regclass AND a.privilege_type IN ('INSERT', 'UPDATE', 'DELETE') LOOP
+                        EXECUTE format('GRANT INSERT ON %%s TO %%s', %6$s, CASE WHEN r.grantee = 0 THEN 'PUBLIC' ELSE quote_ident(pg_get_userbyid(r.grantee)) END);
+                    END LOOP;
+                    %7$s;
+                    CREATE OR REPLACE TRIGGER %8$s AFTER INSERT OR UPDATE OR DELETE ON %9$s FOR EACH ROW EXECUTE FUNCTION %10$s();
+                END
+                %1$s
+                SQL,
+            self::TAG,
+            $this->names->shadow($index),
+            $this->names->changes($index),
+            Types::id($index->idType),
+            Sql::string($this->names->sidecar($index)),
+            Sql::string($this->names->changes($index)),
+            $this->shadowTable($index),
+            Sql::ident($this->names->trackFunctionName($index)),
+            $this->names->sidecar($index),
+            $this->names->trackFunction($index),
+        );
+    }
+
+    /** The rebuild table: the current layout (columns()), its primary key named for the swap. */
+    private function shadowTable(IndexDefinition $index): string
+    {
+        $columns = $this->columns($index);
+        $columns['id'] = Types::id($index->idType) . ' NOT NULL';
+        $definitions = array_map(static fn(string $name, string $type): string => sprintf('    %s %s', Sql::ident($name), $type), array_keys($columns), $columns);
+        $definitions[] = sprintf('    CONSTRAINT %s PRIMARY KEY (%s)', Sql::ident($this->names->shadowIndexName($this->names->indexName($index, 'pkey'))), Sql::ident('id'));
+
+        return sprintf("CREATE TABLE %s (\n%s\n)", $this->names->shadow($index), implode(",\n", $definitions));
+    }
+
+    /**
+     * The rebuild table's secondary indexes, built once it is loaded (faster than maintaining
+     * them during the load; the table is not live, so nothing waits), and fresh statistics.
+     *
+     * @return list<string>
+     */
+    public function shadowIndexes(IndexDefinition $index): array
+    {
+        $statements = [];
+        foreach ($this->indexes($index) as $name => $definition) {
+            $statements[] = sprintf('CREATE INDEX IF NOT EXISTS %s ON %s %s', Sql::ident($this->names->shadowIndexName($name)), $this->names->shadow($index), $definition);
+        }
+        $statements[] = sprintf('ANALYZE %s', $this->names->shadow($index));
+
+        return $statements;
+    }
+
+    /**
+     * Swaps the rebuild in (run under ACCESS EXCLUSIVE on both tables): it gets the live table's
+     * grants and owner (it was created by the reindexing role), the live table goes (with its
+     * change log trigger), the rebuild takes the live name, its primary key and indexes the live
+     * names. plpgsql resolves tables by name: the drop invalidates the cached plans of the live
+     * refresh function, which writes the new table from its next call.
+     */
+    public function swap(IndexDefinition $index): string
+    {
+        $sidecar = $this->names->sidecar($index);
+        $renames = '';
+        foreach (array_keys($this->indexes($index)) as $name) {
+            $renames .= sprintf("\n    ALTER INDEX %s RENAME TO %s;", $this->names->index($this->names->shadowIndexName($name)), Sql::ident($name));
+        }
+        $key = $this->names->indexName($index, 'pkey');
+
+        return sprintf(
+            <<<'SQL'
+                DO %1$s
+                DECLARE
+                    r record;
+                    v_owner text;
+                BEGIN
+                    FOR r IN SELECT a.privilege_type, a.is_grantable, CASE WHEN a.grantee = 0 THEN 'PUBLIC' ELSE quote_ident(pg_get_userbyid(a.grantee)) END AS grantee
+                             FROM pg_class AS c, aclexplode(c.relacl) AS a
+                             WHERE c.oid = %2$s::regclass AND a.grantee <> c.relowner LOOP
+                        EXECUTE format('GRANT %%s ON %%s TO %%s%%s', r.privilege_type, %3$s, r.grantee, CASE WHEN r.is_grantable THEN ' WITH GRANT OPTION' ELSE '' END);
+                    END LOOP;
+                    SELECT quote_ident(pg_get_userbyid(relowner)) INTO v_owner FROM pg_class WHERE oid = %2$s::regclass;
+                    IF v_owner <> quote_ident(current_user) THEN
+                        EXECUTE format('ALTER TABLE %%s OWNER TO %%s', %3$s, v_owner);
+                    END IF;
+                    DROP TABLE %4$s;
+                    ALTER TABLE %5$s RENAME TO %6$s;
+                    ALTER TABLE %4$s RENAME CONSTRAINT %7$s TO %8$s;%9$s
+                    DROP TABLE %10$s;
+                END
+                %1$s
+                SQL,
+            self::TAG,
+            Sql::string($sidecar),
+            Sql::string($this->names->shadow($index)),
+            $sidecar,
+            $this->names->shadow($index),
+            Sql::ident($this->names->sidecarName($index)),
+            Sql::ident($this->names->shadowIndexName($key)),
+            Sql::ident($key),
+            $renames,
+            $this->names->changes($index),
+        );
+    }
+
+    /** Discards a rebuild: the change log trigger, the rebuild table and the log. */
+    public function discardRebuild(IndexDefinition $index): string
+    {
+        return sprintf(
+            'DO %1$s BEGIN IF to_regclass(%2$s) IS NOT NULL THEN DROP TRIGGER IF EXISTS %3$s ON %4$s; END IF; DROP TABLE IF EXISTS %5$s; DROP TABLE IF EXISTS %6$s; END %1$s',
+            self::TAG,
+            Sql::string($this->names->sidecar($index)),
+            Sql::ident($this->names->trackFunctionName($index)),
+            $this->names->sidecar($index),
+            $this->names->shadow($index),
+            $this->names->changes($index),
         );
     }
 
@@ -513,6 +698,7 @@ ON CONFLICT (index_name) DO UPDATE SET layout_version = EXCLUDED.layout_version,
      *   "SELECT * FROM parent" still returns the child tables' rows. Queue rows another transaction
      *   holds (a running worker) are skipped, so this never waits on the worker's row locks; the
      *   worker refreshes those ids itself and the refresh deletes them from the now empty index.
+     *   While a full reindex runs, the queue is kept: the worker's refreshes log the ids for it.
      * - Any other watched table (or a source that is not empty): its rows are gone, so the affected
      *   documents cannot be told apart; every document that is indexed or that the source now
      *   returns is resynced. Expensive on a big index, but a TRUNCATE is rare.
@@ -546,9 +732,12 @@ ON CONFLICT (index_name) DO UPDATE SET layout_version = EXCLUDED.layout_version,
         $wipe = [sprintf('DELETE FROM %s;', $sidecar)];
         if ($index->sync === SyncMode::Queue) {
             $wipe[] = sprintf(
-                'DELETE FROM %1$s WHERE ctid IN (SELECT ctid FROM %1$s WHERE index_name = %2$s FOR UPDATE SKIP LOCKED);',
+                // not while a full reindex runs: the worker refreshes those ids (which logs them), a
+                // document the rebuild loaded from the queued changes would otherwise survive the swap
+                'IF to_regclass(%3$s) IS NULL THEN DELETE FROM %1$s WHERE ctid IN (SELECT ctid FROM %1$s WHERE index_name = %2$s FOR UPDATE SKIP LOCKED); END IF;',
                 $this->names->queue(),
                 Sql::string($index->name),
+                Sql::string($this->names->changes($index)),
             );
         }
 

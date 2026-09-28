@@ -68,6 +68,32 @@ interface Engine
      */
     public function recordReindex(IndexDefinition $index): void;
 
+    /**
+     * Starts a full rebuild next to the live index, which searches keep reading until
+     * finishRebuild() swaps the rebuild in (zero-downtime reindex). Takes the index's rebuild
+     * lock for the whole run and throws InvalidArgument when another run holds it. A new run
+     * ($resume false) discards a leftover rebuild and starts an empty one; a resumed run
+     * continues a leftover one. Returns false, with the lock released, when the run must write
+     * the live index in place instead: $resume without a leftover rebuild, or an engine or a
+     * role that cannot build next to the live index.
+     */
+    public function beginRebuild(IndexDefinition $index, bool $resume = false): bool;
+
+    /**
+     * refresh() into the rebuild beginRebuild() started.
+     *
+     * @param list<int|string> $ids
+     *
+     * @return int number of documents written
+     */
+    public function refreshShadow(IndexDefinition $index, array $ids): int;
+
+    /** Catches the rebuild up with the changes made to the live index meanwhile, swaps it in atomically and releases the lock. */
+    public function finishRebuild(IndexDefinition $index): void;
+
+    /** Releases the rebuild lock and discards the rebuild, unless $keepShadow (a failed run keeps it, so a resumed run can continue it). */
+    public function abortRebuild(IndexDefinition $index, bool $keepShadow = false): void;
+
     /** Atomically takes up to $limit queued ids and refreshes them. Returns the number processed. */
     public function processQueue(IndexDefinition $index, int $limit): int;
 

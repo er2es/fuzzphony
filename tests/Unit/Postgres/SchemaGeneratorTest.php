@@ -13,6 +13,7 @@ use Fuzzphony\Core\Schema\Statement;
 use Fuzzphony\Engine\Postgres\Schema\Fingerprint;
 use Fuzzphony\Engine\Postgres\Schema\Names;
 use Fuzzphony\Engine\Postgres\Schema\PostgresSchemaGenerator;
+use Fuzzphony\Engine\Postgres\Sql\DocumentSql;
 use Fuzzphony\Engine\Postgres\Sql\Sql;
 use Fuzzphony\Tests\Fixtures\Indexes;
 use PHPUnit\Framework\TestCase;
@@ -131,7 +132,7 @@ final class SchemaGeneratorTest extends TestCase
             foreach ([TriggerLevel::Statement, TriggerLevel::Row] as $level) {
                 $definition = $definition->withTriggerLevel($level);
                 foreach ((new PostgresSchemaGenerator())->index($definition)->statements as $statement) {
-                    if (!str_contains($statement->sql, 'RETURNS trigger')) {
+                    if (!str_contains($statement->sql, 'RETURNS trigger') || str_contains($statement->sql, 'fuzzphony_track_')) {
                         continue;
                     }
                     self::assertSame(1, preg_match("/\\ABEGIN\n    IF TG_OP = 'TRUNCATE' THEN\n(.*?)\n    END IF;/ms", substr($statement->sql, (int) strpos($statement->sql, "BEGIN\n")), $branch), $statement->sql);
@@ -155,7 +156,7 @@ final class SchemaGeneratorTest extends TestCase
         $queue = (new PostgresSchemaGenerator())->index($definition)->toSql();
         self::assertStringContainsString(
             $guard . "
-            DELETE FROM \"public\".\"fuzzphony_queue\" WHERE ctid IN (SELECT ctid FROM \"public\".\"fuzzphony_queue\" WHERE index_name = 'articles' FOR UPDATE SKIP LOCKED);"
+            IF to_regclass('\"public\".\"fuzzphony_articles__changes\"') IS NULL THEN DELETE FROM \"public\".\"fuzzphony_queue\" WHERE ctid IN (SELECT ctid FROM \"public\".\"fuzzphony_queue\" WHERE index_name = 'articles' FOR UPDATE SKIP LOCKED); END IF;"
             . sprintf($resync, "INSERT INTO \"public\".\"fuzzphony_queue\" (index_name, doc_id)
 "),
             $queue,
@@ -257,6 +258,107 @@ final class SchemaGeneratorTest extends TestCase
         self::assertStringContainsString('DROP FUNCTION IF EXISTS "public"."fuzzphony_sync_products__fz_brand"()', $sql);
         self::assertStringContainsString('DROP FUNCTION IF EXISTS "public"."fuzzphony_refresh_products"(bigint[])', $sql);
         self::assertStringContainsString("IF to_regclass('\"public\".\"fuzzphony_queue\"') IS NOT NULL THEN DELETE FROM \"public\".\"fuzzphony_queue\" WHERE index_name = 'products'; END IF;", $sql);
+        self::assertStringContainsString('DROP TABLE IF EXISTS "public"."fuzzphony_products__next"', $sql);
+        self::assertStringContainsString('DROP TABLE IF EXISTS "public"."fuzzphony_products__changes"', $sql);
+        self::assertStringContainsString('DROP FUNCTION IF EXISTS "public"."fuzzphony_refresh_products__next"(bigint[])', $sql);
+        self::assertStringContainsString('DROP FUNCTION IF EXISTS "public"."fuzzphony_track_products"()', $sql);
+    }
+
+    public function testTheRebuildHasItsOwnRefreshFunctionAndAChangeLogFunction(): void
+    {
+        $sql = (new PostgresSchemaGenerator())->index(Indexes::products())->toSql();
+
+        self::assertStringContainsString('CREATE OR REPLACE FUNCTION "public"."fuzzphony_refresh_products__next"(p_ids bigint[]) RETURNS integer', $sql);
+        self::assertStringContainsString('INSERT INTO "public"."fuzzphony_products__next" AS s ("id", "tsv"', $sql);
+        self::assertStringContainsString('DELETE FROM "public"."fuzzphony_products__next" AS s', $sql);
+        // the live refresh function logs every id it is given while a rebuild runs, after its own writes
+        // (it takes the live table's lock first, like the swap): a document the live index never had
+        // writes nothing there, so the change log trigger alone would miss it
+        self::assertStringContainsString(<<<'SQL'
+                  AND NOT EXISTS (SELECT 1 FROM (%s) AS doc WHERE doc.fz_id = s.id);
+
+                IF to_regclass('"public"."fuzzphony_products__changes"') IS NOT NULL THEN
+                    INSERT INTO "public"."fuzzphony_products__changes" (id) SELECT u.id FROM unnest(p_ids) AS u(id) WHERE u.id IS NOT NULL ON CONFLICT DO NOTHING;
+                END IF;
+
+                RETURN written;
+            SQL, str_replace(DocumentSql::select(Indexes::products()), '%s', $sql)); // the document query, twice, as %s
+        self::assertSame(1, substr_count($sql, 'FROM unnest(p_ids)'), 'the rebuild refresh function logs nothing');
+        self::assertStringContainsString(<<<'SQL'
+            CREATE OR REPLACE FUNCTION "public"."fuzzphony_track_products"() RETURNS trigger
+            LANGUAGE plpgsql SET search_path = pg_catalog, pg_temp AS $fuzzphony$
+            BEGIN
+                IF TG_OP = 'DELETE' THEN
+                    INSERT INTO "public"."fuzzphony_products__changes" (id) VALUES (OLD.id) ON CONFLICT DO NOTHING;
+                ELSE
+                    INSERT INTO "public"."fuzzphony_products__changes" (id) VALUES (NEW.id) ON CONFLICT DO NOTHING;
+                END IF;
+                RETURN NULL;
+            END
+            $fuzzphony$
+            SQL, $sql);
+    }
+
+    public function testBeginRebuildStartsAnEmptyRebuildAndLogsTheLiveTable(): void
+    {
+        $sql = (new PostgresSchemaGenerator())->beginRebuild(Indexes::products());
+
+        self::assertStringStartsWith(
+            "DO \$fuzzphony\$\nDECLARE\n    r record;\nBEGIN\n    DROP TABLE IF EXISTS \"public\".\"fuzzphony_products__next\";\n    DROP TABLE IF EXISTS \"public\".\"fuzzphony_products__changes\";\n    CREATE TABLE \"public\".\"fuzzphony_products__changes\" (id bigint PRIMARY KEY);\n",
+            $sql,
+        );
+        // every role that may write the live table may write the log (its trigger runs as the writer)
+        self::assertStringContainsString("FROM pg_class AS c, aclexplode(coalesce(c.relacl, acldefault('r', c.relowner))) AS a", $sql);
+        self::assertStringContainsString("WHERE c.oid = '\"public\".\"fuzzphony_products\"'::regclass AND a.privilege_type IN ('INSERT', 'UPDATE', 'DELETE') LOOP", $sql);
+        self::assertStringContainsString("EXECUTE format('GRANT INSERT ON %s TO %s', '\"public\".\"fuzzphony_products__changes\"', CASE WHEN r.grantee = 0 THEN 'PUBLIC' ELSE quote_ident(pg_get_userbyid(r.grantee)) END);", $sql);
+        self::assertStringContainsString("CREATE TABLE \"public\".\"fuzzphony_products__next\" (\n    \"id\" bigint NOT NULL,\n    \"tsv\" tsvector NOT NULL,\n", $sql);
+        self::assertStringContainsString("    \"indexed_at\" timestamptz NOT NULL DEFAULT now(),\n    CONSTRAINT \"fuzzphony_products_pkey__next\" PRIMARY KEY (\"id\")\n)", $sql);
+        self::assertStringEndsWith(
+            "    CREATE OR REPLACE TRIGGER \"fuzzphony_track_products\" AFTER INSERT OR UPDATE OR DELETE ON \"public\".\"fuzzphony_products\" FOR EACH ROW EXECUTE FUNCTION \"public\".\"fuzzphony_track_products\"();\nEND\n\$fuzzphony\$",
+            $sql,
+        );
+    }
+
+    public function testTheRebuildGetsItsIndexesAfterTheLoadUnderTemporaryNames(): void
+    {
+        $statements = (new PostgresSchemaGenerator())->shadowIndexes(Indexes::products());
+
+        self::assertCount(7, $statements); // tsv, trigram, 4 filters, ANALYZE
+        self::assertSame('CREATE INDEX IF NOT EXISTS "fuzzphony_products_tsv__next" ON "public"."fuzzphony_products__next" USING gin (tsv)', $statements[0]);
+        self::assertSame('CREATE INDEX IF NOT EXISTS "fuzzphony_products_fz__next" ON "public"."fuzzphony_products__next" USING gin (fz "public".gin_trgm_ops)', $statements[1]);
+        self::assertSame('CREATE INDEX IF NOT EXISTS "fuzzphony_products_f_brand_id__next" ON "public"."fuzzphony_products__next" ("f_brand_id")', $statements[5]);
+        self::assertSame('ANALYZE "public"."fuzzphony_products__next"', $statements[6]);
+    }
+
+    public function testTheSwapKeepsGrantsAndOwnerAndRestoresTheLiveNames(): void
+    {
+        $sql = (new PostgresSchemaGenerator())->swap(Indexes::products());
+
+        self::assertStringContainsString("WHERE c.oid = '\"public\".\"fuzzphony_products\"'::regclass AND a.grantee <> c.relowner LOOP", $sql);
+        self::assertStringContainsString("EXECUTE format('GRANT %s ON %s TO %s%s', r.privilege_type, '\"public\".\"fuzzphony_products__next\"', r.grantee, CASE WHEN r.is_grantable THEN ' WITH GRANT OPTION' ELSE '' END);", $sql);
+        self::assertStringContainsString("IF v_owner <> quote_ident(current_user) THEN\n        EXECUTE format('ALTER TABLE %s OWNER TO %s', '\"public\".\"fuzzphony_products__next\"', v_owner);", $sql);
+        self::assertStringEndsWith(<<<'SQL'
+                DROP TABLE "public"."fuzzphony_products";
+                ALTER TABLE "public"."fuzzphony_products__next" RENAME TO "fuzzphony_products";
+                ALTER TABLE "public"."fuzzphony_products" RENAME CONSTRAINT "fuzzphony_products_pkey__next" TO "fuzzphony_products_pkey";
+                ALTER INDEX "public"."fuzzphony_products_tsv__next" RENAME TO "fuzzphony_products_tsv";
+                ALTER INDEX "public"."fuzzphony_products_fz__next" RENAME TO "fuzzphony_products_fz";
+                ALTER INDEX "public"."fuzzphony_products_f_price__next" RENAME TO "fuzzphony_products_f_price";
+                ALTER INDEX "public"."fuzzphony_products_f_in_stock__next" RENAME TO "fuzzphony_products_f_in_stock";
+                ALTER INDEX "public"."fuzzphony_products_f_published_at__next" RENAME TO "fuzzphony_products_f_published_at";
+                ALTER INDEX "public"."fuzzphony_products_f_brand_id__next" RENAME TO "fuzzphony_products_f_brand_id";
+                DROP TABLE "public"."fuzzphony_products__changes";
+            END
+            $fuzzphony$
+            SQL, $sql);
+    }
+
+    public function testDiscardingARebuildRemovesItsTablesAndTheTrigger(): void
+    {
+        self::assertSame(
+            "DO \$fuzzphony\$ BEGIN IF to_regclass('\"public\".\"fuzzphony_products\"') IS NOT NULL THEN DROP TRIGGER IF EXISTS \"fuzzphony_track_products\" ON \"public\".\"fuzzphony_products\"; END IF; DROP TABLE IF EXISTS \"public\".\"fuzzphony_products__next\"; DROP TABLE IF EXISTS \"public\".\"fuzzphony_products__changes\"; END \$fuzzphony\$",
+            (new PostgresSchemaGenerator())->discardRebuild(Indexes::products()),
+        );
     }
 
     public function testSecondaryIndexAndTriggerNames(): void
@@ -457,6 +559,8 @@ final class SchemaGeneratorTest extends TestCase
         self::assertStringContainsString("RETURNS text\nLANGUAGE sql IMMUTABLE PARALLEL SAFE STRICT\nSET search_path = pg_catalog, pg_temp\nAS \$fuzzphony\$", $sql);
         self::assertStringContainsString("RETURNS integer\nLANGUAGE plpgsql SET search_path FROM CURRENT AS \$fuzzphony\$", $sql);
         self::assertSame(2, substr_count($sql, "RETURNS trigger\nLANGUAGE plpgsql SET search_path FROM CURRENT AS \$fuzzphony\$"), 'both sync functions');
+        self::assertSame(2, substr_count($sql, "RETURNS integer\nLANGUAGE plpgsql SET search_path FROM CURRENT AS \$fuzzphony\$"), 'the live and the rebuild refresh function');
+        self::assertStringContainsString("RETURNS trigger\nLANGUAGE plpgsql SET search_path = pg_catalog, pg_temp AS \$fuzzphony\$", $sql, 'the change log function embeds no developer SQL');
 
         $row = $generator->index(Indexes::products()->withTriggerLevel(TriggerLevel::Row))->toSql();
         self::assertSame(2, substr_count($row, "RETURNS trigger\nLANGUAGE plpgsql SET search_path FROM CURRENT AS \$fuzzphony\$"), 'row-level sync functions too');

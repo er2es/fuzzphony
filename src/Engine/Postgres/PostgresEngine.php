@@ -48,9 +48,11 @@ use Fuzzphony\Engine\Postgres\Sql\TsQueryCompiler;
 final class PostgresEngine implements Engine
 {
     private const PROBE_LABEL = 'relaxation probe';
+    private const string REBUILD_HINT = 'Run "fuzzphony:schema --apply" and "fuzzphony:doctor".';
 
     private readonly Names $names;
     private readonly PostgresSchemaGenerator $schema;
+    private readonly ShadowRebuild $rebuild;
 
     /**
      * @param string $extensionSchema schema of the pg_trgm and unaccent extensions
@@ -63,6 +65,7 @@ final class PostgresEngine implements Engine
     ) {
         $this->names = new Names($extensionSchema, $schema);
         $this->schema = new PostgresSchemaGenerator($this->names);
+        $this->rebuild = new ShadowRebuild($connection, $this->schema);
     }
 
     public function name(): string
@@ -209,6 +212,34 @@ final class PostgresEngine implements Engine
             fn(): int => $this->connection->execute($this->schema->reindexed($index)),
             sprintf('The role running the reindex needs SELECT and UPDATE on %s.', $this->names->meta()),
         );
+    }
+
+    public function beginRebuild(IndexDefinition $index, bool $resume = false): bool
+    {
+        return $this->guard('rebuild', fn(): bool => $this->rebuild->begin($index, $resume), self::REBUILD_HINT);
+    }
+
+    public function refreshShadow(IndexDefinition $index, array $ids): int
+    {
+        return $this->guard('rebuild', fn(): int => $this->rebuild->refresh($index, $ids), self::REBUILD_HINT);
+    }
+
+    public function finishRebuild(IndexDefinition $index): void
+    {
+        $this->guard('rebuild', function () use ($index): null {
+            $this->rebuild->finish($index);
+
+            return null;
+        }, self::REBUILD_HINT);
+    }
+
+    public function abortRebuild(IndexDefinition $index, bool $keepShadow = false): void
+    {
+        $this->guard('rebuild', function () use ($index, $keepShadow): null {
+            $this->rebuild->abort($index, $keepShadow);
+
+            return null;
+        }, self::REBUILD_HINT);
     }
 
     public function processQueue(IndexDefinition $index, int $limit): int
