@@ -687,6 +687,9 @@ final class SchemaGeneratorTest extends TestCase
             DECLARE
                 r record;
             BEGIN
+                FOR r IN SELECT n.nspname, c.relname FROM pg_trigger AS g JOIN pg_class AS c ON c.oid = g.tgrelid JOIN pg_namespace AS n ON n.oid = c.relnamespace WHERE g.tgname = 'fuzzphony_sync_products__fz_brand_trn' AND g.tgfoid = to_regprocedure('"public"."fuzzphony_sync_products__fz_brand"()') AND g.tgrelid IS DISTINCT FROM to_regclass('"fz_brand"') AND g.tgrelid NOT IN (SELECT t.relid FROM pg_partition_tree(to_regclass('"fz_brand"')) AS t) LOOP
+                    EXECUTE format('DROP TRIGGER %I ON %I.%I', 'fuzzphony_sync_products__fz_brand_trn', r.nspname, r.relname);
+                END LOOP;
                 FOR r IN SELECT n.nspname, c.relname FROM pg_partition_tree(to_regclass('"fz_brand"')) AS t JOIN pg_class AS c ON c.oid = t.relid JOIN pg_namespace AS n ON n.oid = c.relnamespace WHERE t.level > 0 LOOP
                     EXECUTE format('CREATE OR REPLACE TRIGGER %I AFTER TRUNCATE ON %I.%I FOR EACH STATEMENT EXECUTE FUNCTION %s()', 'fuzzphony_sync_products__fz_brand_trn', r.nspname, r.relname, '"public"."fuzzphony_sync_products__fz_brand"');
                 END LOOP;
@@ -701,13 +704,19 @@ final class SchemaGeneratorTest extends TestCase
 
     public function testWithoutTriggersAndOnDropThePartitionTriggersGo(): void
     {
-        $drop = "EXECUTE format('DROP TRIGGER IF EXISTS %I ON %I.%I', 'fuzzphony_sync_products__fz_brand_trn', r.nspname, r.relname);";
+        $drop = <<<'SQL'
+                FOR r IN SELECT n.nspname, c.relname FROM pg_trigger AS g JOIN pg_class AS c ON c.oid = g.tgrelid JOIN pg_namespace AS n ON n.oid = c.relnamespace WHERE g.tgname = 'fuzzphony_sync_products__fz_brand_trn' AND g.tgfoid = to_regprocedure('"public"."fuzzphony_sync_products__fz_brand"()') AND g.tgrelid IS DISTINCT FROM to_regclass('"fz_brand"') LOOP
+                    EXECUTE format('DROP TRIGGER %I ON %I.%I', 'fuzzphony_sync_products__fz_brand_trn', r.nspname, r.relname);
+                END LOOP;
+            END
+            SQL;
 
         $manual = (new PostgresSchemaGenerator())->index(Indexes::products('manual'));
         self::assertContains('No TRUNCATE sync on the partitions of fz_brand', array_map(static fn(Statement $s): string => $s->description, $manual->statements));
         self::assertContains('No TRUNCATE sync on the partitions of fz_product', array_map(static fn(Statement $s): string => $s->description, $manual->statements));
         self::assertStringContainsString($drop, $manual->toSql());
         self::assertStringNotContainsString('AFTER TRUNCATE ON %I', $manual->toSql());
+        self::assertStringNotContainsString('pg_partition_tree', $manual->toSql());
 
         $sql = (new PostgresSchemaGenerator())->drop(Indexes::products())->toSql();
         $triggerAt = strpos($sql, 'DROP TRIGGER IF EXISTS "fuzzphony_sync_products__fz_brand_trn" ON "fz_brand"');

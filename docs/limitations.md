@@ -3,7 +3,8 @@
 What Fuzzphony does not do well yet, and the planned fix for each. Back to the
 [README](../README.md).
 
-Each of these has a planned fix on the [roadmap](roadmap.md).
+Each of these has a planned fix on the [roadmap](roadmap.md), except attaching and detaching
+partitions, which fire no triggers in PostgreSQL.
 
 ## Typo tolerance is lenient
 
@@ -14,6 +15,12 @@ frequent words these near-misses can use up `candidate_limit` before ranking. Ra
 `fuzzy_similarity` (0.4 to 0.5 is stricter) or `candidate_limit` when that matters.
 
 Planned fix: [length-aware typo tolerance](roadmap.md#length-aware-typo-tolerance).
+
+## Attaching or detaching a partition is not followed
+
+`ALTER TABLE … ATTACH PARTITION` and `DETACH PARTITION` fire no triggers: attached rows are not
+indexed and detached rows stay in the index. Run `fuzzphony:reindex <index>` afterwards; it also
+removes the orphaned documents. See [partitioned tables](sync.md#partitioned-tables).
 
 ## Ranking is approximate beyond `candidate_limit`
 

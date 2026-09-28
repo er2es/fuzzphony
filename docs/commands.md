@@ -59,9 +59,10 @@ It checks:
   hides them);
 - missing or disabled triggers, including the `TRUNCATE` trigger, which an index set up with an
   older version lacks until `fuzzphony:schema --apply` runs again;
-- partitioned watched tables: every partition carries the `TRUNCATE` trigger (one attached after
-  the last apply does not), and a warning at `trigger_level: statement`, where a write that targets
-  a partition directly is not synced;
+- partitioned watched tables: every partition carries the `TRUNCATE` trigger, enabled (one
+  attached after the last apply does not), a warning at `trigger_level: statement`, where a write
+  that targets a partition directly is not synced, and a warning for that trigger left on a table
+  that should not have it (a detached partition, or any partition in `orm` / `manual` mode);
 - queue backlog and age, a pending full-rebuild job a `TRUNCATE` queued, and whether the worker's
   rebuild of it keeps failing (the last error, how often, when);
 - a full reindex that did not finish (its rebuild table, change log or change log trigger is left

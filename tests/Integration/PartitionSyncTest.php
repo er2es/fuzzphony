@@ -34,7 +34,7 @@ final class PartitionSyncTest extends TestCase
         $this->connection = PostgresTestCase::connect();
         $this->engine = new PostgresEngine($this->connection);
         PostgresTestCase::createFixtures($this->connection, EngineConformanceTestCase::fixtureRows()); // resets queue and meta
-        $this->connection->execute('DROP TABLE IF EXISTS fz_part, fuzzphony_parts, fuzzphony_parts__next, fuzzphony_parts__changes, fuzzphony_plain CASCADE');
+        $this->connection->execute('DROP TABLE IF EXISTS fz_part, fuzzphony_parts, fuzzphony_parts__next, fuzzphony_parts__changes, fuzzphony_plain, fz_part_a1, "FzMixed", fuzzphony_mixed, fuzzphony_mixed__next, fuzzphony_mixed__changes CASCADE');
         $this->connection->execute('DROP SCHEMA IF EXISTS fz_part_other CASCADE');
         $this->connection->execute('CREATE SCHEMA fz_part_other');
         $this->connection->execute('CREATE TABLE fz_part (id bigint PRIMARY KEY, name text NOT NULL) PARTITION BY RANGE (id)');
@@ -155,6 +155,85 @@ final class PartitionSyncTest extends TestCase
         self::assertSame([], $this->carriers());
     }
 
+    public function testADetachedPartitionKeepsItsTriggerUntilTheApplyOrDropRemovesIt(): void
+    {
+        [$index, $fuzzphony] = $this->install('queue', TriggerLevel::Row);
+        $this->connection->execute('ALTER TABLE fz_part_a DETACH PARTITION fz_part_a1');
+
+        $warning = $this->check($fuzzphony, 'Partitions of fz_part', CheckStatus::Warning);
+        self::assertSame(self::TRIGGER . ' is left on fz_part_a1: a TRUNCATE there still triggers a full resync of the index.', $warning->message);
+        self::assertSame('bin/console fuzzphony:schema --apply', $warning->fix);
+        self::assertSame('3 partition(s), each with the TRUNCATE trigger', $this->check($fuzzphony, 'Partitions of fz_part')->message);
+
+        $fuzzphony->schema()->apply($this->connection);
+        self::assertSame(['fz part "A2"', 'fz_part', 'fz_part_a', 'fz_part_b'], $this->carriers());
+        self::assertSame([], array_values(array_filter($fuzzphony->inspect('parts')->checks, static fn(Check $c): bool => $c->name === 'Partitions of fz_part' && $c->status === CheckStatus::Warning)));
+        $this->connection->execute('TRUNCATE fz_part_a1');
+        self::assertFalse($this->engine->rebuildRequested($index), 'no longer watched');
+    }
+
+    #[DataProvider('modes')]
+    public function testDropRemovesTheTriggerOfADetachedPartition(string $sync, TriggerLevel $level): void
+    {
+        [$index] = $this->install($sync, $level);
+        $this->connection->execute('ALTER TABLE fz_part_a DETACH PARTITION fz_part_a1');
+
+        $this->engine->dropSchema($index)->apply($this->connection);
+
+        self::assertSame([], $this->carriers());
+        self::assertFalse((bool) $this->connection->fetchValue("SELECT to_regprocedure('fuzzphony_sync_parts__fz_part()') IS NOT NULL"));
+    }
+
+    public function testAModeWithoutTriggersRemovesTheTriggerOfADetachedPartition(): void
+    {
+        $this->install('queue', TriggerLevel::Row);
+        $this->connection->execute('ALTER TABLE fz_part_a DETACH PARTITION fz_part_a1');
+        $manual = new Fuzzphony($this->engine, new IndexRegistry([IndexDefinition::builder('parts')->fromTable('fz_part')->field('name', 'A')->sync('manual')->build()]));
+
+        self::assertSame(
+            self::TRIGGER . ' is left on "fz part ""A2""", fz_part_a, fz_part_a1, fz_part_other.fz_part_b: a TRUNCATE there still triggers a full resync of the index.',
+            $this->check($manual, 'Partitions of fz_part', CheckStatus::Warning)->message,
+            'before the apply every partition keeps it',
+        );
+
+        $manual->schema()->apply($this->connection);
+        self::assertSame([], $this->carriers());
+    }
+
+    public function testADisabledPartitionTriggerIsReportedWithTheCommandsThatEnableIt(): void
+    {
+        [, $fuzzphony] = $this->install('queue', TriggerLevel::Row);
+        $this->connection->execute(sprintf('ALTER TABLE fz_part_a1 DISABLE TRIGGER %s', self::TRIGGER));
+        $this->connection->execute(sprintf('ALTER TABLE "fz part ""A2""" DISABLE TRIGGER %s', self::TRIGGER));
+        $this->connection->execute('CREATE TABLE fz_part_c PARTITION OF fz_part FOR VALUES FROM (200) TO (300)');
+
+        $checks = array_values(array_filter($fuzzphony->inspect('parts')->checks, static fn(Check $c): bool => $c->name === 'Partitions of fz_part'));
+        self::assertCount(2, $checks);
+        self::assertSame([CheckStatus::Error, CheckStatus::Error], [$checks[0]->status, $checks[1]->status]);
+        self::assertSame(self::TRIGGER . ' missing on fz_part_c: a TRUNCATE of such a partition leaves stale documents in the index.', $checks[0]->message);
+        self::assertSame(self::TRIGGER . ' exists but is DISABLED on "fz part ""A2""", fz_part_a1', $checks[1]->message);
+        $enable = 'ALTER TABLE "fz part ""A2""" ENABLE TRIGGER "' . self::TRIGGER . '"; ALTER TABLE fz_part_a1 ENABLE TRIGGER "' . self::TRIGGER . '";';
+        self::assertSame($enable, $checks[1]->fix);
+
+        foreach (explode('; ', $enable) as $statement) {
+            $this->connection->execute($statement);
+        }
+        $fuzzphony->schema()->apply($this->connection);
+        self::assertSame('5 partition(s), each with the TRUNCATE trigger', $this->check($fuzzphony, 'Partitions of fz_part')->message);
+    }
+
+    public function testAMixedCaseWatchedTableGetsItsPartitionCheck(): void
+    {
+        $this->connection->execute('CREATE TABLE "FzMixed" (id bigint PRIMARY KEY, name text NOT NULL) PARTITION BY RANGE (id)');
+        $this->connection->execute('CREATE TABLE "FzMixed_a" PARTITION OF "FzMixed" FOR VALUES FROM (1) TO (100)');
+        $index = IndexDefinition::builder('mixed')->fromTable('FzMixed')->field('name', 'A')->build();
+        $fuzzphony = new Fuzzphony($this->engine, new IndexRegistry([$index]));
+        $fuzzphony->schema()->apply($this->connection);
+
+        self::assertSame('1 partition(s), each with the TRUNCATE trigger', $this->check($fuzzphony, 'Partitions of FzMixed', index: 'mixed')->message);
+        $this->engine->dropSchema($index)->apply($this->connection);
+    }
+
     /** @return array{IndexDefinition, Fuzzphony} */
     private function install(string $sync, TriggerLevel $level): array
     {
@@ -192,9 +271,9 @@ final class PartitionSyncTest extends TestCase
         ), 'relname'));
     }
 
-    private function check(Fuzzphony $fuzzphony, string $name): Check
+    private function check(Fuzzphony $fuzzphony, string $name, ?CheckStatus $status = null, string $index = 'parts'): Check
     {
-        return array_find($fuzzphony->inspect('parts')->checks, static fn(Check $c): bool => $c->name === $name)
+        return array_find($fuzzphony->inspect($index)->checks, static fn(Check $c): bool => $c->name === $name && ($status === null ? $c->status !== CheckStatus::Warning : $c->status === $status))
             ?? self::fail(sprintf('no "%s" check', $name));
     }
 }

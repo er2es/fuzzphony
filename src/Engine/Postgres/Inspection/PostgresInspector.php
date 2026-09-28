@@ -449,34 +449,61 @@ final class PostgresInspector
 
     /**
      * A partitioned watched table: every partition, at every level, needs the TRUNCATE trigger (a
-     * partition attached after the last apply lacks it). Statement-level triggers cannot go on
-     * partitions, so at that level a write that targets a partition directly is not synced.
+     * partition attached after the last apply lacks it), enabled. Statement-level triggers cannot
+     * go on partitions, so at that level a write that targets a partition directly is not synced.
+     * In every sync mode: a TRUNCATE trigger left on a table that should not have it (a detached
+     * partition keeps its own; any partition in a mode without triggers), which the apply removes.
+     * The watched table is quoted like the generator quotes it.
      *
      * @return list<Check>
      */
     private function partitions(IndexDefinition $index, Watch $watch): array
     {
         $trigger = $this->names->triggerName($index, $watch, '_trn');
-        $rows = $this->connection->fetchAll(
-            'SELECT t.relid::regclass::text AS part, EXISTS (SELECT 1 FROM pg_trigger AS g WHERE g.tgrelid = t.relid AND g.tgname = :trigger) AS synced
-               FROM pg_partition_tree(to_regclass(:table)) AS t WHERE t.level > 0 ORDER BY t.relid::regclass::text COLLATE "C"',
-            ['trigger' => $trigger, 'table' => $watch->table],
-        );
-        if ($rows === []) {
-            return [];
-        }
+        $table = Sql::ident($watch->table);
         $label = 'Partitions of ' . $watch->table;
-        $missing = [];
-        foreach ($rows as $row) {
-            if ($row['synced'] !== true) {
-                $missing[] = Coerce::str($row['part']);
+        $checks = [];
+        if ($index->sync->usesTriggers()) {
+            $rows = $this->connection->fetchAll(
+                'SELECT t.relid::regclass::text AS part, (SELECT g.tgenabled FROM pg_trigger AS g WHERE g.tgrelid = t.relid AND g.tgname = :trigger) AS state
+                   FROM pg_partition_tree(to_regclass(:table)) AS t WHERE t.level > 0 ORDER BY t.relid::regclass::text COLLATE "C"',
+                ['trigger' => $trigger, 'table' => $table],
+            );
+            $missing = [];
+            $disabled = [];
+            foreach ($rows as $row) {
+                $part = Coerce::str($row['part']);
+                if ($row['state'] === null) {
+                    $missing[] = $part;
+                } elseif ($row['state'] === 'D') {
+                    $disabled[] = $part;
+                }
+            }
+            if ($missing !== []) {
+                $checks[] = Check::error($label, sprintf('%s missing on %s: a TRUNCATE of such a partition leaves stale documents in the index.', $trigger, implode(', ', $missing)), self::APPLY);
+            }
+            if ($disabled !== []) {
+                $checks[] = Check::error($label, sprintf('%s exists but is DISABLED on %s', $trigger, implode(', ', $disabled)), implode(' ', array_map(
+                    static fn(string $part): string => sprintf('ALTER TABLE %s ENABLE TRIGGER %s;', $part, Sql::ident($trigger)),
+                    $disabled,
+                )));
+            }
+            if ($rows !== [] && $checks === []) {
+                $checks[] = Check::ok($label, sprintf('%d partition(s), each with the TRUNCATE trigger', count($rows)));
+            }
+            if ($rows !== [] && $index->triggerLevel === TriggerLevel::Statement) {
+                $checks[] = Check::warning($label, 'Writes that target a partition directly are not synced (statement-level triggers cannot go on partitions); use trigger_level: row, or write through the parent.');
             }
         }
-        $checks = [$missing === []
-            ? Check::ok($label, sprintf('%d partition(s), each with the TRUNCATE trigger', count($rows)))
-            : Check::error($label, sprintf('%s missing on %s: a TRUNCATE of such a partition leaves stale documents in the index.', $trigger, implode(', ', $missing)), self::APPLY)];
-        if ($index->triggerLevel === TriggerLevel::Statement) {
-            $checks[] = Check::warning($label, 'Writes that target a partition directly are not synced (statement-level triggers cannot go on partitions); use trigger_level: row, or write through the parent.');
+        $left = $this->connection->fetchValue(
+            sprintf(
+                'SELECT string_agg(g.tgrelid::regclass::text, \', \' ORDER BY g.tgrelid::regclass::text COLLATE "C") FROM pg_trigger AS g WHERE g.tgname = :trigger AND g.tgfoid = to_regprocedure(:function) AND g.tgrelid IS DISTINCT FROM to_regclass(:table)%s',
+                $index->sync->usesTriggers() ? ' AND g.tgrelid NOT IN (SELECT t.relid FROM pg_partition_tree(to_regclass(:table)) AS t)' : '',
+            ),
+            ['trigger' => $trigger, 'function' => $this->names->syncFunction($index, $watch) . '()', 'table' => $table],
+        );
+        if ($left !== null) {
+            $checks[] = Check::warning($label, sprintf('%s is left on %s: a TRUNCATE there still triggers a full resync of the index.', $trigger, Coerce::str($left)), self::APPLY);
         }
 
         return $checks;
@@ -519,9 +546,7 @@ final class PostgresInspector
             if ($leftover !== []) {
                 $checks[] = Check::warning($label, sprintf('Leftover trigger(s) %s do not match "%s" sync / %s level and cause double work.', implode(', ', $leftover), $index->sync->value, $index->triggerLevel->value), self::APPLY);
             }
-            if ($index->sync->usesTriggers()) {
-                array_push($checks, ...$this->partitions($index, $watch));
-            }
+            array_push($checks, ...$this->partitions($index, $watch));
         }
         if (!$index->sync->usesTriggers()) {
             $checks[] = Check::ok('Sync', sprintf('"%s" mode: no database triggers expected', $index->sync->value));

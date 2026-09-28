@@ -74,8 +74,11 @@ changes; they are always listed under **Breaking** and explained in [UPGRADE.md]
 
 - Partition-aware sync: `fuzzphony:schema --apply` puts the `TRUNCATE` trigger on every partition
   of a partitioned watched table, at every level, so truncating one partition is followed. The
-  doctor lists partitions without it (one attached after the last apply) and warns at
-  `trigger_level: statement`, where writes that target a partition directly are not synced.
+  doctor lists partitions without it (one attached after the last apply) or with it disabled, and
+  warns at `trigger_level: statement`, where writes that target a partition directly are not
+  synced. A detached partition keeps its trigger: the doctor warns, and `fuzzphony:schema --apply`
+  and `--drop --apply` remove it. `ATTACH PARTITION` / `DETACH PARTITION` fire no triggers: run
+  `fuzzphony:reindex` afterwards.
 - The layout step runner: `fuzzphony:schema --apply` upgrades an index built with an older sidecar
   layout.
 - Doctor: a "Shared objects" check of the shared objects' version row (`*` in `fuzzphony_meta`): a

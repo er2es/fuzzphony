@@ -218,6 +218,8 @@ Details in [docs/limitations.md](https://github.com/er2es/fuzzphony/blob/main/do
 
 - [Typo tolerance is lenient](https://github.com/er2es/fuzzphony/blob/main/docs/limitations.md#typo-tolerance-is-lenient): at the default similarity, `mouse`
   also matches `monitor`. Fix planned: [length-aware typo tolerance](https://github.com/er2es/fuzzphony/blob/main/docs/roadmap.md#length-aware-typo-tolerance).
+- [Attaching or detaching a partition is not followed](https://github.com/er2es/fuzzphony/blob/main/docs/limitations.md#attaching-or-detaching-a-partition-is-not-followed):
+  PostgreSQL fires no trigger for it; run `fuzzphony:reindex` afterwards.
 - [Ranking is approximate beyond `candidate_limit`](https://github.com/er2es/fuzzphony/blob/main/docs/limitations.md#ranking-is-approximate-beyond-candidate_limit),
   and `total` is then a lower bound. Fix planned: an opt-in exact `total`, part of
   [facets](https://github.com/er2es/fuzzphony/blob/main/docs/roadmap.md#facets).

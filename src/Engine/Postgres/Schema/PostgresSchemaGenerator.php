@@ -403,17 +403,44 @@ ON CONFLICT (index_name) DO UPDATE SET layout_version = EXCLUDED.layout_version,
      * The TRUNCATE trigger on every partition of a partitioned watched table, at every level:
      * truncating one partition fires only that partition's triggers. pg_partition_tree() lists the
      * partitions when the plan runs (so the plan stays database-free) and nothing for a table that
-     * is not partitioned. Each partition's schema and name go through %I, so any name is quoted
-     * right. The trigger name is the parent's: trigger names are per table. Row-level triggers are
-     * cloned to partitions by PostgreSQL; statement-level ones cannot go on them. Without $create
-     * (a sync mode without triggers, drop()) the same loop removes them.
+     * is not partitioned. Each table's schema and name go through %I, so any name is
+     * quoted right. The trigger name is the parent's: trigger names are per table. Row-level
+     * triggers are cloned to partitions by PostgreSQL (and removed on DETACH); statement-level
+     * ones cannot go on them.
+     *
+     * A detached partition keeps its TRUNCATE trigger, so the triggers to remove are found by
+     * name and sync function on any table: with $create those on a table that is no longer in the
+     * partition tree, without it (a sync mode without triggers, drop()) all but the parent's, which
+     * the caller drops by name. drop() then drops the sync function, which they depend on.
      */
     private function partitionTriggers(IndexDefinition $index, Watch $watch, bool $create): Statement
     {
         $trigger = Sql::string($this->names->triggerName($index, $watch, '_trn'));
-        $action = $create
-            ? sprintf("format('CREATE OR REPLACE TRIGGER %%I AFTER TRUNCATE ON %%I.%%I FOR EACH STATEMENT EXECUTE FUNCTION %%s()', %s, r.nspname, r.relname, %s)", $trigger, Sql::string($this->names->syncFunction($index, $watch)))
-            : sprintf("format('DROP TRIGGER IF EXISTS %%I ON %%I.%%I', %s, r.nspname, r.relname)", $trigger);
+        $function = $this->names->syncFunction($index, $watch);
+        $table = Sql::string(Sql::ident($watch->table));
+        $loops = [sprintf(
+            <<<'SQL'
+                FOR r IN SELECT n.nspname, c.relname FROM pg_trigger AS g JOIN pg_class AS c ON c.oid = g.tgrelid JOIN pg_namespace AS n ON n.oid = c.relnamespace WHERE g.tgname = %1$s AND g.tgfoid = to_regprocedure(%2$s) AND %3$s LOOP
+                        EXECUTE format('DROP TRIGGER %%I ON %%I.%%I', %1$s, r.nspname, r.relname);
+                    END LOOP;
+                SQL,
+            $trigger,
+            Sql::string($function . '()'),
+            // pg_partition_tree() is empty for a table that is not partitioned: the parent is excluded on its own
+            sprintf('g.tgrelid IS DISTINCT FROM to_regclass(%s)', $table) . ($create ? sprintf(' AND g.tgrelid NOT IN (SELECT t.relid FROM pg_partition_tree(to_regclass(%s)) AS t)', $table) : ''),
+        )];
+        if ($create) {
+            $loops[] = sprintf(
+                <<<'SQL'
+                    FOR r IN SELECT n.nspname, c.relname FROM pg_partition_tree(to_regclass(%1$s)) AS t JOIN pg_class AS c ON c.oid = t.relid JOIN pg_namespace AS n ON n.oid = c.relnamespace WHERE t.level > 0 LOOP
+                            EXECUTE format('CREATE OR REPLACE TRIGGER %%I AFTER TRUNCATE ON %%I.%%I FOR EACH STATEMENT EXECUTE FUNCTION %%s()', %2$s, r.nspname, r.relname, %3$s);
+                        END LOOP;
+                    SQL,
+                $table,
+                $trigger,
+                Sql::string($function),
+            );
+        }
 
         return new Statement(sprintf(
             <<<'SQL'
@@ -421,15 +448,13 @@ ON CONFLICT (index_name) DO UPDATE SET layout_version = EXCLUDED.layout_version,
                 DECLARE
                     r record;
                 BEGIN
-                    FOR r IN SELECT n.nspname, c.relname FROM pg_partition_tree(to_regclass(%2$s)) AS t JOIN pg_class AS c ON c.oid = t.relid JOIN pg_namespace AS n ON n.oid = c.relnamespace WHERE t.level > 0 LOOP
-                        EXECUTE %3$s;
-                    END LOOP;
+                    %2$s
                 END
                 %1$s
                 SQL,
             self::TAG,
-            Sql::string(Sql::ident($watch->table)),
-            $action,
+            implode("
+    ", $loops),
         ), sprintf($create ? 'TRUNCATE sync on every partition of %s' : 'No TRUNCATE sync on the partitions of %s', $watch->table));
     }
 

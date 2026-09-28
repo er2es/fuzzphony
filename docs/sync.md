@@ -125,6 +125,12 @@ fires the trigger of the parent and of every partition. For a table-sourced inde
 that empties the index as usual; for any other watched table it is still one rebuild job in
 `queue` mode, but one resync per partition in `trigger` mode.
 
+`ALTER TABLE … ATTACH PARTITION` and `DETACH PARTITION` fire no triggers (a PostgreSQL rule): the
+rows of an attached table are not indexed, and the rows of a detached one stay in the index. Run
+`fuzzphony:reindex <index>` afterwards; it also removes the orphaned documents. A detached
+partition keeps its `TRUNCATE` trigger, so truncating it would still resync the index: the doctor
+warns, and `fuzzphony:schema --apply` (or `--drop --apply`) removes it.
+
 ## Reindexing and orphan pruning
 
 `fuzzphony:reindex` rebuilds every document, in batches, with progress, resumable.
