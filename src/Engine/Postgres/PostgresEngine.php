@@ -242,6 +242,11 @@ final class PostgresEngine implements Engine
         }, self::REBUILD_HINT);
     }
 
+    public function discardLeftoverRebuild(IndexDefinition $index): bool
+    {
+        return $this->guard('rebuild', fn(): bool => $this->rebuild->discardLeftover($index), self::REBUILD_HINT);
+    }
+
     public function processQueue(IndexDefinition $index, int $limit): int
     {
         // Taking the batch and refreshing it happen in ONE statement and transaction:

@@ -159,6 +159,33 @@ final class ShadowRebuild
         return $this->connection->fetchValue("SELECT current_setting('fuzzphony.transaction_probe', true)") === 'on';
     }
 
+    /**
+     * Discards a leftover rebuild (its table, change log or trigger) in one transaction under the
+     * transaction-level rebuild lock: a running rebuild holds the session lock, so it is left alone.
+     */
+    public function discardLeftover(IndexDefinition $index): bool
+    {
+        return $this->connection->transactional(function (Connection $c) use ($index): bool {
+            if ($c->fetchValue('SELECT pg_try_advisory_xact_lock(hashtext(:key))', ['key' => $this->names->rebuildLockKey($index)]) !== true) {
+                return false;
+            }
+            $leftOver = $c->fetchValue(
+                'SELECT to_regclass(:shadow) IS NOT NULL OR to_regclass(:changes) IS NOT NULL OR EXISTS (SELECT 1 FROM pg_trigger WHERE tgrelid = to_regclass(:sidecar) AND tgname = :trigger)',
+                [
+                    'shadow' => $this->names->shadow($index),
+                    'changes' => $this->names->changes($index),
+                    'sidecar' => $this->names->sidecar($index),
+                    'trigger' => $this->names->trackFunctionName($index),
+                ],
+            ) === true;
+            if ($leftOver) {
+                $c->execute($this->schema->discardRebuild($index));
+            }
+
+            return $leftOver;
+        });
+    }
+
     /** A resumed run continues the rebuild a failed run left behind. */
     private function leftOver(IndexDefinition $index): bool
     {

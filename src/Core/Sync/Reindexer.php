@@ -19,8 +19,8 @@ use Fuzzphony\Core\Engine\Engine;
  * see), and when the engine says so (a role that cannot build next to the live index, a caller
  * transaction, or a resumed run without a rebuild to continue). In place, each batch is an
  * idempotent upsert, a full run finally removes the orphans and a resumed run leaves them alone.
- * A full run with $inPlace first discards a rebuild a failed run left behind (resuming the engine's
- * rebuild takes its lock, so a running one fails it fast), so a later --from cannot continue it.
+ * A full run with $inPlace first discards a rebuild a failed run left behind
+ * (Engine::discardLeftoverRebuild(), no session lock), so a later --from cannot continue it.
  *
  * Either way, what is dropped is relative to what THIS session sees (see ReindexOptions). A full
  * run that found no source row keeps the live index unless ReindexOptions::$pruneEmpty is set: an
@@ -33,9 +33,9 @@ final class Reindexer
     public function run(IndexDefinition $index, ReindexOptions $options): ReindexResult
     {
         $resumed = $options->resumeAfter !== null;
-        if ($options->inPlace && !$resumed && $this->engine->beginRebuild($index, true)) {
-            // a leftover rebuild: after this run changes the live index, a resume must not continue it
-            $this->engine->abortRebuild($index);
+        if ($options->inPlace && !$resumed) {
+            // after this run changes the live index, a resume must not continue a leftover rebuild
+            $this->engine->discardLeftoverRebuild($index);
         }
         if ($options->inPlace || !$options->prune || !$this->engine->beginRebuild($index, $resumed)) {
             return $this->inPlace($index, $options);

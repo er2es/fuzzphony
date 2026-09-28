@@ -23,7 +23,7 @@ already has its own `composer.json` for a later split into separate packages.
 Everything dialect-specific lives behind `Fuzzphony\Core\Engine\Engine`, validated by a
 conformance test suite (`tests/Conformance`). PostgreSQL is the only engine through 1.0. A full
 reindex is driven through the engine too (`beginRebuild()`, `refreshShadow()`, `finishRebuild()`,
-`abortRebuild()`), so `Reindexer` stays engine-agnostic; the PostgreSQL engine builds next to the
+`abortRebuild()`, `discardLeftoverRebuild()`), so `Reindexer` stays engine-agnostic; the PostgreSQL engine builds next to the
 live table and swaps it in ([ADR 0008](adr/0008-shadow-rebuild-with-a-change-log.md)).
 
 ## Public API

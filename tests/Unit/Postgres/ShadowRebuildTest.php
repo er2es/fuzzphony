@@ -32,6 +32,9 @@ final class ShadowRebuildTest extends TestCase
     private const string LEFT_OVER = 'SELECT to_regclass(:shadow) IS NOT NULL AND to_regclass(:changes) IS NOT NULL';
     private const string SWAP_LOCK = 'LOCK TABLE "public"."fuzzphony_products", "public"."fuzzphony_products__next" IN ACCESS EXCLUSIVE MODE';
     private const string LOCK_TIMEOUT = "SET LOCAL lock_timeout = '3s'";
+    private const string XACT_LOCK = 'SELECT pg_try_advisory_xact_lock(hashtext(:key))';
+    private const string ANY_LEFT_OVER = 'SELECT to_regclass(:shadow) IS NOT NULL OR to_regclass(:changes) IS NOT NULL OR EXISTS (SELECT 1 FROM pg_trigger WHERE tgrelid = to_regclass(:sidecar) AND tgname = :trigger)';
+    private const array ANY_LEFT_OVER_PARAMS = ['shadow' => '"public"."fuzzphony_products__next"', 'changes' => '"public"."fuzzphony_products__changes"', 'sidecar' => '"public"."fuzzphony_products"', 'trigger' => 'fuzzphony_track_products'];
     private const array LEFT_OVER_PARAMS = ['shadow' => '"public"."fuzzphony_products__next"', 'changes' => '"public"."fuzzphony_products__changes"'];
 
     public function testAFullRunTakesTheLockAndStartsTheRebuild(): void
@@ -93,6 +96,29 @@ final class ShadowRebuildTest extends TestCase
         $none = new RecordingConnection(static fn(string $sql): mixed => $sql === self::LOCK);
         self::assertFalse((new ShadowRebuild($none, new PostgresSchemaGenerator()))->begin(Indexes::products(), true));
         self::assertSame([...self::PROBE, [self::LOCK, self::KEY], [self::LEFT_OVER, self::LEFT_OVER_PARAMS], [self::UNLOCK, self::KEY]], $none->log);
+    }
+
+    public function testDiscardingALeftOverRebuildIsOneTransactionWithATransactionLock(): void
+    {
+        $leftOver = new RecordingConnection(static fn(string $sql): mixed => true);
+        $generator = new PostgresSchemaGenerator();
+
+        self::assertTrue((new ShadowRebuild($leftOver, $generator))->discardLeftover(Indexes::products()));
+        self::assertSame([
+            ['BEGIN', []],
+            [self::XACT_LOCK, self::KEY],
+            [self::ANY_LEFT_OVER, self::ANY_LEFT_OVER_PARAMS],
+            [$generator->discardRebuild(Indexes::products()), []],
+            ['COMMIT', []],
+        ], $leftOver->log);
+
+        $running = new RecordingConnection(static fn(string $sql): mixed => $sql !== self::XACT_LOCK);
+        self::assertFalse((new ShadowRebuild($running, $generator))->discardLeftover(Indexes::products()));
+        self::assertSame([['BEGIN', []], [self::XACT_LOCK, self::KEY], ['COMMIT', []]], $running->log, 'a running rebuild is left alone');
+
+        $nothing = new RecordingConnection(static fn(string $sql): mixed => $sql === self::XACT_LOCK);
+        self::assertFalse((new ShadowRebuild($nothing, $generator))->discardLeftover(Indexes::products()));
+        self::assertSame([['BEGIN', []], [self::XACT_LOCK, self::KEY], [self::ANY_LEFT_OVER, self::ANY_LEFT_OVER_PARAMS], ['COMMIT', []]], $nothing->log);
     }
 
     public function testAFailureWhileStartingReleasesTheLock(): void

@@ -26,11 +26,12 @@ changes; they are always listed under **Breaking** and explained in [UPGRADE.md]
 - `fuzzphony:schema --drop --apply` and `fuzzphony:reindex --prune-empty` now explain what they
   are about to remove and ask for confirmation (default no); a script that ran either
   non-interactively needs the new `--force` option.
-- `Engine` has four new methods for the zero-downtime reindex: `beginRebuild(IndexDefinition $index,
+- `Engine` has five new methods for the zero-downtime reindex: `beginRebuild(IndexDefinition $index,
   bool $resume = false): bool`, `refreshShadow(IndexDefinition $index, array $ids): int`,
-  `finishRebuild(IndexDefinition $index): void` and `abortRebuild(IndexDefinition $index, bool
-  $keepShadow = false): void`. Custom engines must implement them; an engine that cannot build
-  next to the live index returns `false` from `beginRebuild()` (the reindex then runs in place) and
+  `finishRebuild(IndexDefinition $index): void`, `abortRebuild(IndexDefinition $index, bool
+  $keepShadow = false): void` and `discardLeftoverRebuild(IndexDefinition $index): bool`. Custom
+  engines must implement them; an engine that cannot build next to the live index returns `false`
+  from `beginRebuild()` (the reindex then runs in place) and from `discardLeftoverRebuild()`, and
   leaves the others empty.
 - A full `fuzzphony:reindex` / `Fuzzphony::reindex()` builds the index next to the live one and
   swaps it in (zero-downtime reindex). It needs disk for a second copy of the index while it runs,

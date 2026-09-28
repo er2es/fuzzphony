@@ -99,6 +99,15 @@ interface Engine
     /** Releases the rebuild lock and discards the rebuild, unless $keepShadow (a failed run keeps it, so a resumed run can continue it). */
     public function abortRebuild(IndexDefinition $index, bool $keepShadow = false): void;
 
+    /**
+     * Discards what a failed rebuild left behind, before a full in-place reindex changes the live
+     * index (a resume could not complete that rebuild consistently afterwards). One transaction,
+     * never a session lock (safe behind a transaction-pooling proxy): true when it discarded
+     * something; false, changing nothing, when a rebuild is running or nothing is left over.
+     * Engines without rebuilds return false.
+     */
+    public function discardLeftoverRebuild(IndexDefinition $index): bool;
+
     /** Atomically takes up to $limit queued ids and refreshes them. Returns the number processed. */
     public function processQueue(IndexDefinition $index, int $limit): int;
 

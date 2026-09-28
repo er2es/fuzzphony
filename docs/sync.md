@@ -103,7 +103,8 @@ runs at a time; a second one fails right away. A role without those rights, or a
 `--in-place` (`new ReindexOptions(inPlace: true)`) writes the live index directly, as before 0.5:
 no second copy, but searches see a mix of old and new documents while it runs. It finishes by
 removing orphans in batches and reports how many. A full `--in-place` run first discards a rebuild
-a failed run left behind, and a failed in-place run is resumed in place: the hints it prints read
+a failed run left behind (in one transaction, without a session lock, so it works behind a
+transaction-pooling PgBouncer; a running rebuild is left alone), and a failed in-place run is resumed in place: the hints it prints read
 `--in-place --from=…` (or `--no-prune --from=…`).
 
 A run that fails or is killed leaves its rebuild behind, and every change to the live index is

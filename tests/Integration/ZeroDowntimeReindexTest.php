@@ -12,6 +12,7 @@ use Fuzzphony\Core\Fuzzphony;
 use Fuzzphony\Core\Inspection\Check;
 use Fuzzphony\Core\Inspection\CheckStatus;
 use Fuzzphony\Core\Registry\IndexRegistry;
+use Fuzzphony\Core\Support\Coerce;
 use Fuzzphony\Core\Sync\ReindexOptions;
 use Fuzzphony\Core\Sync\ReindexResult;
 use Fuzzphony\Core\Sync\Worker;
@@ -135,6 +136,46 @@ final class ZeroDowntimeReindexTest extends TestCase
         self::assertNull($this->connection->fetchValue("SELECT to_regclass('fuzzphony_noted__changes')"));
         self::assertNull(array_find($fuzzphony->inspect('noted')->checks, static fn(Check $c): bool => $c->name === 'Rebuild'), 'nothing left: no Rebuild check');
         self::assertTrue($this->lockIsFree());
+        self::assertSame(0, $this->advisoryLocksHeld(), 'no session lock: safe behind a transaction-pooling PgBouncer');
+    }
+
+    public function testDiscardingALeftOverRebuildTakesNoSessionLockAndLeavesARunningOneAlone(): void
+    {
+        $index = $this->notedIndex('trigger');
+        $fuzzphony = $this->install($index);
+        $this->crash($fuzzphony);
+        $other = PostgresTestCase::connect();
+        $other->fetchValue("SELECT pg_advisory_lock(hashtext('fuzzphony:public.noted'))");
+        try {
+            self::assertFalse($this->engine->discardLeftoverRebuild($index), 'a rebuild is running');
+            self::assertNotNull($this->connection->fetchValue("SELECT to_regclass('fuzzphony_noted__next')"));
+        } finally {
+            $other->fetchValue('SELECT pg_advisory_unlock_all()');
+        }
+
+        self::assertTrue($this->engine->discardLeftoverRebuild($index));
+        self::assertSame(0, $this->advisoryLocksHeld());
+        self::assertNull($this->connection->fetchValue("SELECT to_regclass('fuzzphony_noted__next')"));
+        self::assertNull($this->connection->fetchValue("SELECT to_regclass('fuzzphony_noted__changes')"));
+        self::assertSame(0, Coerce::int($this->connection->fetchValue("SELECT count(*) FROM pg_trigger WHERE tgname = 'fuzzphony_track_noted'")));
+        self::assertFalse($this->engine->discardLeftoverRebuild($index), 'nothing is left over');
+    }
+
+    public function testADiscardAlsoRemovesWhatIsLeftOfARebuildThatCannotBeResumed(): void
+    {
+        $index = $this->notedIndex('trigger');
+        $fuzzphony = $this->install($index);
+        $this->crash($fuzzphony);
+        $this->connection->execute('DROP TABLE fuzzphony_noted__next, fuzzphony_noted__changes');
+
+        self::assertTrue($this->engine->discardLeftoverRebuild($index), 'the trigger alone');
+        self::assertSame(0, Coerce::int($this->connection->fetchValue("SELECT count(*) FROM pg_trigger WHERE tgname = 'fuzzphony_track_noted'")));
+    }
+
+    /** Advisory locks this session holds. */
+    private function advisoryLocksHeld(): int
+    {
+        return Coerce::int($this->connection->fetchValue("SELECT count(*) FROM pg_locks WHERE locktype = 'advisory' AND pid = pg_backend_pid()"));
     }
 
     public function testASecondRunFailsFastWhileOneIsRunning(): void
