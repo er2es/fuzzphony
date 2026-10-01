@@ -7,6 +7,19 @@ changes; they are always listed under **Breaking** and explained in [UPGRADE.md]
 
 ## [Unreleased]
 
+## [0.6.1] - 2026-10-01
+
+### Fixed
+
+- A search text with no word in it (`**********`, `!!!`) listed the whole index as if it were an empty
+  (browsing) search. It now returns no hits and the warning "The search has no word to look for; use
+  letters or digits." An empty text still browses.
+
+### Changed
+
+- Demo: the Observability page logs what Fuzzphony reports (`docker compose logs -f php`, values included)
+  and shows those lines; the worker container only logs errors, so an idle worker stays quiet.
+
 ## [0.6.0] - 2026-10-01
 
 ### Added
@@ -491,7 +504,8 @@ on its own:
 - Sync modes: queue (default), trigger, ORM, manual; watches for joined tables.
 - Doctor with fixes; CLI commands for schema, reindex, worker, search and explain.
 
-[Unreleased]: https://github.com/er2es/fuzzphony/compare/v0.6.0...HEAD
+[Unreleased]: https://github.com/er2es/fuzzphony/compare/v0.6.1...HEAD
+[0.6.1]: https://github.com/er2es/fuzzphony/compare/v0.6.0...v0.6.1
 [0.6.0]: https://github.com/er2es/fuzzphony/compare/v0.5.0...v0.6.0
 [0.5.0]: https://github.com/er2es/fuzzphony/compare/v0.4.0...v0.5.0
 [0.4.0]: https://github.com/er2es/fuzzphony/compare/v0.3.2...v0.4.0
