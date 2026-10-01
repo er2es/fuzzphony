@@ -14,34 +14,18 @@ depends on it, so nothing built early has to be refactored once a later mileston
   multi-tenancy, column-aware trigger filtering.
 - v0.3: per-word typo tolerance, empty-result relaxation, `TRUNCATE` sync and orphan
   pruning, a production-like demo stack.
-- v0.4 Foundations (current): one exception hierarchy, typed withers instead of
+- v0.4 Foundations: one exception hierarchy, typed withers instead of
   `IndexDefinition::with(...)`, `ReindexOptions` / `ReindexResult`, an explicit public API
   (`@internal` everywhere else) with the PostgreSQL details out of Core; a dedicated schema
   (`schema: fuzzphony`, default `public`); a sidecar schema version (`fuzzphony_meta`, checked by
   the doctor); Doctrine Migrations integration (the bundle's `schema_filter`, the version record in
   `--dump-migration`). See the [CHANGELOG](../CHANGELOG.md#040---2026-09-27) and
   [UPGRADE.md](../UPGRADE.md#from-03-to-04).
-
-## v0.5: Index lifecycle
-
-Reindexing and sync, built on the 0.4 schema. Implemented, not released yet: see the
-[CHANGELOG](../CHANGELOG.md#unreleased) and [UPGRADE.md](../UPGRADE.md#from-04-to-05). The sidecar
-layout is 2, and `fuzzphony:schema --apply` upgrades an older one.
-
-### Zero-downtime reindex
-
-A full rebuild is built in a shadow table, caught up with the changes made meanwhile and swapped in
-atomically, so it never serves partial results ([ADR 0008](adr/0008-shadow-rebuild-with-a-change-log.md)).
-A `TRUNCATE` on a watched table queues one full-rebuild job instead of every document id.
-
-### Exact field scoping
-
-Per-field text and trigram columns, so `brand:x` searches that field only (not its whole weight
-group) and a scoped typo can't match another fuzzy field.
-
-### Partition-aware sync
-
-The `TRUNCATE` trigger on every partition, and the doctor reporting new partitions that miss it.
+- v0.5 Index lifecycle (current): zero-downtime reindex built in a shadow table and swapped in
+  atomically ([ADR 0008](adr/0008-shadow-rebuild-with-a-change-log.md)), one rebuild job for a
+  `TRUNCATE` instead of every document id, exact field scoping (per-field text and trigram
+  columns), partition-aware sync. The sidecar layout is 2. See the
+  [CHANGELOG](../CHANGELOG.md#050---2026-10-01) and [UPGRADE.md](../UPGRADE.md#from-04-to-05).
 
 ## v0.6: Events
 

@@ -7,6 +7,8 @@ changes; they are always listed under **Breaking** and explained in [UPGRADE.md]
 
 ## [Unreleased]
 
+## [0.5.0] - 2026-10-01
+
 **After upgrading, run `fuzzphony:schema --apply`, then one full `fuzzphony:reindex`.** See
 [UPGRADE.md](UPGRADE.md#from-04-to-05).
 
@@ -458,7 +460,8 @@ on its own:
 - Sync modes: queue (default), trigger, ORM, manual; watches for joined tables.
 - Doctor with fixes; CLI commands for schema, reindex, worker, search and explain.
 
-[Unreleased]: https://github.com/er2es/fuzzphony/compare/v0.4.0...HEAD
+[Unreleased]: https://github.com/er2es/fuzzphony/compare/v0.5.0...HEAD
+[0.5.0]: https://github.com/er2es/fuzzphony/compare/v0.4.0...v0.5.0
 [0.4.0]: https://github.com/er2es/fuzzphony/compare/v0.3.2...v0.4.0
 [0.3.2]: https://github.com/er2es/fuzzphony/compare/v0.3.1...v0.3.2
 [0.3.1]: https://github.com/er2es/fuzzphony/compare/v0.3.0...v0.3.1
