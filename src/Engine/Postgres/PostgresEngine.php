@@ -15,6 +15,8 @@ use Fuzzphony\Core\Exception\InvalidArgument;
 use Fuzzphony\Core\Exception\InvalidQuery;
 use Fuzzphony\Core\Inspection\InspectionReport;
 use Fuzzphony\Core\Inspection\InspectOptions;
+use Fuzzphony\Core\Observability\MetricsCollector;
+use Fuzzphony\Core\Observability\NullMetricsCollector;
 use Fuzzphony\Core\Query\Ast\FieldScoped;
 use Fuzzphony\Core\Query\Ast\Node;
 use Fuzzphony\Core\Query\Ast\NodeInspector;
@@ -62,6 +64,7 @@ final class PostgresEngine implements Engine
         private readonly Connection $connection,
         string $extensionSchema = 'public',
         string $schema = 'public',
+        private readonly MetricsCollector $metrics = new NullMetricsCollector(),
     ) {
         $this->names = new Names($extensionSchema, $schema);
         $this->schema = new PostgresSchemaGenerator($this->names);
@@ -426,6 +429,10 @@ final class PostgresEngine implements Engine
             offset: $query->offset,
             interpretedAs: $root !== null ? (string) $root : null,
         );
+        $this->metrics->observe('fuzzphony.search.took_ms', $result->tookMs, ['index' => $index->name]);
+        if (array_any($statements, static fn(array $s): bool => str_ends_with($s['label'], 'fallback: full-text + fuzzy'))) {
+            $this->metrics->increment('fuzzphony.search.fallback', ['index' => $index->name]);
+        }
 
         return ['result' => $result, 'statements' => $statements, 'threshold' => $threshold];
     }
@@ -672,11 +679,17 @@ final class PostgresEngine implements Engine
      */
     private function guard(string $name, callable $operation, string $hint): mixed
     {
+        $started = hrtime(true);
         try {
-            return $operation();
+            $result = $operation();
+            $this->metrics->observe('fuzzphony.' . $name . '.duration_ms', round((hrtime(true) - $started) / 1e6, 3));
+
+            return $result;
         } catch (FuzzphonyException $e) {
+            $this->metrics->increment('fuzzphony.' . $name . '.errors');
             throw $e;
         } catch (\Throwable $e) {
+            $this->metrics->increment('fuzzphony.' . $name . '.errors');
             throw EngineFailure::wrap($name, $e, $hint);
         }
     }

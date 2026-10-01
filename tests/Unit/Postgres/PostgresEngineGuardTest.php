@@ -6,10 +6,12 @@ namespace Fuzzphony\Tests\Unit\Postgres;
 
 use Fuzzphony\Core\Database\Connection;
 use Fuzzphony\Core\Exception\EngineFailure;
+use Fuzzphony\Core\Exception\RebuildAlreadyRunning;
 use Fuzzphony\Core\Fuzzphony;
 use Fuzzphony\Core\Registry\IndexRegistry;
 use Fuzzphony\Engine\Postgres\PostgresEngine;
 use Fuzzphony\Tests\Fixtures\Indexes;
+use Fuzzphony\Tests\Unit\Core\Observability\RecordingMetricsCollector;
 use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\TestCase;
 
@@ -68,6 +70,104 @@ final class PostgresEngineGuardTest extends TestCase
         } catch (EngineFailure $e) {
             self::assertStringEndsWith('Hint: The role running the reindex needs SELECT and UPDATE on "fuzzphony"."fuzzphony_meta".', $e->getMessage());
         }
+    }
+
+    public function testASuccessfulOperationObservesItsDuration(): void
+    {
+        $metrics = new RecordingMetricsCollector();
+        $engine = new PostgresEngine(self::connection(static fn(string $sql): bool => false), metrics: $metrics);
+
+        $engine->queueSize(Indexes::products());
+
+        self::assertCount(1, $metrics->calls);
+        self::assertSame('observe', $metrics->calls[0][0]);
+        self::assertSame('fuzzphony.queue size.duration_ms', $metrics->calls[0][1]);
+        self::assertGreaterThanOrEqual(0.0, $metrics->calls[0][2]);
+    }
+
+    public function testAFalsyResultStillObservesTheDuration(): void
+    {
+        $metrics = new RecordingMetricsCollector();
+        $engine = new PostgresEngine(self::connection(static fn(string $sql): bool => false), metrics: $metrics);
+
+        $ids = $engine->sourceIds(Indexes::products(), null, 10);
+
+        self::assertSame([], $ids);
+        self::assertCount(1, $metrics->calls);
+        self::assertSame('observe', $metrics->calls[0][0]);
+        self::assertSame('fuzzphony.source ids.duration_ms', $metrics->calls[0][1]);
+    }
+
+    public function testAFailedOperationIncrementsErrorsThenThrows(): void
+    {
+        $metrics = new RecordingMetricsCollector();
+        $engine = new PostgresEngine(self::connection(static fn(string $sql): bool => true), metrics: $metrics);
+
+        try {
+            $engine->queueSize(Indexes::products());
+            self::fail('EngineFailure expected');
+        } catch (EngineFailure) {
+            // expected
+        }
+
+        self::assertSame([['increment', 'fuzzphony.queue size.errors', 1.0, []]], $metrics->calls);
+    }
+
+    public function testAFuzzphonyExceptionIncrementsErrorsAndPassesThroughUnwrapped(): void
+    {
+        // ShadowRebuild::begin() probes whether it's already inside a caller transaction with a
+        // set_config/current_setting round trip (unrelated to Task 5's TransactionAware — this is
+        // its own, pre-existing mechanism), then checks pg_try_advisory_lock: returning falsy
+        // there makes it throw RebuildAlreadyRunning directly (a FuzzphonyException) — guard()'s
+        // *other* catch branch, never wrapped into EngineFailure.
+        $metrics = new RecordingMetricsCollector();
+        $connection = new class implements Connection {
+            public function fetchAll(string $sql, array $params = []): array
+            {
+                return [];
+            }
+
+            public function fetchValue(string $sql, array $params = []): mixed
+            {
+                return str_starts_with($sql, 'SELECT pg_try_advisory_lock') ? false : null;
+            }
+
+            public function execute(string $sql, array $params = []): int
+            {
+                return 0;
+            }
+
+            public function transactional(callable $callback): mixed
+            {
+                return $callback($this);
+            }
+        };
+        $engine = new PostgresEngine($connection, metrics: $metrics);
+
+        try {
+            $engine->beginRebuild(Indexes::products());
+            self::fail('RebuildAlreadyRunning expected');
+        } catch (RebuildAlreadyRunning) {
+            // expected — NOT wrapped as EngineFailure
+        }
+
+        self::assertSame([['increment', 'fuzzphony.rebuild.errors', 1.0, []]], $metrics->calls);
+    }
+
+    public function testSearchObservesTookMsAndTheFallbackCounterStaysZeroWithoutAFallback(): void
+    {
+        // fuzzy_mode: never forces a single full-text statement deterministically: the stub's
+        // canned total=1 row would otherwise fall under the default fallbackBelow=5 and make the
+        // fallback branch run regardless of the query text.
+        $metrics = new RecordingMetricsCollector();
+        $engine = self::fuzzphony(new PostgresEngine(self::connection(static fn(string $sql): bool => false), metrics: $metrics));
+
+        $engine->in('products')->query('mouse')->thresholds(['fuzzy_mode' => 'never'])->get();
+
+        $tookMsCalls = array_values(array_filter($metrics->calls, static fn(array $c): bool => $c[1] === 'fuzzphony.search.took_ms'));
+        self::assertCount(1, $tookMsCalls);
+        self::assertSame(['index' => 'products'], $tookMsCalls[0][3]);
+        self::assertSame([], array_filter($metrics->calls, static fn(array $c): bool => $c[1] === 'fuzzphony.search.fallback'));
     }
 
     private static function fuzzphony(PostgresEngine $engine): Fuzzphony

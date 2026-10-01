@@ -13,6 +13,9 @@ changes; they are always listed under **Breaking** and explained in [UPGRADE.md]
   (`increment()`), durations (`observe()`) and point-in-time values (`gauge()`).
   `NullMetricsCollector` (the default: zero cost) and `LoggingMetricsCollector` (one structured
   PSR-3 log line per call) ship in Core.
+- `PostgresEngine` instruments every operation (`guard()`'s existing try/catch) and each search's
+  total latency and fuzzy-fallback rate through an optional `MetricsCollector` (new 4th
+  constructor parameter, defaulting to `NullMetricsCollector`).
 
 ## [0.5.0] - 2026-10-01
 
