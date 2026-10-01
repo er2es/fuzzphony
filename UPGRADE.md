@@ -3,6 +3,77 @@
 Before 1.0, a minor version may contain breaking changes. Each section lists what to change,
 and the [CHANGELOG](CHANGELOG.md) has the full list of changes.
 
+## From 0.4 to 0.5
+
+1. **Apply, then reindex.** Run `fuzzphony:schema --apply`: it upgrades every index to sidecar
+   layout 2. Then run one full `fuzzphony:reindex`; until then the doctor's "Documents" check is a
+   warning (so `fuzzphony:doctor --strict` fails in CI). With Doctrine Migrations,
+   `fuzzphony:schema --dump-migration` contains the upgrade step. Deploy the 0.5 code and run the
+   apply together, and stop the workers for the upgrade (or restart them on 0.5 right after the
+   apply): 0.5 code sends field-scoped searches (`brand:x`) to new columns that fail until the
+   apply has created them, and once the 0.5 schema is applied a `TRUNCATE` queues a full-rebuild
+   job (the queue row `'*'`, step 6) that a 0.4 worker fails on in every batch, so that index's
+   queue stays stuck until the worker runs 0.5.
+2. **Field-scoped queries are exact.** `brand:x` no longer matches other fields of the same
+   weight, and a scoped typo no longer matches another fuzzy field. If you relied on the old
+   behaviour, search without the field prefix. The index table grows by roughly one more copy of
+   the indexed text; the new columns are filled by the reindex of step 1 (until then field-scoped
+   words find nothing in documents indexed before the upgrade).
+3. **`--drop --apply` and `--prune-empty` ask for confirmation.** `fuzzphony:schema --drop --apply`
+   now prints what it is about to remove and asks `Drop these Fuzzphony objects? (yes/no) [no]:`;
+   `fuzzphony:reindex --prune-empty` asks `Prune every document of an empty source? (yes/no)
+   [no]:`. Both default to no. A script or cron job that runs either non-interactively must add
+   `--force`, or it now fails with exit code 1 and a message telling you to. This does not apply to
+   plain `fuzzphony:schema --apply` or `fuzzphony:reindex` (without `--prune-empty`), and never to
+   the PHP API (`Fuzzphony::schema()`, `Fuzzphony::reindex()`), which never prompts.
+4. **Custom engines** implement `beginRebuild()`, `refreshShadow()`, `finishRebuild()`,
+   `abortRebuild()` and `discardLeftoverRebuild()`. The minimal implementation keeps the 0.4
+   behaviour:
+   `public function beginRebuild(IndexDefinition $index, bool $resume = false): bool { return false; }`
+   (the reindex then writes in place), `discardLeftoverRebuild()` returning `false`, and empty
+   bodies for the other three (`refreshShadow()` returns `0`).
+5. **A full reindex builds next to the live index.** `fuzzphony:reindex` and
+   `Fuzzphony::reindex()` fill `fuzzphony_<index>__next` and swap it in when it is complete, so
+   searches never see a half-built index. Plan for disk space for a second copy of the index
+   while it runs. The reindexing role needs `CREATE` on Fuzzphony's schema and must own the index
+   table (or be a member of its owner), and the connection must be a session (the run holds an
+   advisory lock; not a transaction-pooling PgBouncer, which can release it on another server
+   connection than the one that took it: PostgreSQL only warns, the lock stays held, and later
+   reindexes fail with "already running" until the pooler closes that connection; use
+   `--in-place` there). A role without those rights reindexes in
+   place, as in 0.4, and the command says so; `--in-place` / `new ReindexOptions(inPlace: true)`
+   asks for that explicitly, and `--no-prune` always runs in place. After a swap
+   `ReindexResult::$pruned` is `null` (the orphans went with the old index): check
+   `ReindexResult::$swapped`. A second full reindex of the same index while one runs throws
+   `RebuildAlreadyRunning` (an `\InvalidArgumentException`). A run that fails leaves a rebuild
+   behind (the doctor warns): resume it with `--from`, or run a full reindex again.
+   Call `Fuzzphony::reindex()` outside a transaction (inside one it writes in place), and do not
+   run `fuzzphony:schema --apply` while a full rebuild runs (a `fuzzphony:reindex`, or the worker's
+   rebuild of a job a `TRUNCATE` queued, step 6): it refuses, run it again afterwards (let a deploy
+   pipeline retry).
+6. **`TRUNCATE` in queue mode.** A `TRUNCATE` of a joined table (or of a query source's table)
+   queues one full-rebuild job, the row `(index_name, '*')` in `fuzzphony_queue`, instead of every
+   document id; the worker runs it before the queued ids. If you read the queue yourself, skip that
+   row. For a zero-downtime rebuild the worker's role needs the reindex rights of step 5; without
+   them it rebuilds in place. Either way the rebuild reads the source in the worker's session, like
+   `fuzzphony:reindex`: its `search_path` must see the source tables. A role that truncates watched
+   tables needs `UPDATE` on `fuzzphony_queue` (the trigger moves a queued job's time on), and a
+   string document id `*` is reserved for the job. A rebuild that fails does not stop the worker
+   (it retries after a back-off and the doctor warns), but `fuzzphony:worker --once` then exits
+   with code 1: check a cron job that alerts on it. `fuzzphony:schema --apply` adds the failure
+   columns to the meta table. Custom engines implement `rebuildRequested()` and
+   `recordRebuildFailure()`; an engine whose queue has no rebuild job returns `false` from the
+   first and leaves the second empty.
+7. **Partitioned tables.** The apply of step 1 puts the `TRUNCATE` trigger on every partition of a
+   watched partitioned table. After attaching or detaching a partition, run
+   `fuzzphony:schema --apply` again (the doctor lists partitions without the trigger and detached
+   tables that still have it) and `fuzzphony:reindex <index>` (neither fires a trigger).
+8. **Index names must not contain `__`** (two underscores): Fuzzphony reserves it for an index's
+   rebuild objects (`fuzzphony_<index>__next`, `fuzzphony_<index>__changes`), so an index named
+   `products__next` would be destroyed by the rebuild of `products`. Such a definition now fails
+   validation. Rename the index before upgrading: drop the old one with 0.4
+   (`fuzzphony:schema --drop --apply`), then, on 0.5, apply and reindex the new name.
+
 ## From 0.3 to 0.4
 
 1. **Exceptions.** Catch `Fuzzphony\Core\Exception\FuzzphonyException` to handle everything

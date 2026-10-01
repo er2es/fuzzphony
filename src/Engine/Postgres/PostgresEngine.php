@@ -48,9 +48,11 @@ use Fuzzphony\Engine\Postgres\Sql\TsQueryCompiler;
 final class PostgresEngine implements Engine
 {
     private const PROBE_LABEL = 'relaxation probe';
+    private const string REBUILD_HINT = 'Run "fuzzphony:schema --apply" and "fuzzphony:doctor".';
 
     private readonly Names $names;
     private readonly PostgresSchemaGenerator $schema;
+    private readonly ShadowRebuild $rebuild;
 
     /**
      * @param string $extensionSchema schema of the pg_trgm and unaccent extensions
@@ -63,6 +65,7 @@ final class PostgresEngine implements Engine
     ) {
         $this->names = new Names($extensionSchema, $schema);
         $this->schema = new PostgresSchemaGenerator($this->names);
+        $this->rebuild = new ShadowRebuild($connection, $this->schema);
     }
 
     public function name(): string
@@ -184,7 +187,7 @@ final class PostgresEngine implements Engine
             DocumentSql::select($index),
         );
 
-        return $this->guard('orphan pruning', function () use ($sql, $batchSize): int {
+        return $this->guard('orphan pruning', function () use ($index, $sql, $batchSize): int {
             $removed = 0;
             $after = null;
             do {
@@ -196,6 +199,8 @@ final class PostgresEngine implements Engine
                 $removed += Coerce::int($row['removed']);
                 $after = $row['last'] === null ? null : Coerce::str($row['last']);
             } while ($after !== null && Coerce::int($row['scanned']) === $batchSize);
+            // the end of a full in-place run
+            $this->rebuild->complete($index);
 
             return $removed;
         }, 'Run "fuzzphony:schema --apply" and check "fuzzphony:doctor".');
@@ -211,6 +216,39 @@ final class PostgresEngine implements Engine
         );
     }
 
+    public function beginRebuild(IndexDefinition $index, bool $resume = false): bool
+    {
+        return $this->guard('rebuild', fn(): bool => $this->rebuild->begin($index, $resume), self::REBUILD_HINT);
+    }
+
+    public function refreshShadow(IndexDefinition $index, array $ids): int
+    {
+        return $this->guard('rebuild', fn(): int => $this->rebuild->refresh($index, $ids), self::REBUILD_HINT);
+    }
+
+    public function finishRebuild(IndexDefinition $index): void
+    {
+        $this->guard('rebuild', function () use ($index): null {
+            $this->rebuild->finish($index);
+
+            return null;
+        }, self::REBUILD_HINT);
+    }
+
+    public function abortRebuild(IndexDefinition $index, bool $keepShadow = false): void
+    {
+        $this->guard('rebuild', function () use ($index, $keepShadow): null {
+            $this->rebuild->abort($index, $keepShadow);
+
+            return null;
+        }, self::REBUILD_HINT);
+    }
+
+    public function discardLeftoverRebuild(IndexDefinition $index): bool
+    {
+        return $this->guard('rebuild', fn(): bool => $this->rebuild->discardLeftover($index), self::REBUILD_HINT);
+    }
+
     public function processQueue(IndexDefinition $index, int $limit): int
     {
         // Taking the batch and refreshing it happen in ONE statement and transaction:
@@ -221,7 +259,7 @@ final class PostgresEngine implements Engine
                     DELETE FROM %1$s
                     WHERE (index_name, doc_id) IN (
                         SELECT index_name, doc_id FROM %1$s
-                        WHERE index_name = :index
+                        WHERE index_name = :index AND doc_id <> '*'
                         ORDER BY queued_at
                         LIMIT :limit
                         FOR UPDATE SKIP LOCKED
@@ -252,6 +290,22 @@ final class PostgresEngine implements Engine
             sprintf('SELECT count(*) FROM %s WHERE index_name = :index', $this->names->queue()),
             ['index' => $index->name],
         )), 'Run "fuzzphony:schema --apply" to create the queue table.');
+    }
+
+    public function rebuildRequested(IndexDefinition $index): bool
+    {
+        return $this->guard('queue processing', fn(): bool => (bool) $this->connection->fetchValue(
+            sprintf("SELECT EXISTS (SELECT 1 FROM %s WHERE index_name = :index AND doc_id = '*')", $this->names->queue()),
+            ['index' => $index->name],
+        ), 'Run "fuzzphony:schema --apply" and check "fuzzphony:doctor".');
+    }
+
+    public function recordRebuildFailure(IndexDefinition $index, string $message): void
+    {
+        $this->guard('rebuild failure record', fn(): int => $this->connection->execute(
+            sprintf('UPDATE %s SET rebuild_failed_at = now(), rebuild_failures = coalesce(rebuild_failures, 0) + 1, rebuild_error = :message WHERE index_name = :index', $this->names->meta()),
+            ['index' => $index->name, 'message' => $message],
+        ), sprintf('Run "fuzzphony:schema --apply" (it adds the failure columns); the worker role needs SELECT and UPDATE on %s.', $this->names->meta()));
     }
 
     public function inspect(IndexDefinition $index, InspectOptions $options = new InspectOptions()): InspectionReport
@@ -398,10 +452,13 @@ final class PostgresEngine implements Engine
     {
         $warnings = [];
         $tsquery = null;
+        $scopedRoot = null;
         if ($root !== null) {
             $compiler = new TsQueryCompiler($index);
             $tsquery = $compiler->compile($root);
             $warnings = $compiler->warnings();
+            // a word scoped to a field the index has is rechecked against that field's own column
+            $scopedRoot = $compiler->hasFieldScope($root) ? $root : null;
         }
         $plain = implode(' ', TsQueryCompiler::lexemes(implode(' ', NodeInspector::positiveWords($root))));
 
@@ -418,7 +475,8 @@ final class PostgresEngine implements Engine
         $usedFuzzy = false;
         $threshold = null;
         $browse = false;
-        $emptyQueries = null;
+        // the recheck drops stop words as the strict tsquery does, so it needs them up front
+        $emptyQueries = $scopedRoot === null ? null : $this->emptyQueries($index, $fuzzy->leafQueries($scopedRoot));
 
         if ($tsquery === null && $plain === '') {
             $statement = ['label' => $labelPrefix . 'browse'] + $builder->browse($conditions, $profile, $thresholds, $query->limit, $query->offset);
@@ -428,9 +486,9 @@ final class PostgresEngine implements Engine
         } else {
             $alwaysFuzzy = $fuzzyRoot !== null
                 && ($thresholds->fuzzyMode === FuzzyMode::Always || $tsquery === null)
-                && $fuzzy->hasFuzzyLeaf($fuzzyRoot, $emptyQueries = $this->emptyQueries($index, $fuzzy->leafQueries($fuzzyRoot)));
+                && $fuzzy->hasFuzzyLeaf($fuzzyRoot, $emptyQueries ??= $this->emptyQueries($index, $fuzzy->leafQueries($fuzzyRoot)));
             $statement = ['label' => $labelPrefix . ($alwaysFuzzy ? 'full-text + fuzzy' : 'full-text')]
-                + $builder->ranked($tsquery, $plain, $alwaysFuzzy ? $fuzzyRoot : null, $conditions, $profile, $thresholds, $query->limit, $query->offset, $emptyQueries ?? []);
+                + $builder->ranked($tsquery, $plain, $alwaysFuzzy ? $fuzzyRoot : null, $conditions, $profile, $thresholds, $query->limit, $query->offset, $emptyQueries ?? [], $scopedRoot);
             $threshold = $alwaysFuzzy ? $thresholds->fuzzySimilarity : null;
             $rows = $this->run($statement, $threshold);
             $statements[] = $statement;
@@ -441,10 +499,10 @@ final class PostgresEngine implements Engine
                 && $fuzzyRoot !== null
                 && $thresholds->fuzzyMode === FuzzyMode::Fallback
                 && self::total($rows) < $thresholds->fallbackBelow
-                && $fuzzy->hasFuzzyLeaf($fuzzyRoot, $emptyQueries = $this->emptyQueries($index, $fuzzy->leafQueries($fuzzyRoot)))
+                && $fuzzy->hasFuzzyLeaf($fuzzyRoot, $emptyQueries ??= $this->emptyQueries($index, $fuzzy->leafQueries($fuzzyRoot)))
             ) {
                 $statement = ['label' => $labelPrefix . 'fallback: full-text + fuzzy']
-                    + $builder->ranked($tsquery, $plain, $fuzzyRoot, $conditions, $profile, $thresholds, $query->limit, $query->offset, $emptyQueries);
+                    + $builder->ranked($tsquery, $plain, $fuzzyRoot, $conditions, $profile, $thresholds, $query->limit, $query->offset, $emptyQueries, $scopedRoot);
                 $threshold = $thresholds->fuzzySimilarity;
                 $rows = $this->run($statement, $threshold);
                 $statements[] = $statement;

@@ -20,6 +20,7 @@ final class ReindexOptionsTest extends TestCase
         self::assertTrue($options->prune);
         self::assertFalse($options->pruneEmpty);
         self::assertNull($options->onBatch);
+        self::assertFalse($options->inPlace);
         self::assertSame(1, (new ReindexOptions(batchSize: 1))->batchSize, 'one is the smallest batch');
     }
 
@@ -38,5 +39,6 @@ final class ReindexOptionsTest extends TestCase
         self::assertSame(3, $result->written);
         self::assertNull($result->pruned);
         self::assertFalse($result->pruneSkippedEmptySource);
+        self::assertFalse($result->swapped);
     }
 }

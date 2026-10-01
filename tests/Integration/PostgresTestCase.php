@@ -31,9 +31,37 @@ final class PostgresTestCase
             TestCase::markTestSkipped('Set FUZZPHONY_TEST_DSN to a disposable PostgreSQL 15+ database to run integration tests (see docker-compose.yml).');
         }
 
+        self::assertDisposable($dsn);
+
         $token = getenv('TEST_TOKEN');
 
         return self::$dsn = is_string($token) && $token !== '' ? self::perProcessDsn($dsn, $token) : $dsn;
+    }
+
+    /**
+     * Refuses (hard failure, not a skip) to run destructive integration tests against a database
+     * whose name doesn't contain "test", checked before any connection is made and before any
+     * per-worker database is created. The check is a plain case-insensitive substring match, so
+     * "contest" passes too -- it only has to keep someone from pointing FUZZPHONY_TEST_DSN at a
+     * real database, not parse names precisely. A DSN without "dbname=" is refused as well (an
+     * empty name never contains "test"), because the default database would then be the user's own.
+     */
+    public static function assertDisposable(string $dsn): void
+    {
+        $name = self::dbName($dsn);
+        if (stripos($name, 'test') === false) {
+            TestCase::fail(sprintf(
+                'Refusing to run destructive integration tests against database "%s": its name must contain "test" (see CONTRIBUTING.md).',
+                $name,
+            ));
+        }
+    }
+
+    private static function dbName(string $dsn): string
+    {
+        $matched = preg_match('/dbname=([^;]+)/', $dsn, $match);
+
+        return $matched === 1 ? $match[1] : '';
     }
 
     public static function connect(): Connection
@@ -44,7 +72,7 @@ final class PostgresTestCase
     /** @param array{brands: list<array{int, string}>, products: list<array{int, string, string, int, int, bool, float, string}>} $rows */
     public static function createFixtures(Connection $connection, array $rows): void
     {
-        $connection->execute('DROP TABLE IF EXISTS fz_product, fz_brand, fuzzphony_products, fuzzphony_queue, fuzzphony_meta CASCADE');
+        $connection->execute('DROP TABLE IF EXISTS fz_product, fz_brand, fuzzphony_products, fuzzphony_products__next, fuzzphony_products__changes, fuzzphony_queue, fuzzphony_meta CASCADE');
         $connection->execute("CREATE TABLE fz_brand (id bigint PRIMARY KEY, name text NOT NULL, country text NOT NULL DEFAULT '')");
         $connection->execute(<<<'SQL'
             CREATE TABLE fz_product (

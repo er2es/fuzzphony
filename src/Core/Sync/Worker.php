@@ -6,6 +6,7 @@ namespace Fuzzphony\Core\Sync;
 
 use Fuzzphony\Core\Definition\IndexDefinition;
 use Fuzzphony\Core\Engine\Engine;
+use Fuzzphony\Core\Exception\RebuildAlreadyRunning;
 
 /**
  * @internal Drains the sync queue. Run it long-lived (supervisor/systemd) or with runOnce() from cron
@@ -13,12 +14,34 @@ use Fuzzphony\Core\Engine\Engine;
  */
 final class Worker
 {
-    private bool $stop = false;
+    /** Seconds before a failed rebuild job is tried again by the same worker; doubles per failure in a row, up to BACKOFF_MAX. */
+    private const int BACKOFF = 60;
+    private const int BACKOFF_MAX = 3_600;
 
-    public function __construct(private readonly Engine $engine) {}
+    private bool $stop = false;
+    private readonly Reindexer $reindexer;
+
+    /** @var \Closure(): float */
+    private readonly \Closure $clock;
+
+    /** @var array<string, array{int, float}> the current back-off (seconds) and when to try again, by index name */
+    private array $backoff = [];
+
+    /** @var array<string, \Throwable> */
+    private array $failures = [];
+
+    /** @param (\Closure(): float)|null $clock seconds, for the rebuild back-off (default microtime(true)) */
+    public function __construct(private readonly Engine $engine, ?\Closure $clock = null)
+    {
+        $this->reindexer = new Reindexer($engine);
+        $this->clock = $clock ?? static fn(): float => microtime(true);
+    }
 
     /**
-     * Processes every index until all queues are empty.
+     * Processes every index until all queues are empty. A full rebuild a TRUNCATE requested runs
+     * first and counts as one item. A rebuild that fails never stops the worker: the job stays
+     * queued, the failure is recorded for the doctor and listed by rebuildFailures(), and the
+     * index's queued ids and the other indexes are processed as usual.
      *
      * @param list<IndexDefinition> $indexes
      *
@@ -26,14 +49,65 @@ final class Worker
      */
     public function runOnce(array $indexes, int $batchSize = 500): int
     {
+        $this->failures = [];
         $total = 0;
         foreach ($indexes as $index) {
+            $total += $this->rebuildIfRequested($index);
             while (($processed = $this->engine->processQueue($index, $batchSize)) > 0) {
                 $total += $processed;
             }
         }
 
         return $total;
+    }
+
+    /**
+     * The rebuilds that failed in the last runOnce() (or run() cycle), by index name.
+     *
+     * @return array<string, \Throwable>
+     */
+    public function rebuildFailures(): array
+    {
+        return $this->failures;
+    }
+
+    /**
+     * A TRUNCATE that needs a full resync queued one rebuild. It runs like a full reindex, next to
+     * the live index; the TRUNCATE established that the rows are gone, so an empty source empties
+     * the index (pruneEmpty). While another run holds the index's rebuild lock the request stays
+     * for the next cycle: that run may have read the table before the TRUNCATE. After a failure
+     * this worker waits BACKOFF seconds before it tries that index's job again, doubling per
+     * failure in a row.
+     */
+    private function rebuildIfRequested(IndexDefinition $index): int
+    {
+        if (($this->backoff[$index->name][1] ?? 0.0) > ($this->clock)() || !$this->engine->rebuildRequested($index)) {
+            return 0;
+        }
+        try {
+            $this->reindexer->run($index, new ReindexOptions(pruneEmpty: true));
+        } catch (RebuildAlreadyRunning) {
+            return 0;
+        } catch (\Throwable $e) {
+            $this->failed($index, $e);
+
+            return 0;
+        }
+        unset($this->backoff[$index->name]);
+
+        return 1;
+    }
+
+    private function failed(IndexDefinition $index, \Throwable $e): void
+    {
+        $this->failures[$index->name] = $e;
+        $delay = isset($this->backoff[$index->name]) ? min(self::BACKOFF_MAX, 2 * $this->backoff[$index->name][0]) : self::BACKOFF;
+        $this->backoff[$index->name] = [$delay, ($this->clock)() + $delay];
+        try {
+            $this->engine->recordRebuildFailure($index, $e->getMessage());
+        } catch (\Throwable) {
+            // the rebuild's failure is the one to report
+        }
     }
 
     /**

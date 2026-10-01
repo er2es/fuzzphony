@@ -17,7 +17,8 @@ indexes defined only in YAML), or the fluent builder.
 
 Fuzzphony stores each index in a sidecar table, `fuzzphony_<index>` in Fuzzphony's schema (see
 [Fuzzphony's schema](#fuzzphonys-schema)). It holds a weighted
-`tsvector`, a normalised text for trigram matching, typed filter columns and the ranking inputs,
+`tsvector`, a normalised text for trigram matching, the same two per field (for field-scoped words:
+one `tsvector` per field, one text per fuzzy field), typed filter columns and the ranking inputs,
 each with the right index (GIN, GIN trigram, btree). Your schema is untouched. Dropping the index
 is one command.
 
@@ -43,6 +44,10 @@ class Product
 
 `#[Searchable]` also takes `name` (default: the snake_cased plural of the class, `Product` →
 `products`), `table`, `unaccent`, `sync`, `triggerLevel` and `tenant`.
+
+An index name matches `[a-z_][a-z0-9_]*`, at most 48 characters, and must not contain `__` (two
+underscores): that is reserved for the objects of an index's rebuild (`fuzzphony_<index>__next`,
+`fuzzphony_<index>__changes`).
 
 Filter and field names are always snake_case, even when the attribute is on a camelCase property:
 `bool $inStock` becomes the filter `in_stock`. Names follow the property name through
@@ -149,7 +154,10 @@ The role that runs `fuzzphony:reindex` needs `SELECT` and `UPDATE` on `fuzzphony
 reindex records there which definition built the documents), and the role that runs
 `fuzzphony:doctor` needs `SELECT` on it (without it, the "Schema version" check warns and prints the
 `GRANT`). `ON ALL TABLES IN SCHEMA` covers only the tables that exist when it runs: re-run it after
-the first 0.4 `schema --apply`, which creates `fuzzphony_meta`.
+the first 0.4 `schema --apply`, which creates `fuzzphony_meta`. To build next to the live index
+and swap it in, that role also needs `CREATE` on the schema and ownership of the index tables (or
+membership in their owner); without them it reindexes in place (see
+[Reindexing](sync.md#reindexing-and-orphan-pruning)).
 
 `DROP SCHEMA fuzzphony CASCADE` then removes every index at once (drop the triggers on your tables
 with `fuzzphony:schema --drop --apply` first). Moving an existing install out of `public` is not

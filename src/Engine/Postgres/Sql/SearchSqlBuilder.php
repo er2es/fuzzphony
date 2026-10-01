@@ -37,10 +37,11 @@ final class SearchSqlBuilder
      * @param Node|null       $fuzzyRoot    the parsed query when the fuzzy branch runs, else null
      * @param list<Condition> $conditions
      * @param list<string>    $emptyQueries leaf tsqueries the text configuration reduces to nothing (stop words)
+     * @param Node|null       $scopedRoot   the parsed query when it has a word scoped to a known field (rechecked in the full-text branch), else null
      *
      * @return array{sql: string, params: array<string, scalar|null>}
      */
-    public function ranked(?string $tsquery, string $plain, ?Node $fuzzyRoot, array $conditions, RankingProfile $profile, Thresholds $thresholds, int $limit, int $offset, array $emptyQueries = []): array
+    public function ranked(?string $tsquery, string $plain, ?Node $fuzzyRoot, array $conditions, RankingProfile $profile, Thresholds $thresholds, int $limit, int $offset, array $emptyQueries = [], ?Node $scopedRoot = null): array
     {
         $params = new ParameterBag();
         $filters = new FilterCompiler($this->index);
@@ -55,9 +56,15 @@ final class SearchSqlBuilder
         $q[] = $plain !== ''
             ? sprintf('%s(%s) AS norm', $this->names->normFunction(), $params->add($plain))
             : "''::text AS norm";
+        $compiler = new FuzzyQueryCompiler($this->index, $thresholds, $this->names);
+        // A word scoped to a known field is rechecked against the field's own column (q.sft<n>).
+        $scope = $scopedRoot === null ? null : $compiler->scope($scopedRoot, $params, $emptyQueries);
+        if ($scope !== null) {
+            array_push($q, ...$scope['columns']);
+        }
         // Per-term fuzzy branch: every word is satisfied exactly or fuzzily, through the query's
         // own AND / OR / NOT. Its per-word values are extra q columns.
-        $fuzzy = $fuzzyRoot === null ? null : (new FuzzyQueryCompiler($this->index, $thresholds, $this->names))->compile($fuzzyRoot, $params, $emptyQueries);
+        $fuzzy = $fuzzyRoot === null ? null : $compiler->compile($fuzzyRoot, $params, $emptyQueries);
         if ($fuzzy !== null) {
             array_push($q, ...$fuzzy->columns);
         }
@@ -67,9 +74,10 @@ final class SearchSqlBuilder
         $branches = [];
         if ($tsquery !== null) {
             $ctes[] = sprintf(
-                "fts AS (\n    SELECT s.id, ts_rank_cd('%s'::real[], s.tsv, q.tsq, 32)::double precision AS r_text\n    FROM %s AS s CROSS JOIN q\n    WHERE s.tsv @@ q.tsq AND %s\n    LIMIT %d\n)",
+                "fts AS (\n    SELECT s.id, ts_rank_cd('%s'::real[], s.tsv, q.tsq, 32)::double precision AS r_text\n    FROM %s AS s CROSS JOIN q\n    WHERE s.tsv @@ q.tsq%s AND %s\n    LIMIT %d\n)",
                 self::tsRankWeights($profile),
                 $table,
+                $scope !== null ? ' AND ' . $scope['predicate'] : '',
                 $filters->compile($conditions, $params),
                 $candidates,
             );

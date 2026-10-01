@@ -143,7 +143,7 @@ End-user search text never throws. Malformed input is repaired and reported in
 | `mouse OR trackpad`, `mouse \| trackpad` | either |
 | `-cable`, `NOT cable`, `!cable` | exclude (also honoured by typo-tolerant matches) |
 | `keyb*` | prefix |
-| `brand:logitech`, `name:"mx master"` | only in one field (per weight group) |
+| `brand:logitech`, `name:"mx master"` | only in that field, typos included (an unknown field searches every field, with a warning) |
 | `(mouse OR trackpad) -cable` | grouping |
 
 ## Typo tolerance

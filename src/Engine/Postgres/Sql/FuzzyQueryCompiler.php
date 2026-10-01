@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Fuzzphony\Engine\Postgres\Sql;
 
+use Fuzzphony\Core\Definition\FieldDefinition;
 use Fuzzphony\Core\Definition\IndexDefinition;
 use Fuzzphony\Core\Query\Ast\AllOf;
 use Fuzzphony\Core\Query\Ast\AnyOf;
@@ -31,8 +32,11 @@ use Fuzzphony\Engine\Postgres\Schema\Names;
  *
  * The exact side of a leaf is TsQueryCompiler's output for that leaf (lexemes, weight labels,
  * prefix). Negated parts stay exact-only. Words shorter than fuzzyMinLength stay exact-only.
- * A field-scoped word matches fuzzily against the whole fz column (every fuzzy field): fz is
- * one string, so the field cannot be enforced on the fuzzy side (known limitation).
+ * A word scoped to a field the index has is checked against that field's own columns on the
+ * candidates GIN(tsv) / GIN(fz) find: "s.t_<field> @@" on the exact side, "<% s.z_<field>" on the
+ * fuzzy side (a field that is not fuzzy stays exact-only). An unknown field searches every field.
+ * An excluded part with such a word is compiled word by word, so each scoped word excludes only
+ * by its own field: -(brand:sony | cable) -> NOT ((s.tsv @@ q.ft0 AND s.t_brand @@ q.ft0) OR s.tsv @@ q.ft1).
  *
  * Score: a leaf scores max(word similarity, 1.0 when it matches exactly); AND = mean of the
  * scored children, OR = maximum over the branches that actually match, NOT does not score.
@@ -47,6 +51,10 @@ final class FuzzyQueryCompiler
     private readonly TsQueryCompiler $tsquery;
     /** @var list<string> */
     private array $columns = [];
+    /** scope(): every leaf exact only. */
+    private bool $exactOnly = false;
+    /** Prefix of the q column names, so scope()'s columns never clash with compile()'s. */
+    private string $prefix = '';
 
     public function __construct(
         private readonly IndexDefinition $index,
@@ -79,6 +87,9 @@ final class FuzzyQueryCompiler
      */
     public function leafQueries(Node $node): array
     {
+        if ($node instanceof Not && $this->tsquery->hasFieldScope($node->node)) {
+            return $this->leafQueries($node->node); // compiled word by word, see excluded()
+        }
         if ($node instanceof AllOf || $node instanceof AnyOf) {
             return array_values(array_unique(array_merge(...array_map($this->leafQueries(...), $node->nodes))));
         }
@@ -102,6 +113,29 @@ final class FuzzyQueryCompiler
     }
 
     /**
+     * The exact-only condition of a query with a field-scoped word, for the strict (full-text)
+     * branch: the query's AND / OR / NOT over its words, each matched exactly, a known field's
+     * word against that field's own tsvector, stop words dropped. SearchSqlBuilder puts it next to
+     * "s.tsv @@ q.tsq", which still finds the candidates through GIN(tsv). Its q columns are named
+     * sft<n>. Null when nothing is left to check (every word a stop word).
+     *
+     * @param list<string> $emptyQueries leaf tsqueries the text configuration reduces to nothing (stop words)
+     *
+     * @return array{predicate: string, columns: list<string>}|null
+     */
+    public function scope(Node $node, ParameterBag $params, array $emptyQueries = []): ?array
+    {
+        $this->columns = [];
+        $this->exactOnly = true;
+        $this->prefix = 's';
+        $compiled = $this->node($node, $params, $emptyQueries);
+        $this->exactOnly = false;
+        $this->prefix = '';
+
+        return $compiled === null ? null : ['predicate' => $compiled['predicate'], 'columns' => $this->columns];
+    }
+
+    /**
      * The condition each leaf has in the search, one per leaf and in order, for the empty-result
      * relaxation probe: exact or trigram (as in the fuzzy branch) when $fuzzy is true and the
      * word is long enough, else exact only; null for a leaf reduced to nothing (a stop word).
@@ -121,7 +155,7 @@ final class FuzzyQueryCompiler
             $predicates[] = match (true) {
                 $tsquery === null => null,
                 $fuzzy => $this->leaf($leaf, $params, $emptyQueries)['predicate'] ?? null,
-                default => $this->matches($tsquery, $params),
+                default => $this->matches($leaf, $tsquery, $params),
             };
         }
 
@@ -141,11 +175,30 @@ final class FuzzyQueryCompiler
         return match (true) {
             $node instanceof AllOf => $this->group($node->nodes, true, $params, $empty),
             $node instanceof AnyOf => $this->group($node->nodes, false, $params, $empty),
+            $node instanceof Not && $this->tsquery->hasFieldScope($node->node) => $this->excluded($node->node, $params, $empty),
             $node instanceof Not => ($tsquery = $this->exact($node->node, $empty)) === null
                 ? null
-                : ['predicate' => sprintf('NOT (%s)', $this->matches($tsquery, $params)), 'score' => null, 'partial' => false],
+                : ['predicate' => sprintf('NOT (%s)', $this->matches($node->node, $tsquery, $params)), 'score' => null, 'partial' => false],
             default => $this->leaf($node, $params, $empty),
         };
+    }
+
+    /**
+     * An excluded part with a word scoped to a known field: compiled word by word (exact only), so
+     * each scoped word is checked against its own field's column, then negated.
+     *
+     * @param list<string> $empty
+     *
+     * @return array{predicate: string, score: null, partial: false}|null
+     */
+    private function excluded(Node $node, ParameterBag $params, array $empty): ?array
+    {
+        $exactOnly = $this->exactOnly;
+        $this->exactOnly = true;
+        $compiled = $this->node($node, $params, $empty);
+        $this->exactOnly = $exactOnly;
+
+        return $compiled === null ? null : ['predicate' => sprintf('NOT (%s)', $compiled['predicate']), 'score' => null, 'partial' => false];
     }
 
     /**
@@ -159,17 +212,26 @@ final class FuzzyQueryCompiler
         if ($tsquery === null) {
             return null;
         }
-        $exact = $this->matches($tsquery, $params);
-        $needle = $this->needle($node);
+        $exact = $this->matches($node, $tsquery, $params);
+        $needle = $this->exactOnly ? null : $this->needle($node);
         if ($needle === null) {
             return ['predicate' => $exact, 'score' => sprintf('CASE WHEN %s THEN 1.0 ELSE 0.0 END', $exact), 'partial' => false];
         }
         $norm = $this->column('fn', sprintf('%s(%s)', $this->names->normFunction(), $params->add($needle)));
         $schema = $this->names->extension();
+        $field = $this->scopedField($node);
+        if ($field === null) {
+            return [
+                'predicate' => sprintf('(%s OR %s OPERATOR(%s.<%%) s.fz)', $exact, $norm, $schema),
+                'score' => sprintf('GREATEST(%s.word_similarity(%s, s.fz), CASE WHEN %s THEN 1.0 ELSE 0.0 END)', $schema, $norm, $exact),
+                'partial' => false,
+            ];
+        }
+        $column = 's.' . $this->names->fieldFuzzy($field->name);
 
         return [
-            'predicate' => sprintf('(%s OR %s OPERATOR(%s.<%%) s.fz)', $exact, $norm, $schema),
-            'score' => sprintf('GREATEST(%s.word_similarity(%s, s.fz), CASE WHEN %s THEN 1.0 ELSE 0.0 END)', $schema, $norm, $exact),
+            'predicate' => sprintf('(%1$s OR (%2$s OPERATOR(%3$s.<%%) s.fz AND %2$s OPERATOR(%3$s.<%%) %4$s))', $exact, $norm, $schema, $column),
+            'score' => sprintf('GREATEST(%s.word_similarity(%s, %s), CASE WHEN %s THEN 1.0 ELSE 0.0 END)', $schema, $norm, $column, $exact),
             'partial' => false,
         ];
     }
@@ -236,20 +298,33 @@ final class FuzzyQueryCompiler
         }
         $needle = implode(' ', TsQueryCompiler::lexemes($text));
 
-        return $this->index->hasFuzzy() && mb_strlen(str_replace(' ', '', $needle)) >= $this->thresholds->fuzzyMinLength ? $needle : null;
+        $field = $this->scopedField($node);
+
+        return $this->index->hasFuzzy() && ($field === null || $field->fuzzy) && mb_strlen(str_replace(' ', '', $needle)) >= $this->thresholds->fuzzyMinLength ? $needle : null;
     }
 
-    private function matches(string $tsquery, ParameterBag $params): string
+    private function matches(Node $node, string $tsquery, ParameterBag $params): string
     {
-        return 's.tsv @@ ' . $this->column('ft', sprintf('to_tsquery(%s, %s)', $this->names->regconfig($this->index->text), $params->add($tsquery)));
+        $query = $this->column('ft', sprintf('to_tsquery(%s, %s)', $this->names->regconfig($this->index->text), $params->add($tsquery)));
+        $field = $this->scopedField($node);
+
+        return $field === null
+            ? 's.tsv @@ ' . $query
+            : sprintf('(s.tsv @@ %1$s AND s.%2$s @@ %1$s)', $query, $this->names->fieldVector($field->name));
     }
 
-    /** Adds a q column (ft<n> = tsquery, fn<n> = needle) and returns the reference to it. */
+    /** Adds a q column (ft<n> = tsquery, fn<n> = needle; scope(): sft<n>) and returns the reference to it. */
     private function column(string $prefix, string $expression): string
     {
-        $name = $prefix . count($this->columns);
+        $name = $this->prefix . $prefix . count($this->columns);
         $this->columns[] = $expression . ' AS ' . $name;
 
         return 'q.' . $name;
+    }
+
+    /** The field a leaf is scoped to, when the index has it. */
+    private function scopedField(Node $node): ?FieldDefinition
+    {
+        return $node instanceof FieldScoped ? $this->index->field($node->field) : null;
     }
 }

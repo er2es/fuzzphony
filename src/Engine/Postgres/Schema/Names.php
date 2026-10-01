@@ -117,6 +117,67 @@ final readonly class Names
         return $this->qualify($this->syncFunctionName($index, $watch));
     }
 
+    /** The table a full reindex builds next to the live one, swapped in when it is complete. */
+    public function shadowName(IndexDefinition $index): string
+    {
+        return self::limit($this->sidecarName($index) . '__next');
+    }
+
+    public function shadow(IndexDefinition $index): string
+    {
+        return $this->qualify($this->shadowName($index));
+    }
+
+    /** The ids of the live documents that changed while a full reindex runs. */
+    public function changesName(IndexDefinition $index): string
+    {
+        return self::limit($this->sidecarName($index) . '__changes');
+    }
+
+    public function changes(IndexDefinition $index): string
+    {
+        return $this->qualify($this->changesName($index));
+    }
+
+    public function shadowRefreshFunctionName(IndexDefinition $index): string
+    {
+        return self::limit(self::PREFIX . 'refresh_' . $index->name . '__next');
+    }
+
+    public function shadowRefreshFunction(IndexDefinition $index): string
+    {
+        return $this->qualify($this->shadowRefreshFunctionName($index));
+    }
+
+    /** The trigger function (and the trigger on the live table) that fills the change log. */
+    public function trackFunctionName(IndexDefinition $index): string
+    {
+        return self::limit(self::PREFIX . 'track_' . $index->name);
+    }
+
+    public function trackFunction(IndexDefinition $index): string
+    {
+        return $this->qualify($this->trackFunctionName($index));
+    }
+
+    /** The name an index (or the primary key) of the rebuild table has until the swap gives it $liveName. */
+    public function shadowIndexName(string $liveName): string
+    {
+        return self::limit($liveName . '__next');
+    }
+
+    /** An index of one of Fuzzphony's tables, qualified: ALTER INDEX needs the schema. */
+    public function index(string $name): string
+    {
+        return $this->qualify($name);
+    }
+
+    /** The advisory lock key of an index's full rebuild (pg_advisory_lock(hashtext(key))). */
+    public function rebuildLockKey(IndexDefinition $index): string
+    {
+        return 'fuzzphony:' . $this->schema . '.' . $index->name;
+    }
+
     /** "" = the row-level trigger (named like its function); "_ins", "_upd", "_del", "_trn" = the others. */
     public function triggerName(IndexDefinition $index, Watch $watch, string $suffix = ''): string
     {
@@ -128,6 +189,28 @@ final readonly class Names
     public function indexName(IndexDefinition $index, string $suffix): string
     {
         return self::limit($this->sidecarName($index) . '_' . $suffix);
+    }
+
+    /** The sidecar column with one field's own weighted tsvector (layout 2): a field-scoped word is checked against it. */
+    public function fieldVectorName(string $field): string
+    {
+        return self::limit('t_' . $field);
+    }
+
+    public function fieldVector(string $field): string
+    {
+        return Sql::ident($this->fieldVectorName($field));
+    }
+
+    /** The sidecar column with one fuzzy field's normalised text (layout 2): a field-scoped typo is checked against it. */
+    public function fieldFuzzyName(string $field): string
+    {
+        return self::limit('z_' . $field);
+    }
+
+    public function fieldFuzzy(string $field): string
+    {
+        return Sql::ident($this->fieldFuzzyName($field));
     }
 
     /** The configuration an index uses: Fuzzphony's accent-folding copy, or the built-in one. */

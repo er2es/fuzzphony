@@ -107,7 +107,7 @@ final class FingerprintTest extends TestCase
     public function testTheHashesAreStable(): void
     {
         self::assertSame('a6de34b30d4564025ae61edcfac1ddca619b9d0cff07e5af387248c7158cfddc', Fingerprint::definition(Indexes::products()));
-        self::assertSame('5b860d086f1f67d16835613a12392bdfc125fcd9f04fc0dd76f4019cbd55476b', Fingerprint::documents(Indexes::products()));
+        self::assertSame('66eeef32e4f48e272df8b2b5dd7949f4486c73d7011c80063f0f1e143b6d49e1', Fingerprint::documents(Indexes::products()));
         self::assertSame('ecb3ea5edac8953024478361977c6dc90a540a7f08587fede5017f970d40d612', Fingerprint::shared(new Names()));
     }
 }

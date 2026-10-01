@@ -150,7 +150,7 @@ default `default`).
    ```bash
    bin/console fuzzphony:schema            # review the SQL first (nothing is executed)
    bin/console fuzzphony:schema --apply    # or: --dump-migration=migrations
-   bin/console fuzzphony:reindex           # backfill, batched and resumable
+   bin/console fuzzphony:reindex           # built next to the live index, swapped in; resumable
    bin/console fuzzphony:doctor            # verify everything, with fixes
    bin/console fuzzphony:search products 'wireles mouse' -w "price<=20000"
    ```
@@ -176,7 +176,7 @@ Search text from end users never throws. Malformed input is repaired and reporte
 | `mouse OR trackpad`, `mouse \| trackpad` | either |
 | `-cable`, `NOT cable`, `!cable` | exclude |
 | `keyb*` | prefix |
-| `brand:logitech`, `name:"mx master"` | only in one field (per weight group) |
+| `brand:logitech`, `name:"mx master"` | only in that field, typos included (an unknown field searches every field, with a warning) |
 | `(mouse OR trackpad) -cable` | grouping |
 
 Typos are tolerated per word, within the query's AND / OR / NOT. A multi-word query that finds
@@ -216,17 +216,10 @@ Report vulnerabilities privately: see
 
 Details in [docs/limitations.md](https://github.com/er2es/fuzzphony/blob/main/docs/limitations.md).
 
-- [Field scoping](https://github.com/er2es/fuzzphony/blob/main/docs/limitations.md#field-scoping-works-per-weight-group) (`brand:x`) covers the whole weight
-  group, and any fuzzy field once typo tolerance runs. Fix planned:
-  [exact field scoping](https://github.com/er2es/fuzzphony/blob/main/docs/roadmap.md#exact-field-scoping).
 - [Typo tolerance is lenient](https://github.com/er2es/fuzzphony/blob/main/docs/limitations.md#typo-tolerance-is-lenient): at the default similarity, `mouse`
   also matches `monitor`. Fix planned: [length-aware typo tolerance](https://github.com/er2es/fuzzphony/blob/main/docs/roadmap.md#length-aware-typo-tolerance).
-- [`TRUNCATE` on a joined table](https://github.com/er2es/fuzzphony/blob/main/docs/limitations.md#truncate-on-a-watched-table) resyncs every document: 42.8 s
-  (`trigger`) or 8.5 s (`queue`) on 1M documents. Fix planned:
-  [zero-downtime reindex](https://github.com/er2es/fuzzphony/blob/main/docs/roadmap.md#zero-downtime-reindex).
-- [Partitions](https://github.com/er2es/fuzzphony/blob/main/docs/limitations.md#partitioned-tables): statement-level triggers go on the parent (a PostgreSQL
-  rule), and truncating a single partition is not followed. Fix planned:
-  [partition-aware sync](https://github.com/er2es/fuzzphony/blob/main/docs/roadmap.md#partition-aware-sync).
+- [Attaching or detaching a partition is not followed](https://github.com/er2es/fuzzphony/blob/main/docs/limitations.md#attaching-or-detaching-a-partition-is-not-followed):
+  PostgreSQL fires no trigger for it; run `fuzzphony:reindex` afterwards.
 - [Ranking is approximate beyond `candidate_limit`](https://github.com/er2es/fuzzphony/blob/main/docs/limitations.md#ranking-is-approximate-beyond-candidate_limit),
   and `total` is then a lower bound. Fix planned: an opt-in exact `total`, part of
   [facets](https://github.com/er2es/fuzzphony/blob/main/docs/roadmap.md#facets).
@@ -237,7 +230,7 @@ Current: v0.4 (one exception hierarchy, typed withers, a dedicated schema, sidec
 versioning, Doctrine Migrations integration, an explicit public API). Milestones build in order, each one a foundation for the next, up to v1.0's stable API
 and backward-compatibility promise. PostgreSQL only before 1.0:
 
-- v0.5 Index lifecycle: zero-downtime reindex, exact field scoping, partition-aware sync.
+- v0.5 Index lifecycle (implemented, unreleased): zero-downtime reindex, exact field scoping, partition-aware sync.
 - v0.6 Events: observability hooks/events, transaction-aware connections.
 - v0.7 Relevance: length-aware typo tolerance, synonyms, a vocabulary table, "did you mean".
 - v0.8 Search features: `suggest()`, facets with an opt-in exact `total`, federated search.

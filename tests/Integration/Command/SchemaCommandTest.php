@@ -45,11 +45,81 @@ final class SchemaCommandTest extends TestCase
         $this->tester->execute(['--apply' => true], ['interactive' => false]);
         self::assertNotNull($this->context->connection->fetchValue("SELECT to_regclass('fuzzphony_products')"));
 
-        $status = $this->tester->execute(['--drop' => true, '--apply' => true], ['interactive' => false]);
+        $status = $this->tester->execute(['--drop' => true, '--apply' => true, '--force' => true], ['interactive' => false]);
 
         self::assertSame(Command::SUCCESS, $status);
         self::assertNull($this->context->connection->fetchValue("SELECT to_regclass('fuzzphony_products')"), 'the sidecar table must be gone');
         self::assertNotNull($this->context->connection->fetchValue("SELECT to_regclass('fz_product')"), 'the source table must never be touched');
+    }
+
+    public function testDropWithForceSkipsTheConfirmationEntirely(): void
+    {
+        $this->tester->execute(['--apply' => true], ['interactive' => false]);
+
+        $status = $this->tester->execute(['--drop' => true, '--apply' => true, '--force' => true], ['interactive' => true]);
+
+        self::assertSame(Command::SUCCESS, $status);
+        self::assertStringNotContainsString('Drop these Fuzzphony objects?', $this->tester->getDisplay());
+        self::assertNull($this->context->connection->fetchValue("SELECT to_regclass('fuzzphony_products')"));
+    }
+
+    public function testDropRefusesNonInteractivelyWithoutForce(): void
+    {
+        $this->tester->execute(['--apply' => true], ['interactive' => false]);
+        self::assertNotNull($this->context->connection->fetchValue("SELECT to_regclass('fuzzphony_products')"));
+
+        $status = $this->tester->execute(['--drop' => true, '--apply' => true], ['interactive' => false]);
+
+        self::assertSame(Command::FAILURE, $status);
+        self::assertStringContainsString('Refusing to drop without confirmation: pass --force in non-interactive runs.', $this->tester->getDisplay());
+        self::assertNotNull($this->context->connection->fetchValue("SELECT to_regclass('fuzzphony_products')"), 'nothing should have been dropped');
+    }
+
+    public function testDropAsksAndProceedsOnYes(): void
+    {
+        $this->tester->execute(['--apply' => true], ['interactive' => false]);
+        $this->tester->setInputs(['yes']);
+
+        $status = $this->tester->execute(['--drop' => true, '--apply' => true]);
+
+        self::assertSame(Command::SUCCESS, $status, $this->tester->getDisplay());
+        self::assertStringContainsString('Drop these Fuzzphony objects? (yes/no) [no]:', $this->tester->getDisplay());
+        self::assertNull($this->context->connection->fetchValue("SELECT to_regclass('fuzzphony_products')"), 'the sidecar table must be gone');
+    }
+
+    public function testDropAsksAndRefusesOnNo(): void
+    {
+        $this->tester->execute(['--apply' => true], ['interactive' => false]);
+        $this->tester->setInputs(['no']);
+
+        $status = $this->tester->execute(['--drop' => true, '--apply' => true]);
+
+        self::assertSame(Command::FAILURE, $status, $this->tester->getDisplay());
+        self::assertStringContainsString('Drop these Fuzzphony objects? (yes/no) [no]:', $this->tester->getDisplay());
+        self::assertNotNull($this->context->connection->fetchValue("SELECT to_regclass('fuzzphony_products')"), 'nothing should have been dropped');
+    }
+
+    public function testDropAsksAndDefaultsToNoOnEmptyAnswer(): void
+    {
+        $this->tester->execute(['--apply' => true], ['interactive' => false]);
+        $this->tester->setInputs(['']);
+
+        $status = $this->tester->execute(['--drop' => true, '--apply' => true]);
+
+        self::assertSame(Command::FAILURE, $status, $this->tester->getDisplay());
+        self::assertNotNull($this->context->connection->fetchValue("SELECT to_regclass('fuzzphony_products')"), 'nothing should have been dropped');
+    }
+
+    public function testDropExplainsWhatWillBeRemovedBeforeAsking(): void
+    {
+        $this->tester->execute(['--apply' => true], ['interactive' => false]);
+
+        $this->tester->execute(['--drop' => true, '--apply' => true], ['interactive' => false]);
+
+        self::assertStringContainsString(
+            'This will drop the Fuzzphony objects for products: the sidecar table, its triggers, functions and queued rows; your source tables are not touched.',
+            $this->tester->getDisplay(),
+        );
     }
 
     public function testDumpMigrationWritesAMigrationFile(): void
@@ -69,11 +139,11 @@ final class SchemaCommandTest extends TestCase
             // every plan records itself: the shared objects' row "*" (end of the global plan), then one row per index
             $upsert = '$this->addSql(\'INSERT INTO "public"."fuzzphony_meta" (index_name, layout_version,';
             self::assertSame(2, substr_count($contents, $upsert));
-            self::assertStringContainsString("VALUES (\\'*\\', 1, ", $contents);
+            self::assertStringContainsString("VALUES (\\'*\\', 2, ", $contents);
             // the last statement of up() records the index's layout and definition (var_export escapes the quotes)
             $last = substr($contents, (int) strrpos($contents, '$this->addSql('));
             self::assertStringStartsWith($upsert, $last);
-            self::assertStringContainsString("VALUES (\\'products\\', 1, ", $last);
+            self::assertStringContainsString("VALUES (\\'products\\', 2, ", $last);
             self::assertStringContainsString('ON CONFLICT (index_name) DO UPDATE SET layout_version = EXCLUDED.layout_version', $last);
             self::assertNull($this->context->connection->fetchValue("SELECT to_regclass('fuzzphony_products')"), 'dumping a migration must not apply anything');
         } finally {

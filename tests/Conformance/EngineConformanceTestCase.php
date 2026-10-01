@@ -337,7 +337,7 @@ abstract class EngineConformanceTestCase extends TestCase
         self::assertContains(4, $this->ids($this->fuzzphony->in('products')->get()));
 
         $full = (new Reindexer($this->engine))->run($index, new ReindexOptions());
-        self::assertSame(1, $full->pruned);
+        self::assertTrue($full->swapped || $full->pruned === 1, 'swapped in without the orphan, or pruned in place');
         self::assertNotContains(4, $this->ids($this->fuzzphony->in('products')->get()));
     }
 

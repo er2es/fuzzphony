@@ -7,9 +7,9 @@ The `fuzzphony:*` commands, the doctor and the configuration wizard. Back to the
 
 | Command | Purpose |
 |---|---|
-| `fuzzphony:schema [index] [--apply\|--drop\|--dump-migration=dir]` | show / apply / export idempotent DDL (alias `fuzzphony:install`); `--dump-migration` writes a Doctrine migration, see [Doctrine Migrations](integrations.md#doctrine-migrations) |
-| `fuzzphony:reindex [index] [--batch=5000] [--from=id] [--no-prune] [--prune-empty]` | resumable backfill with progress; a full run also removes orphaned documents (`--no-prune` keeps them; an empty source is only pruned with `--prune-empty`) |
-| `fuzzphony:worker [--once] [--time-limit=s] [--index=x]` | drain the sync queue; graceful on SIGTERM |
+| `fuzzphony:schema [index] [--apply\|--drop\|--dump-migration=dir] [--force]` | show / apply / export idempotent DDL (alias `fuzzphony:install`); `--dump-migration` writes a Doctrine migration, see [Doctrine Migrations](integrations.md#doctrine-migrations) |
+| `fuzzphony:reindex [index] [--batch=5000] [--from=id] [--in-place] [--no-prune] [--prune-empty] [--force]` | rebuild next to the live index and swap it in (zero downtime; `--in-place` writes the live index directly), resumable, with progress; a failed run exits with code 1 and prints the command to resume with, and the command stops at the first index that fails; see [Reindexing](sync.md#reindexing-and-orphan-pruning) |
+| `fuzzphony:worker [--once] [--time-limit=s] [--index=x]` | drain the sync queue, including the full rebuilds a `TRUNCATE` queued (a failed one is retried after a back-off; `--once` then exits with code 1); graceful on SIGTERM |
 | `fuzzphony:doctor [index] [--deep] [--strict]` | health check with fixes |
 | `fuzzphony:search index 'query' [-w filter] [--explain [--analyze]]` | try queries, see score breakdowns, SQL and plans |
 | `fuzzphony:wizard [table] [--format=yaml\|builder\|attributes] [--write=file] [--try]` | suggest, explain and export a definition |
@@ -17,6 +17,13 @@ The `fuzzphony:*` commands, the doctor and the configuration wizard. Back to the
 `fuzzphony:schema` without `--apply` only prints the SQL, so you can review it first. See
 [Reindexing and orphan pruning](sync.md#reindexing-and-orphan-pruning) for what `--no-prune` and
 `--prune-empty` are for.
+
+`fuzzphony:schema --drop --apply` and `fuzzphony:reindex --prune-empty` are destructive (the
+former removes the sidecar table, its triggers, functions and queued rows; the latter can wipe
+every indexed document). Both explain what will happen and ask for confirmation
+(default **no**); `--force` skips the question, and is required to run either non-interactively
+(`--no-interaction`) -- without it they refuse with exit code 1. The PHP API
+(`Fuzzphony::schema()`, `Fuzzphony::reindex()`) never prompts.
 
 ## The doctor
 
@@ -52,10 +59,22 @@ It checks:
   hides them);
 - missing or disabled triggers, including the `TRUNCATE` trigger, which an index set up with an
   older version lacks until `fuzzphony:schema --apply` runs again;
-- queue backlog and age;
+- partitioned watched tables: every partition carries the `TRUNCATE` trigger, enabled (one
+  attached after the last apply does not), a warning at `trigger_level: statement`, where a write
+  that targets a partition directly is not synced, and a warning for that trigger left on a table
+  that should not have it (a detached partition, or any partition in `orm` / `manual` mode);
+- queue backlog and age, a pending full-rebuild job a `TRUNCATE` queued, and whether the worker's
+  rebuild of it keeps failing (the last error, how often, when);
+- a full reindex that did not finish (its rebuild table, change log or change log trigger is left
+  over, so every change keeps being logged; fixed by resuming it with `--from` or by a full
+  `fuzzphony:reindex`; an error when the trigger is left without its log, which fails every write
+  to the index), or one that is running;
 - coverage (estimated, or exact with `--deep`);
 - orphaned documents (with `--deep`; fixed by `fuzzphony:reindex`);
 - risky thresholds;
+- the shared objects' version row (`*` in `fuzzphony_meta`): a warning when it is missing, an error
+  when its layout is older or newer than this library's, or when the schema or extension schema
+  changed since the last apply;
 - the schema version: which layout and definition the index was last applied with (an error when
   the definition changed since, or the layout is older or newer than this library's) and whether
   the documents were built from the current definition (a warning until a full

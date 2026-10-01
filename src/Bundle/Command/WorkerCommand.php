@@ -51,18 +51,27 @@ final class WorkerCommand extends Command implements SignalableCommandInterface
             return Command::SUCCESS;
         }
         $batch = is_string($input->getOption('batch')) ? max(1, (int) $input->getOption('batch')) : $this->batchSize;
-        $this->worker = new Worker($this->fuzzphony->engine());
+        $worker = $this->worker = new Worker($this->fuzzphony->engine());
+        $errors = $io->getErrorStyle();
+        $report = static function () use ($worker, $errors): bool {
+            foreach ($worker->rebuildFailures() as $name => $failure) {
+                $errors->writeln(sprintf('<error>The full rebuild of "%s" a TRUNCATE queued failed; the job stays queued: %s</error>', $name, $failure->getMessage()));
+            }
+
+            return $worker->rebuildFailures() !== [];
+        };
 
         if ($input->getOption('once') === true) {
-            $processed = $this->worker->runOnce($indexes, $batch);
+            $processed = $worker->runOnce($indexes, $batch);
             $io->writeln(sprintf('Processed %d queued item(s).', $processed));
 
-            return Command::SUCCESS;
+            return $report() ? Command::FAILURE : Command::SUCCESS;
         }
 
         $limit = $input->getOption('time-limit');
         $io->writeln(sprintf('Worker started for: %s (Ctrl+C / SIGTERM stops gracefully)', implode(', ', array_map(static fn($i): string => $i->name, $indexes))));
-        $total = $this->worker->run($indexes, $batch, $this->idleSleep, is_string($limit) ? (int) $limit : null, static function (int $processed) use ($output): void {
+        $total = $worker->run($indexes, $batch, $this->idleSleep, is_string($limit) ? (int) $limit : null, static function (int $processed) use ($output, $report): void {
+            $report();
             if ($processed > 0 && $output->isVerbose()) {
                 $output->writeln(sprintf('[%s] %d item(s)', date('H:i:s'), $processed));
             }

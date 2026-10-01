@@ -6,6 +6,7 @@ namespace Fuzzphony\Engine\Postgres\Schema;
 
 use Composer\InstalledVersions;
 use Fuzzphony\Core\Definition\DefinitionValidator;
+use Fuzzphony\Core\Definition\FieldDefinition;
 use Fuzzphony\Core\Definition\IndexDefinition;
 use Fuzzphony\Core\Definition\SyncMode;
 use Fuzzphony\Core\Definition\TextConfig;
@@ -24,11 +25,11 @@ use Fuzzphony\Engine\Postgres\Sql\Sql;
 final class PostgresSchemaGenerator
 {
     /**
-     * The sidecar layout this version generates (1 = the 0.4 layout), recorded in fuzzphony_meta.
-     * The milestone that first changes the layout bumps it and adds the upgrade step that runs
-     * from the stored version up, together with its test; 0.4 has no step to run.
+     * The sidecar layout this version generates, recorded in fuzzphony_meta: 1 = the 0.4 layout,
+     * 2 = per-field columns (0.5). A layout change bumps it and adds its step to layoutSteps(),
+     * with a test.
      */
-    public const int LAYOUT_VERSION = 1;
+    public const int LAYOUT_VERSION = 2;
 
     /** Every generated function body / DO block is quoted with this tag; the validator keeps it out of embedded SQL. */
     private const string TAG = DefinitionValidator::DOLLAR_QUOTE_TAG;
@@ -76,6 +77,12 @@ final class PostgresSchemaGenerator
                 $this->names->meta(),
             ), 'Layout and definition each index was built from'),
         );
+        foreach (['rebuild_failed_at' => 'timestamptz', 'rebuild_failures' => 'integer', 'rebuild_error' => 'text'] as $column => $type) {
+            $statements[] = new Statement(
+                sprintf('ALTER TABLE %s ADD COLUMN IF NOT EXISTS %s %s', $this->names->meta(), $column, $type),
+                'The last failure of the full rebuild a TRUNCATE queued (the doctor reports it)',
+            );
+        }
 
         $configs = [];
         foreach ($indexes as $index) {
@@ -98,6 +105,7 @@ final class PostgresSchemaGenerator
 
         $definitions = array_map(static fn(string $name, string $type): string => sprintf('    %s %s', Sql::ident($name), $type), array_keys($columns), $columns);
         $statements = [
+            $this->rebuildGuard($index),
             new Statement(sprintf("CREATE TABLE IF NOT EXISTS %s (\n%s\n)", $table, implode(",\n", $definitions)), sprintf('Sidecar index table of "%s"', $index->name)),
         ];
         foreach (array_slice($columns, 1, null, true) as $name => $type) {
@@ -107,6 +115,8 @@ final class PostgresSchemaGenerator
             );
         }
         $statements[] = new Statement($this->refreshFunction($index), 'Builds / removes documents by id');
+        $statements[] = new Statement($this->refreshFunction($index, shadow: true), 'Builds / removes documents by id in the table a full reindex builds next to the live one');
+        $statements[] = new Statement($this->trackFunction($index), 'Logs which documents change while a full reindex runs');
 
         foreach ($index->effectiveWatches() as $watch) {
             $watched = Sql::ident($watch->table);
@@ -114,6 +124,8 @@ final class PostgresSchemaGenerator
                 $statements[] = new Statement(sprintf('DROP TRIGGER IF EXISTS %s ON %s', Sql::ident($obsolete), $watched), sprintf('Remove trigger not used in "%s" sync / %s level', $index->sync->value, $index->triggerLevel->value));
             }
             if (!$index->sync->usesTriggers()) {
+                $statements[] = $this->partitionTriggers($index, $watch, false);
+
                 continue;
             }
             $statements[] = new Statement(
@@ -126,6 +138,7 @@ final class PostgresSchemaGenerator
                     sprintf('%s sync on %s (%s level)', ucfirst($index->sync->value), $watch->table, $index->triggerLevel->value),
                 );
             }
+            $statements[] = $this->partitionTriggers($index, $watch, true);
         }
 
         foreach ($this->indexes($index) as $name => $definition) {
@@ -135,22 +148,56 @@ final class PostgresSchemaGenerator
                 transactional: false,
             );
         }
+        foreach ($this->layoutSteps($index) as $target => [$step, $why]) {
+            $statements[] = new Statement(sprintf(
+                'DO %1$s BEGIN IF to_regclass(%2$s) IS NOT NULL THEN IF (SELECT layout_version FROM %3$s WHERE index_name = %4$s) < %5$d THEN %6$s END IF; END IF; END %1$s',
+                self::TAG,
+                Sql::string($this->names->meta()),
+                $this->names->meta(),
+                Sql::string($index->name),
+                $target,
+                $step,
+            ), sprintf('Layout step to %d: %s', $target, $why));
+        }
         $statements[] = $this->recordApply($index->name, Fingerprint::definition($index), sprintf('Record the layout and definition "%s" was built from', $index->name));
 
         return new SchemaPlan($statements);
     }
 
+    /**
+     * First in the apply transaction: fails it while a full reindex of the index runs (it holds
+     * the rebuild lock, Names::rebuildLockKey()), because the plan replaces the functions that
+     * rebuild uses (a new layout would break it), and holds the lock until the transaction ends,
+     * so no rebuild starts meanwhile. Also first in drop(). A DO block, so --dump-migration keeps
+     * the guard, but a migration is not transactional: there it only refuses while a rebuild is
+     * running at that statement.
+     */
+    private function rebuildGuard(IndexDefinition $index): Statement
+    {
+        return new Statement(sprintf(
+            'DO %1$s BEGIN IF NOT pg_try_advisory_xact_lock(hashtext(%2$s)) THEN RAISE EXCEPTION USING MESSAGE = %3$s; END IF; END %1$s',
+            self::TAG,
+            Sql::string($this->names->rebuildLockKey($index)),
+            Sql::string(sprintf('A rebuild of "%s" is running (fuzzphony:reindex): apply the schema again when it has finished, a new layout would break it.', $index->name)),
+        ), sprintf('Refuse while a full reindex of "%s" runs', $index->name));
+    }
+
     public function drop(IndexDefinition $index): SchemaPlan
     {
-        $statements = [];
+        $statements = [$this->rebuildGuard($index)];
         foreach ($index->effectiveWatches() as $watch) {
             foreach ($this->allTriggerNames($index, $watch) as $trigger) {
                 $statements[] = new Statement(sprintf('DROP TRIGGER IF EXISTS %s ON %s', Sql::ident($trigger), Sql::ident($watch->table)), 'Remove sync trigger');
             }
+            $statements[] = $this->partitionTriggers($index, $watch, false);
             $statements[] = new Statement(sprintf('DROP FUNCTION IF EXISTS %s()', $this->names->syncFunction($index, $watch)), 'Remove sync function');
         }
         $statements[] = new Statement(sprintf('DROP FUNCTION IF EXISTS %s(%s[])', $this->names->refreshFunction($index), Types::id($index->idType)), 'Remove refresh function');
         $statements[] = new Statement(sprintf('DROP TABLE IF EXISTS %s', $this->names->sidecar($index)), 'Remove sidecar table');
+        $statements[] = new Statement(sprintf('DROP TABLE IF EXISTS %s', $this->names->shadow($index)), 'Remove a rebuild that did not finish');
+        $statements[] = new Statement(sprintf('DROP TABLE IF EXISTS %s', $this->names->changes($index)), 'Remove its change log');
+        $statements[] = new Statement(sprintf('DROP FUNCTION IF EXISTS %s(%s[])', $this->names->shadowRefreshFunction($index), Types::id($index->idType)), 'Remove the rebuild refresh function');
+        $statements[] = new Statement(sprintf('DROP FUNCTION IF EXISTS %s()', $this->names->trackFunction($index)), 'Remove the change log function');
         $statements[] = new Statement(sprintf(
             "DO " . self::TAG . " BEGIN IF to_regclass(%s) IS NOT NULL THEN DELETE FROM %s WHERE index_name = %s; END IF; END " . self::TAG,
             Sql::string($this->names->queue()),
@@ -197,6 +244,27 @@ ON CONFLICT (index_name) DO UPDATE SET layout_version = EXCLUDED.layout_version,
         ), $description, transactional: false);
     }
 
+    /**
+     * The sidecar layout upgrade steps, by the layout each one leads to. schema --apply runs a
+     * step for an index whose stored layout (fuzzphony_meta) is older, in the apply transaction,
+     * before the meta upsert records the new layout; a missing version table or row runs none.
+     * The check is SQL (a DO block), so the plan stays database-free and --dump-migration contains
+     * the steps. New columns come from the plan's ADD COLUMN IF NOT EXISTS, not from a step. The
+     * SELECT sits in its own IF: plpgsql plans an IF expression as a whole, so
+     * "to_regclass(...) IS NOT NULL AND (SELECT ...)" would fail on a missing table.
+     *
+     * @return array<int, array{string, string}> target layout => [the step's SQL, why it exists]
+     */
+    private function layoutSteps(IndexDefinition $index): array
+    {
+        return [
+            2 => [
+                sprintf('UPDATE %s SET documents_hash = NULL WHERE index_name = %s;', $this->names->meta(), Sql::string($index->name)),
+                'the per-field columns of existing documents stay empty until a full reindex',
+            ],
+        ];
+    }
+
     /** For the record only: the monorepo package, or the engine package when installed split (as in the demo). */
     private static function libraryVersion(): string
     {
@@ -216,6 +284,12 @@ ON CONFLICT (index_name) DO UPDATE SET layout_version = EXCLUDED.layout_version,
             'fz' => "text NOT NULL DEFAULT ''",
             'exact' => "text NOT NULL DEFAULT ''",
         ];
+        foreach ($index->fields as $field) {
+            $columns[$this->names->fieldVectorName($field->name)] = "tsvector NOT NULL DEFAULT ''";
+            if ($field->fuzzy) {
+                $columns[$this->names->fieldFuzzyName($field->name)] = "text NOT NULL DEFAULT ''";
+            }
+        }
         if ($index->boostColumn !== null) {
             $columns['boost'] = 'double precision';
         }
@@ -326,19 +400,95 @@ ON CONFLICT (index_name) DO UPDATE SET layout_version = EXCLUDED.layout_version,
     }
 
     /**
+     * The TRUNCATE trigger on every partition of a partitioned watched table, at every level:
+     * truncating one partition fires only that partition's triggers. pg_partition_tree() lists the
+     * partitions when the plan runs (so the plan stays database-free) and nothing for a table that
+     * is not partitioned. Each table's schema and name go through %I, so any name is
+     * quoted right. The trigger name is the parent's: trigger names are per table. Row-level
+     * triggers are cloned to partitions by PostgreSQL (and removed on DETACH); statement-level
+     * ones cannot go on them.
+     *
+     * A detached partition keeps its TRUNCATE trigger, so the triggers to remove are found by
+     * name and sync function on any table: with $create those on a table that is no longer in the
+     * partition tree, without it (a sync mode without triggers, drop()) all but the parent's, which
+     * the caller drops by name. drop() then drops the sync function, which they depend on.
+     */
+    private function partitionTriggers(IndexDefinition $index, Watch $watch, bool $create): Statement
+    {
+        $trigger = Sql::string($this->names->triggerName($index, $watch, '_trn'));
+        $function = $this->names->syncFunction($index, $watch);
+        $table = Sql::string(Sql::ident($watch->table));
+        $loops = [sprintf(
+            <<<'SQL'
+                FOR r IN SELECT n.nspname, c.relname FROM pg_trigger AS g JOIN pg_class AS c ON c.oid = g.tgrelid JOIN pg_namespace AS n ON n.oid = c.relnamespace WHERE g.tgname = %1$s AND g.tgfoid = to_regprocedure(%2$s) AND %3$s LOOP
+                        EXECUTE format('DROP TRIGGER %%I ON %%I.%%I', %1$s, r.nspname, r.relname);
+                    END LOOP;
+                SQL,
+            $trigger,
+            Sql::string($function . '()'),
+            // pg_partition_tree() is empty for a table that is not partitioned: the parent is excluded on its own
+            sprintf('g.tgrelid IS DISTINCT FROM to_regclass(%s)', $table) . ($create ? sprintf(' AND g.tgrelid NOT IN (SELECT t.relid FROM pg_partition_tree(to_regclass(%s)) AS t)', $table) : ''),
+        )];
+        if ($create) {
+            $loops[] = sprintf(
+                <<<'SQL'
+                    FOR r IN SELECT n.nspname, c.relname FROM pg_partition_tree(to_regclass(%1$s)) AS t JOIN pg_class AS c ON c.oid = t.relid JOIN pg_namespace AS n ON n.oid = c.relnamespace WHERE t.level > 0 LOOP
+                            EXECUTE format('CREATE OR REPLACE TRIGGER %%I AFTER TRUNCATE ON %%I.%%I FOR EACH STATEMENT EXECUTE FUNCTION %%s()', %2$s, r.nspname, r.relname, %3$s);
+                        END LOOP;
+                    SQL,
+                $table,
+                $trigger,
+                Sql::string($function),
+            );
+        }
+
+        return new Statement(sprintf(
+            <<<'SQL'
+                DO %1$s
+                DECLARE
+                    r record;
+                BEGIN
+                    %2$s
+                END
+                %1$s
+                SQL,
+            self::TAG,
+            implode("
+    ", $loops),
+        ), sprintf($create ? 'TRUNCATE sync on every partition of %s' : 'No TRUNCATE sync on the partitions of %s', $watch->table));
+    }
+
+    /**
      * `SET search_path FROM CURRENT` stores the search_path setting of the session that applied the
      * schema, as written: the embedded source query and watch SQL resolve their (usually
      * unqualified) tables through it, whatever the caller's own search_path is. The setting is
      * stored, not the schemas it named then: with the default `"$user", public`, `$user` is
      * evaluated when the function runs, as the calling role (the functions are SECURITY INVOKER),
      * so a caller with a schema of its own name can still shadow a source table. Fuzzphony's own
-     * objects are schema-qualified and never depend on it.
+     * objects are schema-qualified and never depend on it. With $shadow, the same function for the
+     * table a full reindex builds (Names::shadow()): two static functions keep the SQL plan-cached,
+     * no EXECUTE per batch.
+     *
+     * While a full reindex runs, the live function logs every id it is given (ADR 0008): a document
+     * the live table never had (queued or not yet refreshed when the rebuild loaded it, deleted
+     * since) writes nothing there, so the change log trigger alone would miss it. The log comes after
+     * the writes: the function takes the live table's lock before the log's, like the swap, so the two
+     * never deadlock. It locks the logged rows (see trackFunction()) in id order, one row per id
+     * (DO UPDATE cannot touch a row twice in one statement).
      */
-    private function refreshFunction(IndexDefinition $index): string
+    private function refreshFunction(IndexDefinition $index, bool $shadow = false): string
     {
-        $table = $this->names->sidecar($index);
+        $table = $shadow ? $this->names->shadow($index) : $this->names->sidecar($index);
         $columns = ['id', 'tsv', 'fz', 'exact'];
         $values = ['doc.fz_id', $this->tsvectorExpression($index), $this->fuzzyExpression($index), $this->exactExpression($index)];
+        foreach ($index->fields as $field) {
+            $columns[] = $this->names->fieldVectorName($field->name);
+            $values[] = $this->fieldVectorExpression($index, $field);
+            if ($field->fuzzy) {
+                $columns[] = $this->names->fieldFuzzyName($field->name);
+                $values[] = sprintf("coalesce(%s, '')", $this->fieldFuzzyExpression($field));
+            }
+        }
         if ($index->boostColumn !== null) {
             $columns[] = 'boost';
             $values[] = 'doc.fz_boost::double precision';
@@ -383,13 +533,13 @@ ON CONFLICT (index_name) DO UPDATE SET layout_version = EXCLUDED.layout_version,
 
                     DELETE FROM %3$s AS s
                     WHERE s.id = ANY(p_ids)
-                      AND NOT EXISTS (SELECT 1 FROM (%6$s) AS doc WHERE doc.fz_id = s.id);
+                      AND NOT EXISTS (SELECT 1 FROM (%6$s) AS doc WHERE doc.fz_id = s.id);%9$s
 
                     RETURN written;
                 END
                 %8$s
                 SQL,
-            $this->names->refreshFunction($index),
+            $shadow ? $this->names->shadowRefreshFunction($index) : $this->names->refreshFunction($index),
             Types::id($index->idType),
             $table,
             implode(', ', array_map(Sql::ident(...), $columns)),
@@ -397,6 +547,203 @@ ON CONFLICT (index_name) DO UPDATE SET layout_version = EXCLUDED.layout_version,
             $document,
             $updates,
             self::TAG,
+            $shadow ? '' : sprintf(
+                "
+
+    IF to_regclass(%s) IS NOT NULL THEN
+        INSERT INTO %s (id) SELECT DISTINCT u.id FROM unnest(p_ids) AS u(id) WHERE u.id IS NOT NULL ORDER BY u.id ON CONFLICT (id) DO UPDATE SET id = EXCLUDED.id;
+    END IF;",
+                Sql::string($this->names->changes($index)),
+                $this->names->changes($index),
+            ),
+        );
+    }
+
+    /**
+     * Logs the id of every live document that changes while a full reindex runs (a row trigger
+     * on the live table, created by beginRebuild(), gone with the old table after the swap). It
+     * runs as the writer, in the writer's transaction; beginRebuild() grants the log to them. A
+     * conflict updates the logged row, which locks it until the writer commits (DO NOTHING would
+     * not): a catch-up batch can neither take the id meanwhile nor refresh it from the old state.
+     */
+    private function trackFunction(IndexDefinition $index): string
+    {
+        return sprintf(
+            <<<'SQL'
+                CREATE OR REPLACE FUNCTION %1$s() RETURNS trigger
+                LANGUAGE plpgsql SET search_path = pg_catalog, pg_temp AS %3$s
+                BEGIN
+                    IF TG_OP = 'DELETE' THEN
+                        INSERT INTO %2$s (id) VALUES (OLD.id) ON CONFLICT (id) DO UPDATE SET id = EXCLUDED.id;
+                    ELSE
+                        INSERT INTO %2$s (id) VALUES (NEW.id) ON CONFLICT (id) DO UPDATE SET id = EXCLUDED.id;
+                    END IF;
+                    RETURN NULL;
+                END
+                %3$s
+                SQL,
+            $this->names->trackFunction($index),
+            $this->names->changes($index),
+            self::TAG,
+        );
+    }
+
+    /**
+     * Starts a full rebuild next to the live table, in one statement: drops a leftover one,
+     * creates the change log (writable by every role that may write the live table) and the
+     * empty rebuild table (the current layout, without secondary indexes: shadowIndexes() adds
+     * them after the load), and starts logging the live table. It locks the live table first (the
+     * lock CREATE TRIGGER needs anyway), which waits for the transactions writing it, so every later
+     * change is logged; writers lock the live table before the log, so dropping a leftover log
+     * second cannot deadlock with them.
+     */
+    public function beginRebuild(IndexDefinition $index): string
+    {
+        return sprintf(
+            <<<'SQL'
+                DO %1$s
+                DECLARE
+                    r record;
+                BEGIN
+                    LOCK TABLE %9$s IN SHARE ROW EXCLUSIVE MODE;
+                    DROP TABLE IF EXISTS %2$s;
+                    DROP TABLE IF EXISTS %3$s;
+                    CREATE TABLE %3$s (id %4$s PRIMARY KEY);
+                    FOR r IN SELECT DISTINCT a.grantee
+                             FROM pg_class AS c, aclexplode(coalesce(c.relacl, acldefault('r', c.relowner))) AS a
+                             WHERE c.oid = %5$s::regclass AND a.privilege_type IN ('INSERT', 'UPDATE', 'DELETE') LOOP
+                        EXECUTE format('GRANT SELECT, INSERT, UPDATE ON %%s TO %%s', %6$s, CASE WHEN r.grantee = 0 THEN 'PUBLIC' ELSE quote_ident(pg_get_userbyid(r.grantee)) END);
+                    END LOOP;
+                    %7$s;
+                    CREATE OR REPLACE TRIGGER %8$s AFTER INSERT OR UPDATE OR DELETE ON %9$s FOR EACH ROW EXECUTE FUNCTION %10$s();
+                END
+                %1$s
+                SQL,
+            self::TAG,
+            $this->names->shadow($index),
+            $this->names->changes($index),
+            Types::id($index->idType),
+            Sql::string($this->names->sidecar($index)),
+            Sql::string($this->names->changes($index)),
+            $this->shadowTable($index),
+            Sql::ident($this->names->trackFunctionName($index)),
+            $this->names->sidecar($index),
+            $this->names->trackFunction($index),
+        );
+    }
+
+    /** The rebuild table: the current layout (columns()), its primary key named for the swap. */
+    private function shadowTable(IndexDefinition $index): string
+    {
+        $columns = $this->columns($index);
+        $columns['id'] = Types::id($index->idType) . ' NOT NULL';
+        $definitions = array_map(static fn(string $name, string $type): string => sprintf('    %s %s', Sql::ident($name), $type), array_keys($columns), $columns);
+        $definitions[] = sprintf('    CONSTRAINT %s PRIMARY KEY (%s)', Sql::ident($this->names->shadowIndexName($this->names->indexName($index, 'pkey'))), Sql::ident('id'));
+
+        return sprintf("CREATE TABLE %s (\n%s\n)", $this->names->shadow($index), implode(",\n", $definitions));
+    }
+
+    /**
+     * The rebuild table's secondary indexes, built once it is loaded (faster than maintaining
+     * them during the load; the table is not live, so nothing waits), and fresh statistics.
+     *
+     * @return list<string>
+     */
+    public function shadowIndexes(IndexDefinition $index): array
+    {
+        $statements = [];
+        foreach ($this->indexes($index) as $name => $definition) {
+            $statements[] = sprintf('CREATE INDEX IF NOT EXISTS %s ON %s %s', Sql::ident($this->names->shadowIndexName($name)), $this->names->shadow($index), $definition);
+        }
+        $statements[] = sprintf('ANALYZE %s', $this->names->shadow($index));
+
+        return $statements;
+    }
+
+    /**
+     * Swaps the rebuild in (run under ACCESS EXCLUSIVE on both tables): it gets the live table's
+     * grants and owner (it was created by the reindexing role), the live table goes (with its
+     * change log trigger), the rebuild takes the live name, its primary key and indexes the live
+     * names. plpgsql resolves tables by name: the drop invalidates the cached plans of the live
+     * refresh function, which writes the new table from its next call.
+     */
+    public function swap(IndexDefinition $index): string
+    {
+        $sidecar = $this->names->sidecar($index);
+        $renames = '';
+        foreach (array_keys($this->indexes($index)) as $name) {
+            $renames .= sprintf("\n    ALTER INDEX %s RENAME TO %s;", $this->names->index($this->names->shadowIndexName($name)), Sql::ident($name));
+        }
+        $key = $this->names->indexName($index, 'pkey');
+
+        return sprintf(
+            <<<'SQL'
+                DO %1$s
+                DECLARE
+                    r record;
+                    v_owner text;
+                BEGIN
+                    FOR r IN SELECT a.privilege_type, a.is_grantable, CASE WHEN a.grantee = 0 THEN 'PUBLIC' ELSE quote_ident(pg_get_userbyid(a.grantee)) END AS grantee
+                             FROM pg_class AS c, aclexplode(c.relacl) AS a
+                             WHERE c.oid = %2$s::regclass AND a.grantee <> c.relowner LOOP
+                        EXECUTE format('GRANT %%s ON %%s TO %%s%%s', r.privilege_type, %3$s, r.grantee, CASE WHEN r.is_grantable THEN ' WITH GRANT OPTION' ELSE '' END);
+                    END LOOP;
+                    SELECT quote_ident(pg_get_userbyid(relowner)) INTO v_owner FROM pg_class WHERE oid = %2$s::regclass;
+                    IF v_owner <> quote_ident(current_user) THEN
+                        EXECUTE format('ALTER TABLE %%s OWNER TO %%s', %3$s, v_owner);
+                    END IF;
+                    DROP TABLE %4$s;
+                    ALTER TABLE %5$s RENAME TO %6$s;
+                    ALTER TABLE %4$s RENAME CONSTRAINT %7$s TO %8$s;%9$s
+                    DROP TABLE %10$s;
+                END
+                %1$s
+                SQL,
+            self::TAG,
+            Sql::string($sidecar),
+            Sql::string($this->names->shadow($index)),
+            $sidecar,
+            $this->names->shadow($index),
+            Sql::ident($this->names->sidecarName($index)),
+            Sql::ident($this->names->shadowIndexName($key)),
+            Sql::ident($key),
+            $renames,
+            $this->names->changes($index),
+        );
+    }
+
+    /** Discards a rebuild: the change log trigger, the rebuild table and the log. */
+    public function discardRebuild(IndexDefinition $index): string
+    {
+        return sprintf(
+            'DO %1$s BEGIN IF to_regclass(%2$s) IS NOT NULL THEN DROP TRIGGER IF EXISTS %3$s ON %4$s; END IF; DROP TABLE IF EXISTS %5$s; DROP TABLE IF EXISTS %6$s; END %1$s',
+            self::TAG,
+            Sql::string($this->names->sidecar($index)),
+            Sql::ident($this->names->trackFunctionName($index)),
+            $this->names->sidecar($index),
+            $this->names->shadow($index),
+            $this->names->changes($index),
+        );
+    }
+
+    /**
+     * Completes a pending full-rebuild request (the "*" queue row, see truncateBranch()) after a
+     * full run that started at $started (the database clock) succeeded: only a job queued before
+     * that, since the run read the source after its TRUNCATE; a newer one stays for the next run.
+     * Clears the index's recorded rebuild failure too. Each half is skipped without its table (or
+     * the failure columns of an older schema) or without the rights to change it.
+     */
+    public function completeRebuildRequest(IndexDefinition $index, string $started): string
+    {
+        return sprintf(
+            'DO %1$s BEGIN IF to_regclass(%2$s) IS NOT NULL THEN IF has_table_privilege(%2$s, \'SELECT\') AND has_table_privilege(%2$s, \'DELETE\') THEN DELETE FROM %3$s WHERE index_name = %4$s AND doc_id = \'*\' AND queued_at <= %5$s::timestamptz; END IF; END IF; IF EXISTS (SELECT 1 FROM pg_attribute WHERE attrelid = to_regclass(%6$s) AND attname = \'rebuild_failures\' AND NOT attisdropped) THEN IF has_table_privilege(%6$s, \'SELECT\') AND has_table_privilege(%6$s, \'UPDATE\') THEN UPDATE %7$s SET rebuild_failed_at = NULL, rebuild_failures = NULL, rebuild_error = NULL WHERE index_name = %4$s AND rebuild_failures IS NOT NULL; END IF; END IF; END %1$s',
+            self::TAG,
+            Sql::string($this->names->queue()),
+            $this->names->queue(),
+            Sql::string($index->name),
+            Sql::string($started),
+            Sql::string($this->names->meta()),
+            $this->names->meta(),
         );
     }
 
@@ -466,9 +813,14 @@ ON CONFLICT (index_name) DO UPDATE SET layout_version = EXCLUDED.layout_version,
      *   "SELECT * FROM parent" still returns the child tables' rows. Queue rows another transaction
      *   holds (a running worker) are skipped, so this never waits on the worker's row locks; the
      *   worker refreshes those ids itself and the refresh deletes them from the now empty index.
+     *   While a full reindex runs, the queue is kept: the worker's refreshes log the ids for it.
      * - Any other watched table (or a source that is not empty): its rows are gone, so the affected
-     *   documents cannot be told apart; every document that is indexed or that the source now
-     *   returns is resynced. Expensive on a big index, but a TRUNCATE is rare.
+     *   documents cannot be told apart. Trigger mode resyncs every document that is indexed or that
+     *   the source now returns, inside the truncating transaction (expensive on a big index). Queue
+     *   mode queues one full-rebuild job, the queue row (index, '*'), which the worker runs next to
+     *   the live index; processQueue() never takes it. A TRUNCATE while it is queued moves its
+     *   queued_at on (the statement's clock, not the transaction's): a full run completes only a
+     *   job queued before it started (completeRebuildRequest()).
      */
     private function truncateBranch(IndexDefinition $index, Watch $watch): string
     {
@@ -482,12 +834,10 @@ ON CONFLICT (index_name) DO UPDATE SET layout_version = EXCLUDED.layout_version,
         $resync = $index->sync === SyncMode::Trigger
             ? sprintf('PERFORM %s(ARRAY(%s));', $this->names->refreshFunction($index), $ids)
             : sprintf(
-                "INSERT INTO %s (index_name, doc_id)
-        SELECT %s, t.id::text FROM (%s) AS t(id)
-        ON CONFLICT (index_name, doc_id) DO NOTHING;",
+                "INSERT INTO %s (index_name, doc_id, queued_at) VALUES (%s, '*', clock_timestamp())
+        ON CONFLICT (index_name, doc_id) DO UPDATE SET queued_at = clock_timestamp();",
                 $this->names->queue(),
                 Sql::string($index->name),
-                $ids,
             );
         if ($index->source->table === null || $watch->table !== $index->source->table) {
             return sprintf("    IF TG_OP = 'TRUNCATE' THEN
@@ -499,9 +849,12 @@ ON CONFLICT (index_name) DO UPDATE SET layout_version = EXCLUDED.layout_version,
         $wipe = [sprintf('DELETE FROM %s;', $sidecar)];
         if ($index->sync === SyncMode::Queue) {
             $wipe[] = sprintf(
-                'DELETE FROM %1$s WHERE ctid IN (SELECT ctid FROM %1$s WHERE index_name = %2$s FOR UPDATE SKIP LOCKED);',
+                // not while a full reindex runs: the worker refreshes those ids (which logs them), a
+                // document the rebuild loaded from the queued changes would otherwise survive the swap
+                'IF to_regclass(%3$s) IS NULL THEN DELETE FROM %1$s WHERE ctid IN (SELECT ctid FROM %1$s WHERE index_name = %2$s FOR UPDATE SKIP LOCKED); END IF;',
                 $this->names->queue(),
                 Sql::string($index->name),
+                Sql::string($this->names->changes($index)),
             );
         }
 
@@ -656,17 +1009,21 @@ ON CONFLICT (index_name) DO UPDATE SET layout_version = EXCLUDED.layout_version,
 
     private function tsvectorExpression(IndexDefinition $index): string
     {
-        $config = $this->names->regconfig($index->text);
-
         return implode("\n            || ", array_map(
-            static fn($field): string => sprintf(
-                "setweight(to_tsvector(%s, coalesce(doc.%s::text, '')), '%s')",
-                $config,
-                Sql::ident('fld_' . $field->name),
-                $field->weight->value,
-            ),
+            fn(FieldDefinition $field): string => $this->fieldVectorExpression($index, $field),
             $index->fields,
         ));
+    }
+
+    /** One field's part of tsv, and its own t_<field> column. */
+    private function fieldVectorExpression(IndexDefinition $index, FieldDefinition $field): string
+    {
+        return sprintf(
+            "setweight(to_tsvector(%s, coalesce(doc.%s::text, '')), '%s')",
+            $this->names->regconfig($index->text),
+            Sql::ident('fld_' . $field->name),
+            $field->weight->value,
+        );
     }
 
     private function fuzzyExpression(IndexDefinition $index): string
@@ -675,12 +1032,14 @@ ON CONFLICT (index_name) DO UPDATE SET layout_version = EXCLUDED.layout_version,
         if ($fields === []) {
             return "''";
         }
-        $norm = $this->names->normFunction();
 
-        return sprintf("coalesce(concat_ws(' ', %s), '')", implode(', ', array_map(
-            static fn($field): string => sprintf('%s(doc.%s::text)', $norm, Sql::ident('fld_' . $field->name)),
-            $fields,
-        )));
+        return sprintf("coalesce(concat_ws(' ', %s), '')", implode(', ', array_map($this->fieldFuzzyExpression(...), $fields)));
+    }
+
+    /** One fuzzy field's normalised text: its part of fz, and (coalesced) its own z_<field> column. */
+    private function fieldFuzzyExpression(FieldDefinition $field): string
+    {
+        return sprintf('%s(doc.%s::text)', $this->names->normFunction(), Sql::ident('fld_' . $field->name));
     }
 
     private function exactExpression(IndexDefinition $index): string

@@ -20,6 +20,7 @@ final class CompareController extends AbstractController
         'stemming' => 'drills',
         'phrase + exclude' => '"noise cancelling" -headphones',
         'field' => 'category:kitchen kettle',
+        'exact field' => 'brand:sony headphones',
         'prefix' => 'ergono*',
     ];
 

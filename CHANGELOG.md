@@ -7,6 +7,109 @@ changes; they are always listed under **Breaking** and explained in [UPGRADE.md]
 
 ## [Unreleased]
 
+**After upgrading, run `fuzzphony:schema --apply`, then one full `fuzzphony:reindex`.** See
+[UPGRADE.md](UPGRADE.md#from-04-to-05).
+
+### Breaking
+
+- The sidecar layout is 2. `fuzzphony:schema --apply` upgrades a layout-1 index (a guarded step in
+  the index's plan, also in `--dump-migration`) and clears its documents record, so the doctor's
+  "Documents" check asks for one full `fuzzphony:reindex`. The documents hash now includes the
+  layout.
+- Field-scoped queries are exact: `brand:x` searches the `brand` field only, on the full-text and
+  on the typo-tolerant side. 0.4 searched every field of the same weight, and any fuzzy field once
+  typo tolerance ran, so results of field-scoped queries change (`name:sony` no longer returns
+  Sony-brand products). An excluded one (`-brand:x`, also inside a group such as
+  `-(brand:x | cable)`) excludes by that field only. A scoped word of a field that is not fuzzy is
+  matched exactly only. The index table stores one `tsvector` per field and one normalised text
+  per fuzzy field (roughly one more copy of the indexed text).
+- `fuzzphony:schema --drop --apply` and `fuzzphony:reindex --prune-empty` now explain what they
+  are about to remove and ask for confirmation (default no); a script that ran either
+  non-interactively needs the new `--force` option.
+- `Engine` has five new methods for the zero-downtime reindex: `beginRebuild(IndexDefinition $index,
+  bool $resume = false): bool`, `refreshShadow(IndexDefinition $index, array $ids): int`,
+  `finishRebuild(IndexDefinition $index): void`, `abortRebuild(IndexDefinition $index, bool
+  $keepShadow = false): void` and `discardLeftoverRebuild(IndexDefinition $index): bool`. Custom
+  engines must implement them; an engine that cannot build next to the live index returns `false`
+  from `beginRebuild()` (the reindex then runs in place) and from `discardLeftoverRebuild()`, and
+  leaves the others empty.
+- A full `fuzzphony:reindex` / `Fuzzphony::reindex()` builds the index next to the live one and
+  swaps it in (zero-downtime reindex). It needs disk for a second copy of the index while it runs,
+  and a role with `CREATE` on Fuzzphony's schema that owns the index table (otherwise it runs in
+  place, as before, and the command says so). After a swap `ReindexResult::$pruned` is `null` (the
+  orphans went with the old index) and the new `ReindexResult::$swapped` is `true`. A second full
+  reindex of the same index while one runs fails with the new `RebuildAlreadyRunning` (an
+  `\InvalidArgumentException`). Starting or discarding a rebuild waits at most 3 s for the index
+  table's lock, like the swap (long transactions or autovacuum hold it): starting then fails and
+  changes nothing, discarding fails and leaves the rebuild behind for the next full run. The run holds a
+  session-level advisory lock: behind a transaction-pooling proxy (PgBouncer in transaction mode)
+  it can be released on another server connection than the one that took it, which PostgreSQL only
+  warns about, and the lock stays held there (later reindexes fail with "already running" and
+  `fuzzphony:schema --apply` refuses) until the pooler closes that connection. Reindex with
+  `--in-place` there, or over a session connection.
+- `fuzzphony:schema --apply` and `--drop --apply` fail while a full rebuild of an index in their
+  plan runs, a `fuzzphony:reindex` or the worker's rebuild of a job a `TRUNCATE` queued: run them
+  again when it has finished (a deploy pipeline that applies the schema should retry). A
+  `--dump-migration` migration is not transactional, so it only refuses while a rebuild is running
+  at its guard statement.
+- Index names must not contain `__` (two underscores): it is reserved for the objects of an
+  index's rebuild (`fuzzphony_<index>__next`, `fuzzphony_<index>__changes`,
+  `fuzzphony_refresh_<index>__next`), which an index named `products__next` would share with
+  `products`. Such a definition now fails validation (`InvalidDefinition`). Rename the index
+  before upgrading: drop the old one with 0.4 (`fuzzphony:schema --drop --apply`), then apply and
+  reindex the new name.
+- A failed `fuzzphony:reindex` prints the error and the command to resume with (`--from`, plus
+  `--in-place` / `--no-prune` when the run wrote in place), and exits with code 1 (instead of an
+  uncaught exception); it stops at the first index that fails. A full `--in-place` run discards a
+  rebuild a failed run left behind.
+- `Engine` has two new methods for the rebuild job a `TRUNCATE` queues:
+  `rebuildRequested(IndexDefinition $index): bool` (the worker asks whether a job is queued) and
+  `recordRebuildFailure(IndexDefinition $index, string $message): void` (the worker records that
+  the rebuild it ran failed, for the doctor). Custom engines must implement them; an engine whose
+  queue has no such job returns `false` from the first and leaves the second empty, and its worker
+  only drains the queue. The PostgreSQL engine completes the job when a full run succeeds: in the
+  swap, or in `pruneOrphans()` at the end of a full in-place run.
+- In `queue` mode a `TRUNCATE` that needs a full resync queues one job, the queue row
+  `(index_name, '*')`, instead of every document id, and the worker runs it as a full rebuild.
+  Code that reads `fuzzphony_queue` directly must skip that row, and a string document id `*` is
+  reserved (changes to such a document queue a full rebuild). The job stays queued until a full
+  run that started after it succeeds (the worker's, or any full `fuzzphony:reindex`, `--in-place`
+  included); a run that fails or is killed keeps it, and a `TRUNCATE` during a run keeps a newer
+  one. The `TRUNCATE` trigger now updates that row (`ON CONFLICT … DO UPDATE`), so a role that
+  truncates watched tables needs `UPDATE` on `fuzzphony_queue` as well as `INSERT`. The worker role
+  builds next to the live index when it may (see the reindex entry above), else in place.
+- A full rebuild that fails never stops `fuzzphony:worker`: it writes the error to stderr, keeps
+  the job, syncs the index's queued ids and the other indexes as usual, and tries the job again
+  after a back-off (1 minute, doubling, at most 1 hour). `fuzzphony:worker --once` then exits with
+  code 1. The shared meta table has three new columns (`rebuild_failed_at`, `rebuild_failures`,
+  `rebuild_error`, added by `fuzzphony:schema --apply`) and the doctor's "Sync queue" check warns
+  "a full rebuild keeps failing" until a full run succeeds.
+
+### Added
+
+- Partition-aware sync: `fuzzphony:schema --apply` puts the `TRUNCATE` trigger on every partition
+  of a partitioned watched table, at every level, so truncating one partition is followed. The
+  doctor lists partitions without it (one attached after the last apply) or with it disabled, and
+  warns at `trigger_level: statement`, where writes that target a partition directly are not
+  synced. A detached partition keeps its trigger: the doctor warns, and `fuzzphony:schema --apply`
+  and `--drop --apply` remove it. `ATTACH PARTITION` / `DETACH PARTITION` fire no triggers: run
+  `fuzzphony:reindex` afterwards.
+- The layout step runner: `fuzzphony:schema --apply` upgrades an index built with an older sidecar
+  layout.
+- Doctor: a "Shared objects" check of the shared objects' version row (`*` in `fuzzphony_meta`): a
+  warning when it is missing, an error when its layout is older or newer than the library's, or
+  when the schema or extension schema changed since the last apply.
+- `fuzzphony:schema --drop --apply` and `fuzzphony:reindex --prune-empty` ask for confirmation
+  before running (`--force` skips it, and is required in non-interactive runs).
+- The integration tests (`PostgresTestCase::dsn()`) and `benchmarks/run.php` refuse to run against
+  a database whose name doesn't contain "test" (integration tests) or "bench"/"test" (benchmark),
+  case-insensitive, so `FUZZPHONY_TEST_DSN` / `FUZZPHONY_BENCH_DSN` can no longer be pointed at a
+  real database by mistake; see [CONTRIBUTING.md](CONTRIBUTING.md).
+- `ReindexOptions::$inPlace` and `fuzzphony:reindex --in-place` write the live index directly (the
+  0.4 behaviour: no second copy on disk).
+- Doctor: a "Rebuild" check reports a full reindex that did not finish (with how to resume it, or
+  what is left over when it cannot be resumed), and one that is running.
+
 ## [0.4.0] - 2026-09-27
 
 **After upgrading, run `fuzzphony:schema --apply`, then one full `fuzzphony:reindex`**, and grant the new

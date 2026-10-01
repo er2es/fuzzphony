@@ -77,12 +77,47 @@ final class SearchBuilderTest extends TestCase
                 throw new \LogicException('not used by this test');
             }
 
+            public function beginRebuild(IndexDefinition $index, bool $resume = false): bool
+            {
+                throw new \LogicException('not used by this test');
+            }
+
+            public function refreshShadow(IndexDefinition $index, array $ids): int
+            {
+                throw new \LogicException('not used by this test');
+            }
+
+            public function finishRebuild(IndexDefinition $index): void
+            {
+                throw new \LogicException('not used by this test');
+            }
+
+            public function abortRebuild(IndexDefinition $index, bool $keepShadow = false): void
+            {
+                throw new \LogicException('not used by this test');
+            }
+
+            public function discardLeftoverRebuild(IndexDefinition $index): bool
+            {
+                throw new \LogicException('not used by this test');
+            }
+
             public function processQueue(IndexDefinition $index, int $limit): int
             {
                 throw new \LogicException('not used by this test');
             }
 
             public function queueSize(IndexDefinition $index): int
+            {
+                throw new \LogicException('not used by this test');
+            }
+
+            public function rebuildRequested(IndexDefinition $index): bool
+            {
+                throw new \LogicException('not used by this test');
+            }
+
+            public function recordRebuildFailure(IndexDefinition $index, string $message): void
             {
                 throw new \LogicException('not used by this test');
             }

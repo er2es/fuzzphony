@@ -24,15 +24,15 @@ depends on it, so nothing built early has to be refactored once a later mileston
 
 ## v0.5: Index lifecycle
 
-Reindexing and sync, built on the 0.4 schema. The first change to the sidecar layout brings the
-step runner that upgrades an older layout; 0.4 records the layout version and the doctor reports a
-mismatch.
+Reindexing and sync, built on the 0.4 schema. Implemented, not released yet: see the
+[CHANGELOG](../CHANGELOG.md#unreleased) and [UPGRADE.md](../UPGRADE.md#from-04-to-05). The sidecar
+layout is 2, and `fuzzphony:schema --apply` upgrades an older one.
 
 ### Zero-downtime reindex
 
-Build the new index in a shadow table and swap it in, so a definition change or a full rebuild
-never serves partial results. A `TRUNCATE` on a watched table then queues one full-resync job
-instead of every document id.
+A full rebuild is built in a shadow table, caught up with the changes made meanwhile and swapped in
+atomically, so it never serves partial results ([ADR 0008](adr/0008-shadow-rebuild-with-a-change-log.md)).
+A `TRUNCATE` on a watched table queues one full-rebuild job instead of every document id.
 
 ### Exact field scoping
 

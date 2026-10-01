@@ -21,7 +21,10 @@ already has its own `composer.json` for a later split into separate packages.
 ## Engine
 
 Everything dialect-specific lives behind `Fuzzphony\Core\Engine\Engine`, validated by a
-conformance test suite (`tests/Conformance`). PostgreSQL is the only engine through 1.0.
+conformance test suite (`tests/Conformance`). PostgreSQL is the only engine through 1.0. A full
+reindex is driven through the engine too (`beginRebuild()`, `refreshShadow()`, `finishRebuild()`,
+`abortRebuild()`, `discardLeftoverRebuild()`), so `Reindexer` stays engine-agnostic; the PostgreSQL engine builds next to the
+live table and swaps it in ([ADR 0008](adr/0008-shadow-rebuild-with-a-change-log.md)).
 
 ## Public API
 
@@ -53,6 +56,7 @@ everything else in `src/` is marked `@internal` and may change in any release.
 - Exceptions: `Fuzzphony\Core\Exception\FuzzphonyException`, `Fuzzphony\Core\Exception\EngineFailure`,
   `Fuzzphony\Core\Exception\InvalidArgument`, `Fuzzphony\Core\Exception\InvalidConfiguration`,
   `Fuzzphony\Core\Exception\InvalidDefinition`, `Fuzzphony\Core\Exception\InvalidQuery`,
+  `Fuzzphony\Core\Exception\RebuildAlreadyRunning`,
   `Fuzzphony\Core\Exception\UnknownIndex`
 - Engine SPI (for custom engines): `Fuzzphony\Core\Engine\Engine`, `Fuzzphony\Core\Engine\Capabilities`,
   `Fuzzphony\Core\Engine\Capability`; the PostgreSQL engine: `Fuzzphony\Engine\Postgres\PostgresEngine`
@@ -82,6 +86,12 @@ what it contains.
 `fuzzphony_meta` (same schema) records, per index, the sidecar layout version, a hash of the
 definition it was applied with and a hash of the definition its documents were built from;
 `fuzzphony:doctor` compares them with the current definition.
+
+`fuzzphony:schema --apply` upgrades an index built with an older sidecar layout: each layout step
+is a guarded `DO` block in the index's plan that runs only while the stored layout is older (so
+`--dump-migration` contains it too), before the meta row records the new layout. The `*` row
+records the shared objects (queue, normaliser, text configurations); the doctor's "Shared objects"
+check compares it.
 
 ## Design decisions
 

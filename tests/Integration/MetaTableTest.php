@@ -34,7 +34,7 @@ final class MetaTableTest extends TestCase
         self::assertNull($row['documents_hash']);
         self::assertNull($row['reindexed_at']);
         self::assertNotSame('', Coerce::str($row['library_version']));
-        self::assertSame(1, Coerce::int($this->row('*')['layout_version']));
+        self::assertSame(PostgresSchemaGenerator::LAYOUT_VERSION, Coerce::int($this->row('*')['layout_version']));
 
         $this->context->fuzzphony->reindex('products', new ReindexOptions(resumeAfter: 2));
         self::assertNull($this->row('products')['documents_hash'], 'a resumed run does not cover every document');
@@ -55,11 +55,11 @@ final class MetaTableTest extends TestCase
         self::assertSame('bin/console fuzzphony:reindex products', $this->check('Documents')->fix);
 
         $this->context->connection->execute("UPDATE fuzzphony_meta SET layout_version = 0 WHERE index_name = 'products'");
-        self::assertSame("Layout 0 is older than this library's layout 1.", $this->check('Schema version')->message);
+        self::assertSame("Layout 0 is older than this library's layout 2.", $this->check('Schema version')->message);
         self::assertSame(CheckStatus::Error, $this->check('Schema version')->status);
 
         $this->context->connection->execute("UPDATE fuzzphony_meta SET layout_version = 99, library_version = '9.0.0' WHERE index_name = 'products'");
-        self::assertSame('Layout 99 was applied by a newer Fuzzphony (9.0.0); this library knows layout 1.', $this->check('Schema version')->message);
+        self::assertSame('Layout 99 was applied by a newer Fuzzphony (9.0.0); this library knows layout 2.', $this->check('Schema version')->message);
         self::assertSame('Upgrade fuzzphony/fuzzphony to 9.0.0 or later.', $this->check('Schema version')->fix);
 
         $this->context->connection->execute("DELETE FROM fuzzphony_meta WHERE index_name = 'products'");
@@ -68,6 +68,55 @@ final class MetaTableTest extends TestCase
 
         $this->context->connection->execute('DROP TABLE fuzzphony_meta');
         self::assertSame(['Schema version' => CheckStatus::Warning], $this->statuses(), 'an install from before 0.4');
+    }
+
+    public function testTheDoctorChecksTheSharedObjectsRow(): void
+    {
+        $this->context->applySchemaAndReindex();
+        $connection = $this->context->connection;
+        $check = $this->check('Shared objects');
+        self::assertSame(CheckStatus::Ok, $check->status);
+        self::assertStringStartsWith('layout 2, applied by ', $check->message);
+
+        $connection->execute("UPDATE fuzzphony_meta SET layout_version = 1 WHERE index_name = '*'");
+        $check = $this->check('Shared objects');
+        self::assertSame(CheckStatus::Error, $check->status);
+        self::assertSame("Layout 1 is older than this library's layout 2.", $check->message);
+        self::assertSame('bin/console fuzzphony:schema --apply', $check->fix);
+
+        // a stale hash too: the layout error wins, its fix comes first
+        $connection->execute("UPDATE fuzzphony_meta SET layout_version = 99, library_version = '9.0.0', definition_hash = 'x' WHERE index_name = '*'");
+        $check = $this->check('Shared objects');
+        self::assertSame(CheckStatus::Error, $check->status);
+        self::assertSame('Layout 99 was applied by a newer Fuzzphony (9.0.0); this library knows layout 2.', $check->message);
+        self::assertSame('Upgrade fuzzphony/fuzzphony to 9.0.0 or later.', $check->fix);
+
+        $connection->execute("UPDATE fuzzphony_meta SET layout_version = 2, definition_hash = 'x' WHERE index_name = '*'");
+        $check = $this->check('Shared objects');
+        self::assertSame(CheckStatus::Error, $check->status);
+        self::assertSame("Fuzzphony's schema or the extension schema changed since the last apply.", $check->message);
+        self::assertSame('bin/console fuzzphony:schema --apply', $check->fix);
+
+        $connection->execute("DELETE FROM fuzzphony_meta WHERE index_name = '*'");
+        $check = $this->check('Shared objects');
+        self::assertSame(CheckStatus::Warning, $check->status);
+        self::assertSame('No version record for the shared objects: built before 0.4, or never applied.', $check->message);
+        self::assertSame('bin/console fuzzphony:schema --apply', $check->fix);
+        self::assertSame(CheckStatus::Ok, $this->check('Schema version')->status, 'the index row is read on its own');
+
+        $connection->execute('DROP TABLE fuzzphony_meta');
+        self::assertSame(CheckStatus::Warning, $this->check('Shared objects')->status, 'an install from before 0.4');
+    }
+
+    public function testTheSharedObjectsCheckComesRightBeforeTheSchemaVersionOncePerReport(): void
+    {
+        $this->context->applySchemaAndReindex();
+        $names = array_map(static fn(Check $c): string => $c->name, $this->context->fuzzphony->inspect('products')->checks);
+        $shared = array_search('Shared objects', $names, true);
+
+        self::assertIsInt($shared);
+        self::assertSame('Schema version', $names[$shared + 1]);
+        self::assertCount(1, array_keys($names, 'Shared objects', true));
     }
 
     public function testARoleThatCannotReadTheVersionTableGetsAWarningInsteadOfAFailure(): void

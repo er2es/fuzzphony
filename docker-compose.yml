@@ -1,11 +1,13 @@
 # Development database for integration tests:
 #   docker compose up -d
-#   FUZZPHONY_TEST_DSN="pgsql:host=127.0.0.1;port=5432;dbname=fuzzphony;user=fuzzphony;password=fuzzphony" composer test:integration
+#   FUZZPHONY_TEST_DSN="pgsql:host=127.0.0.1;port=5432;dbname=fuzzphony_test;user=fuzzphony;password=fuzzphony" composer test:integration
+# The database name must contain "test" -- the integration tests refuse to run against anything
+# else, because they drop and recreate tables (see CONTRIBUTING.md).
 services:
   postgres:
     image: postgres:17
     environment:
-      POSTGRES_DB: fuzzphony
+      POSTGRES_DB: fuzzphony_test
       POSTGRES_USER: fuzzphony
       POSTGRES_PASSWORD: fuzzphony
     ports:

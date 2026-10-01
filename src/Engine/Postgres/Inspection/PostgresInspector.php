@@ -8,7 +8,10 @@ use Fuzzphony\Core\Database\Connection;
 use Fuzzphony\Core\Definition\FilterType;
 use Fuzzphony\Core\Definition\IdType;
 use Fuzzphony\Core\Definition\IndexDefinition;
+use Fuzzphony\Core\Definition\TriggerLevel;
+use Fuzzphony\Core\Definition\Watch;
 use Fuzzphony\Core\Inspection\Check;
+use Fuzzphony\Core\Inspection\CheckStatus;
 use Fuzzphony\Core\Inspection\InspectionReport;
 use Fuzzphony\Core\Inspection\InspectOptions;
 use Fuzzphony\Core\Ranking\FuzzyMode;
@@ -60,11 +63,17 @@ final class PostgresInspector
         } else {
             array_push($checks, ...$this->sidecarColumns($index));
             array_push($checks, ...$this->sidecarIndexes($index));
+            array_push($checks, ...$this->rebuild($index));
         }
         $checks[] = $this->function(
             sprintf('%s(%s[])', $this->names->refreshFunction($index), Types::id($index->idType)),
             'Refresh function',
         );
+        $checks[] = $this->function(
+            sprintf('%s(%s[])', $this->names->shadowRefreshFunction($index), Types::id($index->idType)),
+            'Rebuild refresh function',
+        );
+        $checks[] = $this->function($this->names->trackFunction($index) . '()', 'Rebuild change log function');
         array_push($checks, ...$this->triggers($index));
         $checks[] = $this->queue($index, $options);
         if ($sidecarExists && $sourceColumns !== null) {
@@ -96,33 +105,67 @@ final class PostgresInspector
                 sprintf('GRANT SELECT ON %s TO %s;', $this->names->meta(), Sql::ident($role)),
             )];
         }
-        $row = $exists
-            ? ($this->connection->fetchAll(
-                sprintf('SELECT layout_version, definition_hash, documents_hash, library_version FROM %s WHERE index_name = :index', $this->names->meta()),
+        $rows = [];
+        if ($exists) {
+            $found = $this->connection->fetchAll(
+                sprintf("SELECT index_name, layout_version, definition_hash, documents_hash, library_version FROM %s WHERE index_name IN (:index, '*')", $this->names->meta()),
                 ['index' => $index->name],
-            )[0] ?? null)
-            : null;
+            );
+            foreach ($found as $row) {
+                $rows[Coerce::str($row['index_name'])] = $row;
+            }
+        }
+        $checks = [$this->sharedObjects($rows['*'] ?? null)];
+        $row = $rows[$index->name] ?? null;
         if ($row === null) {
-            return [Check::warning('Schema version', 'No version record: built before 0.4, or never applied.', self::APPLY)];
+            $checks[] = Check::warning('Schema version', 'No version record: built before 0.4, or never applied.', self::APPLY);
+
+            return $checks;
+        }
+        $checks[] = $this->layout('Schema version', $row);
+        $checks[] = Coerce::str($row['definition_hash']) === Fingerprint::definition($index)
+            ? Check::ok('Definition', 'unchanged since the last apply')
+            : Check::error('Definition', 'The definition changed since the last apply.', self::APPLY);
+        $checks[] = Coerce::str($row['documents_hash']) === Fingerprint::documents($index)
+            ? Check::ok('Documents', 'built from the current definition')
+            : Check::warning('Documents', 'The documents were built from another definition, or not fully reindexed since 0.4.', sprintf('bin/console fuzzphony:reindex %s', $index->name));
+
+        return $checks;
+    }
+
+    /**
+     * The "*" row: the layout of the shared objects (queue, normaliser, text configurations) and
+     * where they live (Fingerprint::shared()).
+     *
+     * @param array<string, mixed>|null $row
+     */
+    private function sharedObjects(?array $row): Check
+    {
+        if ($row === null) {
+            return Check::warning('Shared objects', 'No version record for the shared objects: built before 0.4, or never applied.', self::APPLY);
+        }
+        $layout = $this->layout('Shared objects', $row);
+        if ($layout->status !== CheckStatus::Ok) {
+            return $layout;
         }
 
+        return Coerce::str($row['definition_hash']) === Fingerprint::shared($this->names)
+            ? $layout
+            : Check::error('Shared objects', "Fuzzphony's schema or the extension schema changed since the last apply.", self::APPLY);
+    }
+
+    /** @param array<string, mixed> $row */
+    private function layout(string $name, array $row): Check
+    {
         $layout = Coerce::int($row['layout_version']);
         $current = PostgresSchemaGenerator::LAYOUT_VERSION;
         $by = Coerce::str($row['library_version']);
 
-        return [
-            match (true) {
-                $layout < $current => Check::error('Schema version', sprintf('Layout %d is older than this library\'s layout %d.', $layout, $current), self::APPLY),
-                $layout > $current => Check::error('Schema version', sprintf('Layout %d was applied by a newer Fuzzphony (%s); this library knows layout %d.', $layout, $by, $current), sprintf('Upgrade fuzzphony/fuzzphony to %s or later.', $by)),
-                default => Check::ok('Schema version', sprintf('layout %d, applied by %s', $layout, $by)),
-            },
-            Coerce::str($row['definition_hash']) === Fingerprint::definition($index)
-                ? Check::ok('Definition', 'unchanged since the last apply')
-                : Check::error('Definition', 'The definition changed since the last apply.', self::APPLY),
-            Coerce::str($row['documents_hash']) === Fingerprint::documents($index)
-                ? Check::ok('Documents', 'built from the current definition')
-                : Check::warning('Documents', 'The documents were built from another definition, or not fully reindexed since 0.4.', sprintf('bin/console fuzzphony:reindex %s', $index->name)),
-        ];
+        return match (true) {
+            $layout < $current => Check::error($name, sprintf('Layout %d is older than this library\'s layout %d.', $layout, $current), self::APPLY),
+            $layout > $current => Check::error($name, sprintf('Layout %d was applied by a newer Fuzzphony (%s); this library knows layout %d.', $layout, $by, $current), sprintf('Upgrade fuzzphony/fuzzphony to %s or later.', $by)),
+            default => Check::ok($name, sprintf('layout %d, applied by %s', $layout, $by)),
+        };
     }
 
     private function version(): Check
@@ -404,6 +447,68 @@ final class PostgresInspector
         return $checks;
     }
 
+    /**
+     * A partitioned watched table: every partition, at every level, needs the TRUNCATE trigger (a
+     * partition attached after the last apply lacks it), enabled. Statement-level triggers cannot
+     * go on partitions, so at that level a write that targets a partition directly is not synced.
+     * In every sync mode: a TRUNCATE trigger left on a table that should not have it (a detached
+     * partition keeps its own; any partition in a mode without triggers), which the apply removes.
+     * The watched table is quoted like the generator quotes it.
+     *
+     * @return list<Check>
+     */
+    private function partitions(IndexDefinition $index, Watch $watch): array
+    {
+        $trigger = $this->names->triggerName($index, $watch, '_trn');
+        $table = Sql::ident($watch->table);
+        $label = 'Partitions of ' . $watch->table;
+        $checks = [];
+        if ($index->sync->usesTriggers()) {
+            $rows = $this->connection->fetchAll(
+                'SELECT t.relid::regclass::text AS part, (SELECT g.tgenabled FROM pg_trigger AS g WHERE g.tgrelid = t.relid AND g.tgname = :trigger) AS state
+                   FROM pg_partition_tree(to_regclass(:table)) AS t WHERE t.level > 0 ORDER BY t.relid::regclass::text COLLATE "C"',
+                ['trigger' => $trigger, 'table' => $table],
+            );
+            $missing = [];
+            $disabled = [];
+            foreach ($rows as $row) {
+                $part = Coerce::str($row['part']);
+                if ($row['state'] === null) {
+                    $missing[] = $part;
+                } elseif ($row['state'] === 'D') {
+                    $disabled[] = $part;
+                }
+            }
+            if ($missing !== []) {
+                $checks[] = Check::error($label, sprintf('%s missing on %s: a TRUNCATE of such a partition leaves stale documents in the index.', $trigger, implode(', ', $missing)), self::APPLY);
+            }
+            if ($disabled !== []) {
+                $checks[] = Check::error($label, sprintf('%s exists but is DISABLED on %s', $trigger, implode(', ', $disabled)), implode(' ', array_map(
+                    static fn(string $part): string => sprintf('ALTER TABLE %s ENABLE TRIGGER %s;', $part, Sql::ident($trigger)),
+                    $disabled,
+                )));
+            }
+            if ($rows !== [] && $checks === []) {
+                $checks[] = Check::ok($label, sprintf('%d partition(s), each with the TRUNCATE trigger', count($rows)));
+            }
+            if ($rows !== [] && $index->triggerLevel === TriggerLevel::Statement) {
+                $checks[] = Check::warning($label, 'Writes that target a partition directly are not synced (statement-level triggers cannot go on partitions); use trigger_level: row, or write through the parent.');
+            }
+        }
+        $left = $this->connection->fetchValue(
+            sprintf(
+                'SELECT string_agg(g.tgrelid::regclass::text, \', \' ORDER BY g.tgrelid::regclass::text COLLATE "C") FROM pg_trigger AS g WHERE g.tgname = :trigger AND g.tgfoid = to_regprocedure(:function) AND g.tgrelid IS DISTINCT FROM to_regclass(:table)%s',
+                $index->sync->usesTriggers() ? ' AND g.tgrelid NOT IN (SELECT t.relid FROM pg_partition_tree(to_regclass(:table)) AS t)' : '',
+            ),
+            ['trigger' => $trigger, 'function' => $this->names->syncFunction($index, $watch) . '()', 'table' => $table],
+        );
+        if ($left !== null) {
+            $checks[] = Check::warning($label, sprintf('%s is left on %s: a TRUNCATE there still triggers a full resync of the index.', $trigger, Coerce::str($left)), self::APPLY);
+        }
+
+        return $checks;
+    }
+
     /** @return list<Check> */
     private function triggers(IndexDefinition $index): array
     {
@@ -441,6 +546,7 @@ final class PostgresInspector
             if ($leftover !== []) {
                 $checks[] = Check::warning($label, sprintf('Leftover trigger(s) %s do not match "%s" sync / %s level and cause double work.', implode(', ', $leftover), $index->sync->value, $index->triggerLevel->value), self::APPLY);
             }
+            array_push($checks, ...$this->partitions($index, $watch));
         }
         if (!$index->sync->usesTriggers()) {
             $checks[] = Check::ok('Sync', sprintf('"%s" mode: no database triggers expected', $index->sync->value));
@@ -455,20 +561,47 @@ final class PostgresInspector
             return Check::error('Sync queue', 'Queue table is missing.', self::APPLY);
         }
         $row = $this->connection->fetchAll(
-            sprintf('SELECT count(*) AS n, coalesce(extract(epoch FROM now() - min(queued_at)), 0)::bigint AS age FROM %s WHERE index_name = :index', $this->names->queue()),
+            sprintf("SELECT count(*) AS n, coalesce(bool_or(doc_id = '*'), false) AS rebuild, coalesce(extract(epoch FROM now() - min(queued_at)), 0)::bigint AS age FROM %s WHERE index_name = :index", $this->names->queue()),
             ['index' => $index->name],
         )[0];
         $size = Coerce::int($row['n']);
         $age = Coerce::int($row['age']);
+        $rebuild = $row['rebuild'] === true;
+        $waiting = sprintf('%d item(s) waiting%s', $size, $rebuild ? ', one of them a full rebuild (queued by a TRUNCATE)' : '');
+        $failure = $rebuild ? $this->rebuildFailure($index) : null;
 
         return match (true) {
+            $failure !== null => Check::warning(
+                'Sync queue',
+                sprintf('%s; a full rebuild keeps failing: %s (%d times, last at %s)', $waiting, Coerce::str($failure['rebuild_error']), Coerce::int($failure['rebuild_failures']), Coerce::str($failure['failed_at'])),
+                sprintf('fix the cause; the worker retries with a back-off, or run: bin/console fuzzphony:reindex %s', $index->name),
+            ),
             $size > $options->maxQueueBacklog || ($size > 0 && $age > $options->maxQueueAgeSeconds) => Check::warning(
                 'Sync queue',
-                sprintf('%d item(s) waiting, oldest %ds: is the worker running?', $size, $age),
+                sprintf('%s, oldest %ds: is the worker running?', $waiting, $age),
                 'bin/console fuzzphony:worker   (or from cron: bin/console fuzzphony:worker --once)',
             ),
-            default => Check::ok('Sync queue', sprintf('%d item(s) waiting', $size)),
+            default => Check::ok('Sync queue', $waiting),
         };
+    }
+
+    /**
+     * The last failure the worker recorded for the index's rebuild job; null without one, or when
+     * the meta table (an older schema: no failure columns) cannot tell.
+     *
+     * @return array<string, mixed>|null
+     */
+    private function rebuildFailure(IndexDefinition $index): ?array
+    {
+        $readable = $this->connection->fetchValue(
+            "SELECT CASE WHEN EXISTS (SELECT 1 FROM pg_attribute WHERE attrelid = to_regclass(:meta) AND attname = 'rebuild_failures' AND NOT attisdropped) THEN has_table_privilege(:table, 'SELECT') ELSE false END",
+            ['meta' => $this->names->meta(), 'table' => $this->names->meta()],
+        );
+
+        return $readable === true ? ($this->connection->fetchAll(
+            sprintf("SELECT rebuild_failures, rebuild_error, to_char(rebuild_failed_at AT TIME ZONE 'UTC', 'YYYY-MM-DD HH24:MI:SS') || ' UTC' AS failed_at FROM %s WHERE index_name = :index AND rebuild_failures IS NOT NULL", $this->names->meta()),
+            ['index' => $index->name],
+        )[0] ?? null) : null;
     }
 
     private function coverage(IndexDefinition $index, InspectOptions $options): Check
@@ -580,6 +713,63 @@ final class PostgresInspector
             'SELECT attname FROM pg_attribute WHERE attrelid = to_regclass(:table) AND attnum > 0 AND NOT attisdropped',
             ['table' => $table],
         ), 'attname'));
+    }
+
+    /**
+     * What a full reindex leaves while it builds next to the live index (it holds the rebuild
+     * lock), or after it failed: the rebuild table, its change log and the trigger on the live
+     * table that fills the log (so the log grows with every change). With both tables a run with
+     * --from continues it; with less, only a full run (which drops the rest) helps, and the trigger
+     * without its log fails every write to the index.
+     *
+     * @return list<Check>
+     */
+    private function rebuild(IndexDefinition $index): array
+    {
+        $shadow = $this->names->shadow($index);
+        $changes = $this->names->changes($index);
+        $trigger = sprintf('trigger %s on %s', Sql::ident($this->names->trackFunctionName($index)), $this->names->sidecar($index));
+        $row = $this->connection->fetchAll(
+            'SELECT to_regclass(:shadow) IS NOT NULL AS shadow, to_regclass(:changes) IS NOT NULL AS changes,
+                    EXISTS (SELECT 1 FROM pg_trigger WHERE tgrelid = to_regclass(:sidecar) AND tgname = :trigger) AS trigger',
+            ['shadow' => $shadow, 'changes' => $changes, 'sidecar' => $this->names->sidecar($index), 'trigger' => $this->names->trackFunctionName($index)],
+        )[0];
+        $found = [$shadow => $row['shadow'] === true, $changes => $row['changes'] === true, $trigger => $row['trigger'] === true];
+        $left = array_keys(array_filter($found, static fn(bool $exists): bool => $exists));
+        if ($left === []) {
+            return [];
+        }
+        // a transaction-level probe, released when this transaction ends; inside a caller's transaction
+        // it is held until that commits, and in the session holding the rebuild lock it re-enters (free)
+        $free = $this->connection->transactional(fn(Connection $c): mixed => $c->fetchValue(
+            'SELECT pg_try_advisory_xact_lock(hashtext(:key))',
+            ['key' => $this->names->rebuildLockKey($index)],
+        )) === true;
+        if (!$free) {
+            return [Check::ok('Rebuild', 'a full reindex is building the index next to the live one')];
+        }
+        $fix = sprintf('bin/console fuzzphony:reindex %s', $index->name);
+        if ($found[$shadow] && $found[$changes]) {
+            return [Check::warning(
+                'Rebuild',
+                sprintf('A rebuild of "%s" did not finish: %s is left over, and every change to the index is logged for it. Resume it with --from (the last id it printed), or run a full reindex, which starts over.', $index->name, $shadow),
+                $fix,
+            )];
+        }
+        $broken = $found[$trigger] && !$found[$changes];
+        $message = sprintf(
+            'A rebuild of "%s" did not finish and cannot be resumed: %s %s left over%s. Run a full reindex, which starts over.',
+            $index->name,
+            implode(', ', $left),
+            count($left) === 1 ? 'is' : 'are',
+            match (true) {
+                $broken => ', and every write to the index fails on its missing change log',
+                $found[$trigger] => ', and every change to the index is logged for it',
+                default => '',
+            },
+        );
+
+        return [$broken ? Check::error('Rebuild', $message, $fix) : Check::warning('Rebuild', $message, $fix)];
     }
 
     private function regclass(string $name): bool
