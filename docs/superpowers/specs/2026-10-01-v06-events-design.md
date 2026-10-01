@@ -78,7 +78,14 @@ a consumer or implementation of it.
 - **`PrometheusMetricsCollector`** (Bundle, optional — see below) — translates calls into
   `promphp/prometheus_client_php`'s `CollectorRegistry` API (APCu storage, the standard approach
   for PHP-FPM). Ships as an adapter class only; this design does not add a bundled `/metrics` HTTP
-  route (see Bundle wiring).
+  route (see Bundle wiring). Prometheus metric names may not contain `.` (must match
+  `[a-zA-Z_:][a-zA-Z0-9_:]*`); the adapter maps `$event` to a metric name by replacing every `.`
+  with `_` (`fuzzphony.search.took_ms` → `fuzzphony_search_took_ms`), passed as `$name` with
+  namespace `''` to `CollectorRegistry::getOrRegisterGauge()` / `getOrRegisterCounter()` /
+  `getOrRegisterHistogram()` (`observe()` uses a histogram with promphp's default buckets — this
+  design does not expose custom buckets). `$labels`' keys become the metric's label names (fixed
+  per call site, e.g. always `['index']` — promphp requires the same label name set on every call
+  for one metric, which every call site in this design already satisfies by construction).
 
 #### Why raw query text can never be a Prometheus label
 
@@ -210,6 +217,38 @@ Worker's gauge above.) Intended usage: a cron/systemd-timer writing this command
 for it (same reasoning as the Prometheus adapter: bounded scope, most ops setups already have their
 own textfile-collector plumbing).
 
+#### 6. A Grafana dashboard (added at the maintainer's request)
+
+A static, importable dashboard, `docs/grafana/fuzzphony-overview.json`, built against the metric
+names `PrometheusMetricsCollector` produces (see above). Not generated code, not wired into the
+bundle — a plain JSON file a Grafana user imports by hand ("Import" → upload JSON), scraping
+whatever job name/labels their own Prometheus setup uses. Panels, one per row:
+
+- **Search latency** — a graph of `fuzzphony_search_took_ms` (the histogram's `_sum`/`_count`,
+  i.e. average took_ms over time) by `index`.
+- **Fuzzy fallback rate** — `rate(fuzzphony_search_fallback_total[5m])` by `index`.
+- **Error rate** — `rate(fuzzphony_<op>_errors_total[5m])` summed across every `<op>` label the
+  `guard()` instrumentation produces (`search`, `explain`, `refresh`, `source ids`,
+  `orphan pruning`, `rebuild`, `queue size`, `queue processing`, `rebuild failure record`,
+  `highlighting`), one line per op.
+- **Queue depth** — `fuzzphony_queue_depth` by `index` (from the `Worker` gauge and, where the
+  worker is not continuously running, `fuzzphony_doctor`'s own `fuzzphony_queue_depth` snapshot —
+  same metric name, two sources, intentionally).
+- **Queue throughput** — `rate(fuzzphony_queue_processed_total[5m])` by `index`.
+- **Worker rebuild failures** — `rate(fuzzphony_worker_rebuild_failures_total[5m])` by `index`.
+- **ORM-sync message handling** — `fuzzphony_messenger_refresh_duration_ms` (average) and
+  `rate(fuzzphony_messenger_refresh_errors_total[5m])`.
+- **Doctor checks** — a table of `fuzzphony_doctor_check` (1 = Ok, 0 = Warning/Error/Skipped) by
+  `index`/`check`, for whoever wires the `--format=prometheus` snapshot into node_exporter's
+  textfile collector.
+
+`docs/grafana/README.md` (or a section in `docs/sync.md`/a new short doc) explains: it's a sample,
+not a guarantee — panel queries assume Prometheus's own `_total`/`_sum`/`_count` suffixing for
+counters and histograms (the standard behavior of `promphp/prometheus_client_php`'s exposition
+format), and the dashboard has no fixed home in the docs site's navigation beyond a link from the
+Observability section. No new PHP code and no new test beyond "the JSON file parses as JSON" (a
+one-line unit test, since a hand-edited dashboard JSON can bit-rot into invalid JSON unnoticed).
+
 ### Bundle wiring
 
 - **Default (no extra config)**: the bundle registers `LoggingMetricsCollector`, wired to the
@@ -304,6 +343,7 @@ pays this cost today.
   observed once per `get()` call regardless of how many internal statements ran.
 - Integration: `fuzzphony:doctor --format=prometheus` — output is valid Prometheus text-exposition
   format (line shape, metric names) for a known set of checks.
+- Unit: `docs/grafana/fuzzphony-overview.json` parses as JSON (`json_decode($contents, flags: JSON_THROW_ON_ERROR)` inside a test, not a runtime check) and every panel's query string contains a metric name this design actually produces.
 - Integration (`MetricsMiddleware`): a real Messenger bus with an in-memory transport, asserting
   the duration metric fires once per handled `RefreshDocuments` envelope and the error metric fires
   when the handler throws.
@@ -317,7 +357,6 @@ pays this cost today.
 
 - No distributed tracing / OpenTelemetry spans.
 - No StatsD support.
-- No bundled Grafana dashboard JSON (a docs addition could follow later; not core library scope).
 - No bundled `/metrics` HTTP route — the application wires the adapter into its own.
 - No alerting rules / SLO definitions — this ships instrumentation, not policy.
 - Raw search query text is never sent as a Prometheus label (unbounded cardinality); it is only
