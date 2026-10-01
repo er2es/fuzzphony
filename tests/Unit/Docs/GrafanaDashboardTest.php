@@ -8,6 +8,29 @@ use PHPUnit\Framework\TestCase;
 
 final class GrafanaDashboardTest extends TestCase
 {
+    /** Every metric name this design actually registers, after sanitizing guard()'s operation
+     * names (PrometheusMetricsCollector::name() folds spaces and dots to a single underscore). */
+    private const array KNOWN = [
+        'fuzzphony_search_took_ms',
+        'fuzzphony_search_fallback',
+        'fuzzphony_search_errors',
+        'fuzzphony_explain_errors',
+        'fuzzphony_refresh_errors',
+        'fuzzphony_source_ids_errors',
+        'fuzzphony_orphan_pruning_errors',
+        'fuzzphony_rebuild_errors',
+        'fuzzphony_queue_size_errors',
+        'fuzzphony_queue_processing_errors',
+        'fuzzphony_rebuild_failure_record_errors',
+        'fuzzphony_highlighting_errors',
+        'fuzzphony_queue_depth',
+        'fuzzphony_queue_processed',
+        'fuzzphony_worker_rebuild_failures',
+        'fuzzphony_messenger_refresh_duration_ms',
+        'fuzzphony_messenger_refresh_errors',
+        'fuzzphony_doctor_check',
+    ];
+
     public function testTheDashboardIsValidJson(): void
     {
         $decoded = self::dashboard();
@@ -18,14 +41,15 @@ final class GrafanaDashboardTest extends TestCase
     public function testEveryPanelQueriesAMetricThisDesignProduces(): void
     {
         $decoded = self::dashboard();
-        $known = ['fuzzphony_search_took_ms', 'fuzzphony_search_fallback', 'fuzzphony_queue_depth', 'fuzzphony_queue_processed', 'fuzzphony_worker_rebuild_failures', 'fuzzphony_messenger_refresh_duration_ms', 'fuzzphony_messenger_refresh_errors', 'fuzzphony_doctor_check'];
 
         foreach ($decoded['panels'] as $panel) {
             foreach ($panel['targets'] ?? [] as $target) {
-                self::assertTrue(
-                    array_any($known, static fn(string $m): bool => str_contains($target['expr'], $m)) || str_contains($target['expr'], 'fuzzphony_'),
-                    'panel "' . $panel['title'] . '" does not query a known metric: ' . $target['expr'],
-                );
+                preg_match_all('/fuzzphony_[a-zA-Z0-9_]+/', $target['expr'], $matches);
+                self::assertNotSame([], $matches[0], 'panel "' . $panel['title'] . '" has no fuzzphony_ metric in its query: ' . $target['expr']);
+                foreach ($matches[0] as $raw) {
+                    $name = (string) preg_replace('/_(sum|count|bucket)$/', '', $raw);
+                    self::assertContains($name, self::KNOWN, 'panel "' . $panel['title'] . '" queries an unknown metric: ' . $raw);
+                }
             }
         }
     }

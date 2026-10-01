@@ -17,12 +17,11 @@ use Fuzzphony\Bundle\Command\WizardCommand;
 use Fuzzphony\Bundle\Command\WorkerCommand;
 use Fuzzphony\Bundle\FuzzphonyBundle;
 use Fuzzphony\Bundle\Messenger\MessengerRefreshDispatcher;
-use Fuzzphony\Bundle\Observability\PrometheusMetricsCollector;
+use Fuzzphony\Bundle\Observability\MetricsCollectorFactory;
 use Fuzzphony\Bundle\Twig\SearchComponent;
 use Fuzzphony\Core\Engine\Engine;
 use Fuzzphony\Core\Exception\InvalidConfiguration;
 use Fuzzphony\Core\Fuzzphony;
-use Fuzzphony\Core\Observability\LoggingMetricsCollector;
 use Fuzzphony\Core\Observability\MetricsCollector;
 use Fuzzphony\Core\Registry\IndexRegistry;
 use Fuzzphony\Core\Sync\ImmediateRefreshDispatcher;
@@ -199,14 +198,33 @@ final class FuzzphonyBundleTest extends TestCase
      * the way the other class_exists()-only gates in this file can). Assert whichever branch this
      * environment actually takes, rather than hardcoding one.
      */
-    public function testMetricsServiceIsPrometheusOnlyWhenApcuIsAlsoAvailable(): void
+    /**
+     * Which concrete MetricsCollector this resolves to is decided at runtime by
+     * MetricsCollectorFactory (its own tests cover both branches) — CLI and FPM share this
+     * compiled container but commonly disagree about apcu, so the definition itself only wires
+     * the factory call, never bakes in one class or the other.
+     */
+    public function testMetricsServiceIsWiredThroughTheRuntimeFactory(): void
     {
-        self::assertTrue(class_exists(\Prometheus\CollectorRegistry::class));
         $container = $this->buildContainer(withOrm: false);
 
-        $expected = \extension_loaded('apcu') && \apcu_enabled() ? PrometheusMetricsCollector::class : LoggingMetricsCollector::class;
-        self::assertSame($expected, $container->getDefinition('fuzzphony.metrics')->getClass());
+        $definition = $container->getDefinition('fuzzphony.metrics');
+        self::assertSame([MetricsCollectorFactory::class, 'create'], $definition->getFactory());
+        self::assertEquals([new Reference('logger')], $definition->getArguments());
         self::assertSame('fuzzphony.metrics', (string) $container->getAlias(MetricsCollector::class));
+    }
+
+    /**
+     * Without its own channel, LoggingMetricsCollector's lines are unroutable and
+     * unfilterable noise mixed into the app's default channel. MonologBundle's compiler pass
+     * rewrites a `monolog.logger`-tagged service's `logger` reference to `monolog.logger.<channel>`
+     * — harmless metadata when MonologBundle isn't installed, since nothing reads the tag then.
+     */
+    public function testMetricsServiceIsTaggedWithItsOwnMonologChannel(): void
+    {
+        $container = $this->buildContainer(withOrm: false);
+
+        self::assertSame([['channel' => 'fuzzphony']], $container->getDefinition('fuzzphony.metrics')->getTag('monolog.logger'));
     }
 
     public function testTheEngineTheWorkerCommandAndTheRefreshHandlerReceiveTheMetricsService(): void
@@ -215,6 +233,7 @@ final class FuzzphonyBundleTest extends TestCase
 
         self::assertEquals(new Reference('fuzzphony.metrics'), $container->getDefinition('fuzzphony.engine')->getArgument(3));
         self::assertEquals(new Reference('fuzzphony.metrics'), $container->getDefinition(WorkerCommand::class)->getArgument(3));
+        self::assertEquals(new Reference('fuzzphony.metrics'), $container->getDefinition('fuzzphony.messenger.refresh_handler')->getArgument(1));
     }
 
     /**

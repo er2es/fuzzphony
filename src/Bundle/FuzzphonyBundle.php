@@ -19,14 +19,13 @@ use Fuzzphony\Bundle\Command\WizardCommand;
 use Fuzzphony\Bundle\Command\WorkerCommand;
 use Fuzzphony\Bundle\Messenger\MessengerRefreshDispatcher;
 use Fuzzphony\Bundle\Messenger\RefreshDocumentsHandler;
-use Fuzzphony\Bundle\Observability\PrometheusMetricsCollector;
+use Fuzzphony\Bundle\Observability\MetricsCollectorFactory;
 use Fuzzphony\Bundle\Registry\RegistryFactory;
 use Fuzzphony\Bundle\Twig\SearchComponent;
 use Fuzzphony\Core\Database\Connection;
 use Fuzzphony\Core\Engine\Engine;
 use Fuzzphony\Core\Exception\InvalidConfiguration;
 use Fuzzphony\Core\Fuzzphony;
-use Fuzzphony\Core\Observability\LoggingMetricsCollector;
 use Fuzzphony\Core\Observability\MetricsCollector;
 use Fuzzphony\Core\Registry\IndexRegistry;
 use Fuzzphony\Core\Support\Coerce;
@@ -38,7 +37,6 @@ use Fuzzphony\Engine\Postgres\Schema\Names;
 use Fuzzphony\Engine\Postgres\Wizard\PostgresIntrospector;
 use Symfony\Component\Config\Definition\Configurator\DefinitionConfigurator;
 use Symfony\Component\DependencyInjection\ContainerBuilder;
-use Symfony\Component\DependencyInjection\Definition;
 use Symfony\Component\DependencyInjection\Loader\Configurator\ContainerConfigurator;
 use Symfony\Component\HttpKernel\Bundle\AbstractBundle;
 
@@ -173,15 +171,17 @@ final class FuzzphonyBundle extends AbstractBundle
             ->args([service(sprintf('doctrine.dbal.%s_connection', $connectionName))]);
         $services->alias(Connection::class, 'fuzzphony.connection');
 
-        // APCng's own constructor throws when apcu isn't loaded/enabled (off by default on the CLI
-        // SAPI the worker runs on), so a bare class_exists() isn't enough to gate it safely.
-        if (class_exists(\Prometheus\CollectorRegistry::class) && \extension_loaded('apcu') && \apcu_enabled()) {
-            $services->set('fuzzphony.metrics', PrometheusMetricsCollector::class)
-                ->args([new Definition(\Prometheus\CollectorRegistry::class, [new Definition(\Prometheus\Storage\APCng::class)])]);
-        } else {
-            $services->set('fuzzphony.metrics', LoggingMetricsCollector::class)
-                ->args([service('logger')]);
-        }
+        // Decided when the service is built (MetricsCollectorFactory::create()), not here at
+        // loadExtension() time: CLI and FPM share this compiled container but commonly disagree
+        // about apcu (apc.enable_cli=0 by default), so baking the choice into the compiled
+        // definition would let whichever process warms the cache first decide it for both.
+        $services->set('fuzzphony.metrics', MetricsCollector::class)
+            ->factory([MetricsCollectorFactory::class, 'create'])
+            ->args([service('logger')])
+            // Routable/filterable as its own channel when MonologBundle is installed; a no-op tag
+            // otherwise. Without it, LoggingMetricsCollector's lines are stuck in the app's default
+            // channel with no way to exclude them.
+            ->tag('monolog.logger', ['channel' => 'fuzzphony']);
         $services->alias(MetricsCollector::class, 'fuzzphony.metrics');
 
         $services->set('fuzzphony.engine', PostgresEngine::class)

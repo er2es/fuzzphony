@@ -166,7 +166,7 @@ final class PostgresEngineGuardTest extends TestCase
 
         $tookMsCalls = array_values(array_filter($metrics->calls, static fn(array $c): bool => $c[1] === 'fuzzphony.search.took_ms'));
         self::assertCount(1, $tookMsCalls);
-        self::assertSame(['index' => 'products'], $tookMsCalls[0][3]);
+        self::assertSame(['index' => 'products', 'query' => 'mouse'], $tookMsCalls[0][3]);
         self::assertSame([], array_filter($metrics->calls, static fn(array $c): bool => $c[1] === 'fuzzphony.search.fallback'));
     }
 

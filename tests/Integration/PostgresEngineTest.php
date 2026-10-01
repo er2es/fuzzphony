@@ -337,7 +337,7 @@ final class PostgresEngineTest extends TestCase
         $search->query('headphnoes')->thresholds(['fallback_below' => 1])->get();
         $fallbacks = array_values(array_filter($metrics->calls, static fn(array $c): bool => $c[1] === 'fuzzphony.search.fallback'));
         self::assertCount(1, $fallbacks);
-        self::assertSame(['index' => 'products'], $fallbacks[0][3]);
+        self::assertSame(['index' => 'products', 'query' => 'headphnoes'], $fallbacks[0][3]);
 
         $tookMsCalls = array_filter($metrics->calls, static fn(array $c): bool => $c[1] === 'fuzzphony.search.took_ms');
         self::assertCount(2, $tookMsCalls, 'one took_ms observation per get() call, regardless of how many internal statements ran');

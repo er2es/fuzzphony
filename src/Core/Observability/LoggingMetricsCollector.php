@@ -20,17 +20,17 @@ final readonly class LoggingMetricsCollector implements MetricsCollector
 
     public function increment(string $event, array $labels = [], int $by = 1): void
     {
-        $this->logger->info('fuzzphony.metric', ['event' => $event, 'by' => $by, ...$this->filter($labels)]);
+        $this->logger->debug('fuzzphony.metric', ['event' => $event, 'by' => $by, ...$this->filter($labels)]);
     }
 
     public function observe(string $event, float $value, array $labels = []): void
     {
-        $this->logger->info('fuzzphony.metric', ['event' => $event, 'value' => $value, ...$this->filter($labels)]);
+        $this->logger->debug('fuzzphony.metric', ['event' => $event, 'value' => $value, ...$this->filter($labels)]);
     }
 
     public function gauge(string $event, float $value, array $labels = []): void
     {
-        $this->logger->info('fuzzphony.metric', ['event' => $event, 'value' => $value, ...$this->filter($labels)]);
+        $this->logger->debug('fuzzphony.metric', ['event' => $event, 'value' => $value, ...$this->filter($labels)]);
     }
 
     /**

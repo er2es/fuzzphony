@@ -120,9 +120,11 @@ final class PostgresEngine implements Engine
             }
         }
         if ($last !== null) {
+            $restore = !($this->connection instanceof TransactionAware) || $this->connection->inTransaction();
             $plan = $this->guard('explain', fn(): array => $this->connection->transactional(fn(Connection $c): array => self::withSimilarityThreshold(
                 $c,
                 $run['threshold'],
+                $restore,
                 static function () use ($c, $last, $analyze): array {
                     $rows = $c->fetchAll(($analyze ? 'EXPLAIN (ANALYZE, BUFFERS) ' : 'EXPLAIN ') . $last['sql'], $last['params']);
 
@@ -430,9 +432,9 @@ final class PostgresEngine implements Engine
             offset: $query->offset,
             interpretedAs: $root !== null ? (string) $root : null,
         );
-        $this->metrics->observe('fuzzphony.search.took_ms', $result->tookMs, ['index' => $index->name]);
+        $this->metrics->observe('fuzzphony.search.took_ms', $result->tookMs, ['index' => $index->name, 'query' => $query->text]);
         if (array_any($statements, static fn(array $s): bool => str_ends_with($s['label'], 'fallback: full-text + fuzzy'))) {
-            $this->metrics->increment('fuzzphony.search.fallback', ['index' => $index->name]);
+            $this->metrics->increment('fuzzphony.search.fallback', ['index' => $index->name, 'query' => $query->text]);
         }
 
         return ['result' => $result, 'statements' => $statements, 'threshold' => $threshold];
@@ -614,10 +616,15 @@ final class PostgresEngine implements Engine
      */
     private function run(array $statement, ?float $similarityThreshold): array
     {
+        // Computed before transactional() opens (or joins) a transaction, so it reflects whether
+        // the *caller* already had one open — not the one this call is about to start itself.
+        $restore = !($this->connection instanceof TransactionAware) || $this->connection->inTransaction();
+
         return $this->guard('search', fn(): array => $this->connection->transactional(
             static fn(Connection $c): array => self::withSimilarityThreshold(
                 $c,
                 $similarityThreshold,
+                $restore,
                 static fn(): array => $c->fetchAll($statement['sql'], $statement['params']),
             ),
         ), 'Run "bin/console fuzzphony:doctor" to check the index.');
@@ -635,12 +642,11 @@ final class PostgresEngine implements Engine
      *
      * @return T
      */
-    private static function withSimilarityThreshold(Connection $c, ?float $similarityThreshold, \Closure $work): mixed
+    private static function withSimilarityThreshold(Connection $c, ?float $similarityThreshold, bool $restore, \Closure $work): mixed
     {
         if ($similarityThreshold === null) {
             return $work();
         }
-        $restore = !($c instanceof TransactionAware) || $c->inTransaction();
         $name = 'pg_trgm.word_similarity_threshold';
         // the previous value is read before the new one is set (the CTE is evaluated first);
         // NULL (the extension is not loaded yet) is restored as the default

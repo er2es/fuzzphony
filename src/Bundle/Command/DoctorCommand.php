@@ -55,10 +55,16 @@ final class DoctorCommand extends Command
         foreach (IndexArgument::resolve($this->fuzzphony, $input) as $index) {
             $report = $this->fuzzphony->engine()->inspect($index, $options);
             if ($format === 'prometheus') {
+                $queueCheckOk = true;
                 foreach ($report->checks as $check) {
                     $promLines[] = sprintf('fuzzphony_doctor_check{index="%s",check="%s"} %d', $index->name, $check->name, $check->status === CheckStatus::Ok ? 1 : 0);
+                    if ($check->name === 'Sync queue' && $check->status === CheckStatus::Error) {
+                        $queueCheckOk = false;
+                    }
                 }
-                if ($index->sync === SyncMode::Queue) {
+                // Skip it rather than call queueSize() against a table the check just reported
+                // missing: the snapshot exists to surface that outage, not crash reporting it.
+                if ($index->sync === SyncMode::Queue && $queueCheckOk) {
                     $promLines[] = sprintf('fuzzphony_queue_depth{index="%s"} %d', $index->name, $this->fuzzphony->engine()->queueSize($index));
                 }
             } else {

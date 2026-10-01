@@ -15,7 +15,7 @@ final class LoggingMetricsCollectorTest extends TestCase
         $logger = self::spy();
         (new LoggingMetricsCollector($logger))->increment('fuzzphony.queue.processed', ['index' => 'products'], 7);
 
-        self::assertSame([[LogLevel::INFO, [
+        self::assertSame([[LogLevel::DEBUG, [
             'event' => 'fuzzphony.queue.processed',
             'by' => 7,
             'index' => 'products',
@@ -27,7 +27,7 @@ final class LoggingMetricsCollectorTest extends TestCase
         $logger = self::spy();
         (new LoggingMetricsCollector($logger))->increment('fuzzphony.search.fallback');
 
-        self::assertSame([[LogLevel::INFO, ['event' => 'fuzzphony.search.fallback', 'by' => 1]]], $logger->calls);
+        self::assertSame([[LogLevel::DEBUG, ['event' => 'fuzzphony.search.fallback', 'by' => 1]]], $logger->calls);
     }
 
     public function testObserveLogsTheValue(): void
@@ -35,7 +35,7 @@ final class LoggingMetricsCollectorTest extends TestCase
         $logger = self::spy();
         (new LoggingMetricsCollector($logger))->observe('fuzzphony.search.took_ms', 12.4, ['index' => 'products']);
 
-        self::assertSame([[LogLevel::INFO, [
+        self::assertSame([[LogLevel::DEBUG, [
             'event' => 'fuzzphony.search.took_ms',
             'value' => 12.4,
             'index' => 'products',
@@ -47,7 +47,7 @@ final class LoggingMetricsCollectorTest extends TestCase
         $logger = self::spy();
         (new LoggingMetricsCollector($logger))->gauge('fuzzphony.queue.depth', 3.0, ['index' => 'products']);
 
-        self::assertSame([[LogLevel::INFO, [
+        self::assertSame([[LogLevel::DEBUG, [
             'event' => 'fuzzphony.queue.depth',
             'value' => 3.0,
             'index' => 'products',

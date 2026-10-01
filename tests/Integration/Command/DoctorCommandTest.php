@@ -156,6 +156,19 @@ final class DoctorCommandTest extends TestCase
         self::assertStringContainsString('fuzzphony_queue_depth{index="products"} 0', $tester->getDisplay());
     }
 
+    public function testPrometheusFormatReportsAMissingQueueTableInsteadOfCrashing(): void
+    {
+        $fuzzphony = $this->queueModeFuzzphony();
+        $this->context->connection->execute('DROP TABLE fuzzphony_queue CASCADE');
+        $tester = new CommandTester(new DoctorCommand($fuzzphony));
+
+        $status = $tester->execute(['--format' => 'prometheus'], ['interactive' => false]);
+
+        self::assertSame(Command::FAILURE, $status);
+        self::assertStringContainsString('fuzzphony_doctor_check{index="products",check="Sync queue"} 0', $tester->getDisplay());
+        self::assertStringNotContainsString('fuzzphony_queue_depth', $tester->getDisplay());
+    }
+
     private function queueModeFuzzphony(): Fuzzphony
     {
         $fuzzphony = new Fuzzphony($this->context->engine, new IndexRegistry([Indexes::products('queue')]));

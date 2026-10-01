@@ -10,7 +10,7 @@ The `fuzzphony:*` commands, the doctor and the configuration wizard. Back to the
 | `fuzzphony:schema [index] [--apply\|--drop\|--dump-migration=dir] [--force]` | show / apply / export idempotent DDL (alias `fuzzphony:install`); `--dump-migration` writes a Doctrine migration, see [Doctrine Migrations](integrations.md#doctrine-migrations) |
 | `fuzzphony:reindex [index] [--batch=5000] [--from=id] [--in-place] [--no-prune] [--prune-empty] [--force]` | rebuild next to the live index and swap it in (zero downtime; `--in-place` writes the live index directly), resumable, with progress; a failed run exits with code 1 and prints the command to resume with, and the command stops at the first index that fails; see [Reindexing](sync.md#reindexing-and-orphan-pruning) |
 | `fuzzphony:worker [--once] [--time-limit=s] [--index=x]` | drain the sync queue, including the full rebuilds a `TRUNCATE` queued (a failed one is retried after a back-off; `--once` then exits with code 1); graceful on SIGTERM |
-| `fuzzphony:doctor [index] [--deep] [--strict]` | health check with fixes |
+| `fuzzphony:doctor [index] [--deep] [--strict] [--format=text\|prometheus]` | health check with fixes; `--format=prometheus` prints Prometheus text-exposition lines instead, see [Observability](observability.md#fuzzphonydoctor---formatprometheus) |
 | `fuzzphony:search index 'query' [-w filter] [--explain [--analyze]]` | try queries, see score breakdowns, SQL and plans |
 | `fuzzphony:wizard [table] [--format=yaml\|builder\|attributes] [--write=file] [--try]` | suggest, explain and export a definition |
 

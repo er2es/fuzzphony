@@ -192,6 +192,7 @@ nothing drops the words that match nothing and says so. Details:
 - [Keeping the index in sync](https://github.com/er2es/fuzzphony/blob/main/docs/sync.md): sync modes, triggers, `TRUNCATE`, orphan pruning, Messenger.
 - [Multi-tenancy](https://github.com/er2es/fuzzphony/blob/main/docs/multi-tenancy.md): a tenant filter enforced on every search.
 - [Console commands](https://github.com/er2es/fuzzphony/blob/main/docs/commands.md): every command, the doctor, the configuration wizard.
+- [Observability](https://github.com/er2es/fuzzphony/blob/main/docs/observability.md): metrics collectors, the Symfony bundle wiring, a `/metrics` endpoint, the Grafana dashboard.
 - [Integrations](https://github.com/er2es/fuzzphony/blob/main/docs/integrations.md): Doctrine, API Platform, Live Component.
 - [Benchmarks](https://github.com/er2es/fuzzphony/blob/main/docs/benchmarks.md): Fuzzphony against `ILIKE` on 200 000 products.
 - [Known limitations](https://github.com/er2es/fuzzphony/blob/main/docs/limitations.md): the full text of the list below.

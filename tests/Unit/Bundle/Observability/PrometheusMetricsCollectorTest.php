@@ -52,6 +52,18 @@ final class PrometheusMetricsCollectorTest extends TestCase
         self::assertSame('fuzzphony_queue_processing_errors', $samples[0]->getName());
     }
 
+    public function testTheQueryLabelIsNeverForwardedToKeepCardinalityBounded(): void
+    {
+        // The spec requires this: a raw search term is unbounded, one new Prometheus time series
+        // per distinct query ever run — LoggingMetricsCollector's opt-in logQueryText is the only
+        // place query text may appear.
+        $registry = new CollectorRegistry(new InMemory(), false);
+        (new PrometheusMetricsCollector($registry))->observe('fuzzphony.search.took_ms', 12.4, ['index' => 'products', 'query' => 'wireless mouse']);
+
+        $samples = $registry->getMetricFamilySamples();
+        self::assertSame(['index'], $samples[0]->getLabelNames());
+    }
+
     public function testTheSameEventCanBeObservedTwiceWithTheSameLabelNames(): void
     {
         $registry = new CollectorRegistry(new InMemory(), false);

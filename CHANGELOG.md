@@ -12,7 +12,7 @@ changes; they are always listed under **Breaking** and explained in [UPGRADE.md]
 - `Fuzzphony\Core\Observability\MetricsCollector`: an optional interface for counters
   (`increment()`), durations (`observe()`) and point-in-time values (`gauge()`).
   `NullMetricsCollector` (the default: zero cost) and `LoggingMetricsCollector` (one structured
-  PSR-3 log line per call) ship in Core.
+  PSR-3 log line per call, at `debug` level) ship in Core. See [Observability](docs/observability.md).
 - `PostgresEngine` instruments every operation (`guard()`'s existing try/catch) and each search's
   total latency and fuzzy-fallback rate through an optional `MetricsCollector` (new 4th
   constructor parameter, defaulting to `NullMetricsCollector`).
@@ -28,7 +28,8 @@ changes; they are always listed under **Breaking** and explained in [UPGRADE.md]
 - `Fuzzphony\Bundle\Observability\PrometheusMetricsCollector` (internal, bundle service
   `fuzzphony.metrics`): used automatically when `promphp/prometheus_client_php` is installed and
   the `apcu` extension is loaded and enabled; `LoggingMetricsCollector` wired to the app's `logger`
-  otherwise. `PostgresEngine`, `Worker` and `RefreshDocumentsHandler` all receive it.
+  otherwise, tagged with its own Monolog channel (`fuzzphony`) so it can be routed or excluded.
+  `PostgresEngine`, `Worker` and `RefreshDocumentsHandler` all receive it.
 - `fuzzphony:doctor --format=prometheus` prints one `fuzzphony_doctor_check` line per check plus a
   `fuzzphony_queue_depth` line for queue-mode indexes, in Prometheus text-exposition format, for a
   cron/systemd-timer feeding node_exporter's textfile collector.

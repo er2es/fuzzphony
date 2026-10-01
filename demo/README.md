@@ -86,8 +86,9 @@ listed there use the library's defaults, shown here with "default".
 The **Observability** page shows which `MetricsCollector` this demo is wired to — `LoggingMetricsCollector`
 (structured log lines to the app's own logger, since `promphp/prometheus_client_php` isn't installed here) —
 and one live query's own `took_ms`/fallback numbers, run on demand rather than streamed continuously. See
-[docs/grafana/](../docs/grafana/) for a sample Grafana dashboard once a real `PrometheusMetricsCollector` is wired
-into an application.
+[docs/observability.md](../docs/observability.md) for every collector, the Symfony bundle wiring and a
+`/metrics` endpoint recipe, and [docs/grafana/](../docs/grafana/) for a sample Grafana dashboard once a real
+`PrometheusMetricsCollector` is wired into an application.
 
 ## Security defaults
 

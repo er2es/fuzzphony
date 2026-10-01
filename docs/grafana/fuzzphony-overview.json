@@ -28,7 +28,7 @@
       "targets": [
         {
           "refId": "A",
-          "expr": "rate(fuzzphony_search_fallback_total[5m])",
+          "expr": "rate(fuzzphony_search_fallback[5m])",
           "legendFormat": "{{index}}"
         }
       ]
@@ -41,22 +41,22 @@
       "targets": [
         {
           "refId": "A",
-          "expr": "rate(fuzzphony_search_errors_total[5m])",
+          "expr": "rate(fuzzphony_search_errors[5m])",
           "legendFormat": "search"
         },
         {
           "refId": "B",
-          "expr": "rate(fuzzphony_rebuild_errors_total[5m])",
+          "expr": "rate(fuzzphony_rebuild_errors[5m])",
           "legendFormat": "rebuild"
         },
         {
           "refId": "C",
-          "expr": "rate(fuzzphony_refresh_errors_total[5m])",
+          "expr": "rate(fuzzphony_refresh_errors[5m])",
           "legendFormat": "refresh"
         },
         {
           "refId": "D",
-          "expr": "rate(fuzzphony_queue_processing_errors_total[5m])",
+          "expr": "rate(fuzzphony_queue_processing_errors[5m])",
           "legendFormat": "queue processing"
         }
       ]
@@ -82,7 +82,7 @@
       "targets": [
         {
           "refId": "A",
-          "expr": "rate(fuzzphony_queue_processed_total[5m])",
+          "expr": "rate(fuzzphony_queue_processed[5m])",
           "legendFormat": "{{index}}"
         }
       ]
@@ -95,7 +95,7 @@
       "targets": [
         {
           "refId": "A",
-          "expr": "rate(fuzzphony_worker_rebuild_failures_total[5m])",
+          "expr": "rate(fuzzphony_worker_rebuild_failures[5m])",
           "legendFormat": "{{index}}"
         }
       ]
@@ -113,7 +113,7 @@
         },
         {
           "refId": "B",
-          "expr": "rate(fuzzphony_messenger_refresh_errors_total[5m])",
+          "expr": "rate(fuzzphony_messenger_refresh_errors[5m])",
           "legendFormat": "errors"
         }
       ]
