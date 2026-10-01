@@ -18,6 +18,8 @@ changes; they are always listed under **Breaking** and explained in [UPGRADE.md]
   constructor parameter, defaulting to `NullMetricsCollector`).
 - `Worker` gauges each index's queue depth once per cycle, counts items processed and counts
   rebuild failures, through the same optional `MetricsCollector` (new 3rd constructor parameter).
+- `RefreshDocumentsHandler` (the ORM-sync Messenger handler) observes its own handling duration and
+  counts errors, through the same optional `MetricsCollector`.
 
 ## [0.5.0] - 2026-10-01
 
