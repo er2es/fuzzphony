@@ -25,6 +25,10 @@ changes; they are always listed under **Breaking** and explained in [UPGRADE.md]
   fuzzy searches skip a now-redundant round trip that restored the previous similarity threshold —
   `PostgresEngine`'s own transaction commit already reverts it. `PdoConnection` and `DbalConnection`
   both implement it; a `Connection` that doesn't keeps today's behavior exactly.
+- `Fuzzphony\Bundle\Observability\PrometheusMetricsCollector` (internal, bundle service
+  `fuzzphony.metrics`): used automatically when `promphp/prometheus_client_php` is installed and
+  the `apcu` extension is loaded and enabled; `LoggingMetricsCollector` wired to the app's `logger`
+  otherwise. `PostgresEngine`, `Worker` and `RefreshDocumentsHandler` all receive it.
 
 ## [0.5.0] - 2026-10-01
 

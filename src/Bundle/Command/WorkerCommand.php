@@ -6,6 +6,8 @@ namespace Fuzzphony\Bundle\Command;
 
 use Fuzzphony\Core\Definition\SyncMode;
 use Fuzzphony\Core\Fuzzphony;
+use Fuzzphony\Core\Observability\MetricsCollector;
+use Fuzzphony\Core\Observability\NullMetricsCollector;
 use Fuzzphony\Core\Sync\Worker;
 use Symfony\Component\Console\Attribute\AsCommand;
 use Symfony\Component\Console\Command\Command;
@@ -25,6 +27,7 @@ final class WorkerCommand extends Command implements SignalableCommandInterface
         private readonly Fuzzphony $fuzzphony,
         private readonly int $batchSize = 500,
         private readonly float $idleSleep = 1.0,
+        private readonly MetricsCollector $metrics = new NullMetricsCollector(),
     ) {
         parent::__construct();
     }
@@ -51,7 +54,7 @@ final class WorkerCommand extends Command implements SignalableCommandInterface
             return Command::SUCCESS;
         }
         $batch = is_string($input->getOption('batch')) ? max(1, (int) $input->getOption('batch')) : $this->batchSize;
-        $worker = $this->worker = new Worker($this->fuzzphony->engine());
+        $worker = $this->worker = new Worker($this->fuzzphony->engine(), metrics: $this->metrics);
         $errors = $io->getErrorStyle();
         $report = static function () use ($worker, $errors): bool {
             foreach ($worker->rebuildFailures() as $name => $failure) {

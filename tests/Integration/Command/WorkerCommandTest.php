@@ -12,6 +12,7 @@ use Fuzzphony\Core\Registry\IndexRegistry;
 use Fuzzphony\Core\Support\Coerce;
 use Fuzzphony\Core\Sync\Worker;
 use Fuzzphony\Tests\Fixtures\Indexes;
+use Fuzzphony\Tests\Unit\Core\Observability\RecordingMetricsCollector;
 use PHPUnit\Framework\TestCase;
 use Symfony\Component\Console\Command\Command;
 use Symfony\Component\Console\Output\OutputInterface;
@@ -184,6 +185,19 @@ final class WorkerCommandTest extends TestCase
         // "false" tells the console component to keep running so the in-flight batch finishes;
         // a real shutdown then happens through Worker::stop(), asserted via the other tests above.
         self::assertFalse($command->handleSignal(15));
+    }
+
+    public function testOnceGaugesTheQueueDepthThroughTheProvidedMetricsCollector(): void
+    {
+        $fuzzphony = $this->queueModeFuzzphony();
+        $metrics = new RecordingMetricsCollector();
+        $tester = new CommandTester(new WorkerCommand($fuzzphony, metrics: $metrics));
+
+        $tester->execute(['--once' => true], ['interactive' => false]);
+
+        $gauges = array_values(array_filter($metrics->calls, static fn(array $c): bool => $c[1] === 'fuzzphony.queue.depth'));
+        self::assertCount(1, $gauges);
+        self::assertSame(['index' => 'products'], $gauges[0][3]);
     }
 
     private function queueModeFuzzphony(): Fuzzphony
