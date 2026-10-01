@@ -1,8 +1,11 @@
 # Observability — design
 
-Status: approved (design), not yet implemented. Third piece of the v1.0 "enterprise
-readiness" roadmap line in `README.md`, after multi-tenancy and column-aware trigger
-filtering.
+Status: superseded by
+[2026-10-01-v06-events-design.md](2026-10-01-v06-events-design.md), which carries the
+`MetricsCollector` design forward against the current (post-v0.5) code and adds the
+Messenger-middleware and transaction-aware-connection pieces. Originally written as the
+third piece of a since-reordered "v1.0 enterprise readiness" roadmap line; kept here for
+history only.
 
 ## Problem
 
