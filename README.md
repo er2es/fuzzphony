@@ -230,7 +230,7 @@ Current: v0.4 (one exception hierarchy, typed withers, a dedicated schema, sidec
 versioning, Doctrine Migrations integration, an explicit public API). Milestones build in order, each one a foundation for the next, up to v1.0's stable API
 and backward-compatibility promise. PostgreSQL only before 1.0:
 
-- v0.5 Index lifecycle: zero-downtime reindex, exact field scoping, partition-aware sync.
+- v0.5 Index lifecycle (implemented, unreleased): zero-downtime reindex, exact field scoping, partition-aware sync.
 - v0.6 Events: observability hooks/events, transaction-aware connections.
 - v0.7 Relevance: length-aware typo tolerance, synonyms, a vocabulary table, "did you mean".
 - v0.8 Search features: `suggest()`, facets with an opt-in exact `total`, federated search.

@@ -19,7 +19,7 @@ Symfony: Twig + Stimulus via AssetMapper (no Node build), Live Components, DBAL.
 
 | Page | What it shows |
 |---|---|
-| **ILIKE vs Fuzzphony** | the same box searched with `ILIKE` and with Fuzzphony; cold + median warm timings; Fuzzphony's column renders at once, ILIKE's loads separately (it is much slower on this catalogue); one-click accent / typo / stemming / phrase / field / prefix examples |
+| **ILIKE vs Fuzzphony** | the same box searched with `ILIKE` and with Fuzzphony; cold + median warm timings; Fuzzphony's column renders at once, ILIKE's loads separately (it is much slower on this catalogue); one-click accent / typo / stemming / phrase / field / exact field (`brand:sony headphones` searches the brand only, typos included) / prefix examples |
 | **Playground** | every ranking weight and threshold as a slider; live results with a score breakdown bar per hit; SQL + EXPLAIN (ANALYZE) tab |
 | **Languages** | one small catalogue in English, German, French, Spanish and Hungarian, one index per language; one-click examples (plural, accents, stop words (accented ones too), typo, and an irregular form that is honestly not matched), the lexeme PostgreSQL made of every word, and ILIKE's hit count next to Fuzzphony's |
 | **Config wizard** | pick a table: the wizard explains each column decision and outputs YAML, builder code and attributes (`fuzzphony:wizard` in the terminal) |
@@ -35,6 +35,12 @@ in the same file, each with its own `language:` (stemming, stop words) and accen
 Try the sync: change a brand name in psql (`docker compose exec db psql -U fuzzphony -c "UPDATE bench_brand SET name = 'Zebra' WHERE id = 1"`)
 and search for `zebra` a second later: the statement-level trigger queued every product of that
 brand, and the `worker` service refreshed them (`docker compose logs worker`).
+
+Try a zero-downtime rebuild: `DEMO_REINDEX=always docker compose run --rm init` rebuilds every
+index next to the live one while the site keeps answering from the old index, and swaps each one in
+when it is complete (`init` connects as the owner role, which may build next to the live index).
+The `worker` connects as `fuzzphony_app`, which has no DDL rights: a rebuild job that a `TRUNCATE`
+queues runs in place there.
 
 ## The stack
 
@@ -62,19 +68,19 @@ listed there use the library's defaults, shown here with "default".
 | Setting | Demo value | |
 |---|---|---|
 | Indexes | `catalog` (500 000 products), `lang_en`, `lang_de`, `lang_fr`, `lang_es`, `lang_hu` (30 products each) | |
-| Schema | `fuzzphony` | every index table, the sync queue, the version table, the functions and the text search configurations; the demo data stays in `public` |
+| Schema | `fuzzphony` | every index table, the sync queue, the version table, the functions and the text search configurations; the demo data stays in `public`; sidecar layout 2, applied (and upgraded from an older layout) by `fuzzphony:schema --apply` |
 | Extension schema | `public` (default) | where `pg_trgm` and `unaccent` live |
-| Sync mode | `queue` (default) | database triggers queue the changed ids, the `worker` service refreshes them |
+| Sync mode | `queue` (default) | database triggers queue the changed ids, the `worker` service refreshes them; a `TRUNCATE` of `bench_brand` or `bench_category` queues one `'*'` full-rebuild job instead of every product id, which the worker runs before the queued ids |
 | Trigger level | `statement` (default) | one trigger call per statement, with transition tables; `TRUNCATE` is followed too |
 | Watched tables | `catalog`: `bench_product`, `bench_brand`, `bench_category`; `lang_*`: `lang_product` | a brand or category change queues every product that uses it |
 | Worker | `fuzzphony:worker --time-limit=3600`, batch of 500 ids, 1 s sleep when idle (defaults) | recycled hourly by Docker's restart policy; stops after the current batch on SIGTERM |
-| Fields (`catalog`) | `name` A fuzzy, `brand` B fuzzy, `category` C, `description` D | A–D are the full-text weights; fuzzy fields get typo tolerance |
+| Fields (`catalog`) | `name` A fuzzy, `brand` B fuzzy, `category` C, `description` D | A–D are the full-text weights; fuzzy fields get typo tolerance; each field also has its own `t_<field>` tsvector column (and `z_<field>` normalised text for the fuzzy ones), so a scoped query like `brand:sony` matches that field only |
 | Filters (`catalog`) | `price`, `in_stock`, `brand_id`, `category_id`, `published_at` | |
 | Ranking (`catalog`) | boost by `popularity`, recency by `published_at`; profile `popular` (boost 0.03, recency 0.3, 60-day half-life) | |
 | Thresholds (`catalog`) | `min_score` 0.01; otherwise defaults: `fuzzy_mode` fallback, `fallback_below` 5, `fuzzy_similarity` 0.3, `fuzzy_min_length` 3, `candidate_limit` 2000, `max_query_length` 256, `max_terms` 16, `relax_when_empty` on | typo tolerance kicks in when fewer than 5 documents match exactly |
 | Thresholds (`lang_*`) | `fallback_below` 1 | typo tolerance only when nothing matches exactly, so the stemming examples stay clean |
 | Language | `catalog`: English; `lang_*`: its own language, accent folding on (default) | text search configuration `fuzzphony.fuzzphony_<language>` |
-| Reindex at start | `init` reindexes an index only when it is empty (`DEMO_REINDEX=auto`), 20 000 ids per batch | `always` / `never` change that, see Settings |
+| Reindex at start | `init` reindexes an index only when it is empty (`DEMO_REINDEX=auto`), 20 000 ids per batch | `always` / `never` change that, see Settings; a full reindex builds next to the live index and swaps it in, so the site keeps answering from the old one meanwhile (`init` owns the schema, so it can always do this; the `worker`'s rebuild of a `TRUNCATE` job falls back to rebuilding in place, since `fuzzphony_app` has no DDL rights) |
 | Database roles | `init` runs as the owner `fuzzphony`; `php` and `worker` run as `fuzzphony_app` | `fuzzphony_app`: no DDL, read-only on the demo data, read/write on the `fuzzphony` schema's tables, `statement_timeout` 5 s |
 
 ## Security defaults
@@ -113,7 +119,7 @@ docker compose up --build   # seeds again (about 60 s for the 500 000-row defaul
 ```
 
 `docker compose down` (without `-v`) keeps the data. A demo started before the PostgreSQL 18 default
-needs `down -v` once, because PostgreSQL 18 can't open a 17 data directory. To rebuild only the index: `DEMO_REINDEX=always docker compose run --rm init`.
+needs `down -v` once, because PostgreSQL 18 can't open a 17 data directory. To rebuild only the index: `DEMO_REINDEX=always docker compose run --rm init` (zero downtime: the site keeps answering from the old index until the swap).
 
 A demo started before 0.4 has its indexes in `public`; `docker compose down -v` once (the doctor
 warns about the old tables otherwise).
