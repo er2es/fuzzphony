@@ -180,19 +180,43 @@ instrumentation, not a public API change.
 #### 4. Messenger: ORM-sync message handling
 
 `RefreshDocumentsHandler` (`src/Bundle/Messenger/RefreshDocumentsHandler.php`) is the handler for
-`RefreshDocuments`, dispatched by `MessengerRefreshDispatcher` in ORM sync mode. Rather than
-instrument that one handler directly, a small Messenger middleware
-`Fuzzphony\Bundle\Messenger\MetricsMiddleware implements MiddlewareInterface` is registered **only
-on the bus Fuzzphony's own messages travel** (the bundle already knows which bus that is from
-`message_bus` configuration — see `MessengerRefreshDispatcher`'s constructor). It times
-`$stack->next()->handle($envelope, $stack)` for any envelope whose message is `RefreshDocuments`
-and emits `fuzzphony.messenger.refresh.duration_ms` (observe) and
-`fuzzphony.messenger.refresh.errors` (increment, on a caught `\Throwable`, rethrown unchanged) —
-the standard Symfony way to add cross-cutting instrumentation to one bus without touching the
-handler, and it naturally also covers retries (one metric per handling attempt, matching
-Messenger's own retry semantics) without the handler needing to know about `$metrics` at all. This
-is the "wired for Symfony Messenger middleware" item from the roadmap; nothing here is specific to
-the `queue` sync mode (which never touches Messenger and is fully covered by points 1 and 3).
+`RefreshDocuments`, dispatched by `MessengerRefreshDispatcher` in ORM sync mode (today always onto
+`messenger.default_bus` — `src/Bundle/FuzzphonyBundle.php:204`, not currently configurable). A
+Symfony bus's middleware stack is configured by the *application*, under the bus's own name, in its
+own `framework.messenger` config; a bundle cannot safely or portably attach a middleware to a bus it
+does not own from inside its own `loadExtension()` — there is no service tag that auto-attaches
+middleware to an arbitrary existing bus. Revised from an earlier draft of this design that proposed
+exactly that (a standalone `MiddlewareInterface` class the bundle would self-register onto
+`messenger.default_bus`): fragile and not what "wired for Symfony Messenger" should mean here.
+
+Instead, `RefreshDocumentsHandler` itself takes the `MetricsCollector` directly (constructor param,
+wired by the bundle like every other consumer in this design) and times its own `__invoke()`:
+
+```php
+public function __invoke(RefreshDocuments $message): void
+{
+    $started = hrtime(true);
+    try {
+        $this->fuzzphony->refresh($message->index, $message->ids);
+        $this->metrics->observe('fuzzphony.messenger.refresh.duration_ms', round((hrtime(true) - $started) / 1e6, 3), ['index' => $message->index]);
+    } catch (\Throwable $e) {
+        $this->metrics->increment('fuzzphony.messenger.refresh.errors', ['index' => $message->index]);
+        throw $e;
+    }
+}
+```
+
+This is the handler Fuzzphony fully owns and registers itself (`fuzzphony.messenger.refresh_handler`,
+tagged `messenger.message_handler`), so it needs no bus-config cooperation from the application and
+works with zero extra config the moment ORM async sync is enabled — a stronger default than an
+opt-in middleware the application would have to wire into its own bus by hand. It also still covers
+retries (Messenger re-invokes the handler per attempt, so each attempt gets its own observation).
+`$this->fuzzphony->refresh(...)` already goes through `guard('refresh', ...)` too, so one failed
+message produces both `fuzzphony.refresh.errors` (the underlying engine operation) and
+`fuzzphony.messenger.refresh.errors` (this handler gave up on this message) — intentionally two
+signals at two levels, same as `Worker`'s `rebuild_failures` counter next to `guard()`'s own
+`rebuild.errors`. Nothing here is specific to the `queue` sync mode (which never touches Messenger
+and is fully covered by points 1 and 3).
 
 #### 5. Doctor: `--format=prometheus` snapshot
 
@@ -377,9 +401,9 @@ pays this cost today.
   `use` statements against the public API list — the new controller action must not introduce an
   `@internal` import. A demo smoke check (however the existing demo pages are smoke-tested) covers
   `/observability` returning 200.
-- Integration (`MetricsMiddleware`): a real Messenger bus with an in-memory transport, asserting
-  the duration metric fires once per handled `RefreshDocuments` envelope and the error metric fires
-  when the handler throws.
+- Unit (`tests/Unit/Bundle/Messenger/`): `RefreshDocumentsHandler` — a spy `MetricsCollector`
+  proving the duration metric fires with the index label on success and the error metric fires
+  (and the exception still propagates unchanged) when `Fuzzphony::refresh()` throws.
 - Integration (`TransactionAware`): a fuzzy search run (a) standalone (no caller transaction — the
   restore round trip is skipped, asserted via a query-count spy or a recording `Connection`) and
   (b) inside a caller-opened `transactional()` block (the restore still runs, and the caller's own
