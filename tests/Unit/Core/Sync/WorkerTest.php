@@ -11,6 +11,7 @@ use Fuzzphony\Core\Exception\InvalidArgument;
 use Fuzzphony\Core\Exception\RebuildAlreadyRunning;
 use Fuzzphony\Core\Sync\Worker;
 use Fuzzphony\Tests\Fixtures\Indexes;
+use Fuzzphony\Tests\Unit\Core\Observability\RecordingMetricsCollector;
 use PHPUnit\Framework\TestCase;
 
 final class WorkerTest extends TestCase
@@ -214,5 +215,64 @@ final class WorkerTest extends TestCase
 
         self::assertSame(0, $total);
         self::assertSame(1, $cycles, 'stop() must end the loop after exactly one more cycle');
+    }
+
+    public function testRunOnceGaugesTheQueueDepthBeforeDraining(): void
+    {
+        $products = Indexes::products();
+        $metrics = new RecordingMetricsCollector();
+        $engine = self::createStub(Engine::class);
+        $engine->method('rebuildRequested')->willReturn(false);
+        $engine->method('queueSize')->willReturn(5);
+        $engine->method('processQueue')->willReturnOnConsecutiveCalls(5, 0);
+
+        (new Worker($engine, metrics: $metrics))->runOnce([$products]);
+
+        $gauges = array_values(array_filter($metrics->calls, static fn(array $c): bool => $c[1] === 'fuzzphony.queue.depth'));
+        self::assertSame([['gauge', 'fuzzphony.queue.depth', 5.0, ['index' => 'products']]], $gauges);
+    }
+
+    public function testRunOnceIncrementsProcessedByTheTotalDrained(): void
+    {
+        $products = Indexes::products();
+        $metrics = new RecordingMetricsCollector();
+        $engine = self::createStub(Engine::class);
+        $engine->method('rebuildRequested')->willReturn(false);
+        $engine->method('queueSize')->willReturn(0);
+        $engine->method('processQueue')->willReturnOnConsecutiveCalls(3, 2, 0);
+
+        (new Worker($engine, metrics: $metrics))->runOnce([$products]);
+
+        $processed = array_values(array_filter($metrics->calls, static fn(array $c): bool => $c[1] === 'fuzzphony.queue.processed'));
+        self::assertSame([['increment', 'fuzzphony.queue.processed', 5.0, ['index' => 'products']]], $processed);
+    }
+
+    public function testRunOnceEmitsNoProcessedCounterWhenNothingWasQueued(): void
+    {
+        $products = Indexes::products();
+        $metrics = new RecordingMetricsCollector();
+        $engine = self::createStub(Engine::class);
+        $engine->method('rebuildRequested')->willReturn(false);
+        $engine->method('queueSize')->willReturn(0);
+        $engine->method('processQueue')->willReturn(0);
+
+        (new Worker($engine, metrics: $metrics))->runOnce([$products]);
+
+        self::assertSame([], array_filter($metrics->calls, static fn(array $c): bool => $c[1] === 'fuzzphony.queue.processed'));
+    }
+
+    public function testAFailedRebuildIncrementsWorkerRebuildFailures(): void
+    {
+        $products = Indexes::products();
+        $metrics = new RecordingMetricsCollector();
+        $engine = self::createStub(Engine::class);
+        $engine->method('rebuildRequested')->willReturn(true);
+        $engine->method('beginRebuild')->willThrowException(new InvalidArgument('Batch size must be >= 1.'));
+        $engine->method('queueSize')->willReturn(0);
+        $engine->method('processQueue')->willReturn(0);
+
+        (new Worker($engine, metrics: $metrics))->runOnce([$products]);
+
+        self::assertContains(['increment', 'fuzzphony.worker.rebuild_failures', 1.0, ['index' => 'products']], $metrics->calls);
     }
 }

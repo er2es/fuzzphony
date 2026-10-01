@@ -16,6 +16,8 @@ changes; they are always listed under **Breaking** and explained in [UPGRADE.md]
 - `PostgresEngine` instruments every operation (`guard()`'s existing try/catch) and each search's
   total latency and fuzzy-fallback rate through an optional `MetricsCollector` (new 4th
   constructor parameter, defaulting to `NullMetricsCollector`).
+- `Worker` gauges each index's queue depth once per cycle, counts items processed and counts
+  rebuild failures, through the same optional `MetricsCollector` (new 3rd constructor parameter).
 
 ## [0.5.0] - 2026-10-01
 
