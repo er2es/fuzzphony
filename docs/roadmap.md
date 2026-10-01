@@ -116,3 +116,7 @@ announced and removed.
 - Record linkage (`fuzzphony/record-linkage`): probabilistic matching of people and companies
   with explainable match scores; online lookup, batch and incremental deduplication; locale packs
   (hu, en, de).
+- Demo: a Prometheus and Grafana stack next to the demo (`apcu`, `promphp/prometheus_client_php`, a
+  `/metrics` route, the sample dashboard from `docs/grafana/` preloaded), so the Prometheus collector and
+  the dashboard are shown working end to end. Until then only the metric names are verified against the
+  real exposition output, not a running Prometheus or Grafana.
