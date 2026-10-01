@@ -399,8 +399,11 @@ pays this cost today.
 - Unit: `docs/grafana/fuzzphony-overview.json` parses as JSON (`json_decode($contents, flags: JSON_THROW_ON_ERROR)` inside a test, not a runtime check) and every panel's query string contains a metric name this design actually produces.
 - Demo: `PublicApiTest::testTheDemoAndTheBenchmarkUseOnlyThePublicApi` already greps the demo's
   `use` statements against the public API list — the new controller action must not introduce an
-  `@internal` import. A demo smoke check (however the existing demo pages are smoke-tested) covers
-  `/observability` returning 200.
+  `@internal` import. The CI `demo-smoke` job (`.github/workflows/ci.yml`) does not crawl pages over
+  HTTP — it runs `php bin/console lint:container`, which already catches a wiring mistake in the
+  `fuzzphony.metrics`/`fuzzphony.engine`/`WorkerCommand` service arguments (a missing/misordered
+  argument fails container compilation). There is no existing per-page HTTP smoke test to extend for
+  `/observability` specifically; this design does not add one.
 - Unit (`tests/Unit/Bundle/Messenger/`): `RefreshDocumentsHandler` — a spy `MetricsCollector`
   proving the duration metric fires with the index label on success and the error metric fires
   (and the exception still propagates unchanged) when `Fuzzphony::refresh()` throws.
