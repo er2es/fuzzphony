@@ -350,6 +350,13 @@ final class PostgresEngine implements Engine
         $parsed = (new QueryParser($thresholds->maxQueryLength, $thresholds->maxTerms))->parse($query->text);
         $warnings = $parsed->warnings;
         $root = $parsed->root;
+        if ($root === null && trim($query->text) !== '') {
+            // Text was typed but nothing searchable survived parsing ("***"): browsing would list the whole index.
+            $warnings[] = 'The search has no word to look for; use letters or digits.';
+            $empty = SearchResult::empty($query->limit, $query->offset, $warnings, round((hrtime(true) - $started) / 1e6, 3));
+
+            return ['result' => $empty, 'statements' => [], 'threshold' => null];
+        }
         if ($root !== null && !NodeInspector::hasPositive($root)) {
             // "-cable" alone would mean "everything except ..." which is rarely intended and never cheap.
             $warnings[] = 'The search only excluded words; add at least one word to look for.';

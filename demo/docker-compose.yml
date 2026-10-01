@@ -154,7 +154,9 @@ services:
     <<: [*hardened, *php-image]
     # --time-limit: the process is recycled hourly (restart: unless-stopped brings it back), SIGTERM finishes the batch.
     command: ["php", "bin/console", "fuzzphony:worker", "--time-limit=3600", "-v"]
-    environment: *app-env
+    environment:
+      <<: *app-env
+      DEMO_METRICS_LOG_LEVEL: error
     depends_on:
       init: { condition: service_completed_successfully }
     networks: [backend]

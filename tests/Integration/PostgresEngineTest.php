@@ -48,6 +48,23 @@ final class PostgresEngineTest extends TestCase
         return $fuzzphony;
     }
 
+    public function testATextWithNoSearchableWordIsNotTurnedIntoBrowsing(): void
+    {
+        $fuzzphony = $this->fuzzphony('manual');
+
+        $result = $fuzzphony->in('products')->query('**********')->get();
+
+        self::assertSame(0, $result->total);
+        self::assertSame([], $result->hits);
+        self::assertSame(['The search has no word to look for; use letters or digits.'], $result->warnings);
+        self::assertGreaterThan(0, $fuzzphony->in('products')->query('')->get()->total, 'an empty text still browses');
+        self::assertSame(
+            $fuzzphony->in('products')->query('mouse')->get()->total,
+            $fuzzphony->in('products')->query('mouse!!!, **')->get()->total,
+            'punctuation around a real word is harmless',
+        );
+    }
+
     public function testQueueModeFollowsChangesIncludingJoinedTables(): void
     {
         $fuzzphony = $this->fuzzphony('queue');

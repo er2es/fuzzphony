@@ -34,7 +34,9 @@ neither installed, so it runs the logging collector.</p>
     </tbody>
 </table>
 
-<h3>The log line for it</h3>
+<h3>The log lines for it</h3>
+<p class="muted">This demo writes them to the php container's log: <code>docker compose logs -f php</code>.
+The values below are this run's.</p>
 <pre><code>fuzzphony.metric {"event":"fuzzphony.search.took_ms","value":{{ took_ms }},"index":"catalog"}{% if fallback %}
 
 fuzzphony.metric {"event":"fuzzphony.search.fallback","by":1,"index":"catalog"}{% endif %}</code></pre>

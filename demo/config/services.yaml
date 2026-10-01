@@ -3,6 +3,8 @@ parameters:
     # EXPLAIN ANALYZE in the playground re-runs every query, /doctor?deep=1 counts every row exactly.
     env(DEMO_ALLOW_ANALYZE): '0'
     env(DEMO_ALLOW_DEEP_DOCTOR): '0'
+    # Minimum level of the metric lines below; the worker container sets it to 'error' (an idle worker would log every second).
+    env(DEMO_METRICS_LOG_LEVEL): 'debug'
 
 services:
     _defaults:
@@ -12,3 +14,13 @@ services:
     App\:
         resource: '../src/'
         exclude: '../src/Kernel.php'
+
+    # The demo has no Monolog, and the default logger drops the debug-level lines LoggingMetricsCollector writes.
+    # This one writes them to stderr, so `docker compose logs php` shows what Fuzzphony reports.
+    app.metrics_logger:
+        class: Symfony\Component\HttpKernel\Log\Logger
+        arguments: ['%env(DEMO_METRICS_LOG_LEVEL)%', 'php://stderr', ['App\Service\MetricLogFormatter', 'format']]
+
+    fuzzphony.metrics:
+        class: Fuzzphony\Core\Observability\LoggingMetricsCollector
+        arguments: ['@app.metrics_logger']
