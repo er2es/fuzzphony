@@ -53,6 +53,9 @@ everything else in `src/` is marked `@internal` and may change in any release.
   `Fuzzphony\Core\Sync\RefreshDispatcher`, `Fuzzphony\Core\Sync\ImmediateRefreshDispatcher`
 - Doctor: `Fuzzphony\Core\Inspection\InspectOptions`, `Fuzzphony\Core\Inspection\InspectionReport`,
   `Fuzzphony\Core\Inspection\Check`, `Fuzzphony\Core\Inspection\CheckStatus`
+- Observability: `Fuzzphony\Core\Observability\MetricsCollector`,
+  `Fuzzphony\Core\Observability\NullMetricsCollector`,
+  `Fuzzphony\Core\Observability\LoggingMetricsCollector`
 - Exceptions: `Fuzzphony\Core\Exception\FuzzphonyException`, `Fuzzphony\Core\Exception\EngineFailure`,
   `Fuzzphony\Core\Exception\InvalidArgument`, `Fuzzphony\Core\Exception\InvalidConfiguration`,
   `Fuzzphony\Core\Exception\InvalidDefinition`, `Fuzzphony\Core\Exception\InvalidQuery`,

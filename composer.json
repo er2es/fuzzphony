@@ -28,7 +28,8 @@
         "php": ">=8.4",
         "ext-mbstring": "*",
         "ext-pdo": "*",
-        "ext-pdo_pgsql": "*"
+        "ext-pdo_pgsql": "*",
+        "psr/log": "^3.0"
     },
     "suggest": {
         "doctrine/dbal": "Use an existing Doctrine DBAL connection (Fuzzphony\\Bridge\\Doctrine\\DbalConnection)",

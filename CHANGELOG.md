@@ -7,6 +7,13 @@ changes; they are always listed under **Breaking** and explained in [UPGRADE.md]
 
 ## [Unreleased]
 
+### Added
+
+- `Fuzzphony\Core\Observability\MetricsCollector`: an optional interface for counters
+  (`increment()`), durations (`observe()`) and point-in-time values (`gauge()`).
+  `NullMetricsCollector` (the default: zero cost) and `LoggingMetricsCollector` (one structured
+  PSR-3 log line per call) ship in Core.
+
 ## [0.5.0] - 2026-10-01
 
 **After upgrading, run `fuzzphony:schema --apply`, then one full `fuzzphony:reindex`.** See
