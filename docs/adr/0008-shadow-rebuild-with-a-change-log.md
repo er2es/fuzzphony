@@ -46,7 +46,9 @@ schema plan starts with a guard that takes the same lock for its transaction, so
 − The swap waits for the transactions that hold the live table (a long writer, a running
   autovacuum, which PostgreSQL cancels after `deadlock_timeout`), up to 3 s per attempt; searches
   and writes queue behind it meanwhile. A table that stays busy fails the reindex after 6 attempts
-  (the rebuild is kept and can be resumed).
+  (the rebuild is kept and can be resumed). Starting a rebuild (`SHARE ROW EXCLUSIVE`, against
+  every writer) and discarding one (`DROP TRIGGER`, against every search) wait up to 3 s once,
+  without retrying: the start then fails changing nothing, the discard leaves the rebuild behind.
 − The swap replaces the table, so only what Fuzzphony creates survives it: columns, primary key,
   indexes, grants and owner. Publication membership, row-level security policies, storage
   parameters (reloptions), user triggers and user indexes on the index table are not carried over;

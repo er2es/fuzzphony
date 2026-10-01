@@ -144,8 +144,11 @@ the source no longer returns (orphans) go with the old table. The index keeps it
 
 A full run needs room for a second copy of the index while it runs, a role that can create tables
 in Fuzzphony's schema and owns the index table (or is a member of its owner), and a session
-connection (it holds an advisory lock: not a transaction-pooling PgBouncer). One rebuild per index
-runs at a time; a second one fails right away. A role without those rights, or an install where
+connection (it holds an advisory lock: not a transaction-pooling PgBouncer). Behind one, the lock
+can be released on another server connection than the one that took it: PostgreSQL only warns, the
+lock stays held there, and later reindexes fail with "already running" (and
+`fuzzphony:schema --apply` refuses) until the pooler closes that connection; reindex with
+`--in-place` there. One rebuild per index runs at a time; a second one fails right away. A role without those rights, or an install where
 `fuzzphony:schema --apply` has not run since the upgrade, reindexes in place, and
 `fuzzphony:reindex` says so.
 
@@ -180,15 +183,20 @@ short transaction of its own. Inside your transaction the batches and the swap's
 it (searches blocked until you commit), so there it writes in place (`ReindexResult::$swapped` is
 false).
 
-`fuzzphony:schema --apply` (and `--drop --apply`) refuses to run while a full reindex of an index
-in its plan is building (it would replace the functions the rebuild uses): run it again when the
-reindex has finished. A reindex started while an apply runs fails right away with "already
+`fuzzphony:schema --apply` (and `--drop --apply`) refuses to run while a full rebuild of an index
+in its plan is building, a `fuzzphony:reindex` or the worker's rebuild of a job a `TRUNCATE` queued
+(it would replace the functions the rebuild uses): run it again when the rebuild has finished (a
+deploy pipeline that applies the schema should retry). A reindex started while an apply runs fails right away with "already
 running". A `--dump-migration` migration contains the same guard, but it is not transactional, so
 it only refuses while a rebuild is running at the guard statement.
 
 When the swap cannot lock the live table (long transactions or autovacuum hold it) it retries 5
 times, 3 s each; then the run fails, keeps its rebuild, and `fuzzphony:reindex` exits with code 1
-and prints the `--from` to resume with.
+and prints the `--from` to resume with. Starting a rebuild (its lock conflicts with every writer's)
+and discarding one (dropping its change log trigger conflicts with every search) wait at most 3 s
+too, so they never queue the index's writes or searches behind a long transaction: a start that
+times out fails and changes nothing (run it again); a discard that times out fails and leaves the
+rebuild behind (the doctor reports it, the next full run replaces it).
 
 ## Messenger (orm mode)
 

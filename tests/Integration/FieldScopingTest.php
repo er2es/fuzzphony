@@ -71,7 +71,7 @@ final class FieldScopingTest extends TestCase
     public function testAnExcludedScopedWordInAnOrDoesNotNarrowTheCandidates(): void
     {
         self::assertEqualsCanonicalizing([1, 3], $this->ids('products', 'wireless (mouse | -brand:logitech)', 'never'), 'product 3 is no mouse and not Logitech');
-        self::assertEqualsCanonicalizing([1, 3], $this->ids('products', 'wireless (mouse | -brand:logitech)'), 'with typo tolerance too');
+        self::assertEqualsCanonicalizing([1, 3], $this->fuzzyIds('products', 'wireless (mouse | -brand:logitech)'), 'with typo tolerance too');
         self::assertSame([1], $this->ids('products', 'wireless (mouse | -brand:sony)', 'never'));
     }
 
@@ -81,7 +81,7 @@ final class FieldScopingTest extends TestCase
         $this->fuzzphony->reindex('shared_b');
 
         self::assertEqualsCanonicalizing([1, 4, 6], $this->ids('shared_b', 'mouse -(brand:sony | cable)', 'never'), 'product 6 has "sony" in its description (weight B too), not in its brand; product 2 has a cable');
-        self::assertEqualsCanonicalizing([1, 4, 6], $this->ids('shared_b', 'mouse -(brand:sony | cable)'), 'with typo tolerance too');
+        self::assertEqualsCanonicalizing([1, 4, 6], $this->fuzzyIds('shared_b', 'mouse -(brand:sony | cable)'), 'with typo tolerance too');
         self::assertEqualsCanonicalizing([1, 2, 4], $this->ids('shared_b', 'mouse -(description:sony | brand:sony)', 'never'));
     }
 
@@ -89,7 +89,7 @@ final class FieldScopingTest extends TestCase
     {
         // same documents; the order may differ, since the exact / prefix bonuses compare the plain words ("the mouse")
         self::assertEqualsCanonicalizing($this->ids('products', 'mouse', 'never'), $this->ids('products', 'brand:the mouse', 'never'));
-        self::assertEqualsCanonicalizing($this->ids('products', 'mouse'), $this->ids('products', 'brand:the mouse'), 'with typo tolerance too');
+        self::assertEqualsCanonicalizing($this->ids('products', 'mouse'), $this->fuzzyIds('products', 'brand:the mouse'), 'with typo tolerance too');
         self::assertNotSame([], $this->ids('products', 'brand:the mouse'));
     }
 
@@ -119,5 +119,19 @@ final class FieldScopingTest extends TestCase
     private function ids(string $index, string $query, string $fuzzyMode = 'fallback'): array
     {
         return $this->fuzzphony->in($index)->query($query)->thresholds(['fuzzy_mode' => $fuzzyMode])->get()->ids();
+    }
+
+    /**
+     * The ids of a search that took the typo-tolerant branch (fallback mode): asserted,
+     * so a change to the thresholds or the fixtures cannot turn it into a second strict search.
+     *
+     * @return list<int|string>
+     */
+    private function fuzzyIds(string $index, string $query): array
+    {
+        $result = $this->fuzzphony->in($index)->query($query)->thresholds(['fuzzy_mode' => 'fallback'])->get();
+        self::assertTrue($result->usedFuzzy, sprintf('"%s" used the typo-tolerant branch', $query));
+
+        return $result->ids();
     }
 }

@@ -43,6 +43,20 @@ final class DefinitionValidatorTest extends TestCase
         self::assertStringContainsString('boostBy', $violations[3]);
     }
 
+    /** "<index>__next" and "<index>__changes" name another index's rebuild objects (fuzzphony_<index>__next, ...). */
+    public function testAnIndexNameMustNotContainADoubleUnderscore(): void
+    {
+        foreach (['products__next', 'products__changes', '__products', 'my__products'] as $name) {
+            self::assertSame(
+                [sprintf('Index name "%s" must not contain "__" (two underscores): it is reserved for the internal "__next" and "__changes" objects of a rebuild. Use single underscores.', $name)],
+                DefinitionValidator::validate(new IndexDefinition(name: $name, source: Source::table('product'), fields: [new FieldDefinition('name')])),
+            );
+        }
+        foreach (['products_next', '_products', 'products_', 'a_b_c'] as $name) {
+            self::assertSame([], DefinitionValidator::validate(new IndexDefinition(name: $name, source: Source::table('product'), fields: [new FieldDefinition('name')])), $name);
+        }
+    }
+
     public function testQuerySourcesNeedWatchesForTriggerSync(): void
     {
         $this->expectException(InvalidDefinition::class);

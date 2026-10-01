@@ -33,6 +33,10 @@ final class DefinitionValidator
         if (!Identifier::isName($index->name)) {
             $v[] = sprintf('Index name "%s" must match [a-z_][a-z0-9_]* (max 48 chars), e.g. "products".', $index->name);
         }
+        // "products__next" would name the rebuild table, change log and function of "products"
+        if (str_contains($index->name, '__')) {
+            $v[] = sprintf('Index name "%s" must not contain "__" (two underscores): it is reserved for the internal "__next" and "__changes" objects of a rebuild. Use single underscores.', $index->name);
+        }
 
         $source = $index->source;
         if ($source->table !== null && !Identifier::isTable($source->table)) {

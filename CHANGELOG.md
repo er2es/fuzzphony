@@ -39,10 +39,25 @@ changes; they are always listed under **Breaking** and explained in [UPGRADE.md]
   place, as before, and the command says so). After a swap `ReindexResult::$pruned` is `null` (the
   orphans went with the old index) and the new `ReindexResult::$swapped` is `true`. A second full
   reindex of the same index while one runs fails with the new `RebuildAlreadyRunning` (an
-  `\InvalidArgumentException`).
-- `fuzzphony:schema --apply` and `--drop --apply` fail while a full reindex of an index in their
-  plan runs: run them again when the reindex has finished. A `--dump-migration` migration is not
-  transactional, so it only refuses while a rebuild is running at its guard statement.
+  `\InvalidArgumentException`). Starting or discarding a rebuild waits at most 3 s for the index
+  table's lock, like the swap (long transactions or autovacuum hold it): starting then fails and
+  changes nothing, discarding fails and leaves the rebuild behind for the next full run. The run holds a
+  session-level advisory lock: behind a transaction-pooling proxy (PgBouncer in transaction mode)
+  it can be released on another server connection than the one that took it, which PostgreSQL only
+  warns about, and the lock stays held there (later reindexes fail with "already running" and
+  `fuzzphony:schema --apply` refuses) until the pooler closes that connection. Reindex with
+  `--in-place` there, or over a session connection.
+- `fuzzphony:schema --apply` and `--drop --apply` fail while a full rebuild of an index in their
+  plan runs, a `fuzzphony:reindex` or the worker's rebuild of a job a `TRUNCATE` queued: run them
+  again when it has finished (a deploy pipeline that applies the schema should retry). A
+  `--dump-migration` migration is not transactional, so it only refuses while a rebuild is running
+  at its guard statement.
+- Index names must not contain `__` (two underscores): it is reserved for the objects of an
+  index's rebuild (`fuzzphony_<index>__next`, `fuzzphony_<index>__changes`,
+  `fuzzphony_refresh_<index>__next`), which an index named `products__next` would share with
+  `products`. Such a definition now fails validation (`InvalidDefinition`). Rename the index
+  before upgrading: drop the old one with 0.4 (`fuzzphony:schema --drop --apply`), then apply and
+  reindex the new name.
 - A failed `fuzzphony:reindex` prints the error and the command to resume with (`--from`, plus
   `--in-place` / `--no-prune` when the run wrote in place), and exits with code 1 (instead of an
   uncaught exception); it stops at the first index that fails. A full `--in-place` run discards a

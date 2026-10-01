@@ -50,7 +50,10 @@ final class ShadowRebuildTest extends TestCase
             [self::LOCK, self::KEY],
             [self::CLOCK, []],
             [self::POSSIBLE, self::POSSIBLE_PARAMS],
+            ['BEGIN', []],
+            [self::LOCK_TIMEOUT, []],
             [$generator->beginRebuild(Indexes::products()), []],
+            ['COMMIT', []],
         ], $connection->log, 'the lock is kept for the rest of the run');
     }
 
@@ -112,6 +115,7 @@ final class ShadowRebuildTest extends TestCase
         self::assertSame([
             [self::CLOCK, []],
             ['BEGIN', []],
+            [self::LOCK_TIMEOUT, []],
             [self::XACT_LOCK, self::KEY],
             [self::ANY_LEFT_OVER, self::ANY_LEFT_OVER_PARAMS],
             [$generator->discardRebuild(Indexes::products()), []],
@@ -120,11 +124,32 @@ final class ShadowRebuildTest extends TestCase
 
         $running = new RecordingConnection(static fn(string $sql): mixed => $sql !== self::XACT_LOCK);
         self::assertFalse((new ShadowRebuild($running, $generator))->discardLeftover(Indexes::products()));
-        self::assertSame([[self::CLOCK, []], ['BEGIN', []], [self::XACT_LOCK, self::KEY], ['COMMIT', []]], $running->log, 'a running rebuild is left alone');
+        self::assertSame([[self::CLOCK, []], ['BEGIN', []], [self::LOCK_TIMEOUT, []], [self::XACT_LOCK, self::KEY], ['COMMIT', []]], $running->log, 'a running rebuild is left alone');
 
         $nothing = new RecordingConnection(static fn(string $sql): mixed => $sql === self::XACT_LOCK);
         self::assertFalse((new ShadowRebuild($nothing, $generator))->discardLeftover(Indexes::products()));
-        self::assertSame([[self::CLOCK, []], ['BEGIN', []], [self::XACT_LOCK, self::KEY], [self::ANY_LEFT_OVER, self::ANY_LEFT_OVER_PARAMS], ['COMMIT', []]], $nothing->log);
+        self::assertSame([[self::CLOCK, []], ['BEGIN', []], [self::LOCK_TIMEOUT, []], [self::XACT_LOCK, self::KEY], [self::ANY_LEFT_OVER, self::ANY_LEFT_OVER_PARAMS], ['COMMIT', []]], $nothing->log);
+    }
+
+    public function testDiscardingALeftOverRebuildGivesUpOnABusyLiveTable(): void
+    {
+        $generator = new PostgresSchemaGenerator();
+        $busy = new RecordingConnection(static function (string $sql) use ($generator): mixed {
+            if ($sql === $generator->discardRebuild(Indexes::products())) {
+                throw new LockNotAvailable();
+            }
+
+            return true;
+        });
+
+        try {
+            (new ShadowRebuild($busy, $generator, lockTimeout: '50ms'))->discardLeftover(Indexes::products());
+            self::fail('EngineFailure expected');
+        } catch (EngineFailure $e) {
+            self::assertSame('Fuzzphony could not discard the rebuild of "products" a failed run left over: it could not lock "public"."fuzzphony_products" within 50ms (long transactions or autovacuum hold it). Nothing was changed: run it again.', $e->getMessage());
+            self::assertInstanceOf(LockNotAvailable::class, $e->getPrevious());
+        }
+        self::assertSame(["SET LOCAL lock_timeout = '50ms'", []], $busy->log[2]);
     }
 
     public function testAFullInPlaceRunCompletesTheRequestOnceWhenItEnds(): void
@@ -369,7 +394,57 @@ final class ShadowRebuildTest extends TestCase
 
         $discard = new RecordingConnection(static fn(string $sql): mixed => true);
         (new ShadowRebuild($discard, $generator))->abort(Indexes::products(), false);
-        self::assertSame([[$generator->discardRebuild(Indexes::products()), []], [self::UNLOCK, self::KEY]], $discard->log);
+        self::assertSame([['BEGIN', []], [self::LOCK_TIMEOUT, []], [$generator->discardRebuild(Indexes::products()), []], ['COMMIT', []], [self::UNLOCK, self::KEY]], $discard->log);
+    }
+
+    public function testAnAbortThatCannotDiscardTheRebuildStillReleasesTheLock(): void
+    {
+        $generator = new PostgresSchemaGenerator();
+        $boom = new \RuntimeException('boom');
+        foreach ([[new LockNotAvailable(), EngineFailure::class], [$boom, null]] as [$failure, $wrapped]) {
+            $connection = new RecordingConnection(static function (string $sql) use ($generator, $failure): mixed {
+                if ($sql === $generator->discardRebuild(Indexes::products())) {
+                    throw $failure;
+                }
+
+                return true;
+            });
+
+            try {
+                (new ShadowRebuild($connection, $generator, lockTimeout: '50ms'))->abort(Indexes::products(), false);
+                self::fail('the failure reaches the caller');
+            } catch (\Throwable $e) {
+                if ($wrapped === null) {
+                    self::assertSame($boom, $e, 'any other failure reaches the caller as it is');
+                } else {
+                    self::assertInstanceOf($wrapped, $e);
+                    self::assertSame('Fuzzphony could not discard the rebuild of "products": it could not lock "public"."fuzzphony_products" within 50ms (long transactions or autovacuum hold it). The rebuild is left over (see "fuzzphony:doctor"): the next full reindex replaces it.', $e->getMessage());
+                    self::assertSame($failure, $e->getPrevious());
+                }
+            }
+            self::assertSame([[self::UNLOCK, self::KEY]], array_slice($connection->log, -1));
+        }
+    }
+
+    public function testAStartThatCannotLockTheLiveTableReleasesTheLockAndSaysToRetry(): void
+    {
+        $generator = new PostgresSchemaGenerator();
+        $connection = new RecordingConnection(static function (string $sql) use ($generator): mixed {
+            if ($sql === $generator->beginRebuild(Indexes::products())) {
+                throw new LockNotAvailable();
+            }
+
+            return true;
+        });
+
+        try {
+            (new ShadowRebuild($connection, $generator, lockTimeout: '50ms'))->begin(Indexes::products(), false);
+            self::fail('EngineFailure expected');
+        } catch (EngineFailure $e) {
+            self::assertSame('Fuzzphony rebuild of "products" did not start: it could not lock "public"."fuzzphony_products" within 50ms (long transactions or autovacuum hold it). Nothing was changed: run it again.', $e->getMessage());
+            self::assertInstanceOf(LockNotAvailable::class, $e->getPrevious());
+        }
+        self::assertSame([["SET LOCAL lock_timeout = '50ms'", []], [$generator->beginRebuild(Indexes::products()), []], [self::UNLOCK, self::KEY]], array_slice($connection->log, -3));
     }
 
     public function testRefreshWritesTheRebuildTable(): void

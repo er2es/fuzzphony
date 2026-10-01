@@ -8,7 +8,12 @@ and the [CHANGELOG](CHANGELOG.md) has the full list of changes.
 1. **Apply, then reindex.** Run `fuzzphony:schema --apply`: it upgrades every index to sidecar
    layout 2. Then run one full `fuzzphony:reindex`; until then the doctor's "Documents" check is a
    warning (so `fuzzphony:doctor --strict` fails in CI). With Doctrine Migrations,
-   `fuzzphony:schema --dump-migration` contains the upgrade step.
+   `fuzzphony:schema --dump-migration` contains the upgrade step. Deploy the 0.5 code and run the
+   apply together, and stop the workers for the upgrade (or restart them on 0.5 right after the
+   apply): 0.5 code sends field-scoped searches (`brand:x`) to new columns that fail until the
+   apply has created them, and once the 0.5 schema is applied a `TRUNCATE` queues a full-rebuild
+   job (the queue row `'*'`, step 6) that a 0.4 worker fails on in every batch, so that index's
+   queue stays stuck until the worker runs 0.5.
 2. **Field-scoped queries are exact.** `brand:x` no longer matches other fields of the same
    weight, and a scoped typo no longer matches another fuzzy field. If you relied on the old
    behaviour, search without the field prefix. The index table grows by roughly one more copy of
@@ -32,7 +37,10 @@ and the [CHANGELOG](CHANGELOG.md) has the full list of changes.
    searches never see a half-built index. Plan for disk space for a second copy of the index
    while it runs. The reindexing role needs `CREATE` on Fuzzphony's schema and must own the index
    table (or be a member of its owner), and the connection must be a session (the run holds an
-   advisory lock; not a transaction-pooling PgBouncer). A role without those rights reindexes in
+   advisory lock; not a transaction-pooling PgBouncer, which can release it on another server
+   connection than the one that took it: PostgreSQL only warns, the lock stays held, and later
+   reindexes fail with "already running" until the pooler closes that connection; use
+   `--in-place` there). A role without those rights reindexes in
    place, as in 0.4, and the command says so; `--in-place` / `new ReindexOptions(inPlace: true)`
    asks for that explicitly, and `--no-prune` always runs in place. After a swap
    `ReindexResult::$pruned` is `null` (the orphans went with the old index): check
@@ -40,7 +48,9 @@ and the [CHANGELOG](CHANGELOG.md) has the full list of changes.
    `RebuildAlreadyRunning` (an `\InvalidArgumentException`). A run that fails leaves a rebuild
    behind (the doctor warns): resume it with `--from`, or run a full reindex again.
    Call `Fuzzphony::reindex()` outside a transaction (inside one it writes in place), and do not
-   run `fuzzphony:schema --apply` while a full reindex runs: it refuses, run it again afterwards.
+   run `fuzzphony:schema --apply` while a full rebuild runs (a `fuzzphony:reindex`, or the worker's
+   rebuild of a job a `TRUNCATE` queued, step 6): it refuses, run it again afterwards (let a deploy
+   pipeline retry).
 6. **`TRUNCATE` in queue mode.** A `TRUNCATE` of a joined table (or of a query source's table)
    queues one full-rebuild job, the row `(index_name, '*')` in `fuzzphony_queue`, instead of every
    document id; the worker runs it before the queued ids. If you read the queue yourself, skip that
@@ -58,6 +68,11 @@ and the [CHANGELOG](CHANGELOG.md) has the full list of changes.
    watched partitioned table. After attaching or detaching a partition, run
    `fuzzphony:schema --apply` again (the doctor lists partitions without the trigger and detached
    tables that still have it) and `fuzzphony:reindex <index>` (neither fires a trigger).
+8. **Index names must not contain `__`** (two underscores): Fuzzphony reserves it for an index's
+   rebuild objects (`fuzzphony_<index>__next`, `fuzzphony_<index>__changes`), so an index named
+   `products__next` would be destroyed by the rebuild of `products`. Such a definition now fails
+   validation. Rename the index before upgrading: drop the old one with 0.4
+   (`fuzzphony:schema --drop --apply`), then, on 0.5, apply and reindex the new name.
 
 ## From 0.3 to 0.4
 

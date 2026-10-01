@@ -89,7 +89,8 @@ final class ShadowRebuild
             }
             $shadow = $resume ? $this->leftOver($index) : $this->possible($index);
             if ($shadow && !$resume) {
-                $this->connection->execute($this->schema->beginRebuild($index));
+                // its lock conflicts with every writer's: it must not queue them behind a long transaction
+                $this->onLiveTable($index, fn(Connection $c): int => $c->execute($this->schema->beginRebuild($index)), 'rebuild of "%s" did not start', 'Nothing was changed: run it again.');
             }
         } catch (\Throwable $e) {
             $this->unlock($index);
@@ -160,13 +161,17 @@ final class ShadowRebuild
         unset($this->started[$index->name]);
     }
 
+    /** Releases the lock even when discarding fails: on a lock timeout the rebuild is left over, whole. */
     public function abort(IndexDefinition $index, bool $keepShadow): void
     {
         unset($this->started[$index->name]);
-        if (!$keepShadow) {
-            $this->connection->execute($this->schema->discardRebuild($index));
+        try {
+            if (!$keepShadow) {
+                $this->onLiveTable($index, fn(Connection $c): int => $c->execute($this->schema->discardRebuild($index)), 'could not discard the rebuild of "%s"', 'The rebuild is left over (see "fuzzphony:doctor"): the next full reindex replaces it.');
+            }
+        } finally {
+            $this->unlock($index);
         }
-        $this->unlock($index);
     }
 
     /**
@@ -189,7 +194,7 @@ final class ShadowRebuild
         // the start of a full in-place run
         $this->start($index);
 
-        return $this->connection->transactional(function (Connection $c) use ($index): bool {
+        return $this->onLiveTable($index, function (Connection $c) use ($index): bool {
             if ($c->fetchValue('SELECT pg_try_advisory_xact_lock(hashtext(:key))', ['key' => $this->names->rebuildLockKey($index)]) !== true) {
                 return false;
             }
@@ -207,7 +212,7 @@ final class ShadowRebuild
             }
 
             return $leftOver;
-        });
+        }, 'could not discard the rebuild of "%s" a failed run left over', 'Nothing was changed: run it again.');
     }
 
     /** A resumed run continues the rebuild a failed run left behind. */
@@ -259,7 +264,7 @@ final class ShadowRebuild
     {
         try {
             $this->connection->transactional(function (Connection $c) use ($index): void {
-                $c->execute(sprintf('SET LOCAL lock_timeout = %s', Sql::string($this->lockTimeout)));
+                $this->limitLockWait($c);
                 // waits for every transaction that wrote the live table: after it, the log is complete
                 $c->execute(sprintf('LOCK TABLE %s, %s IN ACCESS EXCLUSIVE MODE', $this->names->sidecar($index), $this->names->shadow($index)));
                 $this->catchUp($c, $index, null);
@@ -274,6 +279,47 @@ final class ShadowRebuild
         }
 
         return null;
+    }
+
+    /**
+     * Runs $work in a transaction that waits at most the lock timeout for a lock, like the swap:
+     * DDL on the live table must not queue the index's searches or writes behind a long
+     * transaction. On a lock timeout the transaction rolled back (nothing changed): throws
+     * "Fuzzphony <$failed, with the index name>: ... <$then>".
+     *
+     * @template T
+     *
+     * @param \Closure(Connection): T $work
+     *
+     * @return T
+     */
+    private function onLiveTable(IndexDefinition $index, \Closure $work, string $failed, string $then): mixed
+    {
+        try {
+            return $this->connection->transactional(function (Connection $c) use ($work): mixed {
+                $this->limitLockWait($c);
+
+                return $work($c);
+            });
+        } catch (\Throwable $e) {
+            if (!self::lockNotAvailable($e)) {
+                throw $e;
+            }
+
+            throw new EngineFailure(sprintf(
+                'Fuzzphony %s: it could not lock %s within %s (long transactions or autovacuum hold it). %s',
+                sprintf($failed, $index->name),
+                $this->names->sidecar($index),
+                $this->lockTimeout,
+                $then,
+            ), previous: $e);
+        }
+    }
+
+    /** For the rest of the transaction $c is in. */
+    private function limitLockWait(Connection $c): void
+    {
+        $c->execute(sprintf('SET LOCAL lock_timeout = %s', Sql::string($this->lockTimeout)));
     }
 
     /** SQLSTATE 55P03, from PDO (the code) or DBAL (getSQLState()), anywhere in the chain. */

@@ -45,6 +45,10 @@ class Product
 `#[Searchable]` also takes `name` (default: the snake_cased plural of the class, `Product` →
 `products`), `table`, `unaccent`, `sync`, `triggerLevel` and `tenant`.
 
+An index name matches `[a-z_][a-z0-9_]*`, at most 48 characters, and must not contain `__` (two
+underscores): that is reserved for the objects of an index's rebuild (`fuzzphony_<index>__next`,
+`fuzzphony_<index>__changes`).
+
 Filter and field names are always snake_case, even when the attribute is on a camelCase property:
 `bool $inStock` becomes the filter `in_stock`. Names follow the property name through
 `Identifier::snake()`.

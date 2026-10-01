@@ -7,6 +7,7 @@ namespace Fuzzphony\Tests\Integration;
 use Fuzzphony\Core\Database\Connection;
 use Fuzzphony\Core\Definition\IndexDefinition;
 use Fuzzphony\Core\Exception\EngineFailure;
+use Fuzzphony\Core\Exception\InvalidDefinition;
 use Fuzzphony\Core\Exception\RebuildAlreadyRunning;
 use Fuzzphony\Core\Fuzzphony;
 use Fuzzphony\Core\Inspection\Check;
@@ -341,6 +342,97 @@ final class ShadowSwapTest extends TestCase
             $this->connection->execute(sprintf('DROP OWNED BY %s, %s', $owner, $reindexer));
             $this->connection->execute(sprintf('DROP ROLE %s, %s', $owner, $reindexer));
         }
+    }
+
+    /** The rebuild of "products" would drop and replace fuzzphony_products__next: such an index is refused up front. */
+    public function testAnIndexNamedAfterAnotherIndexsRebuildIsRefused(): void
+    {
+        $index = $this->install('manual');
+
+        try {
+            new IndexRegistry([$index, IndexDefinition::builder('products__next')->fromTable('fz_product')->field('name', 'A')->sync('manual')->build()]);
+            self::fail('InvalidDefinition expected');
+        } catch (InvalidDefinition $e) {
+            self::assertSame('products__next', $e->index);
+            self::assertSame(['Index name "products__next" must not contain "__" (two underscores): it is reserved for the internal "__next" and "__changes" objects of a rebuild. Use single underscores.'], $e->violations);
+        }
+        self::assertNull($this->connection->fetchValue("SELECT to_regclass('fuzzphony_products__next')"), 'nothing was created under the rebuild name');
+    }
+
+    /** Starting takes a lock every writer conflicts with: it gives up like the swap instead of queueing every write behind an open transaction. */
+    public function testARebuildDoesNotWaitForATransactionThatWritesTheLiveIndexToStart(): void
+    {
+        $index = $this->install('trigger');
+
+        PostgresTestCase::connect()->transactional(function (Connection $writer) use ($index): void {
+            // written through the sync trigger, not committed yet
+            $writer->execute("UPDATE fz_product SET name = 'Busy mouse' WHERE id = 1");
+            try {
+                $this->impatient()->begin($index, false);
+                self::fail('the start must not wait for the writer');
+            } catch (EngineFailure $e) {
+                self::assertSame('Fuzzphony rebuild of "products" did not start: it could not lock "public"."fuzzphony_products" within 100ms (long transactions or autovacuum hold it). Nothing was changed: run it again.', $e->getMessage());
+                self::assertStringContainsString('lock timeout', $e->getPrevious()?->getMessage() ?? '');
+            }
+        });
+
+        self::assertNull($this->connection->fetchValue("SELECT to_regclass('fuzzphony_products__next')"));
+        self::assertNull($this->connection->fetchValue("SELECT to_regclass('fuzzphony_products__changes')"));
+        self::assertSame(0, Coerce::int($this->connection->fetchValue("SELECT count(*) FROM pg_trigger WHERE tgname = 'fuzzphony_track_products'")));
+        self::assertSame('0', $this->connection->fetchValue("SELECT current_setting('lock_timeout')"), 'only for that transaction');
+        $other = new PostgresEngine(PostgresTestCase::connect()); // this session would take its own lock again
+        self::assertTrue($other->beginRebuild($index), 'the rebuild lock was released');
+        $other->abortRebuild($index);
+    }
+
+    /** Discarding drops the change log trigger (ACCESS EXCLUSIVE): it gives up instead of queueing every search behind an open reader. */
+    public function testDiscardingARebuildDoesNotWaitForAnOpenReaderAndKeepsIt(): void
+    {
+        $index = $this->install('manual');
+        self::assertTrue($this->engine->beginRebuild($index));
+
+        PostgresTestCase::connect()->transactional(function (Connection $reader) use ($index): void {
+            $reader->fetchValue('SELECT count(*) FROM fuzzphony_products');
+            try {
+                $this->impatient()->abort($index, keepShadow: false);
+                self::fail('the discard must not wait for the reader');
+            } catch (EngineFailure $e) {
+                self::assertSame('Fuzzphony could not discard the rebuild of "products": it could not lock "public"."fuzzphony_products" within 100ms (long transactions or autovacuum hold it). The rebuild is left over (see "fuzzphony:doctor"): the next full reindex replaces it.', $e->getMessage());
+                self::assertStringContainsString('lock timeout', $e->getPrevious()?->getMessage() ?? '');
+            }
+        });
+
+        self::assertNotNull($this->connection->fetchValue("SELECT to_regclass('fuzzphony_products__next')"), 'kept whole');
+        self::assertNotNull($this->connection->fetchValue("SELECT to_regclass('fuzzphony_products__changes')"));
+        self::assertSame(1, Coerce::int($this->connection->fetchValue("SELECT count(*) FROM pg_trigger WHERE tgname = 'fuzzphony_track_products'")));
+        self::assertSame('0', $this->connection->fetchValue("SELECT current_setting('lock_timeout')"), 'only for that transaction');
+        $other = new PostgresEngine(PostgresTestCase::connect()); // this session would take its own lock again
+        self::assertTrue($other->beginRebuild($index, resume: true), 'the rebuild lock was released; a resumed run continues it');
+        $other->abortRebuild($index);
+    }
+
+    public function testDiscardingALeftoverRebuildDoesNotWaitForAnOpenReaderAndKeepsIt(): void
+    {
+        $index = $this->install('manual');
+        self::assertTrue($this->engine->beginRebuild($index));
+        $this->engine->abortRebuild($index, keepShadow: true); // what a failed run leaves behind
+
+        PostgresTestCase::connect()->transactional(function (Connection $reader) use ($index): void {
+            $reader->fetchValue('SELECT count(*) FROM fuzzphony_products');
+            try {
+                $this->impatient()->discardLeftover($index);
+                self::fail('the discard must not wait for the reader');
+            } catch (EngineFailure $e) {
+                self::assertSame('Fuzzphony could not discard the rebuild of "products" a failed run left over: it could not lock "public"."fuzzphony_products" within 100ms (long transactions or autovacuum hold it). Nothing was changed: run it again.', $e->getMessage());
+                self::assertStringContainsString('lock timeout', $e->getPrevious()?->getMessage() ?? '');
+            }
+        });
+
+        self::assertNotNull($this->connection->fetchValue("SELECT to_regclass('fuzzphony_products__next')"), 'kept whole');
+        self::assertNotNull($this->connection->fetchValue("SELECT to_regclass('fuzzphony_products__changes')"));
+        self::assertSame(1, Coerce::int($this->connection->fetchValue("SELECT count(*) FROM pg_trigger WHERE tgname = 'fuzzphony_track_products'")));
+        self::assertSame('0', $this->connection->fetchValue("SELECT current_setting('lock_timeout')"), 'only for that transaction');
+        self::assertTrue($this->engine->discardLeftoverRebuild($index), 'once the reader is gone');
     }
 
     public function testASecondRebuildFailsFastAndTheLockIsFreedAfterwards(): void
