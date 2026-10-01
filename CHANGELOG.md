@@ -20,6 +20,11 @@ changes; they are always listed under **Breaking** and explained in [UPGRADE.md]
   rebuild failures, through the same optional `MetricsCollector` (new 3rd constructor parameter).
 - `RefreshDocumentsHandler` (the ORM-sync Messenger handler) observes its own handling duration and
   counts errors, through the same optional `MetricsCollector`.
+- `Fuzzphony\Core\Database\TransactionAware`: an optional `Connection` capability
+  (`inTransaction(): bool`). When a `Connection` implements it and no outer transaction is open,
+  fuzzy searches skip a now-redundant round trip that restored the previous similarity threshold —
+  `PostgresEngine`'s own transaction commit already reverts it. `PdoConnection` and `DbalConnection`
+  both implement it; a `Connection` that doesn't keeps today's behavior exactly.
 
 ## [0.5.0] - 2026-10-01
 

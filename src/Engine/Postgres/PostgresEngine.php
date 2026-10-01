@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Fuzzphony\Engine\Postgres;
 
 use Fuzzphony\Core\Database\Connection;
+use Fuzzphony\Core\Database\TransactionAware;
 use Fuzzphony\Core\Definition\IndexDefinition;
 use Fuzzphony\Core\Engine\Capabilities;
 use Fuzzphony\Core\Engine\Capability;
@@ -639,6 +640,7 @@ final class PostgresEngine implements Engine
         if ($similarityThreshold === null) {
             return $work();
         }
+        $restore = !($c instanceof TransactionAware) || $c->inTransaction();
         $name = 'pg_trgm.word_similarity_threshold';
         // the previous value is read before the new one is set (the CTE is evaluated first);
         // NULL (the extension is not loaded yet) is restored as the default
@@ -647,7 +649,9 @@ final class PostgresEngine implements Engine
             ['t' => (string) $similarityThreshold],
         );
         $result = $work();
-        $c->fetchValue(sprintf("SELECT set_config('%s', :v, true)", $name), ['v' => is_string($previous) ? $previous : null]);
+        if ($restore) {
+            $c->fetchValue(sprintf("SELECT set_config('%s', :v, true)", $name), ['v' => is_string($previous) ? $previous : null]);
+        }
 
         return $result;
     }
