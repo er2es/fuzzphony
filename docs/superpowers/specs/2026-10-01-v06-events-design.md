@@ -249,6 +249,35 @@ format), and the dashboard has no fixed home in the docs site's navigation beyon
 Observability section. No new PHP code and no new test beyond "the JSON file parses as JSON" (a
 one-line unit test, since a hand-edited dashboard JSON can bit-rot into invalid JSON unnoticed).
 
+#### 7. Demo: an Observability page (added at the maintainer's request)
+
+A new demo page, `/observability` (nav label "Observability"), added next to the existing Doctor
+page in `demo/templates/base.html.twig`'s `pages` map and `demo/src/Controller/PagesController.php`
+(same pattern as `doctor()`). It illustrates the available `MetricsCollector` backends and shows one
+real query's own numbers — it does not stand up a live dashboard or new storage, matching "simple"
+and reusing only existing public API:
+
+- A short, static explanation of the three backends (`NullMetricsCollector`,
+  `LoggingMetricsCollector`, `PrometheusMetricsCollector`) and which one this demo uses by default
+  (`LoggingMetricsCollector`, wired to the app's logger with no extra config — see Bundle wiring).
+- One live example query, reusing `CompareController::EXAMPLES`'s first entry, run through
+  `$fuzzphony->in('catalog')->explain()` (existing public API, no new method) instead of a bare
+  `search()`/`get()`, because `Explanation` already exposes exactly what this page needs:
+  `$explanation->result->tookMs` (→ shown as `fuzzphony.search.took_ms`) and whether any entry of
+  `$explanation->statements` has a label ending in `'fallback: full-text + fuzzy'` (→ shown as
+  `fuzzphony.search.fallback`, present or absent).
+- The current sync-queue state, reusing `$fuzzphony->inspect('catalog')` (same call the Doctor page
+  already makes) and picking out the `Check` named `'Sync queue'` — its existing message already
+  reads like `"N item(s) waiting"`, shown as the `fuzzphony.queue.depth` illustration. No new
+  `Engine` call.
+- A closing note that the full event list (search, sync, reindex, worker, Messenger) streams
+  continuously once a `MetricsCollector` is wired; this page shows one query's own numbers as the
+  smallest honest illustration, not a live feed.
+
+New template `demo/templates/observability.html.twig` (same structure as `doctor.html.twig`). No
+new PHP class in the demo and no new library API — a controller action, a template, a nav entry,
+and a `demo/README.md` paragraph (same place the "How the indexes run" table lives).
+
 ### Bundle wiring
 
 - **Default (no extra config)**: the bundle registers `LoggingMetricsCollector`, wired to the
@@ -344,6 +373,10 @@ pays this cost today.
 - Integration: `fuzzphony:doctor --format=prometheus` — output is valid Prometheus text-exposition
   format (line shape, metric names) for a known set of checks.
 - Unit: `docs/grafana/fuzzphony-overview.json` parses as JSON (`json_decode($contents, flags: JSON_THROW_ON_ERROR)` inside a test, not a runtime check) and every panel's query string contains a metric name this design actually produces.
+- Demo: `PublicApiTest::testTheDemoAndTheBenchmarkUseOnlyThePublicApi` already greps the demo's
+  `use` statements against the public API list — the new controller action must not introduce an
+  `@internal` import. A demo smoke check (however the existing demo pages are smoke-tested) covers
+  `/observability` returning 200.
 - Integration (`MetricsMiddleware`): a real Messenger bus with an in-memory transport, asserting
   the duration metric fires once per handled `RefreshDocuments` envelope and the error metric fires
   when the handler throws.
