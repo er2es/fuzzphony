@@ -5,6 +5,9 @@ declare(strict_types=1);
 namespace Fuzzphony\Tests\Integration\Command;
 
 use Fuzzphony\Bundle\Command\DoctorCommand;
+use Fuzzphony\Core\Fuzzphony;
+use Fuzzphony\Core\Registry\IndexRegistry;
+use Fuzzphony\Tests\Fixtures\Indexes;
 use PHPUnit\Framework\TestCase;
 use Symfony\Component\Console\Command\Command;
 use Symfony\Component\Console\Tester\CommandCompletionTester;
@@ -129,5 +132,36 @@ final class DoctorCommandTest extends TestCase
         $completion = new CommandCompletionTester(new DoctorCommand($this->context->fuzzphony));
 
         self::assertSame(['products'], $completion->complete(['']));
+    }
+
+    public function testPrometheusFormatOutputsOneCheckLinePerCheckAndNoQueueLineForManualSync(): void
+    {
+        $this->context->applySchemaAndReindex();
+        $tester = new CommandTester(new DoctorCommand($this->context->fuzzphony));
+
+        $status = $tester->execute(['--format' => 'prometheus'], ['interactive' => false]);
+
+        self::assertSame(Command::SUCCESS, $status);
+        self::assertMatchesRegularExpression('/^fuzzphony_doctor_check\{index="products",check="[^"]+"\} [01]\r?$/m', $tester->getDisplay());
+        self::assertStringNotContainsString('fuzzphony_queue_depth', $tester->getDisplay());
+    }
+
+    public function testPrometheusFormatIncludesQueueDepthForAQueueModeIndex(): void
+    {
+        $fuzzphony = $this->queueModeFuzzphony();
+        $tester = new CommandTester(new DoctorCommand($fuzzphony));
+
+        $tester->execute(['--format' => 'prometheus'], ['interactive' => false]);
+
+        self::assertStringContainsString('fuzzphony_queue_depth{index="products"} 0', $tester->getDisplay());
+    }
+
+    private function queueModeFuzzphony(): Fuzzphony
+    {
+        $fuzzphony = new Fuzzphony($this->context->engine, new IndexRegistry([Indexes::products('queue')]));
+        $fuzzphony->schema()->apply($this->context->connection);
+        $fuzzphony->reindex('products');
+
+        return $fuzzphony;
     }
 }

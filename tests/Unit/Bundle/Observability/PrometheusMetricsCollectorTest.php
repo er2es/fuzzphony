@@ -41,6 +41,17 @@ final class PrometheusMetricsCollectorTest extends TestCase
         self::assertSame('5', $samples[0]->getSamples()[0]->getValue());
     }
 
+    public function testAnEventNameContainingSpacesIsSanitizedToAValidMetricName(): void
+    {
+        // guard()'s operation names include "queue processing", "source ids", "orphan pruning",
+        // "queue size" and "rebuild failure record" — promphp rejects metric names with spaces.
+        $registry = new CollectorRegistry(new InMemory(), false);
+        (new PrometheusMetricsCollector($registry))->increment('fuzzphony.queue processing.errors');
+
+        $samples = $registry->getMetricFamilySamples();
+        self::assertSame('fuzzphony_queue_processing_errors', $samples[0]->getName());
+    }
+
     public function testTheSameEventCanBeObservedTwiceWithTheSameLabelNames(): void
     {
         $registry = new CollectorRegistry(new InMemory(), false);

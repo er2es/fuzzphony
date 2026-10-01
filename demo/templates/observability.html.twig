@@ -1,0 +1,24 @@
+{% extends 'base.html.twig' %}
+{% block title %}Observability · Fuzzphony{% endblock %}
+{% block body %}
+<h2>Observability</h2>
+<p>Fuzzphony can report every search, sync and reindex operation through a <code>MetricsCollector</code>:
+<code>NullMetricsCollector</code> (default, zero cost), <code>LoggingMetricsCollector</code> (structured
+log lines — what this demo uses), or <code>PrometheusMetricsCollector</code> (if
+<code>promphp/prometheus_client_php</code> is installed and the <code>apcu</code> extension is loaded).</p>
+
+<h3>One live query's own numbers</h3>
+<p>Query: <code>{{ query }}</code></p>
+<table>
+    <tbody>
+        <tr><th>fuzzphony.search.took_ms</th><td>{{ took_ms }}</td></tr>
+        <tr><th>fuzzphony.search.fallback</th><td>{{ fallback ? 'fired on this run' : 'did not fire on this run' }}</td></tr>
+        {% if queue %}
+            <tr><th>fuzzphony.queue.depth</th><td>{{ queue.message }}</td></tr>
+        {% endif %}
+    </tbody>
+</table>
+
+<p class="muted">This is one query's own numbers, not a live feed — wire a real
+<code>MetricsCollector</code> and every search, sync and reindex operation reports continuously.</p>
+{% endblock %}

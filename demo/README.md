@@ -83,6 +83,12 @@ listed there use the library's defaults, shown here with "default".
 | Reindex at start | `init` reindexes an index only when it is empty (`DEMO_REINDEX=auto`), 20 000 ids per batch | `always` / `never` change that, see Settings; a full reindex builds next to the live index and swaps it in, so the site keeps answering from the old one meanwhile (`init` owns the schema, so it can always do this; the `worker`'s rebuild of a `TRUNCATE` job falls back to rebuilding in place, since `fuzzphony_app` has no DDL rights) |
 | Database roles | `init` runs as the owner `fuzzphony`; `php` and `worker` run as `fuzzphony_app` | `fuzzphony_app`: no DDL, read-only on the demo data, read/write on the `fuzzphony` schema's tables, `statement_timeout` 5 s |
 
+The **Observability** page shows which `MetricsCollector` this demo is wired to — `LoggingMetricsCollector`
+(structured log lines to the app's own logger, since `promphp/prometheus_client_php` isn't installed here) —
+and one live query's own `took_ms`/fallback numbers, run on demand rather than streamed continuously. See
+[docs/grafana/](../docs/grafana/) for a sample Grafana dashboard once a real `PrometheusMetricsCollector` is wired
+into an application.
+
 ## Security defaults
 
 The stack is published on `127.0.0.1` only. `DEMO_BIND=0.0.0.0` (web) and `DEMO_DB_BIND=0.0.0.0`

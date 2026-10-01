@@ -130,4 +130,28 @@ final class PagesController extends AbstractController
             'deep_refused' => !$deepAllowed && $request->query->getBoolean('deep'),
         ]);
     }
+
+    #[Route('/observability', name: 'observability')]
+    public function observability(Fuzzphony $fuzzphony): Response
+    {
+        // 'typo' is chosen over 'accent' because a misspelling is the case most likely to
+        // actually exercise the fuzzy fallback, which is the more interesting number to show —
+        // but the page must still render correctly on a run where it doesn't fire.
+        $query = CompareController::EXAMPLES['typo'];
+        $explanation = $fuzzphony->in('catalog')->query($query)->explain();
+        $fallback = array_any($explanation->statements, static fn(array $s): bool => str_ends_with($s['label'], 'fallback: full-text + fuzzy'));
+        $queueCheck = null;
+        foreach ($fuzzphony->inspect('catalog')->checks as $check) {
+            if ($check->name === 'Sync queue') {
+                $queueCheck = $check;
+            }
+        }
+
+        return $this->render('observability.html.twig', [
+            'query' => $query,
+            'took_ms' => $explanation->result->tookMs,
+            'fallback' => $fallback,
+            'queue' => $queueCheck,
+        ]);
+    }
 }

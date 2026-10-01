@@ -30,9 +30,11 @@ final readonly class PrometheusMetricsCollector implements MetricsCollector
             ->set($value, self::labelValues($labels));
     }
 
+    /** Prometheus metric names must match [a-zA-Z_:][a-zA-Z0-9_:]* — guard()'s own operation names
+     * (e.g. "queue processing", "source ids") contain spaces, so more than the dot needs folding. */
     private static function name(string $event): string
     {
-        return str_replace('.', '_', $event);
+        return (string) preg_replace('/[^a-zA-Z0-9_:]+/', '_', $event);
     }
 
     /**

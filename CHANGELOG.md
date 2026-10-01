@@ -29,6 +29,11 @@ changes; they are always listed under **Breaking** and explained in [UPGRADE.md]
   `fuzzphony.metrics`): used automatically when `promphp/prometheus_client_php` is installed and
   the `apcu` extension is loaded and enabled; `LoggingMetricsCollector` wired to the app's `logger`
   otherwise. `PostgresEngine`, `Worker` and `RefreshDocumentsHandler` all receive it.
+- `fuzzphony:doctor --format=prometheus` prints one `fuzzphony_doctor_check` line per check plus a
+  `fuzzphony_queue_depth` line for queue-mode indexes, in Prometheus text-exposition format, for a
+  cron/systemd-timer feeding node_exporter's textfile collector.
+- A sample Grafana dashboard for the metrics `PrometheusMetricsCollector` produces ships in
+  [`docs/grafana/`](docs/grafana/).
 
 ## [0.5.0] - 2026-10-01
 

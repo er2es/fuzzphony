@@ -30,18 +30,23 @@ depends on it, so nothing built early has to be refactored once a later mileston
 ## v0.6: Events
 
 Hooks for the index lifecycle, so 0.9's analytics, audit logging and rate limiting have events to
-attach to.
+attach to. Implemented, not released yet: see the
+[CHANGELOG](../CHANGELOG.md#unreleased).
 
 ### Observability
 
-Hooks and events for search, sync and reindex: query latency, queue lag and error rate, wired for
-Symfony Messenger middleware and any metrics backend.
+An optional `MetricsCollector` interface (counters, durations, point-in-time values) instruments
+every engine operation (`PostgresEngine`'s own `guard()`, covering search, sync and the full
+zero-downtime reindex lifecycle in one place), the sync worker's queue depth and throughput, and
+the ORM-sync Messenger handler — with a zero-cost default, a structured-logging adapter, and a
+Prometheus adapter (used automatically once `promphp/prometheus_client_php` and `apcu` are both
+available). A sample Grafana dashboard ships in [`docs/grafana/`](../grafana/).
 
 ### Transaction-aware connections
 
 A fuzzy statement changes the similarity-threshold setting and restores it afterwards, so a
 caller's own transaction is left untouched. That costs one extra database round trip per fuzzy
-statement. An optional, non-breaking `Connection` capability (`inTransaction()`) would let the
+statement. An optional, non-breaking `Connection` capability (`inTransaction()`) lets the
 engine skip that round trip when no outer transaction is open.
 
 ## v0.7: Relevance

@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Fuzzphony\Bundle\Command;
 
 use Fuzzphony\Bridge\Doctrine\SchemaAssetFilter;
+use Fuzzphony\Core\Definition\SyncMode;
 use Fuzzphony\Core\Fuzzphony;
 use Fuzzphony\Core\Inspection\CheckStatus;
 use Fuzzphony\Core\Inspection\InspectOptions;
@@ -39,6 +40,7 @@ final class DoctorCommand extends Command
             ->addArgument('index', InputArgument::OPTIONAL, 'Only this index (default: all)')
             ->addOption('deep', null, InputOption::VALUE_NONE, 'Exact row counts instead of planner estimates (slower)')
             ->addOption('strict', null, InputOption::VALUE_NONE, 'Exit with a failure code on warnings too (useful in CI)')
+            ->addOption('format', null, InputOption::VALUE_REQUIRED, 'Output format: text (default) or prometheus', 'text')
             ->setHelp('Exit code 0 = healthy, 1 = errors (or warnings with --strict). Run it in CI after migrations.');
     }
 
@@ -47,27 +49,38 @@ final class DoctorCommand extends Command
         $io = new SymfonyStyle($input, $output);
         $options = new InspectOptions(deep: $input->getOption('deep') === true);
         $worst = CheckStatus::Ok;
+        $format = $input->getOption('format');
+        $promLines = [];
 
         foreach (IndexArgument::resolve($this->fuzzphony, $input) as $index) {
             $report = $this->fuzzphony->engine()->inspect($index, $options);
-            $io->section(sprintf('Index "%s"', $index->name));
-            $rows = [];
-            foreach ($report->checks as $check) {
-                $rows[] = [
-                    match ($check->status) {
-                        CheckStatus::Ok => '<info>✔</info>',
-                        CheckStatus::Warning => '<comment>!</comment>',
-                        CheckStatus::Error => '<error>✘</error>',
-                        CheckStatus::Skipped => '-',
-                    },
-                    $check->name,
-                    $check->message,
-                ];
-            }
-            $io->table(['', 'Check', 'Result'], $rows);
-            foreach ($report->problems() as $problem) {
-                if ($problem->fix !== null) {
-                    $io->writeln(sprintf(' <comment>Fix for "%s":</comment> %s', $problem->name, $problem->fix));
+            if ($format === 'prometheus') {
+                foreach ($report->checks as $check) {
+                    $promLines[] = sprintf('fuzzphony_doctor_check{index="%s",check="%s"} %d', $index->name, $check->name, $check->status === CheckStatus::Ok ? 1 : 0);
+                }
+                if ($index->sync === SyncMode::Queue) {
+                    $promLines[] = sprintf('fuzzphony_queue_depth{index="%s"} %d', $index->name, $this->fuzzphony->engine()->queueSize($index));
+                }
+            } else {
+                $io->section(sprintf('Index "%s"', $index->name));
+                $rows = [];
+                foreach ($report->checks as $check) {
+                    $rows[] = [
+                        match ($check->status) {
+                            CheckStatus::Ok => '<info>✔</info>',
+                            CheckStatus::Warning => '<comment>!</comment>',
+                            CheckStatus::Error => '<error>✘</error>',
+                            CheckStatus::Skipped => '-',
+                        },
+                        $check->name,
+                        $check->message,
+                    ];
+                }
+                $io->table(['', 'Check', 'Result'], $rows);
+                foreach ($report->problems() as $problem) {
+                    if ($problem->fix !== null) {
+                        $io->writeln(sprintf(' <comment>Fix for "%s":</comment> %s', $problem->name, $problem->fix));
+                    }
                 }
             }
             $worst = match (true) {
@@ -77,7 +90,7 @@ final class DoctorCommand extends Command
             };
         }
 
-        if ($this->applicationSchemaFilter !== null && SchemaAssetFilter::letsThrough($this->applicationSchemaFilter, $this->schema)) {
+        if ($format !== 'prometheus' && $this->applicationSchemaFilter !== null && SchemaAssetFilter::letsThrough($this->applicationSchemaFilter, $this->schema)) {
             $io->section('Doctrine schema filter');
             $io->writeln(sprintf(
                 ' <comment>!</comment> Your DBAL connection\'s schema_filter %s lets Fuzzphony\'s tables through, so "doctrine:migrations:diff" will propose dropping them. Merge Fuzzphony\'s filter into yours: %s',
@@ -85,6 +98,12 @@ final class DoctorCommand extends Command
                 SchemaAssetFilter::regex($this->schema),
             ));
             $worst = $worst === CheckStatus::Ok ? CheckStatus::Warning : $worst;
+        }
+
+        if ($format === 'prometheus') {
+            $output->writeln($promLines);
+
+            return $worst === CheckStatus::Error || ($input->getOption('strict') === true && $worst === CheckStatus::Warning) ? Command::FAILURE : Command::SUCCESS;
         }
 
         $strict = $input->getOption('strict') === true;
