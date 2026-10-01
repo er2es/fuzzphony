@@ -132,12 +132,13 @@ final class PagesController extends AbstractController
     }
 
     #[Route('/observability', name: 'observability')]
-    public function observability(Fuzzphony $fuzzphony): Response
+    public function observability(Request $request, Fuzzphony $fuzzphony): Response
     {
-        // 'typo' is chosen over 'accent' because a misspelling is the case most likely to
-        // actually exercise the fuzzy fallback, which is the more interesting number to show —
-        // but the page must still render correctly on a run where it doesn't fire.
-        $query = CompareController::EXAMPLES['typo'];
+        $q = trim($request->query->getString('q'));
+        $query = $q !== '' ? $q : CompareController::EXAMPLES['typo'];
+        if (mb_strlen($query) > 256) {
+            throw new BadRequestHttpException('The query is too long.');
+        }
         $explanation = $fuzzphony->in('catalog')->query($query)->explain();
         $fallback = array_any($explanation->statements, static fn(array $s): bool => str_ends_with($s['label'], 'fallback: full-text + fuzzy'));
         $queueCheck = null;
@@ -149,8 +150,11 @@ final class PagesController extends AbstractController
 
         return $this->render('observability.html.twig', [
             'query' => $query,
+            'examples' => CompareController::EXAMPLES,
             'took_ms' => $explanation->result->tookMs,
+            'total' => $explanation->result->total,
             'fallback' => $fallback,
+            'statements' => count($explanation->statements),
             'queue' => $queueCheck,
         ]);
     }

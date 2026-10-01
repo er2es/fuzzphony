@@ -2,23 +2,64 @@
 {% block title %}Observability · Fuzzphony{% endblock %}
 {% block body %}
 <h2>Observability</h2>
-<p>Fuzzphony can report every search, sync and reindex operation through a <code>MetricsCollector</code>:
+<p>Fuzzphony reports every search, sync and reindex operation through a <code>MetricsCollector</code>:
 <code>NullMetricsCollector</code> (default, zero cost), <code>LoggingMetricsCollector</code> (structured
-log lines — what this demo uses), or <code>PrometheusMetricsCollector</code> (if
-<code>promphp/prometheus_client_php</code> is installed and the <code>apcu</code> extension is loaded).</p>
+log lines, <code>debug</code> level, channel <code>fuzzphony</code>), or <code>PrometheusMetricsCollector</code>
+for Prometheus and Grafana. The bundle picks the Prometheus one on its own when
+<code>promphp/prometheus_client_php</code> is installed and <code>apcu</code> is loaded and enabled in that
+process, and quietly falls back to logging otherwise &mdash; nothing breaks without them. This demo has
+neither installed, so it runs the logging collector.</p>
 
-<h3>One live query's own numbers</h3>
-<p>Query: <code>{{ query }}</code></p>
+<form method="get" class="searchbar" data-loading-message="Searching…">
+    <input type="search" name="q" value="{{ query }}" aria-label="Query to measure" placeholder="Search the catalogue…">
+    <button type="submit" class="primary">Search</button>
+</form>
+<div class="examples">
+    {% for label, example in examples %}
+        <a class="button" href="{{ path('observability', {q: example}) }}">{{ label }}: <code>{{ example }}</code></a>
+    {% endfor %}
+</div>
+
+<h3>What this search reported</h3>
+<p>Query: <code>{{ query }}</code> &middot; {{ total }} hits</p>
 <table>
+    <thead><tr><th>Metric</th><th>Kind</th><th>This run</th></tr></thead>
     <tbody>
-        <tr><th>fuzzphony.search.took_ms</th><td>{{ took_ms }}</td></tr>
-        <tr><th>fuzzphony.search.fallback</th><td>{{ fallback ? 'fired on this run' : 'did not fire on this run' }}</td></tr>
+        <tr><th><code>fuzzphony.search.took_ms</code></th><td>histogram</td><td>{{ took_ms }} ms</td></tr>
+        <tr><th><code>fuzzphony.search.fallback</code></th><td>counter</td><td>{{ fallback ? '+1 (typo tolerance ran)' : 'not incremented (exact match was enough)' }}</td></tr>
+        <tr><th>SQL statements</th><td>&mdash;</td><td>{{ statements }}</td></tr>
         {% if queue %}
-            <tr><th>fuzzphony.queue.depth</th><td>{{ queue.message }}</td></tr>
+            <tr><th><code>fuzzphony.queue.depth</code></th><td>gauge</td><td>{{ queue.message }}</td></tr>
         {% endif %}
     </tbody>
 </table>
 
-<p class="muted">This is one query's own numbers, not a live feed — wire a real
-<code>MetricsCollector</code> and every search, sync and reindex operation reports continuously.</p>
+<h3>The log line for it</h3>
+<pre><code>fuzzphony.metric {"event":"fuzzphony.search.took_ms","value":{{ took_ms }},"index":"catalog"}{% if fallback %}
+
+fuzzphony.metric {"event":"fuzzphony.search.fallback","by":1,"index":"catalog"}{% endif %}</code></pre>
+<p class="muted">The query text is left out of the line unless you opt in (<code>logQueryText</code>), and is never a
+Prometheus label (one time series per distinct query would never stop growing).</p>
+
+<h3>Everything Fuzzphony can report</h3>
+<table>
+    <thead><tr><th>Metric</th><th>Kind</th><th>From</th></tr></thead>
+    <tbody>
+        <tr><th><code>fuzzphony.search.took_ms</code></th><td>histogram</td><td>every search</td></tr>
+        <tr><th><code>fuzzphony.search.fallback</code></th><td>counter</td><td>searches that needed typo tolerance</td></tr>
+        <tr><th><code>fuzzphony.&lt;operation&gt;.duration_ms</code> / <code>.errors</code></th><td>histogram / counter</td><td>every engine operation (rebuild, refresh, queue, pruning&hellip;)</td></tr>
+        <tr><th><code>fuzzphony.queue.depth</code></th><td>gauge</td><td>the sync worker, once per cycle</td></tr>
+        <tr><th><code>fuzzphony.queue.processed</code></th><td>counter</td><td>the sync worker</td></tr>
+        <tr><th><code>fuzzphony.worker.rebuild_failures</code></th><td>counter</td><td>the sync worker</td></tr>
+        <tr><th><code>fuzzphony.messenger.refresh.duration_ms</code> / <code>.errors</code></th><td>histogram / counter</td><td>the ORM-sync Messenger handler</td></tr>
+    </tbody>
+</table>
+
+<h3>Prometheus and Grafana</h3>
+<p>With the Prometheus collector these become scrapeable series (expose them with a small
+<code>/metrics</code> route, see <code>docs/observability.md</code>), and
+<code>docs/grafana/fuzzphony-overview.json</code> is a ready-made dashboard: search latency and
+fallback rate, queue depth, errors by operation, and the sync handler. Import it under
+Dashboards &rarr; New &rarr; Import. <code>fuzzphony:doctor --format=prometheus</code> prints the doctor
+checks as metrics for node_exporter's textfile collector.</p>
 {% endblock %}
