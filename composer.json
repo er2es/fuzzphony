@@ -28,7 +28,8 @@
         "php": ">=8.4",
         "ext-mbstring": "*",
         "ext-pdo": "*",
-        "ext-pdo_pgsql": "*"
+        "ext-pdo_pgsql": "*",
+        "psr/log": "^3.0"
     },
     "suggest": {
         "doctrine/dbal": "Use an existing Doctrine DBAL connection (Fuzzphony\\Bridge\\Doctrine\\DbalConnection)",
@@ -37,7 +38,8 @@
         "symfony/framework-bundle": "Symfony integration: configuration, autowiring and the fuzzphony:* console commands",
         "symfony/messenger": "Asynchronous refresh in ORM sync mode (fuzzphony.orm_sync.async)",
         "symfony/ux-live-component": "The <twig:Fuzzphony:Search> search-as-you-type component",
-        "api-platform/doctrine-orm": "FuzzphonySearchFilter for API Platform collections"
+        "api-platform/doctrine-orm": "FuzzphonySearchFilter for API Platform collections",
+        "promphp/prometheus_client_php": "Export metrics in Prometheus's data model (Fuzzphony\\Bundle\\Observability\\PrometheusMetricsCollector)"
     },
     "conflict": {
         "doctrine/dbal": "<4.2",
@@ -53,6 +55,7 @@
         "phpstan/phpstan": "^2.1",
         "phpstan/phpstan-strict-rules": "^2.0",
         "phpunit/phpunit": "^11.5 || ^12.0",
+        "promphp/prometheus_client_php": "^2.15",
         "symfony/browser-kit": "^7.4 || ^8.0",
         "symfony/console": "^7.4 || ^8.0",
         "symfony/css-selector": "^7.4 || ^8.0",

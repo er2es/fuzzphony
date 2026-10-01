@@ -46,13 +46,17 @@ everything else in `src/` is marked `@internal` and may change in any release.
   `Fuzzphony\Core\Query\Filter\Condition`, `Fuzzphony\Core\Query\Filter\Operator`
 - Ranking: `Fuzzphony\Core\Ranking\RankingProfile`, `Fuzzphony\Core\Ranking\Thresholds`,
   `Fuzzphony\Core\Ranking\FuzzyMode`
-- Database: `Fuzzphony\Core\Database\Connection`, `Fuzzphony\Core\Database\PdoConnection`
+- Database: `Fuzzphony\Core\Database\Connection`, `Fuzzphony\Core\Database\PdoConnection`,
+  `Fuzzphony\Core\Database\TransactionAware`
 - Registry and schema: `Fuzzphony\Core\Registry\IndexRegistry`, `Fuzzphony\Core\Schema\SchemaPlan`,
   `Fuzzphony\Core\Schema\Statement`
 - Sync: `Fuzzphony\Core\Sync\ReindexOptions`, `Fuzzphony\Core\Sync\ReindexResult`,
   `Fuzzphony\Core\Sync\RefreshDispatcher`, `Fuzzphony\Core\Sync\ImmediateRefreshDispatcher`
 - Doctor: `Fuzzphony\Core\Inspection\InspectOptions`, `Fuzzphony\Core\Inspection\InspectionReport`,
   `Fuzzphony\Core\Inspection\Check`, `Fuzzphony\Core\Inspection\CheckStatus`
+- Observability: `Fuzzphony\Core\Observability\MetricsCollector`,
+  `Fuzzphony\Core\Observability\NullMetricsCollector`,
+  `Fuzzphony\Core\Observability\LoggingMetricsCollector`
 - Exceptions: `Fuzzphony\Core\Exception\FuzzphonyException`, `Fuzzphony\Core\Exception\EngineFailure`,
   `Fuzzphony\Core\Exception\InvalidArgument`, `Fuzzphony\Core\Exception\InvalidConfiguration`,
   `Fuzzphony\Core\Exception\InvalidDefinition`, `Fuzzphony\Core\Exception\InvalidQuery`,

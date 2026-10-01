@@ -33,7 +33,7 @@ foreach ($result as $hit) {
 }
 ```
 
-Status: v0.5. The API may still change before 1.0. Breaking changes are listed in the
+Status: v0.6. The API may still change before 1.0. Breaking changes are listed in the
 [CHANGELOG](https://github.com/er2es/fuzzphony/blob/main/CHANGELOG.md) and explained in
 [UPGRADE.md](https://github.com/er2es/fuzzphony/blob/main/UPGRADE.md).
 
@@ -192,6 +192,7 @@ nothing drops the words that match nothing and says so. Details:
 - [Keeping the index in sync](https://github.com/er2es/fuzzphony/blob/main/docs/sync.md): sync modes, triggers, `TRUNCATE`, orphan pruning, Messenger.
 - [Multi-tenancy](https://github.com/er2es/fuzzphony/blob/main/docs/multi-tenancy.md): a tenant filter enforced on every search.
 - [Console commands](https://github.com/er2es/fuzzphony/blob/main/docs/commands.md): every command, the doctor, the configuration wizard.
+- [Observability](https://github.com/er2es/fuzzphony/blob/main/docs/observability.md): metrics collectors, the Symfony bundle wiring, a `/metrics` endpoint, the Grafana dashboard.
 - [Integrations](https://github.com/er2es/fuzzphony/blob/main/docs/integrations.md): Doctrine, API Platform, Live Component.
 - [Benchmarks](https://github.com/er2es/fuzzphony/blob/main/docs/benchmarks.md): Fuzzphony against `ILIKE` on 200 000 products.
 - [Known limitations](https://github.com/er2es/fuzzphony/blob/main/docs/limitations.md): the full text of the list below.
@@ -226,11 +227,10 @@ Details in [docs/limitations.md](https://github.com/er2es/fuzzphony/blob/main/do
 
 ## Roadmap
 
-Current: v0.5 (zero-downtime reindex, exact field scoping, partition-aware sync). Milestones build
-in order, each one a foundation for the next, up to v1.0's stable API and backward-compatibility
+Current: v0.6 (observability hooks/events, transaction-aware connections). Milestones build in
+order, each one a foundation for the next, up to v1.0's stable API and backward-compatibility
 promise. PostgreSQL only before 1.0:
 
-- v0.6 Events: observability hooks/events, transaction-aware connections.
 - v0.7 Relevance: length-aware typo tolerance, synonyms, a vocabulary table, "did you mean".
 - v0.8 Search features: `suggest()`, facets with an opt-in exact `total`, federated search.
 - v0.9 Security and analytics: search analytics, audit logging, rate limiting, Symfony Security

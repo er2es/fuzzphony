@@ -7,6 +7,8 @@ namespace Fuzzphony\Core\Sync;
 use Fuzzphony\Core\Definition\IndexDefinition;
 use Fuzzphony\Core\Engine\Engine;
 use Fuzzphony\Core\Exception\RebuildAlreadyRunning;
+use Fuzzphony\Core\Observability\MetricsCollector;
+use Fuzzphony\Core\Observability\NullMetricsCollector;
 
 /**
  * @internal Drains the sync queue. Run it long-lived (supervisor/systemd) or with runOnce() from cron
@@ -31,8 +33,11 @@ final class Worker
     private array $failures = [];
 
     /** @param (\Closure(): float)|null $clock seconds, for the rebuild back-off (default microtime(true)) */
-    public function __construct(private readonly Engine $engine, ?\Closure $clock = null)
-    {
+    public function __construct(
+        private readonly Engine $engine,
+        ?\Closure $clock = null,
+        private readonly MetricsCollector $metrics = new NullMetricsCollector(),
+    ) {
         $this->reindexer = new Reindexer($engine);
         $this->clock = $clock ?? static fn(): float => microtime(true);
     }
@@ -53,9 +58,15 @@ final class Worker
         $total = 0;
         foreach ($indexes as $index) {
             $total += $this->rebuildIfRequested($index);
+            $this->metrics->gauge('fuzzphony.queue.depth', (float) $this->engine->queueSize($index), ['index' => $index->name]);
+            $drained = 0;
             while (($processed = $this->engine->processQueue($index, $batchSize)) > 0) {
-                $total += $processed;
+                $drained += $processed;
             }
+            if ($drained > 0) {
+                $this->metrics->increment('fuzzphony.queue.processed', ['index' => $index->name], $drained);
+            }
+            $total += $drained;
         }
 
         return $total;
@@ -101,6 +112,7 @@ final class Worker
     private function failed(IndexDefinition $index, \Throwable $e): void
     {
         $this->failures[$index->name] = $e;
+        $this->metrics->increment('fuzzphony.worker.rebuild_failures', ['index' => $index->name]);
         $delay = isset($this->backoff[$index->name]) ? min(self::BACKOFF_MAX, 2 * $this->backoff[$index->name][0]) : self::BACKOFF;
         $this->backoff[$index->name] = [$delay, ($this->clock)() + $delay];
         try {

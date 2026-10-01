@@ -1,0 +1,136 @@
+{
+  "title": "Fuzzphony overview",
+  "schemaVersion": 39,
+  "timezone": "browser",
+  "time": {
+    "from": "now-6h",
+    "to": "now"
+  },
+  "panels": [
+    {
+      "id": 1,
+      "title": "Search latency",
+      "type": "timeseries",
+      "gridPos": {"h": 8, "w": 12, "x": 0, "y": 0},
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "rate(fuzzphony_search_took_ms_sum[5m]) / rate(fuzzphony_search_took_ms_count[5m])",
+          "legendFormat": "{{index}}"
+        }
+      ]
+    },
+    {
+      "id": 2,
+      "title": "Fuzzy fallback rate",
+      "type": "timeseries",
+      "gridPos": {"h": 8, "w": 12, "x": 12, "y": 0},
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "rate(fuzzphony_search_fallback[5m])",
+          "legendFormat": "{{index}}"
+        }
+      ]
+    },
+    {
+      "id": 3,
+      "title": "Error rate by operation",
+      "type": "timeseries",
+      "gridPos": {"h": 8, "w": 12, "x": 0, "y": 8},
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "rate(fuzzphony_search_errors[5m])",
+          "legendFormat": "search"
+        },
+        {
+          "refId": "B",
+          "expr": "rate(fuzzphony_rebuild_errors[5m])",
+          "legendFormat": "rebuild"
+        },
+        {
+          "refId": "C",
+          "expr": "rate(fuzzphony_refresh_errors[5m])",
+          "legendFormat": "refresh"
+        },
+        {
+          "refId": "D",
+          "expr": "rate(fuzzphony_queue_processing_errors[5m])",
+          "legendFormat": "queue processing"
+        }
+      ]
+    },
+    {
+      "id": 4,
+      "title": "Queue depth",
+      "type": "timeseries",
+      "gridPos": {"h": 8, "w": 12, "x": 12, "y": 8},
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "fuzzphony_queue_depth",
+          "legendFormat": "{{index}}"
+        }
+      ]
+    },
+    {
+      "id": 5,
+      "title": "Queue throughput",
+      "type": "timeseries",
+      "gridPos": {"h": 8, "w": 12, "x": 0, "y": 16},
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "rate(fuzzphony_queue_processed[5m])",
+          "legendFormat": "{{index}}"
+        }
+      ]
+    },
+    {
+      "id": 6,
+      "title": "Worker rebuild failures",
+      "type": "timeseries",
+      "gridPos": {"h": 8, "w": 12, "x": 12, "y": 16},
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "rate(fuzzphony_worker_rebuild_failures[5m])",
+          "legendFormat": "{{index}}"
+        }
+      ]
+    },
+    {
+      "id": 7,
+      "title": "ORM-sync message handling",
+      "type": "timeseries",
+      "gridPos": {"h": 8, "w": 12, "x": 0, "y": 24},
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "rate(fuzzphony_messenger_refresh_duration_ms_sum[5m]) / rate(fuzzphony_messenger_refresh_duration_ms_count[5m])",
+          "legendFormat": "avg duration"
+        },
+        {
+          "refId": "B",
+          "expr": "rate(fuzzphony_messenger_refresh_errors[5m])",
+          "legendFormat": "errors"
+        }
+      ]
+    },
+    {
+      "id": 8,
+      "title": "Doctor checks",
+      "type": "table",
+      "gridPos": {"h": 8, "w": 12, "x": 12, "y": 24},
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "fuzzphony_doctor_check",
+          "format": "table",
+          "instant": true
+        }
+      ]
+    }
+  ]
+}

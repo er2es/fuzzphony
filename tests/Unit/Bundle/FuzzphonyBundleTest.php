@@ -17,10 +17,12 @@ use Fuzzphony\Bundle\Command\WizardCommand;
 use Fuzzphony\Bundle\Command\WorkerCommand;
 use Fuzzphony\Bundle\FuzzphonyBundle;
 use Fuzzphony\Bundle\Messenger\MessengerRefreshDispatcher;
+use Fuzzphony\Bundle\Observability\MetricsCollectorFactory;
 use Fuzzphony\Bundle\Twig\SearchComponent;
 use Fuzzphony\Core\Engine\Engine;
 use Fuzzphony\Core\Exception\InvalidConfiguration;
 use Fuzzphony\Core\Fuzzphony;
+use Fuzzphony\Core\Observability\MetricsCollector;
 use Fuzzphony\Core\Registry\IndexRegistry;
 use Fuzzphony\Core\Sync\ImmediateRefreshDispatcher;
 use Fuzzphony\Engine\Postgres\PostgresEngine;
@@ -93,6 +95,7 @@ final class FuzzphonyBundleTest extends TestCase
         $container = $this->buildContainer(withOrm: false);
         $container->compile();
         $container->set('doctrine.dbal.default_connection', self::createStub(DbalConnection::class));
+        $container->set('logger', self::createStub(\Psr\Log\LoggerInterface::class));
 
         $fuzzphony = $container->get(Fuzzphony::class);
         self::assertInstanceOf(Fuzzphony::class, $fuzzphony);
@@ -185,6 +188,52 @@ final class FuzzphonyBundleTest extends TestCase
 
         self::assertTrue($container->hasDefinition(SearchComponent::class));
         self::assertTrue($container->getDefinition(SearchComponent::class)->isAutoconfigured());
+    }
+
+    /**
+     * promphp/prometheus_client_php is installed for the whole test run (so only the
+     * class_exists() half of the gate is fixed here), but the Prometheus branch also requires the
+     * apcu extension to be loaded and enabled (its storage adapter's own constructor throws
+     * otherwise — PHP's CLI SAPI commonly ships with apc.enable_cli=0, so this cannot be assumed
+     * the way the other class_exists()-only gates in this file can). Assert whichever branch this
+     * environment actually takes, rather than hardcoding one.
+     */
+    /**
+     * Which concrete MetricsCollector this resolves to is decided at runtime by
+     * MetricsCollectorFactory (its own tests cover both branches) — CLI and FPM share this
+     * compiled container but commonly disagree about apcu, so the definition itself only wires
+     * the factory call, never bakes in one class or the other.
+     */
+    public function testMetricsServiceIsWiredThroughTheRuntimeFactory(): void
+    {
+        $container = $this->buildContainer(withOrm: false);
+
+        $definition = $container->getDefinition('fuzzphony.metrics');
+        self::assertSame([MetricsCollectorFactory::class, 'create'], $definition->getFactory());
+        self::assertEquals([new Reference('logger')], $definition->getArguments());
+        self::assertSame('fuzzphony.metrics', (string) $container->getAlias(MetricsCollector::class));
+    }
+
+    /**
+     * Without its own channel, LoggingMetricsCollector's lines are unroutable and
+     * unfilterable noise mixed into the app's default channel. MonologBundle's compiler pass
+     * rewrites a `monolog.logger`-tagged service's `logger` reference to `monolog.logger.<channel>`
+     * — harmless metadata when MonologBundle isn't installed, since nothing reads the tag then.
+     */
+    public function testMetricsServiceIsTaggedWithItsOwnMonologChannel(): void
+    {
+        $container = $this->buildContainer(withOrm: false);
+
+        self::assertSame([['channel' => 'fuzzphony']], $container->getDefinition('fuzzphony.metrics')->getTag('monolog.logger'));
+    }
+
+    public function testTheEngineTheWorkerCommandAndTheRefreshHandlerReceiveTheMetricsService(): void
+    {
+        $container = $this->buildContainer(withOrm: false);
+
+        self::assertEquals(new Reference('fuzzphony.metrics'), $container->getDefinition('fuzzphony.engine')->getArgument(3));
+        self::assertEquals(new Reference('fuzzphony.metrics'), $container->getDefinition(WorkerCommand::class)->getArgument(3));
+        self::assertEquals(new Reference('fuzzphony.metrics'), $container->getDefinition('fuzzphony.messenger.refresh_handler')->getArgument(1));
     }
 
     /**
@@ -349,6 +398,8 @@ final class FuzzphonyBundleTest extends TestCase
         }
 
         $container->register('doctrine.dbal.default_connection', DbalConnection::class)->setSynthetic(true)->setPublic(true);
+        // A real kernel always provides this; fuzzphony.metrics falls back to it when promphp/apcu aren't both available.
+        $container->register('logger', \Psr\Log\LoggerInterface::class)->setSynthetic(true)->setPublic(true);
         if ($withOrm) {
             $container->register('doctrine.orm.entity_manager', EntityManagerInterface::class)->setSynthetic(true)->setPublic(true);
         }

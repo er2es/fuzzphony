@@ -21,28 +21,20 @@ depends on it, so nothing built early has to be refactored once a later mileston
   the doctor); Doctrine Migrations integration (the bundle's `schema_filter`, the version record in
   `--dump-migration`). See the [CHANGELOG](../CHANGELOG.md#040---2026-09-27) and
   [UPGRADE.md](../UPGRADE.md#from-03-to-04).
-- v0.5 Index lifecycle (current): zero-downtime reindex built in a shadow table and swapped in
+- v0.5 Index lifecycle: zero-downtime reindex built in a shadow table and swapped in
   atomically ([ADR 0008](adr/0008-shadow-rebuild-with-a-change-log.md)), one rebuild job for a
   `TRUNCATE` instead of every document id, exact field scoping (per-field text and trigram
   columns), partition-aware sync. The sidecar layout is 2. See the
   [CHANGELOG](../CHANGELOG.md#050---2026-10-01) and [UPGRADE.md](../UPGRADE.md#from-04-to-05).
-
-## v0.6: Events
-
-Hooks for the index lifecycle, so 0.9's analytics, audit logging and rate limiting have events to
-attach to.
-
-### Observability
-
-Hooks and events for search, sync and reindex: query latency, queue lag and error rate, wired for
-Symfony Messenger middleware and any metrics backend.
-
-### Transaction-aware connections
-
-A fuzzy statement changes the similarity-threshold setting and restores it afterwards, so a
-caller's own transaction is left untouched. That costs one extra database round trip per fuzzy
-statement. An optional, non-breaking `Connection` capability (`inTransaction()`) would let the
-engine skip that round trip when no outer transaction is open.
+- v0.6 Events (current): an optional `MetricsCollector` interface (counters, durations,
+  point-in-time values) instruments every engine operation (`PostgresEngine`'s own `guard()`,
+  covering search, sync and the full zero-downtime reindex lifecycle in one place), the sync
+  worker's queue depth and throughput, and the ORM-sync Messenger handler — with a zero-cost
+  default, a structured-logging adapter, and a Prometheus adapter (used automatically once
+  `promphp/prometheus_client_php` and `apcu` are both available; a sample Grafana dashboard ships
+  in [`docs/grafana/`](../grafana/)). An optional, non-breaking `Connection` capability
+  (`inTransaction()`) lets a fuzzy statement skip a redundant round trip when no outer transaction
+  is open. No breaking changes. See the [CHANGELOG](../CHANGELOG.md#060---2026-10-01).
 
 ## v0.7: Relevance
 

@@ -7,6 +7,37 @@ changes; they are always listed under **Breaking** and explained in [UPGRADE.md]
 
 ## [Unreleased]
 
+## [0.6.0] - 2026-10-01
+
+### Added
+
+- `Fuzzphony\Core\Observability\MetricsCollector`: an optional interface for counters
+  (`increment()`), durations (`observe()`) and point-in-time values (`gauge()`).
+  `NullMetricsCollector` (the default: zero cost) and `LoggingMetricsCollector` (one structured
+  PSR-3 log line per call, at `debug` level) ship in Core. See [Observability](docs/observability.md).
+- `PostgresEngine` instruments every operation (`guard()`'s existing try/catch) and each search's
+  total latency and fuzzy-fallback rate through an optional `MetricsCollector` (new 4th
+  constructor parameter, defaulting to `NullMetricsCollector`).
+- `Worker` gauges each index's queue depth once per cycle, counts items processed and counts
+  rebuild failures, through the same optional `MetricsCollector` (new 3rd constructor parameter).
+- `RefreshDocumentsHandler` (the ORM-sync Messenger handler) observes its own handling duration and
+  counts errors, through the same optional `MetricsCollector`.
+- `Fuzzphony\Core\Database\TransactionAware`: an optional `Connection` capability
+  (`inTransaction(): bool`). When a `Connection` implements it and no outer transaction is open,
+  fuzzy searches skip a now-redundant round trip that restored the previous similarity threshold —
+  `PostgresEngine`'s own transaction commit already reverts it. `PdoConnection` and `DbalConnection`
+  both implement it; a `Connection` that doesn't keeps today's behavior exactly.
+- `Fuzzphony\Bundle\Observability\PrometheusMetricsCollector` (internal, bundle service
+  `fuzzphony.metrics`): used automatically when `promphp/prometheus_client_php` is installed and
+  the `apcu` extension is loaded and enabled; `LoggingMetricsCollector` wired to the app's `logger`
+  otherwise, tagged with its own Monolog channel (`fuzzphony`) so it can be routed or excluded.
+  `PostgresEngine`, `Worker` and `RefreshDocumentsHandler` all receive it.
+- `fuzzphony:doctor --format=prometheus` prints one `fuzzphony_doctor_check` line per check plus a
+  `fuzzphony_queue_depth` line for queue-mode indexes, in Prometheus text-exposition format, for a
+  cron/systemd-timer feeding node_exporter's textfile collector.
+- A sample Grafana dashboard for the metrics `PrometheusMetricsCollector` produces ships in
+  [`docs/grafana/`](docs/grafana/).
+
 ## [0.5.0] - 2026-10-01
 
 **After upgrading, run `fuzzphony:schema --apply`, then one full `fuzzphony:reindex`.** See
@@ -460,7 +491,8 @@ on its own:
 - Sync modes: queue (default), trigger, ORM, manual; watches for joined tables.
 - Doctor with fixes; CLI commands for schema, reindex, worker, search and explain.
 
-[Unreleased]: https://github.com/er2es/fuzzphony/compare/v0.5.0...HEAD
+[Unreleased]: https://github.com/er2es/fuzzphony/compare/v0.6.0...HEAD
+[0.6.0]: https://github.com/er2es/fuzzphony/compare/v0.5.0...v0.6.0
 [0.5.0]: https://github.com/er2es/fuzzphony/compare/v0.4.0...v0.5.0
 [0.4.0]: https://github.com/er2es/fuzzphony/compare/v0.3.2...v0.4.0
 [0.3.2]: https://github.com/er2es/fuzzphony/compare/v0.3.1...v0.3.2

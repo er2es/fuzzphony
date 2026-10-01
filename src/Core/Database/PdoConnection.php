@@ -4,7 +4,7 @@ declare(strict_types=1);
 
 namespace Fuzzphony\Core\Database;
 
-final class PdoConnection implements Connection
+final class PdoConnection implements Connection, TransactionAware
 {
     public function __construct(private readonly \PDO $pdo)
     {
@@ -34,6 +34,11 @@ final class PdoConnection implements Connection
     public function execute(string $sql, array $params = []): int
     {
         return $this->run($sql, $params)->rowCount();
+    }
+
+    public function inTransaction(): bool
+    {
+        return $this->pdo->inTransaction();
     }
 
     public function transactional(callable $callback): mixed

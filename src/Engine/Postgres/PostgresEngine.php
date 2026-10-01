@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Fuzzphony\Engine\Postgres;
 
 use Fuzzphony\Core\Database\Connection;
+use Fuzzphony\Core\Database\TransactionAware;
 use Fuzzphony\Core\Definition\IndexDefinition;
 use Fuzzphony\Core\Engine\Capabilities;
 use Fuzzphony\Core\Engine\Capability;
@@ -15,6 +16,8 @@ use Fuzzphony\Core\Exception\InvalidArgument;
 use Fuzzphony\Core\Exception\InvalidQuery;
 use Fuzzphony\Core\Inspection\InspectionReport;
 use Fuzzphony\Core\Inspection\InspectOptions;
+use Fuzzphony\Core\Observability\MetricsCollector;
+use Fuzzphony\Core\Observability\NullMetricsCollector;
 use Fuzzphony\Core\Query\Ast\FieldScoped;
 use Fuzzphony\Core\Query\Ast\Node;
 use Fuzzphony\Core\Query\Ast\NodeInspector;
@@ -62,6 +65,7 @@ final class PostgresEngine implements Engine
         private readonly Connection $connection,
         string $extensionSchema = 'public',
         string $schema = 'public',
+        private readonly MetricsCollector $metrics = new NullMetricsCollector(),
     ) {
         $this->names = new Names($extensionSchema, $schema);
         $this->schema = new PostgresSchemaGenerator($this->names);
@@ -116,9 +120,11 @@ final class PostgresEngine implements Engine
             }
         }
         if ($last !== null) {
+            $restore = !($this->connection instanceof TransactionAware) || $this->connection->inTransaction();
             $plan = $this->guard('explain', fn(): array => $this->connection->transactional(fn(Connection $c): array => self::withSimilarityThreshold(
                 $c,
                 $run['threshold'],
+                $restore,
                 static function () use ($c, $last, $analyze): array {
                     $rows = $c->fetchAll(($analyze ? 'EXPLAIN (ANALYZE, BUFFERS) ' : 'EXPLAIN ') . $last['sql'], $last['params']);
 
@@ -426,6 +432,10 @@ final class PostgresEngine implements Engine
             offset: $query->offset,
             interpretedAs: $root !== null ? (string) $root : null,
         );
+        $this->metrics->observe('fuzzphony.search.took_ms', $result->tookMs, ['index' => $index->name, 'query' => $query->text]);
+        if (array_any($statements, static fn(array $s): bool => str_ends_with($s['label'], 'fallback: full-text + fuzzy'))) {
+            $this->metrics->increment('fuzzphony.search.fallback', ['index' => $index->name, 'query' => $query->text]);
+        }
 
         return ['result' => $result, 'statements' => $statements, 'threshold' => $threshold];
     }
@@ -606,10 +616,15 @@ final class PostgresEngine implements Engine
      */
     private function run(array $statement, ?float $similarityThreshold): array
     {
+        // Computed before transactional() opens (or joins) a transaction, so it reflects whether
+        // the *caller* already had one open — not the one this call is about to start itself.
+        $restore = !($this->connection instanceof TransactionAware) || $this->connection->inTransaction();
+
         return $this->guard('search', fn(): array => $this->connection->transactional(
             static fn(Connection $c): array => self::withSimilarityThreshold(
                 $c,
                 $similarityThreshold,
+                $restore,
                 static fn(): array => $c->fetchAll($statement['sql'], $statement['params']),
             ),
         ), 'Run "bin/console fuzzphony:doctor" to check the index.');
@@ -627,7 +642,7 @@ final class PostgresEngine implements Engine
      *
      * @return T
      */
-    private static function withSimilarityThreshold(Connection $c, ?float $similarityThreshold, \Closure $work): mixed
+    private static function withSimilarityThreshold(Connection $c, ?float $similarityThreshold, bool $restore, \Closure $work): mixed
     {
         if ($similarityThreshold === null) {
             return $work();
@@ -640,7 +655,9 @@ final class PostgresEngine implements Engine
             ['t' => (string) $similarityThreshold],
         );
         $result = $work();
-        $c->fetchValue(sprintf("SELECT set_config('%s', :v, true)", $name), ['v' => is_string($previous) ? $previous : null]);
+        if ($restore) {
+            $c->fetchValue(sprintf("SELECT set_config('%s', :v, true)", $name), ['v' => is_string($previous) ? $previous : null]);
+        }
 
         return $result;
     }
@@ -672,11 +689,17 @@ final class PostgresEngine implements Engine
      */
     private function guard(string $name, callable $operation, string $hint): mixed
     {
+        $started = hrtime(true);
         try {
-            return $operation();
+            $result = $operation();
+            $this->metrics->observe('fuzzphony.' . $name . '.duration_ms', round((hrtime(true) - $started) / 1e6, 3));
+
+            return $result;
         } catch (FuzzphonyException $e) {
+            $this->metrics->increment('fuzzphony.' . $name . '.errors');
             throw $e;
         } catch (\Throwable $e) {
+            $this->metrics->increment('fuzzphony.' . $name . '.errors');
             throw EngineFailure::wrap($name, $e, $hint);
         }
     }

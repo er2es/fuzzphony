@@ -23,6 +23,7 @@ use Fuzzphony\Engine\Postgres\Schema\PostgresSchemaGenerator;
 use Fuzzphony\Engine\Postgres\Sql\Sql;
 use Fuzzphony\Tests\Conformance\EngineConformanceTestCase;
 use Fuzzphony\Tests\Fixtures\Indexes;
+use Fuzzphony\Tests\Unit\Core\Observability\RecordingMetricsCollector;
 use PHPUnit\Framework\TestCase;
 
 /** PostgreSQL-specific behaviour: database-side sync, schema evolution, the doctor, highlighting. */
@@ -320,6 +321,26 @@ final class PostgresEngineTest extends TestCase
         self::assertSame(['full-text + fuzzy'], array_column($always->statements, 'label'));
         self::assertSame([1], $always->result->ids(), 'every word must match, also in always mode');
         self::assertEqualsWithDelta(1.0, $always->result->hits[0]->breakdown->fuzzySimilarity, 1e-9, 'both words match exactly');
+    }
+
+    public function testTheFallbackCounterFiresOnlyWhenTheFallbackBranchActuallyRan(): void
+    {
+        $metrics = new RecordingMetricsCollector();
+        $fuzzphony = new Fuzzphony(new PostgresEngine($this->connection, metrics: $metrics), new IndexRegistry([Indexes::products('manual')]));
+        $fuzzphony->schema()->apply($this->connection);
+        $fuzzphony->reindex('products');
+        $search = $fuzzphony->in('products');
+
+        $search->query('mouse')->thresholds(['fallback_below' => 1])->get();
+        self::assertCount(0, array_filter($metrics->calls, static fn(array $c): bool => $c[1] === 'fuzzphony.search.fallback'), 'enough strict hits: no fallback');
+
+        $search->query('headphnoes')->thresholds(['fallback_below' => 1])->get();
+        $fallbacks = array_values(array_filter($metrics->calls, static fn(array $c): bool => $c[1] === 'fuzzphony.search.fallback'));
+        self::assertCount(1, $fallbacks);
+        self::assertSame(['index' => 'products', 'query' => 'headphnoes'], $fallbacks[0][3]);
+
+        $tookMsCalls = array_filter($metrics->calls, static fn(array $c): bool => $c[1] === 'fuzzphony.search.took_ms');
+        self::assertCount(2, $tookMsCalls, 'one took_ms observation per get() call, regardless of how many internal statements ran');
     }
 
     public function testNoFuzzyStatementWhenOnlyStopWordsCouldMatchFuzzily(): void

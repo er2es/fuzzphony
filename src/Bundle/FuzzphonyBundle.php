@@ -19,12 +19,14 @@ use Fuzzphony\Bundle\Command\WizardCommand;
 use Fuzzphony\Bundle\Command\WorkerCommand;
 use Fuzzphony\Bundle\Messenger\MessengerRefreshDispatcher;
 use Fuzzphony\Bundle\Messenger\RefreshDocumentsHandler;
+use Fuzzphony\Bundle\Observability\MetricsCollectorFactory;
 use Fuzzphony\Bundle\Registry\RegistryFactory;
 use Fuzzphony\Bundle\Twig\SearchComponent;
 use Fuzzphony\Core\Database\Connection;
 use Fuzzphony\Core\Engine\Engine;
 use Fuzzphony\Core\Exception\InvalidConfiguration;
 use Fuzzphony\Core\Fuzzphony;
+use Fuzzphony\Core\Observability\MetricsCollector;
 use Fuzzphony\Core\Registry\IndexRegistry;
 use Fuzzphony\Core\Support\Coerce;
 use Fuzzphony\Core\Sync\ImmediateRefreshDispatcher;
@@ -169,8 +171,21 @@ final class FuzzphonyBundle extends AbstractBundle
             ->args([service(sprintf('doctrine.dbal.%s_connection', $connectionName))]);
         $services->alias(Connection::class, 'fuzzphony.connection');
 
+        // Decided when the service is built (MetricsCollectorFactory::create()), not here at
+        // loadExtension() time: CLI and FPM share this compiled container but commonly disagree
+        // about apcu (apc.enable_cli=0 by default), so baking the choice into the compiled
+        // definition would let whichever process warms the cache first decide it for both.
+        $services->set('fuzzphony.metrics', MetricsCollector::class)
+            ->factory([MetricsCollectorFactory::class, 'create'])
+            ->args([service('logger')])
+            // Routable/filterable as its own channel when MonologBundle is installed; a no-op tag
+            // otherwise. Without it, LoggingMetricsCollector's lines are stuck in the app's default
+            // channel with no way to exclude them.
+            ->tag('monolog.logger', ['channel' => 'fuzzphony']);
+        $services->alias(MetricsCollector::class, 'fuzzphony.metrics');
+
         $services->set('fuzzphony.engine', PostgresEngine::class)
-            ->args([service('fuzzphony.connection'), $names->extensionSchema, $names->schema]);
+            ->args([service('fuzzphony.connection'), $names->extensionSchema, $names->schema, service('fuzzphony.metrics')]);
         $services->alias(Engine::class, 'fuzzphony.engine')->public();
 
         if ($hasOrm) {
@@ -209,7 +224,7 @@ final class FuzzphonyBundle extends AbstractBundle
         $services->alias(RefreshDispatcher::class, 'fuzzphony.refresh_dispatcher');
         if (interface_exists(\Symfony\Component\Messenger\MessageBusInterface::class)) {
             $services->set('fuzzphony.messenger.refresh_handler', RefreshDocumentsHandler::class)
-                ->args([service('fuzzphony')])
+                ->args([service('fuzzphony'), service('fuzzphony.metrics')])
                 ->tag('messenger.message_handler');
         }
 
@@ -239,7 +254,7 @@ final class FuzzphonyBundle extends AbstractBundle
             SchemaCommand::class => [service('fuzzphony'), service('fuzzphony.connection')],
             DoctorCommand::class => [service('fuzzphony'), $applicationSchemaFilter, $names->schema],
             ReindexCommand::class => [service('fuzzphony')],
-            WorkerCommand::class => [service('fuzzphony'), $workerBatchSize, $workerIdleSleep],
+            WorkerCommand::class => [service('fuzzphony'), $workerBatchSize, $workerIdleSleep, service('fuzzphony.metrics')],
             SearchCommand::class => [service('fuzzphony')],
             WizardCommand::class => [service('fuzzphony.introspector'), service('fuzzphony.engine'), service('fuzzphony.connection')],
         ];

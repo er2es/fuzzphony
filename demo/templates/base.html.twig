@@ -24,6 +24,7 @@
             wizard: ['Config wizard', 'Introspecting the database…'],
             benchmark: ['Benchmark', 'Opening the benchmark…'],
             doctor: ['Doctor', 'Running the health checks…'],
+            observability: ['Observability', 'Running a sample search to show the metrics…'],
         } %}
         {% for name, page in pages %}
             <a href="{{ path(name) }}" data-loading-message="{{ page[1] }}"{% if route == name %} class="active" aria-current="page"{% endif %}>{{ page[0] }}</a>

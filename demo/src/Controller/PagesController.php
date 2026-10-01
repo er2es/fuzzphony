@@ -130,4 +130,32 @@ final class PagesController extends AbstractController
             'deep_refused' => !$deepAllowed && $request->query->getBoolean('deep'),
         ]);
     }
+
+    #[Route('/observability', name: 'observability')]
+    public function observability(Request $request, Fuzzphony $fuzzphony): Response
+    {
+        $q = trim($request->query->getString('q'));
+        $query = $q !== '' ? $q : CompareController::EXAMPLES['typo'];
+        if (mb_strlen($query) > 256) {
+            throw new BadRequestHttpException('The query is too long.');
+        }
+        $explanation = $fuzzphony->in('catalog')->query($query)->explain();
+        $fallback = array_any($explanation->statements, static fn(array $s): bool => str_ends_with($s['label'], 'fallback: full-text + fuzzy'));
+        $queueCheck = null;
+        foreach ($fuzzphony->inspect('catalog')->checks as $check) {
+            if ($check->name === 'Sync queue') {
+                $queueCheck = $check;
+            }
+        }
+
+        return $this->render('observability.html.twig', [
+            'query' => $query,
+            'examples' => CompareController::EXAMPLES,
+            'took_ms' => $explanation->result->tookMs,
+            'total' => $explanation->result->total,
+            'fallback' => $fallback,
+            'statements' => count($explanation->statements),
+            'queue' => $queueCheck,
+        ]);
+    }
 }
