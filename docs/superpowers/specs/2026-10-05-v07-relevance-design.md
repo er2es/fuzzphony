@@ -62,6 +62,18 @@ work (`tv` ↔ `television`), and a word that matches nothing gets a spelling su
 - ADR 0008 gets a short addendum (the vocabulary table is part of the rebuild's swap). The wizard
   and the demo show the suggestion; 0.8's `suggest()` reads this table.
 
+## Demo (last step of the milestone, after PR 3)
+
+Everything relevant in 0.7 is shown in the demo: the did-you-mean suggestion ("Did you mean
+headphones?", linked to the corrected search) wherever a result can be empty (the Compare page, the
+Playground, the Languages page), the synonyms of the demo's indexes (a few `catalog` groups such as
+`tv ↔ television`, shown in `interpretedAs`), and length-aware tolerance (`mouse` no longer lists
+monitors, one-click example). Decided when the demo is done, by what reads better: rework the
+existing pages (new one-click examples, a suggestion line in the result header), or add a new menu
+item (for example "Relevance") that walks through the three features side by side with the old
+behaviour (flat `fuzzy_similarity: 0.3`). `demo/README.md` and the demo's page table are updated
+with it. PR 1 and PR 2 only touch the demo where a flag or default would otherwise break it.
+
 ## Public API and compatibility
 
 - Breaking: the `fuzzy_similarity` default, `Thresholds::$fuzzySimilarity` is nullable, sidecar
