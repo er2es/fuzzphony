@@ -5,9 +5,15 @@ declare(strict_types=1);
 namespace Fuzzphony\Tests\Integration;
 
 use Fuzzphony\Core\Fuzzphony;
+use Fuzzphony\Core\Query\QueryParser;
+use Fuzzphony\Core\Ranking\Thresholds;
+use Fuzzphony\Core\Ranking\TypoCurve;
 use Fuzzphony\Core\Registry\IndexRegistry;
 use Fuzzphony\Core\Search\SearchResult;
+use Fuzzphony\Core\Support\Coerce;
 use Fuzzphony\Engine\Postgres\PostgresEngine;
+use Fuzzphony\Engine\Postgres\Sql\FuzzyQueryCompiler;
+use Fuzzphony\Engine\Postgres\Sql\ParameterBag;
 use Fuzzphony\Tests\Fixtures\Indexes;
 use PHPUnit\Framework\TestCase;
 
@@ -107,5 +113,33 @@ final class LengthAwareTypoToleranceTest extends TestCase
         $relaxed = $search->query('wireless mouse zzqqx')->get();
         self::assertSame([1], self::ids($relaxed));
         self::assertStringContainsString('zzqqx', implode(' ', $relaxed->warnings));
+    }
+
+    public function testPostgreSqlComputesTheSameSimilarityAsTypoCurve(): void
+    {
+        $this->fuzzphony(); // applies the schema, which creates fuzzphony_norm
+        $connection = PostgresTestCase::connect();
+        $root = (new QueryParser())->parse('mouse')->root;
+        self::assertNotNull($root);
+        $match = (new FuzzyQueryCompiler(Indexes::products(), new Thresholds()))->compile($root, new ParameterBag());
+        self::assertNotNull($match);
+        $column = preg_replace('/ AS th2$/', '', $match->columns[2]);
+
+        foreach (range(1, 40) as $length) {
+            $actual = $connection->fetchValue('SELECT ' . $column, ['p2' => str_repeat('a', $length)]);
+            self::assertEqualsWithDelta(TypoCurve::similarity($length), Coerce::float($actual), 1e-9, "length $length");
+        }
+        // spaces do not count, and normalisation changes the length of what PostgreSQL measures
+        self::assertEqualsWithDelta(TypoCurve::similarity(6), Coerce::float($connection->fetchValue('SELECT ' . $column, ['p2' => 'ab cd ef'])), 1e-9);
+        self::assertEqualsWithDelta(TypoCurve::similarity(8), Coerce::float($connection->fetchValue('SELECT ' . $column, ['p2' => 'straßen'])), 1e-9);
+    }
+
+    public function testATypoThatIsTheWorstCaseOfItsLengthIsNotTolerated(): void
+    {
+        $search = $this->fuzzphony()->in('products');
+
+        // a letter replaced in the middle of a five-letter word leaves 0.33, as close as "monitor" is to "mouse", so it cannot be told from a different word; documented
+        self::assertSame([], self::ids($search->query('mpuse')->get()));
+        self::assertSame([1, 2], self::ids($search->query('mpuse')->thresholds(['fuzzy_similarity' => 0.3])->get()), 'a flat 0.3 tolerates it');
     }
 }

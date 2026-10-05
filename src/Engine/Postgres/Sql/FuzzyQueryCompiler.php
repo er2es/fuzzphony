@@ -14,6 +14,7 @@ use Fuzzphony\Core\Query\Ast\Not;
 use Fuzzphony\Core\Query\Ast\Phrase;
 use Fuzzphony\Core\Query\Ast\Term;
 use Fuzzphony\Core\Ranking\Thresholds;
+use Fuzzphony\Core\Ranking\TypoCurve;
 use Fuzzphony\Engine\Postgres\Schema\Names;
 
 /**
@@ -77,6 +78,28 @@ final class FuzzyQueryCompiler
             $node instanceof AllOf, $node instanceof AnyOf => array_any($node->nodes, fn(Node $n): bool => $this->hasFuzzyLeaf($n, $emptyQueries)),
             default => $this->exact($node, $emptyQueries) !== null && $this->needle($node) !== null,
         };
+    }
+
+    /**
+     * The lowest similarity a positive word of the query needs: the value to set pg_trgm's session
+     * threshold to for the statement (null when no positive word can match fuzzily). A lower value
+     * would only make the trigram index return candidates the recheck throws away.
+     *
+     * @param list<string> $emptyQueries leaf tsqueries the text configuration reduces to nothing (stop words)
+     */
+    public function lowestSimilarity(Node $node, array $emptyQueries = []): ?float
+    {
+        if ($node instanceof Not) {
+            return null;
+        }
+        if ($node instanceof AllOf || $node instanceof AnyOf) {
+            $lowest = array_filter(array_map(fn(Node $n): ?float => $this->lowestSimilarity($n, $emptyQueries), $node->nodes), static fn(?float $s): bool => $s !== null);
+
+            return $lowest === [] ? null : min($lowest);
+        }
+        $needle = $this->exact($node, $emptyQueries) === null ? null : $this->needle($node);
+
+        return $needle === null ? null : ($this->thresholds->fuzzySimilarity ?? TypoCurve::lowest(self::length($needle), preg_match('/^[ -~]*$/', $needle) === 1));
     }
 
     /**
@@ -220,23 +243,27 @@ final class FuzzyQueryCompiler
         $norm = $this->column('fn', sprintf('%s(%s)', $this->names->normFunction(), $params->add($needle)));
         $schema = $this->names->extension();
         $field = $this->scopedField($node);
-        // "<%" uses the session's lowest similarity (so GIN finds every candidate); by default each word is
-        // rechecked against the similarity of its own length, which PostgreSQL measures on the normalised word
-        $recheck = $this->thresholds->fuzzySimilarity === null ? sprintf(' AND %%s.word_similarity(%s, %%s) >= %s', $norm, self::similaritySql($norm)) : '';
-        if ($field === null) {
-            return [
-                'predicate' => $recheck === ''
-                    ? sprintf('(%s OR %s OPERATOR(%s.<%%) s.fz)', $exact, $norm, $schema)
-                    : sprintf('(%s OR (%s OPERATOR(%s.<%%) s.fz%s))', $exact, $norm, $schema, sprintf($recheck, $schema, 's.fz')),
-                'score' => sprintf('GREATEST(%s.word_similarity(%s, s.fz), CASE WHEN %s THEN 1.0 ELSE 0.0 END)', $schema, $norm, $exact),
-                'partial' => false,
-            ];
+        $column = $field === null ? 's.fz' : 's.' . $this->names->fieldFuzzy($field->name);
+        $similarity = sprintf('%s.word_similarity(%s, %s)', $schema, $norm, $column);
+        $exactScore = sprintf('CASE WHEN %s THEN 1.0 ELSE 0.0 END', $exact);
+        // "<%" uses the session's similarity (the lowest any word of the statement needs, so GIN finds every
+        // candidate). By default each word is also rechecked against the similarity of its own length, which
+        // PostgreSQL measures on the normalised word (q.th<n>); a word below it does not score either.
+        $recheck = '';
+        $score = $similarity;
+        if ($this->thresholds->fuzzySimilarity === null) {
+            $inner = $node instanceof FieldScoped ? $node->node : $node;
+            $threshold = $this->column('th', self::similaritySql(sprintf('%s(%s)', $this->names->normFunction(), $params->add($needle)), $inner instanceof Term && $inner->prefix));
+            $recheck = sprintf(' AND %s >= %s', $similarity, $threshold);
+            $score = sprintf('CASE WHEN %s >= %s THEN %s ELSE 0.0 END', $similarity, $threshold, $similarity);
         }
-        $column = 's.' . $this->names->fieldFuzzy($field->name);
+        $trigram = $field === null
+            ? sprintf('%s OPERATOR(%s.<%%) s.fz', $norm, $schema)
+            : sprintf('%1$s OPERATOR(%2$s.<%%) s.fz AND %1$s OPERATOR(%2$s.<%%) %3$s', $norm, $schema, $column);
 
         return [
-            'predicate' => sprintf('(%1$s OR (%2$s OPERATOR(%3$s.<%%) s.fz AND %2$s OPERATOR(%3$s.<%%) %4$s%5$s))', $exact, $norm, $schema, $column, $recheck === '' ? '' : sprintf($recheck, $schema, $column)),
-            'score' => sprintf('GREATEST(%s.word_similarity(%s, %s), CASE WHEN %s THEN 1.0 ELSE 0.0 END)', $schema, $norm, $column, $exact),
+            'predicate' => sprintf('(%s OR %s)', $exact, $field === null && $recheck === '' ? $trigram : '(' . $trigram . $recheck . ')'),
+            'score' => sprintf('GREATEST(%s, %s)', $score, $exactScore),
             'partial' => false,
         ];
     }
@@ -309,18 +336,19 @@ final class FuzzyQueryCompiler
     }
 
     /**
-     * Thresholds::similarityFor() as a SQL expression of the normalised word $norm (a phrase counts
-     * its letters without the spaces between its words).
+     * TypoCurve::similarity() as a SQL expression of the normalised word $norm (a phrase counts its
+     * letters without the spaces between its words). A prefix gets the allowance of one letter: its
+     * last trigram, padded with a space, can never match inside a longer word.
      */
-    private static function similaritySql(string $norm): string
+    private static function similaritySql(string $norm, bool $prefix): string
     {
-        $length = sprintf("char_length(replace(%s, ' ', ''))", $norm);
+        $length = sprintf("char_length(replace(%s, ' ', ''))%s", $norm, $prefix ? ' - 1' : '');
         $whens = '';
-        foreach (Thresholds::TYPOS_BY_LENGTH as [$minLength, $typos]) {
-            $whens .= sprintf(' WHEN %1$s >= %2$d THEN (%1$s + 1 - %3$d)::float8 / (%1$s + 1 + %3$d) + %4$s', $length, $minLength, 3 * $typos, Thresholds::SLACK);
+        foreach (TypoCurve::TYPOS_BY_LENGTH as [$minLength, $typos]) {
+            $whens .= sprintf(' WHEN %1$s >= %2$d THEN (%1$s + 1 - %3$d)::float8 / (%1$s + 1 + %3$d) + %4$s', $length, $minLength, 3 * $typos, TypoCurve::SLACK);
         }
 
-        return sprintf('(CASE%s ELSE %s END)', $whens, Thresholds::SHORT_SIMILARITY);
+        return sprintf('(CASE%s ELSE %s END)', $whens, TypoCurve::SHORT_SIMILARITY);
     }
 
     /** The length of a needle that similarity is judged by: its letters, without the spaces between words. */

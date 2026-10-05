@@ -52,7 +52,7 @@ final class SearchSqlBuilderTest extends TestCase
         self::assertNotNull($root);
         $statement = (new SearchSqlBuilder(Indexes::products()))->ranked("('mouse' & 'for')", 'mouse for', $root, [], new RankingProfile(), new Thresholds(), 10, 0, ["'for'"]);
 
-        self::assertSame(['p0' => "('mouse' & 'for')", 'p1' => 'mouse for', 'p2' => "'mouse'", 'p3' => 'mouse'], $statement['params']);
+        self::assertSame(['p0' => "('mouse' & 'for')", 'p1' => 'mouse for', 'p2' => "'mouse'", 'p3' => 'mouse', 'p4' => 'mouse'], $statement['params']);
     }
 
     public function testTheRelaxationProbeIsOneExistsPerLeafWithTheFiltersInEach(): void

@@ -369,20 +369,37 @@ final class FuzzyQueryCompilerTest extends TestCase
         self::assertSame('(s.tsv @@ q.ft0 OR q.fn1 OPERATOR("public".<%) s.fz)', $match->predicate, 'compile() afterwards is typo-tolerant again, with its own column names');
     }
 
-    /** Thresholds::similarityFor() as the compiler writes it for the normalised word q.fn1. */
-    private const string LENGTH_AWARE = "(CASE WHEN char_length(replace(q.fn1, ' ', '')) >= 8 THEN (char_length(replace(q.fn1, ' ', '')) + 1 - 6)::float8 / (char_length(replace(q.fn1, ' ', '')) + 1 + 6) + 0.03"
-        . " WHEN char_length(replace(q.fn1, ' ', '')) >= 4 THEN (char_length(replace(q.fn1, ' ', '')) + 1 - 3)::float8 / (char_length(replace(q.fn1, ' ', '')) + 1 + 3) + 0.03 ELSE 0.6 END)";
-
-    public function testByDefaultAWordMustReachTheSimilarityOfItsLengthInPostgreSql(): void
+    /** TypoCurve::similarity() as the compiler writes it for a normalised word $norm. */
+    private static function curveSql(string $norm, bool $prefix = false): string
     {
-        $match = self::lengthAware()->compile(self::parse('mouse'), new ParameterBag());
+        $length = sprintf("char_length(replace(%s, ' ', ''))%s", $norm, $prefix ? ' - 1' : '');
+
+        return sprintf("(CASE WHEN %1\$s >= 8 THEN (%1\$s + 1 - 6)::float8 / (%1\$s + 1 + 6) + 0.03 WHEN %1\$s >= 4 THEN (%1\$s + 1 - 3)::float8 / (%1\$s + 1 + 3) + 0.03 ELSE 0.6 END)", $length);
+    }
+
+    public function testByDefaultAWordMustReachTheSimilarityOfItsLengthComputedInPostgreSql(): void
+    {
+        $params = new ParameterBag();
+        $match = self::lengthAware()->compile(self::parse('mouse'), $params);
 
         self::assertNotNull($match);
+        // the threshold is a q column of its own, computed once from the normalised word (the needle is bound again)
+        self::assertSame(self::curveSql('"public"."fuzzphony_norm"(:p2)') . ' AS th2', $match->columns[2]);
+        self::assertSame('mouse', $params->all()['p2']);
+        self::assertSame('(s.tsv @@ q.ft0 OR (q.fn1 OPERATOR("public".<%) s.fz AND "public".word_similarity(q.fn1, s.fz) >= q.th2))', $match->predicate);
+        // a word below its own threshold does not score, whatever the session threshold let through
         self::assertSame(
-            '(s.tsv @@ q.ft0 OR (q.fn1 OPERATOR("public".<%) s.fz AND "public".word_similarity(q.fn1, s.fz) >= ' . self::LENGTH_AWARE . '))',
-            $match->predicate,
+            'GREATEST(CASE WHEN "public".word_similarity(q.fn1, s.fz) >= q.th2 THEN "public".word_similarity(q.fn1, s.fz) ELSE 0.0 END, CASE WHEN s.tsv @@ q.ft0 THEN 1.0 ELSE 0.0 END)',
+            $match->score,
         );
-        self::assertStringNotContainsString('>=', $match->score, 'the score is the similarity itself, not a threshold');
+    }
+
+    public function testAPrefixGetsTheAllowanceOfOneLetter(): void
+    {
+        $match = self::lengthAware()->compile(self::parse('ergnoo*'), new ParameterBag());
+
+        self::assertNotNull($match);
+        self::assertSame(self::curveSql('"public"."fuzzphony_norm"(:p2)', prefix: true) . ' AS th2', $match->columns[2]);
     }
 
     public function testAFlatSimilarityNeverAddsARecheck(): void
@@ -400,7 +417,7 @@ final class FuzzyQueryCompilerTest extends TestCase
         $match = self::lengthAware()->compile(self::parse('name:mouse'), new ParameterBag());
 
         self::assertNotNull($match);
-        self::assertStringContainsString('"public".word_similarity(q.fn1, s."z_name") >= ' . self::LENGTH_AWARE, $match->predicate);
+        self::assertStringContainsString('"public".word_similarity(q.fn1, s."z_name") >= q.th2', $match->predicate);
     }
 
     public function testTheRelaxationProbeUsesTheSameSimilarity(): void
@@ -408,7 +425,35 @@ final class FuzzyQueryCompilerTest extends TestCase
         $leaf = self::parse('mouse');
         $conditions = self::lengthAware()->leafConditions([$leaf], new ParameterBag(), [], true);
 
-        self::assertStringContainsString('word_similarity(q.fn1, s.fz) >= ' . self::LENGTH_AWARE, (string) $conditions['predicates'][0]);
+        self::assertStringContainsString('word_similarity(q.fn1, s.fz) >= q.th2', (string) $conditions['predicates'][0]);
+        self::assertStringEndsWith(' AS th2', $conditions['columns'][2]);
+    }
+
+    /** @return iterable<string, array{string, float|null}> */
+    public static function lowestSimilarities(): iterable
+    {
+        yield 'the most tolerant word of the query sets it' => ['mouse headphones', 0.3241];
+        yield 'one word' => ['mouse', 0.3633];
+        yield 'a longer word alone' => ['wireless', 0.23];
+        yield 'seven letters' => ['wireles', 0.4845];
+        yield 'a negated word is exact only' => ['mouse -headphones', 0.3633];
+        yield 'only negations or short exact words' => ['-mouse', null];
+        yield 'below fuzzy_min_length' => ['ab', null];
+        yield 'a non-ASCII word may change length when normalised' => ['straßen', 0.23];
+        yield 'an or takes the lowest of its branches' => ['mouse | headphones', 0.3241];
+    }
+
+    #[DataProvider('lowestSimilarities')]
+    public function testTheSessionSimilarityIsTheLowestAnyWordNeeds(string $input, ?float $expected): void
+    {
+        $lowest = self::lengthAware()->lowestSimilarity(self::parse($input));
+
+        $expected === null ? self::assertNull($lowest) : self::assertEqualsWithDelta($expected, $lowest, 0.0001);
+    }
+
+    public function testAFlatSimilarityIsTheSessionSimilarity(): void
+    {
+        self::assertSame(0.5, (new FuzzyQueryCompiler(Indexes::products(), new Thresholds(fuzzySimilarity: 0.5)))->lowestSimilarity(self::parse('mouse headphones')));
     }
 
     private function compiler(): FuzzyQueryCompiler

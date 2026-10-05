@@ -219,7 +219,8 @@ Details in [docs/limitations.md](https://github.com/er2es/fuzzphony/blob/main/do
 
 - [Typo tolerance is trigram-based](https://github.com/er2es/fuzzphony/blob/main/docs/limitations.md#typo-tolerance-is-trigram-based):
   it cannot tell a typo from a similar word (`cable` / `table`, and `mose` is as close to `monitor`
-  as to `mouse`); the similarity a word needs is proportional to its length, or flat if you set it.
+  as to `mouse`), so a letter replaced in the middle of a 5 to 7 letter word (`mpuse`) is not
+  tolerated; the similarity a word needs is proportional to its length, or flat if you set it.
 - [Attaching or detaching a partition is not followed](https://github.com/er2es/fuzzphony/blob/main/docs/limitations.md#attaching-or-detaching-a-partition-is-not-followed):
   PostgreSQL fires no trigger for it; run `fuzzphony:reindex` afterwards.
 - [Ranking is approximate beyond `candidate_limit`](https://github.com/er2es/fuzzphony/blob/main/docs/limitations.md#ranking-is-approximate-beyond-candidate_limit),

@@ -14,26 +14,31 @@ work (`tv` ↔ `television`), and a word that matches nothing gets a spelling su
 ## Part 1: Length-aware typo tolerance (Breaking)
 
 - `Thresholds::$fuzzySimilarity` becomes `?float`, default `null` = proportional to the word's
-  length. One typo is tolerated from 4 letters and two from 8 (`Thresholds::TYPOS_BY_LENGTH`); a
-  typo changes at most three of a word's n + 1 trigrams, so t typos leave a trigram similarity of at
-  least (n + 1 - 3t) / (n + 1 + 3t) (measured exactly this on generated typos of 60 words, for
+  length. The rule lives in the `@internal` `Fuzzphony\Core\Ranking\TypoCurve` (not in the 1.0
+  public API): one typo is tolerated from 4 letters and two from 8; a missing, extra or replaced
+  letter changes at most three of a word's n + 1 trigrams, so t typos leave a trigram similarity of
+  at least (n + 1 - 3t) / (n + 1 + 3t) (measured exactly this on generated typos of 60 words, for
   1 and 2 typos, by the length of the *query* word), and a word needs that plus a slack of 0.03,
   which keeps a different word at exactly the worst case out (`mouse` / `monitor` is 0.333, the
-  worst case for five letters). Words below 4 letters need 0.6. n is the length of the *normalised*
-  word, measured in PostgreSQL (`fuzzphony_norm`, so `ß` counts as `ss`), a phrase without its
-  spaces. `Thresholds::similarityFor()` is the same rule in PHP, `lowestSimilarity()` (0.23) is
-  what the session threshold is set to.
-  Measured trade-off on 130 demo words: one-typo recall 81% (the three fixed bands: 69%), two-typo
-  recall 91% (89%), false matches per correctly spelled word 0.56 (0.24) for 4 to 7 letters and 0.45
-  (0.42) from 8. `mose` finds `mouse` and, as close to it, `monitor` and `mower`; the fuzzy search only
-  runs as a fallback by default and ranks them lower.
+  worst case for five letters). Words below 4 letters need 0.6; a prefix gets one letter of
+  allowance (its last trigram cannot match inside a longer word). n is the length of the
+  *normalised* word, measured in PostgreSQL (`fuzzphony_norm`, so `ß` counts as `ss`), a phrase
+  without its spaces.
+  Honest trade-off (measured on generated single-letter typos of 24 words, against today's flat
+  0.3): a 5 to 7 letter word finds about 70 to 80% of its typos (flat: 92 to 100%), the lost ones
+  being a letter replaced in the middle and two letters swapped (a swap changes four trigrams);
+  look-alikes drop about five times; 4-letter words behave as before (`mose` finds `mouse`,
+  `monitor` and `mower` alike, 0.40 each); 8 letters and more lose nothing.
 - An explicit number (`fuzzy_similarity: 0.3`, per index or per query, or `--threshold` on the
   command line) stays flat, as today; `null` returns to proportional. Only the default changes.
-- `pg_trgm`'s `<%` uses one session-wide threshold. `PostgresEngine` sets it to the lowest similarity
-  (so GIN still finds the candidates) and `FuzzyQueryCompiler` adds a per-word
-  `word_similarity(needle, column) >= <CASE on the length of the normalised word>` check next to `<%`.
-  The same check applies in the score, in the relaxation probe and in field-scoped words. A flat
-  value adds no check.
+- `pg_trgm`'s `<%` uses one session-wide threshold per statement. `PostgresEngine` sets it to the
+  lowest similarity any positive word of *that statement* needs (`FuzzyQueryCompiler::
+  lowestSimilarity()`; a non-ASCII word may change length when normalised, so its neighbouring
+  lengths count), so GIN returns no more candidates than necessary (a fixed 0.23 was measured 5x to
+  500x slower for short words). `FuzzyQueryCompiler` adds a per-word `word_similarity(needle, column)
+  >= q.th<n>` check next to `<%`, where the threshold is a `q` column computed once in SQL from the
+  normalised word; a word below it does not score (an OR cannot be lifted by a non-matching word).
+  The same applies in the relaxation probe and in field-scoped words. A flat value adds no check.
 - `fuzzy_min_length` is unchanged. The doctor's risky-threshold check still accepts a flat value.
 - Docs: `limitations.md` loses "Typo tolerance is lenient" (README limitation and link too),
   `ranking.md` thresholds table, CHANGELOG **Breaking**, UPGRADE "From 0.6 to 0.7".

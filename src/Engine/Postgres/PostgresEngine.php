@@ -18,6 +18,7 @@ use Fuzzphony\Core\Inspection\InspectionReport;
 use Fuzzphony\Core\Inspection\InspectOptions;
 use Fuzzphony\Core\Observability\MetricsCollector;
 use Fuzzphony\Core\Observability\NullMetricsCollector;
+use Fuzzphony\Core\Query\Ast\AllOf;
 use Fuzzphony\Core\Query\Ast\FieldScoped;
 use Fuzzphony\Core\Query\Ast\Node;
 use Fuzzphony\Core\Query\Ast\NodeInspector;
@@ -506,7 +507,7 @@ final class PostgresEngine implements Engine
                 && $fuzzy->hasFuzzyLeaf($fuzzyRoot, $emptyQueries ??= $this->emptyQueries($index, $fuzzy->leafQueries($fuzzyRoot)));
             $statement = ['label' => $labelPrefix . ($alwaysFuzzy ? 'full-text + fuzzy' : 'full-text')]
                 + $builder->ranked($tsquery, $plain, $alwaysFuzzy ? $fuzzyRoot : null, $conditions, $profile, $thresholds, $query->limit, $query->offset, $emptyQueries ?? [], $scopedRoot);
-            $threshold = $alwaysFuzzy ? $thresholds->lowestSimilarity() : null;
+            $threshold = $alwaysFuzzy && $fuzzyRoot !== null ? $fuzzy->lowestSimilarity($fuzzyRoot, $emptyQueries ?? []) : null;
             $rows = $this->run($statement, $threshold);
             $statements[] = $statement;
             $usedFuzzy = $alwaysFuzzy;
@@ -520,7 +521,7 @@ final class PostgresEngine implements Engine
             ) {
                 $statement = ['label' => $labelPrefix . 'fallback: full-text + fuzzy']
                     + $builder->ranked($tsquery, $plain, $fuzzyRoot, $conditions, $profile, $thresholds, $query->limit, $query->offset, $emptyQueries, $scopedRoot);
-                $threshold = $thresholds->lowestSimilarity();
+                $threshold = $fuzzy->lowestSimilarity($fuzzyRoot, $emptyQueries);
                 $rows = $this->run($statement, $threshold);
                 $statements[] = $statement;
                 $usedFuzzy = true;
@@ -582,7 +583,8 @@ final class PostgresEngine implements Engine
         }
 
         $statement = ['label' => self::PROBE_LABEL] + (new SearchSqlBuilder($index, $this->names))->probe($probed, $fuzzy, $conditions, $thresholds, $empty);
-        $row = $this->run($statement, $fuzzy ? $thresholds->lowestSimilarity() : null)[0] ?? [];
+        $compiler = new FuzzyQueryCompiler($index, $thresholds, $this->names);
+        $row = $this->run($statement, $fuzzy ? $compiler->lowestSimilarity(new AllOf($probed), $empty) : null)[0] ?? [];
         $ignored = [];
         foreach ($probed as $i => $leaf) {
             if (in_array($row['l' . $i] ?? null, [false, 'f', 0], true)) {

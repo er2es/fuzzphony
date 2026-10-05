@@ -23,31 +23,10 @@ final class ThresholdsTest extends TestCase
         self::assertSame(0.0, $base->minScore, 'the original is untouched');
     }
 
-    public function testSimilarityGrowsWithTheLengthOfTheWordAndTheNumberOfTyposItMayHave(): void
+    public function testSimilarityIsByWordLengthByDefaultAndAnExplicitNumberIsKept(): void
     {
-        $t = new Thresholds();
-
-        self::assertNull($t->fuzzySimilarity);
-        // one typo from 4 letters, two from 8: (n + 1 - 3 typos) / (n + 1 + 3 typos) + 0.03
-        foreach ([1 => 0.6, 3 => 0.6, 4 => 0.28, 5 => 0.3633, 6 => 0.43, 7 => 0.4845, 8 => 0.23, 9 => 0.28, 12 => 0.3984, 20 => 0.5856] as $length => $expected) {
-            self::assertEqualsWithDelta($expected, $t->similarityFor($length), 0.0001, "length $length");
-        }
-        self::assertEqualsWithDelta(0.23, $t->lowestSimilarity(), 1e-9);
-        // every length needs at least the lowest similarity, so the session threshold lets all candidates through
-        foreach (range(1, 64) as $length) {
-            self::assertGreaterThanOrEqual($t->lowestSimilarity(), $t->similarityFor($length), "length $length");
-        }
-    }
-
-    public function testAnExplicitSimilarityIsFlat(): void
-    {
-        $t = new Thresholds(fuzzySimilarity: 0.5);
-
-        foreach ([1, 4, 5, 8, 20] as $length) {
-            self::assertSame(0.5, $t->similarityFor($length));
-        }
-        self::assertSame(0.5, $t->lowestSimilarity());
-        self::assertSame(0.8, (new Thresholds(fuzzySimilarity: 0.8))->lowestSimilarity(), 'a strict flat value is not capped by the short-word similarity');
+        self::assertNull((new Thresholds())->fuzzySimilarity);
+        self::assertSame(0.5, (new Thresholds(fuzzySimilarity: 0.5))->fuzzySimilarity);
     }
 
     public function testNullReturnsToLengthAwareAndStillRejectsOtherTypes(): void

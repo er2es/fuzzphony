@@ -8,16 +8,18 @@ and the [CHANGELOG](CHANGELOG.md) has the full list of changes.
 1. **Typo tolerance is proportional to the word's length.** The default `fuzzy_similarity` is no
    longer a flat 0.3: one typo is tolerated from 4 letters and two from 8, and a word needs the
    trigram similarity of the worst such typo plus 0.03 (0.28 for 4 letters, 0.36 for 5, 0.48 for 7,
-   0.23 for 8, 0.40 for 12; 0.6 below 4 letters). Searches that relied on the lenient behaviour
-   return fewer near-misses (`mouse` no longer lists monitors), and typos in 4-letter words are
-   tolerated now (`mose` finds `mouse`, and `monitor` and `mower` with it, ranked lower). To keep the
+   0.23 for 8, 0.40 for 12; 0.6 below 4 letters, so a 3-letter word is matched almost exactly).
+   Searches that relied on the lenient behaviour return far fewer look-alikes (`mouse` no longer
+   lists monitors), but a letter replaced in the middle of a 5 to 7 letter word, or two letters
+   swapped, is no longer tolerated (`mpuse`, `mosue`). 4-letter words behave as before. To keep the
    old behaviour set `fuzzy_similarity: 0.3` in `thresholds:` (YAML, which also overrides
    attribute-defined indexes, or `IndexBuilder::thresholds()`) or per query with
    `->thresholds(['fuzzy_similarity' => 0.3])`. Tests that pinned old fuzzy result sets may need new
    expectations. No schema change, no reindex.
 2. **`Thresholds::$fuzzySimilarity` is `?float`.** `null` (the default) means by word length. Code
-   that read it as a `float` handles `null` or calls `Thresholds::similarityFor($length)` /
-   `lowestSimilarity()`. A custom engine that honours `fuzzySimilarity` should do the same.
+   that read it as a `float` handles `null`. A custom `Engine` that honours it must apply the same
+   rule: the shared conformance test now expects `"wireles headphones"` to find only the headphones
+   (a phrase of 17 letters tolerates two typos).
 
 ## From 0.4 to 0.5
 

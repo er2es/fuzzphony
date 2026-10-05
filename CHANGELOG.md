@@ -12,13 +12,16 @@ changes; they are always listed under **Breaking** and explained in [UPGRADE.md]
 - Typo tolerance is proportional to the word's length by default: one typo is tolerated from 4
   letters and two from 8, and the trigram similarity a word needs is that of the worst such typo
   plus 0.03, `(n + 1 − 3t) / (n + 1 + 3t)` (0.28 for 4 letters, 0.36 for 5, 0.48 for 7, 0.23 for 8,
-  0.40 for 12; 0.6 below 4 letters), measured in PostgreSQL on the normalised word. `mouse` no longer
-  matches `monitor` or `mower`, while `mose`, `mouze`, `wireles` and `hedphones` still match. Typo-tolerant
-  result sets change: fewer near-misses for 5 to 7 letter words, more tolerance for typos in 4-letter
-  words (`mose` finds `mouse`, and as close to it, `monitor` and `mower`). `fuzzy_similarity: 0.3` (a
-  number) keeps the old flat behaviour for every word. `Thresholds::$fuzzySimilarity` is now `?float`
-  (`null`, the default, means by length): code that reads it must handle `null`;
-  `Thresholds::similarityFor(int $length)` and `lowestSimilarity()` answer what it used to. See
+  0.40 for 12; 0.6 below 4 letters), computed in PostgreSQL from the normalised word. `mouse` no
+  longer matches `monitor` or `mower`, while `mose`, `mouze`, `wireles` and `hedphones` still match.
+  Typo-tolerant result sets change: about five times fewer look-alikes for 5 to 7 letter words, but
+  a letter replaced in the middle of such a word, or two letters swapped, is no longer tolerated
+  (`mpuse`, `mosue`; about 70 to 80% of single-letter typos are found, a flat 0.3 found 92 to 100%),
+  and 3-letter words need 0.6. 4-letter words behave as before (`mose` finds `mouse`, and as
+  close to it `monitor` and `mower`). `fuzzy_similarity: 0.3` (a number) keeps the old flat
+  behaviour for every word. `Thresholds::$fuzzySimilarity` is now `?float` (`null`, the default,
+  means by length): code that reads it must handle `null`. A custom `Engine` must apply the same
+  rule (the conformance test expects `"wireles headphones"` to find only the headphones). See
   [UPGRADE.md](UPGRADE.md#from-06-to-07).
 
 ### Changed
@@ -29,10 +32,11 @@ changes; they are always listed under **Breaking** and explained in [UPGRADE.md]
 - Demo: the Playground has a "Fuzzy similarity by word length" switch (on by default); the slider
   applies only when it is off.
 - The typo-tolerant statement rechecks each word against the similarity of its own length
-  (`word_similarity(…) >= t` next to `<%`, in the search, the field-scoped words and the
-  empty-result relaxation probe, with `t` computed in SQL from the normalised word's length); the
-  session's `pg_trgm.word_similarity_threshold` is set to the lowest similarity in use (0.23) so the
-  GIN indexes still find the candidates.
+  (`word_similarity(…) >= q.th<n>` next to `<%`, in the search, the field-scoped words and the
+  empty-result relaxation probe, with the threshold computed in SQL, once, from the normalised
+  word's length); a word below it does not score. The session's
+  `pg_trgm.word_similarity_threshold` is set per statement to the lowest similarity any of its words
+  needs, so the GIN indexes return no more candidates than necessary.
 
 ## [0.6.1] - 2026-10-01
 

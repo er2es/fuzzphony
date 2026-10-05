@@ -11,10 +11,11 @@ partitions, which fire no triggers in PostgreSQL, and the trigram limits of typo
 Typo tolerance is per word, and the similarity a word needs is proportional to its length (see
 [Typo tolerance](searching.md#typo-tolerance)). Trigrams cannot tell a typo from a different word that
 looks alike: `cable` and `table` are equally close, and `mose` is as close to `monitor` and `mower` as
-to `mouse` (one letter each), so a search for `mose` also lists them, ranked below the mice. That is
-the price of tolerating a typo in a four-letter word; a flat `fuzzy_similarity` (a number, for every
-word) trades the other way, and the fuzzy search only runs when exact matching finds fewer than
-`fallback_below` hits.
+to `mouse` (0.40 each), so a search for `mose` also lists them, ranked below the mice. Because the
+threshold keeps a different word at the worst case of a typo out (`mouse` / `monitor`), a letter
+replaced in the middle of a 5 to 7 letter word, or two letters swapped, is not tolerated (`mpuse`,
+`mosue`). A flat `fuzzy_similarity` (a number, for every word) trades the other way, and the fuzzy
+search only runs when exact matching finds fewer than `fallback_below` hits.
 
 ## Attaching or detaching a partition is not followed
 

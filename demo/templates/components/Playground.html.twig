@@ -83,7 +83,7 @@
                                 </div>
                             </li>
                         {% else %}
-                            <li class="muted">No hits. Lower "Min relevance" or "Fuzzy similarity", or switch fuzzy mode to "always".</li>
+                            <li class="muted">No hits. Lower "Min relevance"{% if not similarityByLength %} or "Fuzzy similarity"{% endif %}, or switch fuzzy mode to "always".</li>
                         {% endfor %}
                     </ol>
                     <p class="muted">Bars: <span style="color:#5b3cc4">■</span> full-text <span style="color:#0e9384">■</span> fuzzy <span style="color:#f79009">■</span> exact/prefix <span style="color:#2e90fa">■</span> popularity <span style="color:#ee46bc">■</span> recency</p>
