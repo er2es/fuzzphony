@@ -55,8 +55,20 @@ work (`tv` ↔ `television`), and a word that matches nothing gets a spelling su
   matched like any word, typo tolerance included, and scored like one (`AnyOf` = max).
   `interpretedAs` shows the expansion. A negated word excludes its synonyms too (`-tv` excludes
   `television`).
-- The definition validator reports an empty group, a member in two groups, and a one-way rule that
-  loops. Synonyms are trusted developer input, never built from user input.
+- The definition validator reports a group with fewer than two members, a member without a letter or
+  digit or with query syntax, a member in two groups, a rule without a target, a second `=>`, and
+  too big a group or rule (32). A cycle (`a => b`, `b => a`) is harmless and allowed. Synonyms are
+  trusted developer input, never built from user input.
+- Built as: the engine keeps one expander per index definition and the stems it has seen (a
+  bounded cache); an expansion is an `AnyOf` flagged as one unit, which the relaxation probes as a
+  whole; a query gets at most four times `max_terms` alternatives. A custom `Engine` gets no
+  expansion (it lives in `PostgresEngine`); moving it into Core behind an optional stemming
+  capability is a later, non-breaking step.
+- For the next parts: did-you-mean must count a typed word whose expansion found hits as known (it
+  must not suggest a "correction" of a working synonym) and may use synonym members as extra
+  suggestion candidates without writing them into the vocabulary table; facets and the exact total
+  must run on the expanded query; `suggest()` expands completed words and never the last (prefix)
+  one.
 - No dictionary files on the server and no table: the definition holds them, so changing them needs
   no `schema --apply` and no reindex (but the definition hash in `fuzzphony_meta` ignores them).
 

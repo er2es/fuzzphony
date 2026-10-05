@@ -28,7 +28,7 @@ final class SynonymExpanderTest extends TestCase
         $root = (new QueryParser())->parse($query)->root;
         self::assertNotNull($root);
 
-        return (new SynonymExpander(Synonyms::fromEntries($entries), $stems))->expand($root);
+        return (new SynonymExpander(Synonyms::fromEntries($entries), $stems))->expand($root, $stems);
     }
 
     public function testAGroupMemberFindsTheOthers(): void
@@ -57,12 +57,12 @@ final class SynonymExpanderTest extends TestCase
 
     public function testWordsAreComparedByTheirStemAndCase(): void
     {
-        $stems = ['tvs' => 'tv', 'tv' => 'tv', 'television' => 'televis', 'televisions' => 'televis'];
+        // the engine gets the stems from PostgreSQL: English maps "Televisions" and "television" to "televis"
+        $stems = ['television' => 'televis', 'televisions' => 'televis'];
 
-        self::assertSame('(TVs OR television)', (string) self::expand('TVs', [['tv', 'television']], $stems));
-        self::assertSame('(tvs OR television)', (string) self::expand('tvs', [['tv', 'television']], $stems));
         self::assertSame('(Televisions OR tv)', (string) self::expand('Televisions', [['tv', 'television']], $stems));
-        self::assertSame('tvs', (string) self::expand('tvs', [['tv', 'television']]), 'without a stem "tvs" is not "tv"');
+        self::assertSame('(TELEVISION OR tv)', (string) self::expand('TELEVISION', [['tv', 'television']], $stems));
+        self::assertSame('Televisions', (string) self::expand('Televisions', [['tv', 'television']]), 'without a stem the plural is another word');
     }
 
     public function testAMultiWordMemberMatchesAQuotedPhraseOnly(): void
@@ -131,7 +131,7 @@ final class SynonymExpanderTest extends TestCase
         self::assertSame([], SynonymExpander::queryWords(new Phrase(['a', 'b'], true)));
     }
 
-    public function testAMemberIsSplitLikeAQuery(): void
+    public function testAHyphenatedMemberStaysOneWordLikeInAQuery(): void
     {
         self::assertSame('(wi-fi OR wireless)', (string) self::expand('wi-fi', [['wi-fi', 'wireless']]) === '(wi-fi | wireless)' ? '(wi-fi | wireless)' : (string) self::expand('wi-fi', [['wi-fi', 'wireless']]));
     }
@@ -179,5 +179,52 @@ final class SynonymExpanderTest extends TestCase
         self::assertSame($phrase, $expander->expand($phrase));
         $term = new Term('tv', false, true);
         self::assertSame($term, $expander->expand($term));
+    }
+
+    public function testAnExpansionIsFlaggedAsOneUnit(): void
+    {
+        $expanded = self::expand('tv', [['tv', 'television']]);
+
+        self::assertInstanceOf(AnyOf::class, $expanded);
+        self::assertTrue($expanded->expansion);
+        $typed = (new QueryParser())->parse('tv | mouse')->root;
+        self::assertInstanceOf(AnyOf::class, $typed);
+        self::assertFalse($typed->expansion, 'an OR the user typed is not an expansion');
+    }
+
+    public function testTheBudgetLimitsTheAlternativesAndLeavesTheRestAsTyped(): void
+    {
+        $synonyms = Synonyms::fromEntries([['a', 'b', 'c', 'd'], ['x', 'y', 'z']]);
+        $expander = new SynonymExpander($synonyms, []);
+        $root = (new QueryParser())->parse('a x')->root;
+        self::assertNotNull($root);
+
+        $truncated = false;
+        self::assertSame('((a OR b OR c OR d) AND (x OR y OR z))', (string) $expander->expand($root, [], 5, $truncated));
+        self::assertFalse($truncated);
+
+        // three alternatives for "a", two for "x": 3 fit, then 2 do not
+        self::assertSame('((a OR b OR c OR d) AND x)', (string) $expander->expand($root, [], 4, $truncated));
+        self::assertTrue($truncated);
+
+        // "a" needs three, which do not fit in two; "x" needs two, which do
+        $truncated = false;
+        self::assertSame('(a AND (x OR y OR z))', (string) $expander->expand($root, [], 2, $truncated));
+        self::assertTrue($truncated);
+
+        $truncated = false;
+        self::assertSame('(a AND x)', (string) $expander->expand($root, [], 1, $truncated));
+        self::assertTrue($truncated);
+        self::assertSame('(a AND x)', (string) $expander->expand($root, [], 0));
+    }
+
+    public function testTheStemsOfTheQueryAndOfTheMembersAreBothUsed(): void
+    {
+        $expander = new SynonymExpander(Synonyms::fromEntries([['television', 'tv']]), ['television' => 'televis']);
+        $root = (new QueryParser())->parse('Televisions')->root;
+        self::assertNotNull($root);
+
+        self::assertSame('Televisions', (string) $expander->expand($root), 'without the stem of the query word');
+        self::assertSame('(Televisions OR tv)', (string) $expander->expand($root, ['televisions' => 'televis']));
     }
 }

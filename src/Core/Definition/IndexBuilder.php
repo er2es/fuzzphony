@@ -158,7 +158,7 @@ final class IndexBuilder
      */
     public function synonyms(array $entries): self
     {
-        $this->synonyms = Synonyms::fromEntries($entries);
+        $this->synonyms = Synonyms::fromEntries($entries, $this->name);
 
         return $this;
     }

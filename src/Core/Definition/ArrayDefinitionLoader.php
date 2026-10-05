@@ -56,7 +56,7 @@ final class ArrayDefinitionLoader
             $builder->watch($table, self::str($options['ids'] ?? null, 'SELECT :id'), self::str($options['key'] ?? null, 'id'), self::stringList($name, $options['columns'] ?? null));
         }
 
-        $this->apply($builder, $config);
+        $this->apply($builder, $config, $name);
         if (isset($config['class']) && is_string($config['class']) && class_exists($config['class'])) {
             $builder->entity($config['class']);
         }
@@ -93,7 +93,7 @@ final class ArrayDefinitionLoader
             $merged = $merged->withTenant(self::str($config['tenant'], ''));
         }
         if (array_key_exists('synonyms', $config)) {
-            $merged = $merged->withSynonyms(Synonyms::fromEntries($this->map($config['synonyms'] ?? [])));
+            $merged = $merged->withSynonyms($this->synonyms($name, $config['synonyms']));
         }
         if (isset($config['profiles'])) {
             $merged = $merged->withProfiles($this->profiles($config['profiles']) + $definition->profiles);
@@ -113,7 +113,7 @@ final class ArrayDefinitionLoader
     }
 
     /** @param array<string, mixed> $config */
-    private function apply(IndexBuilder $builder, array $config): void
+    private function apply(IndexBuilder $builder, array $config, string $name): void
     {
         if (isset($config['id_type'])) {
             $builder->idType(self::str($config['id_type'], ''));
@@ -137,7 +137,7 @@ final class ArrayDefinitionLoader
             $builder->tenant(self::str($config['tenant'], ''));
         }
         if (isset($config['synonyms'])) {
-            $builder->synonyms($this->map($config['synonyms']));
+            $builder->synonyms($this->synonymEntries($name, $config['synonyms']));
         }
         foreach ($this->profiles($config['profiles'] ?? []) as $profileName => $profile) {
             $builder->profile($profileName, $profile);
@@ -208,5 +208,16 @@ final class ArrayDefinitionLoader
         if ($unknown !== []) {
             throw new InvalidDefinition($name, [sprintf('Unknown option(s): %s. Allowed: %s.', implode(', ', $unknown), implode(', ', self::KEYS))]);
         }
+    }
+
+    /** @return array<array-key, mixed> */
+    private function synonymEntries(string $index, mixed $value): array
+    {
+        return is_array($value) ? $value : throw new InvalidDefinition($index, ['"synonyms" must be a list of groups and rules, e.g. [[tv, television], "laptop => notebook"]; got ' . get_debug_type($value) . '.']);
+    }
+
+    private function synonyms(string $index, mixed $value): Synonyms
+    {
+        return Synonyms::fromEntries($this->synonymEntries($index, $value ?? []), $index);
     }
 }

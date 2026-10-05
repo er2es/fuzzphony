@@ -200,15 +200,18 @@ reindex. Two forms, in the index definition ([how](configuration.md#synonyms)):
 | `laptop => notebook \| portable` | a one-way rule: `laptop` also finds `notebook` and `portable`, but not the reverse |
 
 ```php
-$fuzzphony->in('products')->query('tv -bracket')->get();
+$result = $fuzzphony->in('products')->query('tv -bracket')->get();
 $result->interpretedAs;   // "((tv OR television) AND NOT bracket)"
 ```
 
 - A synonym finds documents like any word of the query does: it is stemmed with the index's
-  language and accents are folded, it is highlighted, and typo tolerance applies to it. The
-  stemming is done by PostgreSQL (one extra round trip per search on an index that has synonyms,
-  and only when the query has a word that could expand), so `Televisions` finds the group of
-  `television`.
+  language and accents are folded, it is highlighted, and typo tolerance applies to it. PostgreSQL
+  does the stemming: the stems of the synonyms are fetched once (with the first search that has a
+  word to expand) and kept, and each word of a query it has not seen yet costs one more small
+  statement. So `Televisions` finds the group of `television`.
+- Stemming is the language's: English leaves a plural abbreviation such as `tvs` or `ssds` as it
+  is, so list it as a member (`[tv, tvs, television]`).
+- A word with a symbol or a hyphen (`wi-fi`, `c++`, `c#`) is compared as it is, without stemming.
 - `-tv` excludes the documents that match `television` too. A word scoped to a field
   (`name:tv`) expands inside the same field. A prefix (`tv*`) is not expanded.
 - A member may be a phrase (`ssd` ⇄ `solid state drive`). It matches a quoted phrase in the query
@@ -216,8 +219,12 @@ $result->interpretedAs;   // "((tv OR television) AND NOT bracket)"
   words and do not.
 - A synonym of a synonym is not followed (`a => b` and `b => c`: `a` finds `b`, not `c`).
 - The exact-title and prefix bonuses compare with the words the user typed, never with the
-  alternatives, and the empty-result relaxation never names an alternative in its warning.
+  alternatives. The empty-result relaxation treats a word and its alternatives as one word: it
+  ignores it only when none of them matches, and names it as typed.
+- A query gets at most four times `max_terms` alternatives, so a large group cannot make a
+  statement huge; a word whose alternatives do not fit stays as typed, with a warning.
 - `$result->interpretedAs` shows the expansion.
+- Only the PostgreSQL engine applies synonyms: a custom `Engine` gets no expansion.
 
 Synonyms are developer input, like the rest of the index definition: never build them from user input.
 

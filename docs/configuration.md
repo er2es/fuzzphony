@@ -115,9 +115,11 @@ IndexDefinition::builder('products')->synonyms([['tv', 'television'], 'laptop =>
 #[Searchable(synonyms: [['tv', 'television'], 'laptop => notebook'])]                         // attribute
 ```
 
-The definition is validated with everything else: a group needs two different members, every member
-needs a letter or digit, a word may be in one group only, a rule needs a source and a target, and a
-source may have one rule. Synonyms are not stored in the index: changing them needs neither
+The definition is validated with everything else: a group needs two different members (at most 32),
+every member is plain words (a letter or digit in it, up to 16 words, no quotes, operators, `*` or
+`:`: a member is split like a query, so syntax in it would be read, not matched), a word may be in
+one group only, a rule needs a source and a target (at most 32) with one `=>`, and a source may have
+one rule. A YAML `synonyms` value that is not a list is an error, not an empty list. Synonyms are not stored in the index: changing them needs neither
 `fuzzphony:schema --apply` nor a reindex, and a YAML `synonyms: []` clears the ones an attribute
 declared.
 

@@ -240,4 +240,27 @@ final class ArrayDefinitionLoaderTest extends TestCase
         $this->expectExceptionMessage('Unknown trigger level "each". Allowed: statement, row.');
         $loader->override($attributes, ['trigger_level' => 'each']);
     }
+
+    public function testASynonymsValueThatIsNotAListFailsInsteadOfClearingThem(): void
+    {
+        $config = ['source' => ['table' => 'article'], 'fields' => ['title' => 'A']];
+        try {
+            (new ArrayDefinitionLoader())->load('articles', $config + ['synonyms' => 'tv => television']);
+            self::fail('Expected InvalidDefinition.');
+        } catch (InvalidDefinition $e) {
+            self::assertSame('articles', $e->index);
+            self::assertStringContainsString('"synonyms" must be a list of groups and rules, e.g. [[tv, television], "laptop => notebook"]; got string.', $e->violations[0]);
+        }
+
+        $base = (new ArrayDefinitionLoader())->load('articles', $config + ['synonyms' => [['tv', 'television']]]);
+        $this->expectException(InvalidDefinition::class);
+        (new ArrayDefinitionLoader())->override($base, ['synonyms' => 'oops']);
+    }
+
+    public function testANullSynonymsValueClearsThemInAnOverride(): void
+    {
+        $base = (new ArrayDefinitionLoader())->load('articles', ['source' => ['table' => 'article'], 'fields' => ['title' => 'A'], 'synonyms' => [['tv', 'television']]]);
+
+        self::assertTrue((new ArrayDefinitionLoader())->override($base, ['synonyms' => null])->synonyms->isEmpty());
+    }
 }

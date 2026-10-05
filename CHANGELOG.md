@@ -29,14 +29,16 @@ changes; they are always listed under **Breaking** and explained in [UPGRADE.md]
 
 - Synonyms per index: groups (`[tv, television]`) and one-way rules (`laptop => notebook | portable`),
   in YAML `synonyms:`, `IndexBuilder::synonyms()` and `#[Searchable(synonyms: …)]`, validated with the
-  rest of the definition and carried by every exporter. A search expands them on the query: a word
-  that is a member (compared by its stem, accents folded) becomes an OR with its alternatives,
-  `-tv` excludes them too, a field-scoped word expands inside its field, a multi-word member
-  matches a quoted phrase, and `interpretedAs` shows the expansion. No schema change and no
-  reindex; the exact-title bonus and the relaxation warning ignore the alternatives. PostgreSQL
-  stems the words in one extra round trip per search on an index that has synonyms (only when the
-  query has a word that could expand). New public class `Fuzzphony\Core\Definition\Synonyms`; see
-  [Synonyms](docs/searching.md#synonyms).
+  rest of the definition (plain words only, at most 32 members) and carried by every exporter. A
+  search expands them on the query: a word that is a member (compared by its stem, accents folded;
+  a word with a symbol or hyphen as it is) becomes an OR with its alternatives, `-tv` excludes them
+  too, a field-scoped word expands inside its field, a multi-word member matches a quoted phrase,
+  and `interpretedAs` shows the expansion. No schema change and no reindex; the exact-title bonus
+  ignores the alternatives, and the empty-result relaxation treats a word and its alternatives as
+  one word. A query gets at most four times `max_terms` alternatives (a warning says when a word
+  was left as typed). PostgreSQL stems the words: the synonyms' stems once per engine, and one
+  small statement for each query word it has not seen yet. New public class
+  `Fuzzphony\Core\Definition\Synonyms`; see [Synonyms](docs/searching.md#synonyms).
 
 ### Changed
 
