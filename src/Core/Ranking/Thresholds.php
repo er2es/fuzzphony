@@ -19,11 +19,21 @@ final readonly class Thresholds
     public const int MAX_QUERY_LENGTH = 1_024;
     public const int MAX_TERMS = 64;
 
+    /**
+     * Trigram word similarity a word needs when no explicit fuzzy_similarity is set, by the length
+     * of the normalised word: [minimum length, similarity], longest first. Short words get a
+     * stricter similarity (`mouse` must not match `monitor`), long words a looser one.
+     */
+    public const array LENGTH_BANDS = [[8, 0.3], [5, 0.45], [3, 0.6]];
+
     public function __construct(
         /** Minimum relevance (0..~1.5) a hit needs; bonuses are not counted. */
         public float $minScore = 0.0,
-        /** Minimum trigram word similarity (0..1) for a typo-tolerant match. Lower = more tolerant. */
-        public float $fuzzySimilarity = 0.3,
+        /**
+         * Minimum trigram word similarity (0..1) for a typo-tolerant match. Lower = more tolerant.
+         * Null (the default): by word length, see LENGTH_BANDS. A number applies to every word.
+         */
+        public ?float $fuzzySimilarity = null,
         /** Typo tolerance is skipped for shorter queries: trigrams of 1-2 letters are noise. */
         public int $fuzzyMinLength = 3,
         public FuzzyMode $fuzzyMode = FuzzyMode::Fallback,
@@ -45,7 +55,7 @@ final readonly class Thresholds
         if ($minScore < 0.0) {
             $violations[] = '"minScore" must be >= 0.';
         }
-        if ($fuzzySimilarity <= 0.0 || $fuzzySimilarity > 1.0) {
+        if ($fuzzySimilarity !== null && ($fuzzySimilarity <= 0.0 || $fuzzySimilarity > 1.0)) {
             $violations[] = '"fuzzySimilarity" must be in (0, 1]. Typical values: 0.3 (tolerant) .. 0.6 (strict).';
         }
         if ($fuzzyMinLength < 1) {
@@ -72,6 +82,27 @@ final readonly class Thresholds
         if ($violations !== []) {
             throw new InvalidDefinition('thresholds', $violations);
         }
+    }
+
+    /** The similarity a word of $length normalised characters needs. */
+    public function similarityFor(int $length): float
+    {
+        if ($this->fuzzySimilarity !== null) {
+            return $this->fuzzySimilarity;
+        }
+        foreach (self::LENGTH_BANDS as [$minLength, $similarity]) {
+            if ($length >= $minLength) {
+                return $similarity;
+            }
+        }
+
+        return self::LENGTH_BANDS[array_key_last(self::LENGTH_BANDS)][1];
+    }
+
+    /** The lowest similarity any word needs: what the session's pg_trgm threshold is set to. */
+    public function lowestSimilarity(): float
+    {
+        return $this->fuzzySimilarity ?? self::LENGTH_BANDS[0][1];
     }
 
     /** @param array<string, mixed> $overrides snake_case keys, e.g. ['min_score' => 0.1, 'fuzzy_mode' => 'always'] */
@@ -107,7 +138,7 @@ final readonly class Thresholds
             $property = $map[$key];
             match ($property) {
                 'minScore' => $minScore = is_numeric($value) ? (float) $value : throw new InvalidDefinition('thresholds', [sprintf('"%s" must be a number.', $key)]),
-                'fuzzySimilarity' => $fuzzySimilarity = is_numeric($value) ? (float) $value : throw new InvalidDefinition('thresholds', [sprintf('"%s" must be a number.', $key)]),
+                'fuzzySimilarity' => $fuzzySimilarity = $value === null ? null : (is_numeric($value) ? (float) $value : throw new InvalidDefinition('thresholds', [sprintf('"%s" must be a number.', $key)])),
                 'fuzzyMinLength' => $fuzzyMinLength = is_int($value) ? $value : throw new InvalidDefinition('thresholds', [sprintf('"%s" must be an integer.', $key)]),
                 'fuzzyMode' => $fuzzyMode = $value instanceof FuzzyMode ? $value : (FuzzyMode::tryFrom(is_string($value) ? $value : '') ?? throw new InvalidDefinition('thresholds', [sprintf('"%s" must be one of: %s.', $key, implode(', ', array_map(static fn(FuzzyMode $m): string => $m->value, FuzzyMode::cases())))])),
                 'fallbackBelow' => $fallbackBelow = is_int($value) ? $value : throw new InvalidDefinition('thresholds', [sprintf('"%s" must be an integer.', $key)]),

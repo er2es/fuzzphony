@@ -646,4 +646,16 @@ final class PostgresEngineTest extends TestCase
         self::assertStringContainsString('fuzzy_similarity 0.10 is very tolerant', $problems['Typo tolerance'] ?? '');
         self::assertSame('candidate_limit 6000 may make frequent words slow to rank.', $problems['Candidate limit'] ?? null);
     }
+
+    public function testDoctorShowsTheDefaultSimilarityAsByWordLength(): void
+    {
+        $index = Indexes::products('manual');
+        $fuzzphony = new Fuzzphony($this->engine, new IndexRegistry([$index]));
+        $fuzzphony->schema()->apply($this->connection);
+
+        $messages = array_column($fuzzphony->inspect('products')->checks, 'message', 'name');
+
+        self::assertStringContainsString('similarity=by word length', $messages['Configuration'] ?? '');
+        self::assertArrayNotHasKey('Typo tolerance', $messages);
+    }
 }

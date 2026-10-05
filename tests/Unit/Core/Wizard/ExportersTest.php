@@ -41,6 +41,14 @@ final class ExportersTest extends TestCase
         self::assertArrayNotHasKey('thresholds', (new ArrayExporter())->export(Indexes::products()));
     }
 
+    public function testFuzzySimilarityIsExportedOnlyWhenExplicit(): void
+    {
+        self::assertArrayNotHasKey('thresholds', (new ArrayExporter())->export(Indexes::products()), 'the default is by word length');
+
+        $flat = Indexes::products()->withThresholds((new Thresholds())->with(['fuzzy_similarity' => 0.3]));
+        self::assertSame(['fuzzy_similarity' => 0.3], (new ArrayExporter())->export($flat)['thresholds'] ?? null);
+    }
+
     public function testArrayExportRoundTripsTenantScoping(): void
     {
         $original = Indexes::products(tenant: true);

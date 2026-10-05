@@ -655,14 +655,14 @@ final class PostgresInspector
         if ($t->fuzzyMode !== FuzzyMode::Never && !$index->hasFuzzy()) {
             $checks[] = Check::warning('Typo tolerance', 'fuzzy_mode is enabled but no field is marked fuzzy, so it has no effect.', 'Mark the most important field fuzzy: #[SearchField("A", fuzzy: true)]');
         }
-        if ($t->fuzzySimilarity < 0.2) {
+        if ($t->fuzzySimilarity !== null && $t->fuzzySimilarity < 0.2) {
             $checks[] = Check::warning('Typo tolerance', sprintf('fuzzy_similarity %.2f is very tolerant; expect noisy matches.', $t->fuzzySimilarity));
         }
         if ($t->candidateLimit > 5_000) {
             $checks[] = Check::warning('Candidate limit', sprintf('candidate_limit %d may make frequent words slow to rank.', $t->candidateLimit));
         }
         if ($checks === []) {
-            $checks[] = Check::ok('Configuration', sprintf('fuzzy=%s, similarity=%.2f, min_score=%.2f, candidates=%d', $t->fuzzyMode->value, $t->fuzzySimilarity, $t->minScore, $t->candidateLimit));
+            $checks[] = Check::ok('Configuration', sprintf('fuzzy=%s, similarity=%s, min_score=%.2f, candidates=%d', $t->fuzzyMode->value, $t->fuzzySimilarity === null ? 'by word length' : sprintf('%.2f', $t->fuzzySimilarity), $t->minScore, $t->candidateLimit));
         }
 
         return $checks;

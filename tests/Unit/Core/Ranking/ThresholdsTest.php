@@ -23,6 +23,44 @@ final class ThresholdsTest extends TestCase
         self::assertSame(0.0, $base->minScore, 'the original is untouched');
     }
 
+    public function testSimilarityIsByWordLengthByDefault(): void
+    {
+        $t = new Thresholds();
+
+        self::assertNull($t->fuzzySimilarity);
+        foreach ([1 => 0.6, 3 => 0.6, 4 => 0.6, 5 => 0.45, 7 => 0.45, 8 => 0.3, 20 => 0.3] as $length => $expected) {
+            self::assertSame($expected, $t->similarityFor($length), "length $length");
+        }
+        self::assertSame(0.3, $t->lowestSimilarity());
+    }
+
+    public function testAnExplicitSimilarityIsFlat(): void
+    {
+        $t = new Thresholds(fuzzySimilarity: 0.5);
+
+        foreach ([1, 4, 5, 8, 20] as $length) {
+            self::assertSame(0.5, $t->similarityFor($length));
+        }
+        self::assertSame(0.5, $t->lowestSimilarity());
+    }
+
+    public function testNullReturnsToLengthAwareAndStillRejectsOtherTypes(): void
+    {
+        $flat = (new Thresholds())->with(['fuzzy_similarity' => 0.5]);
+        self::assertSame(0.5, $flat->fuzzySimilarity);
+        self::assertNull($flat->with(['fuzzy_similarity' => null])->fuzzySimilarity);
+
+        $this->expectException(InvalidDefinition::class);
+        $this->expectExceptionMessageMatches('/"fuzzy_similarity" must be a number\./');
+        $flat->with(['fuzzy_similarity' => 'lots']);
+    }
+
+    public function testAnExplicitSimilarityOfZeroIsStillRejected(): void
+    {
+        $this->expectException(InvalidDefinition::class);
+        new Thresholds(fuzzySimilarity: 0.0);
+    }
+
     public function testUnknownKeysAreReportedWithTheAllowedList(): void
     {
         $this->expectException(InvalidDefinition::class);
