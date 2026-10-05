@@ -186,7 +186,7 @@ nothing drops the words that match nothing and says so. Details:
 ## Documentation
 
 - [Index definitions](https://github.com/er2es/fuzzphony/blob/main/docs/configuration.md): attributes, YAML, builder, bundle configuration, building an index.
-- [Searching](https://github.com/er2es/fuzzphony/blob/main/docs/searching.md): the search builder, controller examples, query syntax, typo tolerance, empty-result relaxation.
+- [Searching](https://github.com/er2es/fuzzphony/blob/main/docs/searching.md): the search builder, controller examples, query syntax, typo tolerance, synonyms, empty-result relaxation.
 - [Ranking and thresholds](https://github.com/er2es/fuzzphony/blob/main/docs/ranking.md): the score formula, profiles, per-query tuning, thresholds and their hard caps.
 - [Languages](https://github.com/er2es/fuzzphony/blob/main/docs/languages.md): stemming, stop words and accent folding for 28 languages.
 - [Keeping the index in sync](https://github.com/er2es/fuzzphony/blob/main/docs/sync.md): sync modes, triggers, `TRUNCATE`, orphan pruning, Messenger.

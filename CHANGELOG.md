@@ -25,6 +25,19 @@ changes; they are always listed under **Breaking** and explained in [UPGRADE.md]
   rule (the conformance test expects `"wireles headphones"` to find only the headphones). See
   [UPGRADE.md](UPGRADE.md#from-06-to-07).
 
+### Added
+
+- Synonyms per index: groups (`[tv, television]`) and one-way rules (`laptop => notebook | portable`),
+  in YAML `synonyms:`, `IndexBuilder::synonyms()` and `#[Searchable(synonyms: …)]`, validated with the
+  rest of the definition and carried by every exporter. A search expands them on the query: a word
+  that is a member (compared by its stem, accents folded) becomes an OR with its alternatives,
+  `-tv` excludes them too, a field-scoped word expands inside its field, a multi-word member
+  matches a quoted phrase, and `interpretedAs` shows the expansion. No schema change and no
+  reindex; the exact-title bonus and the relaxation warning ignore the alternatives. PostgreSQL
+  stems the words in one extra round trip per search on an index that has synonyms (only when the
+  query has a word that could expand). New public class `Fuzzphony\Core\Definition\Synonyms`; see
+  [Synonyms](docs/searching.md#synonyms).
+
 ### Changed
 
 - The doctor's configuration check shows `similarity=by word length` for the default and warns

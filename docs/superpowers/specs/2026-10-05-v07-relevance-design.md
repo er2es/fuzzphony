@@ -51,9 +51,10 @@ work (`tv` ↔ `television`), and a word that matches nothing gets a spelling su
 - Expansion is on the query side, on the AST, before the compilers run: `Term` →
   `AnyOf(term, synonyms…)`. Matching is on the normalised form (accents, stemming applied), so
   `Televisions` finds the group of `television`. A one-way rule expands only its left side.
-- A synonym matches exactly; typo tolerance applies only to the user's own word. It scores like an
-  exact match (`AnyOf` = max). `interpretedAs` shows the expansion. A negated word excludes its
-  synonyms too (`-tv` excludes `television`).
+- An alternative is an ordinary leaf of the query (flagged as implied, see the Decisions table): it is
+  matched like any word, typo tolerance included, and scored like one (`AnyOf` = max).
+  `interpretedAs` shows the expansion. A negated word excludes its synonyms too (`-tv` excludes
+  `television`).
 - The definition validator reports an empty group, a member in two groups, and a one-way rule that
   loops. Synonyms are trusted developer input, never built from user input.
 - No dictionary files on the server and no table: the definition holds them, so changing them needs

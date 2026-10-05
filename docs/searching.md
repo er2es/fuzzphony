@@ -188,6 +188,39 @@ So a typo in one word never lets through documents that lack the other words.
 - Words shorter than `fuzzy_min_length` must match exactly.
 - Stop words of the index language ("for", "the") are ignored, as in the full-text query.
 
+## Synonyms
+
+An index can know that words mean the same thing (`tv` and `television`, an abbreviation and what it
+stands for). Synonyms are expanded on the query, so changing them needs no schema change and no
+reindex. Two forms, in the index definition ([how](configuration.md#synonyms)):
+
+| Entry | Meaning |
+|---|---|
+| `[tv, television]` | a group: every member finds every other member |
+| `laptop => notebook \| portable` | a one-way rule: `laptop` also finds `notebook` and `portable`, but not the reverse |
+
+```php
+$fuzzphony->in('products')->query('tv -bracket')->get();
+$result->interpretedAs;   // "((tv OR television) AND NOT bracket)"
+```
+
+- A synonym finds documents like any word of the query does: it is stemmed with the index's
+  language and accents are folded, it is highlighted, and typo tolerance applies to it. The
+  stemming is done by PostgreSQL (one extra round trip per search on an index that has synonyms,
+  and only when the query has a word that could expand), so `Televisions` finds the group of
+  `television`.
+- `-tv` excludes the documents that match `television` too. A word scoped to a field
+  (`name:tv`) expands inside the same field. A prefix (`tv*`) is not expanded.
+- A member may be a phrase (`ssd` ⇄ `solid state drive`). It matches a quoted phrase in the query
+  (`"solid state drive"` finds `ssd`); the same three words typed without quotes are three separate
+  words and do not.
+- A synonym of a synonym is not followed (`a => b` and `b => c`: `a` finds `b`, not `c`).
+- The exact-title and prefix bonuses compare with the words the user typed, never with the
+  alternatives, and the empty-result relaxation never names an alternative in its warning.
+- `$result->interpretedAs` shows the expansion.
+
+Synonyms are developer input, like the rest of the index definition: never build them from user input.
+
 ## Empty-result relaxation
 
 When a query of two or more words returns no hit, Fuzzphony checks each word on its own against
