@@ -18,7 +18,7 @@ final class SearchSqlBuilderTest extends TestCase
     public function testOnlyUserInputIsBound(): void
     {
         $conditions = (new SearchQuery())->where('price', '<', 500)->conditions;
-        $statement = (new SearchSqlBuilder(Indexes::products()))->ranked("'mouse'", 'mouse', new Term('mouse'), $conditions, new RankingProfile(), new Thresholds(minScore: 0.1), 20, 40);
+        $statement = (new SearchSqlBuilder(Indexes::products()))->ranked("'mouse'", 'mouse', new Term('mouse'), $conditions, new RankingProfile(), new Thresholds(minScore: 0.1, fuzzySimilarity: 0.3), 20, 40);
 
         // q.tsq, q.norm, the per-word fuzzy values (q.ft0, q.fn1), fts filter, fuzzy filter
         self::assertSame(['p0' => "'mouse'", 'p1' => 'mouse', 'p2' => "'mouse'", 'p3' => 'mouse', 'p4' => 500, 'p5' => 500], $statement['params']);
@@ -148,7 +148,7 @@ final class SearchSqlBuilderTest extends TestCase
     {
         $root = (new QueryParser())->parse('brand:razr')->root;
         self::assertNotNull($root);
-        $statement = (new SearchSqlBuilder(Indexes::products()))->ranked("'razr':B", 'razr', $root, [], new RankingProfile(), new Thresholds(), 10, 0, [], $root);
+        $statement = (new SearchSqlBuilder(Indexes::products()))->ranked("'razr':B", 'razr', $root, [], new RankingProfile(), new Thresholds(fuzzySimilarity: 0.3), 10, 0, [], $root);
 
         // q.tsq, q.norm, the recheck (q.sft0), then the fuzzy branch's own values (q.ft0, q.fn1)
         self::assertSame(['p0' => "'razr':B", 'p1' => 'razr', 'p2' => "'razr':B", 'p3' => "'razr':B", 'p4' => 'razr'], $statement['params']);

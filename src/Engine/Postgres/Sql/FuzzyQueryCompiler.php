@@ -220,9 +220,14 @@ final class FuzzyQueryCompiler
         $norm = $this->column('fn', sprintf('%s(%s)', $this->names->normFunction(), $params->add($needle)));
         $schema = $this->names->extension();
         $field = $this->scopedField($node);
+        $similarity = $this->thresholds->similarityFor(self::length($needle));
+        // "<%" uses the session's lowest similarity (so GIN finds every candidate); a word whose own length asks for more is rechecked
+        $recheck = $similarity > $this->thresholds->lowestSimilarity() ? sprintf(' AND %%s.word_similarity(%s, %%s) >= %s', $norm, sprintf('%.2F', $similarity)) : '';
         if ($field === null) {
             return [
-                'predicate' => sprintf('(%s OR %s OPERATOR(%s.<%%) s.fz)', $exact, $norm, $schema),
+                'predicate' => $recheck === ''
+                    ? sprintf('(%s OR %s OPERATOR(%s.<%%) s.fz)', $exact, $norm, $schema)
+                    : sprintf('(%s OR (%s OPERATOR(%s.<%%) s.fz%s))', $exact, $norm, $schema, sprintf($recheck, $schema, 's.fz')),
                 'score' => sprintf('GREATEST(%s.word_similarity(%s, s.fz), CASE WHEN %s THEN 1.0 ELSE 0.0 END)', $schema, $norm, $exact),
                 'partial' => false,
             ];
@@ -230,7 +235,7 @@ final class FuzzyQueryCompiler
         $column = 's.' . $this->names->fieldFuzzy($field->name);
 
         return [
-            'predicate' => sprintf('(%1$s OR (%2$s OPERATOR(%3$s.<%%) s.fz AND %2$s OPERATOR(%3$s.<%%) %4$s))', $exact, $norm, $schema, $column),
+            'predicate' => sprintf('(%1$s OR (%2$s OPERATOR(%3$s.<%%) s.fz AND %2$s OPERATOR(%3$s.<%%) %4$s%5$s))', $exact, $norm, $schema, $column, $recheck === '' ? '' : sprintf($recheck, $schema, $column)),
             'score' => sprintf('GREATEST(%s.word_similarity(%s, %s), CASE WHEN %s THEN 1.0 ELSE 0.0 END)', $schema, $norm, $column, $exact),
             'partial' => false,
         ];
@@ -300,7 +305,13 @@ final class FuzzyQueryCompiler
 
         $field = $this->scopedField($node);
 
-        return $this->index->hasFuzzy() && ($field === null || $field->fuzzy) && mb_strlen(str_replace(' ', '', $needle)) >= $this->thresholds->fuzzyMinLength ? $needle : null;
+        return $this->index->hasFuzzy() && ($field === null || $field->fuzzy) && self::length($needle) >= $this->thresholds->fuzzyMinLength ? $needle : null;
+    }
+
+    /** The length of a needle that similarity is judged by: its letters, without the spaces between words. */
+    private static function length(string $needle): int
+    {
+        return mb_strlen(str_replace(' ', '', $needle));
     }
 
     private function matches(Node $node, string $tsquery, ParameterBag $params): string

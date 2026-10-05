@@ -133,9 +133,9 @@ abstract class EngineConformanceTestCase extends TestCase
     public function testAnOrBranchScoresOnlyWhenItMatches(): void
     {
         $this->requireCapability(Capability::Fuzzy);
-        // 3 matches the AND group in full (1.0). 1, 2 and 4 match through the typo "mose" alone;
+        // 3 matches the AND group in full (1.0). 1, 2 and 4 match through the typo "mouze" alone;
         // 1 also has "wireless" (half of the group), which must not count: its branch does not match.
-        $result = $this->fuzzphony->in('products')->query('mose | (wireless headphones)')
+        $result = $this->fuzzphony->in('products')->query('mouze | (wireless headphones)')
             ->thresholds(['fuzzy_mode' => 'always'])->ranking(['exact_bonus' => 0, 'prefix_bonus' => 0])->get();
         $fuzzy = [];
         foreach ($result->hits as $hit) {
