@@ -29,6 +29,7 @@ use Fuzzphony\Core\Query\Filter\Operator;
 use Fuzzphony\Core\Query\QueryParser;
 use Fuzzphony\Core\Query\Relaxation;
 use Fuzzphony\Core\Query\SearchQuery;
+use Fuzzphony\Core\Query\SynonymExpander;
 use Fuzzphony\Core\Ranking\FuzzyMode;
 use Fuzzphony\Core\Ranking\RankingProfile;
 use Fuzzphony\Core\Ranking\Thresholds;
@@ -366,6 +367,10 @@ final class PostgresEngine implements Engine
             return ['result' => $empty, 'statements' => [], 'threshold' => null];
         }
 
+        if ($root !== null && !$index->synonyms->isEmpty()) {
+            $root = $this->expandSynonyms($index, $root);
+        }
+
         $run = $this->pipeline($index, $root, $conditions, $profile, $thresholds, $query, '');
         $statements = $run['statements'];
         array_push($warnings, ...$run['warnings']);
@@ -389,7 +394,11 @@ final class PostgresEngine implements Engine
                         $root = $reduced;
                         $run = $relaxed;
                         array_push($warnings, ...$relaxed['warnings']);
-                        $warnings[] = Relaxation::warning($probe['ignored']);
+                        // an alternative a synonym added is not a word the user typed
+                        $typed = Relaxation::typedLeaves($probe['ignored']);
+                        if ($typed !== []) {
+                            $warnings[] = Relaxation::warning($typed);
+                        }
                     }
                 }
             }
@@ -446,6 +455,30 @@ final class PostgresEngine implements Engine
         }
 
         return ['result' => $result, 'statements' => $statements, 'threshold' => $threshold];
+    }
+
+    /**
+     * The query with the index's synonyms: one round trip asks PostgreSQL for the stem of every word
+     * of the query and of the synonyms (the index's text configuration, accents folded), so `TVs`
+     * finds the group of `tv`. Nothing is asked when the query has no word that could expand.
+     */
+    private function expandSynonyms(IndexDefinition $index, Node $root): Node
+    {
+        $queryWords = SynonymExpander::queryWords($root);
+        if ($queryWords === []) {
+            return $root;
+        }
+        $words = array_values(array_unique([...SynonymExpander::wordsOf($index->synonyms), ...$queryWords]));
+        $rows = $this->guard('synonyms', fn(): array => $this->connection->fetchAll(
+            sprintf('SELECT w, coalesce((tsvector_to_array(to_tsvector(%s, w)))[1], w) AS s FROM unnest(string_to_array(:words, chr(31))) AS w', $this->names->regconfig($index->text)),
+            ['words' => implode(chr(31), $words)],
+        ), 'Run "bin/console fuzzphony:doctor" to check the index.');
+        $stems = [];
+        foreach ($rows as $row) {
+            $stems[Coerce::str($row['w'])] = Coerce::str($row['s']);
+        }
+
+        return (new SynonymExpander($index->synonyms, $stems))->expand($root);
     }
 
     /**

@@ -50,7 +50,7 @@ work (`tv` ↔ `television`), and a word that matches nothing gets a spelling su
   is a phrase.
 - Expansion is on the query side, on the AST, before the compilers run: `Term` →
   `AnyOf(term, synonyms…)`. Matching is on the normalised form (accents, stemming applied), so
-  `TVs` finds the group of `tv`. A one-way rule expands only its left side.
+  `Televisions` finds the group of `television`. A one-way rule expands only its left side.
 - A synonym matches exactly; typo tolerance applies only to the user's own word. It scores like an
   exact match (`AnyOf` = max). `interpretedAs` shows the expansion. A negated word excludes its
   synonyms too (`-tv` excludes `television`).
@@ -131,5 +131,5 @@ these win):
 | Doctor "Vocabulary" | error when the table is missing, warning when it is empty or older than the documents' definition hash |
 | Synonym forms | groups (`[tv, television]`) and one-way rules (`laptop => notebook`), inline in YAML / builder / attribute |
 | Synonyms file | not in 0.7; inline first, a file can follow without breaking anything |
-| Synonym matching | on the stemmed, accent-folded form (PostgreSQL's text configuration, one extra round trip per search on an index that has synonyms), so `TVs` finds the `tv` group; a multi-word member matches only a quoted phrase |
+| Synonym matching | on the stemmed, accent-folded form (PostgreSQL's text configuration, one extra round trip per search on an index that has synonyms), so `Televisions` finds the `television` group; a multi-word member matches only a quoted phrase |
 | Synonym alternatives | expanded as `AnyOf(original, alternative, ...)` on the query; the alternatives are flagged as implied (they are skipped by the exact / prefix bonus words and by the relaxation warning) and are matched like any query word, typo tolerance included; the old spec's exact-only wrapper node is not built |

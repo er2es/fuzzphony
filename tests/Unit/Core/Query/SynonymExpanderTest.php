@@ -135,4 +135,49 @@ final class SynonymExpanderTest extends TestCase
     {
         self::assertSame('(wi-fi OR wireless)', (string) self::expand('wi-fi', [['wi-fi', 'wireless']]) === '(wi-fi | wireless)' ? '(wi-fi | wireless)' : (string) self::expand('wi-fi', [['wi-fi', 'wireless']]));
     }
+
+    public function testCaseIsFoldedForAccentedLettersToo(): void
+    {
+        $entries = [['éclair', 'pastry'], ['crème brûlée', 'custard']];
+
+        self::assertSame('(ÉCLAIR OR pastry)', (string) self::expand('ÉCLAIR', $entries));
+        self::assertSame('("CRÈME BRÛLÉE" OR custard)', (string) self::expand('"CRÈME BRÛLÉE"', $entries));
+        self::assertEqualsCanonicalizing(['éclair', 'pastry', 'crème', 'brûlée', 'custard'], SynonymExpander::wordsOf(Synonyms::fromEntries([['ÉCLAIR', 'Pastry'], ['CRÈME BRÛLÉE', 'Custard']])));
+
+        $root = (new QueryParser())->parse('ÉCLAIR "CRÈME BRÛLÉE"')->root;
+        self::assertNotNull($root);
+        self::assertEqualsCanonicalizing(['éclair', 'crème', 'brûlée'], SynonymExpander::queryWords($root));
+    }
+
+    public function testEachWordIsListedOnceAndOrBranchesAreWalked(): void
+    {
+        self::assertSame(['tv', 'television', 'telly'], SynonymExpander::wordsOf(Synonyms::fromEntries([['tv', 'television'], 'tv => telly'])));
+
+        $root = (new QueryParser())->parse('tv tv | mouse')->root;
+        self::assertNotNull($root);
+        self::assertSame(['tv', 'mouse'], SynonymExpander::queryWords($root));
+    }
+
+    public function testAnAlternativePhraseIsFlaggedAndANonWordMemberIsIgnored(): void
+    {
+        $expanded = self::expand('ssd', [['ssd', 'solid state drive']]);
+
+        self::assertInstanceOf(AnyOf::class, $expanded);
+        self::assertInstanceOf(Phrase::class, $expanded->nodes[1]);
+        self::assertTrue($expanded->nodes[1]->synonym);
+
+        // a member without a letter or digit has no words: it adds nothing (the validator rejects it earlier)
+        self::assertSame('tv', (string) (new SynonymExpander(new Synonyms([['tv', '+++']]), []))->expand(new Term('tv')));
+    }
+
+    public function testAnImpliedWordOrPhraseIsNotExpandedAgain(): void
+    {
+        $synonyms = new Synonyms([['solid state', 'ssd'], ['television', 'tv']]);
+        $expander = new SynonymExpander($synonyms, []);
+
+        $phrase = new Phrase(['solid', 'state'], true);
+        self::assertSame($phrase, $expander->expand($phrase));
+        $term = new Term('tv', false, true);
+        self::assertSame($term, $expander->expand($term));
+    }
 }

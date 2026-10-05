@@ -140,4 +140,11 @@ final class RelaxationTest extends TestCase
         self::assertSame([], Relaxation::typedLeaves([$implied, $scoped, $phrase]));
         self::assertSame('No results for all words; ignored words that match nothing: "tvv".', Relaxation::warning(Relaxation::typedLeaves([$typed, $implied])));
     }
+
+    public function testTheTypedLeavesAreAListWhateverWasRemoved(): void
+    {
+        $typed = new Term('tvv');
+
+        self::assertSame([$typed], Relaxation::typedLeaves([new Term('television', false, true), $typed]));
+    }
 }

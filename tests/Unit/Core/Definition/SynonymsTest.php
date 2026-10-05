@@ -79,4 +79,16 @@ final class SynonymsTest extends TestCase
     {
         self::assertCount(3, Synonyms::fromEntries([['x'], ['a', '+'], 'b =>'])->violations());
     }
+
+    public function testARuleKeepsEverythingAfterTheFirstArrowAsItsTargetsAndDropsEmptyOnes(): void
+    {
+        self::assertSame([['source' => 'a', 'targets' => ['b => c']]], Synonyms::fromEntries(['a => b => c'])->rules);
+        self::assertSame([['source' => 'a', 'targets' => ['b', 'c']]], Synonyms::fromEntries(['a => | b | | c |'])->rules, 'a list, without the empty targets');
+    }
+
+    public function testOnlyGroupsOrOnlyRulesIsNotEmpty(): void
+    {
+        self::assertFalse(Synonyms::fromEntries([['a', 'b']])->isEmpty());
+        self::assertFalse(Synonyms::fromEntries(['a => b'])->isEmpty());
+    }
 }
