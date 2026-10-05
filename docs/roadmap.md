@@ -32,7 +32,7 @@ depends on it, so nothing built early has to be refactored once a later mileston
   worker's queue depth and throughput, and the ORM-sync Messenger handler — with a zero-cost
   default, a structured-logging adapter, and a Prometheus adapter (used automatically once
   `promphp/prometheus_client_php` and `apcu` are both available; a sample Grafana dashboard ships
-  in [`docs/grafana/`](../grafana/)). An optional, non-breaking `Connection` capability
+  in [`docs/grafana/`](grafana/)). An optional, non-breaking `Connection` capability
   (`inTransaction()`) lets a fuzzy statement skip a redundant round trip when no outer transaction
   is open. No breaking changes. See the [CHANGELOG](../CHANGELOG.md#060---2026-10-01).
 
@@ -42,15 +42,17 @@ Matching quality, including the vocabulary table that 0.8's `suggest()` reuses.
 
 ### Length-aware typo tolerance (done)
 
-A stricter similarity for short words and a looser one for long words, so `mouse` stops matching
-`monitor` without losing typos in long words: one typo is tolerated from 4 letters and two from 8,
-and the similarity a word needs follows from that, unless an explicit `fuzzy_similarity` is set. See
+A similarity proportional to the word's length, so `mouse` stops matching `monitor` without losing
+typos in long words: one typo is tolerated from 4 letters and two from 8, and the trigram
+similarity a word needs follows from that, unless an explicit `fuzzy_similarity` is set. The price
+is that a letter replaced in the middle of a 5 to 7 letter word may no longer be tolerated. See
 [Typo tolerance](searching.md#typo-tolerance) and the [CHANGELOG](../CHANGELOG.md) (Unreleased).
 
 ### Synonyms
 
-Synonyms per index (`tv` ↔ `television`, domain abbreviations), expanded on the query side without
-dictionary files on the database server.
+Synonyms per index: groups (`tv` ↔ `television`, domain abbreviations) and one-way rules
+(`laptop => notebook`), expanded on the query side without dictionary files on the database
+server, so a change needs no reindex.
 
 ### Did you mean
 

@@ -11,7 +11,8 @@ and the [CHANGELOG](CHANGELOG.md) has the full list of changes.
    0.23 for 8, 0.40 for 12; 0.6 below 4 letters, so a 3-letter word is matched almost exactly).
    Searches that relied on the lenient behaviour return far fewer look-alikes (`mouse` no longer
    lists monitors), but a letter replaced in the middle of a 5 to 7 letter word, or two letters
-   swapped, is no longer tolerated (`mpuse`, `mosue`). 4-letter words behave as before. To keep the
+   swapped, may no longer be tolerated (`mpuse`, `mosue`; `torhc` still finds `torch`: at the end
+   of a word a swap costs less). 4-letter words behave as before. To keep the
    old behaviour set `fuzzy_similarity: 0.3` in `thresholds:` (YAML, which also overrides
    attribute-defined indexes, or `IndexBuilder::thresholds()`) or per query with
    `->thresholds(['fuzzy_similarity' => 0.3])`. Tests that pinned old fuzzy result sets may need new

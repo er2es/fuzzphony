@@ -15,8 +15,9 @@ changes; they are always listed under **Breaking** and explained in [UPGRADE.md]
   0.40 for 12; 0.6 below 4 letters), computed in PostgreSQL from the normalised word. `mouse` no
   longer matches `monitor` or `mower`, while `mose`, `mouze`, `wireles` and `hedphones` still match.
   Typo-tolerant result sets change: about five times fewer look-alikes for 5 to 7 letter words, but
-  a letter replaced in the middle of such a word, or two letters swapped, is no longer tolerated
-  (`mpuse`, `mosue`; about 70 to 80% of single-letter typos are found, a flat 0.3 found 92 to 100%),
+  a letter replaced in the middle of such a word, or two letters swapped, may no longer be
+  tolerated (`mpuse`, `mosue`; about 70 to 80% of single-letter typos are found, a flat 0.3 found
+  92 to 100%),
   and 3-letter words need 0.6. 4-letter words behave as before (`mose` finds `mouse`, and as
   close to it `monitor` and `mower`). `fuzzy_similarity: 0.3` (a number) keeps the old flat
   behaviour for every word. `Thresholds::$fuzzySimilarity` is now `?float` (`null`, the default,

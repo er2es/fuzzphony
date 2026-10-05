@@ -40,7 +40,7 @@ work (`tv` ↔ `television`), and a word that matches nothing gets a spelling su
   normalised word; a word below it does not score (an OR cannot be lifted by a non-matching word).
   The same applies in the relaxation probe and in field-scoped words. A flat value adds no check.
 - `fuzzy_min_length` is unchanged. The doctor's risky-threshold check still accepts a flat value.
-- Docs: `limitations.md` loses "Typo tolerance is lenient" (README limitation and link too),
+- Docs: `limitations.md` replaces "Typo tolerance is lenient" with "Typo tolerance is trigram-based" (and the README bullet),
   `ranking.md` thresholds table, CHANGELOG **Breaking**, UPGRADE "From 0.6 to 0.7".
 
 ## Part 2: Synonyms (no reindex)
@@ -91,8 +91,9 @@ with it. PR 1 and PR 2 only touch the demo where a flag or default would otherwi
 
 ## Public API and compatibility
 
-- Breaking: the `fuzzy_similarity` default, `Thresholds::$fuzzySimilarity` is nullable, sidecar
-  layout 3 (apply, then one full reindex for the vocabulary).
+- Breaking: the `fuzzy_similarity` default, `Thresholds::$fuzzySimilarity` is nullable, a custom
+  engine must apply the same length rule; with the vocabulary as sidecar layout 3 also apply, then
+  one full reindex (see Open decisions: the 2026-10-02 spec keeps layout 2).
 - Additive: `IndexBuilder::synonyms()`, `Searchable::$synonyms`, `SearchResult::$didYouMean`,
   threshold `did_you_mean`, `ReindexOptions::$vocabularyOnly`, `Engine` gets vocabulary methods; a
   custom engine that has none returns `null` from the suggestion method (did-you-mean stays null).
@@ -111,3 +112,24 @@ swap, Infection once at the end of each PR's branch, Sonnet by default, Opus for
 
 No language-specific synonym or stop-word dictionaries, no synonym management UI or table, no
 automatic re-search with the suggestion, no phonetic matching, no `suggest()` (0.8).
+
+## Open decisions (reconciliation with the 2026-10-02 spec)
+
+An earlier spec, `docs/superpowers/specs/2026-10-02-v07-relevance-design.md` on branch
+`v07-relevance`, covers the same milestone. Already decided in this session: length-aware tolerance
+is the new default and proportional to the word's length (replaces its fixed curve and the
+`fuzzy_length_aware` flag; part 1 above is implemented); synonyms are groups plus one-way rules,
+expanded on the query side, no reindex; the vocabulary is filled by the reindex and the worker, not
+per write. Still open, with the recommendation of the review of 2026-10-05:
+
+| Topic | This spec | 2026-10-02 spec | Recommendation |
+|---|---|---|---|
+| Vocabulary table | sidecar layout 3, forced full reindex | additive table, layout stays 2, doctor warns while empty | additive, layout 2 |
+| Filling it | `fuzzphony:reindex --vocabulary` | `fuzzphony:vocabulary` command | the reindex flag plus the worker |
+| Engine interface | vocabulary methods | `Engine::rebuildVocabulary()`, Breaking | optional interface + `Capability` |
+| Did-you-mean trigger | empty result or a word matched nothing | hits below `fallback_below` and a word not in the vocabulary | a word not in the vocabulary |
+| Did-you-mean ranking | active similarity | length-aware similarity | trigram top-K candidates, then edit distance, then frequency (raw trigram ranks `mose` to `most`) |
+| Synonyms file | none | JSON/YAML file | inline first, a file later |
+| Synonym matching | normalised (stemmed) form | lowercased word | normalised form, documented |
+| Multi-word member, unquoted | unspecified | only when quoted | only when quoted |
+| Doctor "Vocabulary" check | missing: warning, stale: warning | missing: error, empty: warning | both |

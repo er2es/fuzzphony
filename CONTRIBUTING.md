@@ -39,7 +39,8 @@ line coverage means the tests run the code but don't assert on it. It runs multi
 (`--threads=max`): the integration tests share one database, so each Infection worker
 (`TEST_TOKEN=1, 2, ...`) gets its own `{dbname}_t{TEST_TOKEN}` database, created on first use
 (`tests/Integration/PostgresTestCase::dsn()`) — without `TEST_TOKEN` (a normal `composer test`
-run) nothing changes. There is no CI gate on the MSI yet; see
+run) nothing changes. Without pcov in your local PHP (the Windows builds have none), run it in a `php:8.4-cli` container
+with `pdo_pgsql` and `pcov` installed, next to the test database. There is no CI gate on the MSI yet; see
 [docs/roadmap.md](docs/roadmap.md#mutation-testing).
 
 ## Pull requests

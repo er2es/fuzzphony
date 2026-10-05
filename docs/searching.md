@@ -178,7 +178,8 @@ So a typo in one word never lets through documents that lack the other words.
   need), while `mose`, `mouze`, `wireles`, `hedphones` and `moitor` still find what they mean.
   The slack is also the price: a letter replaced in the middle of a 5 to 7 letter word, or two
   letters swapped (a swap changes four trigrams), is the worst case and leaves exactly the
-  similarity of a different word, so `mpuse` and `mosue` are not tolerated. Measured on
+  similarity of a different word, so `mpuse` and `mosue` are not tolerated (a swap at the end of a
+  word costs less: `torhc` still finds `torch`). Measured on
   generated typos of 24 common words, a 5 to 7 letter word finds about 70 to 80% of its
   single-letter typos (a flat 0.3: 92 to 100%) while it lists about five times fewer look-alikes.
   Set `fuzzy_similarity` to a number (per index or per query) to use that value for every word,

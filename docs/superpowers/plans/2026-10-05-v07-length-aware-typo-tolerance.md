@@ -12,6 +12,8 @@
 
 Streamlined process (memory: sdd-process-streamlined): no per-task review (nothing here is locking or destructive), tests + phpstan + cs + 100% coverage per task, Infection once at the end of the branch, one final whole-branch review.
 
+> **Historical:** this plan was executed with changes. The text below describes the first design (three fixed bands, public `Thresholds::similarityFor()`/`lowestSimilarity()`). What shipped: a proportional rule in the internal `TypoCurve`, the threshold computed in SQL as a `q` column, a per-statement session similarity, prefix allowance and a clamped score; see the spec, the CHANGELOG and the commit history.
+>
 > **Superseded in execution:** the three fixed bands below were replaced by the proportional rule of the spec (typos tolerated by length, similarity computed in SQL from the normalised word) after measuring; see the spec's Part 1 and the commit history.
 
 ## Global Constraints

@@ -179,7 +179,7 @@ Search text from end users never throws. Malformed input is repaired and reporte
 | `brand:logitech`, `name:"mx master"` | only in that field, typos included (an unknown field searches every field, with a warning) |
 | `(mouse OR trackpad) -cable` | grouping |
 
-Typos are tolerated per word, within the query's AND / OR / NOT. A multi-word query that finds
+Typos are tolerated per word (one from 4 letters, two from 8), within the query's AND / OR / NOT. A multi-word query that finds
 nothing drops the words that match nothing and says so. Details:
 [Searching](https://github.com/er2es/fuzzphony/blob/main/docs/searching.md).
 
@@ -219,7 +219,7 @@ Details in [docs/limitations.md](https://github.com/er2es/fuzzphony/blob/main/do
 
 - [Typo tolerance is trigram-based](https://github.com/er2es/fuzzphony/blob/main/docs/limitations.md#typo-tolerance-is-trigram-based):
   it cannot tell a typo from a similar word (`cable` / `table`, and `mose` is as close to `monitor`
-  as to `mouse`), so a letter replaced in the middle of a 5 to 7 letter word (`mpuse`) is not
+  as to `mouse`), so a letter replaced in the middle of a 5 to 7 letter word (`mpuse`) may not be
   tolerated; the similarity a word needs is proportional to its length, or flat if you set it.
 - [Attaching or detaching a partition is not followed](https://github.com/er2es/fuzzphony/blob/main/docs/limitations.md#attaching-or-detaching-a-partition-is-not-followed):
   PostgreSQL fires no trigger for it; run `fuzzphony:reindex` afterwards.

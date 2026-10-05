@@ -20,7 +20,9 @@ The per-word similarity (`r_fuzzy`, `ScoreBreakdown::$fuzzySimilarity`) follows 
 scores 1.0 when it matches exactly, and its trigram `word_similarity` against the fuzzy fields
 otherwise. AND averages its words, OR takes the best one, negations do not score. So a document
 that matches both words of `wireles mouse` well outranks one that barely matches one of them. The
-fuzzy weight only applies when the typo-tolerant branch runs.
+fuzzy weight only applies when the typo-tolerant branch runs. With the by-length default of
+`fuzzy_similarity` a word that does not reach the similarity of its own length scores 0, so it
+cannot lift an OR above the words that do match.
 
 `min_score` applies to relevance only. Boosts reorder relevant hits but can never pull an
 irrelevant document into the results ([ADR 0004](adr/0004-min-score-on-relevance.md)).
