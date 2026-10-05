@@ -6,6 +6,7 @@ namespace Fuzzphony\Tests\Unit\Core\Query;
 
 use Fuzzphony\Core\Query\Ast\FieldScoped;
 use Fuzzphony\Core\Query\Ast\Node;
+use Fuzzphony\Core\Query\Ast\Phrase;
 use Fuzzphony\Core\Query\Ast\Term;
 use Fuzzphony\Core\Query\QueryParser;
 use Fuzzphony\Core\Query\Relaxation;
@@ -126,5 +127,17 @@ final class RelaxationTest extends TestCase
             Relaxation::warning([new Term("of\u{200B}fice"), new Term('office')]),
             'labels that only differ by stripped characters are the same word',
         );
+    }
+
+    public function testTheWarningLeavesOutWhatASynonymAdded(): void
+    {
+        $typed = new Term('tvv');
+        $implied = new Term('television', false, true);
+        $scoped = new FieldScoped('name', new Term('telly', false, true));
+        $phrase = new Phrase(['solid', 'state'], true);
+
+        self::assertSame([$typed], Relaxation::typedLeaves([$typed, $implied, $scoped, $phrase]));
+        self::assertSame([], Relaxation::typedLeaves([$implied, $scoped, $phrase]));
+        self::assertSame('No results for all words; ignored words that match nothing: "tvv".', Relaxation::warning(Relaxation::typedLeaves([$typed, $implied])));
     }
 }

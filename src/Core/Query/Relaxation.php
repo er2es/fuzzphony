@@ -86,6 +86,18 @@ final class Relaxation
     }
 
     /**
+     * The leaves the user typed: an alternative a synonym added is not reported as an ignored word.
+     *
+     * @param list<Term|Phrase|FieldScoped> $leaves
+     *
+     * @return list<Term|Phrase|FieldScoped>
+     */
+    public static function typedLeaves(array $leaves): array
+    {
+        return array_values(array_filter($leaves, static fn(Term|Phrase|FieldScoped $leaf): bool => !($leaf instanceof FieldScoped ? $leaf->node : $leaf)->synonym));
+    }
+
+    /**
      * The message for SearchResult::$warnings. Plain text, not HTML: it names the user's own
      * words (as typed, minus invisible format characters, cut to LABEL_LENGTH characters, once
      * each), so a caller that renders it as HTML must escape it.

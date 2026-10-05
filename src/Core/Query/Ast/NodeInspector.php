@@ -22,7 +22,8 @@ final class NodeInspector
 
     /**
      * Positive words, in order, of a query: they feed the exact-match and prefix bonuses (typo-tolerant
-     * matching compiles the AST itself, see FuzzyQueryCompiler).
+     * matching compiles the AST itself, see FuzzyQueryCompiler). The alternatives a synonym added are
+     * not words of the query.
      *
      * @param (callable(string): bool)|null $fieldFilter only include field-scoped words when this returns true
      *
@@ -32,8 +33,8 @@ final class NodeInspector
     {
         return match (true) {
             $node === null, $node instanceof Not => [],
-            $node instanceof Term => [$node->text],
-            $node instanceof Phrase => $node->words,
+            $node instanceof Term => $node->synonym ? [] : [$node->text],
+            $node instanceof Phrase => $node->synonym ? [] : $node->words,
             $node instanceof FieldScoped => $fieldFilter === null || $fieldFilter($node->field) ? self::positiveWords($node->node) : [],
             $node instanceof AllOf, $node instanceof AnyOf => array_merge(...array_map(
                 static fn(Node $n): array => self::positiveWords($n, $fieldFilter),
