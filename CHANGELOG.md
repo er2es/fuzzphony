@@ -7,6 +7,26 @@ changes; they are always listed under **Breaking** and explained in [UPGRADE.md]
 
 ## [Unreleased]
 
+### Breaking
+
+- Typo tolerance is length-aware by default: the trigram similarity a word needs is 0.6 for 3 to 4
+  letters, 0.45 for 5 to 7 and 0.3 from 8 (the letters of a phrase count without spaces), so `mouse`
+  no longer matches `monitor` or `mower`, while `wireles`, `hedphones` and `mouze` still match. A
+  one-letter typo in a very short word (`mose` for `mouse`) is no longer tolerated. Typo-tolerant
+  result sets change. `fuzzy_similarity: 0.3` (a number) keeps the old flat behaviour for every
+  word. `Thresholds::$fuzzySimilarity` is now `?float` (`null`, the default, means by length): code
+  that reads it must handle `null`, and the new `Thresholds::similarityFor(int $length)` and
+  `lowestSimilarity()` answer the questions it used to. See [UPGRADE.md](UPGRADE.md#from-06-to-07).
+
+### Changed
+
+- The doctor's configuration check shows `similarity=by word length` for the default and warns
+  "very tolerant" only for an explicit `fuzzy_similarity` below 0.2.
+- The typo-tolerant statement rechecks each word against the similarity of its own length
+  (`word_similarity(…) >= t` next to `<%`, in the search, the field-scoped words and the
+  empty-result relaxation probe); the session's `pg_trgm.word_similarity_threshold` is set to the
+  lowest similarity in use so the GIN indexes still find the candidates.
+
 ## [0.6.1] - 2026-10-01
 
 ### Fixed

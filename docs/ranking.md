@@ -62,7 +62,7 @@ $fuzzphony->in('products')->query('mouse')->profile('popular')->ranking(['boost'
 | `min_score` | `0.0` | minimum relevance a hit needs |
 | `fuzzy_mode` | `fallback` | `always`, `fallback` (only when exact matching finds few hits) or `never` |
 | `fallback_below` | `5` | in fallback mode: fewer exact hits than this triggers typo tolerance |
-| `fuzzy_similarity` | `0.3` | trigram word similarity each word needs (lower = more tolerant) |
+| `fuzzy_similarity` | by word length | trigram word similarity each word needs (lower = more tolerant). Unset (`null`): 0.6 for 3 to 4 letters, 0.45 for 5 to 7, 0.3 from 8, so `mouse` does not match `monitor` but `wireles` still finds `wireless`. A number applies to every word; `null` returns to by length |
 | `fuzzy_min_length` | `3` | shorter words must match exactly; a query with no longer word skips typo tolerance |
 | `candidate_limit` | `2000` | max candidates ranked per branch; `total` becomes a lower bound (`2000+`) |
 | `max_query_length` / `max_terms` | `256` / `16` | input limits |

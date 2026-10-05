@@ -40,10 +40,11 @@ depends on it, so nothing built early has to be refactored once a later mileston
 
 Matching quality, including the vocabulary table that 0.8's `suggest()` reuses.
 
-### Length-aware typo tolerance
+### Length-aware typo tolerance (done)
 
 A stricter similarity for short words and a looser one for long words, so `mouse` stops matching
-`monitor` without losing typos in long words.
+`monitor` without losing typos in long words: 0.6 for 3 to 4 letters, 0.45 for 5 to 7, 0.3 from 8,
+unless an explicit `fuzzy_similarity` is set. See the [CHANGELOG](../CHANGELOG.md) (Unreleased).
 
 ### Synonyms
 

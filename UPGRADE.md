@@ -3,6 +3,19 @@
 Before 1.0, a minor version may contain breaking changes. Each section lists what to change,
 and the [CHANGELOG](CHANGELOG.md) has the full list of changes.
 
+## From 0.6 to 0.7
+
+1. **Typo tolerance is length-aware.** The default `fuzzy_similarity` is no longer a flat 0.3 but
+   0.6 for words of 3 to 4 letters, 0.45 for 5 to 7 and 0.3 from 8. Searches that relied on the
+   lenient behaviour return fewer, more precise hits (`mouse` no longer lists monitors), and a
+   one-letter typo in a very short word (`mose`) no longer matches. To keep the old behaviour set
+   `fuzzy_similarity: 0.3` in `thresholds:` (YAML, `#[Searchable]`, `IndexBuilder::thresholds()`) or
+   per query with `->thresholds(['fuzzy_similarity' => 0.3])`. Tests that pinned old fuzzy result
+   sets may need new expectations. No schema change, no reindex.
+2. **`Thresholds::$fuzzySimilarity` is `?float`.** `null` (the default) means by word length. Code
+   that read it as a `float` handles `null` or calls `Thresholds::similarityFor($length)` /
+   `lowestSimilarity()`. A custom engine that honours `fuzzySimilarity` should do the same.
+
 ## From 0.4 to 0.5
 
 1. **Apply, then reindex.** Run `fuzzphony:schema --apply`: it upgrades every index to sidecar

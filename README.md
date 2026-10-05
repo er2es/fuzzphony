@@ -217,8 +217,9 @@ Report vulnerabilities privately: see
 
 Details in [docs/limitations.md](https://github.com/er2es/fuzzphony/blob/main/docs/limitations.md).
 
-- [Typo tolerance is lenient](https://github.com/er2es/fuzzphony/blob/main/docs/limitations.md#typo-tolerance-is-lenient): at the default similarity, `mouse`
-  also matches `monitor`. Fix planned: [length-aware typo tolerance](https://github.com/er2es/fuzzphony/blob/main/docs/roadmap.md#length-aware-typo-tolerance).
+- [Typo tolerance is trigram-based](https://github.com/er2es/fuzzphony/blob/main/docs/limitations.md#typo-tolerance-is-trigram-based):
+  it cannot tell a typo from a similar word (`cable` / `table`), and a one-letter typo in a very
+  short word (`mose`) is not tolerated; set a flat `fuzzy_similarity` to loosen it.
 - [Attaching or detaching a partition is not followed](https://github.com/er2es/fuzzphony/blob/main/docs/limitations.md#attaching-or-detaching-a-partition-is-not-followed):
   PostgreSQL fires no trigger for it; run `fuzzphony:reindex` afterwards.
 - [Ranking is approximate beyond `candidate_limit`](https://github.com/er2es/fuzzphony/blob/main/docs/limitations.md#ranking-is-approximate-beyond-candidate_limit),

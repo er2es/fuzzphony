@@ -165,6 +165,12 @@ So a typo in one word never lets through documents that lack the other words.
 - Typo tolerance only reaches words stored in fuzzy fields (`fuzzy: true`). A misspelled word that
   appears only in a non-fuzzy field, such as a description or a category, cannot be matched
   approximately.
+- The similarity a word needs depends on its length: 0.6 for 3 to 4 letters, 0.45 for 5 to 7 and
+  0.3 from 8 (the letters of a phrase count without the spaces). `mouse` therefore does not match
+  `monitor` or `mower`, while `wireles` still finds `wireless` and `hedphones` finds `headphones`.
+  The trade-off: a one-letter typo in a very short word (`mose` for `mouse`) is not tolerated.
+  Set `fuzzy_similarity` to a number (per index or per query) to use that value for every word, for
+  example `0.3` for the pre-0.7 behaviour, or to `null` to go back to by length.
 - Words shorter than `fuzzy_min_length` must match exactly.
 - Stop words of the index language ("for", "the") are ignored, as in the full-text query.
 
