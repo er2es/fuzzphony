@@ -71,6 +71,9 @@ final class ArrayExporter
         if ($index->tenant !== null) {
             $out['tenant'] = $index->tenant;
         }
+        if (!$index->synonyms->isEmpty()) {
+            $out['synonyms'] = $index->synonyms->toEntries();
+        }
 
         $defaults = (new RankingProfile())->toArray();
         foreach ($index->profiles as $name => $profile) {

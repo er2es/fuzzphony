@@ -23,12 +23,13 @@ use Fuzzphony\Core\Ranking\RankingProfile;
  *     boost: popularity
  *     recency: published_at
  *     tenant: account_id
+ *     synonyms: [[tv, television], 'laptop => notebook']
  *     profiles: { default: { text: 1, fuzzy: 0.5 } }
  *     thresholds: { min_score: 0.05, fuzzy_mode: fallback }
  */
 final class ArrayDefinitionLoader
 {
-    private const array KEYS = ['source', 'id_type', 'fields', 'filters', 'watch', 'sync', 'language', 'unaccent', 'boost', 'recency', 'profiles', 'thresholds', 'class', 'trigger_level', 'tenant'];
+    private const array KEYS = ['source', 'id_type', 'fields', 'filters', 'watch', 'sync', 'language', 'unaccent', 'boost', 'recency', 'profiles', 'thresholds', 'class', 'trigger_level', 'tenant', 'synonyms'];
 
     /** @param array<string, mixed> $config */
     public function load(string $name, array $config): IndexDefinition
@@ -91,6 +92,9 @@ final class ArrayDefinitionLoader
         if (isset($config['tenant'])) {
             $merged = $merged->withTenant(self::str($config['tenant'], ''));
         }
+        if (array_key_exists('synonyms', $config)) {
+            $merged = $merged->withSynonyms(Synonyms::fromEntries($this->map($config['synonyms'] ?? [])));
+        }
         if (isset($config['profiles'])) {
             $merged = $merged->withProfiles($this->profiles($config['profiles']) + $definition->profiles);
         }
@@ -131,6 +135,9 @@ final class ArrayDefinitionLoader
         }
         if (isset($config['tenant'])) {
             $builder->tenant(self::str($config['tenant'], ''));
+        }
+        if (isset($config['synonyms'])) {
+            $builder->synonyms($this->map($config['synonyms']));
         }
         foreach ($this->profiles($config['profiles'] ?? []) as $profileName => $profile) {
             $builder->profile($profileName, $profile);

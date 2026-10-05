@@ -41,6 +41,8 @@ final readonly class IndexDefinition
         public TriggerLevel $triggerLevel = TriggerLevel::Statement,
         /** The name of the FilterDefinition that scopes every search to one tenant; null = not tenant-scoped. */
         public ?string $tenant = null,
+        /** Query-side synonyms; they are not part of the index table, so changing them needs no reindex. */
+        public Synonyms $synonyms = new Synonyms(),
     ) {}
 
     public static function builder(string $name): IndexBuilder
@@ -200,6 +202,11 @@ final readonly class IndexDefinition
         return $this->copy(tenant: $filter);
     }
 
+    public function withSynonyms(Synonyms $synonyms): self
+    {
+        return $this->copy(synonyms: $synonyms);
+    }
+
     /**
      * The one place a copy is made, through the constructor. null keeps an object/array value;
      * false keeps a nullable string (so null can clear it).
@@ -226,6 +233,7 @@ final readonly class IndexDefinition
         string|false|null $entityClass = false,
         ?TriggerLevel $triggerLevel = null,
         string|false|null $tenant = false,
+        ?Synonyms $synonyms = null,
     ): self {
         return new self(
             name: $name ?? $this->name,
@@ -243,6 +251,7 @@ final readonly class IndexDefinition
             entityClass: $entityClass === false ? $this->entityClass : $entityClass,
             triggerLevel: $triggerLevel ?? $this->triggerLevel,
             tenant: $tenant === false ? $this->tenant : $tenant,
+            synonyms: $synonyms ?? $this->synonyms,
         );
     }
 }

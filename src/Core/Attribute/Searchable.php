@@ -31,5 +31,11 @@ final readonly class Searchable
         public TriggerLevel $triggerLevel = TriggerLevel::Statement,
         /** Name of the #[SearchFilter] property (its resulting filter name, snake_cased) that scopes every search to one tenant. */
         public ?string $tenant = null,
+        /**
+         * Query-side synonyms: groups (['tv', 'television']) and one-way rules ('laptop => notebook | portable').
+         *
+         * @var array<array-key, mixed>
+         */
+        public array $synonyms = [],
     ) {}
 }

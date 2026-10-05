@@ -67,6 +67,9 @@ final class BuilderExporter
         if ($index->tenant !== null) {
             $lines[] = sprintf('    ->tenant(%s)', $e($index->tenant));
         }
+        if (!$index->synonyms->isEmpty()) {
+            $lines[] = sprintf('    ->synonyms(%s)', $e($index->synonyms->toEntries()));
+        }
         $defaults = (new RankingProfile())->toArray();
         foreach ($index->profiles as $name => $profile) {
             $changed = array_filter($profile->toArray(), static fn(mixed $v, string $k): bool => $k !== 'label_weights' && $v !== $defaults[$k], ARRAY_FILTER_USE_BOTH);

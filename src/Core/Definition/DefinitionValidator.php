@@ -94,6 +94,8 @@ final class DefinitionValidator
             }
         }
 
+        array_push($v, ...$index->synonyms->violations());
+
         foreach (['boost' => $index->boostColumn, 'recency' => $index->recencyColumn] as $what => $column) {
             if ($column !== null && !Identifier::isColumn($column)) {
                 $v[] = sprintf('The %s column "%s" is not a valid column name.', $what, $column);

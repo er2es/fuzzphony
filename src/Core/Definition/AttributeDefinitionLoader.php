@@ -49,6 +49,9 @@ final class AttributeDefinitionLoader
         if ($searchable->tenant !== null) {
             $builder->tenant($searchable->tenant);
         }
+        if ($searchable->synonyms !== []) {
+            $builder->synonyms($searchable->synonyms);
+        }
 
         $problems = [];
         foreach ($reflection->getProperties() as $property) {

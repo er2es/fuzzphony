@@ -358,4 +358,14 @@ final class DefinitionValidatorTest extends TestCase
 
         self::assertSame([], DefinitionValidator::validate($definition));
     }
+
+    public function testSynonymProblemsAreReportedWithTheOthers(): void
+    {
+        $definition = Indexes::products()->withSynonyms(\Fuzzphony\Core\Definition\Synonyms::fromEntries([['tv'], 'laptop =>']));
+
+        $violations = DefinitionValidator::validate($definition);
+
+        self::assertCount(2, $violations, implode("\n", $violations));
+        self::assertStringContainsString('Synonym group 1', $violations[0]);
+    }
 }

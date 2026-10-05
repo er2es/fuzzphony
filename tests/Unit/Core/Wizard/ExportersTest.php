@@ -7,6 +7,7 @@ namespace Fuzzphony\Tests\Unit\Core\Wizard;
 use Fuzzphony\Core\Definition\ArrayDefinitionLoader;
 use Fuzzphony\Core\Definition\AttributeDefinitionLoader;
 use Fuzzphony\Core\Definition\IndexDefinition;
+use Fuzzphony\Core\Definition\Synonyms;
 use Fuzzphony\Core\Exception\InvalidArgument;
 use Fuzzphony\Core\Ranking\Thresholds;
 use Fuzzphony\Core\Wizard\Export\ArrayExporter;
@@ -16,6 +17,7 @@ use Fuzzphony\Core\Wizard\Export\YamlExporter;
 use Fuzzphony\Tests\Fixtures\Indexes;
 use Fuzzphony\Tests\Fixtures\Product;
 use PHPUnit\Framework\TestCase;
+use Symfony\Component\Yaml\Yaml;
 
 final class ExportersTest extends TestCase
 {
@@ -47,6 +49,44 @@ final class ExportersTest extends TestCase
 
         $flat = Indexes::products()->withThresholds((new Thresholds())->with(['fuzzy_similarity' => 0.3]));
         self::assertSame(['fuzzy_similarity' => 0.3], (new ArrayExporter())->export($flat)['thresholds'] ?? null);
+    }
+
+    public function testSynonymsRoundTripThroughEveryExporter(): void
+    {
+        $original = Indexes::products()->withSynonyms(Synonyms::fromEntries([['tv', 'television'], ['ssd', 'solid state drive'], 'laptop => notebook | portable']));
+
+        $reloaded = (new ArrayDefinitionLoader())->load('products', (new ArrayExporter())->export($original));
+        self::assertEquals($original->synonyms, $reloaded->synonyms);
+        self::assertArrayNotHasKey('synonyms', (new ArrayExporter())->export(Indexes::products()));
+
+        $yaml = (new YamlExporter())->export($original);
+        self::assertStringContainsString('synonyms:', $yaml);
+        self::assertStringContainsString('laptop => notebook | portable', $yaml);
+        /** @var array{fuzzphony: array{indexes: array{products: array<string, mixed>}}} $parsed */
+        $parsed = Yaml::parse($yaml);
+        self::assertEquals($original->synonyms, (new ArrayDefinitionLoader())->load('products', $parsed['fuzzphony']['indexes']['products'])->synonyms);
+
+        $code = (new BuilderExporter())->export($original);
+        self::assertStringContainsString('->synonyms(', $code);
+        self::assertNotEmpty(token_get_all("<?php\n" . $code, TOKEN_PARSE));
+        self::assertStringNotContainsString('->synonyms(', (new BuilderExporter())->export(Indexes::products()));
+    }
+
+    public function testAttributeExportCarriesTheSynonyms(): void
+    {
+        $original = IndexDefinition::builder('gadgets')->fromTable('gadget')->field('title', 'A', fuzzy: true)
+            ->synonyms([['tv', 'television'], 'laptop => notebook'])->build();
+
+        $code = (new AttributeExporter())->export($original, 'SynonymGadget' . bin2hex(random_bytes(4)));
+        self::assertNotEmpty(token_get_all($code, TOKEN_PARSE));
+        eval(substr($code, 5));
+        if (preg_match('/final class (\w+)/', $code, $m) !== 1) {
+            self::fail('Could not find the exported class name.');
+        }
+        /** @var class-string $class */
+        $class = '\\' . $m[1];
+
+        self::assertEquals($original->synonyms, (new AttributeDefinitionLoader())->load($class)->synonyms);
     }
 
     public function testArrayExportRoundTripsTenantScoping(): void

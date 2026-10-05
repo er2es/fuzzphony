@@ -33,6 +33,7 @@ final class IndexBuilder
     private ?string $boost = null;
     private ?string $recency = null;
     private ?string $tenant = null;
+    private Synonyms $synonyms;
     /** @var array<string, RankingProfile> */
     private array $profiles = [];
     private Thresholds $thresholds;
@@ -43,6 +44,7 @@ final class IndexBuilder
     {
         $this->text = new TextConfig();
         $this->thresholds = new Thresholds();
+        $this->synonyms = new Synonyms();
     }
 
     public function fromTable(string $table, string $idColumn = 'id'): self
@@ -149,6 +151,18 @@ final class IndexBuilder
         return $this;
     }
 
+    /**
+     * Query-side synonyms: groups (`['tv', 'television']`) and one-way rules (`'laptop => notebook'`).
+     *
+     * @param array<array-key, mixed> $entries
+     */
+    public function synonyms(array $entries): self
+    {
+        $this->synonyms = Synonyms::fromEntries($entries);
+
+        return $this;
+    }
+
     public function profile(string $name, RankingProfile $profile): self
     {
         $this->profiles[$name] = $profile;
@@ -189,6 +203,7 @@ final class IndexBuilder
             entityClass: $this->entityClass,
             triggerLevel: $this->triggerLevel,
             tenant: $this->tenant,
+            synonyms: $this->synonyms,
         );
         DefinitionValidator::assertValid($definition);
 

@@ -88,6 +88,23 @@ final class ArrayDefinitionLoaderTest extends TestCase
         self::assertSame('account_id', $definition->tenant);
     }
 
+    public function testSynonymsComeFromYamlAndCanBeOverridden(): void
+    {
+        $entries = [['tv', 'television'], 'laptop => notebook'];
+        $definition = (new ArrayDefinitionLoader())->load('articles', [
+            'source' => ['table' => 'article'],
+            'fields' => ['title' => 'A'],
+            'synonyms' => $entries,
+        ]);
+        self::assertSame($entries, $definition->synonyms->toEntries());
+
+        $merged = (new ArrayDefinitionLoader())->override($definition, ['synonyms' => [['ssd', 'solid state drive']]]);
+        self::assertSame([['ssd', 'solid state drive']], $merged->synonyms->toEntries());
+
+        self::assertTrue((new ArrayDefinitionLoader())->override($definition, ['synonyms' => []])->synonyms->isEmpty(), 'an empty list clears them');
+        self::assertSame($entries, (new ArrayDefinitionLoader())->override($definition, ['boost' => 'popularity'])->synonyms->toEntries(), 'untouched when the key is absent');
+    }
+
     public function testYamlCanOverrideTheTenantScope(): void
     {
         $base = (new AttributeDefinitionLoader())->load(Product::class); // no #[Searchable(tenant: ...)]
