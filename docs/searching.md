@@ -165,12 +165,17 @@ So a typo in one word never lets through documents that lack the other words.
 - Typo tolerance only reaches words stored in fuzzy fields (`fuzzy: true`). A misspelled word that
   appears only in a non-fuzzy field, such as a description or a category, cannot be matched
   approximately.
-- The similarity a word needs depends on its length: 0.6 for 3 to 4 letters, 0.45 for 5 to 7 and
-  0.3 from 8 (the letters of a phrase count without the spaces). `mouse` therefore does not match
-  `monitor` or `mower`, while `wireles` still finds `wireless` and `hedphones` finds `headphones`.
-  The trade-off: a one-letter typo in a very short word (`mose` for `mouse`) is not tolerated.
-  Set `fuzzy_similarity` to a number (per index or per query) to use that value for every word, for
-  example `0.3` for the pre-0.7 behaviour, or to `null` to go back to by length.
+- The similarity a word needs is proportional to its length: one typo is tolerated from 4 letters,
+  two from 8. A typo changes at most three of a word's `n + 1` trigrams, so `t` typos leave a trigram
+  similarity of at least `(n + 1 − 3t) / (n + 1 + 3t)`; a word needs that plus a slack of 0.03
+  (0.28 for 4 letters, 0.36 for 5, 0.43 for 6, 0.48 for 7, 0.23 for 8, 0.28 for 9, 0.40 for 12,
+  0.59 for 20), and words below 4 letters need 0.6. `n` is the length of the word after PostgreSQL
+  normalised it (accents folded, `ß` → `ss`; a phrase counts its letters without the spaces).
+  `mouse` therefore does not match `monitor` or `mower` (0.33 against the 0.36 five letters need),
+  while `mose`, `mouze`, `wireles`, `hedphones` and `moitor` still find what they mean. Set
+  `fuzzy_similarity` to a number (per index or per query) to use that value for every word, for
+  example `0.3` for the pre-0.7 behaviour, or to `null` (`--threshold fuzzy_similarity=null` on the
+  command line) to go back to by length.
 - Words shorter than `fuzzy_min_length` must match exactly.
 - Stop words of the index language ("for", "the") are ignored, as in the full-text query.
 

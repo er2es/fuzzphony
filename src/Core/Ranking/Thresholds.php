@@ -20,18 +20,25 @@ final readonly class Thresholds
     public const int MAX_TERMS = 64;
 
     /**
-     * Trigram word similarity a word needs when no explicit fuzzy_similarity is set, by the length
-     * of the normalised word: [minimum length, similarity], longest first. Short words get a
-     * stricter similarity (`mouse` must not match `monitor`), long words a looser one.
+     * Typos tolerated per word when no explicit fuzzy_similarity is set: [minimum length of the
+     * normalised word, typos], longest first. Shorter words are not tolerated beyond SHORT_SIMILARITY.
      */
-    public const array LENGTH_BANDS = [[8, 0.3], [5, 0.45], [3, 0.6]];
+    public const array TYPOS_BY_LENGTH = [[8, 2], [4, 1]];
+    /** The similarity a word shorter than the first TYPOS_BY_LENGTH entry needs. */
+    public const float SHORT_SIMILARITY = 0.6;
+    /**
+     * A typo changes at most three of a word's n + 1 trigrams, so t typos leave a trigram similarity
+     * of (n + 1 - 3t) / (n + 1 + 3t) in the worst case. The similarity a word needs is that, plus
+     * this slack, which keeps a different word at exactly the worst case out (`mouse` / `monitor`).
+     */
+    public const float SLACK = 0.03;
 
     public function __construct(
         /** Minimum relevance (0..~1.5) a hit needs; bonuses are not counted. */
         public float $minScore = 0.0,
         /**
          * Minimum trigram word similarity (0..1) for a typo-tolerant match. Lower = more tolerant.
-         * Null (the default): by word length, see LENGTH_BANDS. A number applies to every word.
+         * Null (the default): by word length, see similarityFor(). A number applies to every word.
          */
         public ?float $fuzzySimilarity = null,
         /** Typo tolerance is skipped for shorter queries: trigrams of 1-2 letters are noise. */
@@ -84,25 +91,32 @@ final readonly class Thresholds
         }
     }
 
-    /** The similarity a word of $length normalised characters needs. */
+    /**
+     * The similarity a word of $length normalised characters needs. PostgreSQL evaluates the same
+     * rule on the normalised word (FuzzyQueryCompiler), and a test keeps the two equal.
+     */
     public function similarityFor(int $length): float
     {
         if ($this->fuzzySimilarity !== null) {
             return $this->fuzzySimilarity;
         }
-        foreach (self::LENGTH_BANDS as [$minLength, $similarity]) {
+        foreach (self::TYPOS_BY_LENGTH as [$minLength, $typos]) {
             if ($length >= $minLength) {
-                return $similarity;
+                return ($length + 1 - 3 * $typos) / ($length + 1 + 3 * $typos) + self::SLACK;
             }
         }
 
-        return self::LENGTH_BANDS[array_key_last(self::LENGTH_BANDS)][1];
+        return self::SHORT_SIMILARITY;
     }
 
     /** The lowest similarity any word needs: what the session's pg_trgm threshold is set to. */
     public function lowestSimilarity(): float
     {
-        return $this->fuzzySimilarity ?? self::LENGTH_BANDS[0][1];
+        if ($this->fuzzySimilarity !== null) {
+            return $this->fuzzySimilarity;
+        }
+        // the similarity grows with the length inside each entry, so each entry is lowest where it starts
+        return min(self::SHORT_SIMILARITY, ...array_map(fn(array $band): float => $this->similarityFor($band[0]), self::TYPOS_BY_LENGTH));
     }
 
     /** @param array<string, mixed> $overrides snake_case keys, e.g. ['min_score' => 0.1, 'fuzzy_mode' => 'always'] */

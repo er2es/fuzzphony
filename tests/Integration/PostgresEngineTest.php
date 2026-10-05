@@ -647,6 +647,15 @@ final class PostgresEngineTest extends TestCase
         self::assertSame('candidate_limit 6000 may make frequent words slow to rank.', $problems['Candidate limit'] ?? null);
     }
 
+    public function testDoctorDoesNotWarnAboutASimilarityOfExactlyTwoTenths(): void
+    {
+        $index = Indexes::products('manual')->withThresholds(new Thresholds(fuzzySimilarity: 0.2));
+        $fuzzphony = new Fuzzphony($this->engine, new IndexRegistry([$index]));
+        $fuzzphony->schema()->apply($this->connection);
+
+        self::assertArrayNotHasKey('Typo tolerance', array_column($fuzzphony->inspect('products')->problems(), 'message', 'name'));
+    }
+
     public function testDoctorShowsTheDefaultSimilarityAsByWordLength(): void
     {
         $index = Indexes::products('manual');

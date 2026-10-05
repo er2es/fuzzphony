@@ -43,8 +43,9 @@ Matching quality, including the vocabulary table that 0.8's `suggest()` reuses.
 ### Length-aware typo tolerance (done)
 
 A stricter similarity for short words and a looser one for long words, so `mouse` stops matching
-`monitor` without losing typos in long words: 0.6 for 3 to 4 letters, 0.45 for 5 to 7, 0.3 from 8,
-unless an explicit `fuzzy_similarity` is set. See the [CHANGELOG](../CHANGELOG.md) (Unreleased).
+`monitor` without losing typos in long words: one typo is tolerated from 4 letters and two from 8,
+and the similarity a word needs follows from that, unless an explicit `fuzzy_similarity` is set. See
+[Typo tolerance](searching.md#typo-tolerance) and the [CHANGELOG](../CHANGELOG.md) (Unreleased).
 
 ### Synonyms
 

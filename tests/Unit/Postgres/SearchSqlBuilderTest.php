@@ -78,7 +78,7 @@ final class SearchSqlBuilderTest extends TestCase
 
     public function testTheRelaxationProbeUsesTheFuzzyLeafConditionWhenTheFuzzyBranchIsEligible(): void
     {
-        $statement = (new SearchSqlBuilder(Indexes::products()))->probe([new Term('wireless'), new Term('aluminum')], true, [], new Thresholds(), []);
+        $statement = (new SearchSqlBuilder(Indexes::products()))->probe([new Term('wireless'), new Term('aluminum')], true, [], new Thresholds(fuzzySimilarity: 0.3), []);
 
         self::assertStringContainsString('m0 AS MATERIALIZED (SELECT 1 FROM "public"."fuzzphony_products" AS s CROSS JOIN q WHERE (s.tsv @@ q.ft0 OR q.fn1 OPERATOR("public".<%) s.fz) AND TRUE)', $statement['sql']);
         self::assertStringContainsString('(s.tsv @@ q.ft2 OR q.fn3 OPERATOR("public".<%) s.fz)', $statement['sql']);

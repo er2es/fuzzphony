@@ -20,6 +20,7 @@
 
         <h2 style="margin-top:1rem">Thresholds</h2>
         {{ ui.slider('Min relevance', 'minScore', minScore, 0, 1, 0.01) }}
+        <label class="check"><input type="checkbox" data-model="similarityByLength" {{ similarityByLength ? 'checked' }}> Fuzzy similarity by word length (the slider below sets one value for every word)</label>
         {{ ui.slider('Fuzzy similarity', 'similarity', similarity, 0.05, 1, 0.05) }}
         <label>Fuzzy mode
             <select data-model="fuzzyMode">

@@ -12,6 +12,8 @@
 
 Streamlined process (memory: sdd-process-streamlined): no per-task review (nothing here is locking or destructive), tests + phpstan + cs + 100% coverage per task, Infection once at the end of the branch, one final whole-branch review.
 
+> **Superseded in execution:** the three fixed bands below were replaced by the proportional rule of the spec (typos tolerated by length, similarity computed in SQL from the normalised word) after measuring; see the spec's Part 1 and the commit history.
+
 ## Global Constraints
 
 - Bands by length of the normalised word, spaces removed (the same length `fuzzy_min_length` checks): 3–4 → 0.6, 5–7 → 0.45, 8+ → 0.3. Task 2 step 1 confirms them by measurement before they are fixed.

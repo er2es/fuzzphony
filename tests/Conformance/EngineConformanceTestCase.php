@@ -121,10 +121,13 @@ abstract class EngineConformanceTestCase extends TestCase
         $result = $this->fuzzphony->in('products')->query('"wireles headphones"')->get();
 
         self::assertTrue($result->usedFuzzy);
-        // a phrase is one needle: the wireless headphones first, then the wireless mouse that shares
-        // enough trigrams with it, and nothing else
-        self::assertSame([3, 1], $this->ids($result));
-        self::assertGreaterThan($result->hits[1]->breakdown->fuzzySimilarity, $result->hits[0]->breakdown->fuzzySimilarity);
+        // a phrase is one needle, with the similarity of its length (17 letters: two typos): only the wireless headphones
+        self::assertSame([3], $this->ids($result));
+
+        // a flat 0.3 also lets in the wireless mouse, which shares enough trigrams with the phrase; it ranks second
+        $lenient = $this->fuzzphony->in('products')->query('"wireles headphones"')->thresholds(['fuzzy_similarity' => 0.3])->get();
+        self::assertSame([3, 1], $this->ids($lenient));
+        self::assertGreaterThan($lenient->hits[1]->breakdown->fuzzySimilarity, $lenient->hits[0]->breakdown->fuzzySimilarity);
 
         // the phrase is one unit among others: the wireless mouse lacks "sony", so it is out
         self::assertSame([3], $this->ids($this->fuzzphony->in('products')->query('"wireles headphones" sony')->get()));

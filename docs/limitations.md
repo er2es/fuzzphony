@@ -8,11 +8,13 @@ partitions, which fire no triggers in PostgreSQL, and the trigram limits of typo
 
 ## Typo tolerance is trigram-based
 
-Typo tolerance is per word, and the similarity a word needs depends on its length (see
-[Typo tolerance](searching.md#typo-tolerance)). Trigrams still cannot tell a typo from a different
-word that looks alike: `cable` and `table` are equally close, and a one-letter typo in a very
-short word (`mose` for `mouse`, similarity 0.40 against the 0.60 that four letters need) is not
-tolerated. Set an explicit `fuzzy_similarity` (a flat value for every word) when that matters.
+Typo tolerance is per word, and the similarity a word needs is proportional to its length (see
+[Typo tolerance](searching.md#typo-tolerance)). Trigrams cannot tell a typo from a different word that
+looks alike: `cable` and `table` are equally close, and `mose` is as close to `monitor` and `mower` as
+to `mouse` (one letter each), so a search for `mose` also lists them, ranked below the mice. That is
+the price of tolerating a typo in a four-letter word; a flat `fuzzy_similarity` (a number, for every
+word) trades the other way, and the fuzzy search only runs when exact matching finds fewer than
+`fallback_below` hits.
 
 ## Attaching or detaching a partition is not followed
 

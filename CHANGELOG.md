@@ -9,23 +9,30 @@ changes; they are always listed under **Breaking** and explained in [UPGRADE.md]
 
 ### Breaking
 
-- Typo tolerance is length-aware by default: the trigram similarity a word needs is 0.6 for 3 to 4
-  letters, 0.45 for 5 to 7 and 0.3 from 8 (the letters of a phrase count without spaces), so `mouse`
-  no longer matches `monitor` or `mower`, while `wireles`, `hedphones` and `mouze` still match. A
-  one-letter typo in a very short word (`mose` for `mouse`) is no longer tolerated. Typo-tolerant
-  result sets change. `fuzzy_similarity: 0.3` (a number) keeps the old flat behaviour for every
-  word. `Thresholds::$fuzzySimilarity` is now `?float` (`null`, the default, means by length): code
-  that reads it must handle `null`, and the new `Thresholds::similarityFor(int $length)` and
-  `lowestSimilarity()` answer the questions it used to. See [UPGRADE.md](UPGRADE.md#from-06-to-07).
+- Typo tolerance is proportional to the word's length by default: one typo is tolerated from 4
+  letters and two from 8, and the trigram similarity a word needs is that of the worst such typo
+  plus 0.03, `(n + 1 − 3t) / (n + 1 + 3t)` (0.28 for 4 letters, 0.36 for 5, 0.48 for 7, 0.23 for 8,
+  0.40 for 12; 0.6 below 4 letters), measured in PostgreSQL on the normalised word. `mouse` no longer
+  matches `monitor` or `mower`, while `mose`, `mouze`, `wireles` and `hedphones` still match. Typo-tolerant
+  result sets change: fewer near-misses for 5 to 7 letter words, more tolerance for typos in 4-letter
+  words (`mose` finds `mouse`, and as close to it, `monitor` and `mower`). `fuzzy_similarity: 0.3` (a
+  number) keeps the old flat behaviour for every word. `Thresholds::$fuzzySimilarity` is now `?float`
+  (`null`, the default, means by length): code that reads it must handle `null`;
+  `Thresholds::similarityFor(int $length)` and `lowestSimilarity()` answer what it used to. See
+  [UPGRADE.md](UPGRADE.md#from-06-to-07).
 
 ### Changed
 
 - The doctor's configuration check shows `similarity=by word length` for the default and warns
   "very tolerant" only for an explicit `fuzzy_similarity` below 0.2.
+- `fuzzphony:search --threshold fuzzy_similarity=null` goes back to the by-length default.
+- Demo: the Playground has a "Fuzzy similarity by word length" switch (on by default); the slider
+  applies only when it is off.
 - The typo-tolerant statement rechecks each word against the similarity of its own length
   (`word_similarity(…) >= t` next to `<%`, in the search, the field-scoped words and the
-  empty-result relaxation probe); the session's `pg_trgm.word_similarity_threshold` is set to the
-  lowest similarity in use so the GIN indexes still find the candidates.
+  empty-result relaxation probe, with `t` computed in SQL from the normalised word's length); the
+  session's `pg_trgm.word_similarity_threshold` is set to the lowest similarity in use (0.23) so the
+  GIN indexes still find the candidates.
 
 ## [0.6.1] - 2026-10-01
 

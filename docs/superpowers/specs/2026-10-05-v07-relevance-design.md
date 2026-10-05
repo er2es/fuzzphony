@@ -13,17 +13,27 @@ work (`tv` ↔ `television`), and a word that matches nothing gets a spelling su
 
 ## Part 1: Length-aware typo tolerance (Breaking)
 
-- `Thresholds::$fuzzySimilarity` becomes `?float`, default `null` = similarity by word length.
-  Bands by the length of the normalised word (lexeme characters): 3–4 → 0.6, 5–7 → 0.45, 8+ → 0.3.
-  The values are confirmed by measurement on the demo catalogue before they are fixed
-  (`mouse`/`monitor` must not match; `wireles`, `hedphones`, `mose`-style typos must).
-- An explicit number (`fuzzy_similarity: 0.3`, per index or per query) stays flat, as today.
-  `null` is accepted in YAML / `->thresholds()` to go back to length-aware. Only the default
-  changes behaviour.
-- `pg_trgm`'s `<%` uses one session-wide threshold. `PostgresEngine` sets it to the lowest band in
-  use (so GIN still finds the candidates) and `FuzzyQueryCompiler` adds a per-word
-  `word_similarity(needle, column) >= :t` check next to `<%`. The same per-word threshold applies in
-  the score, in the relaxation probe and in field-scoped words.
+- `Thresholds::$fuzzySimilarity` becomes `?float`, default `null` = proportional to the word's
+  length. One typo is tolerated from 4 letters and two from 8 (`Thresholds::TYPOS_BY_LENGTH`); a
+  typo changes at most three of a word's n + 1 trigrams, so t typos leave a trigram similarity of at
+  least (n + 1 - 3t) / (n + 1 + 3t) (measured exactly this on generated typos of 60 words, for
+  1 and 2 typos, by the length of the *query* word), and a word needs that plus a slack of 0.03,
+  which keeps a different word at exactly the worst case out (`mouse` / `monitor` is 0.333, the
+  worst case for five letters). Words below 4 letters need 0.6. n is the length of the *normalised*
+  word, measured in PostgreSQL (`fuzzphony_norm`, so `ß` counts as `ss`), a phrase without its
+  spaces. `Thresholds::similarityFor()` is the same rule in PHP, `lowestSimilarity()` (0.23) is
+  what the session threshold is set to.
+  Measured trade-off on 130 demo words: one-typo recall 81% (the three fixed bands: 69%), two-typo
+  recall 91% (89%), false matches per correctly spelled word 0.56 (0.24) for 4 to 7 letters and 0.45
+  (0.42) from 8. `mose` finds `mouse` and, as close to it, `monitor` and `mower`; the fuzzy search only
+  runs as a fallback by default and ranks them lower.
+- An explicit number (`fuzzy_similarity: 0.3`, per index or per query, or `--threshold` on the
+  command line) stays flat, as today; `null` returns to proportional. Only the default changes.
+- `pg_trgm`'s `<%` uses one session-wide threshold. `PostgresEngine` sets it to the lowest similarity
+  (so GIN still finds the candidates) and `FuzzyQueryCompiler` adds a per-word
+  `word_similarity(needle, column) >= <CASE on the length of the normalised word>` check next to `<%`.
+  The same check applies in the score, in the relaxation probe and in field-scoped words. A flat
+  value adds no check.
 - `fuzzy_min_length` is unchanged. The doctor's risky-threshold check still accepts a flat value.
 - Docs: `limitations.md` loses "Typo tolerance is lenient" (README limitation and link too),
   `ranking.md` thresholds table, CHANGELOG **Breaking**, UPGRADE "From 0.6 to 0.7".

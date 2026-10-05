@@ -68,7 +68,8 @@ final class SearchCommand extends Command
         $overrides = [];
         foreach ((array) $input->getOption('threshold') as $pair) {
             [$key, $value] = array_pad(explode('=', Coerce::str($pair), 2), 2, '');
-            $overrides[$key] = is_numeric($value) ? $value + 0 : $value;
+            // "null" goes back to the default (fuzzy_similarity: by word length)
+            $overrides[$key] = strtolower($value) === 'null' ? null : (is_numeric($value) ? $value + 0 : $value);
         }
         if ($overrides !== []) {
             $search = $search->thresholds($overrides);

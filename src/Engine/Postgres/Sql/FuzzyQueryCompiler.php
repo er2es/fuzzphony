@@ -220,9 +220,9 @@ final class FuzzyQueryCompiler
         $norm = $this->column('fn', sprintf('%s(%s)', $this->names->normFunction(), $params->add($needle)));
         $schema = $this->names->extension();
         $field = $this->scopedField($node);
-        $similarity = $this->thresholds->similarityFor(self::length($needle));
-        // "<%" uses the session's lowest similarity (so GIN finds every candidate); a word whose own length asks for more is rechecked
-        $recheck = $similarity > $this->thresholds->lowestSimilarity() ? sprintf(' AND %%s.word_similarity(%s, %%s) >= %s', $norm, sprintf('%.2F', $similarity)) : '';
+        // "<%" uses the session's lowest similarity (so GIN finds every candidate); by default each word is
+        // rechecked against the similarity of its own length, which PostgreSQL measures on the normalised word
+        $recheck = $this->thresholds->fuzzySimilarity === null ? sprintf(' AND %%s.word_similarity(%s, %%s) >= %s', $norm, self::similaritySql($norm)) : '';
         if ($field === null) {
             return [
                 'predicate' => $recheck === ''
@@ -306,6 +306,21 @@ final class FuzzyQueryCompiler
         $field = $this->scopedField($node);
 
         return $this->index->hasFuzzy() && ($field === null || $field->fuzzy) && self::length($needle) >= $this->thresholds->fuzzyMinLength ? $needle : null;
+    }
+
+    /**
+     * Thresholds::similarityFor() as a SQL expression of the normalised word $norm (a phrase counts
+     * its letters without the spaces between its words).
+     */
+    private static function similaritySql(string $norm): string
+    {
+        $length = sprintf("char_length(replace(%s, ' ', ''))", $norm);
+        $whens = '';
+        foreach (Thresholds::TYPOS_BY_LENGTH as [$minLength, $typos]) {
+            $whens .= sprintf(' WHEN %1$s >= %2$d THEN (%1$s + 1 - %3$d)::float8 / (%1$s + 1 + %3$d) + %4$s', $length, $minLength, 3 * $typos, Thresholds::SLACK);
+        }
+
+        return sprintf('(CASE%s ELSE %s END)', $whens, Thresholds::SHORT_SIMILARITY);
     }
 
     /** The length of a needle that similarity is judged by: its letters, without the spaces between words. */
