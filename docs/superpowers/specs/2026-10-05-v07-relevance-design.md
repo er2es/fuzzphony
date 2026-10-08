@@ -86,7 +86,7 @@ work (`tv` ↔ `television`), and a word that matches nothing gets a spelling su
 - Doctor "Vocabulary": error when the table is missing, warning when it is empty (staleness against
   the documents' definition hash is not tracked: a rebuild is cheap and the words rarely change).
 - Did-you-mean (`SearchResult::$didYouMean`, `?string`, threshold `did_you_mean`): when fewer hits
-  than `fallback_below`, for each whole word (at least `fuzzy_min_length`, not a prefix, not negated,
+  than `fallback_below` (or typo tolerance had to run), for each whole word (at least `fuzzy_min_length`, not a prefix, not negated,
   not a stop word, not one a synonym expanded) the vocabulary lacks: ten trigram candidates, the
   nearest by edit distance (at most a third of the word's length), then by document count. The
   corrected query is rendered from the parsed query (`QueryRenderer`), so operators, quotes, fields
@@ -96,17 +96,16 @@ work (`tv` ↔ `television`), and a word that matches nothing gets a spelling su
 - 0.8's `suggest()` reads the same table; synonym members may become extra suggestion candidates
   without being written into it.
 
-## Demo (last step of the milestone, after PR 3)
+## Demo (built after PR 3)
 
-Everything relevant in 0.7 is shown in the demo: the did-you-mean suggestion ("Did you mean
-headphones?", linked to the corrected search) wherever a result can be empty (the Compare page, the
-Playground, the Languages page), the synonyms of the demo's indexes (a few `catalog` groups such as
-`tv ↔ television`, shown in `interpretedAs`), and length-aware tolerance (`mouse` no longer lists
-monitors, one-click example). Decided when the demo is done, by what reads better: rework the
-existing pages (new one-click examples, a suggestion line in the result header), or add a new menu
-item (for example "Relevance") that walks through the three features side by side with the old
-behaviour (flat `fuzzy_similarity: 0.3`). `demo/README.md` and the demo's page table are updated
-with it. PR 1 and PR 2 only touch the demo where a flag or default would otherwise break it.
+A new "Relevance" page (`/relevance`) with one-click examples shows the three features on one query:
+typo tolerance by word length next to a flat 0.3 (both with `fuzzy_mode: always`, so only the similarity
+rule differs), the synonyms of the `catalog` index (`[mouse, mice]`, `[headphones, headset, earphones]`,
+`[monitor, display, screen]`, `drill => screwdriver`) with the expansion in "understood as", and the
+"did you mean" suggestion as a link. The ILIKE vs Fuzzphony and Playground pages show the suggestion too.
+`init` builds the vocabulary of an index that already existed and the application role keeps
+`SELECT, INSERT, DELETE` on the schema's tables, so the worker's rebuilds fill it. The suggestion's own
+SQL is not in the SQL views (`explain()` does not list it).
 
 ## Public API and compatibility
 
@@ -146,7 +145,7 @@ these win):
 | Vocabulary table | additive: created by `fuzzphony:schema --apply`, sidecar layout stays 2, no forced reindex; the doctor warns while it is empty |
 | Filling it | by the full reindex (`fuzzphony:reindex --vocabulary` rebuilds just this table) and by the worker; never per write |
 | Engine interface | an optional interface (`Engine\Vocabulary`), not a new required `Engine` method (no Breaking for custom engines); no separate `Capability` (one source of truth) |
-| Did-you-mean trigger | fewer hits than `fallback_below` and a positive word that is not in the vocabulary and that no document of the index matches |
+| Did-you-mean trigger | fewer hits than `fallback_below`, or typo tolerance had to run, and a positive word that is not in the vocabulary and that no document of the index matches |
 | Did-you-mean ranking | trigram top-K candidates from the vocabulary, then edit distance, then frequency (raw trigram ranking suggests `most` for `mose`) |
 | Doctor "Vocabulary" | error when the table is missing, warning when it is empty; staleness against the documents' definition hash is not tracked (a rebuild is cheap; to be confirmed by the maintainer) |
 | Synonym forms | groups (`[tv, television]`) and one-way rules (`laptop => notebook`), inline in YAML / builder / attribute |

@@ -80,6 +80,15 @@ for index in catalog lang_en lang_de lang_fr lang_es lang_hu; do
     fi
 done
 
+# A full reindex fills the vocabulary ("did you mean"); an index that already existed (an upgraded demo volume) has an
+# empty one, because the table is new: fill just that.
+for index in catalog lang_en lang_de lang_fr lang_es lang_hu; do
+    if [ "$(psql -tAc "SELECT NOT EXISTS (SELECT 1 FROM fuzzphony.fuzzphony_${index}__vocab)")" = t ]; then
+        log "building the vocabulary of $index"
+        php bin/console fuzzphony:reindex "$index" --vocabulary --no-interaction
+    fi
+done
+
 # Read access to the catalogue, and to Fuzzphony's own schema what the search, the sync triggers and the worker need
 # (the index tables, the sync queue, the version table); no DDL anywhere.
 log "granting $APP_ROLE access"

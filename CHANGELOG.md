@@ -40,7 +40,7 @@ changes; they are always listed under **Breaking** and explained in [UPGRADE.md]
   small statement for each query word it has not seen yet. New public class
   `Fuzzphony\Core\Definition\Synonyms`; see [Synonyms](docs/searching.md#synonyms).
 
-- "Did you mean": a search that finds fewer hits than `fallback_below` and has a whole word the index
+- "Did you mean": a search that finds fewer hits than `fallback_below` (or had to use typo tolerance) and has a whole word the index
   does not know (not in the vocabulary, not a stop word, and no document matches it: so not a word of a
   field that is not typo-tolerant, an inflection or a word added since the last reindex) sets
   `SearchResult::$didYouMean` to the query with that word replaced by the nearest word of the index
@@ -62,7 +62,10 @@ changes; they are always listed under **Breaking** and explained in [UPGRADE.md]
   "very tolerant" only for an explicit `fuzzy_similarity` below 0.2.
 - `fuzzphony:search --threshold fuzzy_similarity=null` goes back to the by-length default.
 - Demo: the Playground has a "Fuzzy similarity by word length" switch (on by default); the slider
-  applies only when it is off.
+  applies only when it is off. A new Relevance page shows typo tolerance by word length next to a flat
+  0.3, the catalogue's synonyms (`mice`, `display`, `headset`, `drill => screwdriver`) and the "did you
+  mean" suggestion, which the ILIKE vs Fuzzphony and Playground pages show too; `init` fills the
+  vocabulary of an index that already existed.
 - The typo-tolerant statement rechecks each word against the similarity of its own length
   (`word_similarity(…) >= q.th<n>` next to `<%`, in the search, the field-scoped words and the
   empty-result relaxation probe, with the threshold computed in SQL, once, from the normalised

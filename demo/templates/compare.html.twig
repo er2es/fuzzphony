@@ -42,6 +42,7 @@
                     {% if result.usedFuzzy %}· typo tolerant{% endif %} · understood as <code>{{ result.interpretedAs }}</code>
                 </p>
                 {% for warning in result.warnings %}<p class="s-warning">{{ warning }}</p>{% endfor %}
+                {% if result.didYouMean %}<p>Did you mean <a href="{{ path('compare', {q: result.didYouMean}) }}" data-loading-message="Searching for {{ result.didYouMean }}…"><strong>{{ result.didYouMean }}</strong></a>?</p>{% endif %}
                 <ul class="hits">
                     {% for hit in result.hits %}
                         {% set row = with.rows[hit.id] ?? null %}

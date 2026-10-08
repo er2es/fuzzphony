@@ -240,8 +240,8 @@ $result->didYouMean;   // "headphones -cable": the query with the word replaced,
 
 - It is a suggestion: Fuzzphony never searches it by itself. Show it as a link that searches
   `$result->didYouMean`. It is plain text made of the user's own words: escape it when you render it.
-- When: fewer hits than `fallback_below` (5), so it also appears next to the results typo tolerance
-  found. It is not computed for a browse, a search with enough hits, or when `did_you_mean` is `false`.
+- When: fewer hits than `fallback_below` (5), or typo tolerance had to run (so it also appears next to the
+  results typo tolerance found: `hedphones` finds headphones and still suggests the word). It is not computed for a browse, a search with enough hits, or when `did_you_mean` is `false`.
 - Which words: whole words of at least `fuzzy_min_length` letters (the index's own minimum) that the
   index does not know: not in the vocabulary, not a stop word, and no document of the index matches
   them (so a word of a field that is not typo-tolerant, an inflection such as `headphone`, `wi-fi`, or a

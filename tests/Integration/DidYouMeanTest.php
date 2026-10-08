@@ -83,12 +83,12 @@ final class DidYouMeanTest extends TestCase
         self::assertNull($this->mean($fuzzphony, 'wireless mouse'));
     }
 
-    public function testASearchWithEnoughHitsIsNotSecondGuessed(): void
+    public function testTheSuggestionAlsoComesWithTheHitsTypoToleranceFound(): void
     {
         $fuzzphony = $this->fuzzphony();
 
         self::assertSame('wireless', $this->mean($fuzzphony, 'wireles'));
-        self::assertNull($this->mean($fuzzphony, 'wireles', '1'), 'fallback_below 1: one hit is enough');
+        self::assertSame('wireless', $this->mean($fuzzphony, 'wireles', '1'), 'fallback_below 1 does not matter: typo tolerance had to run');
         self::assertNull($fuzzphony->in('products')->query('hedphones')->thresholds(['did_you_mean' => false])->get()->didYouMean);
     }
 

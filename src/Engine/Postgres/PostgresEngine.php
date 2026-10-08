@@ -454,7 +454,7 @@ final class PostgresEngine implements Engine, Vocabulary
             $capped = $total >= $thresholds->candidateLimit;
         }
         $rows = self::hitsOnly($rows);
-        $didYouMean = $thresholds->didYouMean && $typedRoot !== null && $expandedRoot !== null && !$run['browse'] && $index->hasFuzzy() && $total < $thresholds->fallbackBelow
+        $didYouMean = $thresholds->didYouMean && $typedRoot !== null && $expandedRoot !== null && !$run['browse'] && $index->hasFuzzy() && ($total < $thresholds->fallbackBelow || $run['usedFuzzy'])
             ? $this->suggest($index, $typedRoot, $expandedRoot, $thresholds)
             : null;
 

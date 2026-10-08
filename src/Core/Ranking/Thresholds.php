@@ -44,8 +44,8 @@ final readonly class Thresholds
          */
         public bool $relaxWhenEmpty = true,
         /**
-         * A search that finds fewer hits than fallbackBelow, with a word that is not in the index's
-         * vocabulary, suggests the spelling it probably meant (SearchResult::$didYouMean).
+         * A search that finds fewer hits than fallbackBelow, or had to use typo tolerance, with a word that
+         * the index does not know, suggests the spelling it probably meant (SearchResult::$didYouMean).
          */
         public bool $didYouMean = true,
     ) {
