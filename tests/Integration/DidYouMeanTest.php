@@ -5,8 +5,11 @@ declare(strict_types=1);
 namespace Fuzzphony\Tests\Integration;
 
 use Fuzzphony\Core\Database\Connection;
+use Fuzzphony\Core\Definition\FieldDefinition;
 use Fuzzphony\Core\Definition\Synonyms;
+use Fuzzphony\Core\Definition\Weight;
 use Fuzzphony\Core\Fuzzphony;
+use Fuzzphony\Core\Inspection\Check;
 use Fuzzphony\Core\Registry\IndexRegistry;
 use Fuzzphony\Engine\Postgres\PostgresEngine;
 use Fuzzphony\Tests\Conformance\EngineConformanceTestCase;
@@ -111,5 +114,49 @@ final class DidYouMeanTest extends TestCase
         $fuzzphony = $this->fuzzphony();
         $this->connection->execute('DROP TABLE "fuzzphony_products__vocab"');
         self::assertNull($this->mean($fuzzphony, 'hedphones'), 'a table the schema has not created yet');
+    }
+
+    public function testTheDistanceAllowedGrowsWithTheLengthOfTheWord(): void
+    {
+        $fuzzphony = $this->fuzzphony();
+        $mean = function (string $query, string ...$vocabulary) use ($fuzzphony): ?string {
+            $this->connection->execute('TRUNCATE "fuzzphony_products__vocab"');
+            foreach ($vocabulary as $word) {
+                $this->connection->execute('INSERT INTO "fuzzphony_products__vocab" VALUES (:word, 1)', ['word' => $word]);
+            }
+
+            return $this->mean($fuzzphony, $query);
+        };
+
+        // a third of the letters, at least one edit
+        self::assertSame('abcdxy', $mean('abcdef', 'abcdxy'), 'six letters: two edits are fine');
+        self::assertNull($mean('abcdef', 'abcdxyz'), 'six letters: three edits are too far');
+        self::assertSame('abcdx', $mean('abcde', 'abcdx'), 'five letters: one edit is fine');
+        self::assertNull($mean('abcde', 'abcxx'), 'five letters: two edits are too far');
+        self::assertSame('abx', $mean('abc', 'abx'), 'three letters: one edit');
+        self::assertNull($mean('abc', 'abcxx'), 'three letters: two edits are too far');
+        self::assertNull($mean('zzzzzz', 'abcdef'));
+    }
+
+    public function testWordsOutsideAsciiAreComparedByCharactersNotBytes(): void
+    {
+        $fuzzphony = $this->fuzzphony();
+        $this->connection->execute('TRUNCATE "fuzzphony_products__vocab"');
+        $this->connection->execute("INSERT INTO \"fuzzphony_products__vocab\" VALUES ('кошка', 1), ('кружка', 1)");
+
+        // one character differs, which is two bytes: a five-letter word may be one edit away
+        self::assertSame('кошка', $this->mean($fuzzphony, 'кошкв'));
+        self::assertSame('кошка', $this->mean($fuzzphony, 'КОШКВ'), 'upper case is folded');
+    }
+
+    public function testTheDoctorHasNoVocabularyCheckForAnIndexWithoutFuzzyFields(): void
+    {
+        $connection = PostgresTestCase::connect();
+        PostgresTestCase::createFixtures($connection, EngineConformanceTestCase::fixtureRows());
+        $index = Indexes::products('manual')->withFields([new FieldDefinition('name', Weight::A)]);
+        $fuzzphony = new Fuzzphony(new PostgresEngine($connection), new IndexRegistry([$index]));
+        $fuzzphony->schema()->apply($connection);
+
+        self::assertNotContains('Vocabulary', array_map(static fn(Check $check): string => $check->name, $fuzzphony->inspect('products')->checks));
     }
 }

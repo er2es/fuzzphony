@@ -89,7 +89,7 @@ final class ReindexCommandTest extends TestCase
 
         $display = $this->tester->getDisplay();
         self::assertSame(Command::SUCCESS, $status, $display);
-        self::assertMatchesRegularExpression('/\d+ words in the vocabulary, in [\d.]+s/', $display);
+        self::assertMatchesRegularExpression('/\d+ words in the vocabulary, in \d{1,3}\.\ds/', $display);
         self::assertStringNotContainsString('documents in', $display);
         self::assertStringNotContainsString('orphaned', $display);
         self::assertGreaterThan(0, Coerce::int($this->context->connection->fetchValue('SELECT count(*) FROM "fuzzphony_products__vocab"')));

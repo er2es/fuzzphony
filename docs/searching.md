@@ -247,7 +247,9 @@ $result->didYouMean;   // "headphones -cable": the query with the word replaced,
   synonym expands (the index knows them by definition) and the words the vocabulary has.
 - Which suggestion: the vocabulary word nearest by edit distance (the trigram index only picks ten
   candidates; a trigram ranking alone suggests `most` for `mose`), then the one in more documents.
-  Nothing farther than a third of the word's length away is suggested. The suggested word is the
+  Nothing farther than a third of the word's length away is suggested, and a candidate has to share
+  enough trigrams with the word (pg_trgm's similarity of 0.3), so a word that is two edits away at the
+  start and the end gets none. The suggested word is the
   vocabulary's, so lowercase and without accents.
 - The vocabulary is the words of the index's typo-tolerant fields and in how many documents each
   occurs. A full `fuzzphony:reindex` rebuilds it (`fuzzphony:reindex --vocabulary` rebuilds only

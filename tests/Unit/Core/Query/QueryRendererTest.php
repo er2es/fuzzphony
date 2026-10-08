@@ -62,4 +62,12 @@ final class QueryRendererTest extends TestCase
         self::assertSame('moses', $render('moses'), 'a word is never replaced in part');
         self::assertSame('wireless*', $render('wireles*'), 'the prefix mark stays');
     }
+
+    public function testReplacementFoldsTheCaseOfAccentedWordsToo(): void
+    {
+        $root = (new QueryParser())->parse('ÉCLAIR "CRÈME BRÛLÉE"')->root;
+        self::assertNotNull($root);
+
+        self::assertSame('eclair "creme brulee"', QueryRenderer::render($root, ['éclair' => 'eclair', 'crème' => 'creme', 'brûlée' => 'brulee']));
+    }
 }
