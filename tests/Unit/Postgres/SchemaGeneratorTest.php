@@ -5,10 +5,12 @@ declare(strict_types=1);
 namespace Fuzzphony\Tests\Unit\Postgres;
 
 use Composer\InstalledVersions;
+use Fuzzphony\Core\Definition\FieldDefinition;
 use Fuzzphony\Core\Definition\IndexDefinition;
 use Fuzzphony\Core\Definition\SyncMode;
 use Fuzzphony\Core\Definition\TriggerLevel;
 use Fuzzphony\Core\Definition\Watch;
+use Fuzzphony\Core\Definition\Weight;
 use Fuzzphony\Core\Schema\Statement;
 use Fuzzphony\Engine\Postgres\Schema\Fingerprint;
 use Fuzzphony\Engine\Postgres\Schema\Names;
@@ -53,11 +55,31 @@ final class SchemaGeneratorTest extends TestCase
         $statements = (new PostgresSchemaGenerator())->index(Indexes::products())->statements;
         $concurrent = array_values(array_filter($statements, static fn(Statement $s): bool => str_contains($s->sql, 'CONCURRENTLY')));
 
-        self::assertCount(6, $concurrent); // tsv, trigram, 4 filters
+        self::assertCount(7, $concurrent); // tsv, trigram, 4 filters, the vocabulary's trigram index
         foreach ($concurrent as $statement) {
             self::assertFalse($statement->transactional);
         }
         self::assertStringContainsString('USING gin (fz "public".gin_trgm_ops)', $concurrent[1]->sql);
+    }
+
+    public function testAFuzzyIndexGetsAnEmptyVocabularyTableAndItsTrigramIndex(): void
+    {
+        $sql = (new PostgresSchemaGenerator())->index(Indexes::products())->toSql();
+
+        self::assertStringContainsString('CREATE TABLE IF NOT EXISTS "public"."fuzzphony_products__vocab" (word text PRIMARY KEY, freq integer NOT NULL)', $sql);
+        self::assertStringContainsString('CREATE INDEX CONCURRENTLY IF NOT EXISTS "fuzzphony_products__vocab_trgm" ON "public"."fuzzphony_products__vocab" USING gin (word "public".gin_trgm_ops)', $sql);
+    }
+
+    public function testAnIndexWithoutFuzzyFieldsHasNoVocabulary(): void
+    {
+        $index = Indexes::products()->withFields([new FieldDefinition('name', Weight::A, fuzzy: false), new FieldDefinition('description', Weight::D)]);
+
+        self::assertStringNotContainsString('__vocab', (new PostgresSchemaGenerator())->index($index)->toSql());
+    }
+
+    public function testDroppingAnIndexDropsItsVocabulary(): void
+    {
+        self::assertStringContainsString('DROP TABLE IF EXISTS "public"."fuzzphony_products__vocab"', (new PostgresSchemaGenerator())->drop(Indexes::products())->toSql());
     }
 
     public function testQueueModeEnqueuesAndTriggerModeRefreshes(): void

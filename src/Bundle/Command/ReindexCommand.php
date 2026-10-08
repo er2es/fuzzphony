@@ -38,6 +38,7 @@ final class ReindexCommand extends Command
             ->addOption('in-place', null, InputOption::VALUE_NONE, 'Write the live index directly: no second copy on disk, but searches see a mix of old and new documents while it runs')
             ->addOption('no-prune', null, InputOption::VALUE_NONE, 'Do not remove indexed documents this session cannot see in the source (row-level security, search_path)')
             ->addOption('prune-empty', null, InputOption::VALUE_NONE, 'Prune even when the source returns no row at all (wipes the whole index)')
+            ->addOption('vocabulary', null, InputOption::VALUE_NONE, 'Rebuild only the vocabulary ("did you mean") from the documents already indexed; no document is written')
             ->addOption('force', null, InputOption::VALUE_NONE, 'Skip the "--prune-empty" confirmation prompt (required in non-interactive runs)');
     }
 
@@ -49,6 +50,7 @@ final class ReindexCommand extends Command
         $noPrune = $input->getOption('no-prune') === true;
         $inPlace = $input->getOption('in-place') === true;
         $pruneEmpty = $input->getOption('prune-empty') === true;
+        $vocabularyOnly = $input->getOption('vocabulary') === true;
         // an in-place run resumes in place: a full run resumed from its id would continue a stale rebuild
         $again = ($inPlace ? '--in-place ' : '') . ($noPrune ? '--no-prune ' : '');
 
@@ -72,6 +74,7 @@ final class ReindexCommand extends Command
                         $io->writeln(sprintf('  %s documents, %s/s, last id %s <comment>(resume: %s--from=%s)</comment>', number_format($done), number_format($rate), $last, $again, $last));
                     },
                     inPlace: $inPlace,
+                    vocabularyOnly: $vocabularyOnly,
                 ));
             } catch (FuzzphonyException $e) {
                 // a failed run keeps what it built (a full run: its rebuild), so resuming continues it
@@ -82,7 +85,18 @@ final class ReindexCommand extends Command
 
                 return Command::FAILURE;
             }
+            if ($vocabularyOnly) {
+                $io->writeln(sprintf('  <info>%s words in the vocabulary, in %.1fs</info>', number_format((int) $result->vocabulary), microtime(true) - $started));
+
+                continue;
+            }
             $io->writeln(sprintf('  <info>%s documents in %.1fs</info>', number_format($result->written), microtime(true) - $started));
+            if ($result->vocabulary !== null) {
+                $io->writeln(sprintf('  %s words in the vocabulary ("did you mean")', number_format($result->vocabulary)));
+            }
+            if ($result->vocabularyError !== null) {
+                $io->writeln(sprintf('  <comment>The documents are indexed, but the vocabulary could not be rebuilt: %s Run fuzzphony:reindex --vocabulary when that is fixed.</comment>', OutputFormatter::escape($result->vocabularyError)));
+            }
             $io->writeln(match (true) {
                 $result->swapped => '  Built next to the live index and swapped in: searches never saw a partial index, and documents the source no longer returns went with the old one.',
                 $result->pruned !== null => sprintf('  %s orphaned document(s) removed (no longer in the source)', number_format($result->pruned)),

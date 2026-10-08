@@ -6,6 +6,9 @@ namespace Fuzzphony\Core\Sync;
 
 use Fuzzphony\Core\Definition\IndexDefinition;
 use Fuzzphony\Core\Engine\Engine;
+use Fuzzphony\Core\Engine\Vocabulary;
+use Fuzzphony\Core\Exception\FuzzphonyException;
+use Fuzzphony\Core\Exception\InvalidArgument;
 
 /**
  * @internal Batched, resumable reindex using keyset pagination over source ids.
@@ -31,6 +34,17 @@ final class Reindexer
     public function __construct(private readonly Engine $engine) {}
 
     public function run(IndexDefinition $index, ReindexOptions $options): ReindexResult
+    {
+        if ($options->vocabularyOnly) {
+            return $this->vocabularyOnly($index);
+        }
+        $result = $this->documents($index, $options);
+
+        // a full run that wrote documents: resumed runs and an empty source leave the vocabulary alone
+        return $options->vocabulary && $options->resumeAfter === null && !$result->pruneSkippedEmptySource ? $this->withVocabulary($index, $result) : $result;
+    }
+
+    private function documents(IndexDefinition $index, ReindexOptions $options): ReindexResult
     {
         $resumed = $options->resumeAfter !== null;
         if ($options->inPlace && !$resumed) {
@@ -60,6 +74,31 @@ final class Reindexer
         $this->engine->recordReindex($index);
 
         return new ReindexResult($written, swapped: true);
+    }
+
+    /** The vocabulary after a full run: a failure is reported, it does not undo the documents. */
+    private function withVocabulary(IndexDefinition $index, ReindexResult $result): ReindexResult
+    {
+        if (!$this->engine instanceof Vocabulary || !$index->hasFuzzy()) {
+            return $result;
+        }
+        try {
+            return $result->withVocabulary($this->engine->rebuildVocabulary($index));
+        } catch (FuzzphonyException $e) {
+            return $result->withVocabulary(null, $e->getMessage());
+        }
+    }
+
+    private function vocabularyOnly(IndexDefinition $index): ReindexResult
+    {
+        if (!$this->engine instanceof Vocabulary) {
+            throw new InvalidArgument(sprintf('The "%s" engine keeps no vocabulary.', $this->engine->name()));
+        }
+        if (!$index->hasFuzzy()) {
+            throw new InvalidArgument(sprintf('Index "%s" has no fuzzy field, so it has no vocabulary.', $index->name));
+        }
+
+        return new ReindexResult(0, vocabulary: $this->engine->rebuildVocabulary($index));
     }
 
     private function inPlace(IndexDefinition $index, ReindexOptions $options): ReindexResult

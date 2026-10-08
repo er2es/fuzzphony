@@ -23,6 +23,12 @@ final readonly class SearchResult implements \IteratorAggregate, \Countable
         public int $offset,
         /** The canonical form of the parsed query, e.g. "(wireless AND NOT cable)". */
         public ?string $interpretedAs = null,
+        /**
+         * The query with the spelling it probably meant, when it found few hits and a word is not in the
+         * index's vocabulary (`hedphones` -> `headphones`); null otherwise. Plain text, not HTML: it
+         * contains the user's own words, so escape it when you render it. Search it by passing it to query().
+         */
+        public ?string $didYouMean = null,
     ) {}
 
     /** @param list<string> $warnings */

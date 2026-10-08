@@ -178,4 +178,17 @@ final class ThresholdsTest extends TestCase
         $this->expectExceptionMessageMatches('/"fuzzy_min_length" must be an integer\./');
         (new Thresholds())->with(['fuzzy_min_length' => 'three']);
     }
+
+    public function testDidYouMeanIsOnByDefaultAndCanBeSwitchedOff(): void
+    {
+        $default = new Thresholds();
+        self::assertTrue($default->didYouMean);
+        self::assertFalse($default->with(['did_you_mean' => false])->didYouMean);
+        self::assertFalse($default->with(['did_you_mean' => 'no'])->didYouMean, 'command-line strings count');
+        self::assertTrue($default->with(['did_you_mean' => false])->with(['did_you_mean' => 1])->didYouMean);
+
+        $this->expectException(InvalidDefinition::class);
+        $this->expectExceptionMessageMatches('/"did_you_mean" must be a boolean\./');
+        $default->with(['did_you_mean' => 'maybe']);
+    }
 }

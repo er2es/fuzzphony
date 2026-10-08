@@ -21,6 +21,23 @@ final class NodeInspector
     }
 
     /**
+     * The words of a query a spelling suggestion may correct: the whole words it looks for (not the
+     * negated ones, prefixes or the alternatives a synonym added), in order, with their case.
+     *
+     * @return list<string>
+     */
+    public static function suggestibleWords(?Node $node): array
+    {
+        return match (true) {
+            $node instanceof Term => $node->prefix || $node->synonym ? [] : [$node->text],
+            $node instanceof Phrase => $node->synonym ? [] : $node->words,
+            $node instanceof FieldScoped => self::suggestibleWords($node->node),
+            $node instanceof AllOf, $node instanceof AnyOf => array_merge(...array_map(self::suggestibleWords(...), $node->nodes)),
+            default => [],
+        };
+    }
+
+    /**
      * Positive words, in order, of a query: they feed the exact-match and prefix bonuses (typo-tolerant
      * matching compiles the AST itself, see FuzzyQueryCompiler). The alternatives a synonym added are
      * not words of the query.

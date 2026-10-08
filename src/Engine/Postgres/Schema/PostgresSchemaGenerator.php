@@ -114,6 +114,12 @@ final class PostgresSchemaGenerator
                 sprintf('Keep column "%s" in sync with the definition', $name),
             );
         }
+        if ($index->hasFuzzy()) {
+            $statements[] = new Statement(
+                sprintf('CREATE TABLE IF NOT EXISTS %s (word text PRIMARY KEY, freq integer NOT NULL)', $this->names->vocabulary($index)),
+                sprintf('Vocabulary of "%s": its words and in how many documents each occurs (filled by fuzzphony:reindex)', $index->name),
+            );
+        }
         $statements[] = new Statement($this->refreshFunction($index), 'Builds / removes documents by id');
         $statements[] = new Statement($this->refreshFunction($index, shadow: true), 'Builds / removes documents by id in the table a full reindex builds next to the live one');
         $statements[] = new Statement($this->trackFunction($index), 'Logs which documents change while a full reindex runs');
@@ -145,6 +151,13 @@ final class PostgresSchemaGenerator
             $statements[] = new Statement(
                 sprintf('CREATE INDEX CONCURRENTLY IF NOT EXISTS %s ON %s %s', Sql::ident($name), $table, $definition),
                 sprintf('Index %s', $name),
+                transactional: false,
+            );
+        }
+        if ($index->hasFuzzy()) {
+            $statements[] = new Statement(
+                sprintf('CREATE INDEX CONCURRENTLY IF NOT EXISTS %s ON %s USING gin (word %s.gin_trgm_ops)', Sql::ident($this->names->vocabularyIndexName($index)), $this->names->vocabulary($index), $this->names->extension()),
+                'Index of the vocabulary: the words close to a misspelled one',
                 transactional: false,
             );
         }
@@ -193,6 +206,7 @@ final class PostgresSchemaGenerator
             $statements[] = new Statement(sprintf('DROP FUNCTION IF EXISTS %s()', $this->names->syncFunction($index, $watch)), 'Remove sync function');
         }
         $statements[] = new Statement(sprintf('DROP FUNCTION IF EXISTS %s(%s[])', $this->names->refreshFunction($index), Types::id($index->idType)), 'Remove refresh function');
+        $statements[] = new Statement(sprintf('DROP TABLE IF EXISTS %s', $this->names->vocabulary($index)), 'Remove the vocabulary');
         $statements[] = new Statement(sprintf('DROP TABLE IF EXISTS %s', $this->names->sidecar($index)), 'Remove sidecar table');
         $statements[] = new Statement(sprintf('DROP TABLE IF EXISTS %s', $this->names->shadow($index)), 'Remove a rebuild that did not finish');
         $statements[] = new Statement(sprintf('DROP TABLE IF EXISTS %s', $this->names->changes($index)), 'Remove its change log');

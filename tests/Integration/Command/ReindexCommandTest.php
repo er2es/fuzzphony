@@ -67,7 +67,43 @@ final class ReindexCommandTest extends TestCase
         self::assertSame(Command::SUCCESS, $status, $this->tester->getDisplay());
         self::assertStringContainsString('1 orphaned document(s) removed', $this->tester->getDisplay());
         self::assertStringContainsString("Rebuilt in place: this role cannot build the index next to the live one (it needs CREATE on Fuzzphony's schema and ownership of the index table), or fuzzphony:schema --apply has not run since the upgrade.", $this->tester->getDisplay());
+        self::assertStringContainsString('The documents are indexed, but the vocabulary could not be rebuilt:', $this->tester->getDisplay());
+        self::assertStringContainsString('fuzzphony:reindex --vocabulary', $this->tester->getDisplay());
         self::assertSame(4, $this->indexed());
+    }
+
+    public function testAFullRunReportsTheVocabulary(): void
+    {
+        $status = $this->tester->execute(['index' => 'products'], ['interactive' => false]);
+
+        self::assertSame(Command::SUCCESS, $status, $this->tester->getDisplay());
+        self::assertMatchesRegularExpression('/\d+ words in the vocabulary \("did you mean"\)/', $this->tester->getDisplay());
+        self::assertStringNotContainsString('could not be rebuilt', $this->tester->getDisplay());
+    }
+
+    public function testTheVocabularyOptionRebuildsOnlyTheVocabulary(): void
+    {
+        $this->context->connection->execute('TRUNCATE "fuzzphony_products__vocab"');
+
+        $status = $this->tester->execute(['index' => 'products', '--vocabulary' => true], ['interactive' => false]);
+
+        $display = $this->tester->getDisplay();
+        self::assertSame(Command::SUCCESS, $status, $display);
+        self::assertMatchesRegularExpression('/\d+ words in the vocabulary, in [\d.]+s/', $display);
+        self::assertStringNotContainsString('documents in', $display);
+        self::assertStringNotContainsString('orphaned', $display);
+        self::assertGreaterThan(0, Coerce::int($this->context->connection->fetchValue('SELECT count(*) FROM "fuzzphony_products__vocab"')));
+        self::assertSame(5, $this->indexed(), 'no document was written: the orphan is still there');
+    }
+
+    public function testTheVocabularyOptionFailsLoudlyWhenItCannotRun(): void
+    {
+        $this->context->connection->execute('DROP TABLE "fuzzphony_products__vocab"');
+
+        $status = $this->tester->execute(['index' => 'products', '--vocabulary' => true], ['interactive' => false]);
+
+        self::assertSame(Command::FAILURE, $status);
+        self::assertStringContainsString('fuzzphony:schema --apply', $this->tester->getDisplay());
     }
 
     public function testPrintsProgressPerBatchAndASummary(): void
