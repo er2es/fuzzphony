@@ -91,9 +91,8 @@ final class VocabularyTest extends TestCase
         self::assertGreaterThan(0, $fuzzphony->reindex('products', new ReindexOptions(inPlace: true))->vocabulary);
         $this->connection->execute('TRUNCATE "fuzzphony_products__vocab"');
 
-        $only = $fuzzphony->reindex('products', new ReindexOptions(vocabularyOnly: true));
-        self::assertSame(0, $only->written);
-        self::assertSame(count($this->words()), $only->vocabulary);
+        $only = $fuzzphony->rebuildVocabulary('products');
+        self::assertSame(count($this->words()), $only);
         self::assertSame(3, $this->words()['mouse']);
     }
 
@@ -118,7 +117,7 @@ final class VocabularyTest extends TestCase
         self::assertNull($result->vocabulary);
         self::assertStringContainsString('fuzzphony:schema --apply', (string) $result->vocabularyError);
         $this->expectException(\Fuzzphony\Core\Exception\EngineFailure::class);
-        $fuzzphony->reindex('products', new ReindexOptions(vocabularyOnly: true));
+        $fuzzphony->rebuildVocabulary('products');
     }
 
     public function testAnIndexWithoutFuzzyFieldsHasNoVocabulary(): void
@@ -132,7 +131,7 @@ final class VocabularyTest extends TestCase
         self::assertNull($fuzzphony->reindex('products')->vocabulary);
         self::assertNull($connection->fetchValue("SELECT to_regclass('fuzzphony_products__vocab')"));
         $this->expectException(InvalidArgument::class);
-        $fuzzphony->reindex('products', new ReindexOptions(vocabularyOnly: true));
+        $fuzzphony->rebuildVocabulary('products');
     }
 
     public function testDroppingTheIndexDropsItsVocabulary(): void
@@ -172,5 +171,40 @@ final class VocabularyTest extends TestCase
         $missing = $check($fuzzphony);
         self::assertSame(\Fuzzphony\Core\Inspection\CheckStatus::Error, $missing->status);
         self::assertStringContainsString('does not exist', $missing->message);
+    }
+
+    public function testRebuildingInsideACallersTransactionJoinsItAndWorksTwice(): void
+    {
+        $fuzzphony = $this->fuzzphony();
+        $fuzzphony->reindex('products');
+        $expected = count($this->words());
+
+        $this->connection->transactional(function () use ($fuzzphony, $expected): void {
+            $this->connection->execute("INSERT INTO fz_product VALUES (6, 'Zebra lamp', 'Striped', 1, 1000, true, 0, now())");
+            $fuzzphony->refresh('products', [6]);
+            self::assertSame($expected + 2, $fuzzphony->rebuildVocabulary('products'), 'zebra and lamp');
+            self::assertSame($expected + 2, $fuzzphony->rebuildVocabulary('products'), 'a second rebuild in the same transaction');
+        });
+
+        self::assertSame($expected + 2, count($this->words()));
+    }
+
+    public function testARoleThatMayNotWriteTheVocabularyGetsAnErrorThatNamesWhatItNeeds(): void
+    {
+        $fuzzphony = $this->fuzzphony();
+        $role = 'fz_vocab_' . getmypid();
+        $this->connection->execute(sprintf('DROP ROLE IF EXISTS %s', $role));
+        $this->connection->execute(sprintf('CREATE ROLE %s', $role));
+        $this->expectException(\Fuzzphony\Core\Exception\EngineFailure::class);
+        $this->expectExceptionMessage('SELECT, INSERT and DELETE');
+        try {
+            $this->connection->execute(sprintf('GRANT SELECT ON fuzzphony_products, "fuzzphony_products__vocab" TO %s', $role));
+            $this->connection->execute(sprintf('SET ROLE %s', $role));
+            $fuzzphony->rebuildVocabulary('products');
+        } finally {
+            $this->connection->execute('RESET ROLE');
+            $this->connection->execute(sprintf('DROP OWNED BY %s', $role));
+            $this->connection->execute(sprintf('DROP ROLE %s', $role));
+        }
     }
 }

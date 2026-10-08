@@ -54,6 +54,11 @@ final class ReindexCommand extends Command
         // an in-place run resumes in place: a full run resumed from its id would continue a stale rebuild
         $again = ($inPlace ? '--in-place ' : '') . ($noPrune ? '--no-prune ' : '');
 
+        if ($vocabularyOnly && ($noPrune || $inPlace || $pruneEmpty || $from !== null)) {
+            $io->error('--vocabulary rebuilds only the vocabulary and writes no document: it cannot be combined with --from, --in-place, --no-prune or --prune-empty.');
+
+            return Command::INVALID;
+        }
         if ($pruneEmpty && !$this->confirmPruneEmpty($input, $io)) {
             return Command::FAILURE;
         }
@@ -61,6 +66,23 @@ final class ReindexCommand extends Command
         foreach (IndexArgument::resolve($this->fuzzphony, $input) as $index) {
             $io->section(sprintf('Reindexing "%s"', $index->name));
             $started = microtime(true);
+            if ($vocabularyOnly) {
+                if (!$index->hasFuzzy()) {
+                    $io->writeln('  <comment>No fuzzy field, so no vocabulary.</comment>');
+
+                    continue;
+                }
+                try {
+                    $words = $this->fuzzphony->rebuildVocabulary($index->name);
+                } catch (FuzzphonyException $e) {
+                    $io->writeln(sprintf('  <error>%s</error>', OutputFormatter::escape($e->getMessage())));
+
+                    return Command::FAILURE;
+                }
+                $io->writeln(sprintf('  <info>%s words in the vocabulary, in %.1fs</info>', number_format($words), microtime(true) - $started));
+
+                continue;
+            }
             $lastId = is_string($from) ? $from : null;
             try {
                 $result = $this->fuzzphony->reindex($index->name, new ReindexOptions(
@@ -74,7 +96,6 @@ final class ReindexCommand extends Command
                         $io->writeln(sprintf('  %s documents, %s/s, last id %s <comment>(resume: %s--from=%s)</comment>', number_format($done), number_format($rate), $last, $again, $last));
                     },
                     inPlace: $inPlace,
-                    vocabularyOnly: $vocabularyOnly,
                 ));
             } catch (FuzzphonyException $e) {
                 // a failed run keeps what it built (a full run: its rebuild), so resuming continues it
@@ -84,11 +105,6 @@ final class ReindexCommand extends Command
                 }
 
                 return Command::FAILURE;
-            }
-            if ($vocabularyOnly) {
-                $io->writeln(sprintf('  <info>%s words in the vocabulary, in %.1fs</info>', number_format((int) $result->vocabulary), microtime(true) - $started));
-
-                continue;
             }
             $io->writeln(sprintf('  <info>%s documents in %.1fs</info>', number_format($result->written), microtime(true) - $started));
             if ($result->vocabulary !== null) {

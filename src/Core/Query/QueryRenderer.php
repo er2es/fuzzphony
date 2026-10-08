@@ -23,7 +23,7 @@ final class QueryRenderer
     public static function render(Node $node, array $replace = []): string
     {
         return match (true) {
-            $node instanceof Term => self::word($node->text, $replace) . ($node->prefix ? '*' : ''),
+            $node instanceof Term => ($node->prefix ? self::word($node->text, $replace) : self::quoted(self::word($node->text, $replace))) . ($node->prefix ? '*' : ''),
             $node instanceof Phrase => '"' . implode(' ', array_map(static fn(string $word): string => self::word($word, $replace), $node->words)) . '"',
             $node instanceof FieldScoped => $node->field . ':' . self::render($node->node, $replace),
             $node instanceof Not => '-' . self::group($node->node, $replace),
@@ -43,6 +43,12 @@ final class QueryRenderer
         $text = self::render($child, $replace);
 
         return $child instanceof AllOf || $child instanceof AnyOf ? '(' . $text . ')' : $text;
+    }
+
+    /** A word the parser would read as syntax ("NOT", "-cable", "brand:sony", "(x)") is written in quotes, so it stays a word. */
+    private static function quoted(string $word): string
+    {
+        return preg_match('/^(AND|OR|NOT)$|^[-!]|[:*()|"]/u', $word) === 1 ? '"' . $word . '"' : $word;
     }
 
     /** @param array<string, string> $replace */

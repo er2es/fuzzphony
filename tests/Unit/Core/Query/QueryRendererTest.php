@@ -70,4 +70,29 @@ final class QueryRendererTest extends TestCase
 
         self::assertSame('eclair "creme brulee"', QueryRenderer::render($root, ['éclair' => 'eclair', 'crème' => 'creme', 'brûlée' => 'brulee']));
     }
+
+    /** @return iterable<string, array{string}> */
+    public static function quotedWords(): iterable
+    {
+        yield 'an operator word' => ['"NOT" hedphones'];
+        yield 'an or' => ['"OR" hedphones'];
+        yield 'an and' => ['"AND" hedphones'];
+        yield 'a dash' => ['"-cable" hedphones'];
+        yield 'a bang' => ['"!cable" hedphones'];
+        yield 'a field' => ['"brand:sony" hedphones'];
+        yield 'a star' => ['"a*" hedphones'];
+        yield 'a parenthesis' => ['"(x)" hedphones'];
+    }
+
+    #[DataProvider('quotedWords')]
+    public function testAWordThatLooksLikeSyntaxStaysAWordWhenAnotherWordIsReplaced(string $text): void
+    {
+        $parser = new QueryParser();
+        $root = $parser->parse($text)->root;
+        self::assertNotNull($root);
+
+        $rendered = QueryRenderer::render($root, ['hedphones' => 'headphones']);
+
+        self::assertEquals($parser->parse(str_replace('hedphones', 'headphones', $text))->root, $parser->parse($rendered)->root, $rendered);
+    }
 }

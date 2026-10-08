@@ -9,8 +9,7 @@ use Fuzzphony\Core\Definition\IndexDefinition;
 /**
  * An optional capability of an engine: it keeps the vocabulary of a fuzzy index (its words and in
  * how many documents each occurs), which "did you mean" reads. An engine that does not implement it
- * simply gives no suggestions, and the reindexer skips it. Engine::capabilities() says
- * Capability::Vocabulary for one that does.
+ * simply gives no suggestions, and the reindexer skips it.
  */
 interface Vocabulary
 {

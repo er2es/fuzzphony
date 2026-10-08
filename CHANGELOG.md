@@ -41,16 +41,20 @@ changes; they are always listed under **Breaking** and explained in [UPGRADE.md]
   `Fuzzphony\Core\Definition\Synonyms`; see [Synonyms](docs/searching.md#synonyms).
 
 - "Did you mean": a search that finds fewer hits than `fallback_below` and has a whole word the index
-  does not know sets `SearchResult::$didYouMean` to the query with that word replaced by the nearest
-  word of the index (trigram candidates, then edit distance, then document count; prefixes, excluded
-  words, stop words and words a synonym expands are never corrected). Threshold `did_you_mean`
-  (default `true`). It reads the new vocabulary table of a fuzzy index
-  (`fuzzphony_<index>__vocab`, additive: the sidecar layout stays 2), which
-  `fuzzphony:schema --apply` creates empty and every full reindex fills (`ReindexResult::$vocabulary`,
-  `$vocabularyError`; `ReindexOptions::$vocabulary` / `$vocabularyOnly`); `fuzzphony:reindex
-  --vocabulary` rebuilds only it. The doctor has a "Vocabulary" check. New optional
-  `Fuzzphony\Core\Engine\Vocabulary` interface and `Capability::Vocabulary`: an engine that does not
-  implement it gives no suggestions and needs no change. See [Did you mean](docs/searching.md#did-you-mean).
+  does not know (not in the vocabulary, not a stop word, and no document matches it: so not a word of a
+  field that is not typo-tolerant, an inflection or a word added since the last reindex) sets
+  `SearchResult::$didYouMean` to the query with that word replaced by the nearest word of the index
+  (trigram candidates, then edit distance, then document count; prefixes, excluded words, words a
+  synonym expands and codes with a digit are never corrected). Threshold `did_you_mean` (default `true`).
+  A tenant-scoped index never suggests (its vocabulary would mix tenants), and a role that cannot read the
+  vocabulary gets no suggestion rather than an error. It reads the new vocabulary table of a fuzzy index
+  (`fuzzphony_<index>__vocab`, additive: the sidecar layout stays 2), which `fuzzphony:schema --apply`
+  creates empty and every full reindex fills in one transaction (`ReindexResult::$vocabulary`,
+  `$vocabularyError`; `ReindexOptions::$vocabulary`); `Fuzzphony::rebuildVocabulary()` and
+  `fuzzphony:reindex --vocabulary` rebuild only it. The doctor has a "Vocabulary" check, `fuzzphony:search`
+  and the Live Component show the suggestion. New optional `Fuzzphony\Core\Engine\Vocabulary` interface:
+  an engine that does not implement it gives no suggestions and needs no change. See
+  [Did you mean](docs/searching.md#did-you-mean).
 
 ### Changed
 

@@ -68,7 +68,7 @@ $fuzzphony->in('products')->query('mouse')->profile('popular')->ranking(['boost'
 | `fuzzy_min_length` | `3` | shorter words must match exactly; a query with no longer word skips typo tolerance |
 | `candidate_limit` | `2000` | max candidates ranked per branch; `total` becomes a lower bound (`2000+`) |
 | `max_query_length` / `max_terms` | `256` / `16` | input limits |
-| `did_you_mean` | `true` | a search with fewer than `fallback_below` hits suggests the spelling of a word the index does not know in `SearchResult::$didYouMean` ([details](searching.md#did-you-mean)) |
+| `did_you_mean` | `true` | a search with fewer than `fallback_below` hits suggests the spelling of a word the index does not know in `SearchResult::$didYouMean`; never on a tenant-scoped index ([details](searching.md#did-you-mean)) |
 | `relax_when_empty` | `true` | a multi-word query that finds nothing drops the words that match nothing and says so in `warnings` ([details](searching.md#empty-result-relaxation)); independent of `fuzzy_mode` |
 
 Set them per index (YAML `thresholds:`) or per query:

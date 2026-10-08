@@ -17,5 +17,4 @@ enum Capability: string
     case Highlight = 'highlight';
     case DatabaseTriggers = 'database_triggers';
     case ConcurrentIndexBuild = 'concurrent_index_build';
-    case Vocabulary = 'vocabulary';
 }

@@ -223,8 +223,8 @@ definition:
 A fuzzy index also has a vocabulary table (`fuzzphony_<index>__vocab`: its words and in how many
 documents each occurs), which `fuzzphony:schema --apply` creates empty and a full reindex fills, for
 ["did you mean"](searching.md#did-you-mean). `fuzzphony:reindex --vocabulary` rebuilds only that table.
-The role that reindexes needs `INSERT` and `TRUNCATE` on it (`GRANT ... ON ALL TABLES IN SCHEMA` covers
-it after the schema was applied).
+The role that reindexes needs `SELECT`, `INSERT` and `DELETE` on it, and the role that searches needs
+`SELECT` (the grants above cover it once the table exists; run them again after the first apply).
 
 `fuzzphony:doctor` then confirms both steps worked. From there the [sync mode](sync.md) keeps the
 sidecar table current. You only reindex again when the definition changes.

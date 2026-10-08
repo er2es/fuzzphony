@@ -90,6 +90,9 @@ final class SearchCommand extends Command
         foreach ($result->warnings as $warning) {
             $io->writeln(' <comment>!</comment> ' . OutputFormatter::escape($warning));
         }
+        if ($result->didYouMean !== null) {
+            $io->writeln(sprintf(' Did you mean <info>%s</info>?', OutputFormatter::escape($result->didYouMean)));
+        }
 
         $rows = [];
         foreach ($result->hits as $hit) {

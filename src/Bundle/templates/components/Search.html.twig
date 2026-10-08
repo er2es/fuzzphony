@@ -18,6 +18,10 @@
         {% for warning in result.warnings %}
             <p class="fuzzphony-search__warning">{{ warning }}</p>
         {% endfor %}
+        {% if result.didYouMean %}
+            <p class="fuzzphony-search__did-you-mean">Did you mean
+                <button type="button" data-action="live#action" data-live-action-param="useSuggestion">{{ result.didYouMean }}</button>?</p>
+        {% endif %}
         <ol class="fuzzphony-search__hits">
             {% for hit in result.hits %}
                 <li class="fuzzphony-search__hit" data-id="{{ hit.id }}">

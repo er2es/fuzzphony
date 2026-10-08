@@ -7,6 +7,7 @@ namespace Fuzzphony\Bundle\Twig;
 use Fuzzphony\Core\Fuzzphony;
 use Fuzzphony\Core\Search\SearchResult;
 use Symfony\UX\LiveComponent\Attribute\AsLiveComponent;
+use Symfony\UX\LiveComponent\Attribute\LiveAction;
 use Symfony\UX\LiveComponent\Attribute\LiveProp;
 use Symfony\UX\LiveComponent\DefaultActionTrait;
 
@@ -45,6 +46,17 @@ final class SearchComponent
     private ?SearchResult $result = null;
 
     public function __construct(private readonly Fuzzphony $fuzzphony) {}
+
+    /** "Did you mean ...?": searches the suggestion. */
+    #[LiveAction]
+    public function useSuggestion(): void
+    {
+        $suggestion = $this->getResult()?->didYouMean;
+        if ($suggestion !== null) {
+            $this->query = $suggestion;
+            $this->result = null;
+        }
+    }
 
     public function getResult(): ?SearchResult
     {

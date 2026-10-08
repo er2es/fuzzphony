@@ -79,10 +79,10 @@ work (`tv` ↔ `television`), and a word that matches nothing gets a spelling su
   no reindex is forced, the doctor warns while it is empty. Built from the index's normalised
   typo-tolerant text after every full reindex (in one transaction: collect, then `TRUNCATE` and
   refill; ADR 0009) and alone by `fuzzphony:reindex --vocabulary`; never per write.
-- Optional `Fuzzphony\Core\Engine\Vocabulary` interface and `Capability::Vocabulary`
-  (`rebuildVocabulary(IndexDefinition): int`); `ReindexOptions::$vocabulary` / `$vocabularyOnly`,
-  `ReindexResult::$vocabulary` / `$vocabularyError`. A failure after a successful full run is
-  reported, not fatal.
+- Optional `Fuzzphony\Core\Engine\Vocabulary` interface (`rebuildVocabulary(IndexDefinition): int`);
+  `ReindexOptions::$vocabulary`, `ReindexResult::$vocabulary` / `$vocabularyError`,
+  `Fuzzphony::rebuildVocabulary(string): int`. A failure after a successful full run is reported, not
+  fatal. The rebuild is `DELETE` + `INSERT ... SELECT` in one transaction (ADR 0009).
 - Doctor "Vocabulary": error when the table is missing, warning when it is empty (staleness against
   the documents' definition hash is not tracked: a rebuild is cheap and the words rarely change).
 - Did-you-mean (`SearchResult::$didYouMean`, `?string`, threshold `did_you_mean`): when fewer hits
@@ -90,7 +90,8 @@ work (`tv` ↔ `television`), and a word that matches nothing gets a spelling su
   not a stop word, not one a synonym expanded) the vocabulary lacks: ten trigram candidates, the
   nearest by edit distance (at most a third of the word's length), then by document count. The
   corrected query is rendered from the parsed query (`QueryRenderer`), so operators, quotes, fields
-  and exclusions stay. It suggests only: it never re-runs the search. A missing or empty vocabulary
+  and exclusions stay. A tenant-scoped index never suggests (the vocabulary mixes tenants), the search
+  role needs `SELECT` on the table (without it: no suggestion). It suggests only: it never re-runs the search. A missing or empty vocabulary
   gives null and never an error (a failed statement could abort a caller's transaction).
 - 0.8's `suggest()` reads the same table; synonym members may become extra suggestion candidates
   without being written into it.
@@ -113,8 +114,8 @@ with it. PR 1 and PR 2 only touch the demo where a flag or default would otherwi
   engine must apply the same length rule. The vocabulary is additive (layout 2, `schema --apply`
   then `reindex --vocabulary`, no forced reindex).
 - Additive: `IndexBuilder::synonyms()`, `Searchable::$synonyms`, `SearchResult::$didYouMean`,
-  threshold `did_you_mean`, `ReindexOptions::$vocabulary` / `$vocabularyOnly`, `ReindexResult::$vocabulary`
-  / `$vocabularyError`, the optional `Engine\Vocabulary` interface (an engine without it gives no
+  threshold `did_you_mean`, `ReindexOptions::$vocabulary`, `ReindexResult::$vocabulary`
+  / `$vocabularyError`, `Fuzzphony::rebuildVocabulary()`, the optional `Engine\Vocabulary` interface (an engine without it gives no
   suggestions and needs no change).
   New classes are `@internal` unless listed in `docs/architecture.md` and `PublicApiTest`.
 
@@ -144,10 +145,10 @@ these win):
 | Length rule | proportional to the word's length, default on, Breaking (part 1, implemented); replaces the old spec's fixed curve and `fuzzy_length_aware` flag |
 | Vocabulary table | additive: created by `fuzzphony:schema --apply`, sidecar layout stays 2, no forced reindex; the doctor warns while it is empty |
 | Filling it | by the full reindex (`fuzzphony:reindex --vocabulary` rebuilds just this table) and by the worker; never per write |
-| Engine interface | an optional interface plus a `Capability`, not a new required `Engine` method (no Breaking for custom engines) |
-| Did-you-mean trigger | fewer hits than `fallback_below` and a positive word that is not in the vocabulary |
+| Engine interface | an optional interface (`Engine\Vocabulary`), not a new required `Engine` method (no Breaking for custom engines); no separate `Capability` (one source of truth) |
+| Did-you-mean trigger | fewer hits than `fallback_below` and a positive word that is not in the vocabulary and that no document of the index matches |
 | Did-you-mean ranking | trigram top-K candidates from the vocabulary, then edit distance, then frequency (raw trigram ranking suggests `most` for `mose`) |
-| Doctor "Vocabulary" | error when the table is missing, warning when it is empty or older than the documents' definition hash |
+| Doctor "Vocabulary" | error when the table is missing, warning when it is empty; staleness against the documents' definition hash is not tracked (a rebuild is cheap; to be confirmed by the maintainer) |
 | Synonym forms | groups (`[tv, television]`) and one-way rules (`laptop => notebook`), inline in YAML / builder / attribute |
 | Synonyms file | not in 0.7; inline first, a file can follow without breaking anything |
 | Synonym matching | on the stemmed, accent-folded form (PostgreSQL's text configuration, one extra round trip per search on an index that has synonyms), so `Televisions` finds the `television` group; a multi-word member matches only a quoted phrase |

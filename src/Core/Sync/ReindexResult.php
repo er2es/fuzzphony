@@ -22,6 +22,7 @@ final readonly class ReindexResult
         public ?string $vocabularyError = null,
     ) {}
 
+    /** @internal */
     public function withVocabulary(?int $words, ?string $error = null): self
     {
         return new self($this->written, $this->pruned, $this->pruneSkippedEmptySource, $this->swapped, $words, $error);

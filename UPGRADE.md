@@ -25,12 +25,16 @@ and the [CHANGELOG](CHANGELOG.md) has the full list of changes.
 3. **Vocabulary for "did you mean" (no hurry).** The new table of a fuzzy index is empty until you run
    `fuzzphony:schema --apply` (it creates the table; additive, the layout stays 2) and then
    `fuzzphony:reindex --vocabulary` (or any full reindex). Until then searches work as before and
-   `fuzzphony:doctor` warns "Vocabulary" (an error before the schema is applied). The role that
-   reindexes needs `INSERT` and `TRUNCATE` on `fuzzphony_<index>__vocab`; a schema-wide
+   `fuzzphony:doctor` warns "Vocabulary" (an error before the schema is applied). Give the roles the
+   grants for the new table: `SELECT` to the role that searches (without it there is just no suggestion,
+   never an error), `SELECT`, `INSERT` and `DELETE` to the role that reindexes; a schema-wide
    `GRANT ... ON ALL TABLES IN SCHEMA` must be run again after the apply (the table is new). A role
-   without the privilege still reindexes: the command says the vocabulary was not rebuilt. A custom
-   `Engine` needs nothing (the new `Vocabulary` interface is optional). `ReindexResult` and
-   `ReindexOptions` have new trailing properties; `Thresholds` has the new key `did_you_mean`.
+   without the privilege still reindexes: the command says the vocabulary was not rebuilt. A
+   tenant-scoped index never suggests anything (its vocabulary would mix tenants); switch the
+   suggestion off with `did_you_mean: false` on an index whose filters hide words that must stay secret.
+   A custom `Engine` needs nothing (the new `Vocabulary` interface is optional). `ReindexResult` and
+   `ReindexOptions` have new trailing properties, `Fuzzphony::rebuildVocabulary()` is new, and
+   `Thresholds` has the new key `did_you_mean`.
 
 ## From 0.4 to 0.5
 

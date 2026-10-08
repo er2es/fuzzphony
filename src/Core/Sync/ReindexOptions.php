@@ -29,8 +29,6 @@ final readonly class ReindexOptions
         public bool $inPlace = false,
         /** Rebuild the vocabulary ("did you mean") after a full run, when the engine keeps one. */
         public bool $vocabulary = true,
-        /** Rebuild only the vocabulary, from the documents already indexed: no document is written. */
-        public bool $vocabularyOnly = false,
     ) {
         if ($batchSize < 1) {
             throw new InvalidArgument(sprintf('Batch size must be >= 1, got %d.', $batchSize));

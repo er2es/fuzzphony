@@ -235,26 +235,37 @@ final class PostgresEngine implements Engine, Vocabulary
 
     /**
      * The words of the index's typo-tolerant text and in how many documents each occurs, built from
-     * the live index table. The new words are collected in a temporary table first (a read of the
-     * index table, no lock on the vocabulary), then swapped in inside the same transaction: the
-     * vocabulary table is locked only for the TRUNCATE and the INSERT of the words, at most 3 s of
-     * waiting. Only "did you mean" reads it, so searches never wait for it.
+     * the live index table. One transaction deletes the old words and inserts the new ones, so readers
+     * (only "did you mean" reads it) keep the old words until it commits and never wait; it takes no
+     * ACCESS EXCLUSIVE lock, needs no TRUNCATE or TEMPORARY privilege (the role needs SELECT, INSERT and
+     * DELETE on the table) and may join a caller's transaction. An advisory lock keeps two rebuilds of
+     * the same index from running at once.
      */
     public function rebuildVocabulary(IndexDefinition $index): int
     {
-        return $this->guard('vocabulary', fn(): int => $this->connection->transactional(function (Connection $c) use ($index): int {
-            $vocabulary = $this->names->vocabulary($index);
-            $c->execute(sprintf(
-                "CREATE TEMPORARY TABLE fuzzphony_vocabulary_build ON COMMIT DROP AS SELECT w AS word, count(*)::integer AS freq FROM (SELECT DISTINCT s.id, w FROM %s AS s CROSS JOIN LATERAL unnest(string_to_array(s.fz, ' ')) AS w WHERE char_length(w) >= :min) AS t GROUP BY w",
-                $this->names->sidecar($index),
-            ), ['min' => $index->thresholds->fuzzyMinLength]);
-            $c->fetchValue("SELECT set_config('lock_timeout', '3000', true)");
-            $c->execute(sprintf('LOCK TABLE %s IN ACCESS EXCLUSIVE MODE', $vocabulary));
-            $c->execute(sprintf('TRUNCATE %s', $vocabulary));
-            $c->execute(sprintf('INSERT INTO %s (word, freq) SELECT word, freq FROM fuzzphony_vocabulary_build', $vocabulary));
+        $vocabulary = $this->names->vocabulary($index);
 
-            return Coerce::int($c->fetchValue(sprintf('SELECT count(*) FROM %s', $vocabulary)));
-        }), sprintf('Run "bin/console fuzzphony:schema --apply" to create %s; the role needs INSERT and TRUNCATE on it.', $this->names->vocabulary($index)));
+        return $this->guard('vocabulary', function () use ($index, $vocabulary): int {
+            $granted = $this->connection->fetchValue(
+                "SELECT to_regclass(:a) IS NOT NULL AND has_table_privilege(to_regclass(:b), 'INSERT') AND has_table_privilege(to_regclass(:c), 'DELETE')",
+                ['a' => $vocabulary, 'b' => $vocabulary, 'c' => $vocabulary],
+            );
+            if ($granted !== true) {
+                throw new \RuntimeException(sprintf('%s does not exist or this role may not write it.', $vocabulary));
+            }
+
+            return $this->connection->transactional(function (Connection $c) use ($index, $vocabulary): int {
+                $c->fetchValue('SELECT pg_advisory_xact_lock(hashtext(:key))', ['key' => $vocabulary]);
+                $c->execute(sprintf('DELETE FROM %s', $vocabulary));
+                $c->execute(sprintf(
+                    "INSERT INTO %s (word, freq) SELECT w, count(*)::integer FROM (SELECT DISTINCT s.id, w FROM %s AS s CROSS JOIN LATERAL unnest(string_to_array(s.fz, ' ')) AS w WHERE char_length(w) >= :min) AS t GROUP BY w",
+                    $vocabulary,
+                    $this->names->sidecar($index),
+                ), ['min' => $index->thresholds->fuzzyMinLength]);
+
+                return Coerce::int($c->fetchValue(sprintf('SELECT count(*) FROM %s', $vocabulary)));
+            });
+        }, sprintf('Run "bin/console fuzzphony:schema --apply" to create %1$s, and give the reindexing role SELECT, INSERT and DELETE on it (GRANT ... ON ALL TABLES IN SCHEMA covers it once the table exists).', $vocabulary));
     }
 
     public function beginRebuild(IndexDefinition $index, bool $resume = false): bool
@@ -502,11 +513,18 @@ final class PostgresEngine implements Engine, Vocabulary
      */
     private function suggest(IndexDefinition $index, Node $typed, Node $expanded, Thresholds $thresholds): ?string
     {
+        // the vocabulary is the words of the whole index: on a tenant-scoped one a suggestion (or its absence) would tell
+        // one customer which words another customer's documents have
+        if ($index->tenant !== null) {
+            return null;
+        }
         $skip = SynonymExpander::expandedWords($expanded);
         $words = [];
         foreach (NodeInspector::suggestibleWords($typed) as $word) {
             $lower = mb_strtolower($word);
-            if (mb_strlen($lower) >= $thresholds->fuzzyMinLength && !in_array($lower, $skip, true)) {
+            // the index's own minimum, whatever this query set: shorter words were never put in the vocabulary;
+            // a word with a digit is a code (rtx4090), and the nearest code is not what the user meant
+            if (mb_strlen($lower) >= max($thresholds->fuzzyMinLength, $index->thresholds->fuzzyMinLength) && preg_match('/\d/u', $lower) !== 1 && !in_array($lower, $skip, true)) {
                 $words[$lower] = true;
             }
         }
@@ -515,21 +533,27 @@ final class PostgresEngine implements Engine, Vocabulary
             return null;
         }
         $vocabulary = $this->names->vocabulary($index);
-        // a table the schema has not created yet (an upgrade before "fuzzphony:schema --apply") is no reason to fail a search,
-        // and a failed statement would abort a transaction the caller may have open
-        if ($this->connection->fetchValue('SELECT to_regclass(:name) IS NOT NULL', ['name' => $vocabulary]) !== true) {
+        // a table the schema has not created yet, or one this role may not read (an upgrade before "fuzzphony:schema --apply"
+        // and the GRANT), is no reason to fail a search, and a failed statement would abort a transaction the caller may have open
+        if ($this->connection->fetchValue("SELECT to_regclass(:a) IS NOT NULL AND has_table_privilege(to_regclass(:b), 'SELECT')", ['a' => $vocabulary, 'b' => $vocabulary]) !== true) {
             return null;
         }
         $extension = $this->names->extension();
-        $rows = $this->guard('suggest', fn(): array => $this->connection->fetchAll(
-            sprintf(
-                "SELECT q.w, q.n, (EXISTS (SELECT 1 FROM %1\$s AS v WHERE v.word = q.n) OR to_tsvector(%2\$s, q.w) = ''::tsvector) AS known, c.word, c.freq FROM (SELECT w, %3\$s(w) AS n FROM unnest(string_to_array(:words, chr(31))) AS w) AS q LEFT JOIN LATERAL (SELECT v.word, v.freq FROM %1\$s AS v WHERE v.word OPERATOR(%4\$s.%%) q.n ORDER BY %4\$s.similarity(v.word, q.n) DESC, v.freq DESC LIMIT 10) AS c ON true",
-                $vocabulary,
-                $this->names->regconfig($index->text),
-                $this->names->normFunction(),
-                $extension,
-            ),
-            ['words' => implode(chr(31), $words)],
+        $restore = !($this->connection instanceof TransactionAware) || $this->connection->inTransaction();
+        // known: a stop word, a word of the vocabulary, or any word the index finds (a word of a field that is not typo-tolerant,
+        // an inflection, a word added since the last full reindex): the search above found what it could
+        $sql = sprintf(
+            "SELECT q.w, q.n, (to_tsvector(%2\$s, q.w) = ''::tsvector OR EXISTS (SELECT 1 FROM %1\$s AS v WHERE v.word = q.n) OR EXISTS (SELECT 1 FROM %5\$s AS s WHERE s.tsv @@ plainto_tsquery(%2\$s, q.w))) AS known, c.word, c.freq FROM (SELECT w, %3\$s(w) AS n FROM unnest(string_to_array(:words, chr(31))) AS w) AS q LEFT JOIN LATERAL (SELECT v.word, v.freq FROM %1\$s AS v WHERE v.word OPERATOR(%4\$s.%%) q.n ORDER BY %4\$s.similarity(v.word, q.n) DESC, v.freq DESC LIMIT 10) AS c ON true",
+            $vocabulary,
+            $this->names->regconfig($index->text),
+            $this->names->normFunction(),
+            $extension,
+            $this->names->sidecar($index),
+        );
+        $parameters = ['words' => implode(chr(31), $words)];
+        // the candidates are the words with a trigram similarity of 0.3 or more, whatever the session has set
+        $rows = $this->guard('did_you_mean', fn(): array => $this->connection->transactional(
+            static fn(Connection $c): array => self::withSimilarityThreshold($c, 0.3, $restore, static fn(): array => $c->fetchAll($sql, $parameters), 'pg_trgm.similarity_threshold'),
         ), 'Run "bin/console fuzzphony:schema --apply", then "bin/console fuzzphony:reindex --vocabulary".');
 
         /** @var array<string, array{int, int, string}> $best typed word => [distance, -documents, vocabulary word] */
@@ -826,12 +850,11 @@ final class PostgresEngine implements Engine, Vocabulary
      *
      * @return T
      */
-    private static function withSimilarityThreshold(Connection $c, ?float $similarityThreshold, bool $restore, \Closure $work): mixed
+    private static function withSimilarityThreshold(Connection $c, ?float $similarityThreshold, bool $restore, \Closure $work, string $name = 'pg_trgm.word_similarity_threshold'): mixed
     {
         if ($similarityThreshold === null) {
             return $work();
         }
-        $name = 'pg_trgm.word_similarity_threshold';
         // the previous value is read before the new one is set (the CTE is evaluated first);
         // NULL (the extension is not loaded yet) is restored as the default
         $previous = $c->fetchValue(

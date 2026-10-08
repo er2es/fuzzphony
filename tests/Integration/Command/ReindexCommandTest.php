@@ -5,7 +5,13 @@ declare(strict_types=1);
 namespace Fuzzphony\Tests\Integration\Command;
 
 use Fuzzphony\Bundle\Command\ReindexCommand;
+use Fuzzphony\Core\Definition\FieldDefinition;
+use Fuzzphony\Core\Definition\Weight;
+use Fuzzphony\Core\Fuzzphony;
+use Fuzzphony\Core\Registry\IndexRegistry;
 use Fuzzphony\Core\Support\Coerce;
+use Fuzzphony\Engine\Postgres\PostgresEngine;
+use Fuzzphony\Tests\Fixtures\Indexes;
 use PHPUnit\Framework\TestCase;
 use Symfony\Component\Console\Command\Command;
 use Symfony\Component\Console\Tester\CommandCompletionTester;
@@ -252,5 +258,27 @@ final class ReindexCommandTest extends TestCase
     private function indexed(): int
     {
         return Coerce::int($this->context->connection->fetchValue('SELECT count(*) FROM fuzzphony_products'));
+    }
+
+    public function testTheVocabularyOptionCannotBeCombinedWithOptionsThatWriteDocuments(): void
+    {
+        foreach (['--from' => '2', '--in-place' => true, '--no-prune' => true, '--prune-empty' => true] as $option => $value) {
+            $status = $this->tester->execute(['index' => 'products', '--vocabulary' => true, $option => $value, '--force' => true], ['interactive' => false]);
+
+            self::assertSame(Command::INVALID, $status, $option);
+            self::assertStringContainsString('cannot be combined', $this->tester->getDisplay());
+        }
+    }
+
+    public function testTheVocabularyOptionSkipsAnIndexWithoutFuzzyFields(): void
+    {
+        $index = Indexes::products('manual')->withFields([new FieldDefinition('name', Weight::A)]);
+        $fuzzphony = new Fuzzphony(new PostgresEngine($this->context->connection), new IndexRegistry([$index]));
+        $tester = new CommandTester(new ReindexCommand($fuzzphony));
+
+        $status = $tester->execute(['--vocabulary' => true], ['interactive' => false]);
+
+        self::assertSame(Command::SUCCESS, $status, $tester->getDisplay());
+        self::assertStringContainsString('No fuzzy field, so no vocabulary.', $tester->getDisplay());
     }
 }

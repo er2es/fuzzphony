@@ -35,13 +35,10 @@ final class Reindexer
 
     public function run(IndexDefinition $index, ReindexOptions $options): ReindexResult
     {
-        if ($options->vocabularyOnly) {
-            return $this->vocabularyOnly($index);
-        }
         $result = $this->documents($index, $options);
 
-        // a full run that wrote documents: resumed runs and an empty source leave the vocabulary alone
-        return $options->vocabulary && $options->resumeAfter === null && !$result->pruneSkippedEmptySource ? $this->withVocabulary($index, $result) : $result;
+        // after a full run, or a resumed one that finished the rebuild and swapped it in; a resumed in-place run and an empty source leave it alone
+        return $options->vocabulary && ($options->resumeAfter === null || $result->swapped) && !$result->pruneSkippedEmptySource ? $this->withVocabulary($index, $result) : $result;
     }
 
     private function documents(IndexDefinition $index, ReindexOptions $options): ReindexResult
@@ -89,7 +86,8 @@ final class Reindexer
         }
     }
 
-    private function vocabularyOnly(IndexDefinition $index): ReindexResult
+    /** Rebuilds only the vocabulary (Fuzzphony::rebuildVocabulary()), from the documents already indexed. */
+    public function vocabulary(IndexDefinition $index): int
     {
         if (!$this->engine instanceof Vocabulary) {
             throw new InvalidArgument(sprintf('The "%s" engine keeps no vocabulary.', $this->engine->name()));
@@ -98,7 +96,7 @@ final class Reindexer
             throw new InvalidArgument(sprintf('Index "%s" has no fuzzy field, so it has no vocabulary.', $index->name));
         }
 
-        return new ReindexResult(0, vocabulary: $this->engine->rebuildVocabulary($index));
+        return $this->engine->rebuildVocabulary($index);
     }
 
     private function inPlace(IndexDefinition $index, ReindexOptions $options): ReindexResult

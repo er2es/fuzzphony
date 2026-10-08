@@ -153,11 +153,14 @@ lock stays held there, and later reindexes fail with "already running" (and
 `fuzzphony:reindex` says so.
 
 After a full run, a fuzzy index's vocabulary (its words and in how many documents each occurs, which
-["did you mean"](searching.md#did-you-mean) reads) is rebuilt from the new index in one transaction:
-the vocabulary table is locked only for the swap of its words (at most 3 s of waiting), and only a
-search that asks for a suggestion reads it. A vocabulary that cannot be rebuilt (a missing privilege or
-table) does not undo the reindex: the command says so, and `fuzzphony:reindex --vocabulary` repeats
-just that step. Resumed runs and runs without pruning leave it alone; so does `ReindexOptions(vocabulary: false)`.
+["did you mean"](searching.md#did-you-mean) reads) is rebuilt from the new index: one transaction
+deletes the old words and inserts the new ones, so a reader keeps the old words until it commits and no
+lock is held against it (rebuilds of one index take turns through an advisory lock). It may join a
+transaction you have open. A vocabulary that cannot be rebuilt (a missing privilege or table) does not
+undo the reindex: the command says so, and `fuzzphony:reindex --vocabulary` (or
+`Fuzzphony::rebuildVocabulary()`) repeats just that step. It is rebuilt after a full run and after a
+resumed run that finished the rebuild and swapped it in; a resumed in-place run, an empty source and
+`ReindexOptions(vocabulary: false)` leave it alone.
 
 `--in-place` (`new ReindexOptions(inPlace: true)`) writes the live index directly, as before 0.5:
 no second copy, but searches see a mix of old and new documents while it runs. It finishes by
