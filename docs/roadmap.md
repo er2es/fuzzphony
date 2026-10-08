@@ -54,10 +54,10 @@ Synonyms per index: groups (`tv` ↔ `television`, domain abbreviations) and one
 (`laptop => notebook`), expanded on the query side without dictionary files on the database
 server, so a change needs no reindex. See [Synonyms](searching.md#synonyms).
 
-### Did you mean
+### Did you mean (done)
 
 A spelling suggestion from the index's own vocabulary table when a word matches nothing
-(`hedphones` → "headphones?"), next to the existing empty-result relaxation.
+(`hedphones` → "headphones?"), next to the existing empty-result relaxation. See [Did you mean](searching.md#did-you-mean).
 
 ## v0.8: Search features
 

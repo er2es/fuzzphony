@@ -220,6 +220,12 @@ definition:
    once after it, whatever the sync mode. A full run also removes orphaned documents (see
    [Reindexing and orphan pruning](sync.md#reindexing-and-orphan-pruning)).
 
+A fuzzy index also has a vocabulary table (`fuzzphony_<index>__vocab`: its words and in how many
+documents each occurs), which `fuzzphony:schema --apply` creates empty and a full reindex fills, for
+["did you mean"](searching.md#did-you-mean). `fuzzphony:reindex --vocabulary` rebuilds only that table.
+The role that reindexes needs `INSERT` and `TRUNCATE` on it (`GRANT ... ON ALL TABLES IN SCHEMA` covers
+it after the schema was applied).
+
 `fuzzphony:doctor` then confirms both steps worked. From there the [sync mode](sync.md) keeps the
 sidecar table current. You only reindex again when the definition changes.
 

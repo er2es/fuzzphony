@@ -72,23 +72,28 @@ work (`tv` ↔ `television`), and a word that matches nothing gets a spelling su
 - No dictionary files on the server and no table: the definition holds them, so changing them needs
   no `schema --apply` and no reindex (but the definition hash in `fuzzphony_meta` ignores them).
 
-## Part 3: Vocabulary and did-you-mean (sidecar layout 3)
+## Part 3: Vocabulary and did-you-mean (decided: additive, layout 2)
 
-- New table `fuzzphony_<index>__vocab (word text PRIMARY KEY, freq int)` with a trigram GIN index,
-  built from the index's normalised fuzzy-field words. Layout step 2→3 runs in `schema --apply`
-  (guarded `DO` block, in `--dump-migration` too). A full reindex builds it with the shadow rebuild
-  and swaps it in (the swap renames it with the index table); the in-place path rebuilds it at the
-  end. It is not updated on sync, only by a full reindex, and `fuzzphony:reindex --vocabulary`
-  rebuilds just this table.
-- The doctor gets a "Vocabulary" check: missing (a warning with the fix), older than the documents'
-  definition hash. Every check has a fix (CONTRIBUTING rule 4).
-- Did-you-mean runs only when the result is empty, after relaxation, or when a word matched
-  nothing. For each such word it takes the closest vocabulary word (trigram similarity, ties by
-  frequency) above the active threshold. New `SearchResult::$didYouMean` (`?string`): the whole
-  corrected query, plain text (escape it in HTML). It suggests; it never re-runs the search by
-  itself. Threshold `did_you_mean` (default `true`) switches it off.
-- ADR 0008 gets a short addendum (the vocabulary table is part of the rebuild's swap). The wizard
-  and the demo show the suggestion; 0.8's `suggest()` reads this table.
+- New table `fuzzphony_<index>__vocab (word text PRIMARY KEY, freq integer)` with a trigram GIN index,
+  for a fuzzy index, created empty by the index's schema plan. Additive: the sidecar layout stays 2,
+  no reindex is forced, the doctor warns while it is empty. Built from the index's normalised
+  typo-tolerant text after every full reindex (in one transaction: collect, then `TRUNCATE` and
+  refill; ADR 0009) and alone by `fuzzphony:reindex --vocabulary`; never per write.
+- Optional `Fuzzphony\Core\Engine\Vocabulary` interface and `Capability::Vocabulary`
+  (`rebuildVocabulary(IndexDefinition): int`); `ReindexOptions::$vocabulary` / `$vocabularyOnly`,
+  `ReindexResult::$vocabulary` / `$vocabularyError`. A failure after a successful full run is
+  reported, not fatal.
+- Doctor "Vocabulary": error when the table is missing, warning when it is empty (staleness against
+  the documents' definition hash is not tracked: a rebuild is cheap and the words rarely change).
+- Did-you-mean (`SearchResult::$didYouMean`, `?string`, threshold `did_you_mean`): when fewer hits
+  than `fallback_below`, for each whole word (at least `fuzzy_min_length`, not a prefix, not negated,
+  not a stop word, not one a synonym expanded) the vocabulary lacks: ten trigram candidates, the
+  nearest by edit distance (at most a third of the word's length), then by document count. The
+  corrected query is rendered from the parsed query (`QueryRenderer`), so operators, quotes, fields
+  and exclusions stay. It suggests only: it never re-runs the search. A missing or empty vocabulary
+  gives null and never an error (a failed statement could abort a caller's transaction).
+- 0.8's `suggest()` reads the same table; synonym members may become extra suggestion candidates
+  without being written into it.
 
 ## Demo (last step of the milestone, after PR 3)
 
@@ -105,11 +110,12 @@ with it. PR 1 and PR 2 only touch the demo where a flag or default would otherwi
 ## Public API and compatibility
 
 - Breaking: the `fuzzy_similarity` default, `Thresholds::$fuzzySimilarity` is nullable, a custom
-  engine must apply the same length rule; with the vocabulary as sidecar layout 3 also apply, then
-  one full reindex (see Open decisions: the 2026-10-02 spec keeps layout 2).
+  engine must apply the same length rule. The vocabulary is additive (layout 2, `schema --apply`
+  then `reindex --vocabulary`, no forced reindex).
 - Additive: `IndexBuilder::synonyms()`, `Searchable::$synonyms`, `SearchResult::$didYouMean`,
-  threshold `did_you_mean`, `ReindexOptions::$vocabularyOnly`, `Engine` gets vocabulary methods; a
-  custom engine that has none returns `null` from the suggestion method (did-you-mean stays null).
+  threshold `did_you_mean`, `ReindexOptions::$vocabulary` / `$vocabularyOnly`, `ReindexResult::$vocabulary`
+  / `$vocabularyError`, the optional `Engine\Vocabulary` interface (an engine without it gives no
+  suggestions and needs no change).
   New classes are `@internal` unless listed in `docs/architecture.md` and `PublicApiTest`.
 
 ## Testing

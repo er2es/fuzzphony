@@ -325,13 +325,14 @@ final class ReindexerTest extends TestCase
 
         $plain = $this->engine([[1]]);
         $plain->method('refresh')->willReturn(1);
+        $plain->expects(self::once())->method('recordReindex');
         self::assertNull((new Reindexer($plain))->run(Indexes::products(), new ReindexOptions())->vocabulary);
     }
 
     public function testAVocabularyFailureIsReportedAndDoesNotUndoTheDocuments(): void
     {
         $engine = $this->vocabularyEngine([[1]]);
-        $engine->method('rebuildVocabulary')->willThrowException(EngineFailure::wrap('vocabulary', new \RuntimeException('no privilege'), 'Grant it.'));
+        $engine->expects(self::once())->method('rebuildVocabulary')->willThrowException(EngineFailure::wrap('vocabulary', new \RuntimeException('no privilege'), 'Grant it.'));
 
         $result = (new Reindexer($engine))->run(Indexes::products(), new ReindexOptions());
 
@@ -352,7 +353,7 @@ final class ReindexerTest extends TestCase
         self::assertSame(7, $result->vocabulary);
 
         $failing = $this->vocabularyEngine([]);
-        $failing->method('rebuildVocabulary')->willThrowException(EngineFailure::wrap('vocabulary', new \RuntimeException('no privilege'), 'Grant it.'));
+        $failing->expects(self::once())->method('rebuildVocabulary')->willThrowException(EngineFailure::wrap('vocabulary', new \RuntimeException('no privilege'), 'Grant it.'));
         $this->expectException(EngineFailure::class);
         (new Reindexer($failing))->run(Indexes::products(), new ReindexOptions(vocabularyOnly: true));
     }
@@ -360,13 +361,17 @@ final class ReindexerTest extends TestCase
     public function testVocabularyOnlyNeedsAnEngineAndAnIndexThatHaveOne(): void
     {
         try {
-            (new Reindexer($this->engine([])))->run(Indexes::products(), new ReindexOptions(vocabularyOnly: true));
+            $plain = $this->engine([]);
+            $plain->expects(self::never())->method('sourceIds');
+            (new Reindexer($plain))->run(Indexes::products(), new ReindexOptions(vocabularyOnly: true));
             self::fail('Expected InvalidArgument.');
         } catch (InvalidArgument $e) {
             self::assertStringContainsString('keeps no vocabulary', $e->getMessage());
         }
         $this->expectException(InvalidArgument::class);
         $this->expectExceptionMessage('has no fuzzy field');
-        (new Reindexer($this->vocabularyEngine([])))->run(Indexes::products()->withFields([new FieldDefinition('name', Weight::A)]), new ReindexOptions(vocabularyOnly: true));
+        $engine = $this->vocabularyEngine([]);
+        $engine->expects(self::never())->method('rebuildVocabulary');
+        (new Reindexer($engine))->run(Indexes::products()->withFields([new FieldDefinition('name', Weight::A)]), new ReindexOptions(vocabularyOnly: true));
     }
 }

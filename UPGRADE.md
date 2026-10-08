@@ -22,6 +22,16 @@ and the [CHANGELOG](CHANGELOG.md) has the full list of changes.
    rule: the shared conformance test now expects `"wireles headphones"` to find only the headphones
    (a phrase of 17 letters tolerates two typos).
 
+3. **Vocabulary for "did you mean" (no hurry).** The new table of a fuzzy index is empty until you run
+   `fuzzphony:schema --apply` (it creates the table; additive, the layout stays 2) and then
+   `fuzzphony:reindex --vocabulary` (or any full reindex). Until then searches work as before and
+   `fuzzphony:doctor` warns "Vocabulary" (an error before the schema is applied). The role that
+   reindexes needs `INSERT` and `TRUNCATE` on `fuzzphony_<index>__vocab`; a schema-wide
+   `GRANT ... ON ALL TABLES IN SCHEMA` must be run again after the apply (the table is new). A role
+   without the privilege still reindexes: the command says the vocabulary was not rebuilt. A custom
+   `Engine` needs nothing (the new `Vocabulary` interface is optional). `ReindexResult` and
+   `ReindexOptions` have new trailing properties; `Thresholds` has the new key `did_you_mean`.
+
 ## From 0.4 to 0.5
 
 1. **Apply, then reindex.** Run `fuzzphony:schema --apply`: it upgrades every index to sidecar

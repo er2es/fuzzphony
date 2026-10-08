@@ -64,7 +64,7 @@ everything else in `src/` is marked `@internal` and may change in any release.
   `Fuzzphony\Core\Exception\RebuildAlreadyRunning`,
   `Fuzzphony\Core\Exception\UnknownIndex`
 - Engine SPI (for custom engines): `Fuzzphony\Core\Engine\Engine`, `Fuzzphony\Core\Engine\Capabilities`,
-  `Fuzzphony\Core\Engine\Capability`; the PostgreSQL engine: `Fuzzphony\Engine\Postgres\PostgresEngine`
+  `Fuzzphony\Core\Engine\Capability`, `Fuzzphony\Core\Engine\Vocabulary` (optional); the PostgreSQL engine: `Fuzzphony\Engine\Postgres\PostgresEngine`
 - Wizard: `Fuzzphony\Core\Wizard\DefinitionSuggester`, `Fuzzphony\Core\Wizard\SourceIntrospector`,
   `Fuzzphony\Core\Wizard\Suggestion`, `Fuzzphony\Core\Wizard\Decision`,
   `Fuzzphony\Core\Wizard\TableProfile`, `Fuzzphony\Core\Wizard\ColumnProfile`,
@@ -87,6 +87,11 @@ Fuzzphony's schema (`public` unless configured, see
 [Fuzzphony's schema](configuration.md#fuzzphonys-schema))
 ([ADR 0001](adr/0001-sidecar-table.md)); see [Index definitions](configuration.md#concepts) for
 what it contains.
+
+A fuzzy index also has `fuzzphony_<index>__vocab` (same schema): its words and in how many documents
+each occurs, created by `fuzzphony:schema --apply` and rebuilt after every full reindex, for "did you
+mean" ([ADR 0009](adr/0009-vocabulary-rebuilt-after-a-full-reindex.md)). It is additive: the layout
+below does not change.
 
 `fuzzphony_meta` (same schema) records, per index, the sidecar layout version, a hash of the
 definition it was applied with and a hash of the definition its documents were built from;

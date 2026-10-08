@@ -228,6 +228,33 @@ $result->interpretedAs;   // "((tv OR television) AND NOT bracket)"
 
 Synonyms are developer input, like the rest of the index definition: never build them from user input.
 
+## Did you mean
+
+A search that finds few hits and has a whole word the index does not know suggests the spelling it
+probably meant, next to the hits (`SearchResult::$didYouMean`):
+
+```php
+$result = $fuzzphony->in('products')->query('hedphones -cable')->get();
+$result->didYouMean;   // "headphones -cable": the query with the word replaced, the rest as typed
+```
+
+- It is a suggestion: Fuzzphony never searches it by itself. Show it as a link that searches
+  `$result->didYouMean`. It is plain text made of the user's own words: escape it when you render it.
+- When: fewer hits than `fallback_below` (5), so it also appears next to the results typo tolerance
+  found. It is not computed for a browse, a search with enough hits, or when `did_you_mean` is `false`.
+- Which words: whole words of at least `fuzzy_min_length` letters that are not in the index's
+  vocabulary. Not corrected: prefixes (`keyb*`), excluded words (`-cabel`), stop words, words a
+  synonym expands (the index knows them by definition) and the words the vocabulary has.
+- Which suggestion: the vocabulary word nearest by edit distance (the trigram index only picks ten
+  candidates; a trigram ranking alone suggests `most` for `mose`), then the one in more documents.
+  Nothing farther than a third of the word's length away is suggested. The suggested word is the
+  vocabulary's, so lowercase and without accents.
+- The vocabulary is the words of the index's typo-tolerant fields and in how many documents each
+  occurs. A full `fuzzphony:reindex` rebuilds it (`fuzzphony:reindex --vocabulary` rebuilds only
+  it); changes to single documents do not touch it, so a word that is new since the last full reindex
+  is not known yet. An index without it (the table is created by `fuzzphony:schema --apply`) or
+  with an empty one gives no suggestion, and the doctor says so.
+
 ## Empty-result relaxation
 
 When a query of two or more words returns no hit, Fuzzphony checks each word on its own against
