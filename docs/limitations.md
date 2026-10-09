@@ -4,17 +4,18 @@ What Fuzzphony does not do well yet, and the planned fix for each. Back to the
 [README](../README.md).
 
 Each of these has a planned fix on the [roadmap](roadmap.md), except attaching and detaching
-partitions, which fire no triggers in PostgreSQL.
+partitions, which fire no triggers in PostgreSQL, and the trigram limits of typo tolerance.
 
-## Typo tolerance is lenient
+## Typo tolerance is trigram-based
 
-Typo tolerance is per word and deliberately lenient. At the default `fuzzy_similarity` of 0.3 a
-correctly spelled word also matches similar words (`mouse` is trigram-close to `monitor` and
-`mower`), so `wireles mouse` also lists wireless monitors, ranked below the mice. With very
-frequent words these near-misses can use up `candidate_limit` before ranking. Raise
-`fuzzy_similarity` (0.4 to 0.5 is stricter) or `candidate_limit` when that matters.
-
-Planned fix: [length-aware typo tolerance](roadmap.md#length-aware-typo-tolerance).
+Typo tolerance is per word, and the similarity a word needs is proportional to its length (see
+[Typo tolerance](searching.md#typo-tolerance)). Trigrams cannot tell a typo from a different word that
+looks alike: `cable` and `table` are equally close, and `mose` is as close to `monitor` and `mower` as
+to `mouse` (0.40 each), so a search for `mose` also lists them, ranked below the mice. Because the
+threshold keeps a different word at the worst case of a typo out (`mouse` / `monitor`), a letter
+replaced in the middle of a 5 to 7 letter word, or two letters swapped, may not be tolerated
+(`mpuse`, `mosue`; the same swap at the end of a word, `torhc`, is). A flat `fuzzy_similarity` (a number, for every word) trades the other way, and the fuzzy
+search only runs when exact matching finds fewer than `fallback_below` hits.
 
 ## Attaching or detaching a partition is not followed
 

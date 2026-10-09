@@ -20,7 +20,7 @@ Symfony: Twig + Stimulus via AssetMapper (no Node build), Live Components, DBAL.
 | Page | What it shows |
 |---|---|
 | **ILIKE vs Fuzzphony** | the same box searched with `ILIKE` and with Fuzzphony; cold + median warm timings; Fuzzphony's column renders at once, ILIKE's loads separately (it is much slower on this catalogue); one-click accent / typo / stemming / phrase / field / exact field (`brand:sony headphones` searches the brand only, typos included) / prefix examples |
-| **Playground** | every ranking weight and threshold as a slider; live results with a score breakdown bar per hit; SQL + EXPLAIN (ANALYZE) tab |
+| **Playground** | every ranking weight and threshold as a slider (the fuzzy similarity by word length, or one value for every word); live results with a score breakdown bar per hit; SQL + EXPLAIN (ANALYZE) tab |
 | **Languages** | one small catalogue in English, German, French, Spanish and Hungarian, one index per language; one-click examples (plural, accents, stop words (accented ones too), typo, and an irregular form that is honestly not matched), the lexeme PostgreSQL made of every word, and ILIKE's hit count next to Fuzzphony's |
 | **Config wizard** | pick a table: the wizard explains each column decision and outputs YAML, builder code and attributes (`fuzzphony:wizard` in the terminal) |
 | **Benchmark** | the comparison as a table, reproducible with `benchmarks/run.php` |
@@ -77,7 +77,7 @@ listed there use the library's defaults, shown here with "default".
 | Fields (`catalog`) | `name` A fuzzy, `brand` B fuzzy, `category` C, `description` D | A–D are the full-text weights; fuzzy fields get typo tolerance; each field also has its own `t_<field>` tsvector column (and `z_<field>` normalised text for the fuzzy ones), so a scoped query like `brand:sony` matches that field only |
 | Filters (`catalog`) | `price`, `in_stock`, `brand_id`, `category_id`, `published_at` | |
 | Ranking (`catalog`) | boost by `popularity`, recency by `published_at`; profile `popular` (boost 0.03, recency 0.3, 60-day half-life) | |
-| Thresholds (`catalog`) | `min_score` 0.01; otherwise defaults: `fuzzy_mode` fallback, `fallback_below` 5, `fuzzy_similarity` 0.3, `fuzzy_min_length` 3, `candidate_limit` 2000, `max_query_length` 256, `max_terms` 16, `relax_when_empty` on | typo tolerance kicks in when fewer than 5 documents match exactly |
+| Thresholds (`catalog`) | `min_score` 0.01; otherwise defaults: `fuzzy_mode` fallback, `fallback_below` 5, `fuzzy_similarity` by word length (see [Typo tolerance](../docs/searching.md#typo-tolerance); the Playground applies its slider only when "by word length" is unchecked), `fuzzy_min_length` 3, `candidate_limit` 2000, `max_query_length` 256, `max_terms` 16, `relax_when_empty` on | typo tolerance kicks in when fewer than 5 documents match exactly |
 | Thresholds (`lang_*`) | `fallback_below` 1 | typo tolerance only when nothing matches exactly, so the stemming examples stay clean |
 | Language | `catalog`: English; `lang_*`: its own language, accent folding on (default) | text search configuration `fuzzphony.fuzzphony_<language>` |
 | Reindex at start | `init` reindexes an index only when it is empty (`DEMO_REINDEX=auto`), 20 000 ids per batch | `always` / `never` change that, see Settings; a full reindex builds next to the live index and swaps it in, so the site keeps answering from the old one meanwhile (`init` owns the schema, so it can always do this; the `worker`'s rebuild of a `TRUNCATE` job falls back to rebuilding in place, since `fuzzphony_app` has no DDL rights) |

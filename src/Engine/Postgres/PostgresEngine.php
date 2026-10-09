@@ -18,6 +18,7 @@ use Fuzzphony\Core\Inspection\InspectionReport;
 use Fuzzphony\Core\Inspection\InspectOptions;
 use Fuzzphony\Core\Observability\MetricsCollector;
 use Fuzzphony\Core\Observability\NullMetricsCollector;
+use Fuzzphony\Core\Query\Ast\AllOf;
 use Fuzzphony\Core\Query\Ast\FieldScoped;
 use Fuzzphony\Core\Query\Ast\Node;
 use Fuzzphony\Core\Query\Ast\NodeInspector;
@@ -121,16 +122,18 @@ final class PostgresEngine implements Engine
         }
         if ($last !== null) {
             $restore = !($this->connection instanceof TransactionAware) || $this->connection->inTransaction();
-            $plan = $this->guard('explain', fn(): array => $this->connection->transactional(fn(Connection $c): array => self::withSimilarityThreshold(
+            /** @var \Closure(): list<string> $explain */
+            $explain = fn() => $this->connection->transactional(fn(Connection $c) => self::withSimilarityThreshold(
                 $c,
                 $run['threshold'],
                 $restore,
-                static function () use ($c, $last, $analyze): array {
+                static function () use ($c, $last, $analyze) {
                     $rows = $c->fetchAll(($analyze ? 'EXPLAIN (ANALYZE, BUFFERS) ' : 'EXPLAIN ') . $last['sql'], $last['params']);
 
                     return array_map(static fn(array $row): string => Coerce::str(reset($row)), $rows);
                 },
-            )), 'Run "bin/console fuzzphony:doctor" to check the index.');
+            ));
+            $plan = $this->guard('explain', $explain, 'Run "bin/console fuzzphony:doctor" to check the index.');
         }
 
         return new Explanation($run['result']->interpretedAs ?? '', $run['statements'], $plan, $run['result']);
@@ -506,7 +509,7 @@ final class PostgresEngine implements Engine
                 && $fuzzy->hasFuzzyLeaf($fuzzyRoot, $emptyQueries ??= $this->emptyQueries($index, $fuzzy->leafQueries($fuzzyRoot)));
             $statement = ['label' => $labelPrefix . ($alwaysFuzzy ? 'full-text + fuzzy' : 'full-text')]
                 + $builder->ranked($tsquery, $plain, $alwaysFuzzy ? $fuzzyRoot : null, $conditions, $profile, $thresholds, $query->limit, $query->offset, $emptyQueries ?? [], $scopedRoot);
-            $threshold = $alwaysFuzzy ? $thresholds->fuzzySimilarity : null;
+            $threshold = $alwaysFuzzy && $fuzzyRoot !== null ? $fuzzy->lowestSimilarity($fuzzyRoot, $emptyQueries ?? []) : null;
             $rows = $this->run($statement, $threshold);
             $statements[] = $statement;
             $usedFuzzy = $alwaysFuzzy;
@@ -520,7 +523,7 @@ final class PostgresEngine implements Engine
             ) {
                 $statement = ['label' => $labelPrefix . 'fallback: full-text + fuzzy']
                     + $builder->ranked($tsquery, $plain, $fuzzyRoot, $conditions, $profile, $thresholds, $query->limit, $query->offset, $emptyQueries, $scopedRoot);
-                $threshold = $thresholds->fuzzySimilarity;
+                $threshold = $fuzzy->lowestSimilarity($fuzzyRoot, $emptyQueries);
                 $rows = $this->run($statement, $threshold);
                 $statements[] = $statement;
                 $usedFuzzy = true;
@@ -582,7 +585,8 @@ final class PostgresEngine implements Engine
         }
 
         $statement = ['label' => self::PROBE_LABEL] + (new SearchSqlBuilder($index, $this->names))->probe($probed, $fuzzy, $conditions, $thresholds, $empty);
-        $row = $this->run($statement, $fuzzy ? $thresholds->fuzzySimilarity : null)[0] ?? [];
+        $compiler = new FuzzyQueryCompiler($index, $thresholds, $this->names);
+        $row = $this->run($statement, $fuzzy ? $compiler->lowestSimilarity(new AllOf($probed), $empty) : null)[0] ?? [];
         $ignored = [];
         foreach ($probed as $i => $leaf) {
             if (in_array($row['l' . $i] ?? null, [false, 'f', 0], true)) {
@@ -627,14 +631,17 @@ final class PostgresEngine implements Engine
         // the *caller* already had one open — not the one this call is about to start itself.
         $restore = !($this->connection instanceof TransactionAware) || $this->connection->inTransaction();
 
-        return $this->guard('search', fn(): array => $this->connection->transactional(
-            static fn(Connection $c): array => self::withSimilarityThreshold(
+        /** @var \Closure(): list<array<string, mixed>> $search */
+        $search = fn() => $this->connection->transactional(
+            static fn(Connection $c) => self::withSimilarityThreshold(
                 $c,
                 $similarityThreshold,
                 $restore,
-                static fn(): array => $c->fetchAll($statement['sql'], $statement['params']),
+                static fn() => $c->fetchAll($statement['sql'], $statement['params']),
             ),
-        ), 'Run "bin/console fuzzphony:doctor" to check the index.');
+        );
+
+        return $this->guard('search', $search, 'Run "bin/console fuzzphony:doctor" to check the index.');
     }
 
     /**

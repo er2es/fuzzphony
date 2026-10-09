@@ -36,6 +36,12 @@ it on every push to `main` and publishes the current table in its job summary.
 
 `~` means the typo-tolerant fallback ran.
 
+The table was measured before 0.7. Since 0.7 the typo-tolerant statement also rechecks each word
+against the similarity of its own length; on 200 000 rows (`wireles mouse`, `hedphones`, `mose` in
+`fuzzy_mode: always`, measured separately from this script) the plans keep using the trigram
+indexes and the statements run within roughly 0.9 to 1.4 times the time of a flat `fuzzy_similarity`.
+Re-run `benchmarks/run.php` on your own data to compare.
+
 ## Reading the numbers
 
 The two columns do different work. `ILIKE … LIMIT 20` returns the first 20 rows the scan reaches,

@@ -48,6 +48,7 @@ final class Playground
 
     // thresholds
     #[LiveProp(writable: true)] public float $minScore = 0.01;
+    #[LiveProp(writable: true)] public bool $similarityByLength = true;
     #[LiveProp(writable: true)] public float $similarity = 0.3;
     #[LiveProp(writable: true)] public string $fuzzyMode = 'fallback';
     #[LiveProp(writable: true)] public int $fallbackBelow = 5;
@@ -164,7 +165,7 @@ final class Playground
             ])
             ->thresholds([
                 'min_score' => $this->minScore,
-                'fuzzy_similarity' => $this->similarity,
+                'fuzzy_similarity' => $this->similarityByLength ? null : $this->similarity,
                 'fuzzy_mode' => $this->fuzzyMode,
                 'fallback_below' => $this->fallbackBelow,
                 'candidate_limit' => $this->candidateLimit,

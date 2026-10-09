@@ -22,8 +22,11 @@ final readonly class Thresholds
     public function __construct(
         /** Minimum relevance (0..~1.5) a hit needs; bonuses are not counted. */
         public float $minScore = 0.0,
-        /** Minimum trigram word similarity (0..1) for a typo-tolerant match. Lower = more tolerant. */
-        public float $fuzzySimilarity = 0.3,
+        /**
+         * Minimum trigram word similarity (0..1) for a typo-tolerant match. Lower = more tolerant.
+         * Null (the default): by word length (see TypoCurve). A number applies to every word.
+         */
+        public ?float $fuzzySimilarity = null,
         /** Typo tolerance is skipped for shorter queries: trigrams of 1-2 letters are noise. */
         public int $fuzzyMinLength = 3,
         public FuzzyMode $fuzzyMode = FuzzyMode::Fallback,
@@ -45,7 +48,7 @@ final readonly class Thresholds
         if ($minScore < 0.0) {
             $violations[] = '"minScore" must be >= 0.';
         }
-        if ($fuzzySimilarity <= 0.0 || $fuzzySimilarity > 1.0) {
+        if ($fuzzySimilarity !== null && ($fuzzySimilarity <= 0.0 || $fuzzySimilarity > 1.0)) {
             $violations[] = '"fuzzySimilarity" must be in (0, 1]. Typical values: 0.3 (tolerant) .. 0.6 (strict).';
         }
         if ($fuzzyMinLength < 1) {
@@ -107,7 +110,7 @@ final readonly class Thresholds
             $property = $map[$key];
             match ($property) {
                 'minScore' => $minScore = is_numeric($value) ? (float) $value : throw new InvalidDefinition('thresholds', [sprintf('"%s" must be a number.', $key)]),
-                'fuzzySimilarity' => $fuzzySimilarity = is_numeric($value) ? (float) $value : throw new InvalidDefinition('thresholds', [sprintf('"%s" must be a number.', $key)]),
+                'fuzzySimilarity' => $fuzzySimilarity = $value === null ? null : (is_numeric($value) ? (float) $value : throw new InvalidDefinition('thresholds', [sprintf('"%s" must be a number.', $key)])),
                 'fuzzyMinLength' => $fuzzyMinLength = is_int($value) ? $value : throw new InvalidDefinition('thresholds', [sprintf('"%s" must be an integer.', $key)]),
                 'fuzzyMode' => $fuzzyMode = $value instanceof FuzzyMode ? $value : (FuzzyMode::tryFrom(is_string($value) ? $value : '') ?? throw new InvalidDefinition('thresholds', [sprintf('"%s" must be one of: %s.', $key, implode(', ', array_map(static fn(FuzzyMode $m): string => $m->value, FuzzyMode::cases())))])),
                 'fallbackBelow' => $fallbackBelow = is_int($value) ? $value : throw new InvalidDefinition('thresholds', [sprintf('"%s" must be an integer.', $key)]),

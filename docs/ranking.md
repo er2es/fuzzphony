@@ -20,7 +20,9 @@ The per-word similarity (`r_fuzzy`, `ScoreBreakdown::$fuzzySimilarity`) follows 
 scores 1.0 when it matches exactly, and its trigram `word_similarity` against the fuzzy fields
 otherwise. AND averages its words, OR takes the best one, negations do not score. So a document
 that matches both words of `wireles mouse` well outranks one that barely matches one of them. The
-fuzzy weight only applies when the typo-tolerant branch runs.
+fuzzy weight only applies when the typo-tolerant branch runs. With the by-length default of
+`fuzzy_similarity` a word that does not reach the similarity of its own length scores 0, so it
+cannot lift an OR above the words that do match.
 
 `min_score` applies to relevance only. Boosts reorder relevant hits but can never pull an
 irrelevant document into the results ([ADR 0004](adr/0004-min-score-on-relevance.md)).
@@ -62,7 +64,7 @@ $fuzzphony->in('products')->query('mouse')->profile('popular')->ranking(['boost'
 | `min_score` | `0.0` | minimum relevance a hit needs |
 | `fuzzy_mode` | `fallback` | `always`, `fallback` (only when exact matching finds few hits) or `never` |
 | `fallback_below` | `5` | in fallback mode: fewer exact hits than this triggers typo tolerance |
-| `fuzzy_similarity` | `0.3` | trigram word similarity each word needs (lower = more tolerant) |
+| `fuzzy_similarity` | by word length | trigram word similarity each word needs (lower = more tolerant). Unset (`null`): one typo is tolerated from 4 letters and two from 8; the similarity a word needs is that of the worst such typo plus 0.03, `(n + 1 − 3t) / (n + 1 + 3t)` for `n` letters and `t` typos (0.28 for 4 letters, 0.36 for 5, 0.48 for 7, 0.23 for 8, 0.40 for 12), and 0.6 below 4 letters. A number applies to every word; `null` returns to by length. See [Typo tolerance](searching.md#typo-tolerance) |
 | `fuzzy_min_length` | `3` | shorter words must match exactly; a query with no longer word skips typo tolerance |
 | `candidate_limit` | `2000` | max candidates ranked per branch; `total` becomes a lower bound (`2000+`) |
 | `max_query_length` / `max_terms` | `256` / `16` | input limits |

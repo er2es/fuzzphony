@@ -91,6 +91,20 @@ final class SearchCommandTest extends TestCase
         self::assertStringContainsString('0 hit(s)', $this->tester->getDisplay(), 'an unreachable min_score must leave no hit standing');
     }
 
+    public function testFuzzySimilarityCanBeSetFlatOrBackToByWordLength(): void
+    {
+        // the typo-tolerant statement measures the word's length in SQL only when the similarity is by word length
+        $sql = function (string $threshold): string {
+            $this->tester->execute(['index' => 'products', 'query' => 'mouse', '--explain' => true, '--threshold' => ['fuzzy_mode=always', $threshold]], ['interactive' => false]);
+
+            return $this->tester->getDisplay();
+        };
+
+        self::assertStringNotContainsString('char_length(replace(', $sql('fuzzy_similarity=0.3'), 'a number is flat');
+        self::assertStringContainsString('char_length(replace(', $sql('fuzzy_similarity=null'));
+        self::assertStringContainsString('char_length(replace(', $sql('fuzzy_similarity=NULL'), 'case does not matter');
+    }
+
     public function testCompletesIndexNames(): void
     {
         $completion = new CommandCompletionTester(new SearchCommand($this->context->fuzzphony));

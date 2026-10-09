@@ -18,7 +18,7 @@ final class SearchSqlBuilderTest extends TestCase
     public function testOnlyUserInputIsBound(): void
     {
         $conditions = (new SearchQuery())->where('price', '<', 500)->conditions;
-        $statement = (new SearchSqlBuilder(Indexes::products()))->ranked("'mouse'", 'mouse', new Term('mouse'), $conditions, new RankingProfile(), new Thresholds(minScore: 0.1), 20, 40);
+        $statement = (new SearchSqlBuilder(Indexes::products()))->ranked("'mouse'", 'mouse', new Term('mouse'), $conditions, new RankingProfile(), new Thresholds(minScore: 0.1, fuzzySimilarity: 0.3), 20, 40);
 
         // q.tsq, q.norm, the per-word fuzzy values (q.ft0, q.fn1), fts filter, fuzzy filter
         self::assertSame(['p0' => "'mouse'", 'p1' => 'mouse', 'p2' => "'mouse'", 'p3' => 'mouse', 'p4' => 500, 'p5' => 500], $statement['params']);
@@ -52,7 +52,7 @@ final class SearchSqlBuilderTest extends TestCase
         self::assertNotNull($root);
         $statement = (new SearchSqlBuilder(Indexes::products()))->ranked("('mouse' & 'for')", 'mouse for', $root, [], new RankingProfile(), new Thresholds(), 10, 0, ["'for'"]);
 
-        self::assertSame(['p0' => "('mouse' & 'for')", 'p1' => 'mouse for', 'p2' => "'mouse'", 'p3' => 'mouse'], $statement['params']);
+        self::assertSame(['p0' => "('mouse' & 'for')", 'p1' => 'mouse for', 'p2' => "'mouse'", 'p3' => 'mouse', 'p4' => 'mouse'], $statement['params']);
     }
 
     public function testTheRelaxationProbeIsOneExistsPerLeafWithTheFiltersInEach(): void
@@ -78,7 +78,7 @@ final class SearchSqlBuilderTest extends TestCase
 
     public function testTheRelaxationProbeUsesTheFuzzyLeafConditionWhenTheFuzzyBranchIsEligible(): void
     {
-        $statement = (new SearchSqlBuilder(Indexes::products()))->probe([new Term('wireless'), new Term('aluminum')], true, [], new Thresholds(), []);
+        $statement = (new SearchSqlBuilder(Indexes::products()))->probe([new Term('wireless'), new Term('aluminum')], true, [], new Thresholds(fuzzySimilarity: 0.3), []);
 
         self::assertStringContainsString('m0 AS MATERIALIZED (SELECT 1 FROM "public"."fuzzphony_products" AS s CROSS JOIN q WHERE (s.tsv @@ q.ft0 OR q.fn1 OPERATOR("public".<%) s.fz) AND TRUE)', $statement['sql']);
         self::assertStringContainsString('(s.tsv @@ q.ft2 OR q.fn3 OPERATOR("public".<%) s.fz)', $statement['sql']);
@@ -148,7 +148,7 @@ final class SearchSqlBuilderTest extends TestCase
     {
         $root = (new QueryParser())->parse('brand:razr')->root;
         self::assertNotNull($root);
-        $statement = (new SearchSqlBuilder(Indexes::products()))->ranked("'razr':B", 'razr', $root, [], new RankingProfile(), new Thresholds(), 10, 0, [], $root);
+        $statement = (new SearchSqlBuilder(Indexes::products()))->ranked("'razr':B", 'razr', $root, [], new RankingProfile(), new Thresholds(fuzzySimilarity: 0.3), 10, 0, [], $root);
 
         // q.tsq, q.norm, the recheck (q.sft0), then the fuzzy branch's own values (q.ft0, q.fn1)
         self::assertSame(['p0' => "'razr':B", 'p1' => 'razr', 'p2' => "'razr':B", 'p3' => "'razr':B", 'p4' => 'razr'], $statement['params']);
