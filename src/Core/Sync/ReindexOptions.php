@@ -27,6 +27,8 @@ final readonly class ReindexOptions
         public ?\Closure $onBatch = null,
         /** Write the live index directly: no second copy on disk, but searches see a mix of old and new documents while it runs. */
         public bool $inPlace = false,
+        /** Rebuild the vocabulary ("did you mean") after a full run, when the engine keeps one. */
+        public bool $vocabulary = true,
     ) {
         if ($batchSize < 1) {
             throw new InvalidArgument(sprintf('Batch size must be >= 1, got %d.', $batchSize));

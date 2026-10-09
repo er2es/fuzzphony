@@ -80,12 +80,29 @@ final class PostgresInspector
             $checks[] = $this->coverage($index, $options);
             $checks[] = $this->orphans($index, $options);
         }
+        if ($sidecarExists && $index->hasFuzzy()) {
+            $checks[] = $this->vocabulary($index);
+        }
         array_push($checks, ...$this->configuration($index));
         array_push($checks, ...$this->tenantScoping($index));
         array_push($checks, ...$this->columnAwareFiltering($index));
         array_push($checks, ...$this->schemaVersion($index)); // last: earlier checks keep their order
 
         return new InspectionReport($index->name, $checks);
+    }
+
+    /** The words "did you mean" suggests from: created by the schema, filled by a full reindex. */
+    private function vocabulary(IndexDefinition $index): Check
+    {
+        $table = $this->names->vocabulary($index);
+        if (!$this->regclass($table)) {
+            return Check::error('Vocabulary', sprintf('Table %s does not exist, so "did you mean" cannot suggest anything.', $table), self::APPLY);
+        }
+        $words = Coerce::int($this->connection->fetchValue(sprintf('SELECT count(*) FROM %s', $table)));
+
+        return $words === 0
+            ? Check::warning('Vocabulary', 'The vocabulary is empty, so "did you mean" has nothing to suggest from.', 'bin/console fuzzphony:reindex ' . $index->name . ' --vocabulary')
+            : Check::ok('Vocabulary', sprintf('%s words', number_format($words)));
     }
 
     /** @return list<Check> */

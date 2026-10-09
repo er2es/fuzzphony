@@ -38,6 +38,7 @@ final class ReindexCommand extends Command
             ->addOption('in-place', null, InputOption::VALUE_NONE, 'Write the live index directly: no second copy on disk, but searches see a mix of old and new documents while it runs')
             ->addOption('no-prune', null, InputOption::VALUE_NONE, 'Do not remove indexed documents this session cannot see in the source (row-level security, search_path)')
             ->addOption('prune-empty', null, InputOption::VALUE_NONE, 'Prune even when the source returns no row at all (wipes the whole index)')
+            ->addOption('vocabulary', null, InputOption::VALUE_NONE, 'Rebuild only the vocabulary ("did you mean") from the documents already indexed; no document is written')
             ->addOption('force', null, InputOption::VALUE_NONE, 'Skip the "--prune-empty" confirmation prompt (required in non-interactive runs)');
     }
 
@@ -49,9 +50,15 @@ final class ReindexCommand extends Command
         $noPrune = $input->getOption('no-prune') === true;
         $inPlace = $input->getOption('in-place') === true;
         $pruneEmpty = $input->getOption('prune-empty') === true;
+        $vocabularyOnly = $input->getOption('vocabulary') === true;
         // an in-place run resumes in place: a full run resumed from its id would continue a stale rebuild
         $again = ($inPlace ? '--in-place ' : '') . ($noPrune ? '--no-prune ' : '');
 
+        if ($vocabularyOnly && ($noPrune || $inPlace || $pruneEmpty || $from !== null)) {
+            $io->error('--vocabulary rebuilds only the vocabulary and writes no document: it cannot be combined with --from, --in-place, --no-prune or --prune-empty.');
+
+            return Command::INVALID;
+        }
         if ($pruneEmpty && !$this->confirmPruneEmpty($input, $io)) {
             return Command::FAILURE;
         }
@@ -59,6 +66,23 @@ final class ReindexCommand extends Command
         foreach (IndexArgument::resolve($this->fuzzphony, $input) as $index) {
             $io->section(sprintf('Reindexing "%s"', $index->name));
             $started = microtime(true);
+            if ($vocabularyOnly) {
+                if (!$index->hasFuzzy()) {
+                    $io->writeln('  <comment>No fuzzy field, so no vocabulary.</comment>');
+
+                    continue;
+                }
+                try {
+                    $words = $this->fuzzphony->rebuildVocabulary($index->name);
+                } catch (FuzzphonyException $e) {
+                    $io->writeln(sprintf('  <error>%s</error>', OutputFormatter::escape($e->getMessage())));
+
+                    return Command::FAILURE;
+                }
+                $io->writeln(sprintf('  <info>%s words in the vocabulary, in %.1fs</info>', number_format($words), microtime(true) - $started));
+
+                continue;
+            }
             $lastId = is_string($from) ? $from : null;
             try {
                 $result = $this->fuzzphony->reindex($index->name, new ReindexOptions(
@@ -83,6 +107,12 @@ final class ReindexCommand extends Command
                 return Command::FAILURE;
             }
             $io->writeln(sprintf('  <info>%s documents in %.1fs</info>', number_format($result->written), microtime(true) - $started));
+            if ($result->vocabulary !== null) {
+                $io->writeln(sprintf('  %s words in the vocabulary ("did you mean")', number_format($result->vocabulary)));
+            }
+            if ($result->vocabularyError !== null) {
+                $io->writeln(sprintf('  <comment>The documents are indexed, but the vocabulary could not be rebuilt: %s Run fuzzphony:reindex --vocabulary when that is fixed.</comment>', OutputFormatter::escape($result->vocabularyError)));
+            }
             $io->writeln(match (true) {
                 $result->swapped => '  Built next to the live index and swapped in: searches never saw a partial index, and documents the source no longer returns went with the old one.',
                 $result->pruned !== null => sprintf('  %s orphaned document(s) removed (no longer in the source)', number_format($result->pruned)),

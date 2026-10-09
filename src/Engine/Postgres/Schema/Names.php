@@ -128,6 +128,23 @@ final readonly class Names
         return $this->qualify($this->shadowName($index));
     }
 
+    /** The words of a fuzzy index and in how many documents each occurs: where "did you mean" (and later suggest()) read. */
+    public function vocabularyName(IndexDefinition $index): string
+    {
+        return self::limit($this->sidecarName($index) . '__vocab');
+    }
+
+    public function vocabulary(IndexDefinition $index): string
+    {
+        return $this->qualify($this->vocabularyName($index));
+    }
+
+    /** Its trigram index, which finds the words close to a misspelled one. */
+    public function vocabularyIndexName(IndexDefinition $index): string
+    {
+        return self::limit($this->vocabularyName($index) . '_trgm');
+    }
+
     /** The ids of the live documents that changed while a full reindex runs. */
     public function changesName(IndexDefinition $index): string
     {

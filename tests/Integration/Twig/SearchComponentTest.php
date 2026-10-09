@@ -80,4 +80,26 @@ final class SearchComponentTest extends KernelTestCase
 
         self::assertStringContainsString('No results.', (string) $component->render());
     }
+
+    public function testASuggestionIsOfferedAndSearchedWhenChosen(): void
+    {
+        $component = $this->createLiveComponent('Fuzzphony:Search', ['index' => 'articles', 'query' => 'mose']);
+
+        $html = (string) $component->render();
+        self::assertStringContainsString('fuzzphony-search__did-you-mean', $html);
+        self::assertStringContainsString('>mouse</button>', $html);
+
+        $component->call('useSuggestion');
+        $after = (string) $component->render();
+
+        self::assertStringNotContainsString('fuzzphony-search__did-you-mean', $after, 'mouse is a word of the index');
+        self::assertStringContainsString('data-id="1"', $after);
+    }
+
+    public function testNoSuggestionForAWordTheIndexKnows(): void
+    {
+        $component = $this->createLiveComponent('Fuzzphony:Search', ['index' => 'articles', 'query' => 'mouse']);
+
+        self::assertStringNotContainsString('fuzzphony-search__did-you-mean', (string) $component->render());
+    }
 }

@@ -6,8 +6,8 @@ Fuzzphony is pre-1.0. Security fixes are released for the latest minor version o
 
 | Version | Supported |
 |---|---|
-| 0.6.x | yes |
-| < 0.6 | no |
+| 0.7.x | yes |
+| < 0.7 | no |
 
 ## Reporting a vulnerability
 
@@ -31,6 +31,10 @@ otherwise.
 - **Output you render.** Highlights (`Hit::$highlights`) are HTML-escaped with `<mark>` tags.
   Warnings (`SearchResult::$warnings`) and `SearchResult::$interpretedAs` are plain text that may
   contain the user's own words: escape them when you render them as HTML.
+- **The vocabulary of "did you mean"** is the words of the whole index (see
+  [Did you mean](docs/searching.md#did-you-mean)), so a suggestion does not respect a search's filters.
+  A tenant-scoped index never suggests anything; for other visibility filters, set `did_you_mean: false`
+  where the existence of a word is itself secret.
 - **Cost.** Search input is bounded by the `max_query_length`, `max_terms` and `candidate_limit`
   thresholds. Also set a PostgreSQL `statement_timeout` for the application's database role.
 - **The demo** (`demo/`) is a local showcase, not a production template. It exposes the SQL and

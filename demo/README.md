@@ -20,6 +20,7 @@ Symfony: Twig + Stimulus via AssetMapper (no Node build), Live Components, DBAL.
 | Page | What it shows |
 |---|---|
 | **ILIKE vs Fuzzphony** | the same box searched with `ILIKE` and with Fuzzphony; cold + median warm timings; Fuzzphony's column renders at once, ILIKE's loads separately (it is much slower on this catalogue); one-click accent / typo / stemming / phrase / field / exact field (`brand:sony headphones` searches the brand only, typos included) / prefix examples |
+| **Relevance** | what 0.7 changed in matching quality, on one query: typo tolerance by word length next to a flat 0.3 (`mouse` is not `monitor`; the price: `mpuse`), the catalogue's synonyms at work (`mice`, `display`, `headset`, and `drill` finding screwdrivers one way only), and the "did you mean" suggestion, with one-click examples |
 | **Playground** | every ranking weight and threshold as a slider (the fuzzy similarity by word length, or one value for every word); live results with a score breakdown bar per hit; SQL + EXPLAIN (ANALYZE) tab |
 | **Languages** | one small catalogue in English, German, French, Spanish and Hungarian, one index per language; one-click examples (plural, accents, stop words (accented ones too), typo, and an irregular form that is honestly not matched), the lexeme PostgreSQL made of every word, and ILIKE's hit count next to Fuzzphony's |
 | **Config wizard** | pick a table: the wizard explains each column decision and outputs YAML, builder code and attributes (`fuzzphony:wizard` in the terminal) |
@@ -49,7 +50,7 @@ queues runs in place there.
 | `web` | nginx (unprivileged) | serves the compiled, fingerprinted assets (gzip, 1-year `immutable` cache), proxies everything else to `php`; security headers, timeouts, `/healthz` |
 | `php` | php-fpm 8.4 (Alpine) | the Symfony app, `APP_ENV=prod`; dynamic pool of up to 16 children, opcache without timestamp checks + preload |
 | `worker` | same image | `fuzzphony:worker`, drains the sync queue; recycled hourly, stops on SIGTERM after the current batch |
-| `init` | same image | one-shot bootstrap: wait for the database, seed only if `bench_product` / `lang_product` are missing, `fuzzphony:schema --apply` (creates the `fuzzphony` schema: every index table, the sync queue and the version table live there, the catalogue stays in `public`), reindex each index only if it is empty, `fuzzphony:doctor`. `php` and `worker` start only after it succeeded |
+| `init` | same image | one-shot bootstrap: wait for the database, seed only if `bench_product` / `lang_product` are missing, `fuzzphony:schema --apply` (creates the `fuzzphony` schema: every index table, the sync queue and the version table live there, the catalogue stays in `public`), reindex each index only if it is empty, build the vocabulary of an index that has none yet, `fuzzphony:doctor`. `php` and `worker` start only after it succeeded |
 | `db` | postgres 18 | named volume `pgdata`, tuned for the demo (see `command:`), healthcheck |
 
 The image is built once from the repository root (`demo/Dockerfile`, multi-stage): dependencies
@@ -74,6 +75,8 @@ listed there use the library's defaults, shown here with "default".
 | Trigger level | `statement` (default) | one trigger call per statement, with transition tables; `TRUNCATE` is followed too |
 | Watched tables | `catalog`: `bench_product`, `bench_brand`, `bench_category`; `lang_*`: `lang_product` | a brand or category change queues every product that uses it |
 | Worker | `fuzzphony:worker --time-limit=3600`, batch of 500 ids, 1 s sleep when idle (defaults) | recycled hourly by Docker's restart policy; stops after the current batch on SIGTERM |
+| Synonyms (`catalog`) | `[mouse, mice]`, `[headphones, headset, earphones]`, `[monitor, display, screen]`, `drill => screwdriver` | expanded on the query, so no reindex; shown on the Relevance page |
+| Vocabulary | every index (all have a typo-tolerant field) | the table "did you mean" reads (`fuzzphony.fuzzphony_<index>__vocab`): filled by every full reindex, and by `init` for an index that already existed; the application role may rebuild it (`SELECT, INSERT, DELETE`) |
 | Fields (`catalog`) | `name` A fuzzy, `brand` B fuzzy, `category` C, `description` D | A–D are the full-text weights; fuzzy fields get typo tolerance; each field also has its own `t_<field>` tsvector column (and `z_<field>` normalised text for the fuzzy ones), so a scoped query like `brand:sony` matches that field only |
 | Filters (`catalog`) | `price`, `in_stock`, `brand_id`, `category_id`, `published_at` | |
 | Ranking (`catalog`) | boost by `popularity`, recency by `published_at`; profile `popular` (boost 0.03, recency 0.3, 60-day half-life) | |

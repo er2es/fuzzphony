@@ -227,4 +227,25 @@ final class SynonymExpanderTest extends TestCase
         self::assertSame('Televisions', (string) $expander->expand($root), 'without the stem of the query word');
         self::assertSame('(Televisions OR tv)', (string) $expander->expand($root, ['televisions' => 'televis']));
     }
+
+    public function testTheTypedWordsASynonymExpandedAreListed(): void
+    {
+        $synonyms = Synonyms::fromEntries([['tv', 'television'], ['ssd', 'solid state drive']]);
+        $expander = new SynonymExpander($synonyms, []);
+        $expand = static function (string $text) use ($expander): Node {
+            $root = (new QueryParser())->parse($text)->root;
+            self::assertNotNull($root);
+
+            return $expander->expand($root);
+        };
+
+        self::assertSame(['tv'], SynonymExpander::expandedWords($expand('tv')));
+        self::assertSame(['tv'], SynonymExpander::expandedWords($expand('tv mouse')), 'the alternatives and the other words are not listed');
+        self::assertSame(['tv', 'ssd'], SynonymExpander::expandedWords($expand('tv | ssd')));
+        self::assertSame(['tv'], SynonymExpander::expandedWords($expand('mouse -tv')), 'also inside an exclusion');
+        self::assertSame(['television'], SynonymExpander::expandedWords($expand('television')));
+        self::assertSame([], SynonymExpander::expandedWords($expand('mouse')));
+        self::assertSame(['tv'], SynonymExpander::expandedWords($expand('(tv | mouse) pad')));
+        self::assertSame(['ssd'], SynonymExpander::expandedWords($expand('name:ssd')), 'a field-scoped word is listed by its word');
+    }
 }

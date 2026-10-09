@@ -62,6 +62,7 @@
                     {% if result.interpretedAs %}· understood as <code>{{ result.interpretedAs }}</code>{% endif %}
                 </p>
                 {% for warning in result.warnings %}<p class="s-warning">{{ warning }}</p>{% endfor %}
+                {% if result.didYouMean %}<p>Did you mean <code>{{ result.didYouMean }}</code>?</p>{% endif %}
 
                 <div class="panel panel-results">
                     {% set rows = this.rows %}

@@ -6,6 +6,7 @@ namespace Fuzzphony\Tests\Integration;
 
 use Fuzzphony\Core\Definition\Synonyms;
 use Fuzzphony\Core\Fuzzphony;
+use Fuzzphony\Core\Ranking\Thresholds;
 use Fuzzphony\Core\Registry\IndexRegistry;
 use Fuzzphony\Core\Search\SearchResult;
 use Fuzzphony\Engine\Postgres\PostgresEngine;
@@ -43,7 +44,8 @@ final class SynonymsTest extends TestCase
             ],
         ]);
         $this->metrics = new RecordingMetricsCollector();
-        $index = Indexes::products('manual');
+        // the suggestion lookup is another statement of explain(): these tests read the search's own
+        $index = Indexes::products('manual')->withThresholds(new Thresholds(didYouMean: false));
         if ($entries !== []) {
             $index = $index->withSynonyms(Synonyms::fromEntries($entries ?? [['tv', 'television'], ['ssd', 'solid state drive'], 'laptop => notebook']));
         }

@@ -111,4 +111,15 @@ final class SearchCommandTest extends TestCase
 
         self::assertSame(['products'], $completion->complete(['']));
     }
+
+    public function testPrintsTheSpellingItSuggests(): void
+    {
+        $status = $this->tester->execute(['index' => 'products', 'query' => 'hedphones'], ['interactive' => false]);
+
+        self::assertSame(Command::SUCCESS, $status);
+        self::assertStringContainsString('Did you mean headphones?', $this->tester->getDisplay());
+
+        $this->tester->execute(['index' => 'products', 'query' => 'headphones'], ['interactive' => false]);
+        self::assertStringNotContainsString('Did you mean', $this->tester->getDisplay());
+    }
 }

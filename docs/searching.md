@@ -228,6 +228,58 @@ $result->interpretedAs;   // "((tv OR television) AND NOT bracket)"
 
 Synonyms are developer input, like the rest of the index definition: never build them from user input.
 
+## Did you mean
+
+A search that finds few hits and has a whole word the index does not know suggests the spelling it
+probably meant, next to the hits (`SearchResult::$didYouMean`):
+
+```php
+$result = $fuzzphony->in('products')->query('hedphones -cable')->get();
+$result->didYouMean;   // "headphones -cable": the query with the word replaced, the rest as typed
+```
+
+- It is a suggestion: Fuzzphony never searches it by itself. Show it as a link that searches
+  `$result->didYouMean`. It is plain text made of the user's own words: escape it when you render it.
+- When: fewer hits than `fallback_below` (5), or typo tolerance had to run (so it also appears next to the
+  results typo tolerance found: `hedphones` finds headphones and still suggests the word). It is not computed for a browse, a search with enough hits, or when `did_you_mean` is `false`.
+- Which words: whole words of at least `fuzzy_min_length` letters (the index's own minimum) that the
+  index does not know: not in the vocabulary, not a stop word, and no document of the index matches
+  them (so a word of a field that is not typo-tolerant, an inflection such as `headphone`, `wi-fi`, or a
+  word added since the last full reindex is never "corrected"). Not corrected either: prefixes
+  (`keyb*`), excluded words (`-cabel`), words a synonym expands (the index knows them by definition)
+  and words with a digit (`rtx4090`: the nearest code is not what the user meant).
+- Which suggestion: the vocabulary word nearest by edit distance (the trigram index only picks ten
+  candidates; a trigram ranking alone suggests `most` for `mose`), then the one in more documents.
+  Nothing farther than a third of the word's length away is suggested, and a candidate has to share
+  enough trigrams with the word (pg_trgm's similarity of 0.3), so a word that is two edits away at the
+  start and the end gets none. The suggested word is the
+  vocabulary's, so lowercase and without accents.
+- Tenants and filters: the vocabulary is the words of the whole index, whatever a search's filters
+  say, so a suggestion could reveal that a word exists in documents the search may not see.
+  Therefore a tenant-scoped index never suggests anything. On any other index with visibility filters
+  (unpublished or private rows whose words must stay secret), switch it off: `did_you_mean: false`.
+- The role that searches needs `SELECT` on the vocabulary table; without it, or before the table exists,
+  there is simply no suggestion (never an error).
+- The vocabulary is the words of the index's typo-tolerant fields and in how many documents each
+  occurs. A full `fuzzphony:reindex` rebuilds it (`fuzzphony:reindex --vocabulary` rebuilds only it);
+  changes to single documents do not touch it, so it ages as the data changes, and the doctor does not
+  say how old it is (only that it is missing or empty). The effect is mild: a word that is new since the
+  last rebuild is not "corrected" (the suggestion also asks the index itself), it only cannot be
+  suggested for a neighbouring misspelling. **Rebuild it on a schedule**, for example nightly, or right
+  after a big import: it is one pass over the index (about 10 s for 500 000 documents) and readers are
+  never blocked.
+
+  ```
+  # crontab: every night at 03:15
+  15 3 * * * cd /var/www/app && bin/console fuzzphony:reindex --vocabulary --no-interaction
+  ```
+
+  An index without the table (it is created by `fuzzphony:schema --apply`) or with an empty one gives no
+  suggestion, and the doctor says so.
+- `explain()` (and `fuzzphony:search --explain`, and the demo's SQL views) list the lookup as the
+  statement labelled `did you mean`, with the words bound as parameters; the plan shown is still the
+  search statement's.
+
 ## Empty-result relaxation
 
 When a query of two or more words returns no hit, Fuzzphony checks each word on its own against

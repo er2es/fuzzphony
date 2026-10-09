@@ -5,7 +5,13 @@ declare(strict_types=1);
 namespace Fuzzphony\Tests\Integration\Command;
 
 use Fuzzphony\Bundle\Command\ReindexCommand;
+use Fuzzphony\Core\Definition\FieldDefinition;
+use Fuzzphony\Core\Definition\Weight;
+use Fuzzphony\Core\Fuzzphony;
+use Fuzzphony\Core\Registry\IndexRegistry;
 use Fuzzphony\Core\Support\Coerce;
+use Fuzzphony\Engine\Postgres\PostgresEngine;
+use Fuzzphony\Tests\Fixtures\Indexes;
 use PHPUnit\Framework\TestCase;
 use Symfony\Component\Console\Command\Command;
 use Symfony\Component\Console\Tester\CommandCompletionTester;
@@ -67,7 +73,43 @@ final class ReindexCommandTest extends TestCase
         self::assertSame(Command::SUCCESS, $status, $this->tester->getDisplay());
         self::assertStringContainsString('1 orphaned document(s) removed', $this->tester->getDisplay());
         self::assertStringContainsString("Rebuilt in place: this role cannot build the index next to the live one (it needs CREATE on Fuzzphony's schema and ownership of the index table), or fuzzphony:schema --apply has not run since the upgrade.", $this->tester->getDisplay());
+        self::assertStringContainsString('The documents are indexed, but the vocabulary could not be rebuilt:', $this->tester->getDisplay());
+        self::assertStringContainsString('fuzzphony:reindex --vocabulary', $this->tester->getDisplay());
         self::assertSame(4, $this->indexed());
+    }
+
+    public function testAFullRunReportsTheVocabulary(): void
+    {
+        $status = $this->tester->execute(['index' => 'products'], ['interactive' => false]);
+
+        self::assertSame(Command::SUCCESS, $status, $this->tester->getDisplay());
+        self::assertMatchesRegularExpression('/\d+ words in the vocabulary \("did you mean"\)/', $this->tester->getDisplay());
+        self::assertStringNotContainsString('could not be rebuilt', $this->tester->getDisplay());
+    }
+
+    public function testTheVocabularyOptionRebuildsOnlyTheVocabulary(): void
+    {
+        $this->context->connection->execute('TRUNCATE "fuzzphony_products__vocab"');
+
+        $status = $this->tester->execute(['index' => 'products', '--vocabulary' => true], ['interactive' => false]);
+
+        $display = $this->tester->getDisplay();
+        self::assertSame(Command::SUCCESS, $status, $display);
+        self::assertMatchesRegularExpression('/\d+ words in the vocabulary, in \d{1,3}\.\ds/', $display);
+        self::assertStringNotContainsString('documents in', $display);
+        self::assertStringNotContainsString('orphaned', $display);
+        self::assertGreaterThan(0, Coerce::int($this->context->connection->fetchValue('SELECT count(*) FROM "fuzzphony_products__vocab"')));
+        self::assertSame(5, $this->indexed(), 'no document was written: the orphan is still there');
+    }
+
+    public function testTheVocabularyOptionFailsLoudlyWhenItCannotRun(): void
+    {
+        $this->context->connection->execute('DROP TABLE "fuzzphony_products__vocab"');
+
+        $status = $this->tester->execute(['index' => 'products', '--vocabulary' => true], ['interactive' => false]);
+
+        self::assertSame(Command::FAILURE, $status);
+        self::assertStringContainsString('fuzzphony:schema --apply', $this->tester->getDisplay());
     }
 
     public function testPrintsProgressPerBatchAndASummary(): void
@@ -216,5 +258,27 @@ final class ReindexCommandTest extends TestCase
     private function indexed(): int
     {
         return Coerce::int($this->context->connection->fetchValue('SELECT count(*) FROM fuzzphony_products'));
+    }
+
+    public function testTheVocabularyOptionCannotBeCombinedWithOptionsThatWriteDocuments(): void
+    {
+        foreach (['--from' => '2', '--in-place' => true, '--no-prune' => true, '--prune-empty' => true] as $option => $value) {
+            $status = $this->tester->execute(['index' => 'products', '--vocabulary' => true, $option => $value, '--force' => true], ['interactive' => false]);
+
+            self::assertSame(Command::INVALID, $status, $option);
+            self::assertStringContainsString('cannot be combined', $this->tester->getDisplay());
+        }
+    }
+
+    public function testTheVocabularyOptionSkipsAnIndexWithoutFuzzyFields(): void
+    {
+        $index = Indexes::products('manual')->withFields([new FieldDefinition('name', Weight::A)]);
+        $fuzzphony = new Fuzzphony(new PostgresEngine($this->context->connection), new IndexRegistry([$index]));
+        $tester = new CommandTester(new ReindexCommand($fuzzphony));
+
+        $status = $tester->execute(['--vocabulary' => true], ['interactive' => false]);
+
+        self::assertSame(Command::SUCCESS, $status, $tester->getDisplay());
+        self::assertStringContainsString('No fuzzy field, so no vocabulary.', $tester->getDisplay());
     }
 }

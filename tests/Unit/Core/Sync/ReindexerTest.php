@@ -4,7 +4,12 @@ declare(strict_types=1);
 
 namespace Fuzzphony\Tests\Unit\Core\Sync;
 
+use Fuzzphony\Core\Definition\FieldDefinition;
+use Fuzzphony\Core\Definition\Weight;
 use Fuzzphony\Core\Engine\Engine;
+use Fuzzphony\Core\Engine\Vocabulary;
+use Fuzzphony\Core\Exception\EngineFailure;
+use Fuzzphony\Core\Exception\InvalidArgument;
 use Fuzzphony\Core\Sync\Reindexer;
 use Fuzzphony\Core\Sync\ReindexOptions;
 use Fuzzphony\Tests\Fixtures\Indexes;
@@ -266,5 +271,121 @@ final class ReindexerTest extends TestCase
         $engine->method('sourceIds')->willReturnOnConsecutiveCalls(...$batches);
 
         return $engine;
+    }
+
+    /**
+     * @param list<list<int>> $batches what sourceIds() returns, call by call
+     *
+     * @return Engine&MockObject
+     */
+    private function vocabularyEngine(array $batches): Engine
+    {
+        $engine = $this->createMockForIntersectionOfInterfaces([Engine::class, Vocabulary::class]);
+        assert($engine instanceof Engine);
+        $engine->method('sourceIds')->willReturnOnConsecutiveCalls(...$batches);
+        $engine->method('refresh')->willReturn(1);
+        $engine->method('pruneOrphans')->willReturn(0);
+
+        return $engine;
+    }
+
+    public function testAFullRunRebuildsTheVocabularyWhenTheEngineKeepsOne(): void
+    {
+        $engine = $this->vocabularyEngine([[1]]);
+        $engine->expects(self::once())->method('rebuildVocabulary')->with(Indexes::products())->willReturn(42);
+
+        $result = (new Reindexer($engine))->run(Indexes::products(), new ReindexOptions());
+
+        self::assertSame(42, $result->vocabulary);
+        self::assertNull($result->vocabularyError);
+        self::assertSame(1, $result->written);
+    }
+
+    public function testTheVocabularyIsLeftAloneByAResumedRunAnEmptySourceAndAnOptOut(): void
+    {
+        foreach ([new ReindexOptions(resumeAfter: 3, inPlace: true), new ReindexOptions(vocabulary: false)] as $options) {
+            $engine = $this->vocabularyEngine([[4]]);
+            $engine->expects(self::never())->method('rebuildVocabulary');
+
+            self::assertNull((new Reindexer($engine))->run(Indexes::products(), $options)->vocabulary);
+        }
+        $empty = $this->vocabularyEngine([[]]);
+        $empty->expects(self::never())->method('rebuildVocabulary');
+        $result = (new Reindexer($empty))->run(Indexes::products(), new ReindexOptions());
+        self::assertTrue($result->pruneSkippedEmptySource);
+        self::assertNull($result->vocabulary);
+    }
+
+    public function testAnIndexWithoutFuzzyFieldsAndAnEngineWithoutAVocabularyAreSkipped(): void
+    {
+        $noFuzzy = Indexes::products()->withFields([new FieldDefinition('name', Weight::A)]);
+        $engine = $this->vocabularyEngine([[1]]);
+        $engine->expects(self::never())->method('rebuildVocabulary');
+        self::assertNull((new Reindexer($engine))->run($noFuzzy, new ReindexOptions())->vocabulary);
+
+        $plain = $this->engine([[1]]);
+        $plain->method('refresh')->willReturn(1);
+        $plain->expects(self::once())->method('recordReindex');
+        self::assertNull((new Reindexer($plain))->run(Indexes::products(), new ReindexOptions())->vocabulary);
+    }
+
+    public function testAVocabularyFailureIsReportedAndDoesNotUndoTheDocuments(): void
+    {
+        $engine = $this->vocabularyEngine([[1]]);
+        $engine->expects(self::once())->method('rebuildVocabulary')->willThrowException(EngineFailure::wrap('vocabulary', new \RuntimeException('no privilege'), 'Grant it.'));
+
+        $result = (new Reindexer($engine))->run(Indexes::products(), new ReindexOptions());
+
+        self::assertSame(1, $result->written);
+        self::assertNull($result->vocabulary);
+        self::assertStringContainsString('vocabulary', (string) $result->vocabularyError);
+    }
+
+    public function testRebuildingOnlyTheVocabularyWritesNoDocumentAndFailsLoudly(): void
+    {
+        $engine = $this->vocabularyEngine([]);
+        $engine->expects(self::never())->method('refresh');
+        $engine->expects(self::never())->method('sourceIds');
+        $engine->expects(self::once())->method('rebuildVocabulary')->willReturn(7);
+
+        self::assertSame(7, (new Reindexer($engine))->vocabulary(Indexes::products()));
+
+        $failing = $this->vocabularyEngine([]);
+        $failing->expects(self::once())->method('rebuildVocabulary')->willThrowException(EngineFailure::wrap('vocabulary', new \RuntimeException('no privilege'), 'Grant it.'));
+        $this->expectException(EngineFailure::class);
+        (new Reindexer($failing))->vocabulary(Indexes::products());
+    }
+
+    public function testRebuildingOnlyTheVocabularyNeedsAnEngineAndAnIndexThatHaveOne(): void
+    {
+        try {
+            $plain = $this->engine([]);
+            $plain->expects(self::never())->method('sourceIds');
+            (new Reindexer($plain))->vocabulary(Indexes::products());
+            self::fail('Expected InvalidArgument.');
+        } catch (InvalidArgument $e) {
+            self::assertStringContainsString('keeps no vocabulary', $e->getMessage());
+        }
+        $this->expectException(InvalidArgument::class);
+        $this->expectExceptionMessage('has no fuzzy field');
+        $engine = $this->vocabularyEngine([]);
+        $engine->expects(self::never())->method('rebuildVocabulary');
+        (new Reindexer($engine))->vocabulary(Indexes::products()->withFields([new FieldDefinition('name', Weight::A)]));
+    }
+
+    public function testAResumedRunThatFinishedTheRebuildRebuildsTheVocabularyAnInPlaceOneDoesNot(): void
+    {
+        $swapped = $this->vocabularyEngine([[8]]);
+        $swapped->method('beginRebuild')->willReturn(true);
+        $swapped->method('refreshShadow')->willReturn(1);
+        $swapped->expects(self::once())->method('rebuildVocabulary')->willReturn(9);
+        $result = (new Reindexer($swapped))->run(Indexes::products(), new ReindexOptions(resumeAfter: 7));
+        self::assertTrue($result->swapped);
+        self::assertSame(9, $result->vocabulary);
+
+        $inPlace = $this->vocabularyEngine([[8]]);
+        $inPlace->method('beginRebuild')->willReturn(false);
+        $inPlace->expects(self::never())->method('rebuildVocabulary');
+        self::assertNull((new Reindexer($inPlace))->run(Indexes::products(), new ReindexOptions(resumeAfter: 7))->vocabulary);
     }
 }

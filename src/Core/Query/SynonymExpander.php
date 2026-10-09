@@ -106,6 +106,22 @@ final readonly class SynonymExpander
     }
 
     /**
+     * The lowercase words the user typed that the synonyms expanded: a word with such an alternative
+     * is one the index knows by definition, so "did you mean" does not correct it.
+     *
+     * @return list<string>
+     */
+    public static function expandedWords(Node $expanded): array
+    {
+        return match (true) {
+            $expanded instanceof AnyOf && $expanded->expansion => array_values(array_unique(array_merge(self::queryWords($expanded->nodes[0]), ...array_map(self::expandedWords(...), array_slice($expanded->nodes, 1))))),
+            $expanded instanceof AllOf, $expanded instanceof AnyOf => array_values(array_unique(array_merge(...array_map(self::expandedWords(...), $expanded->nodes)))),
+            $expanded instanceof Not => self::expandedWords($expanded->node),
+            default => [],
+        };
+    }
+
+    /**
      * @param array<string, string> $queryStems lowercase word of the query => stem
      * @param int                   $budget     the most alternatives to add; a word whose alternatives do not fit stays as typed
      * @param bool                  $truncated  set to true when a word was left as typed for that reason

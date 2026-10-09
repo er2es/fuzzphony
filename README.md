@@ -33,7 +33,7 @@ foreach ($result as $hit) {
 }
 ```
 
-Status: v0.6. The API may still change before 1.0. Breaking changes are listed in the
+Status: v0.7. The API may still change before 1.0. Breaking changes are listed in the
 [CHANGELOG](https://github.com/er2es/fuzzphony/blob/main/CHANGELOG.md) and explained in
 [UPGRADE.md](https://github.com/er2es/fuzzphony/blob/main/UPGRADE.md).
 
@@ -186,7 +186,7 @@ nothing drops the words that match nothing and says so. Details:
 ## Documentation
 
 - [Index definitions](https://github.com/er2es/fuzzphony/blob/main/docs/configuration.md): attributes, YAML, builder, bundle configuration, building an index.
-- [Searching](https://github.com/er2es/fuzzphony/blob/main/docs/searching.md): the search builder, controller examples, query syntax, typo tolerance, synonyms, empty-result relaxation.
+- [Searching](https://github.com/er2es/fuzzphony/blob/main/docs/searching.md): the search builder, controller examples, query syntax, typo tolerance, synonyms, "did you mean", empty-result relaxation.
 - [Ranking and thresholds](https://github.com/er2es/fuzzphony/blob/main/docs/ranking.md): the score formula, profiles, per-query tuning, thresholds and their hard caps.
 - [Languages](https://github.com/er2es/fuzzphony/blob/main/docs/languages.md): stemming, stop words and accent folding for 28 languages.
 - [Keeping the index in sync](https://github.com/er2es/fuzzphony/blob/main/docs/sync.md): sync modes, triggers, `TRUNCATE`, orphan pruning, Messenger.
@@ -229,11 +229,10 @@ Details in [docs/limitations.md](https://github.com/er2es/fuzzphony/blob/main/do
 
 ## Roadmap
 
-Current: v0.6 (observability hooks/events, transaction-aware connections). Milestones build in
+Current: v0.7 (typo tolerance by word length, synonyms, "did you mean"). Milestones build in
 order, each one a foundation for the next, up to v1.0's stable API and backward-compatibility
 promise. PostgreSQL only before 1.0:
 
-- v0.7 Relevance: length-aware typo tolerance, synonyms, a vocabulary table, "did you mean".
 - v0.8 Search features: `suggest()`, facets with an opt-in exact `total`, federated search.
 - v0.9 Security and analytics: search analytics, audit logging, rate limiting, Symfony Security
   integration, a tenant resolver.

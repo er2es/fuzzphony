@@ -43,6 +43,11 @@ final readonly class Thresholds
          * nothing on their own, and the result names them in a warning.
          */
         public bool $relaxWhenEmpty = true,
+        /**
+         * A search that finds fewer hits than fallbackBelow, or had to use typo tolerance, with a word that
+         * the index does not know, suggests the spelling it probably meant (SearchResult::$didYouMean).
+         */
+        public bool $didYouMean = true,
     ) {
         $violations = [];
         if ($minScore < 0.0) {
@@ -90,6 +95,7 @@ final readonly class Thresholds
             'max_query_length' => 'maxQueryLength',
             'max_terms' => 'maxTerms',
             'relax_when_empty' => 'relaxWhenEmpty',
+            'did_you_mean' => 'didYouMean',
         ];
         $unknown = array_diff(array_keys($overrides), array_keys($map));
         if ($unknown !== []) {
@@ -105,6 +111,7 @@ final readonly class Thresholds
         $maxQueryLength = $this->maxQueryLength;
         $maxTerms = $this->maxTerms;
         $relaxWhenEmpty = $this->relaxWhenEmpty;
+        $didYouMean = $this->didYouMean;
 
         foreach ($overrides as $key => $value) {
             $property = $map[$key];
@@ -117,6 +124,7 @@ final readonly class Thresholds
                 'candidateLimit' => $candidateLimit = is_int($value) ? $value : throw new InvalidDefinition('thresholds', [sprintf('"%s" must be an integer.', $key)]),
                 'maxQueryLength' => $maxQueryLength = is_int($value) ? $value : throw new InvalidDefinition('thresholds', [sprintf('"%s" must be an integer.', $key)]),
                 'relaxWhenEmpty' => $relaxWhenEmpty = self::bool($value) ?? throw new InvalidDefinition('thresholds', [sprintf('"%s" must be a boolean.', $key)]),
+                'didYouMean' => $didYouMean = self::bool($value) ?? throw new InvalidDefinition('thresholds', [sprintf('"%s" must be a boolean.', $key)]),
                 default => $maxTerms = is_int($value) ? $value : throw new InvalidDefinition('thresholds', [sprintf('"%s" must be an integer.', $key)]),
             };
         }
@@ -131,6 +139,7 @@ final readonly class Thresholds
             maxQueryLength: $maxQueryLength,
             maxTerms: $maxTerms,
             relaxWhenEmpty: $relaxWhenEmpty,
+            didYouMean: $didYouMean,
         );
     }
 

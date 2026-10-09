@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Fuzzphony\Core;
 
 use Fuzzphony\Core\Engine\Engine;
+use Fuzzphony\Core\Exception\InvalidArgument;
 use Fuzzphony\Core\Inspection\InspectionReport;
 use Fuzzphony\Core\Inspection\InspectOptions;
 use Fuzzphony\Core\Registry\IndexRegistry;
@@ -63,6 +64,19 @@ final readonly class Fuzzphony
     public function reindex(string $index, ReindexOptions $options = new ReindexOptions()): ReindexResult
     {
         return (new Reindexer($this->engine))->run($this->registry->get($index), $options);
+    }
+
+    /**
+     * Rebuilds only the vocabulary of a fuzzy index ("did you mean": its words and in how many documents
+     * each occurs) from the documents already indexed; a full reindex does it after the documents.
+     *
+     * @return int the number of words
+     *
+     * @throws InvalidArgument when the engine keeps no vocabulary or the index has no fuzzy field
+     */
+    public function rebuildVocabulary(string $index): int
+    {
+        return (new Reindexer($this->engine))->vocabulary($this->registry->get($index));
     }
 
     public function registry(): IndexRegistry

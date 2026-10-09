@@ -47,6 +47,12 @@ nothing for them. That fails closed, but is easy to mistake for a bug.
 tenant-scoped index throws `InvalidQuery` (fail-closed). A tenant resolver for them is planned (see
 the [roadmap](roadmap.md#security)).
 
+## Did you mean
+
+A tenant-scoped index never suggests a spelling: its vocabulary is the words of every tenant, and a
+suggestion (or the lack of one) would tell one customer which words another customer's documents
+have. `SearchResult::$didYouMean` stays `null` there.
+
 ## What it guarantees
 
 This is an application-layer guarantee, enforced by Fuzzphony's API rather than by the database.

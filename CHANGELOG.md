@@ -7,6 +7,12 @@ changes; they are always listed under **Breaking** and explained in [UPGRADE.md]
 
 ## [Unreleased]
 
+## [0.7.0] - 2026-10-09
+
+**After upgrading, run `fuzzphony:schema --apply`, then `fuzzphony:reindex --vocabulary`** (a full
+`fuzzphony:reindex` does it too), and give the roles the grants for the new vocabulary table. Typo-tolerant
+results change: see Breaking. See [UPGRADE.md](UPGRADE.md#from-06-to-07).
+
 ### Breaking
 
 - Typo tolerance is proportional to the word's length by default: one typo is tolerated from 4
@@ -40,13 +46,32 @@ changes; they are always listed under **Breaking** and explained in [UPGRADE.md]
   small statement for each query word it has not seen yet. New public class
   `Fuzzphony\Core\Definition\Synonyms`; see [Synonyms](docs/searching.md#synonyms).
 
+- "Did you mean": a search that finds fewer hits than `fallback_below` (or had to use typo tolerance) and has a whole word the index
+  does not know (not in the vocabulary, not a stop word, and no document matches it: so not a word of a
+  field that is not typo-tolerant, an inflection or a word added since the last reindex) sets
+  `SearchResult::$didYouMean` to the query with that word replaced by the nearest word of the index
+  (trigram candidates, then edit distance, then document count; prefixes, excluded words, words a
+  synonym expands and codes with a digit are never corrected). Threshold `did_you_mean` (default `true`).
+  A tenant-scoped index never suggests (its vocabulary would mix tenants), and a role that cannot read the
+  vocabulary gets no suggestion rather than an error. It reads the new vocabulary table of a fuzzy index
+  (`fuzzphony_<index>__vocab`, additive: the sidecar layout stays 2), which `fuzzphony:schema --apply`
+  creates empty and every full reindex fills in one transaction (`ReindexResult::$vocabulary`,
+  `$vocabularyError`; `ReindexOptions::$vocabulary`); `Fuzzphony::rebuildVocabulary()` and
+  `fuzzphony:reindex --vocabulary` rebuild only it. The doctor has a "Vocabulary" check, `fuzzphony:search`
+  and the Live Component show the suggestion, and `explain()` lists the lookup statement (label `did you mean`). New optional `Fuzzphony\Core\Engine\Vocabulary` interface:
+  an engine that does not implement it gives no suggestions and needs no change. See
+  [Did you mean](docs/searching.md#did-you-mean).
+
 ### Changed
 
 - The doctor's configuration check shows `similarity=by word length` for the default and warns
   "very tolerant" only for an explicit `fuzzy_similarity` below 0.2.
 - `fuzzphony:search --threshold fuzzy_similarity=null` goes back to the by-length default.
 - Demo: the Playground has a "Fuzzy similarity by word length" switch (on by default); the slider
-  applies only when it is off.
+  applies only when it is off. A new Relevance page shows typo tolerance by word length next to a flat
+  0.3, the catalogue's synonyms (`mice`, `display`, `headset`, `drill => screwdriver`) and the "did you
+  mean" suggestion, which the ILIKE vs Fuzzphony and Playground pages show too; `init` fills the
+  vocabulary of an index that already existed.
 - The typo-tolerant statement rechecks each word against the similarity of its own length
   (`word_similarity(…) >= q.th<n>` next to `<%`, in the search, the field-scoped words and the
   empty-result relaxation probe, with the threshold computed in SQL, once, from the normalised
@@ -551,7 +576,8 @@ on its own:
 - Sync modes: queue (default), trigger, ORM, manual; watches for joined tables.
 - Doctor with fixes; CLI commands for schema, reindex, worker, search and explain.
 
-[Unreleased]: https://github.com/er2es/fuzzphony/compare/v0.6.1...HEAD
+[Unreleased]: https://github.com/er2es/fuzzphony/compare/v0.7.0...HEAD
+[0.7.0]: https://github.com/er2es/fuzzphony/compare/v0.6.1...v0.7.0
 [0.6.1]: https://github.com/er2es/fuzzphony/compare/v0.6.0...v0.6.1
 [0.6.0]: https://github.com/er2es/fuzzphony/compare/v0.5.0...v0.6.0
 [0.5.0]: https://github.com/er2es/fuzzphony/compare/v0.4.0...v0.5.0

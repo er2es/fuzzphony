@@ -10,6 +10,7 @@ use Fuzzphony\Core\Definition\IndexDefinition;
 use Fuzzphony\Core\Engine\Capabilities;
 use Fuzzphony\Core\Engine\Capability;
 use Fuzzphony\Core\Engine\Engine;
+use Fuzzphony\Core\Engine\Vocabulary;
 use Fuzzphony\Core\Exception\EngineFailure;
 use Fuzzphony\Core\Exception\FuzzphonyException;
 use Fuzzphony\Core\Exception\InvalidArgument;
@@ -28,6 +29,7 @@ use Fuzzphony\Core\Query\Ast\Term;
 use Fuzzphony\Core\Query\Filter\Condition;
 use Fuzzphony\Core\Query\Filter\Operator;
 use Fuzzphony\Core\Query\QueryParser;
+use Fuzzphony\Core\Query\QueryRenderer;
 use Fuzzphony\Core\Query\Relaxation;
 use Fuzzphony\Core\Query\SearchQuery;
 use Fuzzphony\Core\Query\SynonymExpander;
@@ -51,9 +53,10 @@ use Fuzzphony\Engine\Postgres\Sql\SearchSqlBuilder;
 use Fuzzphony\Engine\Postgres\Sql\Sql;
 use Fuzzphony\Engine\Postgres\Sql\TsQueryCompiler;
 
-final class PostgresEngine implements Engine
+final class PostgresEngine implements Engine, Vocabulary
 {
     private const PROBE_LABEL = 'relaxation probe';
+    private const SUGGEST_LABEL = 'did you mean';
     private const string REBUILD_HINT = 'Run "fuzzphony:schema --apply" and "fuzzphony:doctor".';
 
     private readonly Names $names;
@@ -121,10 +124,10 @@ final class PostgresEngine implements Engine
     {
         $run = $this->execute($index, $query);
         $plan = [];
-        // the plan of the last search statement (the relaxation probe is listed but is not the search)
+        // the plan of the last search statement (the relaxation probe and the suggestion lookup are listed but are not the search)
         $last = null;
         foreach ($run['statements'] as $statement) {
-            if ($statement['label'] !== self::PROBE_LABEL) {
+            if ($statement['label'] !== self::PROBE_LABEL && $statement['label'] !== self::SUGGEST_LABEL) {
                 $last = $statement;
             }
         }
@@ -231,6 +234,41 @@ final class PostgresEngine implements Engine
             fn(): int => $this->connection->execute($this->schema->reindexed($index)),
             sprintf('The role running the reindex needs SELECT and UPDATE on %s.', $this->names->meta()),
         );
+    }
+
+    /**
+     * The words of the index's typo-tolerant text and in how many documents each occurs, built from
+     * the live index table. One transaction deletes the old words and inserts the new ones, so readers
+     * (only "did you mean" reads it) keep the old words until it commits and never wait; it takes no
+     * ACCESS EXCLUSIVE lock, needs no TRUNCATE or TEMPORARY privilege (the role needs SELECT, INSERT and
+     * DELETE on the table) and may join a caller's transaction. An advisory lock keeps two rebuilds of
+     * the same index from running at once.
+     */
+    public function rebuildVocabulary(IndexDefinition $index): int
+    {
+        $vocabulary = $this->names->vocabulary($index);
+
+        return $this->guard('vocabulary', function () use ($index, $vocabulary): int {
+            $granted = $this->connection->fetchValue(
+                "SELECT to_regclass(:a) IS NOT NULL AND has_table_privilege(to_regclass(:b), 'INSERT') AND has_table_privilege(to_regclass(:c), 'DELETE')",
+                ['a' => $vocabulary, 'b' => $vocabulary, 'c' => $vocabulary],
+            );
+            if ($granted !== true) {
+                throw new \RuntimeException(sprintf('%s does not exist or this role may not write it.', $vocabulary));
+            }
+
+            return $this->connection->transactional(function (Connection $c) use ($index, $vocabulary): int {
+                $c->fetchValue('SELECT pg_advisory_xact_lock(hashtext(:key))', ['key' => $vocabulary]);
+                $c->execute(sprintf('DELETE FROM %s', $vocabulary));
+                $c->execute(sprintf(
+                    "INSERT INTO %s (word, freq) SELECT w, count(*)::integer FROM (SELECT DISTINCT s.id, w FROM %s AS s CROSS JOIN LATERAL unnest(string_to_array(s.fz, ' ')) AS w WHERE char_length(w) >= :min) AS t GROUP BY w",
+                    $vocabulary,
+                    $this->names->sidecar($index),
+                ), ['min' => $index->thresholds->fuzzyMinLength]);
+
+                return Coerce::int($c->fetchValue(sprintf('SELECT count(*) FROM %s', $vocabulary)));
+            });
+        }, sprintf('Run "bin/console fuzzphony:schema --apply" to create %1$s, and give the reindexing role SELECT, INSERT and DELETE on it (GRANT ... ON ALL TABLES IN SCHEMA covers it once the table exists).', $vocabulary));
     }
 
     public function beginRebuild(IndexDefinition $index, bool $resume = false): bool
@@ -376,9 +414,11 @@ final class PostgresEngine implements Engine
             return ['result' => $empty, 'statements' => [], 'threshold' => null];
         }
 
+        $typedRoot = $root;
         if ($root !== null && !$index->synonyms->isEmpty()) {
             $root = $this->expandSynonyms($index, $root, $thresholds, $warnings);
         }
+        $expandedRoot = $root;
 
         $run = $this->pipeline($index, $root, $conditions, $profile, $thresholds, $query, '');
         $statements = $run['statements'];
@@ -417,6 +457,13 @@ final class PostgresEngine implements Engine
             $capped = $total >= $thresholds->candidateLimit;
         }
         $rows = self::hitsOnly($rows);
+        $suggestion = null;
+        $didYouMean = $thresholds->didYouMean && $typedRoot !== null && $expandedRoot !== null && !$run['browse'] && $index->hasFuzzy() && ($total < $thresholds->fallbackBelow || $run['usedFuzzy'])
+            ? $this->suggest($index, $typedRoot, $expandedRoot, $thresholds, $suggestion)
+            : null;
+        if ($suggestion !== null) {
+            $statements[] = $suggestion;
+        }
 
         $highlights = [];
         if ($query->highlight !== [] && $tsquery !== null && $rows !== []) {
@@ -453,6 +500,7 @@ final class PostgresEngine implements Engine
             limit: $query->limit,
             offset: $query->offset,
             interpretedAs: $root !== null ? (string) $root : null,
+            didYouMean: $didYouMean,
         );
         $this->metrics->observe('fuzzphony.search.took_ms', $result->tookMs, ['index' => $index->name, 'query' => $query->text]);
         if (array_any($statements, static fn(array $s): bool => str_ends_with($s['label'], 'fallback: full-text + fuzzy'))) {
@@ -460,6 +508,113 @@ final class PostgresEngine implements Engine
         }
 
         return ['result' => $result, 'statements' => $statements, 'threshold' => $threshold];
+    }
+
+    /**
+     * The query with the words it probably meant, for a search that found few hits: a whole word the
+     * vocabulary does not have (and that is not a stop word, nor one a synonym expanded) is replaced
+     * by the vocabulary word nearest to it. The trigram index picks the ten closest candidates, then
+     * the edit distance decides (a trigram ranking alone suggests `most` for `mose`), then how many
+     * documents have the word; nothing farther than a third of the word's length away is suggested.
+     * Null when no word has a better one. $statement is set to the statement that looked the words up, for explain().
+     *
+     * @param array{label: string, sql: string, params: array<string, scalar|null>}|null $statement
+     */
+    private function suggest(IndexDefinition $index, Node $typed, Node $expanded, Thresholds $thresholds, ?array &$statement = null): ?string
+    {
+        // the vocabulary is the words of the whole index: on a tenant-scoped one a suggestion (or its absence) would tell
+        // one customer which words another customer's documents have
+        if ($index->tenant !== null) {
+            return null;
+        }
+        $skip = SynonymExpander::expandedWords($expanded);
+        $words = [];
+        foreach (NodeInspector::suggestibleWords($typed) as $word) {
+            $lower = mb_strtolower($word);
+            // the index's own minimum, whatever this query set: shorter words were never put in the vocabulary;
+            // a word with a digit is a code (rtx4090), and the nearest code is not what the user meant
+            if (mb_strlen($lower) >= max($thresholds->fuzzyMinLength, $index->thresholds->fuzzyMinLength) && preg_match('/\d/u', $lower) !== 1 && !in_array($lower, $skip, true)) {
+                $words[$lower] = true;
+            }
+        }
+        $words = array_slice(array_keys($words), 0, $thresholds->maxTerms);
+        if ($words === []) {
+            return null;
+        }
+        $vocabulary = $this->names->vocabulary($index);
+        // a table the schema has not created yet, or one this role may not read (an upgrade before "fuzzphony:schema --apply"
+        // and the GRANT), is no reason to fail a search, and a failed statement would abort a transaction the caller may have open
+        if ($this->connection->fetchValue("SELECT to_regclass(:a) IS NOT NULL AND has_table_privilege(to_regclass(:b), 'SELECT')", ['a' => $vocabulary, 'b' => $vocabulary]) !== true) {
+            return null;
+        }
+        $extension = $this->names->extension();
+        $restore = !($this->connection instanceof TransactionAware) || $this->connection->inTransaction();
+        // known: a stop word, a word of the vocabulary, or any word the index finds (a word of a field that is not typo-tolerant,
+        // an inflection, a word added since the last full reindex): the search above found what it could
+        $sql = sprintf(
+            "SELECT q.w, q.n, (to_tsvector(%2\$s, q.w) = ''::tsvector OR EXISTS (SELECT 1 FROM %1\$s AS v WHERE v.word = q.n) OR EXISTS (SELECT 1 FROM %5\$s AS s WHERE s.tsv @@ plainto_tsquery(%2\$s, q.w))) AS known, c.word, c.freq FROM (SELECT w, %3\$s(w) AS n FROM unnest(string_to_array(:words, chr(31))) AS w) AS q LEFT JOIN LATERAL (SELECT v.word, v.freq FROM %1\$s AS v WHERE v.word OPERATOR(%4\$s.%%) q.n ORDER BY %4\$s.similarity(v.word, q.n) DESC, v.freq DESC LIMIT 10) AS c ON true",
+            $vocabulary,
+            $this->names->regconfig($index->text),
+            $this->names->normFunction(),
+            $extension,
+            $this->names->sidecar($index),
+        );
+        $parameters = ['words' => implode(chr(31), $words)];
+        $statement = ['label' => self::SUGGEST_LABEL, 'sql' => $sql, 'params' => $parameters];
+        // the candidates are the words with a trigram similarity of 0.3 or more, whatever the session has set
+        /** @var \Closure(): list<array<string, mixed>> $lookup */
+        $lookup = fn() => $this->connection->transactional(
+            static fn(Connection $c) => self::withSimilarityThreshold($c, 0.3, $restore, static fn() => $c->fetchAll($sql, $parameters), 'pg_trgm.similarity_threshold'),
+        );
+        $rows = $this->guard('did_you_mean', $lookup, 'Run "bin/console fuzzphony:schema --apply", then "bin/console fuzzphony:reindex --vocabulary".');
+
+        /** @var array<string, array{int, int, string}> $best typed word => [distance, -documents, vocabulary word] */
+        $best = [];
+        $known = [];
+        foreach ($rows as $row) {
+            $word = Coerce::str($row['w']);
+            if (in_array($row['known'], [true, 't', 'true', 1, '1'], true)) {
+                $known[$word] = true;
+
+                continue;
+            }
+            if ($row['word'] === null) {
+                continue;
+            }
+            $normalised = Coerce::str($row['n']);
+            $candidate = Coerce::str($row['word']);
+            $distance = self::distance($normalised, $candidate);
+            if ($distance < 1 || $distance > max(1, intdiv(mb_strlen($normalised), 3))) {
+                continue;
+            }
+            $rank = [$distance, -Coerce::int($row['freq']), $candidate];
+            if (!isset($best[$word]) || $rank < $best[$word]) {
+                $best[$word] = $rank;
+            }
+        }
+        $replace = array_map(static fn(array $rank): string => $rank[2], array_diff_key($best, $known));
+        if ($replace === []) {
+            return null;
+        }
+
+        return QueryRenderer::render($typed, $replace);
+    }
+
+    /** The edit distance of two words by their characters (PHP's levenshtein() counts bytes). */
+    private static function distance(string $a, string $b): int
+    {
+        $map = [];
+        $encode = static function (string $word) use (&$map): string {
+            $out = '';
+            foreach (mb_str_split($word) as $char) {
+                $map[$char] ??= chr(1 + count($map) % 254);
+                $out .= $map[$char];
+            }
+
+            return $out;
+        };
+
+        return levenshtein($encode($a), $encode($b));
     }
 
     /**
@@ -710,12 +865,11 @@ final class PostgresEngine implements Engine
      *
      * @return T
      */
-    private static function withSimilarityThreshold(Connection $c, ?float $similarityThreshold, bool $restore, \Closure $work): mixed
+    private static function withSimilarityThreshold(Connection $c, ?float $similarityThreshold, bool $restore, \Closure $work, string $name = 'pg_trgm.word_similarity_threshold'): mixed
     {
         if ($similarityThreshold === null) {
             return $work();
         }
-        $name = 'pg_trgm.word_similarity_threshold';
         // the previous value is read before the new one is set (the CTE is evaluated first);
         // NULL (the extension is not loaded yet) is restored as the default
         $previous = $c->fetchValue(
