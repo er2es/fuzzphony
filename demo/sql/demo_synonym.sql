@@ -10,6 +10,7 @@ CREATE TABLE demo_synonym (
 
 INSERT INTO demo_synonym (index_name, body) VALUES
 ('catalog', $$# "mice" is an irregular plural no stemmer links to "mouse"; "drill => screwdriver" works one way only.
+tv, television, telly
 mouse, mice
 headphones, headset, earphones
 monitor, display, screen

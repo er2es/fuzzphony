@@ -173,10 +173,4 @@ INSERT INTO lang_product (id, lang, name, description, category) VALUES
 (5027, 'hu', 'Hálózsák', 'Komfort hőmérséklet −5 °C-ig.', 'Szabadidő'),
 (5028, 'hu', 'Túrahátizsák 40 l', 'Állítható hátrész, esővédő huzattal.', 'Szabadidő'),
 (5029, 'hu', 'Terepfutó cipő', 'Tapadós talp a hosszú futásokhoz.', 'Sport'),
-(5030, 'hu', 'Vezeték nélküli fejhallgató', 'Zajszűrés és 30 óra üzemidő.', 'Audio'),
--- A television in every language: the synonym lists (tv, television, ...) need one to find
-(1100, 'en', 'Smart Television 55 inch', 'Ultra HD smart TV with a voice remote and three HDMI ports.', 'Electronics'),
-(2100, 'de', 'Smart-Fernseher 55 Zoll', 'Ultra-HD-Fernseher mit Sprachfernbedienung und drei HDMI-Anschlüssen.', 'Elektronik'),
-(3100, 'fr', 'Télévision connectée 55 pouces', 'Téléviseur Ultra HD avec télécommande vocale et trois ports HDMI.', 'Électronique'),
-(4100, 'es', 'Televisor inteligente de 55 pulgadas', 'Televisor Ultra HD con mando por voz y tres puertos HDMI.', 'Electrónica'),
-(5100, 'hu', 'Okos televízió 55 collos', 'Ultra HD televízió hangvezérlős távirányítóval és három HDMI-aljzattal.', 'Elektronika');
+(5030, 'hu', 'Vezeték nélküli fejhallgató', 'Zajszűrés és 30 óra üzemidő.', 'Audio');

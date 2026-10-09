@@ -72,6 +72,9 @@ fi
 log "applying the schema"
 php bin/console fuzzphony:schema --apply --no-interaction
 
+# Rows the demo adds on top of its seeds (a few televisions), idempotent, after the schema so the sync triggers see them.
+psql -q -v ON_ERROR_STOP=1 -f sql/demo_additions.sql
+
 # Right after the schema was created an index table is empty; an existing one is kept in sync by the
 # triggers + the worker, so a full reindex on every start would only cost time. Decided per index.
 needs_reindex() { # <index> <its source was just seeded: 0|1>

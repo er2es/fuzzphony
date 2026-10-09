@@ -7,6 +7,14 @@ changes; they are always listed under **Breaking** and explained in [UPGRADE.md]
 
 ## [Unreleased]
 
+### Fixed
+
+- Demo: the same words work on every search page. The catalogue (Compare, Playground, Relevance) had no
+  television, so `tv` found nothing there while it did on the Languages page. A few televisions
+  (`sql/demo_additions.sql`, added idempotently on every start, so an existing volume gets them without
+  `down -v`) and a `tv, television, telly` group in the catalogue's synonyms fix that; the Relevance page
+  has a `tv` example. An existing volume adds the group itself on the Synonyms page.
+
 ## [0.7.1] - 2026-10-09
 
 No upgrade steps: nothing changes unless you use the new synonym sources.
