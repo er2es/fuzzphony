@@ -41,7 +41,8 @@ final class PostgresEngineTest extends TestCase
 
     private function fuzzphony(string $sync): Fuzzphony
     {
-        $fuzzphony = new Fuzzphony($this->engine, new IndexRegistry([Indexes::products($sync)]));
+        // these tests read the statements of the search itself: the suggestion lookup has its own tests
+        $fuzzphony = new Fuzzphony($this->engine, new IndexRegistry([Indexes::products($sync)->withThresholds(new Thresholds(didYouMean: false))]));
         $fuzzphony->schema()->apply($this->connection);
         $fuzzphony->reindex('products');
 

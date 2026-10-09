@@ -162,6 +162,10 @@ undo the reindex: the command says so, and `fuzzphony:reindex --vocabulary` (or
 resumed run that finished the rebuild and swapped it in; a resumed in-place run, an empty source and
 `ReindexOptions(vocabulary: false)` leave it alone.
 
+Nothing else keeps it current: single document changes never touch it. Schedule `fuzzphony:reindex
+--vocabulary` (a nightly cron job is plenty) for an index whose words change, see
+[Did you mean](searching.md#did-you-mean).
+
 `--in-place` (`new ReindexOptions(inPlace: true)`) writes the live index directly, as before 0.5:
 no second copy, but searches see a mix of old and new documents while it runs. It finishes by
 removing orphans in batches and reports how many. A full `--in-place` run first discards a rebuild

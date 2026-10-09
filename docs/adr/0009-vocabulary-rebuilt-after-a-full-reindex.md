@@ -33,5 +33,7 @@ is no suggestion, never an error).
 + The vocabulary table is never part of the zero-downtime swap, so that machinery is untouched.
 − A word that is new since the last full reindex is not in the vocabulary, but the suggestion also
   asks the index itself, so such a word is not "corrected"; a close word it would be suggested is missing.
+− The doctor cannot tell how old the vocabulary is (it would need a stored timestamp in the meta table);
+  the docs recommend a scheduled `fuzzphony:reindex --vocabulary`.
 − `DELETE` leaves dead rows (autovacuum), a few hundred thousand at most per rebuild.
 − A vocabulary is not scoped by filters: see above.

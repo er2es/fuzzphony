@@ -105,7 +105,7 @@ rule differs), the synonyms of the `catalog` index (`[mouse, mice]`, `[headphone
 "did you mean" suggestion as a link. The ILIKE vs Fuzzphony and Playground pages show the suggestion too.
 `init` builds the vocabulary of an index that already existed and the application role keeps
 `SELECT, INSERT, DELETE` on the schema's tables, so the worker's rebuilds fill it. The suggestion's own
-SQL is not in the SQL views (`explain()` does not list it).
+SQL is listed by `explain()` (label `did you mean`), so the SQL views show it.
 
 ## Public API and compatibility
 
@@ -147,7 +147,7 @@ these win):
 | Engine interface | an optional interface (`Engine\Vocabulary`), not a new required `Engine` method (no Breaking for custom engines); no separate `Capability` (one source of truth) |
 | Did-you-mean trigger | fewer hits than `fallback_below`, or typo tolerance had to run, and a positive word that is not in the vocabulary and that no document of the index matches |
 | Did-you-mean ranking | trigram top-K candidates from the vocabulary, then edit distance, then frequency (raw trigram ranking suggests `most` for `mose`) |
-| Doctor "Vocabulary" | error when the table is missing, warning when it is empty; staleness against the documents' definition hash is not tracked (a rebuild is cheap; to be confirmed by the maintainer) |
+| Doctor "Vocabulary" | error when the table is missing, warning when it is empty; staleness is not tracked (decided: a rebuild is cheap, so the docs recommend a scheduled `fuzzphony:reindex --vocabulary`, e.g. nightly) |
 | Synonym forms | groups (`[tv, television]`) and one-way rules (`laptop => notebook`), inline in YAML / builder / attribute |
 | Synonyms file | not in 0.7; inline first, a file can follow without breaking anything |
 | Synonym matching | on the stemmed, accent-folded form (PostgreSQL's text configuration, one extra round trip per search on an index that has synonyms), so `Televisions` finds the `television` group; a multi-word member matches only a quoted phrase |

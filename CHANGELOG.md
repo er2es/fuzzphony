@@ -52,7 +52,7 @@ changes; they are always listed under **Breaking** and explained in [UPGRADE.md]
   creates empty and every full reindex fills in one transaction (`ReindexResult::$vocabulary`,
   `$vocabularyError`; `ReindexOptions::$vocabulary`); `Fuzzphony::rebuildVocabulary()` and
   `fuzzphony:reindex --vocabulary` rebuild only it. The doctor has a "Vocabulary" check, `fuzzphony:search`
-  and the Live Component show the suggestion. New optional `Fuzzphony\Core\Engine\Vocabulary` interface:
+  and the Live Component show the suggestion, and `explain()` lists the lookup statement (label `did you mean`). New optional `Fuzzphony\Core\Engine\Vocabulary` interface:
   an engine that does not implement it gives no suggestions and needs no change. See
   [Did you mean](docs/searching.md#did-you-mean).
 

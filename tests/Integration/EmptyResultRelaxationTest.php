@@ -7,6 +7,7 @@ namespace Fuzzphony\Tests\Integration;
 use Fuzzphony\Bridge\Doctrine\DbalConnection;
 use Fuzzphony\Core\Database\Connection;
 use Fuzzphony\Core\Fuzzphony;
+use Fuzzphony\Core\Ranking\Thresholds;
 use Fuzzphony\Core\Registry\IndexRegistry;
 use Fuzzphony\Core\Search\SearchResult;
 use Fuzzphony\Core\Support\Coerce;
@@ -29,7 +30,7 @@ final class EmptyResultRelaxationTest extends TestCase
             // enough rows for the planner to prefer the indexes over a sequential scan
             $connection->execute("INSERT INTO fz_product SELECT 100 + n, 'Filler item ' || n, 'Lorem ipsum dolor ' || (n % 97), 1, 1000 + n, true, 0, now() FROM generate_series(1, :n) AS n", ['n' => $filler]);
         }
-        $fuzzphony = new Fuzzphony(new PostgresEngine($connection), new IndexRegistry([Indexes::products('manual', tenant: $tenant)]));
+        $fuzzphony = new Fuzzphony(new PostgresEngine($connection), new IndexRegistry([Indexes::products('manual', tenant: $tenant)->withThresholds(new Thresholds(didYouMean: false))]));
         $fuzzphony->schema()->apply($connection);
         $fuzzphony->reindex('products');
         if ($filler > 0) {
@@ -171,7 +172,7 @@ final class EmptyResultRelaxationTest extends TestCase
         $this->fuzzphony();
         $log = new \ArrayObject();
         $recording = self::recording($this->connection, $log);
-        $search = (new Fuzzphony(new PostgresEngine($recording), new IndexRegistry([Indexes::products('manual')])))->in('products');
+        $search = (new Fuzzphony(new PostgresEngine($recording), new IndexRegistry([Indexes::products('manual')->withThresholds(new Thresholds(didYouMean: false))])))->in('products');
 
         $result = $search->query('wireless mouse offfice')->get();
 
@@ -260,7 +261,7 @@ final class EmptyResultRelaxationTest extends TestCase
     {
         $this->fuzzphony();
         $log = new \ArrayObject();
-        $search = (new Fuzzphony(new PostgresEngine(self::recording($this->connection, $log)), new IndexRegistry([Indexes::products('manual')])))->in('products');
+        $search = (new Fuzzphony(new PostgresEngine(self::recording($this->connection, $log)), new IndexRegistry([Indexes::products('manual')->withThresholds(new Thresholds(didYouMean: false))])))->in('products');
 
         self::assertSame([2], $search->query('brand:razr')->get()->ids(), 'found by the fuzzy fallback');
         self::assertSame([2], $search->query('brand:razr')->thresholds(['fuzzy_mode' => 'always'])->get()->ids());

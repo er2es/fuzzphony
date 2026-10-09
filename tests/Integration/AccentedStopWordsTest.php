@@ -129,7 +129,7 @@ final class AccentedStopWordsTest extends TestCase
         self::assertEqualsCanonicalizing([1, 2], $ids('items_german', 'Tasche für Laptopp', 'always'));
         self::assertEqualsCanonicalizing([21, 22], $ids('items_french', 'sac à doss', 'fallback'));
         // ... and so does the empty-result relaxation: "à" is never a word to keep or to report.
-        $relax = ['relax_when_empty' => true, 'fuzzy_mode' => 'never'];
+        $relax = ['relax_when_empty' => true, 'fuzzy_mode' => 'never', 'did_you_mean' => false];
         $labels = array_column($fuzzphony->in('items_french')->query('à zzqqx')->thresholds($relax)->explain()->statements, 'label');
         self::assertSame(['full-text'], $labels, 'one word left: nothing to keep, no probe');
         $relaxed = $fuzzphony->in('items_french')->query('sac à zzqqx')->thresholds($relax)->get();

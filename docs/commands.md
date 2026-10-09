@@ -69,7 +69,7 @@ It checks:
   over, so every change keeps being logged; fixed by resuming it with `--from` or by a full
   `fuzzphony:reindex`; an error when the trigger is left without its log, which fails every write
   to the index), or one that is running;
-- the vocabulary of a fuzzy index ("did you mean"): an error when its table is missing, a warning while it is empty (fixed by `fuzzphony:reindex --vocabulary`);
+- the vocabulary of a fuzzy index ("did you mean"): an error when its table is missing, a warning while it is empty (fixed by `fuzzphony:reindex --vocabulary`); it does not say how old the words are, so schedule `fuzzphony:reindex --vocabulary` (see [Did you mean](searching.md#did-you-mean));
 - coverage (estimated, or exact with `--deep`);
 - orphaned documents (with `--deep`; fixed by `fuzzphony:reindex`);
 - risky thresholds;

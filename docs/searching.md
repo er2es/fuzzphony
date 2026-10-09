@@ -261,10 +261,24 @@ $result->didYouMean;   // "headphones -cable": the query with the word replaced,
 - The role that searches needs `SELECT` on the vocabulary table; without it, or before the table exists,
   there is simply no suggestion (never an error).
 - The vocabulary is the words of the index's typo-tolerant fields and in how many documents each
-  occurs. A full `fuzzphony:reindex` rebuilds it (`fuzzphony:reindex --vocabulary` rebuilds only
-  it); changes to single documents do not touch it, so a word that is new since the last full reindex
-  is not known yet. An index without it (the table is created by `fuzzphony:schema --apply`) or
-  with an empty one gives no suggestion, and the doctor says so.
+  occurs. A full `fuzzphony:reindex` rebuilds it (`fuzzphony:reindex --vocabulary` rebuilds only it);
+  changes to single documents do not touch it, so it ages as the data changes, and the doctor does not
+  say how old it is (only that it is missing or empty). The effect is mild: a word that is new since the
+  last rebuild is not "corrected" (the suggestion also asks the index itself), it only cannot be
+  suggested for a neighbouring misspelling. **Rebuild it on a schedule**, for example nightly, or right
+  after a big import: it is one pass over the index (about 10 s for 500 000 documents) and readers are
+  never blocked.
+
+  ```
+  # crontab: every night at 03:15
+  15 3 * * * cd /var/www/app && bin/console fuzzphony:reindex --vocabulary --no-interaction
+  ```
+
+  An index without the table (it is created by `fuzzphony:schema --apply`) or with an empty one gives no
+  suggestion, and the doctor says so.
+- `explain()` (and `fuzzphony:search --explain`, and the demo's SQL views) list the lookup as the
+  statement labelled `did you mean`, with the words bound as parameters; the plan shown is still the
+  search statement's.
 
 ## Empty-result relaxation
 

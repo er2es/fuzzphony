@@ -241,4 +241,25 @@ final class DidYouMeanTest extends TestCase
             $this->connection->execute("SELECT set_config('pg_trgm.similarity_threshold', '0.3', false)");
         }
     }
+
+    public function testTheLookupIsListedByExplainButIsNotTheSearchItPlans(): void
+    {
+        $fuzzphony = $this->fuzzphony();
+
+        $explanation = $fuzzphony->in('products')->query('hedphones')->explain();
+
+        self::assertSame('headphones', $explanation->result->didYouMean);
+        $labels = array_column($explanation->statements, 'label');
+        self::assertSame('did you mean', end($labels));
+        $lookup = array_last($explanation->statements);
+        self::assertNotNull($lookup);
+        self::assertStringContainsString('fuzzphony_products__vocab', $lookup['sql']);
+        self::assertSame(['words' => 'hedphones'], $lookup['params'], 'the word is bound, never inlined');
+        self::assertStringNotContainsString('hedphones', $lookup['sql']);
+        self::assertNotEmpty($explanation->plan);
+        self::assertStringNotContainsString('fuzzphony_products__vocab', implode(' ', $explanation->plan), 'the plan is that of the search statement');
+
+        $without = $fuzzphony->in('products')->query('ab')->explain();
+        self::assertNotContains('did you mean', array_column($without->statements, 'label'), 'no word long enough to look up, no statement');
+    }
 }

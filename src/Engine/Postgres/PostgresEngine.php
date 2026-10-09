@@ -56,6 +56,7 @@ use Fuzzphony\Engine\Postgres\Sql\TsQueryCompiler;
 final class PostgresEngine implements Engine, Vocabulary
 {
     private const PROBE_LABEL = 'relaxation probe';
+    private const SUGGEST_LABEL = 'did you mean';
     private const string REBUILD_HINT = 'Run "fuzzphony:schema --apply" and "fuzzphony:doctor".';
 
     private readonly Names $names;
@@ -123,10 +124,10 @@ final class PostgresEngine implements Engine, Vocabulary
     {
         $run = $this->execute($index, $query);
         $plan = [];
-        // the plan of the last search statement (the relaxation probe is listed but is not the search)
+        // the plan of the last search statement (the relaxation probe and the suggestion lookup are listed but are not the search)
         $last = null;
         foreach ($run['statements'] as $statement) {
-            if ($statement['label'] !== self::PROBE_LABEL) {
+            if ($statement['label'] !== self::PROBE_LABEL && $statement['label'] !== self::SUGGEST_LABEL) {
                 $last = $statement;
             }
         }
@@ -454,9 +455,13 @@ final class PostgresEngine implements Engine, Vocabulary
             $capped = $total >= $thresholds->candidateLimit;
         }
         $rows = self::hitsOnly($rows);
+        $suggestion = null;
         $didYouMean = $thresholds->didYouMean && $typedRoot !== null && $expandedRoot !== null && !$run['browse'] && $index->hasFuzzy() && ($total < $thresholds->fallbackBelow || $run['usedFuzzy'])
-            ? $this->suggest($index, $typedRoot, $expandedRoot, $thresholds)
+            ? $this->suggest($index, $typedRoot, $expandedRoot, $thresholds, $suggestion)
             : null;
+        if ($suggestion !== null) {
+            $statements[] = $suggestion;
+        }
 
         $highlights = [];
         if ($query->highlight !== [] && $tsquery !== null && $rows !== []) {
@@ -509,9 +514,11 @@ final class PostgresEngine implements Engine, Vocabulary
      * by the vocabulary word nearest to it. The trigram index picks the ten closest candidates, then
      * the edit distance decides (a trigram ranking alone suggests `most` for `mose`), then how many
      * documents have the word; nothing farther than a third of the word's length away is suggested.
-     * Null when no word has a better one.
+     * Null when no word has a better one. $statement is set to the statement that looked the words up, for explain().
+     *
+     * @param array{label: string, sql: string, params: array<string, scalar|null>}|null $statement
      */
-    private function suggest(IndexDefinition $index, Node $typed, Node $expanded, Thresholds $thresholds): ?string
+    private function suggest(IndexDefinition $index, Node $typed, Node $expanded, Thresholds $thresholds, ?array &$statement = null): ?string
     {
         // the vocabulary is the words of the whole index: on a tenant-scoped one a suggestion (or its absence) would tell
         // one customer which words another customer's documents have
@@ -551,6 +558,7 @@ final class PostgresEngine implements Engine, Vocabulary
             $this->names->sidecar($index),
         );
         $parameters = ['words' => implode(chr(31), $words)];
+        $statement = ['label' => self::SUGGEST_LABEL, 'sql' => $sql, 'params' => $parameters];
         // the candidates are the words with a trigram similarity of 0.3 or more, whatever the session has set
         $rows = $this->guard('did_you_mean', fn(): array => $this->connection->transactional(
             static fn(Connection $c): array => self::withSimilarityThreshold($c, 0.3, $restore, static fn(): array => $c->fetchAll($sql, $parameters), 'pg_trgm.similarity_threshold'),
