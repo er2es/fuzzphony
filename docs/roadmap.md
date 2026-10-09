@@ -26,7 +26,7 @@ depends on it, so nothing built early has to be refactored once a later mileston
   `TRUNCATE` instead of every document id, exact field scoping (per-field text and trigram
   columns), partition-aware sync. The sidecar layout is 2. See the
   [CHANGELOG](../CHANGELOG.md#050---2026-10-01) and [UPGRADE.md](../UPGRADE.md#from-04-to-05).
-- v0.6 Events (current): an optional `MetricsCollector` interface (counters, durations,
+- v0.6 Events: an optional `MetricsCollector` interface (counters, durations,
   point-in-time values) instruments every engine operation (`PostgresEngine`'s own `guard()`,
   covering search, sync and the full zero-downtime reindex lifecycle in one place), the sync
   worker's queue depth and throughput, and the ORM-sync Messenger handler — with a zero-cost
@@ -35,29 +35,14 @@ depends on it, so nothing built early has to be refactored once a later mileston
   in [`docs/grafana/`](grafana/)). An optional, non-breaking `Connection` capability
   (`inTransaction()`) lets a fuzzy statement skip a redundant round trip when no outer transaction
   is open. No breaking changes. See the [CHANGELOG](../CHANGELOG.md#060---2026-10-01).
-
-## v0.7: Relevance
-
-Matching quality, including the vocabulary table that 0.8's `suggest()` reuses.
-
-### Length-aware typo tolerance (done)
-
-A similarity proportional to the word's length, so `mouse` stops matching `monitor` without losing
-typos in long words: one typo is tolerated from 4 letters and two from 8, and the trigram
-similarity a word needs follows from that, unless an explicit `fuzzy_similarity` is set. The price
-is that a letter replaced in the middle of a 5 to 7 letter word may no longer be tolerated. See
-[Typo tolerance](searching.md#typo-tolerance) and the [CHANGELOG](../CHANGELOG.md) (Unreleased).
-
-### Synonyms (done)
-
-Synonyms per index: groups (`tv` ↔ `television`, domain abbreviations) and one-way rules
-(`laptop => notebook`), expanded on the query side without dictionary files on the database
-server, so a change needs no reindex. See [Synonyms](searching.md#synonyms).
-
-### Did you mean (done)
-
-A spelling suggestion from the index's own vocabulary table when a word matches nothing
-(`hedphones` → "headphones?"), next to the existing empty-result relaxation. See [Did you mean](searching.md#did-you-mean).
+- v0.7 Relevance (current): typo tolerance proportional to the word's length (one typo from 4
+  letters, two from 8; `mouse` no longer matches `monitor`; an explicit `fuzzy_similarity` stays
+  flat), per-index synonyms (groups and one-way rules, expanded on the query, stemmed by PostgreSQL,
+  no reindex), and "did you mean" (`SearchResult::$didYouMean`) from a new vocabulary table that
+  every full reindex fills and `fuzzphony:reindex --vocabulary` rebuilds, which 0.8's `suggest()`
+  reuses. Breaking: the default typo tolerance (results change; `fuzzy_similarity: 0.3` keeps the old
+  behaviour) and `Thresholds::$fuzzySimilarity` is nullable. See the
+  [CHANGELOG](../CHANGELOG.md#070---2026-10-09) and [UPGRADE.md](../UPGRADE.md#from-06-to-07).
 
 ## v0.8: Search features
 

@@ -6,8 +6,8 @@ Fuzzphony is pre-1.0. Security fixes are released for the latest minor version o
 
 | Version | Supported |
 |---|---|
-| 0.6.x | yes |
-| < 0.6 | no |
+| 0.7.x | yes |
+| < 0.7 | no |
 
 ## Reporting a vulnerability
 
