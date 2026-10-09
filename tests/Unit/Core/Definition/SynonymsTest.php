@@ -140,4 +140,52 @@ final class SynonymsTest extends TestCase
         self::assertSame(['Synonym group 1 (tv, +++) has a member without a letter or digit: "+++".'], Synonyms::fromEntries([['tv', '+++']])->violations());
         self::assertSame(['Synonym group 1 (tv, tv) needs at least two different members.'], Synonyms::fromEntries([['tv', 'tv']])->violations());
     }
+
+    public function testTheSolrFormatIsReadAndWrittenBack(): void
+    {
+        $text = "# comment
+tv, television , telly
+
+laptop => notebook, portable
+a, b => c
+";
+
+        $synonyms = Synonyms::fromText($text);
+
+        self::assertSame([['tv', 'television', 'telly']], $synonyms->groups);
+        self::assertSame([['source' => 'laptop', 'targets' => ['notebook', 'portable']], ['source' => 'a', 'targets' => ['c']], ['source' => 'b', 'targets' => ['c']]], $synonyms->rules);
+        self::assertEquals($synonyms, Synonyms::fromText($synonyms->toText()));
+        self::assertSame('', (new Synonyms())->toText());
+    }
+
+    public function testAFileIsRead(): void
+    {
+        $path = tempnam(sys_get_temp_dir(), 'syn');
+        self::assertNotFalse($path);
+        file_put_contents($path, "tv, television
+");
+
+        try {
+            self::assertSame([['tv', 'television']], Synonyms::fromFile($path)->groups);
+        } finally {
+            unlink($path);
+        }
+    }
+
+    public function testAMissingFileAndAnArrowTwiceAreReported(): void
+    {
+        try {
+            Synonyms::fromFile('/no/such/file.txt', 'products');
+            self::fail('Expected InvalidDefinition.');
+        } catch (InvalidDefinition $e) {
+            self::assertStringContainsString('does not exist or cannot be read', $e->violations[0]);
+        }
+        try {
+            Synonyms::fromText("tv
+a => b => c");
+            self::fail('Expected InvalidDefinition.');
+        } catch (InvalidDefinition $e) {
+            self::assertSame(['Line 2 has more than one "=>".'], $e->violations);
+        }
+    }
 }

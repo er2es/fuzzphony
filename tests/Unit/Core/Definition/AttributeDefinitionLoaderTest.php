@@ -18,6 +18,17 @@ use PHPUnit\Framework\TestCase;
 
 final class AttributeDefinitionLoaderTest extends TestCase
 {
+    public function testSynonymsComeFromAFileAndInlineEntries(): void
+    {
+        $class = new #[\Fuzzphony\Core\Attribute\Searchable(name: 'things', table: 'thing', synonyms: ['laptop => notebook'], synonymsFile: __DIR__ . '/synonyms-fixture.txt')] class {
+            #[\Fuzzphony\Core\Attribute\SearchField]
+            public string $title = '';
+        };
+        $definition = (new AttributeDefinitionLoader())->load($class::class);
+
+        self::assertSame([['tv', 'television'], 'laptop => notebook'], $definition->synonyms->toEntries());
+    }
+
     public function testConventionsFillInEverything(): void
     {
         $definition = (new AttributeDefinitionLoader())->load(Product::class);

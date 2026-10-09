@@ -41,7 +41,9 @@ depends on it, so nothing built early has to be refactored once a later mileston
   no reindex), and "did you mean" (`SearchResult::$didYouMean`) from a new vocabulary table that
   every full reindex fills and `fuzzphony:reindex --vocabulary` rebuilds, which 0.8's `suggest()`
   reuses. Breaking: the default typo tolerance (results change; `fuzzy_similarity: 0.3` keeps the old
-  behaviour) and `Thresholds::$fuzzySimilarity` is nullable. See the
+  behaviour) and `Thresholds::$fuzzySimilarity` is nullable. 0.7.1 adds synonyms from a Solr-format
+  file or from the application's own storage (`Fuzzphony::useSynonyms()`) and a synonym editor in the
+  demo. See the
   [CHANGELOG](../CHANGELOG.md#070---2026-10-09) and [UPGRADE.md](../UPGRADE.md#from-06-to-07).
 
 ## v0.8: Search features

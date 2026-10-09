@@ -7,6 +7,25 @@ changes; they are always listed under **Breaking** and explained in [UPGRADE.md]
 
 ## [Unreleased]
 
+## [0.7.1] - 2026-10-09
+
+No upgrade steps: nothing changes unless you use the new synonym sources.
+
+### Added
+
+- Synonyms from a file or from your own storage. A file in the Solr/Elasticsearch format
+  (`tv, television, telly` is a group, `laptop => notebook, portable` a one-way rule, `#` a comment)
+  is read with YAML `synonyms: { file: path, entries: [...] }`, `IndexBuilder::synonymsFile()`,
+  `#[Searchable(synonymsFile: ...)]` (it may be combined with inline entries) or
+  `Synonyms::fromFile()` / `Synonyms::fromText()` / `toText()`. `Fuzzphony::useSynonyms($index, $synonyms)`
+  replaces an index's synonyms at run time (for example from a database table the application
+  keeps, loaded once per request): the next search uses them, no schema change and no reindex.
+- Demo: a Synonyms page edits the synonym list of each index (one per language) in the demo's
+  database, validates it on save and tries a word against it; the lists are seeded for the catalogue
+  and the five languages, with a television in every language (`tv`, `télé`, `tévé`). **An existing demo
+  database** gets the new table and lists on the next start, but not the new television rows
+  (`docker compose down -v` re-seeds everything).
+
 ## [0.7.0] - 2026-10-09
 
 **After upgrading, run `fuzzphony:schema --apply`, then `fuzzphony:reindex --vocabulary`** (a full
@@ -576,7 +595,8 @@ on its own:
 - Sync modes: queue (default), trigger, ORM, manual; watches for joined tables.
 - Doctor with fixes; CLI commands for schema, reindex, worker, search and explain.
 
-[Unreleased]: https://github.com/er2es/fuzzphony/compare/v0.7.0...HEAD
+[Unreleased]: https://github.com/er2es/fuzzphony/compare/v0.7.1...HEAD
+[0.7.1]: https://github.com/er2es/fuzzphony/compare/v0.7.0...v0.7.1
 [0.7.0]: https://github.com/er2es/fuzzphony/compare/v0.6.1...v0.7.0
 [0.6.1]: https://github.com/er2es/fuzzphony/compare/v0.6.0...v0.6.1
 [0.6.0]: https://github.com/er2es/fuzzphony/compare/v0.5.0...v0.6.0

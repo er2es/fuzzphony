@@ -86,6 +86,21 @@ final class SynonymsTest extends TestCase
         self::assertSame([2, 8], self::ids($this->fuzzphony([])->in('products')->thresholds(['fuzzy_mode' => 'never'])->query('tv')->get()));
     }
 
+    public function testSynonymsCanBeReplacedAtRunTime(): void
+    {
+        $fuzzphony = $this->fuzzphony([]);
+        $search = static fn(string $q): array => self::ids($fuzzphony->in('products')->thresholds(['fuzzy_mode' => 'never'])->query($q)->get());
+        self::assertSame([2, 8], $search('tv'));
+
+        $fuzzphony->useSynonyms('products', Synonyms::fromText("tv, television
+"));
+        self::assertSame([1, 2, 8], $search('tv'), 'the next search uses them, no reindex');
+
+        $fuzzphony->useSynonyms('products', Synonyms::fromText("tv, mouse
+"));
+        self::assertSame([2, 3, 8], $search('tv'), 'and a replacement forgets the old ones');
+    }
+
     public function testAWordIsComparedByItsStem(): void
     {
         // "televisions" and "television" are one stem, so the plural finds the group of "television"

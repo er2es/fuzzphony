@@ -37,5 +37,7 @@ final readonly class Searchable
          * @var array<array-key, mixed>
          */
         public array $synonyms = [],
+        /** A synonym file in the Solr format, added to `synonyms`. */
+        public ?string $synonymsFile = null,
     ) {}
 }

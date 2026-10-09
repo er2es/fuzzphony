@@ -115,6 +115,46 @@ IndexDefinition::builder('products')->synonyms([['tv', 'television'], 'laptop =>
 #[Searchable(synonyms: [['tv', 'television'], 'laptop => notebook'])]                         // attribute
 ```
 
+### Many synonyms: a file, or your own storage
+
+For a long list use a file in the Solr/Elasticsearch format, one entry per line (a comma list is a
+group, `=>` a one-way rule, `#` a comment, blank lines are skipped; several words before the arrow make
+one rule each):
+
+```
+# config/synonyms/products.txt
+tv, television, telly
+laptop => notebook, portable
+```
+
+```yaml
+products:
+  synonyms:
+    file: '%kernel.project_dir%/config/synonyms/products.txt'
+    entries: [[ssd, solid state drive]]      # optional, added to the file's
+```
+
+```php
+IndexDefinition::builder('products')->synonymsFile($path);       // builder
+#[Searchable(synonymsFile: __DIR__ . '/products.txt')]             // attribute (synonyms: [...] is added to it)
+```
+
+The file is read when the definition is loaded (in Symfony the container is rebuilt when it changes), and
+the same validation applies. One file per index, and so per language: an index has one language, so
+give `lang_de` its own file or list.
+
+When the list is edited by people (an admin page, a table), keep it in your own storage and hand it to
+Fuzzphony at run time, once per request or process:
+
+```php
+$fuzzphony->useSynonyms('products', Synonyms::fromText($row['body']));   // or Synonyms::fromEntries([...])
+```
+
+The next search uses it: no `fuzzphony:schema --apply`, no reindex. The demo's Synonyms page does this
+with a table (`demo/src/Service/SynonymStore.php`). `Synonyms::toText()` writes a list back in the file
+format, and a list the application loads is validated by the same rules (`->violations()`), so a
+page can refuse a bad one before saving it.
+
 The definition is validated with everything else: a group needs two different members (at most 32),
 every member is plain words (a letter or digit in it, up to 16 words, no quotes, operators, `*` or
 `:`: a member is split like a query, so syntax in it would be read, not matched), a word may be in

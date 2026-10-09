@@ -79,6 +79,16 @@ final readonly class Fuzzphony
         return (new Reindexer($this->engine))->vocabulary($this->registry->get($index));
     }
 
+    /**
+     * Replaces the synonyms of an index at run time (for example from a database table the application
+     * keeps); the next search uses them. No schema change, no reindex. The application loads them
+     * itself, and caches them, once per request or process.
+     */
+    public function useSynonyms(string $index, \Fuzzphony\Core\Definition\Synonyms $synonyms): void
+    {
+        $this->registry->register($this->registry->get($index)->withSynonyms($synonyms));
+    }
+
     public function registry(): IndexRegistry
     {
         return $this->registry;

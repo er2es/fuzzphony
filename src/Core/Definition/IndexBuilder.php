@@ -163,6 +163,14 @@ final class IndexBuilder
         return $this;
     }
 
+    /** Query-side synonyms from a file in the Solr format (`tv, television` / `laptop => notebook`), read now. */
+    public function synonymsFile(string $path): self
+    {
+        $this->synonyms = Synonyms::fromFile($path, $this->name);
+
+        return $this;
+    }
+
     public function profile(string $name, RankingProfile $profile): self
     {
         $this->profiles[$name] = $profile;

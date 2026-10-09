@@ -53,6 +53,22 @@ final class IndexBuilderTest extends TestCase
         self::assertSame('row', $definition->triggerLevel->value);
     }
 
+    public function testSynonymsCanBeReadFromAFile(): void
+    {
+        $path = tempnam(sys_get_temp_dir(), 'syn');
+        self::assertNotFalse($path);
+        file_put_contents($path, "tv, television
+");
+
+        try {
+            $definition = IndexDefinition::builder('products')->fromTable('product')->field('name', 'A')->synonymsFile($path)->build();
+        } finally {
+            unlink($path);
+        }
+
+        self::assertSame([['tv', 'television']], $definition->synonyms->toEntries());
+    }
+
     public function testSynonymsAreSetAndValidatedAtBuild(): void
     {
         $builder = IndexDefinition::builder('products')->fromTable('product')->field('name', 'A')->synonyms([['tv', 'television']]);
