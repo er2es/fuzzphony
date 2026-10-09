@@ -11,6 +11,8 @@ final readonly class Term implements Node
         public string $text,
         /** "keyb*" matches keyboard, keyboards, ... */
         public bool $prefix = false,
+        /** An alternative a synonym added to the query (SynonymExpander), not a word the user typed. */
+        public bool $synonym = false,
     ) {}
 
     public function __toString(): string

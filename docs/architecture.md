@@ -37,6 +37,7 @@ everything else in `src/` is marked `@internal` and may change in any release.
 - Definitions: `Fuzzphony\Core\Definition\IndexDefinition`, `Fuzzphony\Core\Definition\IndexBuilder`,
   `Fuzzphony\Core\Definition\Source`, `Fuzzphony\Core\Definition\FieldDefinition`,
   `Fuzzphony\Core\Definition\FilterDefinition`, `Fuzzphony\Core\Definition\Watch`,
+  `Fuzzphony\Core\Definition\Synonyms`,
   `Fuzzphony\Core\Definition\TextConfig`, `Fuzzphony\Core\Definition\Weight`,
   `Fuzzphony\Core\Definition\FilterType`, `Fuzzphony\Core\Definition\IdType`,
   `Fuzzphony\Core\Definition\SyncMode`, `Fuzzphony\Core\Definition\TriggerLevel`

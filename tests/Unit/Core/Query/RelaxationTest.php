@@ -4,6 +4,8 @@ declare(strict_types=1);
 
 namespace Fuzzphony\Tests\Unit\Core\Query;
 
+use Fuzzphony\Core\Query\Ast\AllOf;
+use Fuzzphony\Core\Query\Ast\AnyOf;
 use Fuzzphony\Core\Query\Ast\FieldScoped;
 use Fuzzphony\Core\Query\Ast\Node;
 use Fuzzphony\Core\Query\Ast\Term;
@@ -126,5 +128,28 @@ final class RelaxationTest extends TestCase
             Relaxation::warning([new Term("of\u{200B}fice"), new Term('office')]),
             'labels that only differ by stripped characters are the same word',
         );
+    }
+
+    public function testAWordWithItsSynonymsIsOneUnitNamedByTheTypedWord(): void
+    {
+        $expansion = new AnyOf([new Term('telly'), new Term('television', false, true)], expansion: true);
+        $scoped = new AnyOf([new FieldScoped('name', new Term('tv')), new FieldScoped('name', new Term('television', false, true))], expansion: true);
+        $root = new AllOf([$expansion, new Term('xyzzy'), $scoped]);
+
+        self::assertSame([$expansion, $root->nodes[1], $scoped], Relaxation::positiveLeaves($root), 'one unit per typed word, not one leaf per alternative');
+        self::assertSame('No results for all words; ignored words that match nothing: "telly", "name:tv".', Relaxation::warning([$expansion, $scoped]));
+
+        $without = Relaxation::without($root, [$expansion]);
+        self::assertEquals(new AllOf([$root->nodes[1], $scoped]), $without, 'the whole expansion goes, not its alternatives one by one');
+    }
+
+    public function testAnExpansionKeepsItsFlagWhenAnotherWordIsRemoved(): void
+    {
+        $expansion = new AnyOf([new Term('tv'), new Term('television', false, true)], expansion: true);
+        $reduced = Relaxation::without(new AllOf([$expansion, new Term('x'), new Term('y')]), [new Term('x')]);
+
+        self::assertInstanceOf(AllOf::class, $reduced);
+        self::assertInstanceOf(AnyOf::class, $reduced->nodes[0]);
+        self::assertTrue($reduced->nodes[0]->expansion);
     }
 }

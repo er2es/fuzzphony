@@ -48,11 +48,11 @@ similarity a word needs follows from that, unless an explicit `fuzzy_similarity`
 is that a letter replaced in the middle of a 5 to 7 letter word may no longer be tolerated. See
 [Typo tolerance](searching.md#typo-tolerance) and the [CHANGELOG](../CHANGELOG.md) (Unreleased).
 
-### Synonyms
+### Synonyms (done)
 
 Synonyms per index: groups (`tv` ↔ `television`, domain abbreviations) and one-way rules
 (`laptop => notebook`), expanded on the query side without dictionary files on the database
-server, so a change needs no reindex.
+server, so a change needs no reindex. See [Synonyms](searching.md#synonyms).
 
 ### Did you mean
 

@@ -52,4 +52,15 @@ final class IndexBuilderTest extends TestCase
         self::assertSame('manual', $definition->sync->value);
         self::assertSame('row', $definition->triggerLevel->value);
     }
+
+    public function testSynonymsAreSetAndValidatedAtBuild(): void
+    {
+        $builder = IndexDefinition::builder('products')->fromTable('product')->field('name', 'A')->synonyms([['tv', 'television']]);
+
+        self::assertSame([['tv', 'television']], $builder->build()->synonyms->toEntries());
+        self::assertTrue(IndexDefinition::builder('p')->fromTable('p')->field('name', 'A')->build()->synonyms->isEmpty());
+
+        $this->expectException(InvalidDefinition::class);
+        $builder->synonyms([['tv']])->build();
+    }
 }

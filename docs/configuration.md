@@ -11,6 +11,7 @@ An index definition has:
 - typed filters;
 - optional boost and recency columns;
 - ranking profiles and thresholds (see [Ranking and thresholds](ranking.md)).
+- optional [synonyms](#synonyms), expanded on the query (they are not part of the index table).
 
 You can write a definition three ways: attributes on an entity (the main way), YAML (overrides, or
 indexes defined only in YAML), or the fluent builder.
@@ -90,8 +91,37 @@ fuzzphony:
         min_score: 0.01
 ```
 
-Other keys: `sync`, `trigger_level`, `unaccent`, `tenant`, `id_type`, and `source: { table: … }`
+Other keys: `sync`, `trigger_level`, `unaccent`, `tenant`, `synonyms`, `id_type`, and `source: { table: … }`
 for a table source.
+
+## Synonyms
+
+Words that mean the same thing, expanded on the query ([how searches use them](searching.md#synonyms)).
+Two entry forms: a group (a list of words) and a one-way rule (`source => target | other target`).
+A member may be a phrase. The same list works in YAML, the builder and the attribute:
+
+```yaml
+fuzzphony:
+  indexes:
+    products:
+      synonyms:
+        - [tv, television]
+        - [ssd, solid state drive]
+        - 'laptop => notebook | portable'
+```
+
+```php
+IndexDefinition::builder('products')->synonyms([['tv', 'television'], 'laptop => notebook'])   // builder
+#[Searchable(synonyms: [['tv', 'television'], 'laptop => notebook'])]                         // attribute
+```
+
+The definition is validated with everything else: a group needs two different members (at most 32),
+every member is plain words (a letter or digit in it, up to 16 words, no quotes, operators, `*` or
+`:`: a member is split like a query, so syntax in it would be read, not matched), a word may be in
+one group only, a rule needs a source and a target (at most 32) with one `=>`, and a source may have
+one rule. A YAML `synonyms` value that is not a list is an error, not an empty list. Synonyms are not stored in the index: changing them needs neither
+`fuzzphony:schema --apply` nor a reindex, and a YAML `synonyms: []` clears the ones an attribute
+declared.
 
 ## Builder (plain PHP)
 

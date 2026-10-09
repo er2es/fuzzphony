@@ -174,6 +174,14 @@ final class FuzzyQueryCompiler
         $this->columns = [];
         $predicates = [];
         foreach ($leaves as $leaf) {
+            if ($leaf instanceof AnyOf) {
+                // a word and the alternatives its synonyms added: the unit matches when any of them does
+                $this->exactOnly = !$fuzzy;
+                $predicates[] = $this->node($leaf, $params, $emptyQueries)['predicate'] ?? null;
+                $this->exactOnly = false;
+
+                continue;
+            }
             $tsquery = $this->exact($leaf, $emptyQueries);
             $predicates[] = match (true) {
                 $tsquery === null => null,

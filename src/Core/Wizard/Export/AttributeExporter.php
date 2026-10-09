@@ -48,6 +48,9 @@ final class AttributeExporter
         if ($index->tenant !== null) {
             $args[] = sprintf('tenant: %s', $e($index->tenant));
         }
+        if (!$index->synonyms->isEmpty()) {
+            $args[] = sprintf('synonyms: %s', $e($index->synonyms->toEntries()));
+        }
 
         $properties = [];
         foreach ($index->fields as $field) {

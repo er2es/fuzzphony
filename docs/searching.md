@@ -188,6 +188,46 @@ So a typo in one word never lets through documents that lack the other words.
 - Words shorter than `fuzzy_min_length` must match exactly.
 - Stop words of the index language ("for", "the") are ignored, as in the full-text query.
 
+## Synonyms
+
+An index can know that words mean the same thing (`tv` and `television`, an abbreviation and what it
+stands for). Synonyms are expanded on the query, so changing them needs no schema change and no
+reindex. Two forms, in the index definition ([how](configuration.md#synonyms)):
+
+| Entry | Meaning |
+|---|---|
+| `[tv, television]` | a group: every member finds every other member |
+| `laptop => notebook \| portable` | a one-way rule: `laptop` also finds `notebook` and `portable`, but not the reverse |
+
+```php
+$result = $fuzzphony->in('products')->query('tv -bracket')->get();
+$result->interpretedAs;   // "((tv OR television) AND NOT bracket)"
+```
+
+- A synonym finds documents like any word of the query does: it is stemmed with the index's
+  language and accents are folded, it is highlighted, and typo tolerance applies to it. PostgreSQL
+  does the stemming: the stems of the synonyms are fetched once (with the first search that has a
+  word to expand) and kept, and each word of a query it has not seen yet costs one more small
+  statement. So `Televisions` finds the group of `television`.
+- Stemming is the language's: English leaves a plural abbreviation such as `tvs` or `ssds` as it
+  is, so list it as a member (`[tv, tvs, television]`).
+- A word with a symbol or a hyphen (`wi-fi`, `c++`, `c#`) is compared as it is, without stemming.
+- `-tv` excludes the documents that match `television` too. A word scoped to a field
+  (`name:tv`) expands inside the same field. A prefix (`tv*`) is not expanded.
+- A member may be a phrase (`ssd` ⇄ `solid state drive`). It matches a quoted phrase in the query
+  (`"solid state drive"` finds `ssd`); the same three words typed without quotes are three separate
+  words and do not.
+- A synonym of a synonym is not followed (`a => b` and `b => c`: `a` finds `b`, not `c`).
+- The exact-title and prefix bonuses compare with the words the user typed, never with the
+  alternatives. The empty-result relaxation treats a word and its alternatives as one word: it
+  ignores it only when none of them matches, and names it as typed.
+- A query gets at most four times `max_terms` alternatives, so a large group cannot make a
+  statement huge; a word whose alternatives do not fit stays as typed, with a warning.
+- `$result->interpretedAs` shows the expansion.
+- Only the PostgreSQL engine applies synonyms: a custom `Engine` gets no expansion.
+
+Synonyms are developer input, like the rest of the index definition: never build them from user input.
+
 ## Empty-result relaxation
 
 When a query of two or more words returns no hit, Fuzzphony checks each word on its own against

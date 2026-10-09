@@ -24,14 +24,16 @@ final class Relaxation
     private const LABEL_LENGTH = 40;
 
     /**
-     * The words a query looks for (not the negated ones), in order.
+     * The words a query looks for (not the negated ones), in order. A word with the alternatives its
+     * synonyms added is one unit (the expansion): it matches when the word or any alternative does.
      *
-     * @return list<Term|Phrase|FieldScoped>
+     * @return list<Term|Phrase|FieldScoped|AnyOf>
      */
     public static function positiveLeaves(Node $node): array
     {
         return match (true) {
             $node instanceof Term, $node instanceof Phrase, $node instanceof FieldScoped => [$node],
+            $node instanceof AnyOf && $node->expansion => [$node],
             $node instanceof AllOf, $node instanceof AnyOf => array_merge(...array_map(self::positiveLeaves(...), $node->nodes)),
             default => [],
         };
@@ -81,7 +83,7 @@ final class Relaxation
         return match (count($kept)) {
             0 => null,
             1 => $kept[0],
-            default => $node instanceof AllOf ? new AllOf($kept) : new AnyOf($kept),
+            default => $node instanceof AllOf ? new AllOf($kept) : new AnyOf($kept, $node->expansion),
         };
     }
 
@@ -90,7 +92,7 @@ final class Relaxation
      * words (as typed, minus invisible format characters, cut to LABEL_LENGTH characters, once
      * each), so a caller that renders it as HTML must escape it.
      *
-     * @param list<Term|Phrase|FieldScoped> $ignored
+     * @param list<Term|Phrase|FieldScoped|AnyOf> $ignored
      */
     public static function warning(array $ignored): string
     {
@@ -103,7 +105,7 @@ final class Relaxation
     }
 
     /** The words of a leaf as typed: alu*, usb receiver, name:foo. */
-    private static function label(Term|Phrase|FieldScoped $leaf): string
+    private static function label(Term|Phrase|FieldScoped|AnyOf $leaf): string
     {
         $label = self::typed($leaf);
         // format characters (bidi overrides, zero-width spaces, BOM) change how text is displayed, not what it says
@@ -112,11 +114,20 @@ final class Relaxation
         return mb_strlen($label) > self::LABEL_LENGTH ? mb_substr($label, 0, self::LABEL_LENGTH) . '…' : $label;
     }
 
-    private static function typed(Term|Phrase|FieldScoped $leaf): string
+    private static function typedWord(AnyOf $expansion): Term|Phrase|FieldScoped
+    {
+        $first = $expansion->nodes[0];
+        assert($first instanceof Term || $first instanceof Phrase || $first instanceof FieldScoped, 'an expansion starts with the word the user typed');
+
+        return $first;
+    }
+
+    private static function typed(Term|Phrase|FieldScoped|AnyOf $leaf): string
     {
         return match (true) {
             $leaf instanceof Term => (string) $leaf,
             $leaf instanceof Phrase => implode(' ', $leaf->words),
+            $leaf instanceof AnyOf => self::typed(self::typedWord($leaf)), // the word the user typed comes first
             default => $leaf->field . ':' . self::typed($leaf->node),
         };
     }

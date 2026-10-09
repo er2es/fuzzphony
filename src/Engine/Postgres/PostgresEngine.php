@@ -19,6 +19,7 @@ use Fuzzphony\Core\Inspection\InspectOptions;
 use Fuzzphony\Core\Observability\MetricsCollector;
 use Fuzzphony\Core\Observability\NullMetricsCollector;
 use Fuzzphony\Core\Query\Ast\AllOf;
+use Fuzzphony\Core\Query\Ast\AnyOf;
 use Fuzzphony\Core\Query\Ast\FieldScoped;
 use Fuzzphony\Core\Query\Ast\Node;
 use Fuzzphony\Core\Query\Ast\NodeInspector;
@@ -29,6 +30,7 @@ use Fuzzphony\Core\Query\Filter\Operator;
 use Fuzzphony\Core\Query\QueryParser;
 use Fuzzphony\Core\Query\Relaxation;
 use Fuzzphony\Core\Query\SearchQuery;
+use Fuzzphony\Core\Query\SynonymExpander;
 use Fuzzphony\Core\Ranking\FuzzyMode;
 use Fuzzphony\Core\Ranking\RankingProfile;
 use Fuzzphony\Core\Ranking\Thresholds;
@@ -57,6 +59,12 @@ final class PostgresEngine implements Engine
     private readonly Names $names;
     private readonly PostgresSchemaGenerator $schema;
     private readonly ShadowRebuild $rebuild;
+    /** Most stems kept per text configuration; the cache starts over beyond it. */
+    private const int STEM_CACHE = 5_000;
+    /** @var array<string, SynonymExpander> an expander per index definition, built once */
+    private array $expanders = [];
+    /** @var array<string, array<string, string>> text configuration => lowercase word => stem */
+    private array $stems = [];
 
     /**
      * @param string $extensionSchema schema of the pg_trgm and unaccent extensions
@@ -368,6 +376,10 @@ final class PostgresEngine implements Engine
             return ['result' => $empty, 'statements' => [], 'threshold' => null];
         }
 
+        if ($root !== null && !$index->synonyms->isEmpty()) {
+            $root = $this->expandSynonyms($index, $root, $thresholds, $warnings);
+        }
+
         $run = $this->pipeline($index, $root, $conditions, $profile, $thresholds, $query, '');
         $statements = $run['statements'];
         array_push($warnings, ...$run['warnings']);
@@ -448,6 +460,48 @@ final class PostgresEngine implements Engine
         }
 
         return ['result' => $result, 'statements' => $statements, 'threshold' => $threshold];
+    }
+
+    /**
+     * The query with the index's synonyms. PostgreSQL stems the words (the index's text configuration,
+     * accents folded; a word with a symbol or a hyphen, `c++`, `wi-fi`, is compared as it is, because
+     * PostgreSQL reduces `c++` and `c#` to the same lexeme) in one round trip, and only the words this engine has not seen yet: the stems
+     * of the synonyms are fetched once, with the first search, and every expander is kept. The query
+     * gets at most four times `max_terms` alternatives, so a large synonym group cannot make a
+     * statement huge; a word that would go over is left as typed, with a warning.
+     *
+     * @param list<string> $warnings
+     */
+    private function expandSynonyms(IndexDefinition $index, Node $root, Thresholds $thresholds, array &$warnings): Node
+    {
+        $queryWords = SynonymExpander::queryWords($root);
+        if ($queryWords === []) {
+            return $root;
+        }
+        $config = $this->names->regconfig($index->text);
+        $key = $index->name . '|' . $config . '|' . md5(serialize($index->synonyms->toEntries()));
+        if (count($this->stems[$config] ?? []) > self::STEM_CACHE) {
+            $this->stems[$config] = [];
+        }
+        $memberWords = isset($this->expanders[$key]) ? [] : SynonymExpander::wordsOf($index->synonyms);
+        $missing = array_values(array_unique(array_filter([...$memberWords, ...$queryWords], fn(string $word): bool => !isset($this->stems[$config][$word]))));
+        if ($missing !== []) {
+            $rows = $this->guard('synonyms', fn(): array => $this->connection->fetchAll(
+                sprintf("SELECT w, CASE WHEN w ~ '^[[:alnum:]]+\$' THEN coalesce(nullif(array_to_string(tsvector_to_array(to_tsvector(%s, w)), ' '), ''), w) ELSE w END AS s FROM unnest(string_to_array(:words, chr(31))) AS w", $config),
+                ['words' => implode(chr(31), $missing)],
+            ), 'Run "bin/console fuzzphony:doctor" to check the index.');
+            foreach ($rows as $row) {
+                $this->stems[$config][Coerce::str($row['w'])] = Coerce::str($row['s']);
+            }
+        }
+        $this->expanders[$key] ??= new SynonymExpander($index->synonyms, array_intersect_key($this->stems[$config] ?? [], array_flip($memberWords)));
+        $truncated = false;
+        $expanded = $this->expanders[$key]->expand($root, array_intersect_key($this->stems[$config] ?? [], array_flip($queryWords)), $thresholds->maxTerms * 4, $truncated);
+        if ($truncated) {
+            $warnings[] = 'Synonyms were expanded for part of the query only (too many alternatives).';
+        }
+
+        return $expanded;
     }
 
     /**
@@ -555,7 +609,7 @@ final class PostgresEngine implements Engine
      *
      * @return array{
      *     statement: array{label: string, sql: string, params: array<string, scalar|null>},
-     *     ignored: list<Term|Phrase|FieldScoped>
+     *     ignored: list<Term|Phrase|FieldScoped|AnyOf>
      * }|null
      */
     private function probe(IndexDefinition $index, Node $root, bool $fuzzy, ?array $emptyQueries, array $conditions, Thresholds $thresholds): ?array

@@ -50,12 +50,25 @@ work (`tv` ↔ `television`), and a word that matches nothing gets a spelling su
   is a phrase.
 - Expansion is on the query side, on the AST, before the compilers run: `Term` →
   `AnyOf(term, synonyms…)`. Matching is on the normalised form (accents, stemming applied), so
-  `TVs` finds the group of `tv`. A one-way rule expands only its left side.
-- A synonym matches exactly; typo tolerance applies only to the user's own word. It scores like an
-  exact match (`AnyOf` = max). `interpretedAs` shows the expansion. A negated word excludes its
-  synonyms too (`-tv` excludes `television`).
-- The definition validator reports an empty group, a member in two groups, and a one-way rule that
-  loops. Synonyms are trusted developer input, never built from user input.
+  `Televisions` finds the group of `television`. A one-way rule expands only its left side.
+- An alternative is an ordinary leaf of the query (flagged as implied, see the Decisions table): it is
+  matched like any word, typo tolerance included, and scored like one (`AnyOf` = max).
+  `interpretedAs` shows the expansion. A negated word excludes its synonyms too (`-tv` excludes
+  `television`).
+- The definition validator reports a group with fewer than two members, a member without a letter or
+  digit or with query syntax, a member in two groups, a rule without a target, a second `=>`, and
+  too big a group or rule (32). A cycle (`a => b`, `b => a`) is harmless and allowed. Synonyms are
+  trusted developer input, never built from user input.
+- Built as: the engine keeps one expander per index definition and the stems it has seen (a
+  bounded cache); an expansion is an `AnyOf` flagged as one unit, which the relaxation probes as a
+  whole; a query gets at most four times `max_terms` alternatives. A custom `Engine` gets no
+  expansion (it lives in `PostgresEngine`); moving it into Core behind an optional stemming
+  capability is a later, non-breaking step.
+- For the next parts: did-you-mean must count a typed word whose expansion found hits as known (it
+  must not suggest a "correction" of a working synonym) and may use synonym members as extra
+  suggestion candidates without writing them into the vocabulary table; facets and the exact total
+  must run on the expanded query; `suggest()` expands completed words and never the last (prefix)
+  one.
 - No dictionary files on the server and no table: the definition holds them, so changing them needs
   no `schema --apply` and no reindex (but the definition hash in `fuzzphony_meta` ignores them).
 
@@ -113,23 +126,23 @@ swap, Infection once at the end of each PR's branch, Sonnet by default, Opus for
 No language-specific synonym or stop-word dictionaries, no synonym management UI or table, no
 automatic re-search with the suggestion, no phonetic matching, no `suggest()` (0.8).
 
-## Open decisions (reconciliation with the 2026-10-02 spec)
+## Decisions (reconciled with the 2026-10-02 spec)
 
 An earlier spec, `docs/superpowers/specs/2026-10-02-v07-relevance-design.md` on branch
-`v07-relevance`, covers the same milestone. Already decided in this session: length-aware tolerance
-is the new default and proportional to the word's length (replaces its fixed curve and the
-`fuzzy_length_aware` flag; part 1 above is implemented); synonyms are groups plus one-way rules,
-expanded on the query side, no reindex; the vocabulary is filled by the reindex and the worker, not
-per write. Still open, with the recommendation of the review of 2026-10-05:
+`v07-relevance`, covers the same milestone. The maintainer settled every difference on 2026-10-05
+(this spec's parts 2 and 3 are read with these decisions; where they differ from the text above,
+these win):
 
-| Topic | This spec | 2026-10-02 spec | Recommendation |
-|---|---|---|---|
-| Vocabulary table | sidecar layout 3, forced full reindex | additive table, layout stays 2, doctor warns while empty | additive, layout 2 |
-| Filling it | `fuzzphony:reindex --vocabulary` | `fuzzphony:vocabulary` command | the reindex flag plus the worker |
-| Engine interface | vocabulary methods | `Engine::rebuildVocabulary()`, Breaking | optional interface + `Capability` |
-| Did-you-mean trigger | empty result or a word matched nothing | hits below `fallback_below` and a word not in the vocabulary | a word not in the vocabulary |
-| Did-you-mean ranking | active similarity | length-aware similarity | trigram top-K candidates, then edit distance, then frequency (raw trigram ranks `mose` to `most`) |
-| Synonyms file | none | JSON/YAML file | inline first, a file later |
-| Synonym matching | normalised (stemmed) form | lowercased word | normalised form, documented |
-| Multi-word member, unquoted | unspecified | only when quoted | only when quoted |
-| Doctor "Vocabulary" check | missing: warning, stale: warning | missing: error, empty: warning | both |
+| Topic | Decision |
+|---|---|
+| Length rule | proportional to the word's length, default on, Breaking (part 1, implemented); replaces the old spec's fixed curve and `fuzzy_length_aware` flag |
+| Vocabulary table | additive: created by `fuzzphony:schema --apply`, sidecar layout stays 2, no forced reindex; the doctor warns while it is empty |
+| Filling it | by the full reindex (`fuzzphony:reindex --vocabulary` rebuilds just this table) and by the worker; never per write |
+| Engine interface | an optional interface plus a `Capability`, not a new required `Engine` method (no Breaking for custom engines) |
+| Did-you-mean trigger | fewer hits than `fallback_below` and a positive word that is not in the vocabulary |
+| Did-you-mean ranking | trigram top-K candidates from the vocabulary, then edit distance, then frequency (raw trigram ranking suggests `most` for `mose`) |
+| Doctor "Vocabulary" | error when the table is missing, warning when it is empty or older than the documents' definition hash |
+| Synonym forms | groups (`[tv, television]`) and one-way rules (`laptop => notebook`), inline in YAML / builder / attribute |
+| Synonyms file | not in 0.7; inline first, a file can follow without breaking anything |
+| Synonym matching | on the stemmed, accent-folded form (PostgreSQL's text configuration, one extra round trip per search on an index that has synonyms), so `Televisions` finds the `television` group; a multi-word member matches only a quoted phrase |
+| Synonym alternatives | expanded as `AnyOf(original, alternative, ...)` on the query; the alternatives are flagged as implied (they are skipped by the exact / prefix bonus words and by the relaxation warning) and are matched like any query word, typo tolerance included; the old spec's exact-only wrapper node is not built |
