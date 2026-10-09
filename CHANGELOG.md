@@ -7,6 +7,10 @@ changes; they are always listed under **Breaking** and explained in [UPGRADE.md]
 
 ## [Unreleased]
 
+## [0.7.1] - 2026-10-09
+
+No upgrade steps: nothing changes unless you use the new synonym sources.
+
 ### Added
 
 - Synonyms from a file or from your own storage. A file in the Solr/Elasticsearch format
@@ -591,7 +595,8 @@ on its own:
 - Sync modes: queue (default), trigger, ORM, manual; watches for joined tables.
 - Doctor with fixes; CLI commands for schema, reindex, worker, search and explain.
 
-[Unreleased]: https://github.com/er2es/fuzzphony/compare/v0.7.0...HEAD
+[Unreleased]: https://github.com/er2es/fuzzphony/compare/v0.7.1...HEAD
+[0.7.1]: https://github.com/er2es/fuzzphony/compare/v0.7.0...v0.7.1
 [0.7.0]: https://github.com/er2es/fuzzphony/compare/v0.6.1...v0.7.0
 [0.6.1]: https://github.com/er2es/fuzzphony/compare/v0.6.0...v0.6.1
 [0.6.0]: https://github.com/er2es/fuzzphony/compare/v0.5.0...v0.6.0
