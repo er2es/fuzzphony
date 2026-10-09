@@ -64,7 +64,7 @@ everything else in `src/` is marked `@internal` and may change in any release.
   `Fuzzphony\Core\Exception\RebuildAlreadyRunning`,
   `Fuzzphony\Core\Exception\UnknownIndex`
 - Engine SPI (for custom engines): `Fuzzphony\Core\Engine\Engine`, `Fuzzphony\Core\Engine\Capabilities`,
-  `Fuzzphony\Core\Engine\Capability`, `Fuzzphony\Core\Engine\Vocabulary` (optional); the PostgreSQL engine: `Fuzzphony\Engine\Postgres\PostgresEngine`
+  `Fuzzphony\Core\Engine\Capability`, `Fuzzphony\Core\Engine\Vocabulary` and `Fuzzphony\Core\Engine\SynonymStems` (both optional); the PostgreSQL engine: `Fuzzphony\Engine\Postgres\PostgresEngine`
 - Wizard: `Fuzzphony\Core\Wizard\DefinitionSuggester`, `Fuzzphony\Core\Wizard\SourceIntrospector`,
   `Fuzzphony\Core\Wizard\Suggestion`, `Fuzzphony\Core\Wizard\Decision`,
   `Fuzzphony\Core\Wizard\TableProfile`, `Fuzzphony\Core\Wizard\ColumnProfile`,

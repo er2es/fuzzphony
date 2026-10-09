@@ -35,8 +35,8 @@ fuzzphony:
         popular: { boost: 0.03, recency: 0.3, recency_half_life_days: 60 }
       thresholds:
         min_score: 0.01
-      # No synonyms here: they live in the demo_synonym table (sql/demo_synonym.sql). The /synonyms page edits them
-      # and a request listener hands them to Fuzzphony at run time (Fuzzphony::useSynonyms). They could just as well
+      # No synonyms here: they live in the demo_synonym_entry table (sql/demo_synonym.sql). The /synonyms page edits them
+      # and a request listener hands the prepared lists to Fuzzphony at run time (Fuzzphony::useSynonyms). They could just as well
       # come from a file: `synonyms: { file: '%kernel.project_dir%/config/synonyms/catalog.txt' }`.
 
     # The /languages page: one small hand-written catalogue (sql/lang_product.sql), one index per language.

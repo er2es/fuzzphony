@@ -7,9 +7,11 @@ namespace Fuzzphony\Engine\Postgres;
 use Fuzzphony\Core\Database\Connection;
 use Fuzzphony\Core\Database\TransactionAware;
 use Fuzzphony\Core\Definition\IndexDefinition;
+use Fuzzphony\Core\Definition\Synonyms;
 use Fuzzphony\Core\Engine\Capabilities;
 use Fuzzphony\Core\Engine\Capability;
 use Fuzzphony\Core\Engine\Engine;
+use Fuzzphony\Core\Engine\SynonymStems;
 use Fuzzphony\Core\Engine\Vocabulary;
 use Fuzzphony\Core\Exception\EngineFailure;
 use Fuzzphony\Core\Exception\FuzzphonyException;
@@ -53,7 +55,7 @@ use Fuzzphony\Engine\Postgres\Sql\SearchSqlBuilder;
 use Fuzzphony\Engine\Postgres\Sql\Sql;
 use Fuzzphony\Engine\Postgres\Sql\TsQueryCompiler;
 
-final class PostgresEngine implements Engine, Vocabulary
+final class PostgresEngine implements Engine, Vocabulary, SynonymStems
 {
     private const PROBE_LABEL = 'relaxation probe';
     private const SUGGEST_LABEL = 'did you mean';
@@ -617,6 +619,37 @@ final class PostgresEngine implements Engine, Vocabulary
         return levenshtein($encode($a), $encode($b));
     }
 
+    /** @param list<string> $words lowercase words to stem for $config; the stems land in the per-configuration cache */
+    private function fetchStems(string $config, array $words): void
+    {
+        if ($words === []) {
+            return;
+        }
+        $rows = $this->guard('synonyms', fn(): array => $this->connection->fetchAll(
+            sprintf("SELECT w, CASE WHEN w ~ '^[[:alnum:]]+\$' THEN coalesce(nullif(array_to_string(tsvector_to_array(to_tsvector(%s, w)), ' '), ''), w) ELSE w END AS s FROM unnest(string_to_array(:words, chr(31))) AS w", $config),
+            ['words' => implode(chr(31), $words)],
+        ), 'Run "bin/console fuzzphony:doctor" to check the index.');
+        foreach ($rows as $row) {
+            $this->stems[$config][Coerce::str($row['w'])] = Coerce::str($row['s']);
+        }
+    }
+
+    public function stemSynonyms(IndexDefinition $index, Synonyms $synonyms): Synonyms
+    {
+        $config = $this->names->regconfig($index->text);
+        $words = array_values(array_unique(SynonymExpander::wordsOf($synonyms)));
+        $stems = [];
+        // in batches, so a very long list is not one huge parameter
+        foreach (array_chunk($words, 5_000) as $batch) {
+            $this->stems[$config] = [];
+            $this->fetchStems($config, $batch);
+            $stems += $this->stems[$config];
+        }
+        $this->stems[$config] = [];
+
+        return $synonyms->withStems($config, $stems);
+    }
+
     /**
      * The query with the index's synonyms. PostgreSQL stems the words (the index's text configuration,
      * accents folded; a word with a symbol or a hyphen, `c++`, `wi-fi`, is compared as it is, because
@@ -638,18 +671,12 @@ final class PostgresEngine implements Engine, Vocabulary
         if (count($this->stems[$config] ?? []) > self::STEM_CACHE) {
             $this->stems[$config] = [];
         }
-        $memberWords = isset($this->expanders[$key]) ? [] : SynonymExpander::wordsOf($index->synonyms);
+        // prepared stems (Fuzzphony::stemSynonyms()) spare the round trip for the members
+        $prepared = $index->synonyms->stemConfig === $config;
+        $memberWords = isset($this->expanders[$key]) || $prepared ? [] : SynonymExpander::wordsOf($index->synonyms);
         $missing = array_values(array_unique(array_filter([...$memberWords, ...$queryWords], fn(string $word): bool => !isset($this->stems[$config][$word]))));
-        if ($missing !== []) {
-            $rows = $this->guard('synonyms', fn(): array => $this->connection->fetchAll(
-                sprintf("SELECT w, CASE WHEN w ~ '^[[:alnum:]]+\$' THEN coalesce(nullif(array_to_string(tsvector_to_array(to_tsvector(%s, w)), ' '), ''), w) ELSE w END AS s FROM unnest(string_to_array(:words, chr(31))) AS w", $config),
-                ['words' => implode(chr(31), $missing)],
-            ), 'Run "bin/console fuzzphony:doctor" to check the index.');
-            foreach ($rows as $row) {
-                $this->stems[$config][Coerce::str($row['w'])] = Coerce::str($row['s']);
-            }
-        }
-        $this->expanders[$key] ??= new SynonymExpander($index->synonyms, array_intersect_key($this->stems[$config] ?? [], array_flip($memberWords)));
+        $this->fetchStems($config, $missing);
+        $this->expanders[$key] ??= new SynonymExpander($index->synonyms, $prepared ? $index->synonyms->stems : array_intersect_key($this->stems[$config] ?? [], array_flip($memberWords)));
         $truncated = false;
         $expanded = $this->expanders[$key]->expand($root, array_intersect_key($this->stems[$config] ?? [], array_flip($queryWords)), $thresholds->maxTerms * 4, $truncated);
         if ($truncated) {

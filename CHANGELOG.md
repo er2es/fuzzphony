@@ -7,6 +7,23 @@ changes; they are always listed under **Breaking** and explained in [UPGRADE.md]
 
 ## [Unreleased]
 
+### Added
+
+- `Fuzzphony::stemSynonyms($index, $synonyms)` (optional engine capability `Engine\SynonymStems`,
+  implemented by `PostgresEngine`): the synonyms with their members stemmed by PostgreSQL, one round trip.
+  The prepared list serializes: keep it in your own cache and hand it to `useSynonyms()` on every
+  request, so a request no longer reads, validates and stems a long list. See
+  [Configuration](docs/configuration.md#a-long-list-store-per-entry-cache-the-prepared-list).
+
+### Changed
+
+- Building the synonym lookup of a list is about three times faster (one plain word needs no query parser,
+  each member is keyed once): 5 000 entries cost about 110 ms per fresh engine instead of about 280 ms, and about 80 ms
+  with a prepared list (1 000 entries: 27 ms instead of 66 ms). Nothing changes in what matches.
+- Demo: the synonyms are stored like a long list should be: one row per entry (`demo_synonym_entry`) and a
+  version per index (`demo_synonym_version`), with the prepared lists in a cache keyed by the version. An
+  existing demo database converts its `demo_synonym` lists on the next start (the old table is left alone).
+
 ## [0.7.2] - 2026-10-09
 
 A demo-only patch: the library is unchanged. No upgrade steps.

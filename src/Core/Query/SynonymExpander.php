@@ -30,40 +30,47 @@ use Fuzzphony\Core\Query\Ast\Term;
  */
 final readonly class SynonymExpander
 {
-    /** @var array<string, list<list<string>>> key of a word => the words of each alternative */
+    /** @var array<string, list<non-empty-list<string>>> key of a word => the words of each alternative */
     private array $table;
 
     /** @param array<string, string> $memberStems lowercase word of the synonyms => stem; a word that is missing stems to itself */
     public function __construct(Synonyms $synonyms, private array $memberStems)
     {
-        // each member is split once; the group's alternatives are then added by key
-        $cache = [];
-        $split = static function (string $text) use (&$cache): array {
-            return $cache[$text] ??= self::words($text);
-        };
+        // each member is split and keyed once; the group's alternatives are then added by key
+        /** @var array<string, array{words: list<string>, key: string}> $known */
+        $known = [];
+        /** @var array<string, array<string, non-empty-list<string>>> $table */
         $table = [];
-        $add = function (string $source, string $alternative) use (&$table, $split): void {
-            $sourceWords = $split($source);
-            $alternativeWords = $split($alternative);
-            $key = $this->key($sourceWords, []);
-            if ($key === '' || $alternativeWords === [] || $this->key($alternativeWords, []) === $key) {
-                return;
-            }
-            $table[$key][$this->key($alternativeWords, [])] = $alternativeWords;
-        };
+        $pairs = [];
         foreach ($synonyms->groups as $group) {
-            foreach ($group as $member) {
-                foreach ($group as $other) {
-                    $add($member, $other);
+            foreach ($group as $source) {
+                foreach ($group as $alternative) {
+                    $pairs[] = [$source, $alternative];
                 }
             }
         }
         foreach ($synonyms->rules as $rule) {
             foreach ($rule['targets'] as $target) {
-                $add($rule['source'], $target);
+                $pairs[] = [$rule['source'], $target];
+            }
+        }
+        foreach ($pairs as [$source, $alternative]) {
+            $from = $known[$source] ??= $this->keyed($source);
+            $to = $known[$alternative] ??= $this->keyed($alternative);
+            $words = $to['words'];
+            if ($from['key'] !== '' && $words !== [] && $to['key'] !== $from['key']) {
+                $table[$from['key']][$to['key']] = $words;
             }
         }
         $this->table = array_map(array_values(...), $table);
+    }
+
+    /** @return array{words: list<string>, key: string} */
+    private function keyed(string $text): array
+    {
+        $words = self::words($text);
+
+        return ['words' => $words, 'key' => $this->key($words, [])];
     }
 
     /**
@@ -203,6 +210,11 @@ final readonly class SynonymExpander
      */
     private static function words(string $text): array
     {
+        // the common member, one plain word, needs no parser (a long list has thousands of them)
+        if (preg_match('/^[\p{L}\p{N}]+$/u', $text) === 1 && !in_array($text, ['AND', 'OR', 'NOT'], true)) {
+            return [mb_strtolower($text)];
+        }
+
         return array_map(mb_strtolower(...), NodeInspector::positiveWords((new QueryParser())->parse($text)->root));
     }
 }

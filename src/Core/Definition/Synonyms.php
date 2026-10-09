@@ -24,7 +24,27 @@ final readonly class Synonyms
     public function __construct(
         public array $groups = [],
         public array $rules = [],
+        /** The text configuration the stems below were made with; null while they are not prepared. */
+        public ?string $stemConfig = null,
+        /**
+         * Lowercase word of the synonyms => its stem, as the engine made it for that text configuration
+         * (Fuzzphony::stemSynonyms()). Keep the prepared object in your own cache: a search then does not stem
+         * the members again, which is what a long list costs on every request otherwise.
+         *
+         * @var array<string, string>
+         */
+        public array $stems = [],
     ) {}
+
+    /**
+     * The same synonyms with the stems an engine prepared for them.
+     *
+     * @param array<string, string> $stems
+     */
+    public function withStems(string $config, array $stems): self
+    {
+        return new self($this->groups, $this->rules, $config, $stems);
+    }
 
     /** The most members of a group, and targets of a rule: a bigger one is almost certainly a mistake and makes every query expensive. */
     public const int MAX_MEMBERS = 32;
