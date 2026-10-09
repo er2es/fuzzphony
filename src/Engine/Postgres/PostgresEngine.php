@@ -133,16 +133,18 @@ final class PostgresEngine implements Engine, Vocabulary
         }
         if ($last !== null) {
             $restore = !($this->connection instanceof TransactionAware) || $this->connection->inTransaction();
-            $plan = $this->guard('explain', fn(): array => $this->connection->transactional(fn(Connection $c): array => self::withSimilarityThreshold(
+            /** @var \Closure(): list<string> $explain */
+            $explain = fn() => $this->connection->transactional(fn(Connection $c) => self::withSimilarityThreshold(
                 $c,
                 $run['threshold'],
                 $restore,
-                static function () use ($c, $last, $analyze): array {
+                static function () use ($c, $last, $analyze) {
                     $rows = $c->fetchAll(($analyze ? 'EXPLAIN (ANALYZE, BUFFERS) ' : 'EXPLAIN ') . $last['sql'], $last['params']);
 
                     return array_map(static fn(array $row): string => Coerce::str(reset($row)), $rows);
                 },
-            )), 'Run "bin/console fuzzphony:doctor" to check the index.');
+            ));
+            $plan = $this->guard('explain', $explain, 'Run "bin/console fuzzphony:doctor" to check the index.');
         }
 
         return new Explanation($run['result']->interpretedAs ?? '', $run['statements'], $plan, $run['result']);
@@ -560,9 +562,11 @@ final class PostgresEngine implements Engine, Vocabulary
         $parameters = ['words' => implode(chr(31), $words)];
         $statement = ['label' => self::SUGGEST_LABEL, 'sql' => $sql, 'params' => $parameters];
         // the candidates are the words with a trigram similarity of 0.3 or more, whatever the session has set
-        $rows = $this->guard('did_you_mean', fn(): array => $this->connection->transactional(
-            static fn(Connection $c): array => self::withSimilarityThreshold($c, 0.3, $restore, static fn(): array => $c->fetchAll($sql, $parameters), 'pg_trgm.similarity_threshold'),
-        ), 'Run "bin/console fuzzphony:schema --apply", then "bin/console fuzzphony:reindex --vocabulary".');
+        /** @var \Closure(): list<array<string, mixed>> $lookup */
+        $lookup = fn() => $this->connection->transactional(
+            static fn(Connection $c) => self::withSimilarityThreshold($c, 0.3, $restore, static fn() => $c->fetchAll($sql, $parameters), 'pg_trgm.similarity_threshold'),
+        );
+        $rows = $this->guard('did_you_mean', $lookup, 'Run "bin/console fuzzphony:schema --apply", then "bin/console fuzzphony:reindex --vocabulary".');
 
         /** @var array<string, array{int, int, string}> $best typed word => [distance, -documents, vocabulary word] */
         $best = [];
@@ -836,14 +840,17 @@ final class PostgresEngine implements Engine, Vocabulary
         // the *caller* already had one open — not the one this call is about to start itself.
         $restore = !($this->connection instanceof TransactionAware) || $this->connection->inTransaction();
 
-        return $this->guard('search', fn(): array => $this->connection->transactional(
-            static fn(Connection $c): array => self::withSimilarityThreshold(
+        /** @var \Closure(): list<array<string, mixed>> $search */
+        $search = fn() => $this->connection->transactional(
+            static fn(Connection $c) => self::withSimilarityThreshold(
                 $c,
                 $similarityThreshold,
                 $restore,
-                static fn(): array => $c->fetchAll($statement['sql'], $statement['params']),
+                static fn() => $c->fetchAll($statement['sql'], $statement['params']),
             ),
-        ), 'Run "bin/console fuzzphony:doctor" to check the index.');
+        );
+
+        return $this->guard('search', $search, 'Run "bin/console fuzzphony:doctor" to check the index.');
     }
 
     /**
