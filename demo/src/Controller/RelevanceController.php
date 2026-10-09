@@ -29,6 +29,7 @@ final class RelevanceController extends AbstractController
             'the price: a letter replaced in the middle' => 'mpuse',
         ],
         'Synonyms' => [
+            'an abbreviation' => 'tv',
             'an irregular plural' => 'mice',
             'another word for a monitor' => 'display',
             'a headset' => 'headset',
