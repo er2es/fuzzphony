@@ -49,8 +49,8 @@ final class AttributeDefinitionLoader
         if ($searchable->tenant !== null) {
             $builder->tenant($searchable->tenant);
         }
-        if ($searchable->synonyms !== []) {
-            $builder->synonyms($searchable->synonyms);
+        if ($searchable->synonymsFile !== null || $searchable->synonyms !== []) {
+            $builder->synonyms([...$searchable->synonymsFile !== null ? Synonyms::fromFile($searchable->synonymsFile, $name)->toEntries() : [], ...$searchable->synonyms]);
         }
 
         $problems = [];

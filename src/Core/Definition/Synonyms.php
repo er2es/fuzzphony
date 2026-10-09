@@ -71,6 +71,57 @@ final readonly class Synonyms
         return $entries;
     }
 
+    /**
+     * Parses the Solr/Elasticsearch synonym format, one entry per line: `tv, television` (a group),
+     * `laptop => notebook, portable` (a one-way rule; several words before the arrow make one rule each).
+     * Blank lines and lines starting with "#" are skipped.
+     */
+    public static function fromText(string $text, string $index = 'synonyms'): self
+    {
+        $entries = [];
+        $problems = [];
+        foreach (explode("\n", str_replace("\r", '', $text)) as $n => $line) {
+            $line = trim($line);
+            if ($line === '' || $line[0] === '#') {
+                continue;
+            }
+            $split = static fn(string $part): array => array_values(array_filter(array_map('trim', explode(',', $part)), static fn(string $w): bool => $w !== ''));
+            if (substr_count($line, '=>') > 1) {
+                $problems[] = sprintf('Line %d has more than one "=>".', $n + 1);
+            } elseif (str_contains($line, '=>')) {
+                [$sources, $targets] = explode('=>', $line, 2);
+                foreach ($split($sources) as $source) {
+                    $entries[] = $source . ' => ' . implode(' | ', $split($targets));
+                }
+            } else {
+                $entries[] = $split($line);
+            }
+        }
+        if ($problems !== []) {
+            throw new InvalidDefinition($index, $problems);
+        }
+
+        return self::fromEntries($entries, $index);
+    }
+
+    public static function fromFile(string $path, string $index = 'synonyms'): self
+    {
+        $text = is_file($path) && is_readable($path) ? file_get_contents($path) : false;
+
+        return $text !== false ? self::fromText($text, $index) : throw new InvalidDefinition($index, [sprintf('Synonym file "%s" does not exist or cannot be read.', $path)]);
+    }
+
+    /** The format fromText() reads, one entry per line. */
+    public function toText(): string
+    {
+        $lines = array_map(static fn(array $group): string => implode(', ', $group), $this->groups);
+        foreach ($this->rules as $rule) {
+            $lines[] = $rule['source'] . ' => ' . implode(', ', $rule['targets']);
+        }
+
+        return $lines === [] ? '' : implode("\n", $lines) . "\n";
+    }
+
     public function isEmpty(): bool
     {
         return $this->groups === [] && $this->rules === [];

@@ -257,6 +257,37 @@ final class ArrayDefinitionLoaderTest extends TestCase
         (new ArrayDefinitionLoader())->override($base, ['synonyms' => 'oops']);
     }
 
+    public function testSynonymsCanComeFromAFileNextToInlineEntries(): void
+    {
+        $path = tempnam(sys_get_temp_dir(), 'syn');
+        self::assertNotFalse($path);
+        file_put_contents($path, "tv, television
+");
+        $config = ['source' => ['table' => 'article'], 'fields' => ['title' => 'A']];
+
+        try {
+            $both = (new ArrayDefinitionLoader())->load('articles', $config + ['synonyms' => ['file' => $path, 'entries' => ['laptop => notebook']]]);
+            self::assertSame([['tv', 'television'], 'laptop => notebook'], $both->synonyms->toEntries());
+            self::assertSame([['tv', 'television']], (new ArrayDefinitionLoader())->load('articles', $config + ['synonyms' => ['file' => $path]])->synonyms->toEntries());
+            self::assertSame(['laptop => notebook'], (new ArrayDefinitionLoader())->load('articles', $config + ['synonyms' => ['entries' => ['laptop => notebook']]])->synonyms->toEntries());
+        } finally {
+            unlink($path);
+        }
+    }
+
+    public function testASynonymsMapWithWrongKeysOrValuesFails(): void
+    {
+        $config = ['source' => ['table' => 'article'], 'fields' => ['title' => 'A']];
+        foreach ([['file' => 5], ['entries' => 'x'], ['path' => 'x']] as $map) {
+            try {
+                (new ArrayDefinitionLoader())->load('articles', $config + ['synonyms' => $map]);
+                self::fail('Expected InvalidDefinition.');
+            } catch (InvalidDefinition $e) {
+                self::assertSame('articles', $e->index);
+            }
+        }
+    }
+
     public function testANullSynonymsValueClearsThemInAnOverride(): void
     {
         $base = (new ArrayDefinitionLoader())->load('articles', ['source' => ['table' => 'article'], 'fields' => ['title' => 'A'], 'synonyms' => [['tv', 'television']]]);

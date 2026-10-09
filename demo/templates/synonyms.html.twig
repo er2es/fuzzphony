@@ -1,0 +1,53 @@
+{% extends 'base.html.twig' %}
+{% block title %}Synonyms · Fuzzphony{% endblock %}
+
+{% block body %}
+    <p class="muted">
+        Synonyms belong to an index, and so to its language: each language has its own list, and its words are stemmed with
+        that language's rules (<code>televisions</code> finds the group of <code>television</code>). One entry per line, in the Solr
+        format: <code>tv, television, telly</code> is a group (each finds the others), <code>laptop =&gt; notebook, portable</code> a
+        one-way rule, a line starting with <code>#</code> a comment. A change is saved in the demo's database and the next search
+        uses it, with no reindex. A long list can be pasted in.
+    </p>
+    <nav class="examples" aria-label="Index">
+        {% for name, label in indexes %}
+            <a class="button{{ name == index ? ' active' : '' }}" href="{{ path('synonyms', {index: name}) }}"{% if name == index %} aria-current="page"{% endif %}>{{ label }}</a>
+        {% endfor %}
+    </nav>
+
+    <h2>{{ indexes[index] }} <span class="muted">· <code>{{ index }}</code></span></h2>
+    {% if saved %}<p role="status"><strong>Saved.</strong> The next search uses the new list.</p>{% endif %}
+    {% if problems %}
+        <div role="alert">
+            <p><strong>Not saved:</strong></p>
+            <ul>{% for p in problems %}<li>{{ p }}</li>{% endfor %}</ul>
+        </div>
+    {% endif %}
+    <form method="post" action="{{ path('synonyms', {index: index, q: q}) }}" data-loading-message="Saving…">
+        <textarea name="body" rows="12" cols="80" spellcheck="false" aria-label="Synonyms of {{ indexes[index] }}" style="width:100%;font-family:monospace">{{ text }}</textarea>
+        <p><button type="submit" class="primary">Save</button></p>
+    </form>
+
+    <h2>Try it</h2>
+    <form method="get" class="searchbar" data-loading-message="Searching…">
+        <input type="hidden" name="index" value="{{ index }}">
+        <input type="search" name="q" value="{{ q }}" aria-label="Search {{ indexes[index] }}" placeholder="Search {{ indexes[index] }}…">
+        <button type="submit" class="primary">Search</button>
+    </form>
+    <div class="examples">
+        {% for example in examples %}
+            <a class="button" href="{{ path('synonyms', {index: index, q: example}) }}"><code>{{ example }}</code></a>
+        {% endfor %}
+    </div>
+    {% if error %}<p role="alert">{{ error }}</p>{% endif %}
+    {% if result %}
+        <p class="muted">{{ result.total }}{{ result.totalIsLowerBound ? '+' }} hits · understood as <code>{{ result.interpretedAs }}</code></p>
+        <ul class="hits">
+            {% for hit in result.hits %}
+                <li>{{ names[hit.id] ?? hit.id }}</li>
+            {% else %}
+                <li class="muted">Nothing found.</li>
+            {% endfor %}
+        </ul>
+    {% endif %}
+{% endblock %}

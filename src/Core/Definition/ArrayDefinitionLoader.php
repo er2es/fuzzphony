@@ -213,6 +213,16 @@ final class ArrayDefinitionLoader
     /** @return array<array-key, mixed> */
     private function synonymEntries(string $index, mixed $value): array
     {
+        if (is_array($value) && !array_is_list($value) && array_diff(array_keys($value), ['file', 'entries']) === []) {
+            $file = $value['file'] ?? null;
+            $inline = $value['entries'] ?? [];
+            if ((!is_string($file) && $file !== null) || !is_array($inline)) {
+                throw new InvalidDefinition($index, ['"synonyms" as a map takes "file" (a path) and "entries" (a list of groups and rules).']);
+            }
+
+            return [...is_string($file) ? Synonyms::fromFile($file, $index)->toEntries() : [], ...$inline];
+        }
+
         return is_array($value) ? $value : throw new InvalidDefinition($index, ['"synonyms" must be a list of groups and rules, e.g. [[tv, television], "laptop => notebook"]; got ' . get_debug_type($value) . '.']);
     }
 

@@ -60,7 +60,7 @@
         <h2>Synonyms and the suggestion</h2>
         <section class="card">
             <p>
-                The catalogue's synonyms (<code>config/packages/fuzzphony.yaml</code>) are expanded on the query:
+                The catalogue's synonyms (edit them on the <a href="{{ path('synonyms', {index: 'catalog'}) }}">Synonyms page</a>) are expanded on the query:
                 <code>{{ suggestion.interpretedAs }}</code>
                 {% if suggestion.interpretedAs == q|lower or suggestion.interpretedAs == q %}<span class="muted">(no synonym applies to this query)</span>{% endif %}
             </p>

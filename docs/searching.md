@@ -192,7 +192,7 @@ So a typo in one word never lets through documents that lack the other words.
 
 An index can know that words mean the same thing (`tv` and `television`, an abbreviation and what it
 stands for). Synonyms are expanded on the query, so changing them needs no schema change and no
-reindex. Two forms, in the index definition ([how](configuration.md#synonyms)):
+reindex. Two forms, in the index definition ([how](configuration.md#synonyms), also from a file with thousands of entries or from your own table):
 
 | Entry | Meaning |
 |---|---|
