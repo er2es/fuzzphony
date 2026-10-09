@@ -7,6 +7,10 @@ changes; they are always listed under **Breaking** and explained in [UPGRADE.md]
 
 ## [Unreleased]
 
+## [0.7.2] - 2026-10-09
+
+A demo-only patch: the library is unchanged. No upgrade steps.
+
 ### Fixed
 
 - Demo: the same words work on every search page. The catalogue (Compare, Playground, Relevance) had no
@@ -603,7 +607,8 @@ on its own:
 - Sync modes: queue (default), trigger, ORM, manual; watches for joined tables.
 - Doctor with fixes; CLI commands for schema, reindex, worker, search and explain.
 
-[Unreleased]: https://github.com/er2es/fuzzphony/compare/v0.7.1...HEAD
+[Unreleased]: https://github.com/er2es/fuzzphony/compare/v0.7.2...HEAD
+[0.7.2]: https://github.com/er2es/fuzzphony/compare/v0.7.1...v0.7.2
 [0.7.1]: https://github.com/er2es/fuzzphony/compare/v0.7.0...v0.7.1
 [0.7.0]: https://github.com/er2es/fuzzphony/compare/v0.6.1...v0.7.0
 [0.6.1]: https://github.com/er2es/fuzzphony/compare/v0.6.0...v0.6.1
