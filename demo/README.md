@@ -13,6 +13,11 @@ docker compose up --build                      # http://localhost:8000 (seeds 50
 DEMO_ROWS=1000000 docker compose up --build    # the full 1M-product catalogue (a few minutes to seed and index)
 ```
 
+If a recent Docker Compose stops with `additional privileges requested: pass "--allow=fs.read=..."`, it is its
+build sandbox (bake): the compose file is in `demo/` but the build context is the repository root. Run it from the
+repository root instead, `docker compose -f demo/docker-compose.yml up --build`, or allow the read once
+(`docker compose up --build --allow=fs.read=..`), or build without bake (`COMPOSE_BAKE=false docker compose up --build`).
+
 The first start builds the image, seeds the catalogue (`../benchmarks/seed.sql`: products x brands x
 categories), creates the index and reindexes it; later starts skip all of that. Everything is plain
 Symfony: Twig + Stimulus via AssetMapper (no Node build), Live Components, DBAL.
