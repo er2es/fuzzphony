@@ -1,14 +1,16 @@
 {% extends 'base.html.twig' %}
 
 {% block body %}
-    <form method="get" class="searchbar" data-loading-message="Searching with Fuzzphony (1 cold + {{ warmRuns }} warm runs)…" data-controller="suggest" data-suggest-url-value="{{ path('suggest') }}" data-suggest-index-value="catalog" data-suggest-rich-value="true" data-suggest-page-value="{{ path('compare') }}">
+    <form method="get" class="searchbar" data-loading-message="Searching with Fuzzphony (1 cold + {{ warmRuns }} warm runs)…" data-controller="suggest" data-suggest-url-value="{{ path('suggest') }}" data-suggest-index-value="catalog" data-suggest-page-value="{{ path('compare') }}" data-suggest-categories-value="true">
         <input type="search" name="q" value="{{ q }}" aria-label="Search the catalogue" placeholder="Search the catalogue…" autofocus data-suggest-target="input" data-action="input->suggest#update" autocomplete="off">
+        <div class="suggest-panel" data-suggest-target="panel" data-live-ignore hidden></div>
         <button type="submit" class="primary">Search</button>
     </form>
     <p class="muted">
         Searching {{ rowEstimate > 0 ? rowEstimate|number_format ~ ' products' : 'the product catalogue' }} (<code>{{ table }}</code>):
         each search runs 1 cold + {{ warmRuns }} warm runs on both engines = {{ ((1 + warmRuns) * engines)|number_format }} statements.
         Fuzzphony renders below at once; ILIKE is much slower on this catalogue, so its column loads separately.
+        The last word also matches as the beginning of a longer one (search-as-you-type: <code>cr</code> finds <code>Crème</code>), shown in <code>understood as</code>.
     </p>
     <div class="examples">
         {% for label, example in examples %}

@@ -61,7 +61,7 @@ Search-as-you-type without writing JavaScript (requires `symfony/ux-live-compone
 <twig:Fuzzphony:Search index="products" highlight="name" placeholder="Search products…" />
 ```
 
-Two attributes add the 0.8 features:
+A few attributes add the search-as-you-type features:
 
 ```twig
 <twig:Fuzzphony:Search index="products" facets="category_id,in_stock" suggestions="5" />
@@ -69,6 +69,8 @@ Two attributes add the 0.8 features:
 
 - `suggestions` (default 5, `0` switches it off): the word being typed is completed from the index's vocabulary
   ([search-as-you-type](searching.md#search-as-you-type)) in a list under the input; choosing one searches it.
+- `asYouType` (default `true`, `false` turns it off): the word being typed also matches as the beginning of a longer
+  one, so `cr` already finds `Crème` ([matching the word being typed](searching.md#matching-the-word-being-typed)).
 - `facets` (comma-separated filter names): the values of those filters with their counts
   ([facets](searching.md#facets)) as toggle buttons; choosing one narrows the search, choosing it again lifts it.
   Only the filters named in `facets` can be chosen (the component ignores any other, so a forged request cannot

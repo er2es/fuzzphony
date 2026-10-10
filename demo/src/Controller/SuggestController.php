@@ -6,6 +6,7 @@ namespace App\Controller;
 
 use App\Service\Catalog;
 use App\Service\Facets;
+use App\Service\Languages;
 use Fuzzphony\Core\Exception\FuzzphonyException;
 use Fuzzphony\Core\Fuzzphony;
 use Symfony\Bundle\FrameworkBundle\Controller\AbstractController;
@@ -14,15 +15,12 @@ use Symfony\Component\HttpFoundation\Request;
 use Symfony\Component\Routing\Attribute\Route;
 
 /**
- * Search-as-you-type for the search boxes of the demo (assets/controllers/suggest_controller.js).
+ * Search-as-you-type for every search box of the demo (assets/controllers/suggest_controller.js): the same dropdown
+ * everywhere, built from three ordinary calls: the completions of the word being typed (suggest()), the first hits of
+ * the same text matched as you type (asYouType()), and for the catalogue the categories it is found in (a facet).
+ * Brand, price and category name are the application's data, loaded for the ids the search returned.
  *
- * Basic: the word being typed, completed from the index's vocabulary: a JSON list of plain-text search texts that
- * the browser sets as `<datalist>` options.
- *
- * Rich (`rich=1`, the catalogue only): the grouped dropdown of a shop. Completions, the categories the typed text
- * is found in (a facet, counted over the matches of the text with its last word as a prefix), and the first
- * products (with the data that is the application's, brand and price). The three are ordinary calls: suggest(),
- * a search with facets(), and one query for the rows.
+ * A JSON object of plain text: the browser sets it with textContent, never as HTML.
  */
 final class SuggestController extends AbstractController
 {
@@ -30,7 +28,7 @@ final class SuggestController extends AbstractController
     private const int MAX_QUERY = 100;
 
     #[Route('/suggest', name: 'suggest', methods: ['GET'])]
-    public function __invoke(Request $request, Fuzzphony $fuzzphony, Catalog $catalog, Facets $facets): JsonResponse
+    public function __invoke(Request $request, Fuzzphony $fuzzphony, Catalog $catalog, Facets $facets, Languages $languages): JsonResponse
     {
         $index = (string) $request->query->get('index', '');
         if (!$fuzzphony->registry()->has($index)) {
@@ -38,22 +36,29 @@ final class SuggestController extends AbstractController
         }
         $text = mb_substr((string) $request->query->get('q', ''), 0, self::MAX_QUERY);
         $completions = $fuzzphony->suggest($index, $text, 6);
-        if ($index !== 'catalog' || (string) $request->query->get('rich', '') !== '1') {
-            return $this->json($completions);
-        }
-
         $categories = $products = [];
-        // the word being typed is a prefix: "wireless hea" searches "wireless hea*"
-        $prefixed = trim($text) !== '' && preg_match('/[\p{L}\p{N}]$/u', $text) === 1 ? $text . '*' : $text;
-        if (trim($prefixed) !== '') {
+
+        if (trim($text) !== '') {
             try {
-                $found = $fuzzphony->in('catalog')->query($prefixed)->limit(5)->facets('category_id')->get();
-                $categories = array_slice($facets->categories($found->facets['category_id'] ?? []), 0, 4);
-                $rows = $catalog->rows($found->ids());
-                foreach ($found->hits as $hit) {
-                    $row = $rows[$hit->id] ?? null;
-                    if ($row !== null) {
-                        $products[] = ['name' => $row['name'], 'brand' => $row['brand'], 'category' => $row['category'], 'price' => $row['price']];
+                $search = $fuzzphony->in($index)->query($text)->asYouType()->limit(5);
+                if ($index === 'catalog') {
+                    $found = $search->facets('category_id')->get();
+                    $categories = array_slice($facets->categories($found->facets['category_id'] ?? []), 0, 4);
+                    $rows = $catalog->rows($found->ids());
+                    foreach ($found->hits as $hit) {
+                        if (isset($rows[$hit->id])) {
+                            $row = $rows[$hit->id];
+                            $products[] = ['name' => $row['name'], 'note' => sprintf('%s · %s · %s Ft', $row['brand'], $row['category'], number_format($row['price'], 0, '.', ' '))];
+                        }
+                    }
+                } else {
+                    $found = $search->get();
+                    $code = array_search($index, array_column(Languages::LANGUAGES, 'index'), true);
+                    $rows = $code !== false ? $languages->products((string) array_keys(Languages::LANGUAGES)[$code]) : [];
+                    foreach ($found->hits as $hit) {
+                        if (isset($rows[$hit->id])) {
+                            $products[] = ['name' => $rows[$hit->id]['name'], 'note' => $rows[$hit->id]['category']];
+                        }
                     }
                 }
             } catch (FuzzphonyException) {

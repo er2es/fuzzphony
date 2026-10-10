@@ -7,6 +7,7 @@ namespace Fuzzphony\Core\Search;
 use Fuzzphony\Core\Definition\IndexDefinition;
 use Fuzzphony\Core\Engine\Engine;
 use Fuzzphony\Core\Query\SearchQuery;
+use Fuzzphony\Core\Query\Typeahead;
 
 /**
  * Fluent, immutable entry point bound to one index:
@@ -107,6 +108,18 @@ final readonly class SearchBuilder
         return $this->with($this->query->facets(...$filters));
     }
 
+    /**
+     * Search-as-you-type: while the text ends with a word being typed ("wireless hea"), the last word matches
+     * as the word itself (typo tolerance, synonyms and "did you mean" included) or as the beginning of a longer
+     * one (`hea` finds `headphones`). Without it a word is a whole word: `cr` finds nothing where `creme` is. The
+     * text is left alone once it ends with a space or a symbol, inside a quoted phrase, and after an operator.
+     * `interpretedAs` shows the result: `(hea OR hea*)`.
+     */
+    public function asYouType(bool $asYouType = true): self
+    {
+        return $this->with($this->query->asYouType($asYouType));
+    }
+
     /** The most values listed per facet (1 to 100, default 20). */
     public function facetValues(int $values): self
     {
@@ -124,17 +137,25 @@ final readonly class SearchBuilder
 
     public function get(): SearchResult
     {
-        return $this->engine->search($this->index, $this->query);
+        $result = $this->engine->search($this->index, $this->effective());
+
+        return $this->query->asYouType && $result->didYouMean !== null ? $result->withDidYouMean(Typeahead::withoutPrefixAlternative($result->didYouMean)) : $result;
     }
 
     public function explain(bool $analyze = false): Explanation
     {
-        return $this->engine->explain($this->index, $this->query, $analyze);
+        return $this->engine->explain($this->index, $this->effective(), $analyze);
     }
 
     public function toQuery(): SearchQuery
     {
         return $this->query;
+    }
+
+    /** What the engine is asked: the text with its last word as a prefix too, for search-as-you-type. */
+    private function effective(): SearchQuery
+    {
+        return $this->query->asYouType ? $this->query->withText(Typeahead::lastWordAsPrefix($this->query->text)) : $this->query;
     }
 
     private function with(SearchQuery $query): self

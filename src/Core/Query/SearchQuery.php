@@ -35,6 +35,8 @@ final readonly class SearchQuery
         public int $facetValues = 20,
         /** Count every match: an exact total and exact facets, not only the candidates (see Thresholds::$candidateLimit). */
         public bool $exactCounts = false,
+        /** The last word of the text also matches as a prefix (search-as-you-type), see Typeahead. */
+        public bool $asYouType = false,
     ) {
         if ($facetValues < 1 || $facetValues > 100) {
             throw new \Fuzzphony\Core\Exception\InvalidQuery(sprintf('Facet values must be between 1 and 100, got %d.', $facetValues));
@@ -134,6 +136,12 @@ final readonly class SearchQuery
         return $this->copy(facetValues: $values);
     }
 
+    /** Search-as-you-type: the last word, when the text ends with one, also matches as the beginning of a longer word. */
+    public function asYouType(bool $asYouType = true): self
+    {
+        return $this->copy(asYouType: $asYouType);
+    }
+
     public function exactCounts(bool $exact = true): self
     {
         return $this->copy(exactCounts: $exact);
@@ -153,6 +161,7 @@ final readonly class SearchQuery
         $facets = $changes['facets'] ?? null;
         $facetValues = $changes['facetValues'] ?? null;
         $exactCounts = $changes['exactCounts'] ?? null;
+        $asYouType = $changes['asYouType'] ?? null;
 
         return new self(
             text: is_string($text) ? $text : $this->text,
@@ -167,6 +176,7 @@ final readonly class SearchQuery
             facets: self::stringList($facets) ?? $this->facets,
             facetValues: is_int($facetValues) ? $facetValues : $this->facetValues,
             exactCounts: is_bool($exactCounts) ? $exactCounts : $this->exactCounts,
+            asYouType: is_bool($asYouType) ? $asYouType : $this->asYouType,
         );
     }
 

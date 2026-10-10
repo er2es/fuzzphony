@@ -59,6 +59,10 @@ final class SearchComponent
     #[LiveProp]
     public int $suggestions = 5;
 
+    /** The word being typed also matches as the beginning of a longer one (`hea` finds `headphones`), see SearchBuilder::asYouType(). */
+    #[LiveProp]
+    public bool $asYouType = true;
+
     /**
      * The facet values chosen so far: filter => value as text ("" is the documents without a value).
      *
@@ -116,7 +120,8 @@ final class SearchComponent
             ->query($this->query)
             ->profile($this->profile)
             ->highlight(...$fields)
-            ->limit(max(1, min(50, $this->limit)));
+            ->limit(max(1, min(50, $this->limit)))
+            ->asYouType($this->asYouType);
         $names = $this->facetNames();
         if ($names !== []) {
             $search = $this->narrow($search, $names)->facets(...$names);

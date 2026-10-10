@@ -282,7 +282,47 @@ $result->didYouMean;   // "headphones -cable": the query with the word replaced,
 
 ## Search-as-you-type
 
-`suggest()` completes the word being typed from the index's vocabulary (the one "did you mean" reads):
+Three things make a search box feel instant, and each is its own call. The library gives you the data and
+the matching; the dropdown (its look, groups, pictures, prices) is **your template**, because the pictures and
+prices are your data, not the index's:
+
+| What the visitor sees | The call (backend) | What you build (frontend) |
+|---|---|---|
+| the word being completed ("hea" -> "headphones") | `$fuzzphony->suggest($index, $text, $limit)` | a list under the input |
+| results while typing ("cr" already finds "Crème") | `->asYouType()` on the search builder | the result list |
+| groups: categories, products with price and picture | `facets()` and the hits of the same search | the grouped dropdown, see [A rich dropdown](#a-rich-dropdown) |
+
+There is **no separate "suggest list" to configure**: the completions come from the index's vocabulary, which is
+made of the words of the **typo-tolerant fields** (`fuzzy: true`) with at least `fuzzy_min_length` letters. To
+suggest a field's words, make the field fuzzy (see [Configuration](configuration.md)); which words come first is
+their frequency. Nothing else: how many (`$limit`), the grouping and the looks are per call and per page.
+
+### Matching the word being typed
+
+By default a word is a whole word: `cr` finds nothing where `creme` is, and a word of fewer than
+`fuzzy_min_length` letters is not typo-tolerant either. `asYouType()` is for a box that searches while the
+visitor types:
+
+```php
+$fuzzphony->in('products')->query('wireless hea')->asYouType()->get();
+// understood as: (wireless AND (hea OR hea*))
+```
+
+- The **last word** matches as the word itself (typo tolerance, synonyms and "did you mean" as before) **or** as
+  the beginning of a longer word (`hea` finds `headphones`). The words before it stay whole words.
+- A word scoped to a field (`brand:son`) or excluded (`-ca`) is only a prefix. The text is left alone once it
+  ends with a space or a symbol (the word is finished), inside a quoted phrase, after an operator, and for a
+  hyphenated word (`wi-fi`).
+- `didYouMean` stays a plain text (`wireless mouse`, without the prefix alternative); `interpretedAs` shows
+  `(hea OR hea*)`.
+- It matches the beginning of a *word*, not any letters inside it (that is what `ILIKE '%cr%'` does).
+  A one-letter prefix matches a lot (the search is still capped by the candidate limit).
+- The Live Component does it by default (`asYouType="false"` turns it off), `fuzzphony:search ... --as-you-type`
+  tries it, and with a [federated search](#federated-search) set it in each index's `configure` closure.
+
+### Completing the word
+
+`suggest()` completes the word being typed from the index's vocabulary (the one "did you mean" reads): from the index's vocabulary (the one "did you mean" reads):
 
 ```php
 $fuzzphony->suggest('products', 'wireless hea');   // ["wireless headphones", "wireless headset"]

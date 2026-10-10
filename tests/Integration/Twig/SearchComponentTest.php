@@ -157,4 +157,13 @@ final class SearchComponentTest extends KernelTestCase
 
         self::assertStringContainsString('data-id="1"', (string) $component->render(), 'not a facet of this component: ignored');
     }
+
+    public function testTheWordBeingTypedAlsoFindsLongerWordsUnlessSwitchedOff(): void
+    {
+        $typing = (string) $this->createLiveComponent('Fuzzphony:Search', ['index' => 'articles', 'query' => 'keyb'])->render();
+        self::assertStringContainsString('data-id="3"', $typing, '"keyb" is the beginning of "keyboard"');
+
+        $whole = (string) $this->createLiveComponent('Fuzzphony:Search', ['index' => 'articles', 'query' => 'ke', 'asYouType' => false])->render();
+        self::assertStringNotContainsString('data-id="3"', $whole, 'a whole word: "ke" is no word of the index');
+    }
 }

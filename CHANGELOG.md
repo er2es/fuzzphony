@@ -7,6 +7,26 @@ changes; they are always listed under **Breaking** and explained in [UPGRADE.md]
 
 ## [Unreleased]
 
+### Added
+
+- **Search-as-you-type matching:** `SearchBuilder::asYouType()` (and `SearchQuery::asYouType()`): the last word of the
+  text, when it ends the text, matches as the word itself (typo tolerance, synonyms, "did you mean") or as the
+  beginning of a longer word (`cr` finds `Crème`, `wireless hea` finds `Wireless headphones`); a field-scoped or
+  excluded word is only a prefix; nothing changes after a space, inside a quoted phrase or after an operator.
+  `didYouMean` comes back without the prefix alternative (`SearchResult::withDidYouMean()`). The Live Component
+  does it by default (`asYouType="false"`), `fuzzphony:search` has `--as-you-type`. See
+  [Search-as-you-type](docs/searching.md#search-as-you-type), which also says who does what: the library gives the
+  completions, the matching and the facets, the dropdown is the application's template.
+- Demo: one search-as-you-type dropdown on every search box (Compare, Relevance, Languages, Synonyms, Playground),
+  replacing the browser's `<datalist>`: the completions of the word being typed, the categories it is found in (Compare)
+  and the first hits, built from `suggest()`, `asYouType()` and a facet. The Compare and Playground searches match the
+  word being typed (`cr` finds `Crème`).
+
+### Changed
+
+- The Live Component's search-as-you-type matches the last word as a prefix too by default (`asYouType`, was
+  whole words only). `asYouType="false"` restores the old behaviour.
+
 ## [0.8.0] - 2026-10-10
 
 **Additive, no breaking changes.** After upgrading run `fuzzphony:schema --apply` once: it adds a prefix
