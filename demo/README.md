@@ -13,6 +13,49 @@ docker compose up --build                      # http://localhost:8000 (seeds 50
 DEMO_ROWS=1000000 docker compose up --build    # the full 1M-product catalogue (a few minutes to seed and index)
 ```
 
+### The large profile: 1 000 000 products
+
+For a big machine (Docker needs **8 GB of memory or more**; the default stack is sized for about 2 GB) there is an opt-in
+profile, [`docker-compose.large.yml`](docker-compose.large.yml): 1 000 000 products, PostgreSQL with a 2 GB cache, more
+php-fpm workers. Every `docker compose` command of that session needs both files; the one-time steps first:
+
+1. **Give Docker 8 GB** (Docker Desktop on Windows defaults to half the machine's RAM, often just 2 GB). Create
+   `%USERPROFILE%\.wslconfig` with
+   ```
+   [wsl2]
+   memory=8GB
+   ```
+   then `wsl --shutdown` and restart Docker Desktop. Check: `docker info --format "{{.MemTotal}}"` shows about 8 000 000 000.
+   (Docker Desktop's Settings > Resources does the same on macOS and where WSL is not used.)
+2. **Start it from the `demo` folder** (the first line removes the old data: the seed only runs on an empty volume):
+
+   ```
+   # Windows cmd
+   docker compose down -v
+   set DEMO_ROWS=1000000
+   set BUILDX_BAKE_ENTITLEMENTS_FS=0
+   docker compose -f docker-compose.yml -f docker-compose.large.yml up --build
+   ```
+   ```
+   # PowerShell
+   docker compose down -v
+   $env:DEMO_ROWS = "1000000"; $env:BUILDX_BAKE_ENTITLEMENTS_FS = "0"
+   docker compose -f docker-compose.yml -f docker-compose.large.yml up --build
+   ```
+   ```
+   # Linux / macOS / Git Bash
+   docker compose down -v
+   DEMO_ROWS=1000000 docker compose -f docker-compose.yml -f docker-compose.large.yml up --build
+   ```
+   (`BUILDX_BAKE_ENTITLEMENTS_FS=0` is only for Docker Compose versions that ask for a build privilege, see below.)
+3. **Wait for the index**: seeding and indexing 1 000 000 rows takes several minutes (about one minute at the default
+   500 000). Follow it with `docker compose -f docker-compose.yml -f docker-compose.large.yml logs -f init`;
+   http://localhost:8000 answers once `[init] done` appears.
+
+To go back to the default stack: `docker compose -f docker-compose.yml -f docker-compose.large.yml down -v`, then the plain
+`docker compose up --build` above. To avoid typing both files every time, set `COMPOSE_FILE` once per terminal
+(`set COMPOSE_FILE=docker-compose.yml;docker-compose.large.yml` on Windows, `export COMPOSE_FILE=docker-compose.yml:docker-compose.large.yml` elsewhere).
+
 If a recent Docker Compose stops with `additional privileges requested: pass "--allow=fs.read=..." to grant requested
 privileges`, it is Docker's build sandbox (bake): the compose file is in `demo/` but the build context is the repository
 root. `docker compose` has no `--allow` flag; switch the check off for the session with an environment variable
