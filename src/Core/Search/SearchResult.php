@@ -9,6 +9,7 @@ final readonly class SearchResult implements \IteratorAggregate, \Countable
 {
     /**
      * @param list<Hit>    $hits
+     * @param array<string, list<FacetValue>> $facets filter => its values, the most frequent first (see SearchBuilder::facets())
      * @param list<string> $warnings Corrections applied to the search text. Plain text, not HTML: a warning may quote the user's own words (invisible format characters removed, long words cut), so escape it when rendering it as HTML.
      */
     public function __construct(
@@ -29,6 +30,13 @@ final readonly class SearchResult implements \IteratorAggregate, \Countable
          * contains the user's own words, so escape it when you render it. Search it by passing it to query().
          */
         public ?string $didYouMean = null,
+        /**
+         * Counts per value of the filters asked for with facets(): `$result->facets['category']` is a list of
+         * FacetValue (value, count). Counted among the candidates, so they are lower bounds when
+         * `totalIsLowerBound` is true, unless the search asked for exactCounts(). A facet does not count
+         * the conditions on its own filter, so it shows what choosing another value would find.
+         */
+        public array $facets = [],
     ) {}
 
     /** @param list<string> $warnings */

@@ -43,7 +43,9 @@ everything else in `src/` is marked `@internal` and may change in any release.
   `Fuzzphony\Core\Definition\SyncMode`, `Fuzzphony\Core\Definition\TriggerLevel`
 - Searching: `Fuzzphony\Core\Search\SearchBuilder`, `Fuzzphony\Core\Search\SearchResult`,
   `Fuzzphony\Core\Search\Hit`, `Fuzzphony\Core\Search\ScoreBreakdown`,
-  `Fuzzphony\Core\Search\Explanation`, `Fuzzphony\Core\Query\SearchQuery`,
+  `Fuzzphony\Core\Search\Explanation`, `Fuzzphony\Core\Search\FacetValue`,
+  `Fuzzphony\Core\Search\FederatedSearch`, `Fuzzphony\Core\Search\FederatedResult`, `Fuzzphony\Core\Search\FederatedHit`,
+  `Fuzzphony\Core\Query\SearchQuery`,
   `Fuzzphony\Core\Query\Filter\Condition`, `Fuzzphony\Core\Query\Filter\Operator`
 - Ranking: `Fuzzphony\Core\Ranking\RankingProfile`, `Fuzzphony\Core\Ranking\Thresholds`,
   `Fuzzphony\Core\Ranking\FuzzyMode`
@@ -64,7 +66,7 @@ everything else in `src/` is marked `@internal` and may change in any release.
   `Fuzzphony\Core\Exception\RebuildAlreadyRunning`,
   `Fuzzphony\Core\Exception\UnknownIndex`
 - Engine SPI (for custom engines): `Fuzzphony\Core\Engine\Engine`, `Fuzzphony\Core\Engine\Capabilities`,
-  `Fuzzphony\Core\Engine\Capability`, `Fuzzphony\Core\Engine\Vocabulary` and `Fuzzphony\Core\Engine\SynonymStems` (both optional); the PostgreSQL engine: `Fuzzphony\Engine\Postgres\PostgresEngine`
+  `Fuzzphony\Core\Engine\Capability`, `Fuzzphony\Core\Engine\Vocabulary`, `Fuzzphony\Core\Engine\SynonymStems` and `Fuzzphony\Core\Engine\Suggestions` (all optional); the PostgreSQL engine: `Fuzzphony\Engine\Postgres\PostgresEngine`
 - Wizard: `Fuzzphony\Core\Wizard\DefinitionSuggester`, `Fuzzphony\Core\Wizard\SourceIntrospector`,
   `Fuzzphony\Core\Wizard\Suggestion`, `Fuzzphony\Core\Wizard\Decision`,
   `Fuzzphony\Core\Wizard\TableProfile`, `Fuzzphony\Core\Wizard\ColumnProfile`,

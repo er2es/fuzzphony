@@ -6,12 +6,14 @@ namespace Fuzzphony\Core;
 
 use Fuzzphony\Core\Definition\Synonyms;
 use Fuzzphony\Core\Engine\Engine;
+use Fuzzphony\Core\Engine\Suggestions;
 use Fuzzphony\Core\Engine\SynonymStems;
 use Fuzzphony\Core\Exception\InvalidArgument;
 use Fuzzphony\Core\Inspection\InspectionReport;
 use Fuzzphony\Core\Inspection\InspectOptions;
 use Fuzzphony\Core\Registry\IndexRegistry;
 use Fuzzphony\Core\Schema\SchemaPlan;
+use Fuzzphony\Core\Search\FederatedSearch;
 use Fuzzphony\Core\Search\SearchBuilder;
 use Fuzzphony\Core\Sync\Reindexer;
 use Fuzzphony\Core\Sync\ReindexOptions;
@@ -29,6 +31,12 @@ final readonly class Fuzzphony
     public function in(string $indexOrEntityClass): SearchBuilder
     {
         return new SearchBuilder($this->engine, $this->registry->get($indexOrEntityClass));
+    }
+
+    /** One query over several indexes with one merged list (reciprocal rank fusion); see FederatedSearch. */
+    public function federated(): FederatedSearch
+    {
+        return new FederatedSearch($this->engine, $this->registry);
     }
 
     public function schema(?string $index = null): SchemaPlan
@@ -79,6 +87,37 @@ final readonly class Fuzzphony
     public function rebuildVocabulary(string $index): int
     {
         return (new Reindexer($this->engine))->vocabulary($this->registry->get($index));
+    }
+
+    /**
+     * Search-as-you-type: the search text with the word being typed completed from the index's
+     * vocabulary ("wireless hea" -> "wireless headphones", "wireless headset"), the most frequent
+     * word first. Only the last word is completed, and only when the text ends with it (not with a
+     * space or a symbol). The completions are in the index's normalised form (lowercase, accents
+     * folded) and plain text, not HTML: escape them when you render them.
+     *
+     * The vocabulary is filled by a full reindex (and `fuzzphony:reindex --vocabulary`), so a word that
+     * is new since the last rebuild is not suggested yet. A tenant-scoped index, an index without a
+     * typo-tolerant field, and an engine without a vocabulary give an empty list.
+     *
+     * @param int $limit 1 to 20
+     *
+     * @return list<string>
+     *
+     * @throws InvalidArgument for a limit outside 1 to 20
+     */
+    public function suggest(string $index, string $text, int $limit = 8): array
+    {
+        if ($limit < 1 || $limit > 20) {
+            throw new InvalidArgument(sprintf('The suggestion limit must be between 1 and 20, got %d.', $limit));
+        }
+        $definition = $this->registry->get($index);
+        $text = mb_substr(ltrim($text), 0, 100);
+        if (!$this->engine instanceof Suggestions || preg_match('/^(.*?)([\p{L}\p{N}]+)$/su', $text, $m) !== 1) {
+            return [];
+        }
+
+        return array_map(static fn(string $word): string => $m[1] . $word, $this->engine->suggestWords($definition, $m[2], $limit));
     }
 
     /**

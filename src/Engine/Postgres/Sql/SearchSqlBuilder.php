@@ -43,11 +43,46 @@ final class SearchSqlBuilder
      */
     public function ranked(?string $tsquery, string $plain, ?Node $fuzzyRoot, array $conditions, RankingProfile $profile, Thresholds $thresholds, int $limit, int $offset, array $emptyQueries = [], ?Node $scopedRoot = null): array
     {
+        ['ctes' => $ctes, 'params' => $params, 'fuzzy' => $fuzzy] = $this->scored($tsquery, $plain, $fuzzyRoot, $conditions, $profile, $thresholds, $emptyQueries, $scopedRoot, false);
+
+        $counts = [];
+        $counts[] = $tsquery !== null ? '(SELECT count(*) FROM fts) AS fts_n' : '0 AS fts_n';
+        $counts[] = $fuzzy !== null ? '(SELECT count(*) FROM fuzzy) AS fuzzy_n' : '0 AS fuzzy_n';
+        $minScore = Sql::float($thresholds->minScore);
+        $ctes[] = sprintf(
+            "page AS (\n    SELECT id, r_text, r_fuzzy, relevance, exact_bonus, prefix_bonus, boost_bonus, recency_bonus,\n        relevance + exact_bonus + prefix_bonus + boost_bonus + recency_bonus AS score\n    FROM scored\n    WHERE relevance >= %s\n    ORDER BY score DESC, id\n    LIMIT %d OFFSET %d\n)",
+            $minScore,
+            $limit,
+            $offset,
+        );
+
+        // The meta row always exists, so totals are known even for pages past the end.
+        $sql = sprintf(
+            "WITH %s\nSELECT m.total, m.fts_n, m.fuzzy_n, page.*\nFROM (SELECT (SELECT count(*) FROM scored WHERE relevance >= %s) AS total, %s) AS m\nLEFT JOIN page ON TRUE\nORDER BY page.score DESC NULLS LAST, page.id",
+            implode(",\n", $ctes),
+            $minScore,
+            implode(', ', $counts),
+        );
+
+        return ['sql' => $sql, 'params' => $params->all()];
+    }
+
+    /**
+     * The CTEs up to `scored` (see the class comment); `$uncapped` drops the candidate limit, for exact counts.
+     *
+     * @param list<Condition> $conditions
+     * @param list<string>    $emptyQueries
+     *
+     * @return array{ctes: list<string>, params: ParameterBag, fuzzy: ?FuzzyMatch}
+     */
+    private function scored(?string $tsquery, string $plain, ?Node $fuzzyRoot, array $conditions, RankingProfile $profile, Thresholds $thresholds, array $emptyQueries, ?Node $scopedRoot, bool $uncapped): array
+    {
         $params = new ParameterBag();
         $filters = new FilterCompiler($this->index);
         $table = $this->names->sidecar($this->index);
         $config = $this->names->regconfig($this->index->text);
-        $candidates = $thresholds->candidateLimit;
+        // an exact count reads every match; a search and its approximate counts stop at the candidate limit
+        $cap = $uncapped ? '' : "\n    LIMIT " . $thresholds->candidateLimit;
 
         $q = [];
         if ($tsquery !== null) {
@@ -74,23 +109,23 @@ final class SearchSqlBuilder
         $branches = [];
         if ($tsquery !== null) {
             $ctes[] = sprintf(
-                "fts AS (\n    SELECT s.id, ts_rank_cd('%s'::real[], s.tsv, q.tsq, 32)::double precision AS r_text\n    FROM %s AS s CROSS JOIN q\n    WHERE s.tsv @@ q.tsq%s AND %s\n    LIMIT %d\n)",
+                "fts AS (\n    SELECT s.id, ts_rank_cd('%s'::real[], s.tsv, q.tsq, 32)::double precision AS r_text\n    FROM %s AS s CROSS JOIN q\n    WHERE s.tsv @@ q.tsq%s AND %s%s\n)",
                 self::tsRankWeights($profile),
                 $table,
                 $scope !== null ? ' AND ' . $scope['predicate'] : '',
                 $filters->compile($conditions, $params),
-                $candidates,
+                $cap,
             );
             $branches[] = 'SELECT id, r_text, 0::double precision AS r_fuzzy FROM fts';
         }
         if ($fuzzy !== null) {
             $ctes[] = sprintf(
-                "fuzzy AS (\n    SELECT s.id, (%s)::double precision AS r_fuzzy\n    FROM %s AS s CROSS JOIN q\n    WHERE %s AND %s\n    LIMIT %d\n)",
+                "fuzzy AS (\n    SELECT s.id, (%s)::double precision AS r_fuzzy\n    FROM %s AS s CROSS JOIN q\n    WHERE %s AND %s%s\n)",
                 $fuzzy->score,
                 $table,
                 $fuzzy->predicate,
                 $filters->compile($conditions, $params),
-                $candidates,
+                $cap,
             );
             $branches[] = 'SELECT id, 0::double precision AS r_text, r_fuzzy FROM fuzzy';
         }
@@ -112,24 +147,86 @@ final class SearchSqlBuilder
             $table,
         );
 
-        $counts = [];
-        $counts[] = $tsquery !== null ? '(SELECT count(*) FROM fts) AS fts_n' : '0 AS fts_n';
-        $counts[] = $fuzzy !== null ? '(SELECT count(*) FROM fuzzy) AS fuzzy_n' : '0 AS fuzzy_n';
-        $minScore = Sql::float($thresholds->minScore);
-        $ctes[] = sprintf(
-            "page AS (\n    SELECT id, r_text, r_fuzzy, relevance, exact_bonus, prefix_bonus, boost_bonus, recency_bonus,\n        relevance + exact_bonus + prefix_bonus + boost_bonus + recency_bonus AS score\n    FROM scored\n    WHERE relevance >= %s\n    ORDER BY score DESC, id\n    LIMIT %d OFFSET %d\n)",
-            $minScore,
-            $limit,
-            $offset,
+        return ['ctes' => $ctes, 'params' => $params, 'fuzzy' => $fuzzy];
+    }
+
+    /**
+     * The values of one filter among the matches of a ranked search, with how many documents have each
+     * (the facet). `$conditions` are the search's own without the ones on this filter: a facet shows what
+     * choosing another value would find. With `$exact` it reads every match, not only the candidates.
+     *
+     * @param list<Condition> $conditions
+     * @param list<string>    $emptyQueries
+     *
+     * @return array{sql: string, params: array<string, scalar|null>}
+     */
+    public function facet(string $filter, ?string $tsquery, string $plain, ?Node $fuzzyRoot, array $conditions, RankingProfile $profile, Thresholds $thresholds, int $values, bool $exact, array $emptyQueries = [], ?Node $scopedRoot = null): array
+    {
+        ['ctes' => $ctes, 'params' => $params] = $this->scored($tsquery, $plain, $fuzzyRoot, $conditions, $profile, $thresholds, $emptyQueries, $scopedRoot, $exact);
+        $column = 's.' . FilterCompiler::column($filter);
+        $sql = sprintf(
+            "WITH %s\nSELECT %s AS value, count(*) AS n\nFROM scored AS sc JOIN %s AS s ON s.id = sc.id\nWHERE sc.relevance >= %s\nGROUP BY %s\nORDER BY n DESC, value NULLS LAST\nLIMIT %d",
+            implode(",\n", $ctes),
+            $column,
+            $this->names->sidecar($this->index),
+            Sql::float($thresholds->minScore),
+            $column,
+            $values,
         );
 
-        // The meta row always exists, so totals are known even for pages past the end.
+        return ['sql' => $sql, 'params' => $params->all()];
+    }
+
+    /**
+     * The exact number of documents a ranked search finds, without the candidate limit.
+     *
+     * @param list<Condition> $conditions
+     * @param list<string>    $emptyQueries
+     *
+     * @return array{sql: string, params: array<string, scalar|null>}
+     */
+    public function exactTotal(?string $tsquery, string $plain, ?Node $fuzzyRoot, array $conditions, RankingProfile $profile, Thresholds $thresholds, array $emptyQueries = [], ?Node $scopedRoot = null): array
+    {
+        ['ctes' => $ctes, 'params' => $params] = $this->scored($tsquery, $plain, $fuzzyRoot, $conditions, $profile, $thresholds, $emptyQueries, $scopedRoot, true);
+        $sql = sprintf("WITH %s\nSELECT count(*) AS total FROM scored WHERE relevance >= %s", implode(",\n", $ctes), Sql::float($thresholds->minScore));
+
+        return ['sql' => $sql, 'params' => $params->all()];
+    }
+
+    /**
+     * The facet of a search without text (filter-only browsing).
+     *
+     * @param list<Condition> $conditions
+     *
+     * @return array{sql: string, params: array<string, scalar|null>}
+     */
+    public function browseFacet(string $filter, array $conditions, Thresholds $thresholds, int $values, bool $exact): array
+    {
+        $params = new ParameterBag();
+        $column = FilterCompiler::column($filter);
         $sql = sprintf(
-            "WITH %s\nSELECT m.total, m.fts_n, m.fuzzy_n, page.*\nFROM (SELECT (SELECT count(*) FROM scored WHERE relevance >= %s) AS total, %s) AS m\nLEFT JOIN page ON TRUE\nORDER BY page.score DESC NULLS LAST, page.id",
-            implode(",\n", $ctes),
-            $minScore,
-            implode(', ', $counts),
+            "WITH b AS (\n    SELECT s.%s AS value FROM %s AS s WHERE %s%s\n)\nSELECT value, count(*) AS n FROM b GROUP BY value ORDER BY n DESC, value NULLS LAST LIMIT %d",
+            $column,
+            $this->names->sidecar($this->index),
+            (new FilterCompiler($this->index))->compile($conditions, $params),
+            $exact ? '' : "\n    LIMIT " . $thresholds->candidateLimit,
+            $values,
         );
+
+        return ['sql' => $sql, 'params' => $params->all()];
+    }
+
+    /**
+     * The exact number of documents a search without text finds.
+     *
+     * @param list<Condition> $conditions
+     *
+     * @return array{sql: string, params: array<string, scalar|null>}
+     */
+    public function browseExactTotal(array $conditions): array
+    {
+        $params = new ParameterBag();
+        $sql = sprintf('SELECT count(*) AS total FROM %s AS s WHERE %s', $this->names->sidecar($this->index), (new FilterCompiler($this->index))->compile($conditions, $params));
 
         return ['sql' => $sql, 'params' => $params->all()];
     }

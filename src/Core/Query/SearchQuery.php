@@ -18,6 +18,7 @@ final readonly class SearchQuery
      * @param list<string>         $highlight           field names
      * @param array<string, mixed> $thresholdOverrides snake_case keys, see Thresholds::with()
      * @param array<string, mixed> $rankingOverrides   snake_case keys, see RankingProfile::with()
+     * @param list<string>         $facets             filters to count the values of among the matches
      */
     public function __construct(
         public string $text = '',
@@ -29,7 +30,15 @@ final readonly class SearchQuery
         public array $thresholdOverrides = [],
         public array $rankingOverrides = [],
         public mixed $tenant = null,
+        public array $facets = [],
+        /** The most values listed per facet. */
+        public int $facetValues = 20,
+        /** Count every match: an exact total and exact facets, not only the candidates (see Thresholds::$candidateLimit). */
+        public bool $exactCounts = false,
     ) {
+        if ($facetValues < 1 || $facetValues > 100) {
+            throw new \Fuzzphony\Core\Exception\InvalidQuery(sprintf('Facet values must be between 1 and 100, got %d.', $facetValues));
+        }
         if ($limit < 1 || $limit > 1000) {
             throw new \Fuzzphony\Core\Exception\InvalidQuery(sprintf('Limit must be between 1 and 1000, got %d.', $limit));
         }
@@ -114,6 +123,22 @@ final readonly class SearchQuery
         return $this->copy(rankingOverrides: [...$this->rankingOverrides, ...$overrides]);
     }
 
+    /** Counts the values of these filters among the matches (see SearchResult::$facets). */
+    public function facets(string ...$filters): self
+    {
+        return $this->copy(facets: array_values(array_unique([...$this->facets, ...$filters])));
+    }
+
+    public function facetValues(int $values): self
+    {
+        return $this->copy(facetValues: $values);
+    }
+
+    public function exactCounts(bool $exact = true): self
+    {
+        return $this->copy(exactCounts: $exact);
+    }
+
     private function copy(mixed ...$changes): self
     {
         $text = $changes['text'] ?? null;
@@ -125,6 +150,9 @@ final readonly class SearchQuery
         $thresholdOverrides = $changes['thresholdOverrides'] ?? null;
         $rankingOverrides = $changes['rankingOverrides'] ?? null;
         $tenant = array_key_exists('tenant', $changes) ? $changes['tenant'] : $this->tenant;
+        $facets = $changes['facets'] ?? null;
+        $facetValues = $changes['facetValues'] ?? null;
+        $exactCounts = $changes['exactCounts'] ?? null;
 
         return new self(
             text: is_string($text) ? $text : $this->text,
@@ -136,6 +164,9 @@ final readonly class SearchQuery
             thresholdOverrides: self::stringKeyedArray($thresholdOverrides) ?? $this->thresholdOverrides,
             rankingOverrides: self::stringKeyedArray($rankingOverrides) ?? $this->rankingOverrides,
             tenant: $tenant,
+            facets: self::stringList($facets) ?? $this->facets,
+            facetValues: is_int($facetValues) ? $facetValues : $this->facetValues,
+            exactCounts: is_bool($exactCounts) ? $exactCounts : $this->exactCounts,
         );
     }
 

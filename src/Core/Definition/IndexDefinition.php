@@ -61,6 +61,25 @@ final readonly class IndexDefinition
         return null;
     }
 
+    /**
+     * The filter a facet may count the values of: a string, int, bool or date filter that is not the
+     * tenant filter (a facet over it would list other tenants' values).
+     *
+     * @throws InvalidQuery
+     */
+    public function assertFacetable(string $name): FilterDefinition
+    {
+        $filter = $this->filter($name);
+        if ($name === $this->tenant) {
+            throw new InvalidQuery(sprintf('"%s" is the tenant filter of index "%s": a facet over it would list other tenants\' values.', $name, $this->name));
+        }
+        if (in_array($filter->type, [FilterType::Float, FilterType::DateTime], true)) {
+            throw new InvalidQuery(sprintf('Filter "%s" is a %s: facets count the values of string, int, bool and date filters.', $name, $filter->type->value));
+        }
+
+        return $filter;
+    }
+
     public function filter(string $name): FilterDefinition
     {
         foreach ($this->filters as $filter) {

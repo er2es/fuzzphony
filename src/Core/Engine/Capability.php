@@ -15,6 +15,8 @@ enum Capability: string
     case Phrase = 'phrase';
     case Prefix = 'prefix';
     case Highlight = 'highlight';
+    case Facets = 'facets';
+    case Suggest = 'suggest';
     case DatabaseTriggers = 'database_triggers';
     case ConcurrentIndexBuild = 'concurrent_index_build';
 }
