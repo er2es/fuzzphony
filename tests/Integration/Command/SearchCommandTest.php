@@ -142,4 +142,13 @@ final class SearchCommandTest extends TestCase
         $this->tester->execute(['index' => 'products', 'query' => 'qq', '--suggest' => true], ['interactive' => false]);
         self::assertStringContainsString('No completions.', $this->tester->getDisplay());
     }
+
+    public function testAsYouTypeMatchesTheBeginningOfTheLastWord(): void
+    {
+        $this->tester->execute(['index' => 'products', 'query' => 'mo'], ['interactive' => false]);
+        self::assertStringContainsString('0 hit(s)', $this->tester->getDisplay());
+
+        $this->tester->execute(['index' => 'products', 'query' => 'mo', '--as-you-type' => true], ['interactive' => false]);
+        self::assertStringContainsString('3 hit(s)', $this->tester->getDisplay());
+    }
 }

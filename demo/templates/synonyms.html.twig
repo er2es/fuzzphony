@@ -29,10 +29,10 @@
     </form>
 
     <h2>Try it</h2>
-    <form method="get" class="searchbar" data-loading-message="Searching…" data-controller="suggest" data-suggest-url-value="{{ path('suggest') }}" data-suggest-index-value="{{ index }}">
+    <form method="get" class="searchbar" data-loading-message="Searching…" data-controller="suggest" data-suggest-url-value="{{ path('suggest') }}" data-suggest-index-value="{{ index }}" data-suggest-page-value="{{ path('synonyms') }}" data-suggest-params-value="{{ {index: index}|json_encode|e('html_attr') }}">
         <input type="hidden" name="index" value="{{ index }}">
-        <input type="search" name="q" value="{{ q }}" aria-label="Search {{ indexes[index] }}" placeholder="Search {{ indexes[index] }}…" data-suggest-target="input" data-action="input->suggest#update" list="suggestions" autocomplete="off">
-        <datalist id="suggestions" data-suggest-target="list"></datalist>
+        <input type="search" name="q" value="{{ q }}" aria-label="Search {{ indexes[index] }}" placeholder="Search {{ indexes[index] }}…" data-suggest-target="input" data-action="input->suggest#update" autocomplete="off">
+        <div class="suggest-panel" data-suggest-target="panel" data-live-ignore hidden></div>
         <button type="submit" class="primary">Search</button>
     </form>
     <div class="examples">

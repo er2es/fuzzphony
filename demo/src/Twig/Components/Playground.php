@@ -186,6 +186,7 @@ final class Playground
     {
         $search = $this->fuzzphony->in('catalog')
             ->query($this->query)
+            ->asYouType()
             ->highlight('name')
             ->limit(20)
             ->ranking([

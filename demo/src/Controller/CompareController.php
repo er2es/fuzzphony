@@ -51,9 +51,9 @@ final class CompareController extends AbstractController
 
         if ($q !== '') {
             // what is measured is the search (narrowed by the facets chosen); the facets are counted by one more, unmeasured call
-            $with = Measure::median(fn () => $facets->narrow($fuzzphony->in('catalog')->query($q)->highlight('name')->limit(20), $category, $stock)->get());
+            $with = Measure::median(fn () => $facets->narrow($fuzzphony->in('catalog')->query($q)->asYouType()->highlight('name')->limit(20), $category, $stock)->get());
             $with['rows'] = $catalog->rows($with['value']->ids());
-            $counted = $fuzzphony->in('catalog')->query($q)->limit(1)->facets('category_id', 'in_stock');
+            $counted = $fuzzphony->in('catalog')->query($q)->asYouType()->limit(1)->facets('category_id', 'in_stock');
             $counted = $facets->narrow($counted, $category, $stock)->get();
             $facetValues = [
                 'categories' => $facets->categories($counted->facets['category_id'] ?? []),

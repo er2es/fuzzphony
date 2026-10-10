@@ -8,7 +8,7 @@ main { max-width: 1200px; margin: 0 auto; padding: 1.5rem; }
 input[type=search], input[type=text], select { width: 100%; padding: .6rem .8rem; border: 1px solid var(--line); border-radius: 8px; background: var(--bg); color: var(--fg); font-size: 1rem; }
 button, .button { padding: .45rem .8rem; border: 1px solid var(--line); border-radius: 8px; background: var(--card); color: var(--fg); cursor: pointer; text-decoration: none; display: inline-block; }
 .examples { display: flex; gap: .5rem; flex-wrap: wrap; margin: .6rem 0 1.2rem; }
-.suggest-panel { position: absolute; z-index: 50; left: 0; right: 0; top: 100%; margin-top: .3rem; background: var(--bg); border: 1px solid var(--line); border-radius: 12px; box-shadow: 0 8px 24px rgba(16, 24, 40, .18); padding: .4rem 0 .5rem; max-height: 70vh; overflow-y: auto; }
+.suggest-panel { position: absolute; z-index: 50; background: var(--bg); border: 1px solid var(--line); border-radius: 12px; box-shadow: 0 8px 24px rgba(16, 24, 40, .18); padding: .4rem 0 .5rem; max-height: 70vh; overflow-y: auto; }
 .suggest-heading { padding: .5rem .9rem .15rem; font-size: .78rem; text-transform: uppercase; letter-spacing: .04em; color: var(--muted); }
 .suggest-item { display: flex; justify-content: space-between; gap: 1rem; align-items: baseline; padding: .4rem .9rem; color: var(--fg); text-decoration: none; }
 .suggest-item.is-product { flex-direction: column; gap: 0; } .suggest-item:hover, .suggest-item.is-active { background: var(--card); }

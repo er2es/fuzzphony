@@ -7,7 +7,7 @@
 {% endmacro %}
 {% import _self as ui %}
 
-<div {{ attributes.defaults(stimulus_controller('busy')|stimulus_controller('suggest', {url: path('suggest'), index: 'catalog'})) }} class="layout">
+<div {{ attributes.defaults(stimulus_controller('busy')|stimulus_controller('suggest', {url: path('suggest'), index: 'catalog', page: path('playground'), param: 'query', categories: false})) }} class="layout">
     <aside class="card">
         <h2>Ranking</h2>
         {{ ui.slider('Full-text weight', 'text', text, 0, 2, 0.05) }}
@@ -41,8 +41,8 @@
     </aside>
 
     <section class="pane">
-        <input type="search" data-model="debounce(250)|query" value="{{ query }}" aria-label="Search query" list="playground-suggestions" autocomplete="off" data-suggest-target="input" data-action="input->suggest#update" placeholder="Try typos, accents, -exclusions, &quot;phrases&quot;, brand:…">
-        <datalist id="playground-suggestions" data-suggest-target="list" data-live-ignore></datalist>
+        <input type="search" data-model="debounce(250)|query" value="{{ query }}" aria-label="Search query" autocomplete="off" data-suggest-target="input" data-action="input->suggest#update" placeholder="Try typos, accents, -exclusions, &quot;phrases&quot;, brand:…">
+        <div class="suggest-panel" data-suggest-target="panel" data-live-ignore hidden></div>
 
         <div class="toolbar">
             {# Results / SQL is pure client state: the radios are never re-rendered (data-live-ignore) and the panels below are

@@ -39,6 +39,12 @@ final readonly class SearchResult implements \IteratorAggregate, \Countable
         public array $facets = [],
     ) {}
 
+    /** The same result with another "did you mean" text. */
+    public function withDidYouMean(?string $didYouMean): self
+    {
+        return new self($this->hits, $this->total, $this->totalIsLowerBound, $this->tookMs, $this->usedFuzzy, $this->warnings, $this->limit, $this->offset, $this->interpretedAs, $didYouMean, $this->facets);
+    }
+
     /** @param list<string> $warnings */
     public static function empty(int $limit, int $offset, array $warnings = [], float $tookMs = 0.0): self
     {

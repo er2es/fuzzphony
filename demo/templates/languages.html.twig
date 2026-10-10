@@ -22,10 +22,10 @@
             {% endfor %}
         </form>
 
-        <form method="get" action="{{ path('languages') }}" class="searchbar" role="search" data-loading-message="Searching the {{ language.name }} catalogue…" data-controller="suggest" data-suggest-url-value="{{ path('suggest') }}" data-suggest-index-value="{{ language.index }}">
+        <form method="get" action="{{ path('languages') }}" class="searchbar" role="search" data-loading-message="Searching the {{ language.name }} catalogue…" data-controller="suggest" data-suggest-url-value="{{ path('suggest') }}" data-suggest-index-value="{{ language.index }}" data-suggest-page-value="{{ path('languages') }}" data-suggest-params-value="{{ {lang: code}|json_encode|e('html_attr') }}">
             <input type="hidden" name="lang" value="{{ code }}">
-            <input type="search" name="q" value="{{ q }}" maxlength="100" lang="{{ code }}" aria-label="Search the {{ language.name }} catalogue" placeholder="Search the {{ language.name }} catalogue…"{% if q == '' %} autofocus{% endif %} data-suggest-target="input" data-action="input->suggest#update" list="suggestions" autocomplete="off">
-        <datalist id="suggestions" data-suggest-target="list"></datalist>
+            <input type="search" name="q" value="{{ q }}" maxlength="100" lang="{{ code }}" aria-label="Search the {{ language.name }} catalogue" placeholder="Search the {{ language.name }} catalogue…"{% if q == '' %} autofocus{% endif %} data-suggest-target="input" data-action="input->suggest#update" autocomplete="off">
+        <div class="suggest-panel" data-suggest-target="panel" data-live-ignore hidden></div>
             <button type="submit" class="primary">Search</button>
         </form>
 
