@@ -43,7 +43,7 @@ depends on it, so nothing built early has to be refactored once a later mileston
   reuses. Breaking: the default typo tolerance (results change; `fuzzy_similarity: 0.3` keeps the old
   behaviour) and `Thresholds::$fuzzySimilarity` is nullable. 0.7.1 adds synonyms from a Solr-format
   file or from the application's own storage (`Fuzzphony::useSynonyms()`) and a synonym editor in the
-  demo. See the
+  demo; 0.7.3 adds `Fuzzphony::stemSynonyms()` so long synonym lists can be cached prepared. See the
   [CHANGELOG](../CHANGELOG.md#070---2026-10-09) and [UPGRADE.md](../UPGRADE.md#from-06-to-07).
 
 ## v0.8: Search features

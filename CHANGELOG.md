@@ -7,6 +7,10 @@ changes; they are always listed under **Breaking** and explained in [UPGRADE.md]
 
 ## [Unreleased]
 
+## [0.7.3] - 2026-10-10
+
+No upgrade steps. A demo database from 0.7.1/0.7.2 converts its synonym lists on the next start.
+
 ### Added
 
 - `Fuzzphony::stemSynonyms($index, $synonyms)` (optional engine capability `Engine\SynonymStems`,
@@ -624,7 +628,8 @@ on its own:
 - Sync modes: queue (default), trigger, ORM, manual; watches for joined tables.
 - Doctor with fixes; CLI commands for schema, reindex, worker, search and explain.
 
-[Unreleased]: https://github.com/er2es/fuzzphony/compare/v0.7.2...HEAD
+[Unreleased]: https://github.com/er2es/fuzzphony/compare/v0.7.3...HEAD
+[0.7.3]: https://github.com/er2es/fuzzphony/compare/v0.7.2...v0.7.3
 [0.7.2]: https://github.com/er2es/fuzzphony/compare/v0.7.1...v0.7.2
 [0.7.1]: https://github.com/er2es/fuzzphony/compare/v0.7.0...v0.7.1
 [0.7.0]: https://github.com/er2es/fuzzphony/compare/v0.6.1...v0.7.0
