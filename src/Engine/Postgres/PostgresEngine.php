@@ -6,11 +6,13 @@ namespace Fuzzphony\Engine\Postgres;
 
 use Fuzzphony\Core\Database\Connection;
 use Fuzzphony\Core\Database\TransactionAware;
+use Fuzzphony\Core\Definition\FilterType;
 use Fuzzphony\Core\Definition\IndexDefinition;
 use Fuzzphony\Core\Definition\Synonyms;
 use Fuzzphony\Core\Engine\Capabilities;
 use Fuzzphony\Core\Engine\Capability;
 use Fuzzphony\Core\Engine\Engine;
+use Fuzzphony\Core\Engine\Suggestions;
 use Fuzzphony\Core\Engine\SynonymStems;
 use Fuzzphony\Core\Engine\Vocabulary;
 use Fuzzphony\Core\Exception\EngineFailure;
@@ -40,6 +42,7 @@ use Fuzzphony\Core\Ranking\RankingProfile;
 use Fuzzphony\Core\Ranking\Thresholds;
 use Fuzzphony\Core\Schema\SchemaPlan;
 use Fuzzphony\Core\Search\Explanation;
+use Fuzzphony\Core\Search\FacetValue;
 use Fuzzphony\Core\Search\Hit;
 use Fuzzphony\Core\Search\ScoreBreakdown;
 use Fuzzphony\Core\Search\SearchResult;
@@ -55,10 +58,12 @@ use Fuzzphony\Engine\Postgres\Sql\SearchSqlBuilder;
 use Fuzzphony\Engine\Postgres\Sql\Sql;
 use Fuzzphony\Engine\Postgres\Sql\TsQueryCompiler;
 
-final class PostgresEngine implements Engine, Vocabulary, SynonymStems
+final class PostgresEngine implements Engine, Vocabulary, SynonymStems, Suggestions
 {
     private const PROBE_LABEL = 'relaxation probe';
     private const SUGGEST_LABEL = 'did you mean';
+    private const string EXACT_LABEL = 'exact total';
+    private const string FACET_LABEL = 'facet: ';
     private const string REBUILD_HINT = 'Run "fuzzphony:schema --apply" and "fuzzphony:doctor".';
 
     private readonly Names $names;
@@ -129,7 +134,7 @@ final class PostgresEngine implements Engine, Vocabulary, SynonymStems
         // the plan of the last search statement (the relaxation probe and the suggestion lookup are listed but are not the search)
         $last = null;
         foreach ($run['statements'] as $statement) {
-            if ($statement['label'] !== self::PROBE_LABEL && $statement['label'] !== self::SUGGEST_LABEL) {
+            if (!in_array($statement['label'], [self::PROBE_LABEL, self::SUGGEST_LABEL, self::EXACT_LABEL], true) && !str_starts_with($statement['label'], self::FACET_LABEL)) {
                 $last = $statement;
             }
         }
@@ -273,6 +278,32 @@ final class PostgresEngine implements Engine, Vocabulary, SynonymStems
         }, sprintf('Run "bin/console fuzzphony:schema --apply" to create %1$s, and give the reindexing role SELECT, INSERT and DELETE on it (GRANT ... ON ALL TABLES IN SCHEMA covers it once the table exists).', $vocabulary));
     }
 
+    public function suggestWords(IndexDefinition $index, string $prefix, int $limit): array
+    {
+        if ($index->tenant !== null || !$index->hasFuzzy()) {
+            return []; // the vocabulary has no tenant column: it would leak the words of other tenants
+        }
+        $vocabulary = $this->names->vocabulary($index);
+
+        return $this->guard('suggest', function () use ($vocabulary, $prefix, $limit): array {
+            // a vocabulary the schema has not created yet, or one this role may not read, suggests nothing instead of failing
+            if ($this->connection->fetchValue("SELECT to_regclass(:a) IS NOT NULL AND has_table_privilege(to_regclass(:b), 'SELECT')", ['a' => $vocabulary, 'b' => $vocabulary]) !== true) {
+                return [];
+            }
+            // normalised like the words are, then bound as a constant pattern, so the planner can use the prefix index
+            $norm = Coerce::str($this->connection->fetchValue(sprintf('SELECT %s(:p)', $this->names->normFunction()), ['p' => $prefix]));
+            if ($norm === '') {
+                return [];
+            }
+            $rows = $this->connection->fetchAll(
+                sprintf("SELECT word FROM %s WHERE word LIKE :pattern ESCAPE '!' ORDER BY freq DESC, word LIMIT %d", $vocabulary, $limit),
+                ['pattern' => str_replace(['!', '%', '_'], ['!!', '!%', '!_'], $norm) . '%'],
+            );
+
+            return array_values(array_map(static fn(array $row): string => Coerce::str($row['word']), $rows));
+        }, 'Run "bin/console fuzzphony:doctor" to check the index.');
+    }
+
     public function beginRebuild(IndexDefinition $index, bool $resume = false): bool
     {
         return $this->guard('rebuild', fn(): bool => $this->rebuild->begin($index, $resume), self::REBUILD_HINT);
@@ -397,6 +428,9 @@ final class PostgresEngine implements Engine, Vocabulary, SynonymStems
         $thresholds = $index->thresholds->with($query->thresholdOverrides);
         $profile = $query->rankingOverrides === [] ? $index->profile($query->profile) : $index->profile($query->profile)->with($query->rankingOverrides);
         (new FilterCompiler($index))->validate(...$conditions);
+        foreach ($query->facets as $facet) {
+            $index->assertFacetable($facet);
+        }
 
         $parsed = (new QueryParser($thresholds->maxQueryLength, $thresholds->maxTerms))->parse($query->text);
         $warnings = $parsed->warnings;
@@ -458,6 +492,27 @@ final class PostgresEngine implements Engine, Vocabulary, SynonymStems
         if ($run['browse']) {
             $capped = $total >= $thresholds->candidateLimit;
         }
+        $builder = new SearchSqlBuilder($index, $this->names);
+        // exactCounts(): when the candidate limit cut the matches off, count them all
+        if ($query->exactCounts && $capped) {
+            $statement = ['label' => self::EXACT_LABEL] + ($run['ranked'] === null
+                ? $builder->browseExactTotal($conditions)
+                : $builder->exactTotal($run['ranked']['tsquery'], $run['ranked']['plain'], $run['ranked']['fuzzyRoot'], $conditions, $profile, $thresholds, $run['ranked']['emptyQueries'], $run['ranked']['scopedRoot']));
+            $total = Coerce::int($this->run($statement, $threshold)[0]['total'] ?? 0);
+            $statements[] = $statement;
+            $capped = false;
+        }
+        $facets = [];
+        foreach ($query->facets as $name) {
+            // disjunctive: the conditions on the facet's own filter are left out, so it shows what another value would find (the tenant's stay)
+            $others = array_values(array_filter($conditions, static fn(Condition $c): bool => $c->filter !== $name || $c->filter === $index->tenant));
+            $statement = ['label' => self::FACET_LABEL . $name] + ($run['ranked'] === null
+                ? $builder->browseFacet($name, $others, $thresholds, $query->facetValues, $query->exactCounts)
+                : $builder->facet($name, $run['ranked']['tsquery'], $run['ranked']['plain'], $run['ranked']['fuzzyRoot'], $others, $profile, $thresholds, $query->facetValues, $query->exactCounts, $run['ranked']['emptyQueries'], $run['ranked']['scopedRoot']));
+            $type = $index->filter($name)->type;
+            $facets[$name] = array_map(static fn(array $row): FacetValue => new FacetValue(self::facetValue($type, $row['value'] ?? null), Coerce::int($row['n'])), $this->run($statement, $threshold));
+            $statements[] = $statement;
+        }
         $rows = self::hitsOnly($rows);
         $suggestion = null;
         $didYouMean = $thresholds->didYouMean && $typedRoot !== null && $expandedRoot !== null && !$run['browse'] && $index->hasFuzzy() && ($total < $thresholds->fallbackBelow || $run['usedFuzzy'])
@@ -503,6 +558,7 @@ final class PostgresEngine implements Engine, Vocabulary, SynonymStems
             offset: $query->offset,
             interpretedAs: $root !== null ? (string) $root : null,
             didYouMean: $didYouMean,
+            facets: $facets,
         );
         $this->metrics->observe('fuzzphony.search.took_ms', $result->tookMs, ['index' => $index->name, 'query' => $query->text]);
         if (array_any($statements, static fn(array $s): bool => str_ends_with($s['label'], 'fallback: full-text + fuzzy'))) {
@@ -510,6 +566,17 @@ final class PostgresEngine implements Engine, Vocabulary, SynonymStems
         }
 
         return ['result' => $result, 'statements' => $statements, 'threshold' => $threshold];
+    }
+
+    /** A facet value as PHP: the type the filter declares. */
+    private static function facetValue(FilterType $type, mixed $value): bool|int|string|null
+    {
+        return match (true) {
+            $value === null => null,
+            $type === FilterType::Bool => $value === true || $value === 't' || $value === '1' || $value === 1,
+            $type === FilterType::Int => Coerce::int($value),
+            default => Coerce::str($value),
+        };
     }
 
     /**
@@ -701,7 +768,8 @@ final class PostgresEngine implements Engine, Vocabulary, SynonymStems
      *     fuzzy: bool,
      *     emptyQueries: list<string>|null,
      *     browse: bool,
-     *     warnings: list<string>
+     *     warnings: list<string>,
+     *     ranked: array{tsquery: string|null, plain: string, fuzzyRoot: Node|null, emptyQueries: list<string>, scopedRoot: Node|null}|null
      * }
      */
     private function pipeline(IndexDefinition $index, ?Node $root, array $conditions, RankingProfile $profile, Thresholds $thresholds, SearchQuery $query, string $labelPrefix): array
@@ -731,6 +799,7 @@ final class PostgresEngine implements Engine, Vocabulary, SynonymStems
         $usedFuzzy = false;
         $threshold = null;
         $browse = false;
+        $ranked = null;
         // the recheck drops stop words as the strict tsquery does, so it needs them up front
         $emptyQueries = $scopedRoot === null ? null : $this->emptyQueries($index, $fuzzy->leafQueries($scopedRoot));
 
@@ -749,6 +818,7 @@ final class PostgresEngine implements Engine, Vocabulary, SynonymStems
             $rows = $this->run($statement, $threshold);
             $statements[] = $statement;
             $usedFuzzy = $alwaysFuzzy;
+            $ranked = ['tsquery' => $tsquery, 'plain' => $plain, 'fuzzyRoot' => $alwaysFuzzy ? $fuzzyRoot : null, 'emptyQueries' => $emptyQueries ?? [], 'scopedRoot' => $scopedRoot];
 
             if (
                 !$alwaysFuzzy
@@ -763,6 +833,7 @@ final class PostgresEngine implements Engine, Vocabulary, SynonymStems
                 $rows = $this->run($statement, $threshold);
                 $statements[] = $statement;
                 $usedFuzzy = true;
+                $ranked = ['tsquery' => $tsquery, 'plain' => $plain, 'fuzzyRoot' => $fuzzyRoot, 'emptyQueries' => $emptyQueries, 'scopedRoot' => $scopedRoot];
             }
         }
 
@@ -776,6 +847,7 @@ final class PostgresEngine implements Engine, Vocabulary, SynonymStems
             'emptyQueries' => $emptyQueries,
             'browse' => $browse,
             'warnings' => $warnings,
+            'ranked' => $ranked,
         ];
     }
 

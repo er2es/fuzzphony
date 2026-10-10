@@ -145,6 +145,12 @@ final readonly class Names
         return self::limit($this->vocabularyName($index) . '_trgm');
     }
 
+    /** Its prefix index, which completes the beginning of a word (suggest()). */
+    public function vocabularyPrefixIndexName(IndexDefinition $index): string
+    {
+        return self::limit($this->vocabularyName($index) . '_prefix');
+    }
+
     /** The ids of the live documents that changed while a full reindex runs. */
     public function changesName(IndexDefinition $index): string
     {

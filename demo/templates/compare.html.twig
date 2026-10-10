@@ -1,8 +1,8 @@
 {% extends 'base.html.twig' %}
 
 {% block body %}
-    <form method="get" class="searchbar" data-loading-message="Searching with Fuzzphony (1 cold + {{ warmRuns }} warm runs)…">
-        <input type="search" name="q" value="{{ q }}" aria-label="Search the catalogue" placeholder="Search the catalogue…" autofocus>
+    <form method="get" class="searchbar" data-loading-message="Searching with Fuzzphony (1 cold + {{ warmRuns }} warm runs)…" data-controller="suggest" data-suggest-url-value="{{ path('suggest') }}" data-suggest-index-value="catalog" data-suggest-rich-value="true" data-suggest-page-value="{{ path('compare') }}">
+        <input type="search" name="q" value="{{ q }}" aria-label="Search the catalogue" placeholder="Search the catalogue…" autofocus data-suggest-target="input" data-action="input->suggest#update" autocomplete="off">
         <button type="submit" class="primary">Search</button>
     </form>
     <p class="muted">
@@ -43,6 +43,22 @@
                 </p>
                 {% for warning in result.warnings %}<p class="s-warning">{{ warning }}</p>{% endfor %}
                 {% if result.didYouMean %}<p>Did you mean <a href="{{ path('compare', {q: result.didYouMean}) }}" data-loading-message="Searching for {{ result.didYouMean }}…"><strong>{{ result.didYouMean }}</strong></a>?</p>{% endif %}
+                {# Facets: what is in the result, counted by value. A chosen value narrows the search; each facet still lists the other values of its own filter. #}
+                {% if facets and (facets.categories or facets.stock) %}
+                    <div class="facets" aria-label="Narrow the search">
+                        <span class="muted">Category{% if facets.lowerBound %} (of the candidates){% endif %}:</span>
+                        {% for c in facets.categories %}
+                            {% set chosen = c.name == category %}
+                            <a class="chip{{ chosen ? ' is-active' }}" href="{{ path('compare', {q: q, cat: chosen ? null : c.name, stock: stock is null ? null : (stock ? 1 : 0)}) }}"{% if chosen %} aria-current="true"{% endif %} data-loading-message="Searching…">{{ c.name }} <span class="muted">{{ c.count }}{{ facets.lowerBound ? '+' }}</span></a>
+                        {% endfor %}
+                        <span class="muted">Stock:</span>
+                        {% for s in facets.stock %}
+                            {% set chosen = stock is not null and stock == s.value %}
+                            <a class="chip{{ chosen ? ' is-active' }}" href="{{ path('compare', {q: q, cat: category ?: null, stock: chosen ? null : (s.value ? 1 : 0)}) }}"{% if chosen %} aria-current="true"{% endif %} data-loading-message="Searching…">{{ s.value ? 'in stock' : 'out of stock' }} <span class="muted">{{ s.count }}{{ facets.lowerBound ? '+' }}</span></a>
+                        {% endfor %}
+                        <span class="muted">counted in {{ facets.tookMs|number_format(1) }} ms, not part of the timing above; ILIKE has no facets</span>
+                    </div>
+                {% endif %}
                 <ul class="hits">
                     {% for hit in result.hits %}
                         {% set row = with.rows[hit.id] ?? null %}

@@ -55,7 +55,7 @@ final class SchemaGeneratorTest extends TestCase
         $statements = (new PostgresSchemaGenerator())->index(Indexes::products())->statements;
         $concurrent = array_values(array_filter($statements, static fn(Statement $s): bool => str_contains($s->sql, 'CONCURRENTLY')));
 
-        self::assertCount(7, $concurrent); // tsv, trigram, 4 filters, the vocabulary's trigram index
+        self::assertCount(8, $concurrent); // tsv, trigram, 4 filters, the vocabulary's trigram and prefix indexes
         foreach ($concurrent as $statement) {
             self::assertFalse($statement->transactional);
         }
@@ -67,6 +67,7 @@ final class SchemaGeneratorTest extends TestCase
         $sql = (new PostgresSchemaGenerator())->index(Indexes::products())->toSql();
 
         self::assertStringContainsString('CREATE TABLE IF NOT EXISTS "public"."fuzzphony_products__vocab" (word text PRIMARY KEY, freq integer NOT NULL)', $sql);
+        self::assertStringContainsString('CREATE INDEX CONCURRENTLY IF NOT EXISTS "fuzzphony_products__vocab_prefix" ON "public"."fuzzphony_products__vocab" (word text_pattern_ops)', $sql);
         self::assertStringContainsString('CREATE INDEX CONCURRENTLY IF NOT EXISTS "fuzzphony_products__vocab_trgm" ON "public"."fuzzphony_products__vocab" USING gin (word "public".gin_trgm_ops)', $sql);
     }
 

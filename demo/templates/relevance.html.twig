@@ -21,8 +21,9 @@
 {% import _self as ui %}
 
 {% block body %}
-    <form method="get" class="searchbar" data-loading-message="Searching…">
-        <input type="search" name="q" value="{{ q }}" aria-label="Search the catalogue" placeholder="Search the catalogue…" autofocus>
+    <form method="get" class="searchbar" data-loading-message="Searching…" data-controller="suggest" data-suggest-url-value="{{ path('suggest') }}" data-suggest-index-value="catalog">
+        <input type="search" name="q" value="{{ q }}" aria-label="Search the catalogue" placeholder="Search the catalogue…" autofocus data-suggest-target="input" data-action="input->suggest#update" list="suggestions" autocomplete="off">
+        <datalist id="suggestions" data-suggest-target="list"></datalist>
         <button type="submit" class="primary">Search</button>
     </form>
     <p class="muted">

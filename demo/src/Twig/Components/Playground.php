@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace App\Twig\Components;
 
 use App\Service\Catalog;
+use App\Service\Facets;
 use Fuzzphony\Core\Exception\FuzzphonyException;
 use Fuzzphony\Core\Fuzzphony;
 use Fuzzphony\Core\Ranking\FuzzyMode;
@@ -13,6 +14,8 @@ use Fuzzphony\Core\Search\SearchBuilder;
 use Fuzzphony\Core\Search\SearchResult;
 use Symfony\Component\DependencyInjection\Attribute\Autowire;
 use Symfony\UX\LiveComponent\Attribute\AsLiveComponent;
+use Symfony\UX\LiveComponent\Attribute\LiveAction;
+use Symfony\UX\LiveComponent\Attribute\LiveArg;
 use Symfony\UX\LiveComponent\Attribute\LiveProp;
 use Symfony\UX\LiveComponent\Attribute\PostHydrate;
 use Symfony\UX\LiveComponent\DefaultActionTrait;
@@ -36,6 +39,9 @@ final class Playground
     #[LiveProp(writable: true)] public bool $analyze = false;
     #[LiveProp(writable: true)] public bool $inStockOnly = false;
     #[LiveProp(writable: true)] public int $maxPrice = 0;
+    /** The category chosen on the facet (a name, '' = any). */
+    #[LiveProp(writable: true)] public string $category = '';
+    #[LiveProp(writable: true)] public bool $exactCounts = false;
 
     // ranking profile
     #[LiveProp(writable: true)] public float $text = 1.0;
@@ -77,12 +83,38 @@ final class Playground
     public function __construct(
         private readonly Fuzzphony $fuzzphony,
         private readonly Catalog $catalog,
+        private readonly Facets $facets,
         #[Autowire('%env(bool:DEMO_ALLOW_ANALYZE)%')] private readonly bool $analyzeAllowed = false,
+        #[Autowire('%env(bool:DEMO_ALLOW_EXACT)%')] private readonly bool $exactAllowed = false,
     ) {}
 
     public function isAnalyzeAllowed(): bool
     {
         return $this->analyzeAllowed;
+    }
+
+    public function isExactAllowed(): bool
+    {
+        return $this->exactAllowed;
+    }
+
+    /** The category chosen again lifts the choice. */
+    #[LiveAction]
+    public function pickCategory(#[LiveArg] string $name): void
+    {
+        $this->category = $this->category === $name ? '' : mb_substr($name, 0, 40);
+    }
+
+    #[LiveAction]
+    public function toggleInStock(): void
+    {
+        $this->inStockOnly = !$this->inStockOnly;
+    }
+
+    /** @return list<array{name: string, count: int}> the category facet of the result, by name */
+    public function getCategories(): array
+    {
+        return $this->facets->categories($this->getResult()?->facets['category_id'] ?? []);
     }
 
     /** Runs after every hydration from the browser, so the re-rendered controls show the values actually used. */
@@ -103,6 +135,8 @@ final class Playground
         $this->maxPrice = self::clampInt($this->maxPrice, ...self::RANGES['maxPrice']);
         $this->fuzzyMode = (FuzzyMode::tryFrom($this->fuzzyMode) ?? FuzzyMode::Fallback)->value;
         $this->analyze = $this->analyze && $this->analyzeAllowed;
+        $this->exactCounts = $this->exactCounts && $this->exactAllowed;
+        $this->category = mb_substr($this->category, 0, 40);
     }
 
     public function getResult(): ?SearchResult
@@ -172,6 +206,10 @@ final class Playground
             ]);
         if ($this->inStockOnly) {
             $search = $search->where('in_stock', true);
+        }
+        $search = $this->facets->narrow($search, $this->category, null)->facets('category_id', 'in_stock');
+        if ($this->exactCounts) {
+            $search = $search->exactCounts();
         }
         if ($this->maxPrice > 0) {
             $search = $search->where('price', '<=', $this->maxPrice);

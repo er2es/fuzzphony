@@ -102,4 +102,59 @@ final class SearchComponentTest extends KernelTestCase
 
         self::assertStringNotContainsString('fuzzphony-search__did-you-mean', (string) $component->render());
     }
+
+    public function testTheWordBeingTypedIsCompletedAndTheCompletionIsSearchedWhenChosen(): void
+    {
+        $component = $this->createLiveComponent('Fuzzphony:Search', ['index' => 'articles', 'query' => 'key']);
+
+        $html = (string) $component->render();
+        self::assertStringContainsString('fuzzphony-search__completions', $html);
+        self::assertStringContainsString('data-live-text-param="keyboard"', $html);
+
+        $component->call('useCompletion', ['text' => 'keyboard']);
+
+        self::assertStringContainsString('data-id="3"', (string) $component->render());
+    }
+
+    public function testCompletionsCanBeSwitchedOffAndAreEscaped(): void
+    {
+        $off = $this->createLiveComponent('Fuzzphony:Search', ['index' => 'articles', 'query' => 'key', 'suggestions' => 0]);
+        self::assertStringNotContainsString('fuzzphony-search__completions', (string) $off->render());
+
+        $html = (string) $this->createLiveComponent('Fuzzphony:Search', ['index' => 'articles', 'query' => '<b>key'])->render();
+        self::assertStringNotContainsString('<b>keyboard', $html, 'the completed text is plain text and is escaped');
+    }
+
+    public function testFacetsListTheValuesWithTheirCountsAndChoosingOneNarrowsTheSearch(): void
+    {
+        PostgresTestCase::connect()->execute('UPDATE fz_article SET published = false WHERE id = 2');
+        $fuzzphony = self::getContainer()->get(Fuzzphony::class);
+        self::assertInstanceOf(Fuzzphony::class, $fuzzphony);
+        $fuzzphony->refresh('articles', [2]);
+        $component = $this->createLiveComponent('Fuzzphony:Search', ['index' => 'articles', 'query' => 'mouse', 'facets' => 'published']);
+
+        $html = (string) $component->render();
+        self::assertStringContainsString('data-facet="published"', $html);
+        self::assertStringContainsString('data-id="1"', $html);
+        self::assertStringContainsString('data-id="2"', $html);
+
+        $component->call('toggleFacet', ['filter' => 'published', 'value' => '1']);
+        $narrowed = (string) $component->render();
+        self::assertStringContainsString('data-id="1"', $narrowed);
+        self::assertStringNotContainsString('data-id="2"', $narrowed, 'the unpublished article is filtered out');
+        self::assertStringContainsString('aria-pressed="true"', $narrowed);
+        self::assertStringContainsString('data-live-value-param="0"', $narrowed, 'the facet still offers the other value');
+
+        $component->call('toggleFacet', ['filter' => 'published', 'value' => '1']);
+        self::assertStringContainsString('data-id="2"', (string) $component->render(), 'choosing it again lifts it');
+    }
+
+    public function testOnlyTheFiltersListedAsFacetsCanBeChosen(): void
+    {
+        $component = $this->createLiveComponent('Fuzzphony:Search', ['index' => 'articles', 'query' => 'mouse']);
+
+        $component->call('toggleFacet', ['filter' => 'published', 'value' => '0']);
+
+        self::assertStringContainsString('data-id="1"', (string) $component->render(), 'not a facet of this component: ignored');
+    }
 }

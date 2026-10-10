@@ -33,7 +33,7 @@ foreach ($result as $hit) {
 }
 ```
 
-Status: v0.7. The API may still change before 1.0. Breaking changes are listed in the
+Status: v0.8. The API may still change before 1.0. Breaking changes are listed in the
 [CHANGELOG](https://github.com/er2es/fuzzphony/blob/main/CHANGELOG.md) and explained in
 [UPGRADE.md](https://github.com/er2es/fuzzphony/blob/main/UPGRADE.md).
 
@@ -48,8 +48,8 @@ cd fuzzphony/demo && docker compose up --build    # http://localhost:8000
 
 | Page | What you see |
 |---|---|
-| ILIKE vs Fuzzphony | the same query both ways, with timings and one-click typo / accent / stemming / phrase examples |
-| Languages | English, German, French, Spanish and Hungarian presets, and what PostgreSQL made of every word |
+| ILIKE vs Fuzzphony | the same query both ways, with timings, facets and one-click typo / accent / stemming / phrase examples; every search box completes the word you type |
+| Languages | English, German, French, Spanish and Hungarian presets, what PostgreSQL made of every word, and one search over all five at once (federated) |
 | Playground | every ranking weight and threshold as a slider, with a score breakdown per hit and the SQL |
 | Config wizard | pick a table, get a suggested index definition with every decision explained |
 | Benchmark / Doctor | the comparison as a table, and the `fuzzphony:doctor` report in the browser |
@@ -186,7 +186,7 @@ nothing drops the words that match nothing and says so. Details:
 ## Documentation
 
 - [Index definitions](https://github.com/er2es/fuzzphony/blob/main/docs/configuration.md): attributes, YAML, builder, bundle configuration, building an index.
-- [Searching](https://github.com/er2es/fuzzphony/blob/main/docs/searching.md): the search builder, controller examples, query syntax, typo tolerance, synonyms, "did you mean", empty-result relaxation.
+- [Searching](https://github.com/er2es/fuzzphony/blob/main/docs/searching.md): the search builder, controller examples, query syntax, typo tolerance, synonyms, "did you mean", search-as-you-type, facets, federated search, empty-result relaxation.
 - [Ranking and thresholds](https://github.com/er2es/fuzzphony/blob/main/docs/ranking.md): the score formula, profiles, per-query tuning, thresholds and their hard caps.
 - [Languages](https://github.com/er2es/fuzzphony/blob/main/docs/languages.md): stemming, stop words and accent folding for 28 languages.
 - [Keeping the index in sync](https://github.com/er2es/fuzzphony/blob/main/docs/sync.md): sync modes, triggers, `TRUNCATE`, orphan pruning, Messenger.
@@ -229,7 +229,7 @@ Details in [docs/limitations.md](https://github.com/er2es/fuzzphony/blob/main/do
 
 ## Roadmap
 
-Current: v0.7 (typo tolerance by word length, synonyms, "did you mean"). Milestones build in
+Current: v0.8 (search-as-you-type, facets, federated search). Milestones build in
 order, each one a foundation for the next, up to v1.0's stable API and backward-compatibility
 promise. PostgreSQL only before 1.0:
 

@@ -3,6 +3,23 @@
 Before 1.0, a minor version may contain breaking changes. Each section lists what to change,
 and the [CHANGELOG](CHANGELOG.md) has the full list of changes.
 
+## From 0.7 to 0.8
+
+No breaking changes. Optional steps:
+
+1. `fuzzphony:schema --apply` (or `--dump-migration` for a Doctrine migration): adds a prefix index to the
+   vocabulary table of every typo-tolerant index, which `suggest()` uses. Search-as-you-type works without it.
+2. A **custom `Engine`** keeps working: facets and `exactCounts()` read `SearchQuery::$facets`,
+   `$facetValues` and `$exactCounts`, so an engine that ignores them returns `SearchResult::$facets = []`.
+   Implement the optional `Fuzzphony\Core\Engine\Suggestions` to support `suggest()` (without it `suggest()`
+   returns an empty list). `Capabilities` lists two new cases (`Facets`, `Suggest`). Federated search needs nothing
+   from an engine.
+3. `SearchResult` and `SearchQuery` got new constructor parameters at the end (`facets`; `facets`,
+   `facetValues`, `exactCounts`): code that builds them positionally is unaffected, and code that extends them
+   cannot (they are final).
+4. Facets and completions need the right words in the vocabulary: schedule `fuzzphony:reindex --vocabulary`
+   (see [Did you mean](docs/searching.md#did-you-mean)).
+
 ## From 0.6 to 0.7
 
 1. **Typo tolerance is proportional to the word's length.** The default `fuzzy_similarity` is no

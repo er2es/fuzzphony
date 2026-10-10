@@ -160,6 +160,11 @@ final class PostgresSchemaGenerator
                 'Index of the vocabulary: the words close to a misspelled one',
                 transactional: false,
             );
+            $statements[] = new Statement(
+                sprintf('CREATE INDEX CONCURRENTLY IF NOT EXISTS %s ON %s (word text_pattern_ops)', Sql::ident($this->names->vocabularyPrefixIndexName($index)), $this->names->vocabulary($index)),
+                'Prefix index of the vocabulary: completes the beginning of a word (suggest())',
+                transactional: false,
+            );
         }
         foreach ($this->layoutSteps($index) as $target => [$step, $why]) {
             $statements[] = new Statement(sprintf(

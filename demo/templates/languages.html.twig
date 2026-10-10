@@ -22,9 +22,10 @@
             {% endfor %}
         </form>
 
-        <form method="get" action="{{ path('languages') }}" class="searchbar" role="search" data-loading-message="Searching the {{ language.name }} catalogue…">
+        <form method="get" action="{{ path('languages') }}" class="searchbar" role="search" data-loading-message="Searching the {{ language.name }} catalogue…" data-controller="suggest" data-suggest-url-value="{{ path('suggest') }}" data-suggest-index-value="{{ language.index }}">
             <input type="hidden" name="lang" value="{{ code }}">
-            <input type="search" name="q" value="{{ q }}" maxlength="100" lang="{{ code }}" aria-label="Search the {{ language.name }} catalogue" placeholder="Search the {{ language.name }} catalogue…"{% if q == '' %} autofocus{% endif %}>
+            <input type="search" name="q" value="{{ q }}" maxlength="100" lang="{{ code }}" aria-label="Search the {{ language.name }} catalogue" placeholder="Search the {{ language.name }} catalogue…"{% if q == '' %} autofocus{% endif %} data-suggest-target="input" data-action="input->suggest#update" list="suggestions" autocomplete="off">
+        <datalist id="suggestions" data-suggest-target="list"></datalist>
             <button type="submit" class="primary">Search</button>
         </form>
 
@@ -122,6 +123,29 @@
                         {% endif %}
                     </section>
                 </div>
+
+                {# Federated search: the same text over every language's index, one merged list. Scores of different indexes cannot be
+                   compared, so the lists are merged by rank (reciprocal rank fusion): the best hit of each language first. #}
+                {% if federated %}
+                    <section class="card" aria-labelledby="all-title">
+                        <h2 id="all-title">All five languages at once</h2>
+                        <p class="muted">
+                            {% for index, r in federated.results %}{{ index|replace({'lang_': ''}) }} {{ r.total }}{{ loop.last ? '' : ' · ' }}{% endfor %}
+                            · {{ federated.total }} hits in all · merged by rank, {{ federated.tookMs|number_format(1) }} ms
+                        </p>
+                        <ol class="hits lang-hits">
+                            {% for h in federated.hits %}
+                                <li>
+                                    <span class="lang-code" aria-hidden="true">{{ h.index|replace({'lang_': ''}) }}</span>
+                                    <span class="hit-name" lang="{{ h.index|replace({'lang_': ''}) }}">{{ federatedNames[h.index][h.hit.id] ?? h.hit.id }}</span>
+                                    <span class="muted">· merged score {{ (h.score * 100)|number_format(2) }}</span>
+                                </li>
+                            {% else %}
+                                <li class="muted">Nothing found in any language.</li>
+                            {% endfor %}
+                        </ol>
+                    </section>
+                {% endif %}
             {% endif %}
         </div>
 

@@ -29,9 +29,10 @@
     </form>
 
     <h2>Try it</h2>
-    <form method="get" class="searchbar" data-loading-message="Searching…">
+    <form method="get" class="searchbar" data-loading-message="Searching…" data-controller="suggest" data-suggest-url-value="{{ path('suggest') }}" data-suggest-index-value="{{ index }}">
         <input type="hidden" name="index" value="{{ index }}">
-        <input type="search" name="q" value="{{ q }}" aria-label="Search {{ indexes[index] }}" placeholder="Search {{ indexes[index] }}…">
+        <input type="search" name="q" value="{{ q }}" aria-label="Search {{ indexes[index] }}" placeholder="Search {{ indexes[index] }}…" data-suggest-target="input" data-action="input->suggest#update" list="suggestions" autocomplete="off">
+        <datalist id="suggestions" data-suggest-target="list"></datalist>
         <button type="submit" class="primary">Search</button>
     </form>
     <div class="examples">

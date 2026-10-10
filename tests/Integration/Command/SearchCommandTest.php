@@ -122,4 +122,24 @@ final class SearchCommandTest extends TestCase
         $this->tester->execute(['index' => 'products', 'query' => 'headphones'], ['interactive' => false]);
         self::assertStringNotContainsString('Did you mean', $this->tester->getDisplay());
     }
+
+    public function testFacetsAreCountedAndPrinted(): void
+    {
+        $status = $this->tester->execute(['index' => 'products', 'query' => 'mouse', '--facet' => ['in_stock', 'brand_id'], '--exact' => true], ['interactive' => false]);
+
+        self::assertSame(Command::SUCCESS, $status);
+        self::assertStringContainsString('in_stock: true (3)', $this->tester->getDisplay());
+        self::assertMatchesRegularExpression('/brand_id: 1 \(2\), 2 \(1\)/', $this->tester->getDisplay());
+    }
+
+    public function testSuggestCompletesTheLastWord(): void
+    {
+        $status = $this->tester->execute(['index' => 'products', 'query' => 'wireless hea', '--suggest' => true], ['interactive' => false]);
+
+        self::assertSame(Command::SUCCESS, $status);
+        self::assertStringContainsString('wireless headphones', $this->tester->getDisplay());
+
+        $this->tester->execute(['index' => 'products', 'query' => 'qq', '--suggest' => true], ['interactive' => false]);
+        self::assertStringContainsString('No completions.', $this->tester->getDisplay());
+    }
 }

@@ -8,6 +8,16 @@
            aria-label="{{ placeholder }}"
            class="fuzzphony-search__input">
 
+    {# The word being typed, completed from the index's vocabulary. The completions are plain text: Twig escapes them. #}
+    {% set completions = this.completions %}
+    {% if completions %}
+        <ul class="fuzzphony-search__completions" aria-label="Suggestions">
+            {% for completion in completions %}
+                <li><button type="button" data-action="live#action" data-live-action-param="useCompletion" data-live-text-param="{{ completion }}">{{ completion }}</button></li>
+            {% endfor %}
+        </ul>
+    {% endif %}
+
     {% set result = this.result %}
     {% if result %}
         <p class="fuzzphony-search__meta" aria-live="polite">
@@ -22,6 +32,22 @@
             <p class="fuzzphony-search__did-you-mean">Did you mean
                 <button type="button" data-action="live#action" data-live-action-param="useSuggestion">{{ result.didYouMean }}</button>?</p>
         {% endif %}
+        {# Facets: the values of a filter with their counts; choosing one narrows the search, choosing it again lifts it. #}
+        {% for name, values in result.facets %}
+            {% if values %}
+                <div class="fuzzphony-search__facet" data-facet="{{ name }}">
+                    <span class="fuzzphony-search__facet-name">{{ name }}</span>
+                    {% for facet in values %}
+                        {% set value = facet.value is null ? '' : (facet.value is same as(true) ? '1' : (facet.value is same as(false) ? '0' : facet.value)) %}
+                        {% set chosen = selected[name] is defined and selected[name] == value %}
+                        <button type="button" aria-pressed="{{ chosen ? 'true' : 'false' }}" data-action="live#action" data-live-action-param="toggleFacet" data-live-filter-param="{{ name }}" data-live-value-param="{{ value }}">
+                            {{ facet.value is null ? '(none)' : (facet.value is same as(true) ? 'yes' : (facet.value is same as(false) ? 'no' : facet.value)) }}
+                            <span class="fuzzphony-search__facet-count">{{ facet.count }}{{ result.totalIsLowerBound ? '+' }}</span>
+                        </button>
+                    {% endfor %}
+                </div>
+            {% endif %}
+        {% endfor %}
         <ol class="fuzzphony-search__hits">
             {% for hit in result.hits %}
                 <li class="fuzzphony-search__hit" data-id="{{ hit.id }}">

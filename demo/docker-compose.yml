@@ -42,6 +42,7 @@ x-app-env: &app-env
   # Expensive diagnostics are opt-in: EXPLAIN ANALYZE in the playground, exact counts on /doctor?deep=1.
   DEMO_ALLOW_ANALYZE: ${DEMO_ALLOW_ANALYZE:-0}
   DEMO_ALLOW_DEEP_DOCTOR: ${DEMO_ALLOW_DEEP_DOCTOR:-0}
+  DEMO_ALLOW_EXACT: ${DEMO_ALLOW_EXACT:-0}
 
 x-libpq-env: &libpq-env
   PGHOST: db

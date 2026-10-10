@@ -94,6 +94,34 @@ final readonly class SearchBuilder
         return $this->with($this->query->page($page, $perPage));
     }
 
+    /**
+     * Counts the values of these filters among the matches: `$result->facets['category']`. Only string, int,
+     * bool and date filters can be faceted (not the tenant filter). Every facet is one more statement.
+     */
+    public function facets(string ...$filters): self
+    {
+        foreach ($filters as $name) {
+            $this->index->assertFacetable($name); // fail fast on typos and on filters that cannot be faceted
+        }
+
+        return $this->with($this->query->facets(...$filters));
+    }
+
+    /** The most values listed per facet (1 to 100, default 20). */
+    public function facetValues(int $values): self
+    {
+        return $this->with($this->query->facetValues($values));
+    }
+
+    /**
+     * Counts every match for the total and the facets, not only the candidates: exact, but it reads
+     * everything the query matches, so it can be slow on a large index. Never from request input.
+     */
+    public function exactCounts(bool $exact = true): self
+    {
+        return $this->with($this->query->exactCounts($exact));
+    }
+
     public function get(): SearchResult
     {
         return $this->engine->search($this->index, $this->query);
