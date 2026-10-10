@@ -181,6 +181,14 @@ On Linux set `DEMO_UID` / `DEMO_GID` to your own ids so files written into the m
   process's budget, not `maintenance_work_mem` times `max_parallel_workers`). The `db` service's own memory limit
   went from 1 GB to 1536 MB to match. Raise `shared_buffers`, `maintenance_work_mem` and the `db` memory limit
   further for `DEMO_ROWS=1000000`. `pg_trgm` and `unaccent` are created by `fuzzphony:schema --apply`.
+* **A big catalogue on a big machine**: the defaults above are sized for a small VM (Docker Desktop often gives Docker only
+  about 2 GB), where PostgreSQL cannot use more than ~1.5 GB however it is tuned. With 8 GB or more for Docker, the
+  [`docker-compose.large.yml`](docker-compose.large.yml) override is the profile for `DEMO_ROWS=1000000`
+  (`DEMO_ROWS=1000000 docker compose -f docker-compose.yml -f docker-compose.large.yml up --build`, after one `down -v`):
+  `shared_buffers=2GB`, `effective_cache_size=5GB`, `work_mem=32MB`, `maintenance_work_mem=1GB`, `jit=off`, four parallel
+  workers per query, a 6 GB limit for the `db` service and 32 php-fpm children. The reasoning is in the file. It was not
+  measured at 1 000 000 rows: the machine this demo is developed on gives Docker 2 GB, so the profile is checked to
+  compose (`docker compose config`), not run.
 * **CPU** is deliberately not limited: a `cpus:` cap fails on hosts with fewer cores than the cap, and the database is the
   CPU-bound part of a search demo.
 

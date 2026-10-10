@@ -1,0 +1,57 @@
+name: Dependency audit
+
+# `composer audit` against the security advisories of Packagist, for the library's development dependencies
+# (the library itself requires almost nothing) and for the demo (its lock file is committed).
+#
+# - On pull requests and pushes it only WARNS (a yellow annotation and a summary on the run): a new advisory
+#   in a dependency must never turn an unrelated pull request red, and `ci-ok` does not wait for it.
+# - Every Monday, and on demand, it FAILS when an advisory is open: advisories appear without any change of ours,
+#   so the weekly run is what tells the maintainers (GitHub emails a failed scheduled run).
+on:
+  push:
+    branches: [main]
+  pull_request:
+  schedule:
+    - cron: '17 5 * * 1'
+  workflow_dispatch: {}
+
+permissions:
+  contents: read
+
+jobs:
+  audit:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: shivammathur/setup-php@f3e473d116dcccaddc5834248c87452386958240 # 2.37.2
+        with:
+          php-version: '8.5'
+          extensions: pdo_pgsql, mbstring
+          coverage: none
+      - name: Resolve the library's dependencies (its lock file is not committed)
+        run: composer update --no-progress --prefer-dist --no-interaction
+      - name: Audit the library
+        id: library
+        continue-on-error: true
+        run: composer audit --no-interaction
+      - name: Audit the demo (committed lock file)
+        id: demo
+        continue-on-error: true
+        working-directory: demo
+        run: composer audit --locked --no-interaction
+      - name: Report
+        run: |
+          failed=""
+          [ "${{ steps.library.outcome }}" = "failure" ] && failed="$failed library"
+          [ "${{ steps.demo.outcome }}" = "failure" ] && failed="$failed demo"
+          if [ -z "$failed" ]; then
+            echo "### Composer audit: no advisories" >> "$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
+          echo "### Composer audit: advisories found in:$failed" >> "$GITHUB_STEP_SUMMARY"
+          echo "See the audit step logs above; update the affected package (composer update vendor/package) or record why it is not affected." >> "$GITHUB_STEP_SUMMARY"
+          echo "::warning title=Composer audit::advisories found in:$failed (see the step logs)"
+          # pull requests and pushes only warn; the weekly and manual runs fail
+          if [ "${{ github.event_name }}" = "schedule" ] || [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            exit 1
+          fi

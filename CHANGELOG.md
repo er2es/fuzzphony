@@ -17,6 +17,11 @@ changes; they are always listed under **Breaking** and explained in [UPGRADE.md]
   does it by default (`asYouType="false"`), `fuzzphony:search` has `--as-you-type`. See
   [Search-as-you-type](docs/searching.md#search-as-you-type), which also says who does what: the library gives the
   completions, the matching and the facets, the dropdown is the application's template.
+- **Dependency audit in CI** (`.github/workflows/audit.yml`): `composer audit` for the library's dependencies and for the demo's
+  lock file. On pull requests and pushes it only warns (an annotation and a summary on the run; it is not part of `ci-ok`, so
+  a new advisory never turns an unrelated pull request red); every Monday, and on demand, it fails when an advisory is
+  open, which GitHub emails to the maintainers.
+- Demo: `docker-compose.large.yml`, an opt-in profile for `DEMO_ROWS=1000000` on a machine that gives Docker 8 GB or more.
 - Demo: one search-as-you-type dropdown on every search box (Compare, Relevance, Languages, Synonyms, Playground),
   replacing the browser's `<datalist>`: the completions of the word being typed, the categories it is found in (Compare)
   and the first hits, built from `suggest()`, `asYouType()` and a facet. The Compare and Playground searches match the
@@ -24,6 +29,10 @@ changes; they are always listed under **Breaking** and explained in [UPGRADE.md]
 
 ### Changed
 
+- Demo stack brought up to date: Symfony 8.1, Symfony UX 3.5, DoctrineBundle 3, PHP 8.5 (OPcache is built in, with the tracing
+  JIT enabled), nginx 1.31, in the immutable image. Verified by building the images and running the whole stack
+  (`init`, schema, reindex, doctor, every page). The library's own development dependencies were updated too
+  (`composer update -W`: Symfony 8.1, PHPUnit 12.5, PHPStan 2.3, Doctrine DBAL 4.5 / ORM 3.7, API Platform 5.0).
 - The Live Component's search-as-you-type matches the last word as a prefix too by default (`asYouType`, was
   whole words only). `asYouType="false"` restores the old behaviour.
 

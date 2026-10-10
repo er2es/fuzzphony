@@ -1,0 +1,64 @@
+# The demo sized for a big catalogue and a big machine: 1 000 000 products, PostgreSQL with a real cache.
+#
+#   cd demo
+#   DEMO_ROWS=1000000 docker compose -f docker-compose.yml -f docker-compose.large.yml up --build
+#
+# Needs Docker to have at least 8 GB of memory (Docker Desktop: Settings > Resources, or `memory=8GB` in
+# %USERPROFILE%\.wslconfig on Windows; its default is half of the machine's RAM, often just 2 GB, which is what the
+# default stack is sized for). Without that PostgreSQL is killed for lack of memory. The `down -v` of a smaller demo
+# is needed once: the seed only runs on an empty volume.
+#
+# What changes against docker-compose.yml, and why (all of it is the database and the pool in front of it):
+#   shared_buffers 2GB            the GIN indexes of 1M rows (about 1 GB) stay in PostgreSQL's own cache
+#   effective_cache_size 5GB      planner hint: the OS cache holds the rest, so index scans look as cheap as they are
+#   work_mem 32MB                 sorting/ranking the candidates (2 000 per branch) in memory, per node
+#   maintenance_work_mem 1GB      the GIN build of the reindex (one process; PostgreSQL does not parallelize a GIN build)
+#   max_parallel_workers_per_gather 4, jit off
+#                                 the heap scans of ILIKE use more cores; JIT compilation costs more than it saves on
+#                                 these short statements
+#   php-fpm 32 children          the requests wait for PostgreSQL, so more of them overlap
+services:
+  db:
+    command:
+      - postgres
+      - -c
+      - shared_buffers=2GB
+      - -c
+      - effective_cache_size=5GB
+      - -c
+      - work_mem=32MB
+      - -c
+      - maintenance_work_mem=1GB
+      - -c
+      - random_page_cost=1.1
+      - -c
+      - effective_io_concurrency=200
+      - -c
+      - max_worker_processes=16
+      - -c
+      - max_parallel_workers=8
+      - -c
+      - max_parallel_workers_per_gather=4
+      - -c
+      - jit=off
+      - -c
+      - max_wal_size=4GB
+      - -c
+      - wal_compression=on
+      - -c
+      - log_min_duration_statement=1000
+    shm_size: 1gb
+    deploy:
+      resources:
+        limits: { memory: 6g }
+        reservations: { memory: 1g }
+
+  php:
+    environment:
+      PHP_FPM_MAX_CHILDREN: "32"
+      PHP_FPM_START_SERVERS: "8"
+      PHP_FPM_MIN_SPARE_SERVERS: "4"
+      PHP_FPM_MAX_SPARE_SERVERS: "12"
+    deploy:
+      resources:
+        limits: { memory: 1536m }
