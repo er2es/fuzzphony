@@ -13,10 +13,19 @@ docker compose up --build                      # http://localhost:8000 (seeds 50
 DEMO_ROWS=1000000 docker compose up --build    # the full 1M-product catalogue (a few minutes to seed and index)
 ```
 
-If a recent Docker Compose stops with `additional privileges requested: pass "--allow=fs.read=..."`, it is its
-build sandbox (bake): the compose file is in `demo/` but the build context is the repository root. Run it from the
-repository root instead, `docker compose -f demo/docker-compose.yml up --build`, or allow the read once
-(`docker compose up --build --allow=fs.read=..`), or build without bake (`COMPOSE_BAKE=false docker compose up --build`).
+If a recent Docker Compose stops with `additional privileges requested: pass "--allow=fs.read=..." to grant requested
+privileges`, it is Docker's build sandbox (bake): the compose file is in `demo/` but the build context is the repository
+root. `docker compose` has no `--allow` flag; switch the check off for the session with an environment variable
+(verified: the image builds with it), then run the same command:
+
+```
+set BUILDX_BAKE_ENTITLEMENTS_FS=0                # Windows cmd
+$env:BUILDX_BAKE_ENTITLEMENTS_FS = "0"           # PowerShell
+export BUILDX_BAKE_ENTITLEMENTS_FS=0             # bash
+docker compose up --build
+```
+
+`COMPOSE_BAKE=false` (set the same way) builds without bake and works too.
 
 The first start builds the image, seeds the catalogue (`../benchmarks/seed.sql`: products x brands x
 categories), creates the index and reindexes it; later starts skip all of that. Everything is plain
