@@ -3,6 +3,8 @@ parameters:
     # EXPLAIN ANALYZE in the playground re-runs every query, /doctor?deep=1 counts every row exactly.
     env(DEMO_ALLOW_ANALYZE): '0'
     env(DEMO_ALLOW_DEEP_DOCTOR): '0'
+    # Exact counts (a total and facets over every match, not only the candidates) read everything a query matches: opt-in too.
+    env(DEMO_ALLOW_EXACT): '0'
     # Minimum level of the metric lines below; the worker container sets it to 'error' (an idle worker would log every second).
     env(DEMO_METRICS_LOG_LEVEL): 'debug'
 

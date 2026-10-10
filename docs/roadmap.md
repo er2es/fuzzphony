@@ -35,7 +35,7 @@ depends on it, so nothing built early has to be refactored once a later mileston
   in [`docs/grafana/`](grafana/)). An optional, non-breaking `Connection` capability
   (`inTransaction()`) lets a fuzzy statement skip a redundant round trip when no outer transaction
   is open. No breaking changes. See the [CHANGELOG](../CHANGELOG.md#060---2026-10-01).
-- v0.7 Relevance (current): typo tolerance proportional to the word's length (one typo from 4
+- v0.7 Relevance: typo tolerance proportional to the word's length (one typo from 4
   letters, two from 8; `mouse` no longer matches `monitor`; an explicit `fuzzy_similarity` stays
   flat), per-index synonyms (groups and one-way rules, expanded on the query, stemmed by PostgreSQL,
   no reindex), and "did you mean" (`SearchResult::$didYouMean`) from a new vocabulary table that
@@ -45,25 +45,14 @@ depends on it, so nothing built early has to be refactored once a later mileston
   file or from the application's own storage (`Fuzzphony::useSynonyms()`) and a synonym editor in the
   demo; 0.7.3 adds `Fuzzphony::stemSynonyms()` so long synonym lists can be cached prepared. See the
   [CHANGELOG](../CHANGELOG.md#070---2026-10-09) and [UPGRADE.md](../UPGRADE.md#from-06-to-07).
-
-## v0.8: Search features
-
-New query-side features. `suggest()` reuses the 0.7 vocabulary table, and federated search comes
-last because it needs final ranking to be settled.
-
-### Search-as-you-type
-
-A dedicated, fast `suggest()` API for prefix suggestions, and a debounced dropdown in the Live
-Component.
-
-### Facets
-
-Counts per filter value for the current query ("Kitchen (120) · Office (45)"), and an opt-in exact
-`total` for queries whose matches exceed `candidate_limit`.
-
-### Federated search
-
-Query several indexes at once, with one merged, cross-index ranking.
+- v0.8 Search features (current): `Fuzzphony::suggest()` completes the word being typed from the 0.7
+  vocabulary (a tenant-scoped index suggests nothing), `facets()` counts the values of filters among the
+  matches (disjunctive: a facet does not count its own filter; over the candidates, or exact with
+  `exactCounts()`, which also makes the total exact), and `federated()` searches several indexes with one
+  merged list (reciprocal rank fusion, per-index weights and configuration). The Live Component offers
+  completions and facets, `fuzzphony:search` gets `--facet`, `--exact` and `--suggest`, and the demo's
+  search boxes use them. Additive: no breaking changes; `fuzzphony:schema --apply` adds a prefix index to
+  each vocabulary. See the [CHANGELOG](../CHANGELOG.md#080---2026-10-10).
 
 ## v0.9: Security and analytics
 

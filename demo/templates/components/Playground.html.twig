@@ -7,7 +7,7 @@
 {% endmacro %}
 {% import _self as ui %}
 
-<div {{ attributes.defaults(stimulus_controller('busy')) }} class="layout">
+<div {{ attributes.defaults(stimulus_controller('busy')|stimulus_controller('suggest', {url: path('suggest'), index: 'catalog'})) }} class="layout">
     <aside class="card">
         <h2>Ranking</h2>
         {{ ui.slider('Full-text weight', 'text', text, 0, 2, 0.05) }}
@@ -32,11 +32,17 @@
 
         <h2 style="margin-top:1rem">Filters</h2>
         <label class="check"><input type="checkbox" data-model="inStockOnly" {{ inStockOnly ? 'checked' }}> In stock only</label>
+        {% if this.exactAllowed %}
+            <label class="check"><input type="checkbox" data-model="exactCounts" {{ exactCounts ? 'checked' }}> Exact counts (count every match: the total and the facets, not only the candidates)</label>
+        {% else %}
+            <p class="muted">The total and the facets count the candidates (the candidate limit above). Exact counts read every match: start the stack with <code>DEMO_ALLOW_EXACT=1</code> to try them.</p>
+        {% endif %}
         {{ ui.slider('Max price (0 = any)', 'maxPrice', maxPrice, 0, 200000, 1000) }}
     </aside>
 
     <section class="pane">
-        <input type="search" data-model="debounce(250)|query" value="{{ query }}" aria-label="Search query" placeholder="Try typos, accents, -exclusions, &quot;phrases&quot;, brand:…">
+        <input type="search" data-model="debounce(250)|query" value="{{ query }}" aria-label="Search query" list="playground-suggestions" autocomplete="off" data-suggest-target="input" data-action="input->suggest#update" placeholder="Try typos, accents, -exclusions, &quot;phrases&quot;, brand:…">
+        <datalist id="playground-suggestions" data-suggest-target="list" data-live-ignore></datalist>
 
         <div class="toolbar">
             {# Results / SQL is pure client state: the radios are never re-rendered (data-live-ignore) and the panels below are
@@ -63,6 +69,23 @@
                 </p>
                 {% for warning in result.warnings %}<p class="s-warning">{{ warning }}</p>{% endfor %}
                 {% if result.didYouMean %}<p>Did you mean <code>{{ result.didYouMean }}</code>?</p>{% endif %}
+                {# Facets: the values of a filter among the matches. A chosen category narrows the search; the facet still lists the other categories. #}
+                {% set categories = this.categories %}
+                {% set stock = result.facets.in_stock ?? [] %}
+                {% if categories or stock %}
+                    <div class="facets" aria-label="Facets">
+                        {% for c in categories %}
+                            <button type="button" class="chip" aria-pressed="{{ c.name == category ? 'true' : 'false' }}" data-action="live#action" data-live-action-param="pickCategory" data-live-name-param="{{ c.name }}">{{ c.name }} <span class="muted">{{ c.count }}{{ result.totalIsLowerBound and not exactCounts ? '+' }}</span></button>
+                        {% endfor %}
+                        {% for s in stock %}
+                            {% if s.value %}
+                                <button type="button" class="chip" aria-pressed="{{ inStockOnly ? 'true' : 'false' }}" data-action="live#action" data-live-action-param="toggleInStock">in stock <span class="muted">{{ s.count }}{{ result.totalIsLowerBound and not exactCounts ? '+' }}</span></button>
+                            {% else %}
+                                <span class="chip">out of stock <span class="muted">{{ s.count }}{{ result.totalIsLowerBound and not exactCounts ? '+' }}</span></span>
+                            {% endif %}
+                        {% endfor %}
+                    </div>
+                {% endif %}
 
                 <div class="panel panel-results">
                     {% set rows = this.rows %}

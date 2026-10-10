@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace App\Controller;
 
 use App\Service\Catalog;
+use App\Service\Facets;
 use App\Service\Measure;
 use Fuzzphony\Core\Fuzzphony;
 use Symfony\Bundle\FrameworkBundle\Controller\AbstractController;
@@ -36,20 +37,39 @@ final class CompareController extends AbstractController
      * page renders at once; the ILIKE column is measured by {@see ilike()}, fetched separately (ilike_controller.js).
      */
     #[Route('/', name: 'compare')]
-    public function __invoke(Request $request, Fuzzphony $fuzzphony, Catalog $catalog): Response
+    public function __invoke(Request $request, Fuzzphony $fuzzphony, Catalog $catalog, Facets $facets): Response
     {
         $q = self::normalizeQuery($request);
+        $category = mb_substr(trim((string) $request->query->get('cat', '')), 0, 40);
+        $stock = match ((string) $request->query->get('stock', '')) {
+            '1' => true,
+            '0' => false,
+            default => null,
+        };
         $with = null;
+        $facetValues = null;
 
         if ($q !== '') {
-            $with = Measure::median(static fn () => $fuzzphony->in('catalog')->query($q)->highlight('name')->limit(20)->get());
+            // what is measured is the search (narrowed by the facets chosen); the facets are counted by one more, unmeasured call
+            $with = Measure::median(fn () => $facets->narrow($fuzzphony->in('catalog')->query($q)->highlight('name')->limit(20), $category, $stock)->get());
             $with['rows'] = $catalog->rows($with['value']->ids());
+            $counted = $fuzzphony->in('catalog')->query($q)->limit(1)->facets('category_id', 'in_stock');
+            $counted = $facets->narrow($counted, $category, $stock)->get();
+            $facetValues = [
+                'categories' => $facets->categories($counted->facets['category_id'] ?? []),
+                'stock' => $counted->facets['in_stock'] ?? [],
+                'tookMs' => $counted->tookMs,
+                'lowerBound' => $counted->totalIsLowerBound,
+            ];
         }
 
         return $this->render('compare.html.twig', [
             'q' => $q,
             'examples' => self::EXAMPLES,
             'with' => $with,
+            'facets' => $facetValues,
+            'category' => $category,
+            'stock' => $stock,
             'table' => Catalog::TABLE,
             'rowEstimate' => $catalog->estimatedProductCount(),
             'warmRuns' => Measure::WARM_RUNS,

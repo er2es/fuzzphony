@@ -28,6 +28,8 @@ final class LanguagesController extends AbstractController
         $products = $languages->products($code);
         $result = $error = null;
         $analysis = $ilike = $names = [];
+        $federated = null;
+        $federatedNames = [];
         if ($q !== '') {
             try {
                 $result = $fuzzphony->in($language['index'])->query($q)->highlight('name', 'description')->limit(30)->get();
@@ -39,6 +41,24 @@ final class LanguagesController extends AbstractController
             }
             $analysis = $languages->analyse($code, $language, $q);
             $ilike = $languages->ilikeIds($code, $q);
+
+            // the same text over all five languages at once, merged by rank (federated search)
+            try {
+                $search = $fuzzphony->federated();
+                foreach (Languages::LANGUAGES as $other) {
+                    $search = $search->index($other['index']);
+                }
+                $federated = $search->query($q)->limit(10)->get();
+                foreach (Languages::LANGUAGES as $otherCode => $other) {
+                    if (array_any($federated->hits, static fn ($h): bool => $h->index === $other['index'])) {
+                        foreach ($languages->products($otherCode) as $id => $product) {
+                            $federatedNames[$other['index']][$id] = $product['name'];
+                        }
+                    }
+                }
+            } catch (FuzzphonyException) {
+                $federated = null;
+            }
         }
 
         return $this->render('languages.html.twig', [
@@ -52,6 +72,8 @@ final class LanguagesController extends AbstractController
             'analysis' => $analysis,
             'ilike' => $ilike,
             'names' => $names,
+            'federated' => $federated,
+            'federatedNames' => $federatedNames,
         ]);
     }
 

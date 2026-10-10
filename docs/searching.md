@@ -280,6 +280,118 @@ $result->didYouMean;   // "headphones -cable": the query with the word replaced,
   statement labelled `did you mean`, with the words bound as parameters; the plan shown is still the
   search statement's.
 
+## Search-as-you-type
+
+`suggest()` completes the word being typed from the index's vocabulary (the one "did you mean" reads):
+
+```php
+$fuzzphony->suggest('products', 'wireless hea');   // ["wireless headphones", "wireless headset"]
+```
+
+- Only the **last word** is completed, and only when the text ends with it (not with a space or a
+  symbol); the words before it, and a leading `-`, stay as typed. The most frequent word comes first
+  (`$limit`, 1 to 20, default 8).
+- The completions are in the index's normalised form (lowercase, accents folded: `Crè` gives `creme`)
+  and are **plain text, not HTML**: escape them when you render them.
+- Only words of the typo-tolerant fields are in the vocabulary, with at least `fuzzy_min_length`
+  letters, and it is filled by a full reindex (`fuzzphony:reindex --vocabulary` rebuilds just it): a word
+  that is new since the last rebuild is not suggested yet. Schedule that rebuild, see [Did you
+  mean](#did-you-mean). A **tenant-scoped index** gives no completions (the vocabulary has no tenant
+  column, so it would list other tenants' words), and so does an index without a typo-tolerant field or
+  an engine without a vocabulary: the list is empty.
+- `fuzzphony:schema --apply` adds a prefix index on the vocabulary (`text_pattern_ops`), and the
+  trigram index of 0.7 serves prefixes of three letters or more; without them it still works, with a
+  scan of the (small) vocabulary table.
+- `fuzzphony:search products 'wireless hea' --suggest` tries it from the terminal.
+
+The [Live Component](integrations.md#live-component) offers the completions as you type, and the
+demo's search boxes do too (a `<datalist>` filled from a small endpoint).
+
+### A rich dropdown
+
+The grouped dropdown of a shop (searches, categories, products with price and picture) is three ordinary
+calls, composed by your endpoint, because the picture and the price are your data, not the index's:
+
+```php
+$completions = $fuzzphony->suggest('products', $text, 6);                              // "Searches"
+$found = $fuzzphony->in('products')->query($text . '*')->limit(5)->facets('category_id')->get();
+$categories = $found->facets['category_id'];                                           // "Categories" (label the ids yourself)
+$products = $found->hits;                                                              // "Products": load their rows by $hit->id
+```
+
+The `*` makes the word being typed a prefix. Which of the three to show, and how, is the page's setting: the
+demo's Compare page shows all three (`data-suggest-rich-value="true"` on its search form), every other search box
+only the completions (the default, a `<datalist>`). The library has no global "rich" switch on purpose: the Live
+Component's `suggestions`, `facets` and its `hit` block cover the same ground inside it, and the rest is your template.
+
+## Facets
+
+`facets()` counts the values of filters among the matches ("Kitchen (120) · Office (45)"):
+
+```php
+$result = $fuzzphony->in('products')->query('mouse')->where('in_stock', true)
+    ->facets('category_id', 'in_stock')->get();
+
+foreach ($result->facets['category_id'] as $facet) {   // FacetValue: ->value, ->count
+    echo $facet->value, ' (', $facet->count, ')';
+}
+```
+
+- Facets can be string, int, bool and date filters (not float or datetime: every value would be its own
+  group), and not the tenant filter. `facetValues($n)` keeps the `$n` most frequent values (1 to 100,
+  default 20); values come as the filter's type (`int`, `bool`, ...), `null` for the documents without one.
+- **A facet does not count the conditions on its own filter**, so it shows what choosing another value
+  would find (the usual shop behaviour): after `where('category_id', 3)` the category facet still lists
+  the other categories, with the counts they would have; the other conditions, and the tenant, count.
+- **Counts are over the candidates**, like `total`: when the search hit its candidate limit
+  (`$result->totalIsLowerBound`), the counts are lower bounds ("120+"). `exactCounts()` counts every
+  match instead, for the total and for the facets:
+
+  ```php
+  ->query('mouse')->facets('category_id')->exactCounts()->get();
+  ```
+
+  It reads everything the query matches, so it can take seconds on a large index (the page of hits is
+  still the ranked candidates). It is deliberately a method of its own, not a threshold: **never wire it to
+  request input**, as an override of `candidate_limit` can only tighten the limit. It costs nothing when
+  the candidates were not cut off (the total is exact already).
+- Every facet is one more statement (listed by `explain()`, labelled `facet: category_id`), with its own
+  candidate stage: three facets cost roughly four searches. A search without text (filter browsing) is
+  counted too. With empty-result relaxation the facets follow the relaxed search.
+- `fuzzphony:search products mouse -f category_id -f in_stock [--exact]` prints them.
+
+## Federated search
+
+One text over several indexes, with one merged list:
+
+```php
+$result = $fuzzphony->federated()
+    ->index('products', weight: 2.0, configure: fn(SearchBuilder $b) => $b->where('in_stock', true)->highlight('name'))
+    ->index('articles')
+    ->query('wireless mouse')
+    ->limit(20)          // or page(2, 20)
+    ->get();
+
+foreach ($result as $hit) {
+    echo $hit->index, ' ', $hit->hit->id, ' ', $hit->score;   // FederatedHit
+}
+$result->results['products']->total;   // each index's own SearchResult (facets, didYouMean, ...)
+```
+
+- The scores of different indexes cannot be compared (each index ranks with its own statistics), so the
+  lists are merged by **reciprocal rank fusion**: a hit's merged score is `weight / (60 + its rank in its
+  own index)`. The best hit of every index comes first, then the second best, and a `weight` above 1.0
+  moves an index up (below 1.0 down). Ties go to the index added first. `$hit->hit->score` is still the
+  index's own score.
+- Each index is searched on its own, so its filters, tenant, thresholds, ranking profile and highlights
+  are what the `configure` closure says (a tenant-scoped index needs `forTenant()` there, as always).
+- **Deep pages cost more:** page N reads the first `offset + limit` hits of every index and merges them,
+  so `offset + limit` is at most 1000. For a "load more" list prefer a larger `limit` to deep offsets.
+- `total` is the sum of the indexes' totals (`totalIsLowerBound` when any was cut off), warnings are
+  prefixed with the index name (`[products] ...`), and the ids are those of each index (an `articles` id
+  can equal a `products` id): use `$hit->index` to tell them apart. It works with every engine, as it only
+  uses `search()`.
+
 ## Empty-result relaxation
 
 When a query of two or more words returns no hit, Fuzzphony checks each word on its own against

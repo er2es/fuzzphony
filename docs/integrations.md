@@ -61,6 +61,19 @@ Search-as-you-type without writing JavaScript (requires `symfony/ux-live-compone
 <twig:Fuzzphony:Search index="products" highlight="name" placeholder="Search products…" />
 ```
 
+Two attributes add the 0.8 features:
+
+```twig
+<twig:Fuzzphony:Search index="products" facets="category_id,in_stock" suggestions="5" />
+```
+
+- `suggestions` (default 5, `0` switches it off): the word being typed is completed from the index's vocabulary
+  ([search-as-you-type](searching.md#search-as-you-type)) in a list under the input; choosing one searches it.
+- `facets` (comma-separated filter names): the values of those filters with their counts
+  ([facets](searching.md#facets)) as toggle buttons; choosing one narrows the search, choosing it again lifts it.
+  Only the filters named in `facets` can be chosen (the component ignores any other, so a forged request cannot
+  add a filter). The counts are over the candidates, with a `+` when the search hit its candidate limit.
+
 Override `templates/bundles/FuzzphonyBundle/components/Search.html.twig` to change the markup.
 
 The API Platform filter and the Live Component do not accept a tenant value yet; see

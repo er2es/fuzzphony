@@ -7,6 +7,35 @@ changes; they are always listed under **Breaking** and explained in [UPGRADE.md]
 
 ## [Unreleased]
 
+## [0.8.0] - 2026-10-10
+
+**Additive, no breaking changes.** After upgrading run `fuzzphony:schema --apply` once: it adds a prefix
+index to the vocabulary of every typo-tolerant index (`suggest()` works without it, with a scan of the
+small vocabulary table). See [UPGRADE.md](UPGRADE.md#from-07-to-08).
+
+### Added
+
+- **Search-as-you-type:** `Fuzzphony::suggest($index, $text, $limit = 8)` completes the last word of the
+  text from the index's vocabulary (`"wireless hea"` gives `"wireless headphones"`), most frequent first.
+  Plain text in the index's normalised form. A tenant-scoped index, an index without a typo-tolerant field
+  and an engine without the optional `Engine\Suggestions` capability give an empty list. See
+  [Search-as-you-type](docs/searching.md#search-as-you-type).
+- **Facets:** `SearchBuilder::facets('category_id', 'in_stock')` counts the values of string, int, bool
+  and date filters among the matches: `SearchResult::$facets` (`FacetValue`: value, count). A facet does not
+  count the conditions on its own filter (what choosing another value would find); the tenant's condition always
+  counts, and the tenant filter cannot be a facet. `facetValues()` limits the values per facet (default 20).
+  `exactCounts()` counts every match instead of the candidates: an exact total and exact facets, at the cost
+  of reading everything the query matches (a method of its own, not a threshold, so request input cannot switch
+  the cost limits off). See [Facets](docs/searching.md#facets).
+- **Federated search:** `Fuzzphony::federated()->index('a', weight: 2.0, configure: fn ...)->index('b')->query('x')->get()`
+  searches several indexes and merges the lists by reciprocal rank fusion (`FederatedResult`, `FederatedHit`).
+  Works with every engine. See [Federated search](docs/searching.md#federated-search).
+- The Live Component takes `facets="category_id,in_stock"` and `suggestions="5"`; `fuzzphony:search` takes
+  `-f/--facet`, `--exact` and `--suggest`; `Capability::Facets` and `Capability::Suggest`.
+- Demo: every search box completes the word you type (Compare has the rich, grouped dropdown: searches, categories, products), the Compare and Playground pages have facets (the
+  Playground also an opt-in exact-counts switch, `DEMO_ALLOW_EXACT=1`), and the Languages page shows one
+  search over all five languages at once.
+
 ## [0.7.3] - 2026-10-10
 
 No upgrade steps. A demo database from 0.7.1/0.7.2 converts its synonym lists on the next start.
@@ -628,7 +657,8 @@ on its own:
 - Sync modes: queue (default), trigger, ORM, manual; watches for joined tables.
 - Doctor with fixes; CLI commands for schema, reindex, worker, search and explain.
 
-[Unreleased]: https://github.com/er2es/fuzzphony/compare/v0.7.3...HEAD
+[Unreleased]: https://github.com/er2es/fuzzphony/compare/v0.8.0...HEAD
+[0.8.0]: https://github.com/er2es/fuzzphony/compare/v0.7.3...v0.8.0
 [0.7.3]: https://github.com/er2es/fuzzphony/compare/v0.7.2...v0.7.3
 [0.7.2]: https://github.com/er2es/fuzzphony/compare/v0.7.1...v0.7.2
 [0.7.1]: https://github.com/er2es/fuzzphony/compare/v0.7.0...v0.7.1
