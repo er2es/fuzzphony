@@ -62,7 +62,7 @@ else
 fi
 
 # The demo's synonyms (the /synonyms page edits them), seeded the same way.
-if [ "$(psql -tAc "SELECT to_regclass('demo_synonym') IS NOT NULL")" = t ]; then
+if [ "$(psql -tAc "SELECT to_regclass('demo_synonym_entry') IS NOT NULL")" = t ]; then
     log "synonyms present, not seeding"
 else
     log "seeding the synonyms (sql/demo_synonym.sql)"
@@ -106,8 +106,8 @@ log "granting $APP_ROLE access"
 psql -q -v ON_ERROR_STOP=1 -v role="$APP_ROLE" <<'SQL'
 GRANT USAGE ON SCHEMA public TO :"role";
 GRANT SELECT ON ALL TABLES IN SCHEMA public TO :"role";
--- the one table the app writes outside Fuzzphony's schema: the lists the /synonyms page edits
-GRANT INSERT, UPDATE ON demo_synonym TO :"role";
+-- the tables the app writes outside Fuzzphony's schema: the synonym lists the /synonyms page edits
+GRANT INSERT, UPDATE, DELETE ON demo_synonym_entry, demo_synonym_version TO :"role";
 GRANT USAGE ON SCHEMA fuzzphony TO :"role";
 GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA fuzzphony TO :"role";
 SQL

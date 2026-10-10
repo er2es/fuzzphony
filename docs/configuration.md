@@ -144,16 +144,48 @@ the same validation applies. One file per index, and so per language: an index h
 give `lang_de` its own file or list.
 
 When the list is edited by people (an admin page, a table), keep it in your own storage and hand it to
-Fuzzphony at run time, once per request or process:
+Fuzzphony at run time:
 
 ```php
-$fuzzphony->useSynonyms('products', Synonyms::fromText($row['body']));   // or Synonyms::fromEntries([...])
+$fuzzphony->useSynonyms('products', Synonyms::fromText($text));   // or Synonyms::fromEntries([...])
 ```
 
-The next search uses it: no `fuzzphony:schema --apply`, no reindex. The demo's Synonyms page does this
-with a table (`demo/src/Service/SynonymStore.php`). `Synonyms::toText()` writes a list back in the file
-format, and a list the application loads is validated by the same rules (`->violations()`), so a
-page can refuse a bad one before saving it.
+The next search uses it: no `fuzzphony:schema --apply`, no reindex. `Synonyms::toText()` writes a list back
+in the file format, and a list the application loads is validated by the same rules (`->violations()`),
+so a page can refuse a bad one before saving it.
+
+### A long list: store per entry, cache the prepared list
+
+Reading, validating and stemming a list costs time on **every request** under PHP-FPM (a new process
+each time), about 20 microseconds per entry (measured with a fresh engine per request on a development
+machine: 1 000 entries about 25 ms, 5 000 about 110 ms, 20 000 about 600 ms, on top of the search itself
+(about 8 ms); the figures depend on the machine). With a few dozen entries it does not matter; with thousands:
+
+1. **Store one row per entry** (for example `synonym_entry(index_name, entry, …)`, an entry being a line of
+   the file format) and a **version** per index that every save bumps. One language is one index, so
+   one list.
+2. **Prepare the list once per version** and keep the result in your cache (PSR-6, APCu, Redis...). A
+   prepared list is plain data and serializes:
+
+   ```php
+   $prepared = $fuzzphony->stemSynonyms('products', Synonyms::fromText($text));   // one round trip: PostgreSQL stems the members
+   $cache->set("synonyms.products.$version", serialize($prepared));
+   ```
+3. **On every request** read the version (one tiny query), take the prepared list from the cache and hand
+   it over; nothing is read, validated or stemmed again:
+
+   ```php
+   $fuzzphony->useSynonyms('products', unserialize($cache->get("synonyms.products.$version")));
+   ```
+
+With the prepared list a search stems only the words of the query (1 000 entries about 20 ms, 5 000 about
+80 ms, 20 000 about 480 ms in total; the rest is loading the list and building the lookup table, which a
+long-lived worker such as FrankenPHP or RoadRunner keeps between requests, so there the cost is paid once). An engine that
+cannot prepare synonyms (a custom one) throws `InvalidArgument` from `stemSynonyms()`: skip that step,
+`useSynonyms()` works without it.
+
+The demo's Synonyms page does exactly this (`demo/src/Service/SynonymStore.php`, tables in
+`demo/sql/demo_synonym.sql`).
 
 The definition is validated with everything else: a group needs two different members (at most 32),
 every member is plain words (a letter or digit in it, up to 16 words, no quotes, operators, `*` or

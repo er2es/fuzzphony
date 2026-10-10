@@ -4,7 +4,9 @@ declare(strict_types=1);
 
 namespace Fuzzphony\Core;
 
+use Fuzzphony\Core\Definition\Synonyms;
 use Fuzzphony\Core\Engine\Engine;
+use Fuzzphony\Core\Engine\SynonymStems;
 use Fuzzphony\Core\Exception\InvalidArgument;
 use Fuzzphony\Core\Inspection\InspectionReport;
 use Fuzzphony\Core\Inspection\InspectOptions;
@@ -87,6 +89,21 @@ final readonly class Fuzzphony
     public function useSynonyms(string $index, \Fuzzphony\Core\Definition\Synonyms $synonyms): void
     {
         $this->registry->register($this->registry->get($index)->withSynonyms($synonyms));
+    }
+
+    /**
+     * The same synonyms with their members stemmed for the index's language (one database round trip),
+     * for an application that caches them: stem once when the list changes, keep the result (it
+     * serializes) in a cache, and hand it to useSynonyms() on every request. Without it the first search
+     * of each request stems every member, which costs about 50 microseconds per entry.
+     *
+     * @throws InvalidArgument when the engine cannot prepare synonyms
+     */
+    public function stemSynonyms(string $index, Synonyms $synonyms): Synonyms
+    {
+        return $this->engine instanceof SynonymStems
+            ? $this->engine->stemSynonyms($this->registry->get($index), $synonyms)
+            : throw new InvalidArgument(sprintf('The "%s" engine does not prepare synonyms; useSynonyms() works without it.', $this->engine->name()));
     }
 
     public function registry(): IndexRegistry

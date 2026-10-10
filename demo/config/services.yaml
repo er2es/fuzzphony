@@ -21,6 +21,12 @@ services:
         class: Symfony\Component\HttpKernel\Log\Logger
         arguments: ['%env(DEMO_METRICS_LOG_LEVEL)%', 'php://stderr', ['App\Service\MetricLogFormatter', 'format']]
 
+    # The prepared synonym lists (src/Service/SynonymStore.php), keyed by index and version. The container's file
+    # system is read-only apart from /tmp, so the pool lives there; it is rebuilt from the database after a restart.
+    app.synonym_cache:
+        class: Symfony\Component\Cache\Adapter\FilesystemAdapter
+        arguments: ['synonyms', 0, '/tmp/fuzzphony-demo-cache']
+
     fuzzphony.metrics:
         class: Fuzzphony\Core\Observability\LoggingMetricsCollector
         arguments: ['@app.metrics_logger']

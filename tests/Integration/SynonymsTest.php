@@ -101,6 +101,40 @@ final class SynonymsTest extends TestCase
         self::assertSame([2, 3, 8], $search('tv'), 'and a replacement forgets the old ones');
     }
 
+    public function testPreparedSynonymsSpareTheStemmingOfTheMembers(): void
+    {
+        $fuzzphony = $this->fuzzphony([]);
+        $synonyms = Synonyms::fromText("tv, television
+laptop => notebook
+");
+
+        $prepared = $fuzzphony->stemSynonyms('products', $synonyms);
+        self::assertNotSame('', (string) $prepared->stemConfig);
+        self::assertSame('televis', $prepared->stems['television'] ?? null, 'stems as PostgreSQL makes them');
+        self::assertEquals($synonyms->groups, $prepared->groups);
+
+        // what an application caches: the prepared list serialized, and handed to every request
+        $cached = unserialize(serialize($prepared));
+        self::assertInstanceOf(Synonyms::class, $cached);
+        $fuzzphony->useSynonyms('products', $cached);
+        $before = $this->roundTrips();
+        self::assertSame([1, 2, 8], self::ids($fuzzphony->in('products')->thresholds(['fuzzy_mode' => 'never'])->query('tv')->get()));
+        self::assertSame($before + 1, $this->roundTrips(), 'only the query word is stemmed, not the members');
+
+        // stems made for another text configuration are ignored, the members are stemmed as before
+        $other = $prepared->withStems('some_other_config', ['bogus' => 'x']);
+        $fuzzphony->useSynonyms('products', $other);
+        self::assertSame([1, 2, 8], self::ids($fuzzphony->in('products')->thresholds(['fuzzy_mode' => 'never'])->query('television')->get()));
+    }
+
+    public function testAnEngineThatCannotPrepareSynonymsSaysSo(): void
+    {
+        $fuzzphony = new Fuzzphony(self::createStub(\Fuzzphony\Core\Engine\Engine::class), new IndexRegistry([Indexes::products('manual')]));
+
+        $this->expectException(\Fuzzphony\Core\Exception\InvalidArgument::class);
+        $fuzzphony->stemSynonyms('products', new Synonyms());
+    }
+
     public function testAWordIsComparedByItsStem(): void
     {
         // "televisions" and "television" are one stem, so the plural finds the group of "television"

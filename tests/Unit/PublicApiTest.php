@@ -41,6 +41,7 @@ final class PublicApiTest extends TestCase
         \Fuzzphony\Core\Definition\Weight::class,
         \Fuzzphony\Core\Engine\Capabilities::class,
         \Fuzzphony\Core\Engine\Capability::class,
+        \Fuzzphony\Core\Engine\SynonymStems::class,
         \Fuzzphony\Core\Engine\Vocabulary::class,
         \Fuzzphony\Core\Engine\Engine::class,
         \Fuzzphony\Core\Exception\EngineFailure::class,
@@ -112,8 +113,8 @@ final class PublicApiTest extends TestCase
         }
 
         self::assertSame([], $wrong);
-        self::assertCount(76, self::PUBLIC);
-        self::assertCount(133, self::classes());
+        self::assertCount(77, self::PUBLIC);
+        self::assertCount(134, self::classes());
     }
 
     public function testThePublicApiExposesNoInternalType(): void
