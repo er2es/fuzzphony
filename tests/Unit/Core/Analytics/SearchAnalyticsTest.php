@@ -64,16 +64,57 @@ final class SearchAnalyticsTest extends TestCase
         self::assertSame([['zero', 'products', $from, null, 20, 'acme', false]], $store->calls);
     }
 
-    public function testAnIndexWithoutATenantIgnoresBoth(): void
+    /** The gate records the actor's tenant on an index that is not tenant-scoped too: a per-customer report on a shared index must not show everyone's searches. */
+    public function testATenantFiltersAnIndexThatIsNotTenantScopedToo(): void
     {
         $store = new FakeSearchLogStore();
         $from = new \DateTimeImmutable('-7 days');
 
         $analytics = $this->analytics(false, $store);
-        $analytics->topQueries('products', $from, tenant: 3, allTenants: true);
-        $analytics->zeroResultQueries('products', $from);
+        $analytics->topQueries('products', $from, tenant: 3);
+        $analytics->zeroResultQueries('products', $from, tenant: 'acme');
 
-        self::assertSame([['top', 'products', $from, null, 20, null, false], ['zero', 'products', $from, null, 20, null, false]], $store->calls);
+        self::assertSame([['top', 'products', $from, null, 20, 3, false], ['zero', 'products', $from, null, 20, 'acme', false]], $store->calls);
+    }
+
+    public function testAnIndexWithoutATenantStillNeedsNeither(): void
+    {
+        $store = new FakeSearchLogStore();
+        $from = new \DateTimeImmutable('-7 days');
+
+        $analytics = $this->analytics(false, $store);
+        $analytics->topQueries('products', $from);
+        $analytics->zeroResultQueries('products', $from, allTenants: true);
+
+        self::assertSame([['top', 'products', $from, null, 20, null, false], ['zero', 'products', $from, null, 20, null, true]], $store->calls);
+    }
+
+    /** @return iterable<string, array{bool}> */
+    public static function scoped(): iterable
+    {
+        yield 'tenant-scoped index' => [true];
+        yield 'index without a tenant' => [false];
+    }
+
+    #[DataProvider('scoped')]
+    public function testATenantTogetherWithAllTenantsIsRefused(bool $tenantScoped): void
+    {
+        $store = new FakeSearchLogStore();
+        $analytics = $this->analytics($tenantScoped, $store);
+
+        $calls = [
+            'topQueries' => static fn() => $analytics->topQueries('products', new \DateTimeImmutable('-7 days'), tenant: 3, allTenants: true),
+            'zeroResultQueries' => static fn() => $analytics->zeroResultQueries('products', new \DateTimeImmutable('-7 days'), tenant: 3, allTenants: true),
+        ];
+        foreach ($calls as $method => $call) {
+            try {
+                $call();
+                self::fail('Expected an InvalidArgument from ' . $method);
+            } catch (InvalidArgument $e) {
+                self::assertSame('Name a tenant or pass allTenants: true, not both.', $e->getMessage());
+            }
+        }
+        self::assertSame([], $store->calls, 'nothing reached the store');
     }
 
     /** @return iterable<string, array{int, bool}> */

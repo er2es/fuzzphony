@@ -243,8 +243,11 @@ bin/console fuzzphony:analytics tickets --all-tenants
 ```
 
 The tenant is compared as text (the column is text), so `42` matches whether your tenant ids are integers or
-strings. On an index that is not tenant-scoped the tenant arguments are ignored. Never show an `allTenants` report
-to a tenant: what one customer searched for is that customer's information.
+strings. A tenant filters on **any** index: the log records the actor's tenant on an index that is not tenant-scoped
+too, so a per-customer report on a shared index shows that customer's searches only (without a tenant, such an index
+is reported across everyone, as before). Naming a tenant **and** `allTenants: true` is contradictory and throws
+`InvalidArgument` (the command refuses `--tenant` with `--all-tenants`). Never show an `allTenants` report to a
+tenant: what one customer searched for is that customer's information.
 
 ## How it is written, and what happens when it fails
 

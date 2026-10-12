@@ -11,6 +11,8 @@ use Fuzzphony\Core\Database\Connection;
 use Fuzzphony\Core\Definition\IndexDefinition;
 use Fuzzphony\Core\Engine\SearchLogStore;
 use Fuzzphony\Core\Exception\EngineFailure;
+use Fuzzphony\Core\Fuzzphony;
+use Fuzzphony\Core\Registry\IndexRegistry;
 use Fuzzphony\Core\Support\Coerce;
 use Fuzzphony\Engine\Postgres\PostgresEngine;
 use Fuzzphony\Tests\Fixtures\Indexes;
@@ -215,6 +217,26 @@ final class SearchLogStoreTest extends TestCase
         self::assertEqualsCanonicalizing(['one a', 'one b', 'two a', 'two b', 'none'], self::queries($store->topQueries($this->index(), $from, null, 10, 1, true)), 'allTenants wins over a tenant');
         self::assertSame(['one b'], self::queries($store->zeroResultQueries($this->index(), $from, null, 10, 1, false)));
         self::assertEqualsCanonicalizing(['one b', 'two b'], self::queries($store->zeroResultQueries($this->index(), $from, null, 10, null, true)));
+    }
+
+    /** The gate records the actor's tenant on an index that is not tenant-scoped too: a report for tenant 1 must not list tenant 2's searches. */
+    public function testATenantReportOnAnIndexThatIsNotTenantScopedSeesOnlyThatTenant(): void
+    {
+        $engine = $this->store();
+        $engine->writeSearchLog([
+            $this->record($this->now, 'one a', tenant: 1),
+            $this->record($this->now, 'one b', tenant: '1', hits: 0),
+            $this->record($this->now, 'two a', tenant: 2),
+            $this->record($this->now, 'two b', tenant: 2, hits: 0),
+            $this->record($this->now, 'nobody'),
+        ]);
+        $analytics = (new Fuzzphony($engine, new IndexRegistry([$this->index()])))->analytics();
+        $from = $this->now->modify('-1 hour');
+
+        self::assertSame(['one a', 'one b'], self::queries($analytics->topQueries('products', $from, tenant: 1)));
+        self::assertSame(['one b'], self::queries($analytics->zeroResultQueries('products', $from, tenant: 1)));
+        self::assertSame(['two a', 'two b'], self::queries($analytics->topQueries('products', $from, tenant: '2')));
+        self::assertEqualsCanonicalizing(['one a', 'one b', 'two a', 'two b', 'nobody'], self::queries($analytics->topQueries('products', $from)), 'without a tenant the shared index is reported across everyone');
     }
 
     public function testAStringTenantIsMatchedAsText(): void

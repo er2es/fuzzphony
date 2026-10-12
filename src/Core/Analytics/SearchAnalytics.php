@@ -21,7 +21,7 @@ final readonly class SearchAnalytics
      *
      * @return list<QueryStat>
      *
-     * @throws InvalidArgument for a limit outside 1 to 1000, or a tenant-scoped index without a tenant or allTenants
+     * @throws InvalidArgument for a limit outside 1 to 1000, a tenant together with allTenants, or a tenant-scoped index without a tenant or allTenants
      */
     public function topQueries(string $index, \DateTimeInterface $from, ?\DateTimeInterface $to = null, int $limit = 20, int|string|null $tenant = null, bool $allTenants = false): array
     {
@@ -55,10 +55,14 @@ final readonly class SearchAnalytics
         if ($limit < 1 || $limit > 1000) {
             throw new InvalidArgument(sprintf('The limit must be between 1 and 1000, got %d.', $limit));
         }
+        if ($tenant !== null && $allTenants) {
+            throw new InvalidArgument('Name a tenant or pass allTenants: true, not both.');
+        }
         if ($definition->tenant !== null && $tenant === null && !$allTenants) {
             throw new InvalidArgument(sprintf('Index "%s" is tenant-scoped: name a tenant, or pass allTenants: true for a report across tenants.', $index));
         }
 
-        return [$definition, $from, $to, $limit, $definition->tenant === null ? null : $tenant, $definition->tenant === null ? false : $allTenants];
+        // a tenant filters on any index: the gate records the actor's tenant on an index that is not tenant-scoped too
+        return [$definition, $from, $to, $limit, $tenant, $allTenants];
     }
 }
