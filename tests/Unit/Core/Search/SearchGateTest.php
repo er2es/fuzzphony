@@ -46,7 +46,7 @@ final class SearchGateTest extends TestCase
             self::fail('ActorRequired expected');
         } catch (ActorRequired) {
         }
-        self::assertCount(1, $metrics->calls);
+        self::assertSame([['increment', 'fuzzphony.search.denied', 1.0, ['index' => 'products', 'reason' => 'actor_required']]], $metrics->calls);
     }
 
     public function testTheSameRefusalWithoutAGate(): void
@@ -115,6 +115,18 @@ final class SearchGateTest extends TestCase
         $builder = new SearchBuilder($engine, Indexes::products(), gate: new SearchGate());
 
         self::assertSame($result, $builder->query('mouse')->asActor(Actor::anonymous())->get());
+    }
+
+    public function testAGatedSearchThatPassesEmitsNoMetric(): void
+    {
+        $engine = $this->createMock(Engine::class);
+        $engine->expects(self::once())->method('search')->willReturn(SearchResult::empty(20, 0));
+        $metrics = new RecordingMetricsCollector();
+        $builder = new SearchBuilder($engine, Indexes::products(tenant: true), gate: new SearchGate($metrics));
+
+        $builder->query('mouse')->asActor(new Actor(tenant: 3))->get();
+
+        self::assertSame([], $metrics->calls);
     }
 
     public function testTheRefusalIsLogged(): void
