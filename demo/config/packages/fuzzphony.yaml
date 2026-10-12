@@ -8,6 +8,14 @@ fuzzphony:
   # E-mail addresses are replaced by [redacted] before anything is stored; rows older than 30 days are purged by
   # `bin/console fuzzphony:search-log:purge`.
   search_log: { enabled: true, retention_days: 30, redact: [email] }
+  # The /under-the-hood/security page (docs/security.md): who searches decides what a search may see. All three apply only
+  # to a search made with ->asActor() (the Security page makes those; the other pages never do).
+  # The actor is read from the Security user: its company is the tenant, its identifier the user.
+  actor: { tenant: company, user: userIdentifier }
+  # isGranted('FUZZPHONY_SEARCH', 'intranet') before every actor search: App\Security\SearchVoter grants it to ROLE_USER.
+  authorization: { enabled: true }
+  # Five searches a minute for each user (framework.rate_limiter.fuzzphony_search in framework.yaml).
+  rate_limit: { limiter: fuzzphony_search, per: user }
   indexes:
     catalog:
       source:
@@ -42,6 +50,24 @@ fuzzphony:
       # No synonyms here: they live in the demo_synonym_entry table (sql/demo_synonym.sql). The /synonyms page edits them
       # and a request listener hands the prepared lists to Fuzzphony at run time (Fuzzphony::useSynonyms). They could just as well
       # come from a file: `synonyms: { file: '%kernel.project_dir%/config/synonyms/catalog.txt' }`.
+
+    # The /under-the-hood/security page: intranet notes of two companies (sql/demo_note.sql). company_id is the tenant, so a
+    # search sees one company's notes only; the confidential field is searched, ranked and highlighted for ROLE_HR only.
+    intranet:
+      source:
+        query: 'SELECT id, company_id, title, body, confidential FROM demo_note'
+      fields:
+        title: { weight: A, fuzzy: true }
+        body: B
+        confidential: { weight: C, fuzzy: true, granted: ROLE_HR }
+      filters:
+        company_id: int
+      tenant: company_id
+      watch:
+        demo_note: 'SELECT :id'
+      language: english
+      # typo tolerance only when nothing matches exactly (as on the Languages page): a few notes, clean examples
+      thresholds: { fallback_below: 1 }
 
     # The /languages page: one small hand-written catalogue (sql/lang_product.sql), one index per language.
     # Each index stems and removes stop words with its own language and folds accents (fuzzphony.fuzzphony_<language>).

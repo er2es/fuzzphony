@@ -329,6 +329,7 @@
     .hero { max-width: 46rem; margin: 0 auto; display: grid; gap: 1.1rem; padding-top: 1.25rem; }
     .hero h1 { font-size: clamp(1.75rem, 1.2rem + 2.2vw, 2.5rem); text-align: center; }
     .hero .lede { text-align: center; color: var(--label-2); }
+    .hero .segmented { justify-self: center; }
     .field-wrap { position: relative; }
     .examples-row { display: flex; flex-wrap: wrap; justify-content: center; align-items: center; gap: .5rem .5rem; }
     .examples-row .label { color: var(--label-2); font-size: .8125rem; margin-right: .15rem; }

@@ -157,6 +157,7 @@ jobs:
         run: |
           psql -h 127.0.0.1 -U fuzzphony fuzzphony -q -v rows=1000 -v ON_ERROR_STOP=1 -f benchmarks/seed.sql
           psql -h 127.0.0.1 -U fuzzphony fuzzphony -q -v ON_ERROR_STOP=1 -f demo/sql/lang_product.sql
+          psql -h 127.0.0.1 -U fuzzphony fuzzphony -q -v ON_ERROR_STOP=1 -f demo/sql/demo_note.sql
       - name: Lint container
         working-directory: demo
         run: php bin/console lint:container

@@ -25,6 +25,10 @@ const pages = JSON.parse(process.env.PAGES ?? JSON.stringify([
     { name: 'doctor', path: '/under-the-hood/doctor' },
     { name: 'observability', path: '/under-the-hood/observability' },
     { name: 'analytics', path: '/under-the-hood/analytics' },
+    // each context is a new visitor: the default viewer is nobody; reset=1 forgets the viewer's searches of this minute (demo only)
+    { name: 'security', path: '/under-the-hood/security?q=salary' },
+    { name: 'security-hana', path: '/under-the-hood/security?as=hana&q=salary&reset=1' },
+    { name: 'security-ada', path: '/under-the-hood/security?as=ada&q=salary&reset=1' },
 ]));
 const viewports = { phone: { width: 390, height: 844 }, laptop: { width: 1280, height: 800 } };
 // interactions: typing into the search box and capturing the suggestion panel

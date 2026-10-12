@@ -15,7 +15,7 @@ services:
 
     App\:
         resource: '../src/'
-        exclude: '../src/Kernel.php'
+        exclude: ['../src/Kernel.php', '../src/Security/DemoUser.php']
 
     # The demo has no Monolog, and the default logger drops the debug-level lines LoggingMetricsCollector writes.
     # This one writes them to stderr, so `docker compose logs php` shows what Fuzzphony reports.
@@ -28,6 +28,11 @@ services:
     app.synonym_cache:
         class: Symfony\Component\Cache\Adapter\FilesystemAdapter
         arguments: ['synonyms', 0, '/tmp/fuzzphony-demo-cache']
+
+    # Where the rate limiter of the Security page counts (framework.rate_limiter.fuzzphony_search): the same /tmp, for the same reason.
+    app.rate_limit_cache:
+        class: Symfony\Component\Cache\Adapter\FilesystemAdapter
+        arguments: ['rate_limit', 0, '/tmp/fuzzphony-demo-cache']
 
     fuzzphony.metrics:
         class: Fuzzphony\Core\Observability\LoggingMetricsCollector
