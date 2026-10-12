@@ -18,8 +18,11 @@ use Fuzzphony\Bundle\EventListener\SearchLogFlushListener;
 use Fuzzphony\Bundle\FuzzphonyBundle;
 use Fuzzphony\Core\Analytics\PatternQueryRedactor;
 use Fuzzphony\Core\Exception\InvalidConfiguration;
+use Fuzzphony\Core\Observability\NullMetricsCollector;
 use PHPUnit\Framework\TestCase;
+use Psr\Log\NullLogger;
 use Symfony\Component\Config\Definition\Exception\InvalidConfigurationException;
+use Symfony\Component\DependencyInjection\Argument\ServiceClosureArgument;
 use Symfony\Component\DependencyInjection\ContainerBuilder;
 use Symfony\Component\DependencyInjection\Reference;
 
@@ -47,7 +50,8 @@ final class FuzzphonyBundleSearchLogTest extends TestCase
 
         $log = $container->getDefinition('fuzzphony.search_log');
         self::assertSame(BufferedSearchLog::class, $log->getClass());
-        self::assertEquals([new Reference('fuzzphony.engine'), new Reference('fuzzphony.metrics'), new Reference('logger')], $log->getArguments());
+        self::assertEquals([new ServiceClosureArgument(new Reference('fuzzphony.engine')), new Reference('fuzzphony.metrics'), new Reference('logger')], $log->getArguments(), 'the engine is a service closure: built on the first write only');
+        self::assertSame([['method' => 'reset']], $log->getTag('kernel.reset'), 'a worker flushes between messages');
 
         $listener = $container->getDefinition('fuzzphony.search_log_flush_listener');
         self::assertSame(SearchLogFlushListener::class, $listener->getClass());
@@ -60,6 +64,20 @@ final class FuzzphonyBundleSearchLogTest extends TestCase
             [...self::BASE_COMMANDS, AnalyticsCommand::class, SearchLogPurgeCommand::class],
             array_keys($container->findTaggedServiceIds('console.command')),
         );
+    }
+
+    public function testARequestThatLoggedNothingNeverBuildsTheEngine(): void
+    {
+        $container = $this->buildContainer(['search_log' => ['enabled' => true]]);
+
+        $container->set('logger', new NullLogger());
+        $container->set('fuzzphony.metrics', new NullMetricsCollector());
+        $listener = $container->get('fuzzphony.search_log_flush_listener');
+        self::assertInstanceOf(SearchLogFlushListener::class, $listener);
+        $listener(new \stdClass());
+
+        self::assertTrue($container->initialized('fuzzphony.search_log_flush_listener'));
+        self::assertFalse($container->initialized('fuzzphony.engine'), 'the flush of an empty buffer builds neither the engine nor its connection');
     }
 
     public function testTheEngineKnowsTheLogIsOnAndTheRetention(): void

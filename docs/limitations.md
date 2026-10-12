@@ -35,8 +35,9 @@ Planned fix: an opt-in exact `total`, part of [facets](roadmap.md#facets).
 
 The [search log](analytics.md) is for trends, not an audit trail. Its rows are written in one batch after the
 response; a write that fails (the table is missing, the database is down) is counted in
-`fuzzphony.search_log.failed`, logged and dropped, never retried, and a process killed before the response ends
-loses the records of that request. The `hits` of a search that hit `candidate_limit` is a lower bound (see above).
+`fuzzphony.search_log.failed`, logged and dropped, never retried. A long-running worker writes its buffer every
+1000 records and on every container reset (between two messages or requests), but a process killed with `SIGKILL`
+loses the (at most 1000) records it still holds. The `hits` of a search that hit `candidate_limit` is a lower bound (see above).
 Redaction removes what a regular expression can describe, nothing more, and the live search of the Live Component
 is not logged unless you ask for it. A log you must not lose is a custom `SearchLog` that writes somewhere durable,
 which the built-in reports then do not read.

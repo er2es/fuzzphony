@@ -253,13 +253,17 @@ to a tenant: what one customer searched for is that customer's information.
   console command (`console.terminate`). A search never waits for its own log line. (With PHP-FPM the response is
   flushed first; on a server that cannot do that, the write is still after the controller returns.) A batch is
   written in chunks of 1000 rows, so a long-running command that searches a lot stays under PostgreSQL's limit
-  on bind parameters.
+  on bind parameters. A long-running process (`messenger:consume`, FrankenPHP, RoadRunner) never ends between its
+  jobs, so the buffer is also written when it reaches 1000 records and on every `kernel.reset` (the bundle tags the
+  buffer with it, so a worker flushes between two messages or requests); it never grows without limit. Nothing is
+  built for a request or a command that logged nothing.
 - **Best effort.** The log never fails, delays or changes a search. A record that cannot be written (the table
   is missing, the database is down, a full disk) is counted in the metric **`fuzzphony.search_log.failed`**
   (a counter; the redactor or log failing inside the search counts one with the `index` label, a lost batch
   counts the rows in it), logged at `error` level on the `fuzzphony` channel, and dropped: there is no retry and no
   spool. Alert on the metric if the log matters to you; `fuzzphony:doctor` finds a missing table.
-- A worker or a process that is killed before it terminates loses the records of that request. It is a log for
+- A process that is killed (`SIGKILL`, out of memory) before it terminates or resets loses the records it still holds,
+  at most 1000. It is a log for
   trends, not an audit trail: see [Limitations](limitations.md#the-search-log-is-best-effort).
 
 ## Without Symfony

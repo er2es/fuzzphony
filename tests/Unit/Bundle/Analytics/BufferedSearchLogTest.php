@@ -9,6 +9,7 @@ use Fuzzphony\Core\Analytics\SearchRecord;
 use Fuzzphony\Tests\Unit\Core\Observability\RecordingLogger;
 use Fuzzphony\Tests\Unit\Core\Observability\RecordingMetricsCollector;
 use PHPUnit\Framework\TestCase;
+use Symfony\Contracts\Service\ResetInterface;
 
 final class BufferedSearchLogTest extends TestCase
 {
@@ -84,5 +85,87 @@ final class BufferedSearchLogTest extends TestCase
         $log->flush();
 
         self::assertCount(1, $metrics->calls);
+    }
+
+    public function testTheThousandthRecordWritesTheBufferSoALongRunningProcessDoesNotGrowWithoutLimit(): void
+    {
+        $store = new FakeSearchLogStore();
+        $log = new BufferedSearchLog($store, new RecordingMetricsCollector());
+
+        for ($i = 1; $i <= 999; ++$i) {
+            $log->record($this->record('q' . $i));
+        }
+        self::assertCount(0, $store->batches, '999 records stay buffered');
+
+        $log->record($this->record('q1000'));
+
+        self::assertCount(1, $store->batches);
+        self::assertCount(1000, $store->batches[0]);
+        $log->flush();
+        self::assertCount(1, $store->batches, 'the buffer is empty again');
+
+        $log->record($this->record('next'));
+        $log->flush();
+        self::assertCount(2, $store->batches);
+        self::assertCount(1, $store->batches[1]);
+    }
+
+    public function testAFailureOnTheThousandthRecordNeverThrowsIntoTheSearch(): void
+    {
+        $metrics = new RecordingMetricsCollector();
+        $log = new BufferedSearchLog(new FakeSearchLogStore(fail: true), $metrics);
+
+        for ($i = 1; $i <= 1000; ++$i) {
+            $log->record($this->record('q' . $i));
+        }
+
+        self::assertSame([['increment', 'fuzzphony.search_log.failed', 1000.0, []]], $metrics->calls);
+    }
+
+    public function testResetFlushesSoAWorkerWritesWhatItHoldsBetweenMessages(): void
+    {
+        $store = new FakeSearchLogStore();
+        $log = new BufferedSearchLog($store, new RecordingMetricsCollector());
+        self::assertInstanceOf(ResetInterface::class, $log);
+
+        $log->record($this->record('a'));
+        $log->reset();
+
+        self::assertCount(1, $store->batches);
+        self::assertSame('a', $store->batches[0][0]->query);
+    }
+
+    public function testResetNeverThrowsWhenTheWriteFails(): void
+    {
+        $metrics = new RecordingMetricsCollector();
+        $log = new BufferedSearchLog(new FakeSearchLogStore(fail: true), $metrics);
+
+        $log->record($this->record('a'));
+        $log->reset();
+
+        self::assertCount(1, $metrics->calls);
+    }
+
+    public function testTheStoreIsOnlyResolvedWhenThereIsSomethingToWrite(): void
+    {
+        $resolved = 0;
+        $store = new FakeSearchLogStore();
+        $log = new BufferedSearchLog(static function () use (&$resolved, $store): FakeSearchLogStore {
+            ++$resolved;
+
+            return $store;
+        }, new RecordingMetricsCollector());
+
+        $log->flush();
+        $log->reset();
+        self::assertSame(0, $resolved, 'an empty buffer never builds the engine behind it');
+
+        $log->record($this->record('a'));
+        $log->flush();
+        $log->record($this->record('b'));
+        $log->flush();
+
+        self::assertSame(1, $resolved, 'resolved once, on the first write');
+        self::assertCount(2, $store->batches);
     }
 }

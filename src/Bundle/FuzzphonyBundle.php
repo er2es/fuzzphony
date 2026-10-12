@@ -53,6 +53,7 @@ use Symfony\Component\PropertyAccess\PropertyAccessorInterface;
 use Symfony\Component\Security\Core\Authentication\Token\Storage\TokenStorageInterface;
 
 use function Symfony\Component\DependencyInjection\Loader\Configurator\service;
+use function Symfony\Component\DependencyInjection\Loader\Configurator\service_closure;
 
 /**
  * config/packages/fuzzphony.yaml — everything is optional:
@@ -349,8 +350,9 @@ final class FuzzphonyBundle extends AbstractBundle
         ];
         if ($searchLogEnabled) {
             $services->set('fuzzphony.search_log', BufferedSearchLog::class)
-                ->args([service('fuzzphony.engine'), service('fuzzphony.metrics'), service('logger')])
-                ->tag('monolog.logger', ['channel' => 'fuzzphony']);
+                ->args([service_closure('fuzzphony.engine'), service('fuzzphony.metrics'), service('logger')])
+                ->tag('monolog.logger', ['channel' => 'fuzzphony'])
+                ->tag('kernel.reset', ['method' => 'reset']); // a worker or a long-running server flushes between messages and requests
             $services->set('fuzzphony.search_log_flush_listener', SearchLogFlushListener::class)
                 ->args([service('fuzzphony.search_log')])
                 ->tag('kernel.event_listener', ['event' => 'kernel.terminate'])
