@@ -53,6 +53,16 @@ use Fuzzphony\Engine\Postgres\Schema\Types;
  * them, a second or more per 100 000 rows. So the engine first asks for each word's matches alone, at that word's own
  * similarity (probes()), and hands the ids back ($candidates): the word's trigram condition becomes "s.id = ANY(ids)",
  * the same rows without the detour. A word with more matches than the candidate limit keeps the trigram condition.
+ *
+ * A restricted viewer ($allowedFields, the fields it may see): GIN(tsv) / GIN(fz) still find the candidates, and every
+ * word is rechecked against the allowed fields' own columns, as a scoped word is against its field's:
+ *
+ *   mouse   ->   ((s.tsv @@ q.ft0 AND (s.t_name @@ q.ft0 OR s.t_brand @@ q.ft0))
+ *                 OR (q.fn1 <% s.fz AND GREATEST(word_similarity(q.fn1, s.z_name), word_similarity(q.fn1, s.z_brand)) >= <its similarity>))
+ *
+ * and scores by those columns only. A word scoped to a hidden field, or any word when no field is allowed, is "false";
+ * a word is typo-tolerant only when an allowed field is (its own field, for a scoped word); an excluded part is
+ * always compiled word by word (excluded()). Null keeps every statement of the unrestricted path as it was.
  */
 final class FuzzyQueryCompiler
 {
@@ -63,15 +73,23 @@ final class FuzzyQueryCompiler
     private bool $exactOnly = false;
     /** Prefix of the q column names, so scope()'s columns never clash with compile()'s. */
     private string $prefix = '';
+    /** @var list<FieldDefinition>|null the fields a restricted viewer may match against; null = every field (the unrestricted path) */
+    private readonly ?array $allowed;
 
+    /**
+     * @param list<string>|null $allowedFields the fields a restricted viewer may see (SearchQuery::$allowedFields): every
+     *                                         word is then rechecked against their own columns, see the class comment
+     */
     public function __construct(
         private readonly IndexDefinition $index,
         private readonly Thresholds $thresholds,
         private readonly Names $names = new Names(),
         /** @var array<string, list<int|string>> the ids each trigram word matches, by candidateKey() (see probes()) */
         private readonly array $candidates = [],
+        ?array $allowedFields = null,
     ) {
         $this->tsquery = new TsQueryCompiler($index);
+        $this->allowed = $allowedFields === null ? null : array_values(array_filter($index->fields, static fn(FieldDefinition $f): bool => in_array($f->name, $allowedFields, true)));
     }
 
     /**
@@ -179,7 +197,7 @@ final class FuzzyQueryCompiler
      */
     public function leafQueries(Node $node): array
     {
-        if ($node instanceof Not && $this->tsquery->hasFieldScope($node->node)) {
+        if ($node instanceof Not && $this->wordByWord($node->node)) {
             return $this->leafQueries($node->node); // compiled word by word, see excluded()
         }
         if ($node instanceof AllOf || $node instanceof AnyOf) {
@@ -275,7 +293,7 @@ final class FuzzyQueryCompiler
         return match (true) {
             $node instanceof AllOf => $this->group($node->nodes, true, $params, $empty),
             $node instanceof AnyOf => $this->group($node->nodes, false, $params, $empty),
-            $node instanceof Not && $this->tsquery->hasFieldScope($node->node) => $this->excluded($node->node, $params, $empty),
+            $node instanceof Not && $this->wordByWord($node->node) => $this->excluded($node->node, $params, $empty),
             $node instanceof Not => ($tsquery = $this->exact($node->node, $empty)) === null
                 ? null
                 : ['predicate' => sprintf('NOT (%s)', $this->matches($node->node, $tsquery, $params)), 'score' => null, 'partial' => false],
@@ -284,8 +302,18 @@ final class FuzzyQueryCompiler
     }
 
     /**
-     * An excluded part with a word scoped to a known field: compiled word by word (exact only), so
-     * each scoped word is checked against its own field's column, then negated.
+     * Whether an excluded part is compiled word by word: when it has a word scoped to a known field, and always for a
+     * restricted viewer (one tsquery over the group, "s.tsv @@ ('cable' | !'usb')", would read the hidden fields: its
+     * own negation is no longer a superset the allowed-field recheck can narrow).
+     */
+    private function wordByWord(Node $negated): bool
+    {
+        return $this->allowed !== null || $this->tsquery->hasFieldScope($negated);
+    }
+
+    /**
+     * An excluded part with a word scoped to a known field (or any excluded part of a restricted viewer): compiled
+     * word by word (exact only), so each word is checked against its own field's column (or the allowed fields'), then negated.
      *
      * @param list<string> $empty
      *
@@ -349,6 +377,21 @@ final class FuzzyQueryCompiler
     {
         $schema = $this->names->extension();
         $field = $this->scopedField($node);
+        if ($field === null && $this->allowed !== null) {
+            // A restricted viewer: "<%" on fz (every fuzzy field) only finds the candidates; the similarity, and so the
+            // match and the score, is the best of the allowed fuzzy fields' own columns. needle() made sure there is one.
+            $similarities = array_map(
+                fn(FieldDefinition $f): string => sprintf('%s.word_similarity(%s, s.%s)', $schema, $norm, $this->names->fieldFuzzy($f->name)),
+                $this->fuzzyAllowed(null),
+            );
+            $similarity = count($similarities) === 1 ? $similarities[0] : 'GREATEST(' . implode(', ', $similarities) . ')';
+
+            return [
+                'condition' => sprintf('(%s OPERATOR(%s.<%%) s.fz AND %s >= %s)', $norm, $schema, $similarity, $threshold ?? Sql::float($this->thresholds->fuzzySimilarity ?? 0.0)),
+                'similarity' => $similarity,
+            ];
+        }
+        // a scoped word of a restricted viewer is one of the allowed fields (needle()): its own column, as below
         $column = $field === null ? 's.fz' : 's.' . $this->names->fieldFuzzy($field->name);
         $similarity = sprintf('%s.word_similarity(%s, %s)', $schema, $norm, $column);
         $recheck = $threshold === null ? '' : sprintf(' AND %s >= %s', $similarity, $threshold);
@@ -425,8 +468,21 @@ final class FuzzyQueryCompiler
         $needle = implode(' ', TsQueryCompiler::lexemes($text));
 
         $field = $this->scopedField($node);
+        if ($this->allowed !== null && $this->fuzzyAllowed($field) === []) {
+            return null; // no field the viewer may see is typo-tolerant (for a scoped word: its own field)
+        }
 
         return $this->index->hasFuzzy() && ($field === null || $field->fuzzy) && self::length($needle) >= $this->thresholds->fuzzyMinLength ? $needle : null;
+    }
+
+    /**
+     * The typo-tolerant fields a restricted viewer may see, for a word scoped to $field or (null) any word.
+     *
+     * @return list<FieldDefinition>
+     */
+    private function fuzzyAllowed(?FieldDefinition $field): array
+    {
+        return array_values(array_filter($this->allowed ?? [], static fn(FieldDefinition $f): bool => $f->fuzzy && ($field === null || $f->name === $field->name)));
     }
 
     /**
@@ -453,8 +509,19 @@ final class FuzzyQueryCompiler
 
     private function matches(Node $node, string $tsquery, ParameterBag $params): string
     {
-        $query = $this->column('ft', sprintf('to_tsquery(%s, %s)', $this->names->regconfig($this->index->text), $params->add($tsquery)));
         $field = $this->scopedField($node);
+        if ($this->allowed !== null) {
+            // GIN(tsv) finds the candidates; the word must be in a field the viewer may see (for a scoped word: its own)
+            $targets = $field === null ? $this->allowed : array_values(array_filter($this->allowed, static fn(FieldDefinition $f): bool => $f->name === $field->name));
+            if ($targets === []) {
+                return 'false'; // nothing the viewer may see can match
+            }
+            $query = $this->column('ft', sprintf('to_tsquery(%s, %s)', $this->names->regconfig($this->index->text), $params->add($tsquery)));
+            $checks = array_map(fn(FieldDefinition $f): string => sprintf('s.%s @@ %s', $this->names->fieldVector($f->name), $query), $targets);
+
+            return sprintf('(s.tsv @@ %s AND %s)', $query, count($checks) === 1 ? $checks[0] : '(' . implode(' OR ', $checks) . ')');
+        }
+        $query = $this->column('ft', sprintf('to_tsquery(%s, %s)', $this->names->regconfig($this->index->text), $params->add($tsquery)));
 
         return $field === null
             ? 's.tsv @@ ' . $query
