@@ -37,6 +37,8 @@ final readonly class SearchQuery
         public bool $exactCounts = false,
         /** The last word of the text also matches as a prefix (search-as-you-type), see Typeahead. */
         public bool $asYouType = false,
+        /** Who is searching (SearchBuilder::asActor()); null = nobody was named. */
+        public ?\Fuzzphony\Core\Search\Actor $actor = null,
     ) {
         if ($facetValues < 1 || $facetValues > 100) {
             throw new \Fuzzphony\Core\Exception\InvalidQuery(sprintf('Facet values must be between 1 and 100, got %d.', $facetValues));
@@ -91,6 +93,11 @@ final readonly class SearchQuery
     public function forTenant(mixed $value): self
     {
         return $this->copy(tenant: $value);
+    }
+
+    public function withActor(\Fuzzphony\Core\Search\Actor $actor): self
+    {
+        return $this->copy(actor: $actor);
     }
 
     public function profile(string $profile): self
@@ -162,6 +169,7 @@ final readonly class SearchQuery
         $facetValues = $changes['facetValues'] ?? null;
         $exactCounts = $changes['exactCounts'] ?? null;
         $asYouType = $changes['asYouType'] ?? null;
+        $actor = array_key_exists('actor', $changes) ? $changes['actor'] : $this->actor;
 
         return new self(
             text: is_string($text) ? $text : $this->text,
@@ -177,6 +185,7 @@ final readonly class SearchQuery
             facetValues: is_int($facetValues) ? $facetValues : $this->facetValues,
             exactCounts: is_bool($exactCounts) ? $exactCounts : $this->exactCounts,
             asYouType: is_bool($asYouType) ? $asYouType : $this->asYouType,
+            actor: $actor instanceof \Fuzzphony\Core\Search\Actor ? $actor : null,
         );
     }
 

@@ -57,6 +57,21 @@ final readonly class SearchBuilder
         return $this->with($this->query->forTenant($value));
     }
 
+    /**
+     * Searches as this actor: its tenant scopes a tenant-scoped index (it is ignored on any other index), its
+     * user is carried for the search log and the guards. The last of forTenant() / asActor() wins; an actor
+     * without a tenant leaves a tenant set before alone.
+     */
+    public function asActor(Actor $actor): self
+    {
+        $query = $this->query->withActor($actor);
+        if ($this->index->tenant !== null && $actor->tenant !== null) {
+            $query = $query->forTenant($actor->tenant);
+        }
+
+        return $this->with($query);
+    }
+
     public function profile(string $profile): self
     {
         $this->index->profile($profile); // fail fast on typos
