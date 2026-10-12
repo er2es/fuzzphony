@@ -282,14 +282,14 @@ final class FuzzphonyBundle extends AbstractBundle
         if (interface_exists(\ApiPlatform\Doctrine\Orm\Filter\FilterInterface::class)) {
             // #[ApiFilter(FuzzphonySearchFilter::class)] creates per-resource copies of this definition
             $services->set(FuzzphonySearchFilter::class)
-                ->args([service('fuzzphony')])
+                ->args([service('fuzzphony'), 'q', 'default', 500, service('fuzzphony.actor_resolver')])
                 ->autowire()
                 ->tag('api_platform.filter');
         }
 
         if (class_exists(\Symfony\UX\LiveComponent\Attribute\AsLiveComponent::class)) {
             $services->set(SearchComponent::class)
-                ->args([service('fuzzphony')])
+                ->args([service('fuzzphony'), service('fuzzphony.actor_resolver')])
                 ->autoconfigure();
         }
 

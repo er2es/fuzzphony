@@ -445,8 +445,8 @@ final class FuzzphonyBundleTest extends TestCase
         self::assertEquals([new Reference('doctrine.orm.entity_manager')], $container->getDefinition('fuzzphony.discovery')->getArguments());
         self::assertEquals([new Reference('doctrine.orm.entity_manager')], $container->getDefinition('fuzzphony.entity_loader')->getArguments());
         self::assertEquals([new Reference('fuzzphony.engine')], $container->getDefinition('fuzzphony.refresh_dispatcher')->getArguments());
-        self::assertEquals([$fuzzphony], $container->getDefinition(FuzzphonySearchFilter::class)->getArguments());
-        self::assertEquals([$fuzzphony], $container->getDefinition(SearchComponent::class)->getArguments());
+        self::assertEquals([$fuzzphony, 'q', 'default', 500, new Reference('fuzzphony.actor_resolver')], $container->getDefinition(FuzzphonySearchFilter::class)->getArguments());
+        self::assertEquals([$fuzzphony, new Reference('fuzzphony.actor_resolver')], $container->getDefinition(SearchComponent::class)->getArguments());
         self::assertEquals([new Reference('fuzzphony.refresh_dispatcher'), new Reference('fuzzphony.registry')], $container->getDefinition('fuzzphony.orm_sync_listener')->getArguments());
         self::assertEquals([$fuzzphony, $connection], $container->getDefinition(SchemaCommand::class)->getArguments());
         self::assertEquals([$fuzzphony], $container->getDefinition(ReindexCommand::class)->getArguments());

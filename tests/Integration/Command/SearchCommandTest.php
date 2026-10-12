@@ -5,6 +5,9 @@ declare(strict_types=1);
 namespace Fuzzphony\Tests\Integration\Command;
 
 use Fuzzphony\Bundle\Command\SearchCommand;
+use Fuzzphony\Core\Fuzzphony;
+use Fuzzphony\Core\Registry\IndexRegistry;
+use Fuzzphony\Tests\Fixtures\Indexes;
 use PHPUnit\Framework\TestCase;
 use Symfony\Component\Console\Command\Command;
 use Symfony\Component\Console\Tester\CommandCompletionTester;
@@ -141,6 +144,38 @@ final class SearchCommandTest extends TestCase
 
         $this->tester->execute(['index' => 'products', 'query' => 'qq', '--suggest' => true], ['interactive' => false]);
         self::assertStringContainsString('No completions.', $this->tester->getDisplay(true));
+    }
+
+    public function testTenantAndUserSearchATenantScopedIndex(): void
+    {
+        $tester = $this->tenantTester();
+
+        // Brand 1 (Logitech) has products 1 and 4; brand 2 (Razer) has product 2. All three mention "mouse".
+        $status = $tester->execute(['index' => 'products', 'query' => 'mouse', '--tenant' => '1', '--user' => 'ada'], ['interactive' => false]);
+
+        self::assertSame(Command::SUCCESS, $status);
+        self::assertStringContainsString('2 hit(s)', $tester->getDisplay(true));
+    }
+
+    public function testAUserWithoutATenantIsRefusedOnATenantScopedIndex(): void
+    {
+        $tester = $this->tenantTester();
+
+        $status = $tester->execute(['index' => 'products', 'query' => 'mouse', '--user' => 'ada'], ['interactive' => false]);
+
+        self::assertSame(Command::FAILURE, $status);
+        self::assertStringContainsString('products', $tester->getDisplay(true));
+        self::assertStringNotContainsString('hit(s)', $tester->getDisplay(true));
+    }
+
+    private function tenantTester(): CommandTester
+    {
+        $connection = $this->context->connection;
+        $fuzzphony = new Fuzzphony($this->context->engine, new IndexRegistry([Indexes::products(tenant: true)]));
+        $fuzzphony->schema()->apply($connection);
+        $fuzzphony->reindex('products');
+
+        return new CommandTester(new SearchCommand($fuzzphony));
     }
 
     public function testAsYouTypeMatchesTheBeginningOfTheLastWord(): void

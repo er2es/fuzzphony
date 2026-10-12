@@ -14,6 +14,8 @@ use Fuzzphony\Core\Engine\Engine;
 use Fuzzphony\Core\Fuzzphony;
 use Fuzzphony\Core\Query\SearchQuery;
 use Fuzzphony\Core\Registry\IndexRegistry;
+use Fuzzphony\Core\Search\Actor;
+use Fuzzphony\Core\Search\ActorResolver;
 use Fuzzphony\Core\Search\Hit;
 use Fuzzphony\Core\Search\ScoreBreakdown;
 use Fuzzphony\Core\Search\SearchResult;
@@ -64,6 +66,35 @@ final class FuzzphonySearchFilterApplyTest extends TestCase
         self::assertSame('popular', $this->queries[0]->profile);
     }
 
+    public function testTheSearchIsMadeAsTheResolvedActor(): void
+    {
+        $actors = self::createMock(ActorResolver::class);
+        $actors->expects(self::exactly(2))->method('resolve')->willReturn(new Actor(tenant: 7, user: 'ada'));
+        $filter = $this->filter(actors: $actors);
+
+        $filter->apply($this->queryBuilder(), new QueryNameGenerator(), 'products', null, ['filters' => ['q' => 'mouse']]);
+        $filter->apply($this->queryBuilder(), new QueryNameGenerator(), 'products', null, ['filters' => ['q' => 'mouse']]);
+
+        self::assertCount(2, $this->queries);
+        self::assertSame('ada', $this->queries[0]->actor?->user);
+        self::assertSame('ada', $this->queries[1]->actor?->user, 'resolved for every search, not once');
+    }
+
+    public function testWithoutAResolverTheSearchHasNoActor(): void
+    {
+        $this->filter()->apply($this->queryBuilder(), new QueryNameGenerator(), 'products', null, ['filters' => ['q' => 'mouse']]);
+
+        self::assertNull($this->queries[0]->actor);
+    }
+
+    public function testTheResolverIsNotAskedWhenThereIsNothingToSearchFor(): void
+    {
+        $actors = self::createMock(ActorResolver::class);
+        $actors->expects(self::never())->method('resolve');
+
+        $this->filter(actors: $actors)->apply($this->queryBuilder(), new QueryNameGenerator(), 'products', null, ['filters' => ['q' => '']]);
+    }
+
     /** @return iterable<string, array{array<string, mixed>, string}> */
     public static function untouched(): iterable
     {
@@ -105,7 +136,7 @@ final class FuzzphonySearchFilterApplyTest extends TestCase
     }
 
     /** @param list<int> $hits ids the engine finds */
-    private function filter(array $hits = [], string $parameterName = 'q', string $profile = 'default', ?int $maxResults = null): FuzzphonySearchFilter
+    private function filter(array $hits = [], string $parameterName = 'q', string $profile = 'default', ?int $maxResults = null, ?ActorResolver $actors = null): FuzzphonySearchFilter
     {
         $engine = self::createStub(Engine::class);
         $engine->method('search')->willReturnCallback(function (IndexDefinition $index, SearchQuery $query) use ($hits): SearchResult {
@@ -116,8 +147,8 @@ final class FuzzphonySearchFilterApplyTest extends TestCase
         $fuzzphony = new Fuzzphony($engine, new IndexRegistry([Indexes::products('manual')]));
 
         return $maxResults === null
-            ? new FuzzphonySearchFilter($fuzzphony, $parameterName, $profile)
-            : new FuzzphonySearchFilter($fuzzphony, $parameterName, $profile, $maxResults);
+            ? new FuzzphonySearchFilter($fuzzphony, $parameterName, $profile, actors: $actors)
+            : new FuzzphonySearchFilter($fuzzphony, $parameterName, $profile, $maxResults, $actors);
     }
 
     private function queryBuilder(): QueryBuilder

@@ -12,10 +12,13 @@ use Fuzzphony\Core\Fuzzphony;
 use Fuzzphony\Core\Query\Filter\Operator;
 use Fuzzphony\Core\Query\SearchQuery;
 use Fuzzphony\Core\Registry\IndexRegistry;
+use Fuzzphony\Core\Search\Actor;
+use Fuzzphony\Core\Search\ActorResolver;
 use Fuzzphony\Core\Search\SearchResult;
 use Fuzzphony\Tests\Fixtures\Indexes;
 use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\TestCase;
+use Symfony\UX\LiveComponent\Attribute\LiveProp;
 
 /**
  * SearchComponent's own logic (what it asks the engine, when it asks, what it remembers) against an
@@ -233,6 +236,37 @@ final class SearchComponentLogicTest extends TestCase
         self::assertSame('in_stock', $this->queries[0]->conditions[0]->filter);
     }
 
+    public function testTheSearchIsMadeAsTheResolvedActor(): void
+    {
+        $actors = self::createStub(ActorResolver::class);
+        $actors->method('resolve')->willReturn(new Actor(tenant: 7, user: 'ada'));
+
+        $this->component(query: 'mouse', actors: $actors)->getResult();
+
+        self::assertSame('ada', $this->queries[0]->actor?->user);
+    }
+
+    public function testWithoutAResolverTheSearchHasNoActor(): void
+    {
+        $this->component(query: 'mouse')->getResult();
+
+        self::assertNull($this->queries[0]->actor);
+    }
+
+    /** The tenant and the user come from the server side, never from the browser: a LiveProp is writable state the client can post. */
+    public function testNoLivePropCarriesTheTenantTheUserOrTheActor(): void
+    {
+        $liveProps = [];
+        foreach ((new \ReflectionClass(SearchComponent::class))->getProperties() as $property) {
+            if ($property->getAttributes(LiveProp::class) !== []) {
+                $liveProps[] = $property->getName();
+            }
+        }
+
+        self::assertContains('query', $liveProps, 'the reflection does see the live props');
+        self::assertSame([], array_intersect($liveProps, ['tenant', 'user', 'actor']));
+    }
+
     private function shirts(): IndexDefinition
     {
         return IndexDefinition::builder('shirts')->fromQuery('SELECT id, name, colour FROM fz_shirt')->sync('manual')->field('name', 'A')->filter('colour', 'string')->build();
@@ -241,7 +275,7 @@ final class SearchComponentLogicTest extends TestCase
     /**
      * @param array<string, string> $selected
      */
-    private function component(string $query = '', string $index = 'products', string $profile = 'default', string $highlight = '', int $limit = 10, string $facets = '', int $suggestions = 5, bool $asYouType = true, array $selected = []): SearchComponent
+    private function component(string $query = '', string $index = 'products', string $profile = 'default', string $highlight = '', int $limit = 10, string $facets = '', int $suggestions = 5, bool $asYouType = true, array $selected = [], ?ActorResolver $actors = null): SearchComponent
     {
         $engine = self::createStubForIntersectionOfInterfaces([Engine::class, Suggestions::class]);
         $engine->method('search')->willReturnCallback(function (IndexDefinition $index, SearchQuery $query): SearchResult {
@@ -258,7 +292,7 @@ final class SearchComponentLogicTest extends TestCase
         });
         assert($engine instanceof Engine);
 
-        $component = new SearchComponent(new Fuzzphony($engine, new IndexRegistry([Indexes::products('manual'), $this->shirts()])));
+        $component = new SearchComponent(new Fuzzphony($engine, new IndexRegistry([Indexes::products('manual'), $this->shirts()])), $actors);
         $component->query = $query;
         $component->index = $facets === 'colour' ? 'shirts' : $index;
         $component->profile = $profile;

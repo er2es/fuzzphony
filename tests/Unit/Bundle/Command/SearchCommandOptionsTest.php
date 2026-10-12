@@ -214,6 +214,48 @@ final class SearchCommandOptionsTest extends TestCase
         self::assertTrue($query->asYouType);
     }
 
+    /** @return iterable<string, array{string, int|string}> */
+    public static function tenants(): iterable
+    {
+        yield 'digits are an integer id' => ['12', 12];
+        yield 'zero' => ['0', 0];
+        yield 'anything else is a string id' => ['acme', 'acme'];
+        yield 'a number with a sign is a string id' => ['-3', '-3'];
+        yield 'a number with leading text is a string id' => ['t1', 't1'];
+    }
+
+    #[DataProvider('tenants')]
+    public function testTheTenantOptionScopesTheSearchAndTheUserIsCarried(string $tenant, int|string $expected): void
+    {
+        $tester = $this->tester(tenant: true);
+
+        $status = $tester->execute(['index' => 'products', 'query' => 'mouse', '--tenant' => $tenant, '--user' => 'ada'], ['interactive' => false]);
+
+        self::assertSame(Command::SUCCESS, $status);
+        self::assertSame($expected, $this->query()->tenant);
+        $actor = $this->query()->actor;
+        self::assertNotNull($actor);
+        self::assertSame('ada', $actor->user);
+        self::assertSame($expected, $actor->tenant);
+    }
+
+    public function testTheUserOptionAloneIsAnActorWithoutATenant(): void
+    {
+        $tester = $this->tester();
+
+        $tester->execute(['index' => 'products', 'query' => 'mouse', '--user' => 'ada'], ['interactive' => false]);
+
+        self::assertNull($this->query()->actor?->tenant);
+        self::assertSame('ada', $this->query()->actor?->user);
+    }
+
+    public function testWithoutTenantOrUserThereIsNoActor(): void
+    {
+        $this->tester()->execute(['index' => 'products', 'query' => 'mouse'], ['interactive' => false]);
+
+        self::assertNull($this->query()->actor);
+    }
+
     public function testExplainAsksForAnAnalyzeOnlyWhenToldTo(): void
     {
         $tester = $this->tester();
@@ -309,7 +351,7 @@ final class SearchCommandOptionsTest extends TestCase
     }
 
     /** @param (Engine&Stub)|null $engine */
-    private function tester(?Engine $engine = null, ?SearchResult $result = null, ?Explanation $explanation = null): CommandTester
+    private function tester(?Engine $engine = null, ?SearchResult $result = null, ?Explanation $explanation = null, bool $tenant = false): CommandTester
     {
         $result ??= $this->searchResult();
         $engine ??= self::createStub(Engine::class);
@@ -325,7 +367,7 @@ final class SearchCommandOptionsTest extends TestCase
             return $explanation ?? new Explanation('mouse', [], [], $result);
         });
 
-        return new CommandTester(new SearchCommand(new Fuzzphony($engine, new IndexRegistry([Indexes::products('manual')]))));
+        return new CommandTester(new SearchCommand(new Fuzzphony($engine, new IndexRegistry([Indexes::products('manual', tenant: $tenant)]))));
     }
 
     /**
