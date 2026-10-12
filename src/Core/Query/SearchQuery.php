@@ -39,6 +39,8 @@ final readonly class SearchQuery
         public bool $asYouType = false,
         /** Who is searching (SearchBuilder::asActor()); null = nobody was named. */
         public ?\Fuzzphony\Core\Search\Actor $actor = null,
+        /** false = the search is kept out of the search log (SearchBuilder::unlogged()); a refusal is recorded all the same. */
+        public bool $log = true,
     ) {
         if ($facetValues < 1 || $facetValues > 100) {
             throw new \Fuzzphony\Core\Exception\InvalidQuery(sprintf('Facet values must be between 1 and 100, got %d.', $facetValues));
@@ -154,6 +156,12 @@ final readonly class SearchQuery
         return $this->copy(exactCounts: $exact);
     }
 
+    /** Keeps this search out of the search log (a refusal is still recorded). */
+    public function unlogged(): self
+    {
+        return $this->copy(log: false);
+    }
+
     private function copy(mixed ...$changes): self
     {
         $text = $changes['text'] ?? null;
@@ -170,6 +178,7 @@ final readonly class SearchQuery
         $exactCounts = $changes['exactCounts'] ?? null;
         $asYouType = $changes['asYouType'] ?? null;
         $actor = array_key_exists('actor', $changes) ? $changes['actor'] : $this->actor;
+        $log = $changes['log'] ?? null;
 
         return new self(
             text: is_string($text) ? $text : $this->text,
@@ -186,6 +195,7 @@ final readonly class SearchQuery
             exactCounts: is_bool($exactCounts) ? $exactCounts : $this->exactCounts,
             asYouType: is_bool($asYouType) ? $asYouType : $this->asYouType,
             actor: $actor instanceof \Fuzzphony\Core\Search\Actor ? $actor : null,
+            log: is_bool($log) ? $log : $this->log,
         );
     }
 

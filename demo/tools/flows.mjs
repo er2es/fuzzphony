@@ -142,9 +142,14 @@ await p3.click('.nav .menu summary');
 const labels = (await p3.locator('.menu-panel a').allTextContents()).map((t) => t.trim());
 check('the menu lists wizard, benchmark, doctor, observability, synonyms, analytics', ['Config wizard', 'Benchmark', 'Doctor', 'Observability', 'Synonyms', 'Analytics'].every((l) => labels.includes(l)), labels.join(', '));
 
-// the search log: two searches through the home page show up on the Analytics page (the log is written after the response: poll)
+// the search log: two searches submitted with Enter (a full page load, the settled query) show up on the Analytics page, the
+// requests of the live search while typing do not (the log is written after the response: poll)
+await go(page, BASE + '/');
 for (const q of ['mouse', 'hedphones']) {
-    await go(page, BASE + '/?q=' + q);
+    await page.fill('input[name=q]', '');
+    await page.type('input[name=q]', q, { delay: 60 });
+    await page.waitForSelector('#results .hit-row');
+    await Promise.all([page.waitForNavigation({ waitUntil: 'load' }), page.press('input[name=q]', 'Enter')]);
     await page.waitForSelector('#results .hit-row');
 }
 let listed = [];
@@ -155,6 +160,7 @@ for (let attempt = 0; attempt < 5; attempt++) {
     await page.waitForTimeout(500);
 }
 check('the analytics page lists the searches that were just made', listed.includes('mouse') && listed.includes('hedphones'), listed.join(', '));
+check('the analytics page does not list what was typed on the way', !listed.some((t) => ['mo', 'mou', 'mous', 'hedph', 'hedphone'].includes(t)), listed.join(', '));
 check('there is no "/ to search" hint in the toolbar', (await p3.locator('.toolbar-hint').count()) === 0);
 
 // the SQL of the Tune page wraps instead of scrolling sideways

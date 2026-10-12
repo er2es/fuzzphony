@@ -91,6 +91,33 @@ final class SearchGateLogTest extends TestCase
         self::assertSame(['x', 'ada', 0, 0.0, false], [$log->records[0]->query, $log->records[0]->user, $log->records[0]->hits, $log->records[0]->tookMs, $log->records[0]->usedFuzzy]);
     }
 
+    public function testAnUnloggedSearchRecordsNoOkRow(): void
+    {
+        $log = new RecordingSearchLog();
+        $builder = new SearchBuilder($this->engineReturning(1, 1.0, false), Indexes::products(), gate: new SearchGate(log: $log));
+
+        $result = $builder->query('mou')->asYouType()->unlogged()->get();
+
+        self::assertSame(1, $result->total);
+        self::assertSame([], $log->records);
+        $builder->query('mouse')->get();
+        self::assertCount(1, $log->records, 'the default still records');
+    }
+
+    public function testAnUnloggedSearchRefusedByActorRequiredIsStillRecordedAsDenied(): void
+    {
+        $log = new RecordingSearchLog();
+        $builder = new SearchBuilder(self::createStub(Engine::class), Indexes::products(tenant: true), gate: new SearchGate(log: $log));
+
+        try {
+            $builder->query('x')->asActor(new Actor(user: 'ada'))->unlogged()->get();
+            self::fail('ActorRequired expected');
+        } catch (ActorRequired) {
+        }
+
+        self::assertSame([RecordStatus::Denied], array_map(static fn(SearchRecord $r): RecordStatus => $r->status, $log->records));
+    }
+
     public function testExplainIsNotRecorded(): void
     {
         $log = new RecordingSearchLog();

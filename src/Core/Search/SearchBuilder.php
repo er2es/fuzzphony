@@ -157,6 +157,15 @@ final readonly class SearchBuilder
         return $this->with($this->query->exactCounts($exact));
     }
 
+    /**
+     * Keeps this search out of the search log (for example the requests of a live search box that fire on every
+     * pause in typing); a refusal is still recorded.
+     */
+    public function unlogged(): self
+    {
+        return $this->with($this->query->unlogged());
+    }
+
     public function get(): SearchResult
     {
         $query = $this->effective();

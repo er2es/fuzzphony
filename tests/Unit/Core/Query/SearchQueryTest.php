@@ -70,6 +70,36 @@ final class SearchQueryTest extends TestCase
         self::assertSame(['fuzzy' => 0.8, 'boost' => 0.1], $query->rankingOverrides);
     }
 
+    public function testASearchIsLoggedUnlessItIsMarkedUnlogged(): void
+    {
+        self::assertTrue((new SearchQuery())->log);
+        self::assertFalse((new SearchQuery())->unlogged()->log);
+    }
+
+    public function testTheUnloggedFlagSurvivesEveryOtherChange(): void
+    {
+        $query = (new SearchQuery('mouse'))->unlogged()
+            ->withText('keyboard')
+            ->where('in_stock', true)
+            ->whereIn('brand_id', [1, 2])
+            ->whereBetween('price', 1, 2)
+            ->whereNull('colour')
+            ->forTenant(3)
+            ->withActor(new \Fuzzphony\Core\Search\Actor(user: 'ada'))
+            ->profile('default')
+            ->limit(5, 5)
+            ->page(2, 5)
+            ->highlight('name')
+            ->thresholds(['min_score' => 0.1])
+            ->ranking(['fuzzy' => 0.8])
+            ->facets('in_stock')
+            ->facetValues(5)
+            ->asYouType()
+            ->exactCounts();
+
+        self::assertFalse($query->log);
+    }
+
     public function testForTenantSetsTheTenantValue(): void
     {
         $query = (new SearchQuery())->forTenant(42);

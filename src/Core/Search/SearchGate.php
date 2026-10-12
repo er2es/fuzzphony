@@ -78,8 +78,9 @@ final readonly class SearchGate
         }
 
         $result = $run();
-        if ($result instanceof SearchResult) {
-            // explain() runs the search again for a developer and records nothing: only search() passes a SearchResult
+        if ($result instanceof SearchResult && $query->log) {
+            // explain() runs the search again for a developer and records nothing: only search() passes a SearchResult;
+            // an unlogged search records no ok row (the refusal above is always recorded)
             $this->record($index, $query, $typed, $result->total, $result->tookMs, $result->usedFuzzy, RecordStatus::Ok);
         }
 

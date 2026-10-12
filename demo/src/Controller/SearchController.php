@@ -56,6 +56,9 @@ final class SearchController extends AbstractController
             default => null,
         };
 
+        // the live search sends a request per pause in typing: only the settled query of a full page load is logged
+        $live = $request->headers->get('X-Requested-With') === 'fetch';
+
         $result = null;
         $rows = [];
         $categories = $stockValues = [];
@@ -63,14 +66,15 @@ final class SearchController extends AbstractController
         $speed = null;
         if ($q !== '') {
             try {
-                $search = $facets->narrow($fuzzphony->in('catalog')->query($q)->asYouType()->highlight('name')->limit(20), $category, $stock);
+                $search = $fuzzphony->in('catalog')->query($q)->asYouType()->highlight('name')->limit(20);
+                $search = $facets->narrow($live ? $search->unlogged() : $search, $category, $stock);
                 $result = $search->facets('category_id', 'in_stock')->get();
                 $rows = $catalog->rows($result->ids());
                 $categories = $facets->categories($result->facets['category_id'] ?? []);
                 $stockValues = $result->facets['in_stock'] ?? [];
                 if ($view === 'speed') {
                     // the measured search is the plain one (no facets): what a search box waits for
-                    $speed = Measure::median(static fn () => $facets->narrow($fuzzphony->in('catalog')->query($q)->asYouType()->limit(20), $category, $stock)->get());
+                    $speed = Measure::median(static fn () => $facets->narrow($fuzzphony->in('catalog')->query($q)->asYouType()->limit(20)->unlogged(), $category, $stock)->get());
                 }
             } catch (FuzzphonyException $e) {
                 $error = $e->getMessage();
@@ -94,7 +98,7 @@ final class SearchController extends AbstractController
         ];
 
         // the live search asks for the region only
-        if ($request->headers->get('X-Requested-With') === 'fetch') {
+        if ($live) {
             return $this->render('search/_region.html.twig', $data);
         }
 
