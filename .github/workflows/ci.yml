@@ -38,10 +38,17 @@ jobs:
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
+      # Symfony only touches the bundle, PostgreSQL only the engine, so the two axes are not multiplied: every PHP and
+      # PostgreSQL version runs on the LTS (7.4), and the other maintained Symfony releases run on the newest PostgreSQL.
+      # 8.0 is end of life since July 2026 and is no longer tested (the constraint still allows it). The next minor is its
+      # own job below.
       matrix:
         php: ['8.4', '8.5']
         postgres: ['15', '16', '17', '18']
-        symfony: ['7.4', '8.0']
+        symfony: ['7.4']
+        include:
+          - { php: '8.4', postgres: '18', symfony: '8.1' }
+          - { php: '8.5', postgres: '18', symfony: '8.1' }
     services:
       postgres:
         image: postgres:${{ matrix.postgres }}
@@ -71,6 +78,40 @@ jobs:
           "symfony/yaml:${{ matrix.symfony }}.*"
       - run: composer install --no-progress --prefer-dist
       - run: vendor/bin/phpunit --coverage-text
+
+  # The next Symfony minor (8.2, still in development), as an early warning: it may fail without turning a pull request red,
+  # and `ci-ok` does not wait for it. A failure here means "look before 8.2 is released", not "the library is broken".
+  symfony-next:
+    needs: validate
+    runs-on: ubuntu-latest
+    continue-on-error: true
+    services:
+      postgres:
+        image: postgres:18
+        env:
+          POSTGRES_DB: fuzzphony_test
+          POSTGRES_USER: fuzzphony
+          POSTGRES_PASSWORD: fuzzphony
+        ports: ['5432:5432']
+        options: >-
+          --health-cmd "pg_isready -U fuzzphony"
+          --health-interval 2s --health-retries 20
+    env:
+      FUZZPHONY_TEST_DSN: "pgsql:host=127.0.0.1;port=5432;dbname=fuzzphony_test;user=fuzzphony;password=fuzzphony"
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: shivammathur/setup-php@f3e473d116dcccaddc5834248c87452386958240 # 2.37.2
+        with:
+          php-version: '8.5'
+          extensions: pdo_pgsql, mbstring
+          coverage: none
+      - name: Pin Symfony 8.2 (development)
+        run: |
+          composer config minimum-stability dev
+          composer config prefer-stable true
+          composer require --dev --no-update "symfony/console:8.2.x-dev" "symfony/framework-bundle:8.2.x-dev" "symfony/messenger:8.2.x-dev" "symfony/yaml:8.2.x-dev"
+      - run: composer update --no-progress --prefer-dist
+      - run: vendor/bin/phpunit
 
   prefer-lowest:
     needs: validate
