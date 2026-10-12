@@ -7,6 +7,17 @@ changes; they are always listed under **Breaking** and explained in [UPGRADE.md]
 
 ## [Unreleased]
 
+### Changed
+
+- CI tests the supported Symfony versions the way a Symfony library should: the LTS (7.4) with every PHP and PostgreSQL version,
+  the current stable (8.1) on the newest PostgreSQL, and the next minor (8.2, in development) in a job of its own that may fail
+  without failing the build (an early warning before it is released). Symfony 8.0, end of life since July 2026, is no longer tested;
+  the composer constraint still allows it. The test matrix has 11 jobs instead of 16.
+
+## [0.8.1] - 2026-10-12
+
+No upgrade steps. The library gains search-as-you-type matching; the rest is the demo, the dependencies and the tests.
+
 ### Added
 
 - **Search-as-you-type matching:** `SearchBuilder::asYouType()` (and `SearchQuery::asYouType()`): the last word of the
@@ -30,7 +41,7 @@ changes; they are always listed under **Breaking** and explained in [UPGRADE.md]
 ### Tests
 
 - 459 new tests (1 177 to 1 636), written against the survivors of a full mutation run (5 987 mutants, 734 escaped, covered-code
-  MSI 83%): defaults and boundaries of the configuration, the commands' output, the wizard's heuristics and exporters, the doctor's checks,
+  MSI 83%); the next full run in CI (5 989 mutants) scores **96%** covered-code MSI, which is what the README badge shows: defaults and boundaries of the configuration, the commands' output, the wizard's heuristics and exporters, the doctor's checks,
   the PostgreSQL introspection, the Doctrine bridge, the query parser and the new 0.8 code. The ~110 mutants that still escape in the files
   worked on are equivalent (a cast that changes nothing, an `array_values` whose keys are never read, a constant only a real sleep would show).
   The whole suite now also passes on Windows (command output is compared with normalised line endings).
@@ -694,7 +705,8 @@ on its own:
 - Sync modes: queue (default), trigger, ORM, manual; watches for joined tables.
 - Doctor with fixes; CLI commands for schema, reindex, worker, search and explain.
 
-[Unreleased]: https://github.com/er2es/fuzzphony/compare/v0.8.0...HEAD
+[Unreleased]: https://github.com/er2es/fuzzphony/compare/v0.8.1...HEAD
+[0.8.1]: https://github.com/er2es/fuzzphony/compare/v0.8.0...v0.8.1
 [0.8.0]: https://github.com/er2es/fuzzphony/compare/v0.7.3...v0.8.0
 [0.7.3]: https://github.com/er2es/fuzzphony/compare/v0.7.2...v0.7.3
 [0.7.2]: https://github.com/er2es/fuzzphony/compare/v0.7.1...v0.7.2
