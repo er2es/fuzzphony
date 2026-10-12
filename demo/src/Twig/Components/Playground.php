@@ -38,6 +38,8 @@ final class Playground
     #[LiveProp(writable: true, url: true)] public string $query = 'wireles mouse';
     #[LiveProp(writable: true)] public bool $analyze = false;
     #[LiveProp(writable: true)] public bool $inStockOnly = false;
+    /** The other value of the stock facet; "in stock only" wins when both are set (the checkbox next to the sliders). */
+    #[LiveProp(writable: true)] public bool $outOfStockOnly = false;
     #[LiveProp(writable: true)] public int $maxPrice = 0;
     /** The category chosen on the facet (a name, '' = any). */
     #[LiveProp(writable: true)] public string $category = '';
@@ -109,6 +111,14 @@ final class Playground
     public function toggleInStock(): void
     {
         $this->inStockOnly = !$this->inStockOnly;
+        $this->outOfStockOnly = false;
+    }
+
+    #[LiveAction]
+    public function toggleOutOfStock(): void
+    {
+        $this->outOfStockOnly = !$this->outOfStockOnly;
+        $this->inStockOnly = false;
     }
 
     /** @return list<array{name: string, count: int}> the category facet of the result, by name */
@@ -207,6 +217,8 @@ final class Playground
             ]);
         if ($this->inStockOnly) {
             $search = $search->where('in_stock', true);
+        } elseif ($this->outOfStockOnly) {
+            $search = $search->where('in_stock', false);
         }
         $search = $this->facets->narrow($search, $this->category, null)->facets('category_id', 'in_stock');
         if ($this->exactCounts) {

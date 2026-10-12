@@ -7,6 +7,10 @@ changes; they are always listed under **Breaking** and explained in [UPGRADE.md]
 
 ## [Unreleased]
 
+### Fixed
+
+- Demo, Tune: the "out of stock" facet chip was plain text; it is a button now, like "in stock" (each narrows the search; "in stock only" wins when both are set).
+
 ## [0.8.4] - 2026-10-12
 
 Demo only; no upgrade steps.
@@ -39,7 +43,7 @@ No upgrade steps. One performance fix in the library, the rest is the demo.
 - **Demo: the "Under the hood" menu** lists the Config wizard, **Benchmark**, Doctor, Observability and **Synonyms**. The benchmark is a
   page of its own again (`/under-the-hood/benchmark`; the Speed view of the search links to it) and the synonym editor moved there from
   `/relevance/synonyms` to `/under-the-hood/synonyms` (no redirects). The "/ to search" hint in the toolbar is removed (the shortcut still works).
-- `demo/tools/flows.mjs` checks the loading behaviour and the menu (31 checks); `shots.mjs` lists the current routes.
+- `demo/tools/flows.mjs` checks the loading behaviour and the menu (32 checks); `shots.mjs` lists the current routes.
 
 ## [0.8.2] - 2026-10-12
 

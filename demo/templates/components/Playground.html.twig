@@ -99,7 +99,7 @@
                             {% if s.value %}
                                 <button type="button" class="chip" aria-pressed="{{ inStockOnly ? 'true' : 'false' }}" data-action="live#action" data-live-action-param="toggleInStock">in stock <span class="muted">{{ s.count }}{{ result.totalIsLowerBound and not exactCounts ? '+' }}</span></button>
                             {% else %}
-                                <span class="chip">out of stock <span class="muted">{{ s.count }}{{ result.totalIsLowerBound and not exactCounts ? '+' }}</span></span>
+                                <button type="button" class="chip" aria-pressed="{{ outOfStockOnly and not inStockOnly ? 'true' : 'false' }}" data-action="live#action" data-live-action-param="toggleOutOfStock">out of stock <span class="muted">{{ s.count }}{{ result.totalIsLowerBound and not exactCounts ? '+' }}</span></button>
                             {% endif %}
                         {% endfor %}
                     </div>
