@@ -48,11 +48,11 @@ cd fuzzphony/demo && docker compose up --build    # http://localhost:8000
 
 | Page | What you see |
 |---|---|
-| ILIKE vs Fuzzphony | the same query both ways, with timings, facets and one-click typo / accent / stemming / phrase examples; every search box completes the word you type |
-| Languages | English, German, French, Spanish and Hungarian presets, what PostgreSQL made of every word, and one search over all five at once (federated) |
-| Playground | every ranking weight and threshold as a slider, with a score breakdown per hit and the SQL |
-| Config wizard | pick a table, get a suggested index definition with every decision explained |
-| Benchmark / Doctor | the comparison as a table, and the `fuzzphony:doctor` report in the browser |
+| Search | one search field over the catalogue: results appear in place while you type (typos, accents and half-typed words included), with the category and stock facets at the side; the Speed view puts the same search next to a plain `ILIKE` and runs the nine-query benchmark |
+| Relevance | typo tolerance by word length next to the old flat rule, the catalogue's synonyms (and their editor), and "did you mean" |
+| Languages | English, German, French, Spanish and Hungarian, what PostgreSQL made of every word, and one search over all five at once (federated) |
+| Tune | every ranking weight and threshold as a control, with a score breakdown per hit and the SQL |
+| Under the hood | the configuration wizard, the `fuzzphony:doctor` report and the metrics, in the browser |
 
 It is a local showcase, not a production template. See
 [demo/README.md](https://github.com/er2es/fuzzphony/blob/main/demo/README.md) for the stack, the

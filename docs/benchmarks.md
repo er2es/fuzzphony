@@ -50,5 +50,5 @@ unranked, and cannot exclude words: its 20 hits for the exclusion query include 
 forms, after scanning the whole table. Fuzzphony ranks every result and handles those cases in
 about 10–25 ms.
 
-Measure on your own data. The demo has a Benchmark page, and
+Measure on your own data. The demo's Speed view runs this benchmark in the browser, and
 [demo/README.md](../demo/README.md#measured) has results on 200 000 and 500 000 rows.

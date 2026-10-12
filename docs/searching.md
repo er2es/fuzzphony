@@ -360,8 +360,7 @@ $products = $found->hits;                                                       
 ```
 
 The `*` makes the word being typed a prefix. Which of the three to show, and how, is the page's setting: the
-demo's Compare page shows all three (`data-suggest-rich-value="true"` on its search form), every other search box
-only the completions (the default, a `<datalist>`). The library has no global "rich" switch on purpose: the Live
+demo's search boxes show them in the one dropdown they all share (completions, the categories the text is found in, the first products). The library has no global "rich" switch on purpose: the Live
 Component's `suggestions`, `facets` and its `hit` block cover the same ground inside it, and the rest is your template.
 
 ## Facets
