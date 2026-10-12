@@ -7,9 +7,13 @@ changes; they are always listed under **Breaking** and explained in [UPGRADE.md]
 
 ## [Unreleased]
 
+## [0.8.4] - 2026-10-12
+
+Demo only; no upgrade steps.
+
 ### Fixed
 
-- Demo, Tune: the speed figure, the facet chips, the hits and the legend were run together (the results area had lost its spacing in the 0.8.2 rebuild); they have their gaps back and the chips wrap.
+- Demo, Tune: the speed figure, the facet chips, the hits and the legend were run together (the results area had lost its spacing in the 0.8.2 rebuild); they have their gaps back and the chips wrap. Code blocks (the SQL and the plan, the wizard output) wrap long lines instead of scrolling sideways.
 
 ## [0.8.3] - 2026-10-12
 
@@ -35,7 +39,7 @@ No upgrade steps. One performance fix in the library, the rest is the demo.
 - **Demo: the "Under the hood" menu** lists the Config wizard, **Benchmark**, Doctor, Observability and **Synonyms**. The benchmark is a
   page of its own again (`/under-the-hood/benchmark`; the Speed view of the search links to it) and the synonym editor moved there from
   `/relevance/synonyms` to `/under-the-hood/synonyms` (no redirects). The "/ to search" hint in the toolbar is removed (the shortcut still works).
-- `demo/tools/flows.mjs` checks the loading behaviour and the menu (30 checks); `shots.mjs` lists the current routes.
+- `demo/tools/flows.mjs` checks the loading behaviour and the menu (31 checks); `shots.mjs` lists the current routes.
 
 ## [0.8.2] - 2026-10-12
 
@@ -752,7 +756,8 @@ on its own:
 - Sync modes: queue (default), trigger, ORM, manual; watches for joined tables.
 - Doctor with fixes; CLI commands for schema, reindex, worker, search and explain.
 
-[Unreleased]: https://github.com/er2es/fuzzphony/compare/v0.8.3...HEAD
+[Unreleased]: https://github.com/er2es/fuzzphony/compare/v0.8.4...HEAD
+[0.8.4]: https://github.com/er2es/fuzzphony/compare/v0.8.3...v0.8.4
 [0.8.3]: https://github.com/er2es/fuzzphony/compare/v0.8.2...v0.8.3
 [0.8.2]: https://github.com/er2es/fuzzphony/compare/v0.8.1...v0.8.2
 [0.8.1]: https://github.com/er2es/fuzzphony/compare/v0.8.0...v0.8.1

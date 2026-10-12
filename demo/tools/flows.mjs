@@ -143,6 +143,12 @@ const labels = (await p3.locator('.menu-panel a').allTextContents()).map((t) => 
 check('the menu lists wizard, benchmark, doctor, observability, synonyms', ['Config wizard', 'Benchmark', 'Doctor', 'Observability', 'Synonyms'].every((l) => labels.includes(l)), labels.join(', '));
 check('there is no "/ to search" hint in the toolbar', (await p3.locator('.toolbar-hint').count()) === 0);
 
+// the SQL of the Tune page wraps instead of scrolling sideways
+await go(page, BASE + '/tune?query=mouse');
+await page.click('label[for=view-sql]');
+await page.waitForSelector('.panel-sql pre');
+check('the SQL wraps instead of scrolling sideways', await page.evaluate(() => [...document.querySelectorAll('.panel-sql pre')].every((pre) => pre.scrollWidth <= pre.clientWidth + 1)));
+
 // 10. a phone: the tab bar is at the bottom of the screen
 const phone = await browser.newContext({ viewport: { width: 390, height: 844 }, reducedMotion: 'reduce' });
 const p2 = await phone.newPage();
