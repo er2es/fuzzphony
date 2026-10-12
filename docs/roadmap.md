@@ -80,10 +80,13 @@ With a "Migrating from `LIKE`" guide and recipes (admin panel, shop, multi-tenan
 
 ### Mutation testing
 
-Infection runs in CI: a full run monthly, and only the changed lines on pull requests. The first
-full run (September 2026) killed 85% of 3,944 mutants; the score is on the README badge. Next:
-write tests for the 561 surviving mutants that point to real gaps, reach 90%, then add a
-`minMsi` gate so the score can't slip, raised continuously by every pull request after that.
+Infection runs in CI: a full run monthly (and on demand, `workflow_dispatch`), and only the changed lines on
+pull requests. The first full run (September 2026) killed 85% of 3,944 mutants; after 0.8.1's 459 new tests the full
+run of 5,989 mutants scores 96% covered-code MSI (17 minutes on CI); the score is on the README badge, which the full
+run on `main` updates. The mutants that still escape in the files worked on are equivalent (a cast that changes nothing, a
+key that is never read, a constant only a real sleep would show). Next: add a `minCoveredMsi` gate to the full run so the
+score can't slip, raised by every pull request after that, and look at the ~1,400 mutants Infection skips because their
+covering tests are slower than the 30 s `timeout` (the reindex and rebuild paths): they are not in the score.
 
 ### Backward-compatibility promise
 

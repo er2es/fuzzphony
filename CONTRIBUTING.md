@@ -40,7 +40,7 @@ line coverage means the tests run the code but don't assert on it. It runs multi
 (`TEST_TOKEN=1, 2, ...`) gets its own `{dbname}_t{TEST_TOKEN}` database, created on first use
 (`tests/Integration/PostgresTestCase::dsn()`) — without `TEST_TOKEN` (a normal `composer test`
 run) nothing changes. Without pcov in your local PHP (the Windows builds have none), run it in a `php:8.4-cli` container
-with `pdo_pgsql` and `pcov` installed, next to the test database. There is no CI gate on the MSI yet; see
+with `pdo_pgsql` and `pcov` installed, next to the test database. There is no CI gate on the MSI yet (the full run in CI scores 96% covered-code MSI, and the README badge shows it); see
 [docs/roadmap.md](docs/roadmap.md#mutation-testing).
 
 ## Pull requests
