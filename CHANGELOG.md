@@ -7,6 +7,10 @@ changes; they are always listed under **Breaking** and explained in [UPGRADE.md]
 
 ## [Unreleased]
 
+## [0.8.2] - 2026-10-12
+
+No upgrade steps for the library. The demo's routes changed (below).
+
 ### Fixed
 
 - `SearchBuilder::explain()` of an `asYouType()` search returned the "did you mean" text with the prefix alternative the engine saw
@@ -718,7 +722,8 @@ on its own:
 - Sync modes: queue (default), trigger, ORM, manual; watches for joined tables.
 - Doctor with fixes; CLI commands for schema, reindex, worker, search and explain.
 
-[Unreleased]: https://github.com/er2es/fuzzphony/compare/v0.8.1...HEAD
+[Unreleased]: https://github.com/er2es/fuzzphony/compare/v0.8.2...HEAD
+[0.8.2]: https://github.com/er2es/fuzzphony/compare/v0.8.1...v0.8.2
 [0.8.1]: https://github.com/er2es/fuzzphony/compare/v0.8.0...v0.8.1
 [0.8.0]: https://github.com/er2es/fuzzphony/compare/v0.7.3...v0.8.0
 [0.7.3]: https://github.com/er2es/fuzzphony/compare/v0.7.2...v0.7.3
