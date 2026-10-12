@@ -185,9 +185,20 @@ final readonly class SearchBuilder
 
     public function get(): SearchResult
     {
+        return $this->run(true);
+    }
+
+    /** @internal A federated search charges the rate limit once, with its first index. */
+    public function getUncharged(): SearchResult
+    {
+        return $this->run(false);
+    }
+
+    private function run(bool $charge): SearchResult
+    {
         $query = $this->effective();
         $result = $this->gate !== null
-            ? $this->gate->search($this->engine, $this->index, $query, $this->query->text)
+            ? $this->gate->search($this->engine, $this->index, $query, $this->query->text, $charge)
             : $this->engine->search($this->index, self::checked($this->index, $query));
 
         return $this->query->asYouType && $result->didYouMean !== null ? $result->withDidYouMean(Typeahead::withoutPrefixAlternative($result->didYouMean)) : $result;
@@ -197,7 +208,7 @@ final readonly class SearchBuilder
     {
         $query = $this->effective();
         $explanation = $this->gate !== null
-            ? $this->gate->explain($this->engine, $this->index, $query, $analyze, $this->query->text)
+            ? $this->gate->explain($this->engine, $this->index, $query, $analyze, $this->query->text, false)
             : $this->engine->explain($this->index, self::checked($this->index, $query), $analyze);
         $didYouMean = $explanation->result->didYouMean;
         if (!$this->query->asYouType || $didYouMean === null) {
