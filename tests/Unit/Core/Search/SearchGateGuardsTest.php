@@ -191,6 +191,147 @@ final class SearchGateGuardsTest extends TestCase
         self::assertSame(1, $guard->charged);
     }
 
+    public function testAFederatedSearchChargesTheFirstIndexSearchedAsAnActor(): void
+    {
+        $guard = new CountingGuard();
+        $fuzzphony = new Fuzzphony($this->fake(new GuardsRecorder()), $this->threeIndexes(), new SearchGate(guards: [$guard]));
+        $asAda = static fn(SearchBuilder $b): SearchBuilder => $b->asActor(new Actor(user: 'ada'));
+
+        $fuzzphony->federated()->index('products')->index('articles', 1.0, $asAda)->index('pages', 1.0, $asAda)->query('mouse')->get();
+
+        self::assertSame([2, 1], [$guard->calls, $guard->charged]);
+    }
+
+    public function testAFederatedSearchWithoutAnActorNeverCallsTheGuards(): void
+    {
+        $guard = new CountingGuard();
+        $fuzzphony = new Fuzzphony($this->fake(new GuardsRecorder()), $this->threeIndexes(), new SearchGate(guards: [$guard]));
+
+        $fuzzphony->federated()->index('products')->index('articles')->index('pages')->query('mouse')->get();
+
+        self::assertSame([0, 0], [$guard->calls, $guard->charged]);
+    }
+
+    public function testARefusedFederatedSearchRethrowsAndIsCountedOnce(): void
+    {
+        $metrics = new RecordingMetricsCollector();
+        $fuzzphony = new Fuzzphony($this->fake(new GuardsRecorder()), $this->threeIndexes(), new SearchGate($metrics, guards: [new ThrowingGuard(AccessDenied::forIndex('products'))]));
+        $asAda = static fn(SearchBuilder $b): SearchBuilder => $b->asActor(new Actor(user: 'ada'));
+
+        try {
+            $fuzzphony->federated()->index('products', 1.0, $asAda)->index('articles', 1.0, $asAda)->query('mouse')->get();
+            self::fail('AccessDenied expected');
+        } catch (AccessDenied) {
+        }
+
+        self::assertSame([['increment', 'fuzzphony.search.denied', 1.0, ['index' => 'products', 'reason' => 'authorization']]], $metrics->calls);
+    }
+
+    /** @return iterable<string, array{Access, list<string>}> */
+    public static function oddAccesses(): iterable
+    {
+        yield 'no field at all' => [Access::only([]), []];
+        yield 'only an unknown name' => [Access::only(['nme']), []];
+        yield 'a known and an unknown name' => [Access::only(['name', 'nme']), ['name']];
+    }
+
+    /** @param list<string> $expected */
+    #[\PHPUnit\Framework\Attributes\DataProvider('oddAccesses')]
+    public function testTheGateKeepsOnlyTheKnownFieldsAndAnEmptyListFailsClosed(Access $access, array $expected): void
+    {
+        $engine = new GuardsRecorder();
+
+        (new SearchBuilder($this->fake($engine), Indexes::products(), gate: new SearchGate(guards: [new FixedGuard($access)])))->query('mouse')->asActor(new Actor(user: 'ada'))->get();
+
+        self::assertSame([$expected], $engine->allowedFields);
+    }
+
+    public function testAnEmptyAccessIntersectedWithTheQueryFieldsStaysEmpty(): void
+    {
+        $engine = new GuardsRecorder();
+        $gate = new SearchGate(guards: [new FixedGuard(Access::only([]))]);
+
+        (new SearchBuilder($this->fake($engine), Indexes::products(), gate: $gate))->query('mouse')->restrictedToFields('name')->asActor(new Actor(user: 'ada'))->get();
+
+        self::assertSame([[]], $engine->allowedFields);
+    }
+
+    public function testAGuardThatFailsWithAnotherExceptionPropagatesAndIsNeitherCountedNorRecorded(): void
+    {
+        $metrics = new RecordingMetricsCollector();
+        $log = new RecordingSearchLog();
+        $gate = new SearchGate($metrics, log: $log, guards: [new ThrowingGuard(new \RuntimeException('limiter down'))]);
+        $builder = (new SearchBuilder($this->fake(new GuardsRecorder()), Indexes::products(), gate: $gate))->query('mouse')->asActor(new Actor(user: 'ada'));
+
+        try {
+            $builder->get();
+            self::fail('RuntimeException expected');
+        } catch (\RuntimeException $e) {
+            self::assertSame('limiter down', $e->getMessage());
+        }
+
+        self::assertSame([], $metrics->calls);
+        self::assertSame([], $log->records);
+    }
+
+    public function testTheRefusalIsRethrownAsTheSameInstance(): void
+    {
+        foreach ([AccessDenied::forIndex('products'), new RateLimited(30)] as $refusal) {
+            $gate = new SearchGate(guards: [new ThrowingGuard($refusal)]);
+            $builder = (new SearchBuilder($this->fake(new GuardsRecorder()), Indexes::products(), gate: $gate))->query('mouse')->asActor(new Actor(user: 'ada'));
+
+            try {
+                $builder->get();
+                self::fail($refusal::class . ' expected');
+            } catch (AccessDenied|RateLimited $caught) {
+                self::assertSame($refusal, $caught);
+            }
+        }
+    }
+
+    public function testADenyingGuardBeforeACountingGuardLeavesItUncalled(): void
+    {
+        $counting = new CountingGuard();
+        $gate = new SearchGate(guards: [new ThrowingGuard(AccessDenied::forIndex('products')), $counting]);
+        $builder = (new SearchBuilder($this->fake(new GuardsRecorder()), Indexes::products(), gate: $gate))->query('mouse')->asActor(new Actor(user: 'ada'));
+
+        try {
+            $builder->get();
+            self::fail('AccessDenied expected');
+        } catch (AccessDenied) {
+        }
+
+        self::assertSame(0, $counting->calls);
+    }
+
+    public function testARefusedSuggestIsCountedWithoutALogRow(): void
+    {
+        $metrics = new RecordingMetricsCollector();
+        $log = new RecordingSearchLog();
+        $registry = new IndexRegistry([Indexes::products()]);
+        $denied = new Fuzzphony($this->suggestingEngine(), $registry, new SearchGate($metrics, log: $log, guards: [new ThrowingGuard(AccessDenied::forIndex('products'))]));
+        $limited = new Fuzzphony($this->suggestingEngine(), $registry, new SearchGate($metrics, log: $log, guards: [new ThrowingGuard(new RateLimited(9))]));
+
+        foreach ([$denied, $limited] as $fuzzphony) {
+            try {
+                $fuzzphony->suggest('products', 'wir', 8, new Actor(user: 'ada'));
+                self::fail('a refusal expected');
+            } catch (AccessDenied|RateLimited) {
+            }
+        }
+
+        self::assertSame([
+            ['increment', 'fuzzphony.search.denied', 1.0, ['index' => 'products', 'reason' => 'authorization']],
+            ['increment', 'fuzzphony.search.rate_limited', 1.0, ['index' => 'products']],
+        ], $metrics->calls);
+        self::assertSame([], $log->records);
+    }
+
+    private function threeIndexes(): IndexRegistry
+    {
+        return new IndexRegistry([Indexes::products(), Indexes::products()->withName('articles'), Indexes::products()->withName('pages')]);
+    }
+
     public function testAnUnchargedSearchRunsTheGuardsWithoutCharging(): void
     {
         $guard = new CountingGuard();
@@ -201,14 +342,14 @@ final class SearchGateGuardsTest extends TestCase
         self::assertSame([1, 0], [$guard->calls, $guard->charged]);
     }
 
-    public function testExplainRunsTheGuardsWithoutCharging(): void
+    public function testExplainConsumesAToken(): void
     {
         $guard = new CountingGuard();
         $builder = (new SearchBuilder($this->fake(new GuardsRecorder()), Indexes::products(), gate: new SearchGate(guards: [$guard])))->query('mouse')->asActor(new Actor(user: 'ada'));
 
         $builder->explain();
 
-        self::assertSame([1, 0], [$guard->calls, $guard->charged]);
+        self::assertSame([1, 1], [$guard->calls, $guard->charged]);
     }
 
     public function testASearchWithoutAGateIgnoresGetUncharged(): void

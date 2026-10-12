@@ -94,15 +94,15 @@ final readonly class FederatedSearch
         $candidates = [];
         $warnings = [];
         $order = 0;
-        $first = true;
+        $charged = false;
         foreach ($this->indexes as $name => $options) {
             $builder = (new SearchBuilder($this->engine, $this->registry->get($name), gate: $this->gate))->query($this->text);
             if ($options['configure'] !== null) {
                 $builder = ($options['configure'])($builder);
             }
-            // the rate limit is charged once per federated search, with its first index
-            $result = $first ? $builder->limit($read)->get() : $builder->limit($read)->getUncharged();
-            $first = false;
+            // the rate limit is charged once per federated search: with the first index that is searched as an actor
+            $result = $charged ? $builder->limit($read)->getUncharged() : $builder->limit($read)->get();
+            $charged = $charged || $builder->toQuery()->actor !== null;
             $results[$name] = $result;
             foreach ($result->warnings as $warning) {
                 $warnings[] = sprintf('[%s] %s', $name, $warning);

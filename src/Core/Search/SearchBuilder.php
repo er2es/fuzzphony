@@ -188,7 +188,7 @@ final readonly class SearchBuilder
         return $this->run(true);
     }
 
-    /** @internal A federated search charges the rate limit once, with its first index. */
+    /** @internal Never call it from application code (it skips the rate limit): the federated search uses it. */
     public function getUncharged(): SearchResult
     {
         return $this->run(false);
@@ -208,7 +208,7 @@ final readonly class SearchBuilder
     {
         $query = $this->effective();
         $explanation = $this->gate !== null
-            ? $this->gate->explain($this->engine, $this->index, $query, $analyze, $this->query->text, false)
+            ? $this->gate->explain($this->engine, $this->index, $query, $analyze, $this->query->text)
             : $this->engine->explain($this->index, self::checked($this->index, $query), $analyze);
         $didYouMean = $explanation->result->didYouMean;
         if (!$this->query->asYouType || $didYouMean === null) {

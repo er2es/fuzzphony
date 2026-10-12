@@ -124,7 +124,7 @@ final readonly class Fuzzphony
             throw new InvalidArgument(sprintf('The suggestion limit must be between 1 and 20, got %d.', $limit));
         }
         $definition = $this->registry->get($index);
-        if ($actor !== null && $this->gate !== null && !$this->gate->access($definition, $actor)->isAll()) {
+        if ($actor !== null && $this->gate !== null && !$this->gate->accessCounted($definition, $actor)->isAll()) {
             return [];
         }
         $text = mb_substr(ltrim($text), 0, 100);

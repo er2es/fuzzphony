@@ -62,8 +62,10 @@ final readonly class SearchGate
     }
 
     /**
-     * What the guards let this actor see of the index: the intersection of every guard. A viewer who may see every
-     * field of the index gets Access::all() (the unrestricted path).
+     * What the guards let this actor see of the index: the intersection of every guard, in the order of the guards (an
+     * authorization guard placed first refuses before a rate limit is charged). Names that are no field of the index
+     * are dropped; Access::only([]) stays "no field" (the search is restricted to the empty list, it fails closed). A
+     * viewer who may see every field of the index gets Access::all() (the unrestricted path).
      *
      * @throws AccessDenied|RateLimited
      */
@@ -73,8 +75,29 @@ final readonly class SearchGate
         foreach ($this->guards as $guard) {
             $access = $access->intersect($guard->check($index, $actor, $charge));
         }
+        if ($access->fields === null) {
+            return $access;
+        }
+        $known = $index->fieldNames();
 
-        return $access->fields !== null && array_diff($index->fieldNames(), $access->fields) === [] ? Access::all() : $access;
+        return array_diff($known, $access->fields) === [] ? Access::all() : Access::only(array_values(array_intersect($access->fields, $known)));
+    }
+
+    /**
+     * access() for a caller that has no search to run (the completions of Fuzzphony::suggest()): a refusal is counted
+     * and logged like the one of a search, but no row is written to the search log (there is no query text).
+     *
+     * @throws AccessDenied|RateLimited
+     */
+    public function accessCounted(IndexDefinition $index, Actor $actor): Access
+    {
+        try {
+            return $this->access($index, $actor);
+        } catch (AccessDenied|RateLimited $e) {
+            $this->countRefusal($index, $e);
+
+            throw $e;
+        }
     }
 
     /**
@@ -130,15 +153,20 @@ final readonly class SearchGate
     /** A refused search is counted, logged and recorded (also when it is unlogged): a refusal is never silent. */
     private function refused(IndexDefinition $index, SearchQuery $query, \Throwable $e, ?string $typed): void
     {
-        [$event, $labels, $status] = match (true) {
-            $e instanceof RateLimited => ['fuzzphony.search.rate_limited', ['index' => $index->name], RecordStatus::RateLimited],
-            $e instanceof AccessDenied => ['fuzzphony.search.denied', ['index' => $index->name, 'reason' => 'authorization'], RecordStatus::Denied],
-            default => ['fuzzphony.search.denied', ['index' => $index->name, 'reason' => 'actor_required'], RecordStatus::Denied],
+        $this->countRefusal($index, $e);
+
+        $this->record($index, $query, $typed, 0, 0.0, false, $e instanceof RateLimited ? RecordStatus::RateLimited : RecordStatus::Denied);
+    }
+
+    private function countRefusal(IndexDefinition $index, \Throwable $e): void
+    {
+        [$event, $labels] = match (true) {
+            $e instanceof RateLimited => ['fuzzphony.search.rate_limited', ['index' => $index->name]],
+            $e instanceof AccessDenied => ['fuzzphony.search.denied', ['index' => $index->name, 'reason' => 'authorization']],
+            default => ['fuzzphony.search.denied', ['index' => $index->name, 'reason' => 'actor_required']],
         };
         $this->metrics->increment($event, $labels);
         $this->logger?->warning('Fuzzphony refused a search: {message}', ['message' => $e->getMessage(), 'index' => $index->name]);
-
-        $this->record($index, $query, $typed, 0, 0.0, false, $status);
     }
 
     /**
