@@ -36,6 +36,9 @@ final class PostgresInspector
     public function __construct(
         private readonly Connection $connection,
         private readonly PostgresSchemaGenerator $schema,
+        /** Whether the engine keeps a search log: only then is its table checked. */
+        private readonly bool $searchLog = false,
+        private readonly int $searchLogRetentionDays = 90,
     ) {
         $this->names = $schema->names();
     }
@@ -86,9 +89,31 @@ final class PostgresInspector
         array_push($checks, ...$this->configuration($index));
         array_push($checks, ...$this->tenantScoping($index));
         array_push($checks, ...$this->columnAwareFiltering($index));
-        array_push($checks, ...$this->schemaVersion($index)); // last: earlier checks keep their order
+        array_push($checks, ...$this->schemaVersion($index)); // earlier checks keep their order
+        if ($this->searchLog) {
+            $checks[] = $this->searchLog();
+        }
 
         return new InspectionReport($index->name, $checks);
+    }
+
+    /** The opt-in search log: its table exists, and nothing older than the retention is left in it. */
+    private function searchLog(): Check
+    {
+        $table = $this->names->searchLog();
+        if (!$this->regclass($table)) {
+            return Check::error('Search log', sprintf('Table %s does not exist, so searches cannot be logged.', $table), self::APPLY);
+        }
+        $row = $this->connection->fetchAll(
+            sprintf('SELECT count(*) AS total, count(*) FILTER (WHERE at < now() - make_interval(days => :days)) AS old FROM %s', $table),
+            ['days' => $this->searchLogRetentionDays],
+        )[0];
+        $total = Coerce::int($row['total']);
+        $old = Coerce::int($row['old']);
+
+        return $old > 0
+            ? Check::warning('Search log', sprintf('%s rows, %s of them older than the %d days of retention.', number_format($total), number_format($old), $this->searchLogRetentionDays), 'bin/console fuzzphony:search-log:purge')
+            : Check::ok('Search log', sprintf('%s rows', number_format($total)));
     }
 
     /** The words "did you mean" suggests from: created by the schema, filled by a full reindex. */

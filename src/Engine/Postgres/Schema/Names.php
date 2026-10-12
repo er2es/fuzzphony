@@ -92,6 +92,18 @@ final readonly class Names
         return $this->qualify($this->metaName());
     }
 
+    /** The opt-in search log: one row per recorded search (SearchLogStore). */
+    public function searchLog(): string
+    {
+        return $this->qualify(self::PREFIX . 'search_log');
+    }
+
+    /** An index of the search log table ("index_at", "index_norm"); bare, like the other index names. */
+    public function searchLogIndexName(string $suffix): string
+    {
+        return self::limit(self::PREFIX . 'search_log_' . $suffix);
+    }
+
     public function normFunction(): string
     {
         return $this->qualify(self::PREFIX . 'norm');

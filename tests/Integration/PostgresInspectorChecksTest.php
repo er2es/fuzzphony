@@ -505,4 +505,65 @@ final class PostgresInspectorChecksTest extends TestCase
         self::assertArrayNotHasKey('Typo tolerance', $configuration($noFuzzy('never')), 'switched off: nothing to warn about');
         self::assertArrayNotHasKey('Typo tolerance', $configuration(Indexes::products('manual')), 'a fuzzy field makes it work');
     }
+
+    public function testADoctorWithoutTheSearchLogIsUnchanged(): void
+    {
+        $this->fuzzphony(Indexes::products('queue'));
+        $connection = new InterceptingConnection($this->connection);
+        $default = $this->inspector($connection)->inspect(Indexes::products('queue'), new InspectOptions())->checks;
+        $explicit = (new PostgresInspector($this->connection, new PostgresSchemaGenerator(), false, 90))->inspect(Indexes::products('queue'), new InspectOptions())->checks;
+        $viaEngine = (new Fuzzphony(new PostgresEngine($this->connection), new IndexRegistry([Indexes::products('queue')])))->inspect('products')->checks;
+
+        self::assertSame([], array_values(array_filter($default, static fn(Check $c): bool => $c->name === 'Search log')));
+        self::assertEquals($default, $explicit);
+        self::assertEquals($default, $viaEngine);
+        self::assertSame([], $connection->statements('SELECT count(*) AS total'), 'the search log table is not even looked at');
+        foreach ($connection->params('SELECT to_regclass') as $params) {
+            self::assertStringNotContainsString('search_log', (string) json_encode($params));
+        }
+    }
+
+    public function testTheSearchLogIsCheckedOnlyWhenTheEngineKeepsOne(): void
+    {
+        $this->connection->execute('DROP TABLE IF EXISTS fuzzphony_search_log CASCADE');
+        $index = Indexes::products('manual');
+        $withLog = new Fuzzphony(new PostgresEngine($this->connection, searchLog: true), new IndexRegistry([$index]));
+        $withLog->schema()->apply($this->connection);
+        $withLog->reindex('products');
+
+        $empty = self::named($withLog, 'products', 'Search log');
+        self::assertEquals([Check::ok('Search log', '0 rows')], $empty);
+
+        $this->connection->execute("INSERT INTO fuzzphony_search_log (at, index_name, query, query_norm, hits, took_ms, used_fuzzy, status) VALUES (now(), 'products', 'a', 'a', 1, 1, false, 'ok'), (now() - interval '10 days', 'products', 'b', 'b', 0, 1, false, 'ok')");
+        self::assertEquals([Check::ok('Search log', '2 rows')], self::named($withLog, 'products', 'Search log'));
+    }
+
+    public function testRowsOlderThanTheRetentionAreAWarning(): void
+    {
+        $this->connection->execute('DROP TABLE IF EXISTS fuzzphony_search_log CASCADE');
+        $index = Indexes::products('manual');
+        $engine = new PostgresEngine($this->connection, searchLog: true, searchLogRetentionDays: 30);
+        $fuzzphony = new Fuzzphony($engine, new IndexRegistry([$index]));
+        $fuzzphony->schema()->apply($this->connection);
+        $fuzzphony->reindex('products');
+        $this->connection->execute("INSERT INTO fuzzphony_search_log (at, index_name, query, query_norm, hits, took_ms, used_fuzzy, status) VALUES (now(), 'products', 'a', 'a', 1, 1, false, 'ok'), (now() - interval '29 days', 'products', 'b', 'b', 0, 1, false, 'ok'), (now() - interval '31 days', 'products', 'c', 'c', 0, 1, false, 'ok'), (now() - interval '90 days', 'products', 'd', 'd', 0, 1, false, 'ok')");
+
+        self::assertEquals(
+            [Check::warning('Search log', '4 rows, 2 of them older than the 30 days of retention.', 'bin/console fuzzphony:search-log:purge')],
+            self::named($fuzzphony, 'products', 'Search log'),
+        );
+    }
+
+    public function testAMissingSearchLogTableIsAnError(): void
+    {
+        $index = Indexes::products('manual');
+        $fuzzphony = new Fuzzphony(new PostgresEngine($this->connection, searchLog: true), new IndexRegistry([$index]));
+        $fuzzphony->schema()->apply($this->connection);
+        $this->connection->execute('DROP TABLE IF EXISTS fuzzphony_search_log CASCADE');
+
+        self::assertEquals(
+            [Check::error('Search log', sprintf('Table %s does not exist, so searches cannot be logged.', '"public"."fuzzphony_search_log"'), 'bin/console fuzzphony:schema --apply')],
+            self::named($fuzzphony, 'products', 'Search log'),
+        );
+    }
 }

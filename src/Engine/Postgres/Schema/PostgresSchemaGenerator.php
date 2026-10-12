@@ -34,7 +34,8 @@ final class PostgresSchemaGenerator
     /** Every generated function body / DO block is quoted with this tag; the validator keeps it out of embedded SQL. */
     private const string TAG = DefinitionValidator::DOLLAR_QUOTE_TAG;
 
-    public function __construct(private readonly Names $names = new Names()) {}
+    /** @param bool $searchLog whether the shared schema includes the search log table (the engine was built with searchLog: true) */
+    public function __construct(private readonly Names $names = new Names(), private readonly bool $searchLog = false) {}
 
     public function names(): Names
     {
@@ -81,6 +82,30 @@ final class PostgresSchemaGenerator
             $statements[] = new Statement(
                 sprintf('ALTER TABLE %s ADD COLUMN IF NOT EXISTS %s %s', $this->names->meta(), $column, $type),
                 'The last failure of the full rebuild a TRUNCATE queued (the doctor reports it)',
+            );
+        }
+
+        if ($this->searchLog) {
+            array_push(
+                $statements,
+                new Statement(sprintf(
+                    "CREATE TABLE IF NOT EXISTS %s (
+    id bigserial PRIMARY KEY,
+    at timestamptz NOT NULL,
+    index_name text NOT NULL,
+    tenant text,
+    actor_user text,
+    query text NOT NULL,
+    query_norm text NOT NULL,
+    hits integer NOT NULL,
+    took_ms real NOT NULL,
+    used_fuzzy boolean NOT NULL,
+    status text NOT NULL
+)",
+                    $this->names->searchLog(),
+                ), 'Search log (opt-in)'),
+                new Statement(sprintf('CREATE INDEX IF NOT EXISTS %s ON %s (index_name, at)', $this->names->searchLogIndexName('index_at'), $this->names->searchLog()), 'Search log by index and time'),
+                new Statement(sprintf('CREATE INDEX IF NOT EXISTS %s ON %s (index_name, query_norm)', $this->names->searchLogIndexName('index_norm'), $this->names->searchLog()), 'Search log grouped by query'),
             );
         }
 
