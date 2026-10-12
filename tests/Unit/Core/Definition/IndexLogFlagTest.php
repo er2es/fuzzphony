@@ -9,7 +9,9 @@ use Fuzzphony\Core\Attribute\SearchField;
 use Fuzzphony\Core\Definition\ArrayDefinitionLoader;
 use Fuzzphony\Core\Definition\AttributeDefinitionLoader;
 use Fuzzphony\Core\Definition\IndexDefinition;
+use Fuzzphony\Core\Exception\InvalidDefinition;
 use Fuzzphony\Tests\Fixtures\Indexes;
+use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\TestCase;
 
 final class IndexLogFlagTest extends TestCase
@@ -46,6 +48,35 @@ final class IndexLogFlagTest extends TestCase
         self::assertFalse($loader->load('things', ['fields' => ['name' => 'A'], 'log' => false])->log);
         self::assertTrue($loader->load('things', ['fields' => ['name' => 'A'], 'log' => true])->log);
         self::assertTrue($loader->load('things', ['fields' => ['name' => 'A']])->log);
+    }
+
+    /** @return iterable<string, array{mixed}> */
+    public static function notBooleans(): iterable
+    {
+        yield 'the string false' => ['false'];
+        yield 'the string true' => ['true'];
+        yield 'zero' => [0];
+        yield 'one' => [1];
+        yield 'an empty string' => [''];
+        yield 'a list' => [[true]];
+    }
+
+    #[DataProvider('notBooleans')]
+    public function testTheYamlKeyMustBeARealBoolean(mixed $value): void
+    {
+        $loader = new ArrayDefinitionLoader();
+
+        foreach ([
+            static fn() => $loader->load('things', ['fields' => ['name' => 'A'], 'log' => $value]),
+            static fn() => $loader->override(Indexes::products(), ['log' => $value]),
+        ] as $call) {
+            try {
+                $call();
+                self::fail('Expected an InvalidDefinition');
+            } catch (InvalidDefinition $e) {
+                self::assertStringContainsString('"log" must be true or false', $e->getMessage());
+            }
+        }
     }
 
     public function testTheYamlKeyOverridesAnAttributeDefinition(): void

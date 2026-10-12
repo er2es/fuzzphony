@@ -37,8 +37,9 @@ What is recorded, precisely:
   [`unlogged()`](#keeping-a-search-out-of-the-log) if you do not want the rows.
 - every refusal, as a `denied` row, so a refused visitor leaves a trace. A refusal is recorded even for an
   [unlogged](#keeping-a-search-out-of-the-log) search.
-- not recorded: `explain()`, `suggest()` and `facets()` calls on their own, and a search that failed in the
-  engine (an exception).
+- not recorded: a successful `explain()`, `suggest()` and `facets()` calls on their own, and a search that failed in
+  the engine (an exception). An `explain()` the gate refuses (an actor without a tenant) is a refusal like any other
+  and is recorded as a `denied` row, with the text that was typed.
 
 The reports count only the searches that ran (`status = ok`); the other rows are there for you to query.
 
@@ -134,7 +135,8 @@ fuzzphony:
     internal_notes: { log: false }  # YAML, also as an override of an attribute index
 ```
 
-`log` is not part of the definition's fingerprint: changing it needs no reindex and no `schema --apply`.
+`log` must be a real boolean: in YAML `log: "false"` (a string) is refused with an `InvalidDefinition`, not read as
+`true`. `log` is not part of the definition's fingerprint: changing it needs no reindex and no `schema --apply`.
 
 ### Keeping a search out of the log
 
@@ -189,18 +191,18 @@ bin/console fuzzphony:analytics products --limit=50 --since=12h
 ```
 
 ```
- --------------- ---------- ---------- ---------------------
+ --------------- ---------- ---------- ---------------------------
   query           searches   avg hits   last seen
- --------------- ---------- ---------- ---------------------
-  mouse           41         18.0       2026-10-12 09:14:51
-  headphones      23         7.5        2026-10-12 09:02:10
-  usb c cable     9          2.0        2026-10-11 17:40:33
- --------------- ---------- ---------- ---------------------
+ --------------- ---------- ---------- ---------------------------
+  mouse           41         18.0       2026-10-12 09:14:51 +00:00
+  headphones      23         7.5        2026-10-12 09:02:10 +00:00
+  usb c cable     9          2.0        2026-10-11 17:40:33 +00:00
+ --------------- ---------- ---------- ---------------------------
 ```
 
 Options: `--top` (the default) or `--zero`, not both; `--since=<n><h|d|w>` (`12h`, `7d`, `4w`; default `7d`);
-`--limit=N` (1 to 1000, default 20); `--tenant=ID` or `--all-tenants`; `--format=table|json`. `--format=json` is for
-scripts, with the query text written as is (never read as console markup):
+`--limit=N` (1 to 1000, default 20); `--tenant=ID` or `--all-tenants`; `--format=table|json`. The table shows
+"last seen" in PHP's default time zone, with its offset; `--format=json` is for scripts (ISO 8601), with the query text written as is (never read as console markup):
 
 ```
 bin/console fuzzphony:analytics products --zero --format=json
@@ -226,6 +228,9 @@ The [demo](../demo/README.md) enables the log (30 days, `redact: [email]`) and h
 "Under the hood" (`/under-the-hood/analytics`): the most searched texts and the zero-result texts of the catalogue
 over the last seven days. It fills as the demo is used. Type an e-mail address into the search box and press Enter:
 the log (and so the page) shows `[redacted]`.
+
+On a publicly hosted demo anyone can plant text that other visitors then see on that page: only e-mail addresses
+are redacted, so treat what it lists as public input, or keep a page like this behind a login.
 
 ## Tenant rules for reports
 

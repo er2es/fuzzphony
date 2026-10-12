@@ -180,7 +180,7 @@ final readonly class SearchBuilder
     {
         $query = $this->effective();
         $explanation = $this->gate !== null
-            ? $this->gate->explain($this->engine, $this->index, $query, $analyze)
+            ? $this->gate->explain($this->engine, $this->index, $query, $analyze, $this->query->text)
             : $this->engine->explain($this->index, self::checked($this->index, $query), $analyze);
         $didYouMean = $explanation->result->didYouMean;
         if (!$this->query->asYouType || $didYouMean === null) {

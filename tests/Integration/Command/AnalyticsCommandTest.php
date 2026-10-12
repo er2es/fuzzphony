@@ -53,6 +53,32 @@ final class AnalyticsCommandTest extends TestCase
         return $rows;
     }
 
+    /** The database answers in its session's zone: the table shows PHP's zone, with the offset; the JSON keeps ISO 8601 (with its offset). */
+    public function testLastSeenIsShownInPhpsTimeZoneWithItsOffset(): void
+    {
+        $this->engine->writeSearchLog([new SearchRecord(new \DateTimeImmutable('2026-10-12 10:00:00 UTC'), 'products', null, null, 'mouse', 1, 1.0, false, RecordStatus::Ok)]);
+        $zone = date_default_timezone_get();
+        try {
+            date_default_timezone_set('Asia/Tokyo');
+            $tokyo = $this->tester();
+            $tokyo->execute(['index' => 'products', '--since' => '5000w']);
+            date_default_timezone_set('America/New_York');
+            $newYork = $this->tester();
+            $newYork->execute(['index' => 'products', '--since' => '5000w']);
+            $json = $this->tester();
+            $json->execute(['index' => 'products', '--since' => '5000w', '--format' => 'json']);
+        } finally {
+            date_default_timezone_set($zone);
+        }
+
+        self::assertStringContainsString('2026-10-12 19:00:00 +09:00', $tokyo->getDisplay());
+        self::assertStringContainsString('2026-10-12 06:00:00 -04:00', $newYork->getDisplay());
+        $lastSeen = self::json($json)[0]['last_seen'];
+        self::assertIsString($lastSeen);
+        self::assertSame(1_791_799_200, (new \DateTimeImmutable($lastSeen))->getTimestamp());
+        self::assertNotFalse(\DateTimeImmutable::createFromFormat(\DATE_ATOM, $lastSeen));
+    }
+
     public function testTheTopQueriesAsJson(): void
     {
         $this->engine->writeSearchLog([$this->record('Mouse', 4), $this->record('mouse ', 2), $this->record('keyboard', 6)]);

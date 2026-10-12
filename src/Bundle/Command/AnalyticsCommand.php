@@ -104,7 +104,8 @@ final class AnalyticsCommand extends Command
             OutputFormatter::escape($s->query),
             $s->searches,
             sprintf('%.1f', $s->averageHits),
-            $s->lastSeen->format('Y-m-d H:i:s'),
+            // the database returns the time in its session's zone: show it in PHP's zone, with the offset, so it is unambiguous
+            $s->lastSeen->setTimezone(new \DateTimeZone(date_default_timezone_get()))->format('Y-m-d H:i:s P'),
         ], $stats));
 
         return Command::SUCCESS;

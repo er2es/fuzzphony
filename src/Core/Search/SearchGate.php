@@ -23,6 +23,9 @@ use Psr\Log\LoggerInterface;
  */
 final readonly class SearchGate
 {
+    /** The characters of a text the redactor may see: four times the 255 that are stored. */
+    private const int MAX_REDACTED_INPUT = 4 * 255;
+
     public function __construct(
         private MetricsCollector $metrics = new NullMetricsCollector(),
         private ?LoggerInterface $logger = null,
@@ -39,9 +42,10 @@ final readonly class SearchGate
         return $this->guarded($index, $query, static fn(): SearchResult => $engine->search($index, $query), $typed);
     }
 
-    public function explain(Engine $engine, IndexDefinition $index, SearchQuery $query, bool $analyze): Explanation
+    /** @param string|null $typed as in search(): a refused explain() is recorded with the text the visitor typed */
+    public function explain(Engine $engine, IndexDefinition $index, SearchQuery $query, bool $analyze, ?string $typed = null): Explanation
     {
-        return $this->guarded($index, $query, static fn(): Explanation => $engine->explain($index, $query, $analyze));
+        return $this->guarded($index, $query, static fn(): Explanation => $engine->explain($index, $query, $analyze), $typed);
     }
 
     /**
@@ -110,8 +114,9 @@ final readonly class SearchGate
         }
 
         try {
-            // redact first, cut after: a pattern is never cut in half
-            $text = $typed ?? $query->text;
+            // bound the input first (the redaction patterns must not run over a text of any size), then redact, then cut:
+            // a pattern is never cut in half by the final cut, and the bound is far above it (4 x the 255 that is kept)
+            $text = mb_substr($typed ?? $query->text, 0, self::MAX_REDACTED_INPUT);
             $text = $this->redactor?->redact($text) ?? $text;
             $this->log->record(new SearchRecord(new \DateTimeImmutable(), $index->name, self::tenantOf($query), $query->actor?->user, mb_substr($text, 0, 255), $hits, $tookMs, $usedFuzzy, $status));
         } catch (\Throwable $e) {

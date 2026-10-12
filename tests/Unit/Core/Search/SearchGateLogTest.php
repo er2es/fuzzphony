@@ -164,6 +164,49 @@ final class SearchGateLogTest extends TestCase
         self::assertSame(str_repeat('é', 255), $log->records[0]->query);
     }
 
+    public function testARefusedExplainIsRecordedWithTheTextTheVisitorTypedNotTheRewrite(): void
+    {
+        $log = new RecordingSearchLog();
+        $builder = new SearchBuilder(self::createStub(Engine::class), Indexes::products(tenant: true), gate: new SearchGate(log: $log));
+
+        try {
+            $builder->query('mouse')->asYouType()->asActor(new Actor(user: 'ada'))->explain();
+            self::fail('ActorRequired expected');
+        } catch (ActorRequired) {
+        }
+
+        self::assertSame(['mouse'], array_map(static fn(SearchRecord $r): string => $r->query, $log->records), 'not (mouse | mouse*)');
+        self::assertSame([RecordStatus::Denied], array_map(static fn(SearchRecord $r): RecordStatus => $r->status, $log->records));
+    }
+
+    /** A refusal is recorded before any engine validation, so the text can be of any size: the patterns must not run over all of it. */
+    public function testTheRedactorOnlySeesTheFirst1020CharactersOfAHugeText(): void
+    {
+        $redactor = new RecordingQueryRedactor();
+        $log = new RecordingSearchLog();
+        $builder = new SearchBuilder($this->engineReturning(1, 1.0, false), Indexes::products(), gate: new SearchGate(log: $log, redactor: $redactor));
+
+        $builder->query(str_repeat('é', 100000))->get();
+
+        self::assertSame([str_repeat('é', 1020)], $redactor->seen);
+        self::assertSame(str_repeat('é', 255), $log->records[0]->query);
+    }
+
+    public function testTheBoundIsAppliedToARefusalToo(): void
+    {
+        $redactor = new RecordingQueryRedactor();
+        $log = new RecordingSearchLog();
+        $builder = new SearchBuilder(self::createStub(Engine::class), Indexes::products(tenant: true), gate: new SearchGate(log: $log, redactor: $redactor));
+
+        try {
+            $builder->query(str_repeat('x', 5000))->asActor(new Actor(user: 'ada'))->get();
+            self::fail('ActorRequired expected');
+        } catch (ActorRequired) {
+        }
+
+        self::assertSame([str_repeat('x', 1020)], $redactor->seen);
+    }
+
     public function testAnIndexWithLogFalseIsNotRecorded(): void
     {
         $log = new RecordingSearchLog();
@@ -273,5 +316,19 @@ final class SearchGateLogTest extends TestCase
         $engine->method('search')->willReturn(new SearchResult([], $total, false, $tookMs, $usedFuzzy, [], 20, 0));
 
         return $engine;
+    }
+}
+
+/** @internal Remembers every text it was asked to redact, and changes nothing. */
+final class RecordingQueryRedactor implements QueryRedactor
+{
+    /** @var list<string> */
+    public array $seen = [];
+
+    public function redact(string $query): string
+    {
+        $this->seen[] = $query;
+
+        return $query;
     }
 }

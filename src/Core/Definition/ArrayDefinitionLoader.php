@@ -94,7 +94,7 @@ final class ArrayDefinitionLoader
             $merged = $merged->withTenant(self::str($config['tenant'], ''));
         }
         if (isset($config['log'])) {
-            $merged = $merged->withLog((bool) $config['log']);
+            $merged = $merged->withLog(self::strictBool($name, 'log', $config['log']));
         }
         if (array_key_exists('synonyms', $config)) {
             $merged = $merged->withSynonyms($this->synonyms($name, $config['synonyms']));
@@ -141,7 +141,7 @@ final class ArrayDefinitionLoader
             $builder->tenant(self::str($config['tenant'], ''));
         }
         if (isset($config['log'])) {
-            $builder->log((bool) $config['log']);
+            $builder->log(self::strictBool($name, 'log', $config['log']));
         }
         if (isset($config['synonyms'])) {
             $builder->synonyms($this->synonymEntries($name, $config['synonyms']));
@@ -173,6 +173,12 @@ final class ArrayDefinitionLoader
         }
         /** @var array<string, mixed> $value */
         return $value;
+    }
+
+    /** A real boolean: the string "false" cast with (bool) would switch the option on, so anything else is refused. */
+    private static function strictBool(string $name, string $option, mixed $value): bool
+    {
+        return is_bool($value) ? $value : throw new InvalidDefinition($name, [sprintf('"%s" must be true or false (a boolean, not a string), got %s.', $option, is_scalar($value) ? var_export($value, true) : get_debug_type($value))]);
     }
 
     private static function str(mixed $value, string $default): string
