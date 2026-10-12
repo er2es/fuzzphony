@@ -37,6 +37,16 @@ final class SearchGateLogTest extends TestCase
         self::assertSame(['products', 3, 'ada', 'Wireless Mouse', 3, 4.2, true, RecordStatus::Ok], [$r->index, $r->tenant, $r->user, $r->query, $r->hits, $r->tookMs, $r->usedFuzzy, $r->status]);
     }
 
+    public function testASearchAsYouTypeIsRecordedWithTheTextTheVisitorTypedNotTheEnginesRewrite(): void
+    {
+        $log = new RecordingSearchLog();
+        $builder = new SearchBuilder($this->engineReturning(1, 1.0, false), Indexes::products(), gate: new SearchGate(log: $log));
+
+        $builder->query('wireless mou')->asYouType()->get();
+
+        self::assertSame(['wireless mou'], array_map(static fn(SearchRecord $r): string => $r->query, $log->records));
+    }
+
     public function testASearchWithoutAnActorIsRecordedWithoutAUserAndWithTheQueryTenant(): void
     {
         $log = new RecordingSearchLog();

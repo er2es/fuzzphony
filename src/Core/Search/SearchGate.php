@@ -30,9 +30,13 @@ final readonly class SearchGate
         private ?QueryRedactor $redactor = null,
     ) {}
 
-    public function search(Engine $engine, IndexDefinition $index, SearchQuery $query): SearchResult
+    /**
+     * @param string|null $typed what the visitor typed, when $query carries a rewrite of it (search-as-you-type adds a
+     *                           prefix alternative): the search log stores this text, not the engine's version
+     */
+    public function search(Engine $engine, IndexDefinition $index, SearchQuery $query, ?string $typed = null): SearchResult
     {
-        return $this->guarded($index, $query, static fn(): SearchResult => $engine->search($index, $query));
+        return $this->guarded($index, $query, static fn(): SearchResult => $engine->search($index, $query), $typed);
     }
 
     public function explain(Engine $engine, IndexDefinition $index, SearchQuery $query, bool $analyze): Explanation
@@ -60,7 +64,7 @@ final readonly class SearchGate
      *
      * @return T
      */
-    private function guarded(IndexDefinition $index, SearchQuery $query, \Closure $run): mixed
+    private function guarded(IndexDefinition $index, SearchQuery $query, \Closure $run, ?string $typed = null): mixed
     {
         try {
             self::assertActorHasTenant($index, $query);
@@ -68,7 +72,7 @@ final readonly class SearchGate
             $this->metrics->increment('fuzzphony.search.denied', ['index' => $index->name, 'reason' => 'actor_required']);
             $this->logger?->warning('Fuzzphony refused a search: {message}', ['message' => $e->getMessage(), 'index' => $index->name]);
 
-            $this->record($index, $query, 0, 0.0, false, RecordStatus::Denied);
+            $this->record($index, $query, $typed, 0, 0.0, false, RecordStatus::Denied);
 
             throw $e;
         }
@@ -76,7 +80,7 @@ final readonly class SearchGate
         $result = $run();
         if ($result instanceof SearchResult) {
             // explain() runs the search again for a developer and records nothing: only search() passes a SearchResult
-            $this->record($index, $query, $result->total, $result->tookMs, $result->usedFuzzy, RecordStatus::Ok);
+            $this->record($index, $query, $typed, $result->total, $result->tookMs, $result->usedFuzzy, RecordStatus::Ok);
         }
 
         return $result;
@@ -98,7 +102,7 @@ final readonly class SearchGate
     }
 
     /** A log that fails (or a redactor that does) must never fail the search: it is counted and logged instead. */
-    private function record(IndexDefinition $index, SearchQuery $query, int $hits, float $tookMs, bool $usedFuzzy, RecordStatus $status): void
+    private function record(IndexDefinition $index, SearchQuery $query, ?string $typed, int $hits, float $tookMs, bool $usedFuzzy, RecordStatus $status): void
     {
         if (!$index->log || $this->log instanceof NullSearchLog) {
             return;
@@ -106,7 +110,8 @@ final readonly class SearchGate
 
         try {
             // redact first, cut after: a pattern is never cut in half
-            $text = $this->redactor?->redact($query->text) ?? $query->text;
+            $text = $typed ?? $query->text;
+            $text = $this->redactor?->redact($text) ?? $text;
             $this->log->record(new SearchRecord(new \DateTimeImmutable(), $index->name, self::tenantOf($query), $query->actor?->user, mb_substr($text, 0, 255), $hits, $tookMs, $usedFuzzy, $status));
         } catch (\Throwable $e) {
             $this->metrics->increment('fuzzphony.search_log.failed', ['index' => $index->name]);

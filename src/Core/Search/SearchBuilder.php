@@ -161,7 +161,7 @@ final readonly class SearchBuilder
     {
         $query = $this->effective();
         $result = $this->gate !== null
-            ? $this->gate->search($this->engine, $this->index, $query)
+            ? $this->gate->search($this->engine, $this->index, $query, $this->query->text)
             : $this->engine->search($this->index, self::checked($this->index, $query));
 
         return $this->query->asYouType && $result->didYouMean !== null ? $result->withDidYouMean(Typeahead::withoutPrefixAlternative($result->didYouMean)) : $result;
