@@ -4,6 +4,10 @@ fuzzphony:
   # Every Fuzzphony table, function and text search configuration lives in its own schema; the application's
   # tables (bench_product, lang_product, ...) stay in public. fuzzphony:schema --apply creates it.
   schema: fuzzphony
+  # Every search is recorded after the response (the /under-the-hood/analytics page and `bin/console fuzzphony:analytics` read it).
+  # E-mail addresses are replaced by [redacted] before anything is stored; rows older than 30 days are purged by
+  # `bin/console fuzzphony:search-log:purge`.
+  search_log: { enabled: true, retention_days: 30, redact: [email] }
   indexes:
     catalog:
       source:

@@ -135,12 +135,26 @@ await p3.click('.nav a >> text=Relevance');
 await p3.waitForURL('**/relevance*');
 check('a page without a field shows a spinner of its own while it loads', (await p3.evaluate(() => sessionStorage.getItem('after'))) === 'spin');
 
-// 9. the Under the hood menu lists the benchmark and the synonyms
+// 9. the Under the hood menu lists the benchmark, the synonyms and the analytics
 await p3.unrouteAll();
 await go(p3, BASE + '/');
 await p3.click('.nav .menu summary');
 const labels = (await p3.locator('.menu-panel a').allTextContents()).map((t) => t.trim());
-check('the menu lists wizard, benchmark, doctor, observability, synonyms', ['Config wizard', 'Benchmark', 'Doctor', 'Observability', 'Synonyms'].every((l) => labels.includes(l)), labels.join(', '));
+check('the menu lists wizard, benchmark, doctor, observability, synonyms, analytics', ['Config wizard', 'Benchmark', 'Doctor', 'Observability', 'Synonyms', 'Analytics'].every((l) => labels.includes(l)), labels.join(', '));
+
+// the search log: two searches through the home page show up on the Analytics page (the log is written after the response: poll)
+for (const q of ['mouse', 'hedphones']) {
+    await go(page, BASE + '/?q=' + q);
+    await page.waitForSelector('#results .hit-row');
+}
+let listed = [];
+for (let attempt = 0; attempt < 5; attempt++) {
+    await go(page, BASE + '/under-the-hood/analytics');
+    listed = (await page.locator('.table-card td code').allTextContents()).map((t) => t.trim());
+    if (listed.includes('mouse') && listed.includes('hedphones')) break;
+    await page.waitForTimeout(500);
+}
+check('the analytics page lists the searches that were just made', listed.includes('mouse') && listed.includes('hedphones'), listed.join(', '));
 check('there is no "/ to search" hint in the toolbar', (await p3.locator('.toolbar-hint').count()) === 0);
 
 // the SQL of the Tune page wraps instead of scrolling sideways

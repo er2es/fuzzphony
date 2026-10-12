@@ -956,6 +956,16 @@ use Symfony\Component\Config\Loader\ParamConfigurator as Param;
  *         async?: bool|Param, // Dispatch Fuzzphony\Bundle\Messenger\RefreshDocuments instead of refreshing inside the request // Default: false
  *         chunk_size?: int|Param, // Default: 500
  *     },
+ *     actor?: array{
+ *         resolver?: scalar|Param|null, // Service id of your own Fuzzphony\Core\Search\ActorResolver // Default: null
+ *         tenant?: scalar|Param|null, // Property path on the Security user that gives the tenant, e.g. account.id // Default: null
+ *         user?: scalar|Param|null, // Property path on the Security user that gives the user, e.g. userIdentifier // Default: null
+ *     },
+ *     search_log?: array{
+ *         enabled?: bool|Param, // Record every search (who, what, how many hits) in fuzzphony_search_log; run fuzzphony:schema --apply after enabling // Default: false
+ *         retention_days?: int|Param, // fuzzphony:search-log:purge deletes older rows // Default: 90
+ *         redact?: list<scalar|Param|null>,
+ *     },
  *     indexes?: array<string, mixed>,
  * }
  * @psalm-type ConfigType = array{

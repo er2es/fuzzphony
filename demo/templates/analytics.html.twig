@@ -1,0 +1,51 @@
+{% extends 'base.html.twig' %}
+{% block title %}Analytics · Fuzzphony{% endblock %}
+{% macro stats(rows, caption) %}
+    <div class="table-card">
+        <table>
+            <caption class="sr-only">{{ caption }}</caption>
+            <thead><tr><th>Query</th><th class="num">Searches</th><th class="num">Average hits</th><th class="num">Last seen</th></tr></thead>
+            <tbody>
+            {% for r in rows %}
+                <tr>
+                    <td><code>{{ r.query }}</code></td>
+                    <td class="num">{{ r.searches|number_format }}</td>
+                    <td class="num">{{ r.averageHits|number_format(1) }}</td>
+                    <td class="num">{{ r.lastSeen|date('Y-m-d H:i') }}</td>
+                </tr>
+            {% endfor %}
+            </tbody>
+        </table>
+    </div>
+{% endmacro %}
+{% block body %}
+<div class="page stack">
+    <div class="hero">
+        <p class="crumb">Under the hood</p>
+        <h1>Analytics</h1>
+        <p class="lede">What people searched for in the last seven days, and what they did not find. Fuzzphony records each search (without the visitor's e-mail addresses: the demo redacts them) and keeps 30 days.</p>
+    </div>
+
+    {% if error %}
+        <p class="callout is-bad" role="alert">The search log cannot be read. A demo database created before 0.9 has no log table yet: run <code>bin/console fuzzphony:schema --apply</code> (in Docker: <code>docker compose run --rm init</code>) and reload this page.</p>
+    {% elseif top is empty %}
+        <p class="callout" role="status">Nothing searched yet: <a href="{{ path('search') }}">search the catalogue</a> and come back.</p>
+    {% else %}
+        <section aria-labelledby="top">
+            <h2 id="top" class="list-title">Most searched</h2>
+            {{ _self.stats(top, 'The most searched texts of the last seven days') }}
+        </section>
+
+        <section aria-labelledby="zero">
+            <h2 id="zero" class="list-title">Found nothing</h2>
+            {% if zero is empty %}
+                <p class="muted">Every search found something.</p>
+            {% else %}
+                {{ _self.stats(zero, 'The texts of the last seven days that found nothing') }}
+            {% endif %}
+        </section>
+    {% endif %}
+
+    <p class="muted">The log is written after the response, in one batch, so a search never waits for it. An e-mail address typed into the search box is stored as <code>[redacted]</code> (<code>search_log.redact: [email]</code>). In the terminal: <code>bin/console fuzzphony:analytics catalog --since=7d</code>, and <code>--zero</code> for the searches that found nothing.</p>
+</div>
+{% endblock %}

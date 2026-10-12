@@ -26,6 +26,7 @@ Part 1 of 0.9 (identity). No upgrade steps: nothing changes unless you configure
 - **`SearchGate`** (public API): every search, `explain()` and federated search passes through it when
   `Fuzzphony` is built with one (the bundle does); it checks the actor and is where parts 2 and 3 hook in.
 - **`fuzzphony.search.denied`**: a counter (labels `index`, `reason=actor_required`) and a log line per refusal.
+- **Demo: the Analytics page** (under "Under the hood", `/under-the-hood/analytics`): the most searched texts of the last seven days and the searches that found nothing, from the search log (`search_log` is enabled in the demo with 30 days of retention and `redact: [email]`). A demo database from before 0.9 shows a hint to run `fuzzphony:schema --apply` instead of failing; `flows.mjs` has a check for it (33 checks).
 
 ### Changed
 
