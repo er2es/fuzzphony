@@ -40,12 +40,7 @@ final class Highlighter
         if ($fields === [] || $ids === []) {
             return [];
         }
-        foreach ($fields as $name) {
-            $field = $index->field($name);
-            if ($field === null || !$field->highlight) {
-                throw new InvalidQuery(sprintf('Cannot highlight "%s": it is not a highlightable field of index "%s".', $name, $index->name));
-            }
-        }
+        self::assertHighlightable($index, $fields);
 
         $params = new ParameterBag();
         $config = $this->names->regconfig($index->text);
@@ -80,6 +75,22 @@ final class Highlighter
         }
 
         return $out;
+    }
+
+    /**
+     * Every name must be a highlightable field of the index; the engine asks it of every requested name up front, so
+     * the same request fails or passes for every viewer (a restricted one included) and whatever the result.
+     *
+     * @param list<string> $fields
+     */
+    public static function assertHighlightable(IndexDefinition $index, array $fields): void
+    {
+        foreach ($fields as $name) {
+            $field = $index->field($name);
+            if ($field === null || !$field->highlight) {
+                throw new InvalidQuery(sprintf('Cannot highlight "%s": it is not a highlightable field of index "%s".', $name, $index->name));
+            }
+        }
     }
 
     public static function toHtml(string $marked): string

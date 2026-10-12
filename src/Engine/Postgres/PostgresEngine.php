@@ -470,6 +470,8 @@ final class PostgresEngine implements Engine, Vocabulary, SynonymStems, Suggesti
         foreach ($query->facets as $facet) {
             $index->assertFacetable($facet);
         }
+        // every requested name, before a restricted viewer's hidden ones are dropped: the same request fails or passes for every viewer
+        Highlighter::assertHighlightable($index, $query->highlight);
 
         $parsed = (new QueryParser($thresholds->maxQueryLength, $thresholds->maxTerms))->parse($query->text);
         $warnings = $parsed->warnings;
@@ -545,9 +547,11 @@ final class PostgresEngine implements Engine, Vocabulary, SynonymStems, Suggesti
         foreach ($query->facets as $name) {
             // disjunctive: the conditions on the facet's own filter are left out, so it shows what another value would find (the tenant's stay)
             $others = array_values(array_filter($conditions, static fn(Condition $c): bool => $c->filter !== $name || $c->filter === $index->tenant));
+            // the probed candidates passed every condition: a facet that leaves one out keeps the words' trigram condition
+            $facetBuilder = $others === $conditions ? $builder : new SearchSqlBuilder($index, $this->names, [], $query->allowedFields);
             $statement = ['label' => self::FACET_LABEL . $name] + ($run['ranked'] === null
-                ? $builder->browseFacet($name, $others, $thresholds, $query->facetValues, $query->exactCounts)
-                : $builder->facet($name, $run['ranked']['tsquery'], $run['ranked']['plain'], $run['ranked']['fuzzyRoot'], $others, $profile, $thresholds, $query->facetValues, $query->exactCounts, $run['ranked']['emptyQueries'], $run['ranked']['scopedRoot']));
+                ? $facetBuilder->browseFacet($name, $others, $thresholds, $query->facetValues, $query->exactCounts)
+                : $facetBuilder->facet($name, $run['ranked']['tsquery'], $run['ranked']['plain'], $run['ranked']['fuzzyRoot'], $others, $profile, $thresholds, $query->facetValues, $query->exactCounts, $run['ranked']['emptyQueries'], $run['ranked']['scopedRoot']));
             $type = $index->filter($name)->type;
             $facets[$name] = array_map(static fn(array $row): FacetValue => new FacetValue(self::facetValue($type, $row['value'] ?? null), Coerce::int($row['n'])), $this->run($statement, $threshold));
             $statements[] = $statement;
@@ -564,9 +568,7 @@ final class PostgresEngine implements Engine, Vocabulary, SynonymStems, Suggesti
 
         $highlights = [];
         // a field the viewer may not see is dropped from the highlights (not an error: the application asks the same for everyone)
-        // (a name that is no field of the index stays, so the Highlighter refuses it as for everyone)
-        $allowed = $query->allowedFields;
-        $highlighted = $allowed === null ? $query->highlight : array_values(array_filter($query->highlight, static fn(string $f): bool => in_array($f, $allowed, true) || $index->field($f) === null));
+        $highlighted = $query->allowedFields === null ? $query->highlight : array_values(array_intersect($query->highlight, $query->allowedFields));
         if ($highlighted !== [] && $tsquery !== null && $rows !== []) {
             $headline = $tsquery;
             $highlights = $this->guard('highlighting', fn(): array => (new Highlighter($this->connection, $this->names))->highlight(
@@ -857,7 +859,7 @@ final class PostgresEngine implements Engine, Vocabulary, SynonymStems, Suggesti
             $alwaysFuzzy = $fuzzyRoot !== null
                 && ($thresholds->fuzzyMode === FuzzyMode::Always || $tsquery === null)
                 && $fuzzy->hasFuzzyLeaf($fuzzyRoot, $emptyQueries ??= $this->emptyQueries($index, $fuzzy->leafQueries($fuzzyRoot)));
-            $candidates = $alwaysFuzzy && $fuzzyRoot !== null ? $this->fuzzyCandidates($fuzzy, $fuzzyRoot, $emptyQueries ?? [], $thresholds) : [];
+            $candidates = $alwaysFuzzy && $fuzzyRoot !== null ? $this->fuzzyCandidates($fuzzy, $fuzzyRoot, $emptyQueries ?? [], $thresholds, $conditions) : [];
             $statement = ['label' => $labelPrefix . ($alwaysFuzzy ? 'full-text + fuzzy' : 'full-text')]
                 + ($candidates === [] ? $builder : new SearchSqlBuilder($index, $this->names, $candidates, $query->allowedFields))->ranked($tsquery, $plain, $alwaysFuzzy ? $fuzzyRoot : null, $conditions, $profile, $thresholds, $query->limit, $query->offset, $emptyQueries ?? [], $scopedRoot);
             $threshold = $alwaysFuzzy && $fuzzyRoot !== null ? $fuzzy->lowestSimilarity($fuzzyRoot, $emptyQueries ?? []) : null;
@@ -873,7 +875,7 @@ final class PostgresEngine implements Engine, Vocabulary, SynonymStems, Suggesti
                 && self::total($rows) < $thresholds->fallbackBelow
                 && $fuzzy->hasFuzzyLeaf($fuzzyRoot, $emptyQueries ??= $this->emptyQueries($index, $fuzzy->leafQueries($fuzzyRoot)))
             ) {
-                $candidates = $this->fuzzyCandidates($fuzzy, $fuzzyRoot, $emptyQueries, $thresholds);
+                $candidates = $this->fuzzyCandidates($fuzzy, $fuzzyRoot, $emptyQueries, $thresholds, $conditions);
                 $statement = ['label' => $labelPrefix . 'fallback: full-text + fuzzy']
                     + ($candidates === [] ? $builder : new SearchSqlBuilder($index, $this->names, $candidates, $query->allowedFields))->ranked($tsquery, $plain, $fuzzyRoot, $conditions, $profile, $thresholds, $query->limit, $query->offset, $emptyQueries, $scopedRoot);
                 $threshold = $fuzzy->lowestSimilarity($fuzzyRoot, $emptyQueries);
@@ -982,14 +984,17 @@ final class PostgresEngine implements Engine, Vocabulary, SynonymStems, Suggesti
      * (and PostgreSQL read) every row that merely starts alike for a word that needs more (see FuzzyQueryCompiler).
      * A word with more matches than the candidate limit is left out and keeps its trigram condition.
      *
-     * @param list<string> $emptyQueries
+     * Each probe applies the search's conditions (tenant and filters): only documents the search could return are probed.
+     *
+     * @param list<string>    $emptyQueries
+     * @param list<Condition> $conditions
      *
      * @return array<string, list<int|string>>
      */
-    private function fuzzyCandidates(FuzzyQueryCompiler $fuzzy, Node $root, array $emptyQueries, Thresholds $thresholds): array
+    private function fuzzyCandidates(FuzzyQueryCompiler $fuzzy, Node $root, array $emptyQueries, Thresholds $thresholds, array $conditions): array
     {
         $candidates = [];
-        foreach ($fuzzy->probes($root, $thresholds->candidateLimit, $emptyQueries) as $key => $probe) {
+        foreach ($fuzzy->probes($root, $thresholds->candidateLimit, $emptyQueries, $conditions) as $key => $probe) {
             $ids = array_map(static fn(array $row): int|string => is_int($row['id']) ? $row['id'] : Coerce::str($row['id']), $this->run(['sql' => $probe['sql'], 'params' => $probe['params']], $probe['similarity']));
             if (count($ids) <= $thresholds->candidateLimit) {
                 $candidates[$key] = $ids;

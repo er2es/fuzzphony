@@ -7,6 +7,7 @@ namespace Fuzzphony\Tests\Integration;
 use Fuzzphony\Core\Database\Connection;
 use Fuzzphony\Core\Definition\IndexDefinition;
 use Fuzzphony\Core\Definition\Synonyms;
+use Fuzzphony\Core\Exception\InvalidQuery;
 use Fuzzphony\Core\Fuzzphony;
 use Fuzzphony\Core\Registry\IndexRegistry;
 use Fuzzphony\Core\Search\Access;
@@ -50,10 +51,11 @@ final class FieldAuthorizationTest extends TestCase
     private function build(?SearchGate $gate = null): Fuzzphony
     {
         $index = IndexDefinition::builder('auth_docs')
-            ->fromQuery('SELECT id, title, body, secret, in_stock FROM fz_auth_doc')
+            ->fromQuery("SELECT id, title, body, secret, in_stock, '' AS note FROM fz_auth_doc")
             ->field('title', 'A', fuzzy: true)
             ->field('body', 'B')
             ->field('secret', 'C', fuzzy: true)
+            ->field('note', 'D', highlight: false)
             ->filter('in_stock', 'bool')
             ->language('english')
             ->sync('manual')
@@ -177,6 +179,23 @@ final class FieldAuthorizationTest extends TestCase
         $none = $this->restricted('lamp')->highlight('secret')->get();
         foreach ($none->hits as $hit) {
             self::assertSame([], $hit->highlights);
+        }
+    }
+
+    public function testAHighlightRequestFailsOrPassesTheSameForEveryViewer(): void
+    {
+        // "note" is not highlightable, "nosuch" is no field; the restricted viewer may see neither, and "fridge" finds nothing
+        foreach (['note', 'nosuch'] as $field) {
+            foreach (['lamp', 'fridge'] as $text) {
+                foreach ([$this->search($text), $this->restricted($text), $this->search($text)->restrictedToFields()] as $i => $builder) {
+                    try {
+                        $builder->highlight('title', $field)->get();
+                        self::fail(sprintf('highlight(%s) of "%s" passed for viewer %d', $field, $text, $i));
+                    } catch (InvalidQuery $e) {
+                        self::assertSame(sprintf('Cannot highlight "%s": it is not a highlightable field of index "auth_docs".', $field), $e->getMessage());
+                    }
+                }
+            }
         }
     }
 

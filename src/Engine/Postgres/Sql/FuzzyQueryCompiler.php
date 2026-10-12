@@ -13,6 +13,7 @@ use Fuzzphony\Core\Query\Ast\Node;
 use Fuzzphony\Core\Query\Ast\Not;
 use Fuzzphony\Core\Query\Ast\Phrase;
 use Fuzzphony\Core\Query\Ast\Term;
+use Fuzzphony\Core\Query\Filter\Condition;
 use Fuzzphony\Core\Ranking\Thresholds;
 use Fuzzphony\Core\Ranking\TypoCurve;
 use Fuzzphony\Engine\Postgres\Schema\Names;
@@ -97,11 +98,15 @@ final class FuzzyQueryCompiler
      * alone, one more than $cap so that a word with too many matches is recognised. Each runs with pg_trgm's
      * threshold set to its `similarity`, the lowest the word itself needs.
      *
-     * @param list<string> $emptyQueries leaf tsqueries the text configuration reduces to nothing (stop words)
+     * Each applies the search's own conditions (the tenant and the filters), so it probes, counts and returns only
+     * documents the search could find: an id of another tenant never reaches a statement (explain() shows them bound).
+     *
+     * @param list<string>    $emptyQueries leaf tsqueries the text configuration reduces to nothing (stop words)
+     * @param list<Condition> $conditions   the search's conditions, tenant included; none: no extra predicate
      *
      * @return array<string, array{sql: string, params: array<string, scalar|null>, similarity: float}> by candidateKey()
      */
-    public function probes(Node $node, int $cap, array $emptyQueries = []): array
+    public function probes(Node $node, int $cap, array $emptyQueries = [], array $conditions = []): array
     {
         $probes = [];
         foreach ($this->trigramLeaves($node, $emptyQueries) as $leaf) {
@@ -113,8 +118,12 @@ final class FuzzyQueryCompiler
             $params = new ParameterBag();
             $norm = sprintf('%s(%s)', $this->names->normFunction(), $params->add($needle));
             $threshold = $this->thresholds->fuzzySimilarity === null ? self::similaritySql($norm, $this->isPrefix($leaf)) : null;
+            $where = $this->trigram($leaf, $norm, $threshold)['condition'];
+            if ($conditions !== []) {
+                $where .= ' AND ' . (new FilterCompiler($this->index))->compile($conditions, $params);
+            }
             $probes[$key] = [
-                'sql' => sprintf("SELECT s.id\nFROM %s AS s\nWHERE %s\nLIMIT %d", $this->names->sidecar($this->index), $this->trigram($leaf, $norm, $threshold)['condition'], $cap + 1),
+                'sql' => sprintf("SELECT s.id\nFROM %s AS s\nWHERE %s\nLIMIT %d", $this->names->sidecar($this->index), $where, $cap + 1),
                 'params' => $params->all(),
                 'similarity' => $this->thresholds->fuzzySimilarity ?? TypoCurve::lowest(self::length($needle), preg_match('/^[ -~]*$/', $needle) === 1),
             ];
