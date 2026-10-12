@@ -46,6 +46,9 @@ final class BuilderExporter
             if ($field->column !== null) {
                 $args[] = 'column: ' . $e($field->column);
             }
+            if ($field->granted !== null) {
+                $args[] = 'granted: ' . $e($field->granted);
+            }
             $lines[] = sprintf('    ->field(%s)', implode(', ', $args));
         }
         foreach ($index->filters as $filter) {

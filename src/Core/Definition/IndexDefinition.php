@@ -98,6 +98,12 @@ final readonly class IndexDefinition
         return $this->profiles[$name] ?? throw InvalidQuery::unknownProfile($this->name, $name, array_keys($this->profiles));
     }
 
+    /** @return list<string> */
+    public function fieldNames(): array
+    {
+        return array_map(static fn(FieldDefinition $f): string => $f->name, $this->fields);
+    }
+
     /** @return list<FieldDefinition> */
     public function fuzzyFields(): array
     {

@@ -19,6 +19,7 @@ final readonly class SearchQuery
      * @param array<string, mixed> $thresholdOverrides snake_case keys, see Thresholds::with()
      * @param array<string, mixed> $rankingOverrides   snake_case keys, see RankingProfile::with()
      * @param list<string>         $facets             filters to count the values of among the matches
+     * @param list<string>|null    $allowedFields      field names the search is limited to; null = every field
      */
     public function __construct(
         public string $text = '',
@@ -41,6 +42,8 @@ final readonly class SearchQuery
         public ?\Fuzzphony\Core\Search\Actor $actor = null,
         /** false = the search is kept out of the search log (SearchBuilder::unlogged()); a refusal is recorded all the same. */
         public bool $log = true,
+        /** Searches, ranks and highlights only these fields (SearchBuilder::restrictedToFields()); null = every field. */
+        public ?array $allowedFields = null,
     ) {
         if ($facetValues < 1 || $facetValues > 100) {
             throw new \Fuzzphony\Core\Exception\InvalidQuery(sprintf('Facet values must be between 1 and 100, got %d.', $facetValues));
@@ -162,6 +165,12 @@ final readonly class SearchQuery
         return $this->copy(log: false);
     }
 
+    /** @param list<string> $fields */
+    public function restrictedTo(array $fields): self
+    {
+        return $this->copy(allowedFields: $fields);
+    }
+
     private function copy(mixed ...$changes): self
     {
         $text = $changes['text'] ?? null;
@@ -179,6 +188,7 @@ final readonly class SearchQuery
         $asYouType = $changes['asYouType'] ?? null;
         $actor = array_key_exists('actor', $changes) ? $changes['actor'] : $this->actor;
         $log = $changes['log'] ?? null;
+        $allowedFields = array_key_exists('allowedFields', $changes) ? self::stringList($changes['allowedFields']) : $this->allowedFields;
 
         return new self(
             text: is_string($text) ? $text : $this->text,
@@ -196,6 +206,7 @@ final readonly class SearchQuery
             asYouType: is_bool($asYouType) ? $asYouType : $this->asYouType,
             actor: $actor instanceof \Fuzzphony\Core\Search\Actor ? $actor : null,
             log: is_bool($log) ? $log : $this->log,
+            allowedFields: $allowedFields,
         );
     }
 

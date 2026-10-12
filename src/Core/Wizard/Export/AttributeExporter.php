@@ -62,6 +62,9 @@ final class AttributeExporter
                 $fieldArgs[] = 'highlight: false';
             }
             $fieldArgs[] = sprintf('column: %s', $e($field->column()));
+            if ($field->granted !== null) {
+                $fieldArgs[] = sprintf('granted: %s', $e($field->granted));
+            }
             $properties[$field->name][] = sprintf('#[SearchField(%s)]', implode(', ', $fieldArgs));
             $properties[$field->name]['type'] ??= '?string';
         }

@@ -45,6 +45,7 @@ everything else in `src/` is marked `@internal` and may change in any release.
   `Fuzzphony\Core\Search\Hit`, `Fuzzphony\Core\Search\ScoreBreakdown`,
   `Fuzzphony\Core\Search\Explanation`, `Fuzzphony\Core\Search\FacetValue`,
   `Fuzzphony\Core\Search\Actor`, `Fuzzphony\Core\Search\ActorResolver`, `Fuzzphony\Core\Search\SearchGate`,
+  `Fuzzphony\Core\Search\SearchGuard`, `Fuzzphony\Core\Search\Access`,
   `Fuzzphony\Core\Search\FederatedSearch`, `Fuzzphony\Core\Search\FederatedResult`, `Fuzzphony\Core\Search\FederatedHit`,
   `Fuzzphony\Core\Query\SearchQuery`,
   `Fuzzphony\Core\Query\Filter\Condition`, `Fuzzphony\Core\Query\Filter\Operator`
@@ -68,7 +69,8 @@ everything else in `src/` is marked `@internal` and may change in any release.
 - Exceptions: `Fuzzphony\Core\Exception\FuzzphonyException`, `Fuzzphony\Core\Exception\EngineFailure`,
   `Fuzzphony\Core\Exception\InvalidArgument`, `Fuzzphony\Core\Exception\InvalidConfiguration`,
   `Fuzzphony\Core\Exception\InvalidDefinition`, `Fuzzphony\Core\Exception\InvalidQuery`,
-  `Fuzzphony\Core\Exception\ActorRequired`, `Fuzzphony\Core\Exception\RebuildAlreadyRunning`,
+  `Fuzzphony\Core\Exception\ActorRequired`, `Fuzzphony\Core\Exception\AccessDenied`,
+  `Fuzzphony\Core\Exception\RateLimited`, `Fuzzphony\Core\Exception\RebuildAlreadyRunning`,
   `Fuzzphony\Core\Exception\UnknownIndex`
 - Engine SPI (for custom engines): `Fuzzphony\Core\Engine\Engine`, `Fuzzphony\Core\Engine\Capabilities`,
   `Fuzzphony\Core\Engine\Capability`, `Fuzzphony\Core\Engine\Vocabulary`, `Fuzzphony\Core\Engine\SynonymStems`, `Fuzzphony\Core\Engine\Suggestions` and `Fuzzphony\Core\Engine\SearchLogStore` (all optional); the PostgreSQL engine: `Fuzzphony\Engine\Postgres\PostgresEngine`
