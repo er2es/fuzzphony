@@ -34,11 +34,7 @@ final readonly class FederatedSearch
 
     private const int MAX_READ = 1000;
 
-    /**
-     * @internal Get one from Fuzzphony::federated(); the $gate argument is wired by the bundle.
-     *
-     * @param array<string, array{weight: float, configure: (\Closure(SearchBuilder): SearchBuilder)|null}> $indexes
-     */
+    /** @param array<string, array{weight: float, configure: (\Closure(SearchBuilder): SearchBuilder)|null}> $indexes */
     public function __construct(
         private Engine $engine,
         private IndexRegistry $registry,

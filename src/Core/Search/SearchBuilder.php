@@ -20,7 +20,6 @@ use Fuzzphony\Core\Query\Typeahead;
  */
 final readonly class SearchBuilder
 {
-    /** @internal Get a builder from Fuzzphony::in(); the $gate argument is wired by the bundle. */
     public function __construct(
         private Engine $engine,
         private IndexDefinition $index,

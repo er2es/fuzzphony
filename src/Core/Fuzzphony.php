@@ -23,7 +23,6 @@ use Fuzzphony\Core\Sync\ReindexResult;
 /** The one service applications talk to. */
 final readonly class Fuzzphony
 {
-    /** @internal The $gate argument is wired by the bundle; the other two are public API. */
     public function __construct(
         private Engine $engine,
         private IndexRegistry $registry,

@@ -13,8 +13,8 @@ use Fuzzphony\Core\Query\SearchQuery;
 use Psr\Log\LoggerInterface;
 
 /**
- * @internal What every search passes through when the bundle (or an application) builds Fuzzphony with a gate:
- * the refusals are counted and logged here. The search log and the guards (0.9, parts 2 and 3) hook in here too.
+ * What every search passes through when Fuzzphony is built with a gate: the refusals are counted and logged
+ * here. The search log and the guards (0.9, parts 2 and 3) hook in here too.
  */
 final readonly class SearchGate
 {

@@ -81,6 +81,7 @@ final class PublicApiTest extends TestCase
         \Fuzzphony\Core\Search\Hit::class,
         \Fuzzphony\Core\Search\ScoreBreakdown::class,
         \Fuzzphony\Core\Search\SearchBuilder::class,
+        \Fuzzphony\Core\Search\SearchGate::class,
         \Fuzzphony\Core\Search\SearchResult::class,
         \Fuzzphony\Core\Sync\ImmediateRefreshDispatcher::class,
         \Fuzzphony\Core\Sync\RefreshDispatcher::class,
@@ -121,7 +122,7 @@ final class PublicApiTest extends TestCase
         }
 
         self::assertSame([], $wrong);
-        self::assertCount(85, self::PUBLIC);
+        self::assertCount(86, self::PUBLIC);
         self::assertCount(144, self::classes());
     }
 

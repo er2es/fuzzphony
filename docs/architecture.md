@@ -44,7 +44,7 @@ everything else in `src/` is marked `@internal` and may change in any release.
 - Searching: `Fuzzphony\Core\Search\SearchBuilder`, `Fuzzphony\Core\Search\SearchResult`,
   `Fuzzphony\Core\Search\Hit`, `Fuzzphony\Core\Search\ScoreBreakdown`,
   `Fuzzphony\Core\Search\Explanation`, `Fuzzphony\Core\Search\FacetValue`,
-  `Fuzzphony\Core\Search\Actor`, `Fuzzphony\Core\Search\ActorResolver`,
+  `Fuzzphony\Core\Search\Actor`, `Fuzzphony\Core\Search\ActorResolver`, `Fuzzphony\Core\Search\SearchGate`,
   `Fuzzphony\Core\Search\FederatedSearch`, `Fuzzphony\Core\Search\FederatedResult`, `Fuzzphony\Core\Search\FederatedHit`,
   `Fuzzphony\Core\Query\SearchQuery`,
   `Fuzzphony\Core\Query\Filter\Condition`, `Fuzzphony\Core\Query\Filter\Operator`
