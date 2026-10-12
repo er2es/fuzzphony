@@ -31,7 +31,7 @@ final class ReindexCommandFailureTest extends TestCase
 
         $status = $tester->execute(['--batch' => '2'], ['interactive' => false]);
 
-        $display = $tester->getDisplay();
+        $display = $tester->getDisplay(true);
         self::assertSame(Command::FAILURE, $status, $display);
         self::assertStringContainsString('the swap could not lock "public"."fuzzphony_products" within 3s, 6 times. The rebuild was kept.', $display);
         self::assertStringContainsString('  Resume it: bin/console fuzzphony:reindex products --from=3', $display);
@@ -51,7 +51,7 @@ final class ReindexCommandFailureTest extends TestCase
 
             $status = $tester->execute(['--batch' => '2', $option => true], ['interactive' => false]);
 
-            $display = $tester->getDisplay();
+            $display = $tester->getDisplay(true);
             self::assertSame(Command::FAILURE, $status, $display);
             self::assertStringContainsString(sprintf('last id 2 (resume: %s --from=2)', $again), $display);
             self::assertStringContainsString(sprintf('  Resume it: bin/console fuzzphony:reindex products %s --from=2', $again), $display, 'a full run resumed from here would continue a stale rebuild');
@@ -67,7 +67,7 @@ final class ReindexCommandFailureTest extends TestCase
         $tester = $this->tester($engine);
 
         self::assertSame(Command::FAILURE, $tester->execute(['--from' => '7'], ['interactive' => false]));
-        self::assertStringContainsString('  Resume it: bin/console fuzzphony:reindex products --from=7', $tester->getDisplay());
+        self::assertStringContainsString('  Resume it: bin/console fuzzphony:reindex products --from=7', $tester->getDisplay(true));
     }
 
     public function testAFailureBeforeTheFirstBatchHasNothingToResume(): void
@@ -79,8 +79,8 @@ final class ReindexCommandFailureTest extends TestCase
         $status = $tester->execute([], ['interactive' => false]);
 
         self::assertSame(Command::FAILURE, $status);
-        self::assertStringContainsString('A rebuild of "products" is already running.', $tester->getDisplay());
-        self::assertStringNotContainsString('Resume it', $tester->getDisplay());
+        self::assertStringContainsString('A rebuild of "products" is already running.', $tester->getDisplay(true));
+        self::assertStringNotContainsString('Resume it', $tester->getDisplay(true));
     }
 
     public function testAnotherFailureIsNotCaught(): void

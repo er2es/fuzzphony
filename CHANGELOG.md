@@ -27,6 +27,14 @@ changes; they are always listed under **Breaking** and explained in [UPGRADE.md]
   and the first hits, built from `suggest()`, `asYouType()` and a facet. The Compare and Playground searches match the
   word being typed (`cr` finds `Crème`).
 
+### Tests
+
+- 459 new tests (1 177 to 1 636), written against the survivors of a full mutation run (5 987 mutants, 734 escaped, covered-code
+  MSI 83%): defaults and boundaries of the configuration, the commands' output, the wizard's heuristics and exporters, the doctor's checks,
+  the PostgreSQL introspection, the Doctrine bridge, the query parser and the new 0.8 code. The ~110 mutants that still escape in the files
+  worked on are equivalent (a cast that changes nothing, an `array_values` whose keys are never read, a constant only a real sleep would show).
+  The whole suite now also passes on Windows (command output is compared with normalised line endings).
+
 ### Changed
 
 - Demo stack brought up to date: Symfony 8.1, Symfony UX 3.5, DoctrineBundle 3, PHP 8.5 (OPcache is built in, with the tracing

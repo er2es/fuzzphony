@@ -28,7 +28,7 @@ final class WizardCommandTest extends TestCase
         $status = $this->tester->execute(['table' => 'fz_product', '--format' => 'yaml'], ['interactive' => false]);
 
         self::assertSame(Command::SUCCESS, $status);
-        $display = $this->tester->getDisplay();
+        $display = $this->tester->getDisplay(true);
         self::assertStringContainsString('Suggested index for "fz_product"', $display);
         self::assertStringContainsString('name:', $display);
         self::assertStringContainsString('config/packages/fuzzphony.yaml', $display);
@@ -39,7 +39,7 @@ final class WizardCommandTest extends TestCase
         $status = $this->tester->execute(['table' => 'fz_product', '--format' => 'builder'], ['interactive' => false]);
 
         self::assertSame(Command::SUCCESS, $status);
-        self::assertStringContainsString('IndexDefinition::builder', $this->tester->getDisplay());
+        self::assertStringContainsString('IndexDefinition::builder', $this->tester->getDisplay(true));
     }
 
     public function testWriteOptionSavesToAFile(): void
@@ -50,7 +50,7 @@ final class WizardCommandTest extends TestCase
             $status = $this->tester->execute(['table' => 'fz_product', '--write' => $file], ['interactive' => false]);
 
             self::assertSame(Command::SUCCESS, $status);
-            self::assertStringContainsString('Written to', $this->tester->getDisplay());
+            self::assertStringContainsString('Written to', $this->tester->getDisplay(true));
             $contents = file_get_contents($file);
             self::assertIsString($contents);
             self::assertStringContainsString('name:', $contents);
@@ -64,7 +64,7 @@ final class WizardCommandTest extends TestCase
         $status = $this->tester->execute(['table' => 'fz_product', '--try' => true], ['interactive' => false]);
 
         self::assertSame(Command::SUCCESS, $status);
-        $display = $this->tester->getDisplay();
+        $display = $this->tester->getDisplay(true);
         self::assertStringContainsString('Trying it', $display);
         self::assertStringContainsString("\r  indexed 5\n", $display, 'the progress line overwrites itself, then ends with a newline');
         self::assertStringContainsString('  5 documents, doctor:', $display);
@@ -83,7 +83,7 @@ final class WizardCommandTest extends TestCase
         $status = $this->tester->execute(['table' => 'fz_product', '--try' => true], ['interactive' => true]);
 
         self::assertSame(Command::SUCCESS, $status);
-        $display = $this->tester->getDisplay();
+        $display = $this->tester->getDisplay(true);
         self::assertStringContainsString('Try a search (empty to finish)', $display);
         self::assertMatchesRegularExpression('/\d+ hit\(s\), [\d.]+ ms.*: ids /', $display);
     }

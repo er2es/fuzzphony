@@ -26,8 +26,8 @@ final class SchemaCommandTest extends TestCase
         $status = $this->tester->execute([], ['interactive' => false]);
 
         self::assertSame(Command::SUCCESS, $status);
-        self::assertStringContainsString('CREATE', $this->tester->getDisplay());
-        self::assertStringContainsString('Nothing was executed', $this->tester->getDisplay());
+        self::assertStringContainsString('CREATE', $this->tester->getDisplay(true));
+        self::assertStringContainsString('Nothing was executed', $this->tester->getDisplay(true));
         self::assertNull($this->context->connection->fetchValue("SELECT to_regclass('fuzzphony_products')"), 'nothing should have been applied');
     }
 
@@ -36,7 +36,7 @@ final class SchemaCommandTest extends TestCase
         $status = $this->tester->execute(['--apply' => true], ['interactive' => false]);
 
         self::assertSame(Command::SUCCESS, $status);
-        self::assertStringContainsString('statement(s) applied', $this->tester->getDisplay());
+        self::assertStringContainsString('statement(s) applied', $this->tester->getDisplay(true));
         self::assertNotNull($this->context->connection->fetchValue("SELECT to_regclass('fuzzphony_products')"), 'the sidecar table must now exist');
     }
 
@@ -59,7 +59,7 @@ final class SchemaCommandTest extends TestCase
         $status = $this->tester->execute(['--drop' => true, '--apply' => true, '--force' => true], ['interactive' => true]);
 
         self::assertSame(Command::SUCCESS, $status);
-        self::assertStringNotContainsString('Drop these Fuzzphony objects?', $this->tester->getDisplay());
+        self::assertStringNotContainsString('Drop these Fuzzphony objects?', $this->tester->getDisplay(true));
         self::assertNull($this->context->connection->fetchValue("SELECT to_regclass('fuzzphony_products')"));
     }
 
@@ -71,7 +71,7 @@ final class SchemaCommandTest extends TestCase
         $status = $this->tester->execute(['--drop' => true, '--apply' => true], ['interactive' => false]);
 
         self::assertSame(Command::FAILURE, $status);
-        self::assertStringContainsString('Refusing to drop without confirmation: pass --force in non-interactive runs.', $this->tester->getDisplay());
+        self::assertStringContainsString('Refusing to drop without confirmation: pass --force in non-interactive runs.', $this->tester->getDisplay(true));
         self::assertNotNull($this->context->connection->fetchValue("SELECT to_regclass('fuzzphony_products')"), 'nothing should have been dropped');
     }
 
@@ -82,8 +82,8 @@ final class SchemaCommandTest extends TestCase
 
         $status = $this->tester->execute(['--drop' => true, '--apply' => true]);
 
-        self::assertSame(Command::SUCCESS, $status, $this->tester->getDisplay());
-        self::assertStringContainsString('Drop these Fuzzphony objects? (yes/no) [no]:', $this->tester->getDisplay());
+        self::assertSame(Command::SUCCESS, $status, $this->tester->getDisplay(true));
+        self::assertStringContainsString('Drop these Fuzzphony objects? (yes/no) [no]:', $this->tester->getDisplay(true));
         self::assertNull($this->context->connection->fetchValue("SELECT to_regclass('fuzzphony_products')"), 'the sidecar table must be gone');
     }
 
@@ -94,8 +94,8 @@ final class SchemaCommandTest extends TestCase
 
         $status = $this->tester->execute(['--drop' => true, '--apply' => true]);
 
-        self::assertSame(Command::FAILURE, $status, $this->tester->getDisplay());
-        self::assertStringContainsString('Drop these Fuzzphony objects? (yes/no) [no]:', $this->tester->getDisplay());
+        self::assertSame(Command::FAILURE, $status, $this->tester->getDisplay(true));
+        self::assertStringContainsString('Drop these Fuzzphony objects? (yes/no) [no]:', $this->tester->getDisplay(true));
         self::assertNotNull($this->context->connection->fetchValue("SELECT to_regclass('fuzzphony_products')"), 'nothing should have been dropped');
     }
 
@@ -106,7 +106,7 @@ final class SchemaCommandTest extends TestCase
 
         $status = $this->tester->execute(['--drop' => true, '--apply' => true]);
 
-        self::assertSame(Command::FAILURE, $status, $this->tester->getDisplay());
+        self::assertSame(Command::FAILURE, $status, $this->tester->getDisplay(true));
         self::assertNotNull($this->context->connection->fetchValue("SELECT to_regclass('fuzzphony_products')"), 'nothing should have been dropped');
     }
 
@@ -118,7 +118,7 @@ final class SchemaCommandTest extends TestCase
 
         self::assertStringContainsString(
             'This will drop the Fuzzphony objects for products: the sidecar table, its triggers, functions and queued rows; your source tables are not touched.',
-            $this->tester->getDisplay(),
+            $this->tester->getDisplay(true),
         );
     }
 
@@ -170,7 +170,7 @@ final class SchemaCommandTest extends TestCase
         }
 
         self::assertSame(Command::FAILURE, $status);
-        self::assertStringContainsString('Cannot create directory', $this->tester->getDisplay());
+        self::assertStringContainsString('Cannot create directory', $this->tester->getDisplay(true));
     }
 
     public function testCompletesIndexNames(): void

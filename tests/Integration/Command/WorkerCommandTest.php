@@ -36,7 +36,7 @@ final class WorkerCommandTest extends TestCase
         $status = $tester->execute([], ['interactive' => false]);
 
         self::assertSame(Command::SUCCESS, $status);
-        self::assertStringContainsString('No index uses the "queue" sync mode; nothing to do.', $tester->getDisplay());
+        self::assertStringContainsString('No index uses the "queue" sync mode; nothing to do.', $tester->getDisplay(true));
     }
 
     public function testOnceDrainsWhateverIsAlreadyQueuedAndExits(): void
@@ -50,7 +50,7 @@ final class WorkerCommandTest extends TestCase
         $status = $tester->execute(['--once' => true], ['interactive' => false]);
 
         self::assertSame(Command::SUCCESS, $status);
-        self::assertStringContainsString('Processed 1 queued item(s).', $tester->getDisplay());
+        self::assertStringContainsString('Processed 1 queued item(s).', $tester->getDisplay(true));
     }
 
     public function testOnceRunsTheRebuildATruncateQueued(): void
@@ -63,8 +63,8 @@ final class WorkerCommandTest extends TestCase
         $tester = new CommandTester(new WorkerCommand($fuzzphony));
         $status = $tester->execute(['--once' => true], ['interactive' => false]);
 
-        self::assertSame(Command::SUCCESS, $status, $tester->getDisplay());
-        self::assertStringContainsString('Processed 1 queued item(s).', $tester->getDisplay());
+        self::assertSame(Command::SUCCESS, $status, $tester->getDisplay(true));
+        self::assertStringContainsString('Processed 1 queued item(s).', $tester->getDisplay(true));
         self::assertSame(0, Coerce::int($connection->fetchValue('SELECT count(*) FROM fuzzphony_products')), 'the source is empty, and so is the index');
         self::assertSame(0, Coerce::int($connection->fetchValue("SELECT count(*) FROM fuzzphony_queue WHERE index_name = 'products'")));
     }
@@ -99,7 +99,7 @@ final class WorkerCommandTest extends TestCase
         });
 
         self::assertSame(Command::FAILURE, $status, 'after processing everything else');
-        self::assertStringContainsString('Processed 0 queued item(s).', $tester->getDisplay());
+        self::assertStringContainsString('Processed 0 queued item(s).', $tester->getDisplay(true));
         self::assertStringContainsString('The full rebuild of "products" a TRUNCATE queued failed; the job stays queued: ', $tester->getErrorOutput());
         self::assertStringContainsString('permission denied', $tester->getErrorOutput());
         self::assertSame(['*'], $this->queued(), 'the next cycle runs it again');
@@ -126,7 +126,7 @@ final class WorkerCommandTest extends TestCase
 
         self::assertSame(Command::SUCCESS, $status);
         self::assertSame(1, substr_count($tester->getErrorOutput(), 'The full rebuild of "products" a TRUNCATE queued failed'), 'once: the next attempt waits a minute');
-        self::assertMatchesRegularExpression('/Stopped after 0 item\(s\)\./', $tester->getDisplay());
+        self::assertMatchesRegularExpression('/Stopped after 0 item\(s\)\./', $tester->getDisplay(true));
     }
 
     /** Runs $work as a role like the demo's worker, with read access to the source only when $source. */
@@ -170,7 +170,7 @@ final class WorkerCommandTest extends TestCase
         $status = $tester->execute(['--time-limit' => '1'], ['interactive' => false, 'verbosity' => OutputInterface::VERBOSITY_VERBOSE]);
 
         self::assertSame(Command::SUCCESS, $status);
-        $display = $tester->getDisplay();
+        $display = $tester->getDisplay(true);
         self::assertStringContainsString('Worker started for: products', $display);
         self::assertStringContainsString('1 item(s)', $display);
         self::assertMatchesRegularExpression('/Stopped after \d+ item\(s\)\./', $display);
