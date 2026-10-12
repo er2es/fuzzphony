@@ -18,6 +18,7 @@ final readonly class SearchLogRepository
 {
     /** Timestamps go in as text with their offset and are cast by PostgreSQL, so the session's time zone never matters. */
     private const string TIMESTAMP = 'Y-m-d H:i:s.uP';
+    private const int CHUNK = 1000;
 
     public function __construct(private Connection $connection, private Names $names) {}
 
@@ -28,12 +29,21 @@ final readonly class SearchLogRepository
      */
     public function write(array $records): int
     {
-        if ($records === []) {
-            return 0;
+        $written = 0;
+        // 10 bind parameters a row: PostgreSQL allows 65,535 a statement, so at most 1,000 rows each
+        foreach (array_chunk(array_values($records), self::CHUNK) as $chunk) {
+            $written += $this->insert($chunk);
         }
+
+        return $written;
+    }
+
+    /** @param list<SearchRecord> $records */
+    private function insert(array $records): int
+    {
         $values = [];
         $params = [];
-        foreach (array_values($records) as $i => $r) {
+        foreach ($records as $i => $r) {
             $values[] = sprintf('(CAST(:at%1$d AS timestamptz), :ix%1$d, :tn%1$d, :us%1$d, :q%1$d, :qn%1$d, :h%1$d, :ms%1$d, CAST(:fz%1$d AS boolean), :st%1$d)', $i);
             $params += [
                 "at$i" => $r->at->format(self::TIMESTAMP),

@@ -107,7 +107,7 @@ final class SearchLogStoreTest extends TestCase
         self::assertFalse($rows[1]['used_fuzzy']);
     }
 
-    public function testRecordsWithNoNullAndSpecialCharactersSurviveTheBatch(): void
+    public function testSpecialCharactersAreBoundNotInterpolated(): void
     {
         $this->store()->writeSearchLog([$this->record($this->now, "o'brien; DROP TABLE x -- \"q\" :name 100%", tenant: 'acme')]);
 
@@ -115,6 +115,20 @@ final class SearchLogStoreTest extends TestCase
 
         self::assertSame("o'brien; DROP TABLE x -- \"q\" :name 100%", $row['query']);
         self::assertSame('acme', $row['tenant']);
+    }
+
+    /** 7,000 records x 10 columns would be 70,000 bind parameters: over PostgreSQL's limit of 65,535 unless the write is chunked. */
+    public function testABatchAboveTheBindParameterLimitIsWrittenInChunks(): void
+    {
+        $records = [];
+        for ($i = 0; $i < 7000; ++$i) {
+            $records[] = $this->record($this->now, 'query ' . ($i % 10));
+        }
+
+        $written = $this->store()->writeSearchLog($records);
+
+        self::assertSame(7000, $written);
+        self::assertSame(7000, $this->connection->fetchValue('SELECT count(*) FROM fuzzphony_search_log'));
     }
 
     public function testZeroResultQueriesAreOnlyTheOnesThatFoundNothing(): void
