@@ -37,6 +37,8 @@
         "doctrine/orm": "Load results as entities (EntityLoader) and sync in ORM mode (OrmSyncListener)",
         "symfony/framework-bundle": "Symfony integration: configuration, autowiring and the fuzzphony:* console commands",
         "symfony/messenger": "Asynchronous refresh in ORM sync mode (fuzzphony.orm_sync.async)",
+        "symfony/security-core": "fuzzphony.actor.tenant / .user: the actor from the Security user",
+        "symfony/property-access": "fuzzphony.actor.tenant / .user: property paths on the Security user",
         "symfony/ux-live-component": "The <twig:Fuzzphony:Search> search-as-you-type component",
         "api-platform/doctrine-orm": "FuzzphonySearchFilter for API Platform collections",
         "promphp/prometheus_client_php": "Export metrics in Prometheus's data model (Fuzzphony\\Bundle\\Observability\\PrometheusMetricsCollector)"
@@ -61,6 +63,8 @@
         "symfony/css-selector": "^7.4 || ^8.0",
         "symfony/framework-bundle": "^7.4 || ^8.0",
         "symfony/messenger": "^7.4 || ^8.0",
+        "symfony/property-access": "^7.4 || ^8.0",
+        "symfony/security-core": "^7.4 || ^8.0",
         "symfony/twig-bundle": "^7.4 || ^8.0",
         "symfony/ux-live-component": "^2.22 || ^3.0",
         "symfony/yaml": "^7.4 || ^8.0",
