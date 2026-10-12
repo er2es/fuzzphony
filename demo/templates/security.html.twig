@@ -43,12 +43,12 @@
             {% elseif outcome.kind == 'actor' %}
                 <div class="callout is-bad" role="alert">
                     <strong>Refused: an anonymous visitor cannot search the <code>intranet</code> index.</strong>
-                    <span class="muted">The index is tenant-scoped and nobody is signed in, so there is no company to search in (<code>{{ outcome.class }}</code>; an application answers 403). Even with a company, searching needs <code>ROLE_USER</code>. Choose a viewer above.</span>
+                    <span class="muted">The index is tenant-scoped and nobody is signed in, so there is no company to search in (<code>{{ outcome.class }}</code>; an application answers 403). The tenant check comes before the authorization: an anonymous visitor has no tenant, so the search is refused before anyone asks whether searching is granted (switch to Eve to see that refusal). Choose a viewer above.</span>
                 </div>
             {% elseif outcome.kind == 'denied' %}
                 <div class="callout is-bad" role="alert">
-                    <strong>Searching <code>intranet</code> is not granted to this viewer.</strong>
-                    <span class="muted"><code>{{ outcome.class }}</code>: {{ outcome.message }} In an application this is an HTTP 403.</span>
+                    <strong>Searching <code>intranet</code> is not granted to this actor: {{ viewer.name }} has no <code>ROLE_USER</code>.</strong>
+                    <span class="muted"><code>{{ outcome.class }}</code>: {{ outcome.message }} {{ viewer.name }} is signed in and has a company, so the tenant is not the problem: <code>SearchVoter</code> denies <code>FUZZPHONY_SEARCH</code> without <code>ROLE_USER</code>. In an application this is an HTTP 403.</span>
                 </div>
             {% else %}
                 <div class="callout is-bad" role="alert">
@@ -90,7 +90,7 @@
             <li class="row no-lead">
                 <div class="row-body">
                     <div class="row-title">Viewing as</div>
-                    <div class="row-sub">{% if viewer %}{{ viewer.name }}, signed in with {{ viewer.roles|join(', ') }}{% else %}an anonymous visitor: nobody is signed in, so no role and no company{% endif %}</div>
+                    <div class="row-sub">{% if viewer %}{{ viewer.name }}, {{ viewer.roles ? 'signed in with ' ~ viewer.roles|join(', ') : 'signed in, but without any role' }}{% else %}an anonymous visitor: nobody is signed in, so no role and no company{% endif %}</div>
                 </div>
             </li>
             <li class="row no-lead">
@@ -142,6 +142,6 @@
         </details>
     {% endif %}
 
-    <p class="muted">The viewers are four fixed accounts without passwords: the choice is kept in the session, and nothing about a viewer comes from the request. The search is made with <code>-&gt;asActor()</code>; the other pages of the demo never do, so nothing here applies to them. The guards run from <code>fuzzphony.actor</code>, <code>fuzzphony.authorization</code> and <code>fuzzphony.rate_limit</code> in <code>config/packages/fuzzphony.yaml</code>, and the field's <code>granted: ROLE_HR</code> is on the <code>intranet</code> index. This page is the worked example of <code>docs/security.md</code>.</p>
+    <p class="muted">The viewers are five fixed accounts without passwords: the choice is kept in the session, and nothing about a viewer comes from the request. The search is made with <code>-&gt;asActor()</code>; the other pages of the demo never do, so nothing here applies to them. The guards run from <code>fuzzphony.actor</code>, <code>fuzzphony.authorization</code> and <code>fuzzphony.rate_limit</code> in <code>config/packages/fuzzphony.yaml</code>, and the field's <code>granted: ROLE_HR</code> is on the <code>intranet</code> index. This page is the worked example of <code>docs/security.md</code>.</p>
 </div>
 {% endblock %}

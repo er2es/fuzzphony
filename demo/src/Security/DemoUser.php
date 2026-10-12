@@ -7,7 +7,7 @@ namespace App\Security;
 use Symfony\Component\Security\Core\User\UserInterface;
 
 /**
- * One of the four viewers of the Security page. They are fixed: a name, the roles and the company that Fuzzphony reads
+ * One of the five viewers of the Security page. They are fixed: a name, the roles and the company that Fuzzphony reads
  * as the tenant (fuzzphony.actor.tenant: company). Nothing about a viewer comes from the request.
  */
 final readonly class DemoUser implements UserInterface
@@ -31,6 +31,8 @@ final readonly class DemoUser implements UserInterface
             'ada' => new self('ada', 'Ada', ['ROLE_USER'], 1, 'Acme'),
             'hana' => new self('hana', 'Hana (HR)', ['ROLE_USER', 'ROLE_HR'], 1, 'Acme'),
             'bob' => new self('bob', 'Bob', ['ROLE_USER'], 2, 'Globex'),
+            // signed in, with a company (so the tenant check passes) but without ROLE_USER: the AccessDenied example
+            'eve' => new self('eve', 'Eve (guest)', [], 1, 'Acme'),
         ];
     }
 

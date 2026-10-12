@@ -14,9 +14,9 @@ use Symfony\Component\Security\Http\Authenticator\Passport\Passport;
 use Symfony\Component\Security\Http\Authenticator\Passport\SelfValidatingPassport;
 
 /**
- * "Viewing as": signs the request in as one of the four fixed viewers of DemoUser, the one the `as` parameter names or,
+ * "Viewing as": signs the request in as one of the five fixed viewers of DemoUser, the one the `as` parameter names or,
  * without it, the one kept in the session. Anything else (and "anonymous") is nobody: the request is served, not signed
- * in. The only thing a visitor can choose is which of the four; no role or company ever comes from the request.
+ * in. The only thing a visitor can choose is which of the five; no role or company ever comes from the request.
  */
 final class ViewerAuthenticator extends AbstractAuthenticator
 {

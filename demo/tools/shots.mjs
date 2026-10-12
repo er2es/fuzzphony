@@ -28,6 +28,7 @@ const pages = JSON.parse(process.env.PAGES ?? JSON.stringify([
     // each context is a new visitor: the default viewer is nobody; reset=1 forgets the viewer's searches of this minute (demo only)
     { name: 'security', path: '/under-the-hood/security?q=salary' },
     { name: 'security-hana', path: '/under-the-hood/security?as=hana&q=salary&reset=1' },
+    { name: 'security-eve', path: '/under-the-hood/security?as=eve&q=salary' },
     { name: 'security-ada', path: '/under-the-hood/security?as=ada&q=salary&reset=1' },
 ]));
 const viewports = { phone: { width: 390, height: 844 }, laptop: { width: 1280, height: 800 } };

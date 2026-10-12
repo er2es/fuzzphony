@@ -233,6 +233,11 @@ check('security: the chosen viewer is kept in the session', (await sec.locator('
 
 await go(sec, viewing('budget', 'anonymous'));
 check('security: an anonymous visitor is refused with an explanation, not an error page', /Refused/.test(await sec.locator('.callout.is-bad').innerText()) && (await sec.locator('.hit-row').count()) === 0);
+check('security: the anonymous refusal explains that the tenant check comes before the authorization', /tenant check comes before the authorization/.test(await sec.locator('.callout.is-bad').innerText()));
+await go(sec, viewing('budget', 'eve'));
+const denied = await sec.locator('.callout.is-bad').innerText().catch(() => '');
+check('security: a signed-in guest without ROLE_USER gets the AccessDenied card and no result list', /not granted to this actor: Eve \(guest\) has no ROLE_USER/.test(denied) && denied.includes('AccessDenied') && (await sec.locator('.hit-row').count()) === 0, denied);
+await go(sec, viewing('budget', 'anonymous'));
 const homeResponse = await sec.goto(`${BASE}/?q=mouse`, { waitUntil: 'load' });
 await sec.waitForSelector('#results .hit-row');
 check('security: the other pages never ask for a viewer: the home page works for an anonymous visitor', homeResponse?.status() === 200 && (await sec.locator('#results .hit-row').count()) > 0);
