@@ -76,6 +76,9 @@ services:
   incremented when the full-text/fuzzy fallback ran), both labeled `index` (and `query` for
   `LoggingMetricsCollector` when opted in — never for `PrometheusMetricsCollector`, see
   "Cardinality").
+- A refused search (an actor without a tenant on a tenant-scoped index): `fuzzphony.search.denied` (a
+  counter) labeled `index` and `reason` (`actor_required`); see
+  [Multi-tenancy](multi-tenancy.md#a-refusal-is-a-403).
 - `Worker`: `fuzzphony.queue.depth` (a gauge, once per cycle, reusing `queueSize()`),
   `fuzzphony.queue.processed` (a counter) and `fuzzphony.worker.rebuild_failures` (a counter).
 - `RefreshDocumentsHandler` (the ORM-sync Messenger handler): `fuzzphony.messenger.refresh.duration_ms`

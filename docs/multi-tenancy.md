@@ -40,12 +40,72 @@ Declaring `tenant()` does not touch rows that are already indexed. After adding 
 reindex, the column is NULL for rows indexed before the change, so tenant-scoped searches return
 nothing for them. That fails closed, but is easy to mistake for a bug.
 
+## The actor: who is searching
+
+`forTenant()` takes a tenant value you already have. When the tenant comes from the logged-in user,
+describe the searcher once, as an `Actor` (a tenant and a user, both optional), and pass it with
+`asActor()`:
+
+```php
+use Fuzzphony\Core\Search\Actor;
+
+$fuzzphony->in('products')
+    ->asActor(new Actor(tenant: $account->id, user: $user->getUserIdentifier()))
+    ->query('wireless mouse')
+    ->get();
+```
+
+`asActor()` sets the tenant when the actor has one (an actor without a tenant never clears a tenant
+set before; the last of `forTenant()` and `asActor()` wins) and keeps the user on the query. The user
+changes no SQL in this release: it is the identity that the search log and the guards of the coming
+0.9 parts read. `forTenant()` stays and works as before.
+
+On a tenant-scoped index, a search with an actor but no tenant throws `ActorRequired`, a subclass of
+`InvalidQuery`. A search without an actor still throws the original `InvalidQuery` ("requires
+forTenant(); none was given"), so code that catches `InvalidQuery` keeps working.
+
 ## Integrations
 
 `FuzzphonySearchFilter` (API Platform), `SearchComponent` (Live Component) and
-`bin/console fuzzphony:search` do not accept a tenant value yet. Using any of them on a
-tenant-scoped index throws `InvalidQuery` (fail-closed). A tenant resolver for them is planned (see
-the [roadmap](roadmap.md#security)).
+`bin/console fuzzphony:search` serve a tenant-scoped index. The first two resolve the actor on the
+server, on every request, with the resolver you configure under `fuzzphony.actor`
+([configuration](configuration.md#the-actor)): either a service of yours implementing
+`Fuzzphony\Core\Search\ActorResolver`, or property paths read on the Symfony Security user.
+
+```yaml
+fuzzphony:
+  actor:
+    resolver: App\Search\CurrentAccountResolver   # your ActorResolver service
+```
+
+```yaml
+fuzzphony:
+  actor:
+    tenant: account.id          # property paths on the Security user
+    user: userIdentifier        # (need symfony/security-core and symfony/property-access)
+```
+
+With nothing configured the actor is anonymous: an index without a tenant works as before, and a
+tenant-scoped index is refused. No token (nobody logged in) is anonymous too, not an error.
+
+- **API Platform filter:** the resolved actor is applied to every search the filter runs.
+- **Live Component:** the actor is resolved on the server on every render and re-render. The tenant
+  is never a `LiveProp`: a client cannot send it, change it or replay another tenant's value.
+- **`fuzzphony:search`:** a command has no logged-in user, so it takes `--tenant` and `--user`:
+  `bin/console fuzzphony:search products 'mouse' --tenant=42 --user=ada` (a tenant of digits only is an
+  integer, anything else a string). On a tenant-scoped index without `--tenant` it prints why and exits with code 1.
+- **Explicit stays explicit:** the core has no ambient actor. In your own controllers and services,
+  resolve it and pass it yourself: `->asActor($resolver->resolve())`, with
+  `Fuzzphony\Core\Search\ActorResolver` injected (the bundle aliases it to the configured resolver).
+  A search you do not scope throws; it is never scoped by a hidden request context.
+
+### A refusal is a 403
+
+When a tenant-scoped index is searched by an actor without a tenant, the HTTP integrations answer
+**403 Forbidden** (`AccessDeniedHttpException`, the original `ActorRequired` as its previous
+exception), not a 500 and not an empty result. Each refusal increments the counter
+`fuzzphony.search.denied` (labels `index` and `reason=actor_required`, see
+[Observability](observability.md)) and writes a log line.
 
 ## Did you mean
 

@@ -7,6 +7,30 @@ changes; they are always listed under **Breaking** and explained in [UPGRADE.md]
 
 ## [Unreleased]
 
+Part 1 of 0.9 (identity). No upgrade steps: nothing changes unless you configure it.
+
+### Added
+
+- **The actor.** `Fuzzphony\Core\Search\Actor` (a tenant and a user, both optional), `ActorResolver`, and
+  `SearchBuilder::asActor()`, which sets the tenant of a tenant-scoped index and keeps the user on the query
+  (`forTenant()` stays; the last of the two wins). A search with an actor but no tenant on a tenant-scoped
+  index throws `ActorRequired` (an `InvalidQuery`); without an actor the original message stays. See
+  [Multi-tenancy](docs/multi-tenancy.md#the-actor-who-is-searching).
+- **`fuzzphony.actor`** (bundle): `resolver: <service id>` for your own `ActorResolver`, or `tenant:` and `user:` property paths
+  read on the Symfony Security user (`symfony/security-core` and `symfony/property-access` are `suggest`ed; a missing
+  package fails at container build with the `composer require` line). Nothing configured: an anonymous actor.
+- **Tenant-scoped indexes through the integrations.** The API Platform `FuzzphonySearchFilter` and the Live
+  Component resolve the actor on the server on every request (the Live Component never takes the tenant
+  from the client), and `fuzzphony:search` gets `--tenant` and `--user`. A refusal is a 403
+  (`AccessDeniedHttpException`) in the HTTP integrations, and a message with exit code 1 in the command.
+- **`SearchGate`** (public API): every search, `explain()` and federated search passes through it when
+  `Fuzzphony` is built with one (the bundle does); it checks the actor and is where parts 2 and 3 hook in.
+- **`fuzzphony.search.denied`**: a counter (labels `index`, `reason=actor_required`) and a log line per refusal.
+
+### Changed
+
+- `InvalidQuery` is no longer `final` (`ActorRequired` extends it).
+
 ### Fixed
 
 - Demo, Languages: the list of every product of a language (the disclosure) had bullets and no padding; it is plain rows in columns now, inside the card.
