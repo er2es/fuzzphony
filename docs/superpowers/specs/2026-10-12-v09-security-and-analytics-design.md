@@ -110,7 +110,8 @@ the catalogue (it fills as the demo is used), with the retention and the redacti
 
 **Core:**
 
-- `interface SearchGuard { public function check(IndexDefinition $index, Actor $actor): Access; }`. A guard may throw
+- `interface SearchGuard { public function check(IndexDefinition $index, Actor $actor, bool $charge = true): Access; }`
+  (`$charge` false: do not consume a rate-limit token; a federated search charges once). A guard may throw
   `AccessDenied` or `RateLimited` (both `FuzzphonyException`; `RateLimited` carries `retryAfter` seconds).
 - `final readonly class Access { public ?array $fields; static all(); static only(list<string> $fields); }`; guards
   are chained, the allowed fields are intersected. Guards run in `get()`, `explain()` and `suggest()` (and per index
@@ -124,7 +125,9 @@ the catalogue (it fills as the demo is used), with the retention and the redacti
 - `fuzzphony.rate_limit.limiter: <framework.rate_limiter id>`, `per: tenant|user`: `RateLimitGuard` consumes one
   token per search keyed by the tenant or the user (no key: not limited; an IP limit is Symfony's own business).
   Exceeded: `RateLimited`, shown as 429 with `Retry-After`; counter `fuzzphony.search.rate_limited`.
-- `fuzzphony.authorization.enabled`: `AuthorizationGuard` asks `isGranted('FUZZPHONY_SEARCH', $indexName)` (denied:
+- `fuzzphony.authorization.enabled`: `AuthorizationGuard` asks `isGranted(<index_attribute>, $indexName)`, the attribute
+  being `FUZZPHONY_SEARCH` unless `authorization.index_attribute` names another (for example `ROLE_USER`, so an
+  application without a voter can use it; with the default attribute and no voter every search is denied) (denied:
   `AccessDenied`, 403) and, per field with `granted`, `isGranted($field->granted, $indexName)` to build the allowed
   fields. It reads the current Security token; an actor without a token is denied (fail closed). `fuzzphony:search`
   does not run guards (an operator tool with database access) and says so.
