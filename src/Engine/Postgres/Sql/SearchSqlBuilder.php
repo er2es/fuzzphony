@@ -30,6 +30,8 @@ final class SearchSqlBuilder
     public function __construct(
         private readonly IndexDefinition $index,
         private readonly Names $names = new Names(),
+        /** @var array<string, list<int|string>> the ids the trigram words match, from FuzzyQueryCompiler::probes() */
+        private readonly array $candidates = [],
     ) {}
 
     /**
@@ -91,7 +93,7 @@ final class SearchSqlBuilder
         $q[] = $plain !== ''
             ? sprintf('%s(%s) AS norm', $this->names->normFunction(), $params->add($plain))
             : "''::text AS norm";
-        $compiler = new FuzzyQueryCompiler($this->index, $thresholds, $this->names);
+        $compiler = new FuzzyQueryCompiler($this->index, $thresholds, $this->names, $this->candidates);
         // A word scoped to a known field is rechecked against the field's own column (q.sft<n>).
         $scope = $scopedRoot === null ? null : $compiler->scope($scopedRoot, $params, $emptyQueries);
         if ($scope !== null) {

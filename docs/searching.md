@@ -176,6 +176,11 @@ So a typo in one word never lets through documents that lack the other words.
   SQL, and a word below its own threshold does not score.
   `mouse` therefore does not match `monitor` or `mower` (0.33 against the 0.36 five letters
   need), while `mose`, `mouze`, `wireles`, `hedphones` and `moitor` still find what they mean.
+  pg_trgm has one threshold per session, so a query with a short and a long word would make the
+  trigram index return, for the short one, every row that merely starts alike (the lower threshold of
+  the long word applies to it too). Each word is therefore asked for its matches alone first, at its
+  own similarity, and the search uses those ids: the same documents, much cheaper on a large index.
+  A word with more matches than the candidate limit keeps the trigram condition.
   The slack is also the price: a letter replaced in the middle of a 5 to 7 letter word, or two
   letters swapped (a swap changes four trigrams), is the worst case and leaves exactly the
   similarity of a different word, so `mpuse` and `mosue` are not tolerated (a swap at the end of a

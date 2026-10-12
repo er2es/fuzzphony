@@ -52,6 +52,10 @@ php-fpm workers. Every `docker compose` command of that session needs both files
    500 000). Follow it with `docker compose -f docker-compose.yml -f docker-compose.large.yml logs -f init`;
    http://localhost:8000 answers once `[init] done` appears.
 
+At this size a search for `tv` is a good test of typo tolerance: it finds 3 products, which is below the fallback limit, so the typo-tolerant
+branch runs for `tv` and for its synonyms `television` and `telly`. Before 0.8.3 that took 4.9 s (the trigram index returned about 100 000
+rows starting `tel…` for `telly`, three times per search); the same search takes about 0.2 s now (see the CHANGELOG).
+
 To go back to the default stack: `docker compose -f docker-compose.yml -f docker-compose.large.yml down -v`, then the plain
 `docker compose up --build` above. To avoid typing both files every time, set `COMPOSE_FILE` once per terminal
 (`set COMPOSE_FILE=docker-compose.yml;docker-compose.large.yml` on Windows, `export COMPOSE_FILE=docker-compose.yml:docker-compose.large.yml` elsewhere).

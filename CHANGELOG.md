@@ -7,7 +7,18 @@ changes; they are always listed under **Breaking** and explained in [UPGRADE.md]
 
 ## [Unreleased]
 
-Demo only; no upgrade steps.
+No upgrade steps. One performance fix in the library, the rest is the demo.
+
+### Fixed
+
+- **Typo tolerance no longer reads 100 000 rows to find three.** The trigram index returns, for a word that needs a higher similarity
+  than the lowest word of the statement (pg_trgm has one threshold per session), every row that merely starts alike; PostgreSQL read
+  and rechecked all of them, over a second per statement and three statements per search (the page and each facet). In the demo's
+  1 000 003-row profile, `tv` (whose synonyms `television` and `telly` turn the fallback on) took 4.9 s. Each typo-tolerant word is now
+  asked for its matches alone first, at the similarity of its own length, and the search uses the ids (`s.id = ANY(...)`): the same
+  documents in the same order (checked on that catalogue: identical results, 0.23 s), also for the alternatives a synonym adds. A word
+  with more matches than the candidate limit keeps the trigram condition as before. The probes are not listed in `explain()`; a search with
+  typo tolerance makes one extra round trip per word.
 
 ### Changed
 

@@ -492,7 +492,7 @@ final class PostgresEngine implements Engine, Vocabulary, SynonymStems, Suggesti
         if ($run['browse']) {
             $capped = $total >= $thresholds->candidateLimit;
         }
-        $builder = new SearchSqlBuilder($index, $this->names);
+        $builder = new SearchSqlBuilder($index, $this->names, $run['ranked']['candidates'] ?? []);
         // exactCounts(): when the candidate limit cut the matches off, count them all
         if ($query->exactCounts && $capped) {
             $statement = ['label' => self::EXACT_LABEL] + ($run['ranked'] === null
@@ -769,7 +769,7 @@ final class PostgresEngine implements Engine, Vocabulary, SynonymStems, Suggesti
      *     emptyQueries: list<string>|null,
      *     browse: bool,
      *     warnings: list<string>,
-     *     ranked: array{tsquery: string|null, plain: string, fuzzyRoot: Node|null, emptyQueries: list<string>, scopedRoot: Node|null}|null
+     *     ranked: array{tsquery: string|null, plain: string, fuzzyRoot: Node|null, emptyQueries: list<string>, scopedRoot: Node|null, candidates: array<string, list<int|string>>}|null
      * }
      */
     private function pipeline(IndexDefinition $index, ?Node $root, array $conditions, RankingProfile $profile, Thresholds $thresholds, SearchQuery $query, string $labelPrefix): array
@@ -812,13 +812,14 @@ final class PostgresEngine implements Engine, Vocabulary, SynonymStems, Suggesti
             $alwaysFuzzy = $fuzzyRoot !== null
                 && ($thresholds->fuzzyMode === FuzzyMode::Always || $tsquery === null)
                 && $fuzzy->hasFuzzyLeaf($fuzzyRoot, $emptyQueries ??= $this->emptyQueries($index, $fuzzy->leafQueries($fuzzyRoot)));
+            $candidates = $alwaysFuzzy && $fuzzyRoot !== null ? $this->fuzzyCandidates($fuzzy, $fuzzyRoot, $emptyQueries ?? [], $thresholds) : [];
             $statement = ['label' => $labelPrefix . ($alwaysFuzzy ? 'full-text + fuzzy' : 'full-text')]
-                + $builder->ranked($tsquery, $plain, $alwaysFuzzy ? $fuzzyRoot : null, $conditions, $profile, $thresholds, $query->limit, $query->offset, $emptyQueries ?? [], $scopedRoot);
+                + ($candidates === [] ? $builder : new SearchSqlBuilder($index, $this->names, $candidates))->ranked($tsquery, $plain, $alwaysFuzzy ? $fuzzyRoot : null, $conditions, $profile, $thresholds, $query->limit, $query->offset, $emptyQueries ?? [], $scopedRoot);
             $threshold = $alwaysFuzzy && $fuzzyRoot !== null ? $fuzzy->lowestSimilarity($fuzzyRoot, $emptyQueries ?? []) : null;
             $rows = $this->run($statement, $threshold);
             $statements[] = $statement;
             $usedFuzzy = $alwaysFuzzy;
-            $ranked = ['tsquery' => $tsquery, 'plain' => $plain, 'fuzzyRoot' => $alwaysFuzzy ? $fuzzyRoot : null, 'emptyQueries' => $emptyQueries ?? [], 'scopedRoot' => $scopedRoot];
+            $ranked = ['tsquery' => $tsquery, 'plain' => $plain, 'fuzzyRoot' => $alwaysFuzzy ? $fuzzyRoot : null, 'emptyQueries' => $emptyQueries ?? [], 'scopedRoot' => $scopedRoot, 'candidates' => $candidates];
 
             if (
                 !$alwaysFuzzy
@@ -827,13 +828,14 @@ final class PostgresEngine implements Engine, Vocabulary, SynonymStems, Suggesti
                 && self::total($rows) < $thresholds->fallbackBelow
                 && $fuzzy->hasFuzzyLeaf($fuzzyRoot, $emptyQueries ??= $this->emptyQueries($index, $fuzzy->leafQueries($fuzzyRoot)))
             ) {
+                $candidates = $this->fuzzyCandidates($fuzzy, $fuzzyRoot, $emptyQueries, $thresholds);
                 $statement = ['label' => $labelPrefix . 'fallback: full-text + fuzzy']
-                    + $builder->ranked($tsquery, $plain, $fuzzyRoot, $conditions, $profile, $thresholds, $query->limit, $query->offset, $emptyQueries, $scopedRoot);
+                    + ($candidates === [] ? $builder : new SearchSqlBuilder($index, $this->names, $candidates))->ranked($tsquery, $plain, $fuzzyRoot, $conditions, $profile, $thresholds, $query->limit, $query->offset, $emptyQueries, $scopedRoot);
                 $threshold = $fuzzy->lowestSimilarity($fuzzyRoot, $emptyQueries);
                 $rows = $this->run($statement, $threshold);
                 $statements[] = $statement;
                 $usedFuzzy = true;
-                $ranked = ['tsquery' => $tsquery, 'plain' => $plain, 'fuzzyRoot' => $fuzzyRoot, 'emptyQueries' => $emptyQueries, 'scopedRoot' => $scopedRoot];
+                $ranked = ['tsquery' => $tsquery, 'plain' => $plain, 'fuzzyRoot' => $fuzzyRoot, 'emptyQueries' => $emptyQueries, 'scopedRoot' => $scopedRoot, 'candidates' => $candidates];
             }
         }
 
@@ -926,6 +928,29 @@ final class PostgresEngine implements Engine, Vocabulary, SynonymStems, Suggesti
         ), 'Run "bin/console fuzzphony:doctor" to check the index.');
 
         return array_map(static fn(array $row): string => Coerce::str($row['q']), $rows);
+    }
+
+    /**
+     * The documents each typo-tolerant word matches on its own, asked word by word at the word's own similarity:
+     * with the session's threshold set for the lowest word of the whole statement, the trigram index would return
+     * (and PostgreSQL read) every row that merely starts alike for a word that needs more (see FuzzyQueryCompiler).
+     * A word with more matches than the candidate limit is left out and keeps its trigram condition.
+     *
+     * @param list<string> $emptyQueries
+     *
+     * @return array<string, list<int|string>>
+     */
+    private function fuzzyCandidates(FuzzyQueryCompiler $fuzzy, Node $root, array $emptyQueries, Thresholds $thresholds): array
+    {
+        $candidates = [];
+        foreach ($fuzzy->probes($root, $thresholds->candidateLimit, $emptyQueries) as $key => $probe) {
+            $ids = array_map(static fn(array $row): int|string => is_int($row['id']) ? $row['id'] : Coerce::str($row['id']), $this->run(['sql' => $probe['sql'], 'params' => $probe['params']], $probe['similarity']));
+            if (count($ids) <= $thresholds->candidateLimit) {
+                $candidates[$key] = $ids;
+            }
+        }
+
+        return $candidates;
     }
 
     /**

@@ -16,6 +16,7 @@ use Fuzzphony\Core\Query\Ast\Term;
 use Fuzzphony\Core\Ranking\Thresholds;
 use Fuzzphony\Core\Ranking\TypoCurve;
 use Fuzzphony\Engine\Postgres\Schema\Names;
+use Fuzzphony\Engine\Postgres\Schema\Types;
 
 /**
  * @internal Compiles the AST into the predicate and score of the typo-tolerant (fuzzy) branch.
@@ -46,6 +47,12 @@ use Fuzzphony\Engine\Postgres\Schema\Names;
  * its score is partial credit for the words that matched, which must not lift a row that matched
  * through another branch. Plain leaves need no guard: a leaf that does not match scores below
  * the similarity threshold, under any leaf that does.
+ *
+ * Candidates: the session's pg_trgm threshold is the lowest any word of the statement needs, and for a word that needs
+ * more the trigram index returns far more rows than match it (every word that starts alike); PostgreSQL reads each of
+ * them, a second or more per 100 000 rows. So the engine first asks for each word's matches alone, at that word's own
+ * similarity (probes()), and hands the ids back ($candidates): the word's trigram condition becomes "s.id = ANY(ids)",
+ * the same rows without the detour. A word with more matches than the candidate limit keeps the trigram condition.
  */
 final class FuzzyQueryCompiler
 {
@@ -61,8 +68,70 @@ final class FuzzyQueryCompiler
         private readonly IndexDefinition $index,
         private readonly Thresholds $thresholds,
         private readonly Names $names = new Names(),
+        /** @var array<string, list<int|string>> the ids each trigram word matches, by candidateKey() (see probes()) */
+        private readonly array $candidates = [],
     ) {
         $this->tsquery = new TsQueryCompiler($index);
+    }
+
+    /**
+     * One statement per word the trigram condition applies to (each once): the ids of the documents it matches
+     * alone, one more than $cap so that a word with too many matches is recognised. Each runs with pg_trgm's
+     * threshold set to its `similarity`, the lowest the word itself needs.
+     *
+     * @param list<string> $emptyQueries leaf tsqueries the text configuration reduces to nothing (stop words)
+     *
+     * @return array<string, array{sql: string, params: array<string, scalar|null>, similarity: float}> by candidateKey()
+     */
+    public function probes(Node $node, int $cap, array $emptyQueries = []): array
+    {
+        $probes = [];
+        foreach ($this->trigramLeaves($node, $emptyQueries) as $leaf) {
+            $needle = $this->needle($leaf);
+            $key = $this->candidateKey($leaf);
+            if ($needle === null || isset($probes[$key])) {
+                continue;
+            }
+            $params = new ParameterBag();
+            $norm = sprintf('%s(%s)', $this->names->normFunction(), $params->add($needle));
+            $threshold = $this->thresholds->fuzzySimilarity === null ? self::similaritySql($norm, $this->isPrefix($leaf)) : null;
+            $probes[$key] = [
+                'sql' => sprintf("SELECT s.id\nFROM %s AS s\nWHERE %s\nLIMIT %d", $this->names->sidecar($this->index), $this->trigram($leaf, $norm, $threshold)['condition'], $cap + 1),
+                'params' => $params->all(),
+                'similarity' => $this->thresholds->fuzzySimilarity ?? TypoCurve::lowest(self::length($needle), preg_match('/^[ -~]*$/', $needle) === 1),
+            ];
+        }
+
+        return $probes;
+    }
+
+    /**
+     * The leaves of the positive part of the query that match fuzzily, in order (a negated part is exact only).
+     *
+     * @param list<string> $emptyQueries
+     *
+     * @return list<Node>
+     */
+    private function trigramLeaves(Node $node, array $emptyQueries): array
+    {
+        return match (true) {
+            $node instanceof Not => [],
+            $node instanceof AllOf, $node instanceof AnyOf => array_merge(...array_map(fn(Node $n): array => $this->trigramLeaves($n, $emptyQueries), $node->nodes)),
+            default => $this->exact($node, $emptyQueries) !== null && $this->needle($node) !== null ? [$node] : [],
+        };
+    }
+
+    /** What a word's trigram condition depends on: the same key, the same matching documents. */
+    private function candidateKey(Node $leaf): string
+    {
+        return implode("\0", [$this->needle($leaf), $this->scopedField($leaf)->name ?? '', $this->isPrefix($leaf) ? 'prefix' : '']);
+    }
+
+    private function isPrefix(Node $leaf): bool
+    {
+        $inner = $leaf instanceof FieldScoped ? $leaf->node : $leaf;
+
+        return $inner instanceof Term && $inner->prefix;
     }
 
     /**
@@ -249,30 +318,47 @@ final class FuzzyQueryCompiler
             return ['predicate' => $exact, 'score' => sprintf('CASE WHEN %s THEN 1.0 ELSE 0.0 END', $exact), 'partial' => false];
         }
         $norm = $this->column('fn', sprintf('%s(%s)', $this->names->normFunction(), $params->add($needle)));
-        $schema = $this->names->extension();
-        $field = $this->scopedField($node);
-        $column = $field === null ? 's.fz' : 's.' . $this->names->fieldFuzzy($field->name);
-        $similarity = sprintf('%s.word_similarity(%s, %s)', $schema, $norm, $column);
         $exactScore = sprintf('CASE WHEN %s THEN 1.0 ELSE 0.0 END', $exact);
         // "<%" uses the session's similarity (the lowest any word of the statement needs, so GIN finds every
         // candidate). By default each word is also rechecked against the similarity of its own length, which
         // PostgreSQL measures on the normalised word (q.th<n>); a word below it does not score either.
-        $recheck = '';
-        $score = $similarity;
-        if ($this->thresholds->fuzzySimilarity === null) {
-            $inner = $node instanceof FieldScoped ? $node->node : $node;
-            $threshold = $this->column('th', self::similaritySql(sprintf('%s(%s)', $this->names->normFunction(), $params->add($needle)), $inner instanceof Term && $inner->prefix));
-            $recheck = sprintf(' AND %s >= %s', $similarity, $threshold);
-            $score = sprintf('CASE WHEN %s >= %s THEN %s ELSE 0.0 END', $similarity, $threshold, $similarity);
-        }
+        $threshold = $this->thresholds->fuzzySimilarity === null
+            ? $this->column('th', self::similaritySql(sprintf('%s(%s)', $this->names->normFunction(), $params->add($needle)), $this->isPrefix($node)))
+            : null;
+        $trigram = $this->trigram($node, $norm, $threshold);
+        $score = $threshold === null ? $trigram['similarity'] : sprintf('CASE WHEN %1$s >= %2$s THEN %1$s ELSE 0.0 END', $trigram['similarity'], $threshold);
+        $ids = $this->candidates[$this->candidateKey($node)] ?? null;
+        $condition = $ids === null
+            ? $trigram['condition']
+            : sprintf('s.id = ANY(%s)', $this->column('id', sprintf('CAST(%s AS %s[])', $params->add(Sql::arrayLiteral($ids)), Types::id($this->index->idType))));
+
+        return [
+            'predicate' => sprintf('(%s OR %s)', $exact, $condition),
+            'score' => sprintf('GREATEST(%s, %s)', $score, $exactScore),
+            'partial' => false,
+        ];
+    }
+
+    /**
+     * The trigram side of a word: its condition (the index can serve "<%"; a word recheck against its own
+     * similarity when $threshold is given; a field-scoped word on that field's column too) and its similarity.
+     *
+     * @return array{condition: string, similarity: string}
+     */
+    private function trigram(Node $node, string $norm, ?string $threshold): array
+    {
+        $schema = $this->names->extension();
+        $field = $this->scopedField($node);
+        $column = $field === null ? 's.fz' : 's.' . $this->names->fieldFuzzy($field->name);
+        $similarity = sprintf('%s.word_similarity(%s, %s)', $schema, $norm, $column);
+        $recheck = $threshold === null ? '' : sprintf(' AND %s >= %s', $similarity, $threshold);
         $trigram = $field === null
             ? sprintf('%s OPERATOR(%s.<%%) s.fz', $norm, $schema)
             : sprintf('%1$s OPERATOR(%2$s.<%%) s.fz AND %1$s OPERATOR(%2$s.<%%) %3$s', $norm, $schema, $column);
 
         return [
-            'predicate' => sprintf('(%s OR %s)', $exact, $field === null && $recheck === '' ? $trigram : '(' . $trigram . $recheck . ')'),
-            'score' => sprintf('GREATEST(%s, %s)', $score, $exactScore),
-            'partial' => false,
+            'condition' => $field === null && $recheck === '' ? $trigram : '(' . $trigram . $recheck . ')',
+            'similarity' => $similarity,
         ];
     }
 
