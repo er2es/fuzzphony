@@ -7,8 +7,21 @@ changes; they are always listed under **Breaking** and explained in [UPGRADE.md]
 
 ## [Unreleased]
 
+### Fixed
+
+- `SearchBuilder::explain()` of an `asYouType()` search returned the "did you mean" text with the prefix alternative the engine saw
+  (`wireless (mouse | mouse*)`); like `get()`, it now returns `wireless mouse`. Found by looking at the demo's Tune page.
+
 ### Changed
 
+- **Demo interface, rebuilt** (the design and its reasoning: `docs/superpowers/specs/2026-10-12-v082-demo-interface-design.md`). A search home
+  where the results appear in place while you type, with the facets at the side and the category illustrations; a Speed view that measures the
+  same search against `ILIKE` and runs the benchmark on demand; Relevance with the synonym editor; Languages with the federated view; Tune; and
+  an "Under the hood" menu (wizard, doctor, observability). Nine navigation items became four plus the menu. A native-CSS design system
+  (tokens with `light-dark()`, `@layer`, cross-document view transitions), the system font stack and one inline SVG sprite; a tab bar on a
+  phone; light and dark; reduced motion. **The routes changed** (no redirects): `/` is the search, `/relevance`, `/relevance/synonyms`,
+  `/languages`, `/tune`, `/under-the-hood/wizard|doctor|observability`; `/compare`, `/playground` and `/benchmark` are gone (the benchmark is the
+  search page's `?view=speed&run=1`). `demo/tools/shots.mjs` takes screenshots of every page and runs axe-core.
 - CI tests the supported Symfony versions the way a Symfony library should: the LTS (7.4) with every PHP and PostgreSQL version,
   the current stable (8.1) on the newest PostgreSQL, and the next minor (8.2, in development) in a job of its own that may fail
   without failing the build (an early warning before it is released). Symfony 8.0, end of life since July 2026, is no longer tested;
