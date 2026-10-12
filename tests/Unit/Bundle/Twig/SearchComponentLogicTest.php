@@ -92,6 +92,26 @@ final class SearchComponentLogicTest extends TestCase
         self::assertTrue($this->queries[0]->asYouType);
     }
 
+    public function testTheComponentsSearchesAreUnloggedUnlessLogIsGiven(): void
+    {
+        $this->component(query: 'mouse')->getResult();
+        $this->component(query: 'mouse', log: true)->getResult();
+
+        self::assertFalse($this->queries[0]->log, 'a live search box sends a search per pause in typing');
+        self::assertTrue($this->queries[1]->log);
+    }
+
+    /** The browser must not switch the log of its own searches on: `log` is a LiveProp, but never a writable one. */
+    public function testLogIsALivePropTheBrowserCannotWrite(): void
+    {
+        $attributes = (new \ReflectionProperty(SearchComponent::class, 'log'))->getAttributes(LiveProp::class);
+
+        self::assertCount(1, $attributes);
+        $liveProp = $attributes[0]->newInstance();
+        self::assertFalse($liveProp->isIdentityWritable());
+        self::assertSame([], $liveProp->writablePaths());
+    }
+
     /** @return iterable<string, array{int, int}> */
     public static function limits(): iterable
     {
@@ -286,7 +306,7 @@ final class SearchComponentLogicTest extends TestCase
     /**
      * @param array<string, string> $selected
      */
-    private function component(string $query = '', string $index = 'products', string $profile = 'default', string $highlight = '', int $limit = 10, string $facets = '', int $suggestions = 5, bool $asYouType = true, array $selected = [], ?ActorResolver $actors = null, bool $tenant = false): SearchComponent
+    private function component(string $query = '', string $index = 'products', string $profile = 'default', string $highlight = '', int $limit = 10, string $facets = '', int $suggestions = 5, bool $asYouType = true, array $selected = [], ?ActorResolver $actors = null, bool $tenant = false, bool $log = false): SearchComponent
     {
         $engine = self::createStubForIntersectionOfInterfaces([Engine::class, Suggestions::class]);
         $engine->method('search')->willReturnCallback(function (IndexDefinition $index, SearchQuery $query): SearchResult {
@@ -313,6 +333,7 @@ final class SearchComponentLogicTest extends TestCase
         $component->suggestions = $suggestions;
         $component->asYouType = $asYouType;
         $component->selected = $selected;
+        $component->log = $log;
 
         return $component;
     }

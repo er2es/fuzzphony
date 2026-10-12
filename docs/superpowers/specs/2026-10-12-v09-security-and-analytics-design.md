@@ -103,7 +103,11 @@ redaction; the grouping key), `hits integer`, `took_ms real`, `used_fuzzy boolea
 - The doctor checks that the table exists when the log is enabled (an error) and warns when it holds rows older
   than the retention.
 
-**Demo:** the log is enabled; an "Analytics" page under "Under the hood" shows the top and the zero-result queries of
+**Demo (part 3 also adds a Security page, agreed 2026-10-12):** a "Security" page under "Under the hood" with a
+"Viewing as" switch (anonymous, Ada/Acme, Hana/Acme+HR, Bob/Globex) over a small intranet index: the tenant example,
+the permission example (a refused visitor; a field only HR may see is neither found nor highlighted) and the rate limit.
+
+**Demo (part 2):** the log is enabled; an "Analytics" page under "Under the hood" shows the top and the zero-result queries of
 the catalogue (it fills as the demo is used), with the retention and the redaction explained on the page.
 
 ## Part 3: Guards (PR 3)

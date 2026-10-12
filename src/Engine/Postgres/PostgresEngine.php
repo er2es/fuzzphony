@@ -12,6 +12,7 @@ use Fuzzphony\Core\Definition\Synonyms;
 use Fuzzphony\Core\Engine\Capabilities;
 use Fuzzphony\Core\Engine\Capability;
 use Fuzzphony\Core\Engine\Engine;
+use Fuzzphony\Core\Engine\SearchLogStore;
 use Fuzzphony\Core\Engine\Suggestions;
 use Fuzzphony\Core\Engine\SynonymStems;
 use Fuzzphony\Core\Engine\Vocabulary;
@@ -58,17 +59,19 @@ use Fuzzphony\Engine\Postgres\Sql\SearchSqlBuilder;
 use Fuzzphony\Engine\Postgres\Sql\Sql;
 use Fuzzphony\Engine\Postgres\Sql\TsQueryCompiler;
 
-final class PostgresEngine implements Engine, Vocabulary, SynonymStems, Suggestions
+final class PostgresEngine implements Engine, Vocabulary, SynonymStems, Suggestions, SearchLogStore
 {
     private const PROBE_LABEL = 'relaxation probe';
     private const SUGGEST_LABEL = 'did you mean';
     private const string EXACT_LABEL = 'exact total';
     private const string FACET_LABEL = 'facet: ';
     private const string REBUILD_HINT = 'Run "fuzzphony:schema --apply" and "fuzzphony:doctor".';
+    private const string SEARCH_LOG_HINT = 'Run "fuzzphony:schema --apply" (the log must be enabled) and "fuzzphony:doctor"; the role needs INSERT, SELECT and DELETE on the search log table.';
 
     private readonly Names $names;
     private readonly PostgresSchemaGenerator $schema;
     private readonly ShadowRebuild $rebuild;
+    private readonly bool $searchLogEnabled;
     /** Most stems kept per text configuration; the cache starts over beyond it. */
     private const int STEM_CACHE = 5_000;
     /** @var array<string, SynonymExpander> an expander per index definition, built once */
@@ -79,15 +82,20 @@ final class PostgresEngine implements Engine, Vocabulary, SynonymStems, Suggesti
     /**
      * @param string $extensionSchema schema of the pg_trgm and unaccent extensions
      * @param string $schema          schema of Fuzzphony's own tables, functions and text search configurations
+     * @param bool   $searchLog       whether the schema includes the search log table (and the doctor checks it)
+     * @param int    $searchLogRetentionDays the age after which the doctor suggests purging log rows
      */
     public function __construct(
         private readonly Connection $connection,
         string $extensionSchema = 'public',
         string $schema = 'public',
         private readonly MetricsCollector $metrics = new NullMetricsCollector(),
+        bool $searchLog = false,
+        private readonly int $searchLogRetentionDays = 90,
     ) {
         $this->names = new Names($extensionSchema, $schema);
-        $this->schema = new PostgresSchemaGenerator($this->names);
+        $this->searchLogEnabled = $searchLog;
+        $this->schema = new PostgresSchemaGenerator($this->names, $searchLog);
         $this->rebuild = new ShadowRebuild($connection, $this->schema);
     }
 
@@ -396,11 +404,36 @@ final class PostgresEngine implements Engine, Vocabulary, SynonymStems, Suggesti
         ), sprintf('Run "fuzzphony:schema --apply" (it adds the failure columns); the worker role needs SELECT and UPDATE on %s.', $this->names->meta()));
     }
 
+    public function writeSearchLog(array $records): int
+    {
+        return $this->guard('search log', fn(): int => $this->searchLog()->write($records), self::SEARCH_LOG_HINT);
+    }
+
+    public function purgeSearchLog(\DateTimeInterface $before): int
+    {
+        return $this->guard('search log', fn(): int => $this->searchLog()->purge($before), self::SEARCH_LOG_HINT);
+    }
+
+    public function topQueries(IndexDefinition $index, \DateTimeInterface $from, ?\DateTimeInterface $to, int $limit, int|string|null $tenant, bool $allTenants): array
+    {
+        return $this->guard('search log', fn(): array => $this->searchLog()->top($index->name, $from, $to, $limit, $allTenants ? null : $tenant, false), self::SEARCH_LOG_HINT);
+    }
+
+    public function zeroResultQueries(IndexDefinition $index, \DateTimeInterface $from, ?\DateTimeInterface $to, int $limit, int|string|null $tenant, bool $allTenants): array
+    {
+        return $this->guard('search log', fn(): array => $this->searchLog()->top($index->name, $from, $to, $limit, $allTenants ? null : $tenant, true), self::SEARCH_LOG_HINT);
+    }
+
+    private function searchLog(): SearchLogRepository
+    {
+        return new SearchLogRepository($this->connection, $this->names);
+    }
+
     public function inspect(IndexDefinition $index, InspectOptions $options = new InspectOptions()): InspectionReport
     {
         return $this->guard(
             'inspection',
-            fn(): InspectionReport => (new PostgresInspector($this->connection, $this->schema))->inspect($index, $options),
+            fn(): InspectionReport => (new PostgresInspector($this->connection, $this->schema, $this->searchLogEnabled, $this->searchLogRetentionDays))->inspect($index, $options),
             'Check that this connection can read the catalog and the source.',
         );
     }

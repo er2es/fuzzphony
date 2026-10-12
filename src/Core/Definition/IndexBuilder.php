@@ -34,6 +34,7 @@ final class IndexBuilder
     private ?string $recency = null;
     private ?string $tenant = null;
     private Synonyms $synonyms;
+    private bool $log = true;
     /** @var array<string, RankingProfile> */
     private array $profiles = [];
     private Thresholds $thresholds;
@@ -171,6 +172,14 @@ final class IndexBuilder
         return $this;
     }
 
+    /** Whether searches on this index go to the search log (the default); log(false) keeps one out of it. */
+    public function log(bool $log = true): self
+    {
+        $this->log = $log;
+
+        return $this;
+    }
+
     public function profile(string $name, RankingProfile $profile): self
     {
         $this->profiles[$name] = $profile;
@@ -212,6 +221,7 @@ final class IndexBuilder
             triggerLevel: $this->triggerLevel,
             tenant: $this->tenant,
             synonyms: $this->synonyms,
+            log: $this->log,
         );
         DefinitionValidator::assertValid($definition);
 

@@ -24,6 +24,7 @@ const pages = JSON.parse(process.env.PAGES ?? JSON.stringify([
     { name: 'wizard', path: '/under-the-hood/wizard' },
     { name: 'doctor', path: '/under-the-hood/doctor' },
     { name: 'observability', path: '/under-the-hood/observability' },
+    { name: 'analytics', path: '/under-the-hood/analytics' },
 ]));
 const viewports = { phone: { width: 390, height: 844 }, laptop: { width: 1280, height: 800 } };
 // interactions: typing into the search box and capturing the suggestion panel

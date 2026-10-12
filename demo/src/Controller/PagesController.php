@@ -103,7 +103,7 @@ final class PagesController extends AbstractController
         $label = (string) array_key_first($entry);
         $q = $entry[$label];
         $without = Measure::median(static fn (): array => $catalog->ilike($q));
-        $with = Measure::median(static fn () => $fuzzphony->in('catalog')->query($q)->limit(20)->get());
+        $with = Measure::median(static fn () => $fuzzphony->in('catalog')->query($q)->limit(20)->unlogged()->get()); // measuring searches (1 cold + warm runs) would skew the Analytics page
 
         return $this->render('benchmark_row.html.twig', ['r' => ['label' => $label, 'q' => $q, 'without' => $without, 'with' => $with]]);
     }

@@ -135,12 +135,46 @@ await p3.click('.nav a >> text=Relevance');
 await p3.waitForURL('**/relevance*');
 check('a page without a field shows a spinner of its own while it loads', (await p3.evaluate(() => sessionStorage.getItem('after'))) === 'spin');
 
-// 9. the Under the hood menu lists the benchmark and the synonyms
+// 9. the Under the hood menu lists the benchmark, the synonyms and the analytics
 await p3.unrouteAll();
 await go(p3, BASE + '/');
 await p3.click('.nav .menu summary');
 const labels = (await p3.locator('.menu-panel a').allTextContents()).map((t) => t.trim());
-check('the menu lists wizard, benchmark, doctor, observability, synonyms', ['Config wizard', 'Benchmark', 'Doctor', 'Observability', 'Synonyms'].every((l) => labels.includes(l)), labels.join(', '));
+check('the menu lists wizard, benchmark, doctor, observability, synonyms, analytics', ['Config wizard', 'Benchmark', 'Doctor', 'Observability', 'Synonyms', 'Analytics'].every((l) => labels.includes(l)), labels.join(', '));
+
+// the search log: a search submitted with Enter (a full page load, the settled query) shows up on the Analytics page, the requests of
+// the live search while typing do not. The words are unique to this run (the page lists the top 15 of the last seven days, and an
+// earlier run's rows must not satisfy the check): "mouse" plus a random suffix, which the search tolerates (it still finds mice), and
+// a nonsense word that finds nothing. Each is searched three times so it outranks the single searches of other visitors on a
+// shared demo database (the tables sort by the number of searches). The log is written after the response: poll.
+const suffix = Math.random().toString(36).replace(/[^a-z0-9]/g, '').slice(2, 6).padEnd(4, 'x');
+const found = `mouse${suffix}`;
+const nothing = `qzxv${suffix}9`;
+await go(page, BASE + '/');
+for (const q of [found, nothing]) {
+    for (let i = 0; i < 3; i++) {
+        await page.fill('input[name=q]', '');
+        await page.type('input[name=q]', q, { delay: 40 });
+        await page.waitForSelector('#results');
+        await Promise.all([page.waitForNavigation({ waitUntil: 'load' }), page.press('input[name=q]', 'Enter')]);
+        await page.waitForSelector('#results');
+    }
+}
+let top = [];
+let zero = [];
+for (let attempt = 0; attempt < 6; attempt++) {
+    await go(page, BASE + '/under-the-hood/analytics');
+    const tables = page.locator('.table-card');
+    top = (await tables.nth(0).locator('td code').allTextContents()).map((t) => t.trim());
+    zero = (await tables.nth(1).locator('td code').allTextContents()).map((t) => t.trim());
+    if (top.includes(found) && zero.includes(nothing)) break;
+    await page.waitForTimeout(500);
+}
+const typedOnTheWay = [6, 7, 8].map((n) => found.slice(0, n)).concat([4, 5, 6, 7].map((n) => nothing.slice(0, n)), [nothing.slice(0, 8)]); // the fragments the live search saw, unique to this run
+check('the analytics page lists the exact word that was just searched among the most searched', top.includes(found), `${found} in ${top.join(', ')}`);
+check('the analytics page lists the nonsense word among the searches that found nothing, and not among the most searched', zero.includes(nothing) && !top.includes(nothing), `${nothing} in ${zero.join(', ')}`);
+check('the word that found something is not in the zero-result table', !zero.includes(found), zero.join(', '));
+check('the analytics page does not list what was typed on the way', !top.concat(zero).some((t) => typedOnTheWay.includes(t)), top.concat(zero).join(', '));
 check('there is no "/ to search" hint in the toolbar', (await p3.locator('.toolbar-hint').count()) === 0);
 
 // the SQL of the Tune page wraps instead of scrolling sideways

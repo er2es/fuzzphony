@@ -10,14 +10,18 @@ use Fuzzphony\Bridge\Doctrine\DoctrineIndexDiscovery;
 use Fuzzphony\Bridge\Doctrine\EntityLoader;
 use Fuzzphony\Bridge\Doctrine\OrmSyncListener;
 use Fuzzphony\Bridge\Doctrine\SchemaAssetFilter;
+use Fuzzphony\Bundle\Analytics\BufferedSearchLog;
 use Fuzzphony\Bundle\ApiPlatform\FuzzphonySearchFilter;
+use Fuzzphony\Bundle\Command\AnalyticsCommand;
 use Fuzzphony\Bundle\Command\DoctorCommand;
 use Fuzzphony\Bundle\Command\ReindexCommand;
 use Fuzzphony\Bundle\Command\SchemaCommand;
 use Fuzzphony\Bundle\Command\SearchCommand;
+use Fuzzphony\Bundle\Command\SearchLogPurgeCommand;
 use Fuzzphony\Bundle\Command\WizardCommand;
 use Fuzzphony\Bundle\Command\WorkerCommand;
 use Fuzzphony\Bundle\EventListener\SearchExceptionListener;
+use Fuzzphony\Bundle\EventListener\SearchLogFlushListener;
 use Fuzzphony\Bundle\Messenger\MessengerRefreshDispatcher;
 use Fuzzphony\Bundle\Messenger\RefreshDocumentsHandler;
 use Fuzzphony\Bundle\Observability\MetricsCollectorFactory;
@@ -25,6 +29,7 @@ use Fuzzphony\Bundle\Registry\RegistryFactory;
 use Fuzzphony\Bundle\Security\NullActorResolver;
 use Fuzzphony\Bundle\Security\PropertyPathActorResolver;
 use Fuzzphony\Bundle\Twig\SearchComponent;
+use Fuzzphony\Core\Analytics\PatternQueryRedactor;
 use Fuzzphony\Core\Database\Connection;
 use Fuzzphony\Core\Engine\Engine;
 use Fuzzphony\Core\Exception\InvalidConfiguration;
@@ -48,6 +53,7 @@ use Symfony\Component\PropertyAccess\PropertyAccessorInterface;
 use Symfony\Component\Security\Core\Authentication\Token\Storage\TokenStorageInterface;
 
 use function Symfony\Component\DependencyInjection\Loader\Configurator\service;
+use function Symfony\Component\DependencyInjection\Loader\Configurator\service_closure;
 
 /**
  * config/packages/fuzzphony.yaml — everything is optional:
@@ -63,6 +69,10 @@ use function Symfony\Component\DependencyInjection\Loader\Configurator\service;
  *       resolver: app.my_resolver  # a service implementing Fuzzphony\Core\Search\ActorResolver, or:
  *       tenant: account.id         # property path on the Security user (needs symfony/security-bundle + property-access)
  *       user: userIdentifier       # property path on the Security user
+ *     search_log:                  # opt-in: record every search for fuzzphony:analytics
+ *       enabled: false             # run fuzzphony:schema --apply after enabling
+ *       retention_days: 90         # fuzzphony:search-log:purge deletes older rows
+ *       redact: [email]            # "email" or regular expressions: matches are stored as [redacted]
  *     indexes:
  *       products:                # overrides for an attribute index, or a pure YAML index
  *         thresholds: { min_score: 0.05 }
@@ -110,6 +120,14 @@ final class FuzzphonyBundle extends AbstractBundle
                         ->scalarNode('resolver')->defaultNull()->info('Service id of your own Fuzzphony\\Core\\Search\\ActorResolver')->end()
                         ->scalarNode('tenant')->defaultNull()->info('Property path on the Security user that gives the tenant, e.g. account.id')->end()
                         ->scalarNode('user')->defaultNull()->info('Property path on the Security user that gives the user, e.g. userIdentifier')->end()
+                    ->end()
+                ->end()
+                ->arrayNode('search_log')
+                    ->addDefaultsIfNotSet()
+                    ->children()
+                        ->booleanNode('enabled')->defaultFalse()->info('Record every search (who, what, how many hits) in fuzzphony_search_log; run fuzzphony:schema --apply after enabling')->end()
+                        ->integerNode('retention_days')->defaultValue(90)->min(1)->info('fuzzphony:search-log:purge deletes older rows')->end()
+                        ->arrayNode('redact')->scalarPrototype()->end()->info('"email" or a regular expression with delimiters: matches are replaced by [redacted] before anything is stored')->end()
                     ->end()
                 ->end()
                 ->arrayNode('indexes')
@@ -194,6 +212,15 @@ final class FuzzphonyBundle extends AbstractBundle
         $ormSyncAsync = (bool) ($ormSync['async'] ?? false);
         $ormSyncChunkSizeRaw = Coerce::int($ormSync['chunk_size'] ?? null);
         $ormSyncChunkSize = $ormSyncChunkSizeRaw !== 0 ? $ormSyncChunkSizeRaw : 500;
+        $searchLog = is_array($config['search_log'] ?? null) ? $config['search_log'] : [];
+        $searchLogEnabled = (bool) ($searchLog['enabled'] ?? false);
+        $retentionDaysRaw = Coerce::int($searchLog['retention_days'] ?? null);
+        $retentionDays = $retentionDaysRaw !== 0 ? $retentionDaysRaw : 90;
+        $redact = array_values(array_map(Coerce::str(...), is_array($searchLog['redact'] ?? null) ? $searchLog['redact'] : []));
+        if ($redact !== []) {
+            // built once here so a bad pattern fails the container build (InvalidConfiguration), not the first search
+            PatternQueryRedactor::fromSettings($redact);
+        }
         $applicationSchemaFilter = $builder->hasParameter('fuzzphony.app_schema_filter')
             ? Coerce::str($builder->getParameter('fuzzphony.app_schema_filter'))
             : null;
@@ -231,14 +258,24 @@ final class FuzzphonyBundle extends AbstractBundle
         }
         $services->alias(ActorResolver::class, 'fuzzphony.actor_resolver')->public();
 
+        if ($redact !== []) {
+            $services->set('fuzzphony.query_redactor', PatternQueryRedactor::class)
+                ->factory([PatternQueryRedactor::class, 'fromSettings'])
+                ->args([$redact]);
+        }
+        $gateArguments = [service('fuzzphony.metrics'), service('logger')];
+        if ($searchLogEnabled) {
+            $gateArguments[] = service('fuzzphony.search_log');
+            $gateArguments[] = $redact !== [] ? service('fuzzphony.query_redactor') : null;
+        }
         $services->set('fuzzphony.search_gate', SearchGate::class)
-            ->args([service('fuzzphony.metrics'), service('logger')])
+            ->args($gateArguments)
             ->tag('monolog.logger', ['channel' => 'fuzzphony']); // its log line goes to the same channel as the metrics
         $services->alias(SearchGate::class, 'fuzzphony.search_gate');
         $services->set('fuzzphony.exception_listener', SearchExceptionListener::class)->tag('kernel.event_listener', ['event' => 'kernel.exception', 'priority' => 64]);
 
         $services->set('fuzzphony.engine', PostgresEngine::class)
-            ->args([service('fuzzphony.connection'), $names->extensionSchema, $names->schema, service('fuzzphony.metrics')]);
+            ->args([service('fuzzphony.connection'), $names->extensionSchema, $names->schema, service('fuzzphony.metrics'), $searchLogEnabled, $retentionDays]);
         $services->alias(Engine::class, 'fuzzphony.engine')->public();
 
         if ($hasOrm) {
@@ -311,6 +348,18 @@ final class FuzzphonyBundle extends AbstractBundle
             SearchCommand::class => [service('fuzzphony')],
             WizardCommand::class => [service('fuzzphony.introspector'), service('fuzzphony.engine'), service('fuzzphony.connection')],
         ];
+        if ($searchLogEnabled) {
+            $services->set('fuzzphony.search_log', BufferedSearchLog::class)
+                ->args([service_closure('fuzzphony.engine'), service('fuzzphony.metrics'), service('logger')])
+                ->tag('monolog.logger', ['channel' => 'fuzzphony'])
+                ->tag('kernel.reset', ['method' => 'reset']); // a worker or a long-running server flushes between messages and requests
+            $services->set('fuzzphony.search_log_flush_listener', SearchLogFlushListener::class)
+                ->args([service('fuzzphony.search_log')])
+                ->tag('kernel.event_listener', ['event' => 'kernel.terminate'])
+                ->tag('kernel.event_listener', ['event' => 'console.terminate']);
+            $commands[AnalyticsCommand::class] = [service('fuzzphony')];
+            $commands[SearchLogPurgeCommand::class] = [service('fuzzphony'), $retentionDays];
+        }
         foreach ($commands as $class => $args) {
             $services->set($class)->args($args)->tag('console.command');
         }

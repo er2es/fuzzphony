@@ -43,6 +43,8 @@ final readonly class IndexDefinition
         public ?string $tenant = null,
         /** Query-side synonyms; they are not part of the index table, so changing them needs no reindex. */
         public Synonyms $synonyms = new Synonyms(),
+        /** Whether searches on this index go to the search log; not part of the layout, so changing it needs no reindex. */
+        public bool $log = true,
     ) {}
 
     public static function builder(string $name): IndexBuilder
@@ -226,6 +228,11 @@ final readonly class IndexDefinition
         return $this->copy(synonyms: $synonyms);
     }
 
+    public function withLog(bool $log): self
+    {
+        return $this->copy(log: $log);
+    }
+
     /**
      * The one place a copy is made, through the constructor. null keeps an object/array value;
      * false keeps a nullable string (so null can clear it).
@@ -253,6 +260,7 @@ final readonly class IndexDefinition
         ?TriggerLevel $triggerLevel = null,
         string|false|null $tenant = false,
         ?Synonyms $synonyms = null,
+        ?bool $log = null,
     ): self {
         return new self(
             name: $name ?? $this->name,
@@ -271,6 +279,7 @@ final readonly class IndexDefinition
             triggerLevel: $triggerLevel ?? $this->triggerLevel,
             tenant: $tenant === false ? $this->tenant : $tenant,
             synonyms: $synonyms ?? $this->synonyms,
+            log: $log ?? $this->log,
         );
     }
 }

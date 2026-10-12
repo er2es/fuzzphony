@@ -41,7 +41,7 @@ final class SuggestController extends AbstractController
 
         if (trim($text) !== '') {
             try {
-                $search = $fuzzphony->in($index)->query($text)->asYouType()->limit(5);
+                $search = $fuzzphony->in($index)->query($text)->asYouType()->limit(5)->unlogged(); // the dropdown fires on every keystroke
                 if ($index === 'catalog') {
                     $found = $search->facets('category_id')->get();
                     $categories = array_slice($facets->categories($found->facets['category_id'] ?? []), 0, 4);

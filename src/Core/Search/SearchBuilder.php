@@ -157,11 +157,20 @@ final readonly class SearchBuilder
         return $this->with($this->query->exactCounts($exact));
     }
 
+    /**
+     * Keeps this search out of the search log (for example the requests of a live search box that fire on every
+     * pause in typing); a refusal is still recorded.
+     */
+    public function unlogged(): self
+    {
+        return $this->with($this->query->unlogged());
+    }
+
     public function get(): SearchResult
     {
         $query = $this->effective();
         $result = $this->gate !== null
-            ? $this->gate->search($this->engine, $this->index, $query)
+            ? $this->gate->search($this->engine, $this->index, $query, $this->query->text)
             : $this->engine->search($this->index, self::checked($this->index, $query));
 
         return $this->query->asYouType && $result->didYouMean !== null ? $result->withDidYouMean(Typeahead::withoutPrefixAlternative($result->didYouMean)) : $result;
@@ -171,7 +180,7 @@ final readonly class SearchBuilder
     {
         $query = $this->effective();
         $explanation = $this->gate !== null
-            ? $this->gate->explain($this->engine, $this->index, $query, $analyze)
+            ? $this->gate->explain($this->engine, $this->index, $query, $analyze, $this->query->text)
             : $this->engine->explain($this->index, self::checked($this->index, $query), $analyze);
         $didYouMean = $explanation->result->didYouMean;
         if (!$this->query->asYouType || $didYouMean === null) {

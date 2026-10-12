@@ -65,6 +65,13 @@ final class SearchComponent
     public bool $asYouType = true;
 
     /**
+     * The component's searches fire on every pause in typing, so they stay out of the search log unless the tag says
+     * `log="true"`. Never writable: the browser cannot switch the log of its own searches on.
+     */
+    #[LiveProp]
+    public bool $log = false;
+
+    /**
      * The facet values chosen so far: filter => value as text ("" is the documents without a value).
      *
      * @var array<string, string>
@@ -124,6 +131,9 @@ final class SearchComponent
             ->highlight(...$fields)
             ->limit(max(1, min(50, $this->limit)))
             ->asYouType($this->asYouType);
+        if (!$this->log) {
+            $search = $search->unlogged();
+        }
         if ($this->actors !== null) {
             $search = $search->asActor($this->actors->resolve());
         }

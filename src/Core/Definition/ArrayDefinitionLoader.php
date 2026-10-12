@@ -24,12 +24,13 @@ use Fuzzphony\Core\Ranking\RankingProfile;
  *     recency: published_at
  *     tenant: account_id
  *     synonyms: [[tv, television], 'laptop => notebook']
+ *     log: true                  # false keeps the index out of the search log
  *     profiles: { default: { text: 1, fuzzy: 0.5 } }
  *     thresholds: { min_score: 0.05, fuzzy_mode: fallback }
  */
 final class ArrayDefinitionLoader
 {
-    private const array KEYS = ['source', 'id_type', 'fields', 'filters', 'watch', 'sync', 'language', 'unaccent', 'boost', 'recency', 'profiles', 'thresholds', 'class', 'trigger_level', 'tenant', 'synonyms'];
+    private const array KEYS = ['source', 'id_type', 'fields', 'filters', 'watch', 'sync', 'language', 'unaccent', 'boost', 'recency', 'profiles', 'thresholds', 'class', 'trigger_level', 'tenant', 'synonyms', 'log'];
 
     /** @param array<string, mixed> $config */
     public function load(string $name, array $config): IndexDefinition
@@ -92,6 +93,9 @@ final class ArrayDefinitionLoader
         if (isset($config['tenant'])) {
             $merged = $merged->withTenant(self::str($config['tenant'], ''));
         }
+        if (isset($config['log'])) {
+            $merged = $merged->withLog(self::strictBool($name, 'log', $config['log']));
+        }
         if (array_key_exists('synonyms', $config)) {
             $merged = $merged->withSynonyms($this->synonyms($name, $config['synonyms']));
         }
@@ -136,6 +140,9 @@ final class ArrayDefinitionLoader
         if (isset($config['tenant'])) {
             $builder->tenant(self::str($config['tenant'], ''));
         }
+        if (isset($config['log'])) {
+            $builder->log(self::strictBool($name, 'log', $config['log']));
+        }
         if (isset($config['synonyms'])) {
             $builder->synonyms($this->synonymEntries($name, $config['synonyms']));
         }
@@ -166,6 +173,12 @@ final class ArrayDefinitionLoader
         }
         /** @var array<string, mixed> $value */
         return $value;
+    }
+
+    /** A real boolean: the string "false" cast with (bool) would switch the option on, so anything else is refused. */
+    private static function strictBool(string $name, string $option, mixed $value): bool
+    {
+        return is_bool($value) ? $value : throw new InvalidDefinition($name, [sprintf('"%s" must be true or false (a boolean, not a string), got %s.', $option, is_scalar($value) ? var_export($value, true) : get_debug_type($value))]);
     }
 
     private static function str(mixed $value, string $default): string

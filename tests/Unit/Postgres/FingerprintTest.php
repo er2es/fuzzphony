@@ -42,6 +42,7 @@ final class FingerprintTest extends TestCase
         yield 'tenant' => [static fn(IndexDefinition $d): IndexDefinition => $d->withTenant('brand_id'), true, false];
         yield 'thresholds' => [static fn(IndexDefinition $d): IndexDefinition => $d->withThresholds(new Thresholds(minScore: 0.3)), false, false];
         yield 'synonyms' => [static fn(IndexDefinition $d): IndexDefinition => $d->withSynonyms(Synonyms::fromEntries([['tv', 'television']])), false, false];
+        yield 'log flag' => [static fn(IndexDefinition $d): IndexDefinition => $d->withLog(false), false, false];
         yield 'profiles' => [static fn(IndexDefinition $d): IndexDefinition => $d->withProfiles(['default' => new RankingProfile(text: 0.5)]), false, false];
         yield 'highlight flag' => [static fn(IndexDefinition $d): IndexDefinition => $d->withFields([new FieldDefinition('name', Weight::A, fuzzy: true, highlight: false), ...array_slice($d->fields, 1)]), false, false];
     }

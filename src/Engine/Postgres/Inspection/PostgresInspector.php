@@ -36,6 +36,9 @@ final class PostgresInspector
     public function __construct(
         private readonly Connection $connection,
         private readonly PostgresSchemaGenerator $schema,
+        /** Whether the engine keeps a search log: only then is its table checked. */
+        private readonly bool $searchLog = false,
+        private readonly int $searchLogRetentionDays = 90,
     ) {
         $this->names = $schema->names();
     }
@@ -86,9 +89,43 @@ final class PostgresInspector
         array_push($checks, ...$this->configuration($index));
         array_push($checks, ...$this->tenantScoping($index));
         array_push($checks, ...$this->columnAwareFiltering($index));
-        array_push($checks, ...$this->schemaVersion($index)); // last: earlier checks keep their order
+        array_push($checks, ...$this->schemaVersion($index)); // earlier checks keep their order
+        if ($this->searchLog) {
+            $checks[] = $this->searchLog();
+        }
 
         return new InspectionReport($index->name, $checks);
+    }
+
+    /**
+     * The opt-in search log: its table exists, this role can read it, and nothing older than the retention is left in it.
+     * Never a full count: the log can be big, so the age check is one indexed EXISTS (the index on "at").
+     */
+    private function searchLog(): Check
+    {
+        $table = $this->names->searchLog();
+        if (!$this->regclass($table)) {
+            return Check::error('Search log', sprintf('Table %s does not exist, so searches cannot be logged.', $table), self::APPLY);
+        }
+        // the role, only when it may not read the table (reading it would fail the whole report)
+        $denied = $this->connection->fetchValue("SELECT current_user WHERE NOT has_table_privilege(:log, 'SELECT')", ['log' => $table]);
+        if ($denied !== null) {
+            $role = Coerce::str($denied);
+
+            return Check::warning(
+                'Search log',
+                sprintf('Role %s cannot read %s (no SELECT privilege), so its age is unknown.', $role, $table),
+                sprintf('GRANT SELECT ON %s TO %s;', $table, Sql::ident($role)),
+            );
+        }
+        $stale = $this->connection->fetchValue(
+            sprintf('SELECT EXISTS (SELECT 1 FROM %s WHERE at < now() - make_interval(days => :days))', $table),
+            ['days' => $this->searchLogRetentionDays],
+        );
+
+        return $stale === true
+            ? Check::warning('Search log', sprintf('Rows older than the %d days of retention are still in the table.', $this->searchLogRetentionDays), 'bin/console fuzzphony:search-log:purge')
+            : Check::ok('Search log', 'Table exists, nothing older than the retention.');
     }
 
     /** The words "did you mean" suggests from: created by the schema, filled by a full reindex. */

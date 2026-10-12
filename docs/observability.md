@@ -79,6 +79,10 @@ services:
 - A refused search (an actor without a tenant on a tenant-scoped index): `fuzzphony.search.denied` (a
   counter) labeled `index` and `reason` (`actor_required`); see
   [Multi-tenancy](multi-tenancy.md#a-refusal-is-a-403).
+- The search log (opt-in): `fuzzphony.search_log.failed` (a counter) counts the records that could not be
+  recorded or written (labeled `index` when one search failed to record, and by the size of the batch when a write
+  failed, without a label); the search itself is never affected. See
+  [Search log and analytics](analytics.md#how-it-is-written-and-what-happens-when-it-fails).
 - `Worker`: `fuzzphony.queue.depth` (a gauge, once per cycle, reusing `queueSize()`),
   `fuzzphony.queue.processed` (a counter) and `fuzzphony.worker.rebuild_failures` (a counter).
 - `RefreshDocumentsHandler` (the ORM-sync Messenger handler): `fuzzphony.messenger.refresh.duration_ms`

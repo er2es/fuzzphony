@@ -7,7 +7,7 @@ changes; they are always listed under **Breaking** and explained in [UPGRADE.md]
 
 ## [Unreleased]
 
-Part 1 of 0.9 (identity). No upgrade steps: nothing changes unless you configure it.
+Parts 1 (identity) and 2 (search log and analytics) of 0.9. Upgrade: nothing, unless you enable the log: run `fuzzphony:schema --apply`.
 
 ### Added
 
@@ -26,6 +26,30 @@ Part 1 of 0.9 (identity). No upgrade steps: nothing changes unless you configure
 - **`SearchGate`** (public API): every search, `explain()` and federated search passes through it when
   `Fuzzphony` is built with one (the bundle does); it checks the actor and is where parts 2 and 3 hook in.
 - **`fuzzphony.search.denied`**: a counter (labels `index`, `reason=actor_required`) and a log line per refusal.
+- **The search log** (opt-in, `fuzzphony.search_log`: `enabled` (default `false`), `retention_days` (90), `redact`). Every search and every
+  refusal is one row of `fuzzphony_search_log` (time, index, tenant, user, the text the visitor typed, normalised text, hits,
+  time taken, whether the typo-tolerant search ran, status `ok` / `denied` / `rate_limited`), created by `fuzzphony:schema --apply`
+  when enabled. Per index `log: false` (attribute, builder `->log(false)`, YAML). The bundle collects the rows of a request
+  and writes them in one batched `INSERT` (1000 rows a statement) after the response (`kernel.terminate`, `console.terminate`), and
+  also at 1000 buffered rows and on `kernel.reset` (a worker or a long-running server never grows the buffer; a `SIGKILL` still loses
+  what it holds); the `id` is an identity column, so a role that only searches needs just `INSERT` on the table (no sequence privilege);
+  a failed write never touches the search: it is counted as `fuzzphony.search_log.failed`, logged and dropped. `SearchLog`,
+  `SearchRecord`, `RecordStatus` and the `SearchLogStore` engine capability are public; `SearchGate` takes a
+  log and a redactor. A "Search log" check in `fuzzphony:doctor` (an error when the table is missing, a warning for rows older
+  than the retention or when the role cannot read the table; it never counts the rows, so it is cheap on a big log). See [Search log and analytics](docs/analytics.md).
+- **`QueryRedactor` and `PatternQueryRedactor`**: search texts are redacted before anything is stored; the preset `email` and your
+  own regular expressions replace matches with `[redacted]` (an invalid pattern fails the container build).
+- **`SearchAnalytics`** (`Fuzzphony::analytics()`): `topQueries()` and `zeroResultQueries()` over a time window, grouped by the
+  normalised text, returning `QueryStat` (query, searches, average hits, last seen), and `purge()`. A tenant-scoped index needs a
+  `tenant` or `allTenants: true`; a `tenant` filters on any index (the log records the actor's tenant on a shared index too), and a
+  `tenant` together with `allTenants: true` throws `InvalidArgument`.
+- **`fuzzphony:analytics <index> [--top|--zero] [--since=7d] [--limit=20] [--tenant=ID|--all-tenants] [--format=table|json]`** and
+  **`fuzzphony:search-log:purge`** (deletes rows older than `retention_days`; for cron). Both exist only while the log is enabled.
+- **`SearchBuilder::unlogged()`** keeps one search out of the search log, for the requests of a live search box that fire on every
+  pause in typing (`SearchQuery::$log`, `SearchQuery::unlogged()`); a refusal (`denied`) is recorded all the same. The Live Component
+  has a `log` attribute (default `false`: its searches are unlogged; `log="true"` records them; never writable from the browser).
+  In the demo, the live search and the suggestion dropdown are unlogged and a full page load (Enter) logs the settled query.
+- **Demo: the Analytics page** (under "Under the hood", `/under-the-hood/analytics`): the most searched texts of the last seven days and the searches that found nothing, from the search log (`search_log` is enabled in the demo with 30 days of retention and `redact: [email]`). A demo database from before 0.9 shows a hint to run `fuzzphony:schema --apply` instead of failing; `flows.mjs` has checks for it (36 checks: it searches a word unique to the run and looks for exactly that word). The demo's own measuring searches (the Benchmark rows, the extra searches of Relevance) are unlogged, so they do not skew the page.
 
 ### Changed
 
