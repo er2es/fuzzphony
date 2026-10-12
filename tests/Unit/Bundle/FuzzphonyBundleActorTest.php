@@ -9,12 +9,14 @@ use Fuzzphony\Bundle\EventListener\SearchExceptionListener;
 use Fuzzphony\Bundle\FuzzphonyBundle;
 use Fuzzphony\Bundle\Security\NullActorResolver;
 use Fuzzphony\Bundle\Security\PropertyPathActorResolver;
+use Fuzzphony\Core\Analytics\NullSearchLog;
 use Fuzzphony\Core\Exception\InvalidConfiguration;
 use Fuzzphony\Core\Search\ActorResolver;
 use Fuzzphony\Core\Search\SearchGate;
 use PHPUnit\Framework\TestCase;
 use Symfony\Component\Config\Definition\Exception\InvalidConfigurationException;
 use Symfony\Component\DependencyInjection\ContainerBuilder;
+use Symfony\Component\DependencyInjection\Definition;
 use Symfony\Component\DependencyInjection\Reference;
 
 /** The fuzzphony.actor node, the actor resolver and the search gate services, and the 403 listener. */
@@ -29,7 +31,7 @@ final class FuzzphonyBundleActorTest extends TestCase
         self::assertTrue($container->hasAlias(ActorResolver::class));
         self::assertTrue($container->getAlias(ActorResolver::class)->isPublic());
         self::assertSame(SearchGate::class, $container->getDefinition('fuzzphony.search_gate')->getClass());
-        self::assertEquals([new Reference('fuzzphony.metrics'), new Reference('logger')], $container->getDefinition('fuzzphony.search_gate')->getArguments());
+        self::assertEquals([new Reference('fuzzphony.metrics'), new Reference('logger'), new Definition(NullSearchLog::class), null, []], $container->getDefinition('fuzzphony.search_gate')->getArguments());
         self::assertSame([['channel' => 'fuzzphony']], $container->getDefinition('fuzzphony.search_gate')->getTag('monolog.logger'), 'the log line has its own channel, like the metrics');
         self::assertTrue($container->hasAlias(SearchGate::class));
         self::assertEquals(
