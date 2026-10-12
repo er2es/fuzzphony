@@ -39,7 +39,9 @@ for (const page of pages) {
             const context = await browser.newContext({ viewport, colorScheme: scheme, reducedMotion: 'reduce' });
             const p = await context.newPage();
             const messages = [];
-            p.on('console', (m) => ['error', 'warning'].includes(m.type()) && messages.push(`${m.type()}: ${m.text()}`));
+            // the production headers include Cross-Origin-Opener-Policy, which a browser ignores (with an error) on any origin that is not
+            // localhost or https: it says something about the way the harness reaches the demo, not about the page
+            p.on('console', (m) => ['error', 'warning'].includes(m.type()) && !m.text().includes('Cross-Origin-Opener-Policy') && messages.push(`${m.type()}: ${m.text()}`));
             p.on('pageerror', (e) => messages.push(`pageerror: ${e.message}`));
             await p.goto(BASE + page.path, { waitUntil: 'load', timeout: 60000 });
             await p.waitForLoadState('networkidle', { timeout: 8000 }).catch(() => {});

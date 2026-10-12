@@ -33,7 +33,7 @@ final class SynonymsController extends AbstractController
         'lang_hu' => ['tévé', 'televízió', 'fülhallgató'],
     ];
 
-    #[Route('/synonyms', name: 'synonyms', methods: ['GET', 'POST'])]
+    #[Route('/relevance/synonyms', name: 'synonyms', methods: ['GET', 'POST'])]
     public function __invoke(Request $request, Fuzzphony $fuzzphony, SynonymStore $store, Catalog $catalog, Languages $languages): Response
     {
         $indexes = ['catalog' => 'Catalogue (English)'];
