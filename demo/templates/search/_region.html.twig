@@ -1,0 +1,115 @@
+{# The results region of the home page: swapped in place while the visitor types (live_search_controller.js). #}
+{% macro url(q, view, category, stock, extra = {}) %}{{ path('search', {q: q, view: view == 'speed' ? 'speed' : null, cat: category ?: null, stock: stock is null ? null : (stock ? 1 : 0)}|merge(extra)) }}{% endmacro %}
+{% import _self as u %}
+{% macro price(value) %}{{ value|number_format(0, '.', ' ') }} Ft{% endmacro %}
+
+{% if q != '' %}
+    <section class="results" aria-label="Results">
+        <div class="results-head">
+            {% if result %}
+                {% set took = view == 'speed' and speed ? speed.warm : result.tookMs %}
+                <div class="stat">
+                    <span class="stat-value">{{ took < 10 ? took|number_format(1) : took|number_format(0) }}</span><span class="stat-unit">ms</span>
+                    <span class="stat-caption">{% if view == 'speed' and speed %}warm median · {% endif %}
+                        {{ result.total|number_format }}{{ result.totalIsLowerBound ? '+' }} {{ result.total == 1 ? 'product' : 'products' }}{% if result.usedFuzzy %} · typo tolerant{% endif %}
+                        · understood as <code>{{ result.interpretedAs }}</code>
+                    </span>
+                </div>
+            {% else %}
+                <div></div>
+            {% endif %}
+            <nav class="segmented" aria-label="View">
+                <a href="{{ u.url(q, 'results', category, stock) }}"{% if view == 'results' %} aria-current="true"{% endif %}>Results</a>
+                <a href="{{ u.url(q, 'speed', category, stock) }}"{% if view == 'speed' %} aria-current="true"{% endif %}>Speed</a>
+            </nav>
+        </div>
+
+        {% if category != '' or stock is not null %}
+            <div class="chips" aria-label="Chosen filters">
+                {% if category != '' %}
+                    <a class="token" href="{{ u.url(q, view, '', stock) }}" aria-label="Remove the category {{ category }}">{{ category }}<svg class="icon" aria-hidden="true"><use href="#i-clear"/></svg></a>
+                {% endif %}
+                {% if stock is not null %}
+                    <a class="token" href="{{ u.url(q, view, category, null) }}" aria-label="Remove the stock filter">{{ stock ? 'In stock' : 'Out of stock' }}<svg class="icon" aria-hidden="true"><use href="#i-clear"/></svg></a>
+                {% endif %}
+            </div>
+        {% endif %}
+
+        {% if error %}
+            <div class="empty"><strong>That search could not run</strong>{{ error }}</div>
+        {% elseif view == 'speed' %}
+            {{ include('search/_speed.html.twig') }}
+        {% elseif result %}
+            {% if result.warnings %}
+                <div class="warnings">{% for warning in result.warnings %}<p>{{ warning }}</p>{% endfor %}</div>
+            {% endif %}
+            {% if result.didYouMean %}
+                <p class="did-you-mean">Did you mean <a href="{{ u.url(result.didYouMean, view, category, stock) }}"><strong>{{ result.didYouMean }}</strong></a>?</p>
+            {% endif %}
+
+            <div class="results-layout">
+                {% if categories or stock_values %}
+                    <aside class="facets-side" aria-label="Narrow the results">
+                        {% if categories %}
+                            <div>
+                                <h2 class="facet-title">Category{% if result.totalIsLowerBound %} · of the candidates{% endif %}</h2>
+                                <div class="facet">
+                                    {% for c in categories %}
+                                        {% set chosen = c.name == category %}
+                                        <a href="{{ u.url(q, view, chosen ? '' : c.name, stock) }}"{% if chosen %} aria-current="true"{% endif %}><span>{{ c.name }}</span><span>{{ c.count }}{{ result.totalIsLowerBound ? '+' }}</span></a>
+                                    {% endfor %}
+                                </div>
+                            </div>
+                        {% endif %}
+                        {% if stock_values %}
+                            <div>
+                                <h2 class="facet-title">Availability</h2>
+                                <div class="facet">
+                                    {% for s in stock_values %}
+                                        {% set chosen = stock is not null and stock == s.value %}
+                                        <a href="{{ u.url(q, view, category, chosen ? null : (s.value ? true : false)) }}"{% if chosen %} aria-current="true"{% endif %}><span>{{ s.value ? 'In stock' : 'Out of stock' }}</span><span>{{ s.count }}{{ result.totalIsLowerBound ? '+' }}</span></a>
+                                    {% endfor %}
+                                </div>
+                            </div>
+                        {% endif %}
+                    </aside>
+                {% endif %}
+
+                <div>
+                    {% if result.hits %}
+                        <ul class="list" aria-label="Products">
+                            {% for hit in result.hits %}
+                                {% set row = rows[hit.id] ?? null %}
+                                {% set style = category_style(row.category ?? '') %}
+                                <li class="row hit-row">
+                                    <span class="tile{{ style.hue < 0 ? ' is-neutral' }}" style="--h: {{ style.hue }}" aria-hidden="true"><svg class="icon"><use href="#{{ style.icon }}"/></svg></span>
+                                    <div class="row-body">
+                                        {# the highlight is HTML-escaped by Fuzzphony (only <mark> is added); the fallback is escaped by Twig #}
+                                        <div class="row-title">{% if hit.highlights.name is defined %}{{ hit.highlights.name|raw }}{% else %}{{ row.name ?? hit.id }}{% endif %}</div>
+                                        <div class="row-sub">{{ row.brand ?? '' }} · {{ row.category ?? '' }}</div>
+                                    </div>
+                                    {% if row %}<div class="row-trailing">{{ _self.price(row.price) }}</div>{% endif %}
+                                </li>
+                            {% endfor %}
+                        </ul>
+                    {% else %}
+                        <div class="empty">
+                            <strong>Nothing found for “{{ q }}”</strong>
+                            Check the spelling, try fewer words{% if category != '' or stock is not null %}, or lift a filter{% endif %}.
+                            <div class="chips">
+                                {% for label, example in examples %}
+                                    <a class="chip" href="{{ u.url(example, 'results', '', null) }}"><code>{{ example }}</code> <small>{{ label }}</small></a>
+                                {% endfor %}
+                            </div>
+                        </div>
+                    {% endif %}
+                </div>
+            </div>
+
+            <details class="disclosure">
+                <summary>How this was searched<svg class="icon" aria-hidden="true"><use href="#i-chevron"/></svg></summary>
+                <p class="muted">The last word was matched as itself and as the beginning of a longer word, so the query was understood as <code>{{ result.interpretedAs }}</code>. {% if result.usedFuzzy %}Typo tolerance was needed to find enough products. {% endif %}Every number above comes from one search with its facets. <a href="{{ path('tune', {query: q}) }}">Open it in Tune</a> to see the ranking and the SQL.</p>
+            </details>
+        {% endif %}
+    </section>
+{% endif %}

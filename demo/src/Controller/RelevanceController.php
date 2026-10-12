@@ -65,6 +65,9 @@ final class RelevanceController extends AbstractController
             'byLength' => $byLength,
             'flat' => $flat,
             'rows' => $rows,
+            // the rows only one of the two rules finds: that is the point of the page
+            'onlyByLength' => array_values(array_diff($byLength?->ids() ?? [], $flat?->ids() ?? [])),
+            'onlyFlat' => array_values(array_diff($flat?->ids() ?? [], $byLength?->ids() ?? [])),
             'suggestion' => $this->suggestion($fuzzphony, $q),
         ]);
     }

@@ -76,20 +76,35 @@ Symfony: Twig + Stimulus via AssetMapper (no Node build), Live Components, DBAL.
 
 | Page | What it shows |
 |---|---|
-| **ILIKE vs Fuzzphony** | the same box searched with `ILIKE` and with Fuzzphony; cold + median warm timings; Fuzzphony's column renders at once, ILIKE's loads separately (it is much slower on this catalogue); one-click accent / typo / stemming / phrase / field / exact field (`brand:sony headphones` searches the brand only, typos included) / prefix examples |
-| **Search boxes** | every search box (Compare, Relevance, Languages, Synonyms, the Playground) has the same dropdown while you type: the completions of the word being typed (`Fuzzphony::suggest()`), the first hits matched as you type (`asYouType()`), and on the catalogue the categories the text is found in (a facet, Compare). `assets/controllers/suggest_controller.js` asks `/suggest` (brand, price and category name are the app's data, loaded for the returned ids); arrows, Enter and Escape work |
-| **Facets** | Compare: category and stock counts of the result as links that narrow the search (category names merge the benchmark catalogue's fifty category rows, then `whereIn`), counted by one unmeasured extra call; Playground: the same as live toggles, with an exact-counts switch when the stack starts with `DEMO_ALLOW_EXACT=1` (it reads every match: seconds on 500 000 rows) |
-| **All languages** | Languages: the same text over the five language indexes at once, merged by rank (`Fuzzphony::federated()`): try `tv` |
-| **Synonyms** | the synonym list of every index, one per language, as plain text in the Solr format (`tv, television` / `laptop => notebook`): edit and save (validated, no reindex), then try a word against it. Stored as a long list should be: one row per entry (`demo_synonym_entry`) and a version per index, with the prepared lists (`Fuzzphony::stemSynonyms()`) in a cache keyed by the version; a request listener hands them to Fuzzphony with `Fuzzphony::useSynonyms()`. The same could come from a file (`synonyms: { file: ... }`). An existing demo database gets the table and the television rows (`sql/demo_additions.sql`, idempotent) on the next start; a demo database from 0.7.1 has its lists converted from the old `demo_synonym` table (its catalogue list lacks the `tv` line: add `tv, television, telly` on this page) |
-| **Relevance** | what 0.7 changed in matching quality, on one query: typo tolerance by word length next to a flat 0.3 (`mouse` is not `monitor`; the price: `mpuse`), the catalogue's synonyms at work (`mice`, `display`, `headset`, and `drill` finding screwdrivers one way only), and the "did you mean" suggestion, with one-click examples |
-| **Playground** | every ranking weight and threshold as a slider (the fuzzy similarity by word length, or one value for every word); live results with a score breakdown bar per hit; SQL + EXPLAIN (ANALYZE) tab |
-| **Languages** | one small catalogue in English, German, French, Spanish and Hungarian, one index per language; one-click examples (plural, accents, stop words (accented ones too), typo, and an irregular form that is honestly not matched), the lexeme PostgreSQL made of every word, and ILIKE's hit count next to Fuzzphony's |
-| **Config wizard** | pick a table: the wizard explains each column decision and outputs YAML, builder code and attributes (`fuzzphony:wizard` in the terminal) |
-| **Benchmark** | the comparison as a table, reproducible with `benchmarks/run.php` |
-| **Doctor** | the `fuzzphony:doctor` report in the browser |
+| **Search** (`/`) | one search field over the catalogue (500 000 products by default). The results appear in place while you type (`live_search_controller.js` asks the page for just its results region): the last word also matches as the beginning of a longer one (`asYouType()`, so `cr` finds `Crème`), each product with the drawing and colour of its category, the speed of that search as the headline number, and the facets (category, stock) at the side. The category names merge the benchmark catalogue's fifty category rows (`whereIn`). One-click examples under the field: typo, beginning, meaning, accent, word form. **Speed** (`?view=speed`) measures the same search against a plain `ILIKE` (cold + median warm; ILIKE in a request of its own so Fuzzphony's answer never waits) and runs the nine-query benchmark on demand, reproducible with `benchmarks/run.php` |
+| **Relevance** (`/relevance`) | what 0.7 changed in matching quality, on one query: typo tolerance by word length next to a flat 0.3 (`mouse` is not `monitor`; the price: `mpuse`; the rows only one rule finds are marked), the catalogue's synonyms at work (`mice`, `display`, `headset`, and `drill` finding screwdrivers one way only) and "did you mean". **Synonyms** (`/relevance/synonyms`): the list of every index, one per language, as plain text in the Solr format: edit and save (validated, no reindex), then try a word against it. Stored as a long list should be: one row per entry (`demo_synonym_entry`) and a version per index, with the prepared lists (`Fuzzphony::stemSynonyms()`) in a cache keyed by the version; a request listener hands them to Fuzzphony with `Fuzzphony::useSynonyms()` |
+| **Languages** (`/languages`) | one small catalogue in English, German, French, Spanish and Hungarian, one index per language; examples (plural, accents, stop words, typo, and an irregular form that is honestly not matched), the stem PostgreSQL made of every word, ILIKE's count next to Fuzzphony's, and the same text over all five indexes at once, merged by rank (`Fuzzphony::federated()`): try `tv` |
+| **Tune** (`/tune`) | every ranking weight and threshold as a control (the fuzzy similarity by word length, or one value for every word); live results with a score breakdown bar per hit; an SQL and EXPLAIN (ANALYZE) view; an exact-counts switch when the stack starts with `DEMO_ALLOW_EXACT=1` (it reads every match: seconds on 500 000 rows) |
+| **Under the hood** (`/under-the-hood/...`) | the **Config wizard** (pick a table: it explains each column decision and outputs YAML, builder code and attributes; `fuzzphony:wizard` in the terminal), the **Doctor** (the `fuzzphony:doctor` report) and **Observability** (the metrics of a search) |
+
+Every search box has the same dropdown while you type (`assets/controllers/suggest_controller.js` asks `/suggest`): the completions of
+the word being typed (`Fuzzphony::suggest()`), the first hits matched as you type, and on the catalogue the categories the text is found in
+(a facet). Brand, price and category name are the application's data, loaded for the ids the search returned; arrows, Enter and Escape work.
+
+### The interface
+
+The design follows Apple's Human Interface Guidelines as habits rather than as a look: one action per screen, one accent colour that only means
+"you can act on this", content before chrome (a translucent toolbar, hairlines instead of boxes, explanations one disclosure away), familiar
+patterns (the rounded search field, the segmented control, inset grouped lists, a tab bar on a phone), 44 px touch targets, text contrast of at
+least 4.5:1, light and dark from the system setting, sizes in `rem`, motion that explains cause and effect and stops under
+`prefers-reduced-motion`. It is native CSS (`@layer`, tokens with `light-dark()` and `color-mix()`, cross-document view transitions),
+the system font stack and one inline SVG sprite ([`templates/_sprite.html.twig`](templates/_sprite.html.twig): the interface icons and one drawing
+per product category); no font, image or script is downloaded for it. The design and its reasoning are in
+[`docs/superpowers/specs/2026-10-12-v082-demo-interface-design.md`](../docs/superpowers/specs/2026-10-12-v082-demo-interface-design.md).
+
+To look at it the way it was reviewed, [`tools/shots.mjs`](tools/shots.mjs) takes a screenshot of every page at phone and laptop size, light and dark,
+with reduced motion, and runs axe-core and a horizontal-overflow check (Playwright from its official Docker image; nothing is added to the project):
+see the comment at the top of the file. [`tools/flows.mjs`](tools/flows.mjs) checks what a screenshot cannot show in a real browser: the results
+appearing in place while typing, the clear button, the `/` shortcut, the suggestion panel with the keyboard, a facet, the Speed view and the tab bar on
+a phone (15 checks).
 
 The index itself is in [`config/packages/fuzzphony.yaml`](config/packages/fuzzphony.yaml): it was
-generated by the wizard and then tuned in the playground.
+generated by the wizard and then tuned in Tune.
 The Languages page searches a separate, hand-written catalogue ([`sql/lang_product.sql`](sql/lang_product.sql),
 30 products per language, seeded by `init` when the table is missing) through five indexes `lang_en` … `lang_hu`
 in the same file, each with its own `language:` (stemming, stop words) and accent folding.
@@ -147,7 +162,7 @@ listed there use the library's defaults, shown here with "default".
 | Reindex at start | `init` reindexes an index only when it is empty (`DEMO_REINDEX=auto`), 20 000 ids per batch | `always` / `never` change that, see Settings; a full reindex builds next to the live index and swaps it in, so the site keeps answering from the old one meanwhile (`init` owns the schema, so it can always do this; the `worker`'s rebuild of a `TRUNCATE` job falls back to rebuilding in place, since `fuzzphony_app` has no DDL rights) |
 | Database roles | `init` runs as the owner `fuzzphony`; `php` and `worker` run as `fuzzphony_app` | `fuzzphony_app`: no DDL, read-only on the demo data, read/write on the `fuzzphony` schema's tables, `statement_timeout` 5 s |
 
-The **Observability** page runs any query you type (or one of the same presets as the Compare page) and shows
+The **Observability** page runs any query you type (or one of the same examples as the Search page) and shows
 what Fuzzphony reported for it: `took_ms`, whether the typo-tolerance fallback ran, the sync queue depth and the
 log line `LoggingMetricsCollector` writes (this demo has neither `promphp/prometheus_client_php` nor `apcu`, so it
 runs the logging collector; the bundle falls back to it on its own). It also lists every metric Fuzzphony can

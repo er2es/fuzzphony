@@ -60,6 +60,9 @@ final class AsYouTypeTest extends TestCase
         self::assertContains(1, $typo->ids(), '"mose" is a typo of "mouse": found as before');
         self::assertSame('mouse', $typo->didYouMean, 'without the prefix alternative the engine saw');
         self::assertSame('wireless mouse', $this->search('wireles mose')->asYouType()->get()->didYouMean);
+        self::assertSame('wireless mouse', $this->search('wireles mose')->asYouType()->explain()->result->didYouMean, 'explain() says the same as get()');
+        self::assertSame('mouse', $this->search('mose')->asYouType()->explain()->result->didYouMean);
+        self::assertNull($this->search('mouse')->asYouType()->explain()->result->didYouMean);
         self::assertSame([1, 2, 4], self::ids($this->search('mouse')->asYouType()));
         self::assertSame([], self::ids($this->search('mo ')->asYouType()), 'a space ends the word: nothing to complete');
         self::assertSame([], self::ids($this->search('"noise canc')->asYouType()), 'inside a quoted phrase');

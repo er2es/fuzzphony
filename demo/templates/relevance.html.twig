@@ -1,75 +1,77 @@
 {% extends 'base.html.twig' %}
-{% block title %}Relevance · Fuzzphony{% endblock %}
-
-{% macro hits(result, rows) %}
-    <p class="muted">
-        {{ result.total }}{{ result.totalIsLowerBound ? '+' }} hits{% if result.usedFuzzy %} · typo tolerant{% endif %}
-        · understood as <code>{{ result.interpretedAs }}</code>
-    </p>
-    <ul class="hits">
-        {% for hit in result.hits %}
-            {% set row = rows[hit.id] ?? null %}
-            <li>
-                {% if hit.highlights.name is defined %}{{ hit.highlights.name|raw }}{% else %}{{ row.name ?? hit.id }}{% endif %}
-                <span class="muted">· {{ row.brand ?? '' }}</span>
-            </li>
-        {% else %}
-            <li class="muted">Nothing found.</li>
-        {% endfor %}
-    </ul>
-{% endmacro %}
-{% import _self as ui %}
+{% import '_ui.html.twig' as ui %}
+{% block title %}{{ q != '' ? q ~ ' · ' }}Relevance · Fuzzphony{% endblock %}
 
 {% block body %}
-    <form method="get" class="searchbar" data-loading-message="Searching…" data-controller="suggest" data-suggest-url-value="{{ path('suggest') }}" data-suggest-index-value="catalog" data-suggest-page-value="{{ path('relevance') }}">
-        <input type="search" name="q" value="{{ q }}" aria-label="Search the catalogue" placeholder="Search the catalogue…" autofocus data-suggest-target="input" data-action="input->suggest#update" autocomplete="off">
-        <div class="suggest-panel" data-suggest-target="panel" data-live-ignore hidden></div>
-        <button type="submit" class="primary">Search</button>
-    </form>
-    <p class="muted">
-        Three things that decide whether a search finds what was meant: how similar a word has to be to count as a typo
-        (it depends on the word's length), the synonyms the catalogue knows, and the suggestion for a word the index has never seen.
-        Pick an example, or type your own.
-    </p>
-    {% for group, items in examples %}
-        <h2>{{ group }}</h2>
-        <div class="examples">
-            {% for label, example in items %}
-                <a class="button" href="{{ path('relevance', {q: example}) }}" data-loading-message="Searching for {{ example }}…">{{ label }}: <code>{{ example }}</code></a>
-            {% endfor %}
-        </div>
-    {% endfor %}
+<div class="page stack">
+    <div class="hero">
+        <h1>Relevance</h1>
+        <p class="lede">Why a search finds what was meant: how far a typo may stray, which words mean the same, and what to suggest.</p>
+        {{ ui.search_field(path('relevance'), q, 'catalog', 'Try mose, tv or hedphones') }}
+    </div>
+
+    <div class="example-groups">
+        {% for group, items in examples %}
+            <div>
+                <h2 class="list-title">{{ group }}</h2>
+                {{ ui.examples(items, 'relevance') }}
+            </div>
+        {% endfor %}
+    </div>
 
     {% if byLength %}
-        <h2>Typo tolerance</h2>
-        <p class="muted">
-            Both columns search with typo tolerance on (<code>fuzzy_mode: always</code>), so only the similarity rule differs. By word length a word
-            needs the similarity of the worst typo its length allows (one typo from 4 letters, two from 8): <code>mouse</code> is not <code>monitor</code>.
-            A flat <code>fuzzy_similarity: 0.3</code> is what 0.6 did.
-        </p>
-        <div class="grid">
-            <section class="card">
-                <h2>By word length (default)</h2>
-                {{ ui.hits(byLength, rows) }}
-            </section>
-            <section class="card">
-                <h2>Flat 0.3 (0.6 behaviour)</h2>
-                {{ ui.hits(flat, rows) }}
-            </section>
-        </div>
+        <section aria-labelledby="typos" class="stack">
+            <div>
+                <h2 id="typos">Typos</h2>
+                <p class="muted">A word needs the similarity of the worst typo its length allows: one from four letters, two from eight. <code>mouse</code> is not <code>monitor</code>. A flat 0.3, the rule before 0.7, is on the right.</p>
+            </div>
+            <div class="two-up">
+                <div>
+                    <h3 class="list-title">By word length (the default)</h3>
+                    <ul class="list">
+                        {% for hit in byLength.hits %}{{ ui.hit_row(hit, rows[hit.id] ?? null, hit.id in onlyByLength ? 'only here') }}{% else %}<li class="row no-lead"><span class="muted">Nothing found.</span></li>{% endfor %}
+                    </ul>
+                    <p class="muted caption">{{ byLength.total }}{{ byLength.totalIsLowerBound ? '+' }} hits · <code>{{ byLength.interpretedAs }}</code></p>
+                </div>
+                <div>
+                    <h3 class="list-title">Flat 0.3</h3>
+                    <ul class="list">
+                        {% for hit in flat.hits %}{{ ui.hit_row(hit, rows[hit.id] ?? null, hit.id in onlyFlat ? 'only here') }}{% else %}<li class="row no-lead"><span class="muted">Nothing found.</span></li>{% endfor %}
+                    </ul>
+                    <p class="muted caption">{{ flat.total }}{{ flat.totalIsLowerBound ? '+' }} hits · <code>{{ flat.interpretedAs }}</code></p>
+                </div>
+            </div>
+        </section>
 
-        <h2>Synonyms and the suggestion</h2>
-        <section class="card">
-            <p>
-                The catalogue's synonyms (edit them on the <a href="{{ path('synonyms', {index: 'catalog'}) }}">Synonyms page</a>) are expanded on the query:
-                <code>{{ suggestion.interpretedAs }}</code>
-                {% if suggestion.interpretedAs == q|lower or suggestion.interpretedAs == q %}<span class="muted">(no synonym applies to this query)</span>{% endif %}
-            </p>
-            {% if suggestion.didYouMean %}
-                <p>Did you mean <a href="{{ path('relevance', {q: suggestion.didYouMean}) }}" data-loading-message="Searching for {{ suggestion.didYouMean }}…"><strong>{{ suggestion.didYouMean }}</strong></a>?</p>
-            {% else %}
-                <p class="muted">No suggestion: every word is known to the index, or the search found enough hits.</p>
-            {% endif %}
+        <section aria-labelledby="syn">
+            <h2 id="syn">Synonyms</h2>
+            <ul class="list">
+                <li class="row no-lead">
+                    <div class="row-body">
+                        <div class="row-title">Understood as <code>{{ suggestion.interpretedAs }}</code></div>
+                        <div class="row-sub">{% if suggestion.interpretedAs == q|lower or suggestion.interpretedAs == q %}No synonym applies to this query.{% else %}The catalogue's synonyms were expanded on the query, no reindex needed.{% endif %}</div>
+                    </div>
+                    <a class="button" href="{{ path('synonyms', {index: 'catalog'}) }}">Edit synonyms</a>
+                </li>
+            </ul>
+        </section>
+
+        <section aria-labelledby="dym">
+            <h2 id="dym">Did you mean</h2>
+            <ul class="list">
+                <li class="row no-lead">
+                    <div class="row-body">
+                        {% if suggestion.didYouMean %}
+                            <div class="row-title"><a href="{{ path('relevance', {q: suggestion.didYouMean}) }}" data-loading-message="Searching for {{ suggestion.didYouMean }}…">{{ suggestion.didYouMean }}</a></div>
+                            <div class="row-sub">A word the index has never seen was replaced by its nearest word.</div>
+                        {% else %}
+                            <div class="row-title">No suggestion</div>
+                            <div class="row-sub">Every word is known to the index, or the search found enough.</div>
+                        {% endif %}
+                    </div>
+                </li>
+            </ul>
         </section>
     {% endif %}
+</div>
 {% endblock %}

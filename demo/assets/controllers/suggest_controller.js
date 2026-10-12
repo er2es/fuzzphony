@@ -26,13 +26,14 @@ export default class extends Controller {
         param: { type: String, default: 'q' },
         params: { type: Object, default: {} },
         categories: Boolean,
+        products: { type: Boolean, default: true },
     };
 
     connect() {
         this.items = [];
         this.active = -1;
         // the panel is positioned inside the input's container, under the input
-        const anchor = this.inputTarget.parentElement;
+        const anchor = this.panelTarget.parentElement;
         if (anchor && getComputedStyle(anchor).position === 'static') {
             anchor.style.position = 'relative';
         }
@@ -90,8 +91,8 @@ export default class extends Controller {
         if (this.categoriesValue && data.categories.length) {
             sections.push(['Categories', data.categories.map((c) => ({ label: c.name, note: String(c.count), href: this.link(text, { cat: c.name }), inline: true }))]);
         }
-        if (data.products.length) {
-            sections.push(['Products', data.products.map((p) => ({ label: p.name, note: p.note, href: this.link(p.name) }))]);
+        if (this.productsValue && data.products.length) {
+            sections.push(['Products', data.products.map((p) => ({ label: p.name, note: p.note, href: this.link(p.name), icon: p.icon, hue: p.hue }))]);
         }
         this.panelTarget.replaceChildren();
         this.items = [];
@@ -103,18 +104,42 @@ export default class extends Controller {
             this.panelTarget.append(heading);
             for (const entry of entries) {
                 const item = document.createElement('a');
-                item.className = 'suggest-item' + (entry.inline || title === 'Searches' ? '' : ' is-product');
+                item.className = 'suggest-item';
                 item.href = entry.href;
                 item.setAttribute('role', 'option');
+                if (entry.icon) {
+                    // the category's drawing on its tint, from the sprite in the page
+                    const tile = document.createElement('span');
+                    tile.className = 'tile' + (entry.hue < 0 ? ' is-neutral' : '');
+                    tile.style.setProperty('--h', String(entry.hue));
+                    tile.setAttribute('aria-hidden', 'true');
+                    const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+                    svg.setAttribute('class', 'icon');
+                    const use = document.createElementNS('http://www.w3.org/2000/svg', 'use');
+                    use.setAttribute('href', `#${entry.icon}`);
+                    svg.append(use);
+                    tile.append(svg);
+                    item.append(tile);
+                }
+                const body = document.createElement('span');
+                body.className = 'suggest-body';
                 const label = document.createElement('span');
                 label.className = 'suggest-label';
                 label.textContent = entry.label;
-                item.append(label);
-                if (entry.note) {
+                body.append(label);
+                if (entry.note && !entry.inline) {
                     const note = document.createElement('span');
-                    note.className = 'suggest-note muted';
+                    note.className = 'suggest-note';
                     note.textContent = entry.note;
-                    item.append(note);
+                    body.append(note);
+                }
+                item.append(body);
+                if (entry.inline && entry.note) {
+                    const count = document.createElement('span');
+                    count.className = 'suggest-note';
+                    count.textContent = entry.note;
+                    item.classList.add('is-text');
+                    item.append(count);
                 }
                 this.panelTarget.append(item);
                 this.items.push(item);
@@ -125,14 +150,20 @@ export default class extends Controller {
         this.inputTarget.setAttribute('aria-expanded', String(!this.panelTarget.hidden));
     }
 
-    /** Under the input, as wide as the input: whatever the page lays out around it. */
+    /** Under the field (the rounded box around the input, else the input), as wide as it: whatever the page lays out around it. */
     place() {
-        const input = this.inputTarget;
+        const field = this.inputTarget.closest('.search-field') ?? this.inputTarget;
         const panel = this.panelTarget;
-        panel.style.position = 'absolute';
-        panel.style.left = `${input.offsetLeft}px`;
-        panel.style.top = `${input.offsetTop + input.offsetHeight + 4}px`;
-        panel.style.width = `${input.offsetWidth}px`;
+        panel.style.left = `${field.offsetLeft}px`;
+        panel.style.top = `${field.offsetTop + field.offsetHeight + 6}px`;
+        panel.style.width = `${field.offsetWidth}px`;
+    }
+
+    /** The clear button of the search field: empties it, closes the panel and puts the cursor back. */
+    clear() {
+        this.inputTarget.value = '';
+        this.close();
+        this.inputTarget.focus();
     }
 
     key(event) {

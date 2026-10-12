@@ -25,16 +25,13 @@ final class PagesController extends AbstractController
 {
     private const array LANGUAGES = ['english', 'german', 'french', 'spanish', 'italian', 'hungarian', 'dutch', 'simple'];
 
-    /** benchmarkRow() below measures ILIKE and Fuzzphony, one Measure::median() call each: always these two. */
-    private const int ENGINES = 2;
-
-    #[Route('/playground', name: 'playground')]
-    public function playground(): Response
+    #[Route('/tune', name: 'tune')]
+    public function tune(): Response
     {
         return $this->render('playground.html.twig');
     }
 
-    #[Route('/wizard', name: 'wizard')]
+    #[Route('/under-the-hood/wizard', name: 'wizard')]
     public function wizard(Request $request, SourceIntrospector $introspector): Response
     {
         $tables = $introspector->tables();
@@ -79,24 +76,11 @@ final class PagesController extends AbstractController
         ]);
     }
 
-    /** The page shell is instant; every row is measured by its own request (see sequence_controller.js). */
-    #[Route('/benchmark', name: 'benchmark')]
-    public function benchmark(Catalog $catalog): Response
-    {
-        return $this->render('benchmark.html.twig', [
-            'queries' => self::benchmarkQueries(),
-            'table' => Catalog::TABLE,
-            'rowEstimate' => $catalog->estimatedProductCount(),
-            'warmRuns' => Measure::WARM_RUNS,
-            'engines' => self::ENGINES,
-        ]);
-    }
-
     /** One benchmark row, requested one at a time so the measurements never compete with each other. */
-    #[Route('/benchmark/row/{index}', name: 'benchmark_row', requirements: ['index' => '\d+'])]
+    #[Route('/speed/row/{index}', name: 'benchmark_row', requirements: ['index' => '\d+'])]
     public function benchmarkRow(int $index, Fuzzphony $fuzzphony, Catalog $catalog): Response
     {
-        $entry = array_slice(self::benchmarkQueries(), $index, 1, true);
+        $entry = array_slice(SearchController::benchmarkQueries(), $index, 1, true);
         if ($entry === []) {
             throw $this->createNotFoundException();
         }
@@ -108,14 +92,8 @@ final class PagesController extends AbstractController
         return $this->render('benchmark_row.html.twig', ['r' => ['label' => $label, 'q' => $q, 'without' => $without, 'with' => $with]]);
     }
 
-    /** @return array<string, string> label => query */
-    private static function benchmarkQueries(): array
-    {
-        return CompareController::EXAMPLES + ['plain word' => 'wireless', 'two words' => 'wireless mouse'];
-    }
-
     /** Exact counts (?deep=1) scan the whole catalogue, so they are only offered when DEMO_ALLOW_DEEP_DOCTOR=1. */
-    #[Route('/doctor', name: 'doctor')]
+    #[Route('/under-the-hood/doctor', name: 'doctor')]
     public function doctor(
         Request $request,
         Fuzzphony $fuzzphony,
@@ -131,11 +109,11 @@ final class PagesController extends AbstractController
         ]);
     }
 
-    #[Route('/observability', name: 'observability')]
+    #[Route('/under-the-hood/observability', name: 'observability')]
     public function observability(Request $request, Fuzzphony $fuzzphony): Response
     {
         $q = trim($request->query->getString('q'));
-        $query = $q !== '' ? $q : CompareController::EXAMPLES['typo'];
+        $query = $q !== '' ? $q : SearchController::EXAMPLES['typo'];
         if (mb_strlen($query) > 256) {
             throw new BadRequestHttpException('The query is too long.');
         }
@@ -150,7 +128,7 @@ final class PagesController extends AbstractController
 
         return $this->render('observability.html.twig', [
             'query' => $query,
-            'examples' => CompareController::EXAMPLES,
+            'examples' => SearchController::EXAMPLES,
             'took_ms' => $explanation->result->tookMs,
             'total' => $explanation->result->total,
             'fallback' => $fallback,

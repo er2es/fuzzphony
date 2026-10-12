@@ -1,0 +1,39 @@
+{% extends 'base.html.twig' %}
+{% block title %}{{ q != '' ? q ~ ' · ' }}Fuzzphony{% endblock %}
+
+{% block body %}
+<div class="page" data-controller="suggest live-search"
+     data-suggest-url-value="{{ path('suggest') }}" data-suggest-index-value="catalog" data-suggest-page-value="{{ path('search') }}"
+     data-suggest-categories-value="true" data-suggest-products-value="false">
+    <section class="hero" aria-labelledby="title">
+        <h1 id="title">Search {{ rowEstimate > 0 ? rowEstimate|number_format : 'the' }} products</h1>
+        <p class="lede">It finds what you meant: typos, accents, half-typed words and synonyms included.</p>
+
+        <form method="get" action="{{ path('search') }}" role="search" class="field-wrap" data-live-search-target="form">
+            <div class="search-field">
+                <svg class="icon" aria-hidden="true"><use href="#i-search"/></svg>
+                <input type="search" name="q" value="{{ q }}" placeholder="Try hedphones, cr or tv" aria-label="Search the catalogue" autocomplete="off" spellcheck="false" enterkeyhint="search" maxlength="100"
+                       {% if q == '' %}autofocus{% endif %}
+                       data-suggest-target="input" data-live-search-target="input" data-action="input->suggest#update input->live-search#update">
+                <button type="button" class="clear" aria-label="Clear the search" data-action="live-search#clear"><svg class="icon" aria-hidden="true"><use href="#i-clear"/></svg></button>
+            </div>
+            <div class="suggest-panel" data-suggest-target="panel" data-live-ignore hidden></div>
+            {% if view == 'speed' %}<input type="hidden" name="view" value="speed">{% endif %}
+            {% if category != '' %}<input type="hidden" name="cat" value="{{ category }}">{% endif %}
+            {% if stock is not null %}<input type="hidden" name="stock" value="{{ stock ? 1 : 0 }}">{% endif %}
+            <button type="submit" class="sr-only">Search</button>
+        </form>
+
+        <div class="examples-row" aria-label="Examples">
+            <span class="label">Try</span>
+            {% for label, example in examples %}
+                <a class="chip" href="{{ path('search', {q: example}) }}" data-action="live-search#example" data-live-search-q-param="{{ example }}"><code>{{ example }}</code> <small>{{ label }}</small></a>
+            {% endfor %}
+        </div>
+    </section>
+
+    <div id="results" data-live-search-target="region" aria-live="polite">
+        {{ include('search/_region.html.twig') }}
+    </div>
+</div>
+{% endblock %}

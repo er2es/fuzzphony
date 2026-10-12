@@ -1,40 +1,62 @@
 {% extends 'base.html.twig' %}
 {% block title %}Config wizard · Fuzzphony{% endblock %}
 {% block body %}
-    <form method="get" class="grid" data-controller="autosubmit" data-loading-message="Introspecting the table…">
-        <label>Table
+<div class="page stack">
+    <div class="hero">
+        <h1>Config wizard</h1>
+        <p class="lede">Pick a table and get a suggested index definition, with every decision explained.</p>
+    </div>
+
+    <form method="get" class="list settings-form" data-controller="autosubmit" data-loading-message="Introspecting the table…">
+        <label class="setting select-row">Table
             <select name="table" data-action="change->autosubmit#submit">
                 {% for t in tables %}<option value="{{ t.table }}" {{ t.table == table ? 'selected' }}>{{ t.table }} (~{{ t.rows|number_format }} rows)</option>{% endfor %}
             </select>
         </label>
-        <label>Language
+        <label class="setting select-row">Language
             <select name="language" data-action="change->autosubmit#submit">
                 {% for l in languages %}<option {{ l == language ? 'selected' }}>{{ l }}</option>{% endfor %}
             </select>
         </label>
     </form>
 
-    {% if error %}<p class="s-error">{{ error }}</p>{% endif %}
+    {% if error %}<p class="callout is-bad" role="alert">{{ error }}</p>{% endif %}
 
     {% if suggestion %}
-        <h2>What the wizard decided, and why</h2>
-        <table>
-            <thead><tr><th>Column</th><th>Role</th><th>Why</th></tr></thead>
-            <tbody>
-            {% for d in suggestion.decisions %}
-                <tr><td><code>{{ d.column }}</code></td><td>{{ d.role }}</td><td class="muted">{{ d.reason }}</td></tr>
-            {% endfor %}
-            </tbody>
-        </table>
-        {% for note in suggestion.notes %}<p class="s-warning">{{ note }}</p>{% endfor %}
+        <section aria-labelledby="decisions">
+            <h2 id="decisions" class="list-title">What the wizard decided, and why</h2>
+            <ul class="list">
+                {% for d in suggestion.decisions %}
+                    <li class="row no-lead">
+                        <div class="row-body">
+                            <div class="row-title"><code>{{ d.column }}</code></div>
+                            <div class="row-sub">{{ d.reason }}</div>
+                        </div>
+                        <span class="flag">{{ d.role }}</span>
+                    </li>
+                {% endfor %}
+            </ul>
+        </section>
+        {% for note in suggestion.notes %}<p class="callout is-warn">{{ note }}</p>{% endfor %}
 
         {% if exports %}
-            <div class="grid" style="margin-top:1rem">
-                <section class="card"><h2>config/packages/fuzzphony.yaml</h2><pre>{{ exports.yaml }}</pre></section>
-                <section class="card"><h2>Builder (plain PHP)</h2><pre>{{ exports.builder }}</pre></section>
-                <section class="card"><h2>Attributes</h2><pre>{{ exports.attributes }}</pre></section>
-            </div>
-            <p class="muted">Same in the terminal: <code>bin/console fuzzphony:wizard {{ table }} --try</code></p>
+            <section aria-labelledby="code" class="stack">
+                <h2 id="code" class="list-title">The definition</h2>
+                <details class="disclosure" open>
+                    <summary>config/packages/fuzzphony.yaml<svg class="icon" aria-hidden="true"><use href="#i-chevron"/></svg></summary>
+                    <pre tabindex="0">{{ exports.yaml }}</pre>
+                </details>
+                <details class="disclosure">
+                    <summary>Builder (plain PHP)<svg class="icon" aria-hidden="true"><use href="#i-chevron"/></svg></summary>
+                    <pre tabindex="0">{{ exports.builder }}</pre>
+                </details>
+                <details class="disclosure">
+                    <summary>Attributes<svg class="icon" aria-hidden="true"><use href="#i-chevron"/></svg></summary>
+                    <pre tabindex="0">{{ exports.attributes }}</pre>
+                </details>
+                <p class="muted">Same in the terminal: <code>bin/console fuzzphony:wizard {{ table }} --try</code></p>
+            </section>
         {% endif %}
     {% endif %}
+</div>
 {% endblock %}
