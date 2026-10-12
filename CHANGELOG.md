@@ -53,6 +53,8 @@ Parts 1 (identity) and 2 (search log and analytics) of 0.9. Upgrade: nothing, un
 
 ### Changed
 
+- CI tests Symfony 8.0 again (on the newest PostgreSQL, PHP 8.4 and 8.5), so the list of tested releases is the list the `^7.4 || ^8.0` constraint allows: 7.4 LTS, 8.0 and 8.1, and the README badge says so. 0.8.2 had dropped 8.0 from CI while the constraint still allowed it, which promised more than was tested. From now on a Symfony release leaves the constraint and CI together, in a minor release of Fuzzphony.
+
 - `InvalidQuery` is no longer `final` (`ActorRequired` extends it).
 
 ### Fixed
