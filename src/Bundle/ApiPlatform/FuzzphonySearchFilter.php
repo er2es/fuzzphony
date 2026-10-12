@@ -9,6 +9,7 @@ use ApiPlatform\Doctrine\Orm\Util\QueryNameGeneratorInterface;
 use ApiPlatform\Metadata\Operation;
 use Doctrine\ORM\QueryBuilder;
 use Fuzzphony\Core\Fuzzphony;
+use Fuzzphony\Core\Search\ActorResolver;
 
 /**
  * Relevance search for API Platform collections:
@@ -26,6 +27,7 @@ final class FuzzphonySearchFilter implements FilterInterface
         private readonly string $parameterName = 'q',
         private readonly string $profile = 'default',
         private readonly int $maxResults = 500,
+        private readonly ?ActorResolver $actors = null,
     ) {}
 
     /** @param array<string, mixed> $context */
@@ -37,7 +39,11 @@ final class FuzzphonySearchFilter implements FilterInterface
             return;
         }
 
-        $result = $this->fuzzphony->in($resourceClass)->query($text)->profile($this->profile)->limit(min(1000, max(1, $this->maxResults)))->get();
+        $search = $this->fuzzphony->in($resourceClass)->query($text)->profile($this->profile)->limit(min(1000, max(1, $this->maxResults)));
+        if ($this->actors !== null) {
+            $search = $search->asActor($this->actors->resolve()); // an ActorRequired becomes a 403 in SearchExceptionListener
+        }
+        $result = $search->get();
         $alias = $queryBuilder->getRootAliases()[0];
         $idField = $queryBuilder->getEntityManager()->getClassMetadata($resourceClass)->getSingleIdentifierFieldName();
 

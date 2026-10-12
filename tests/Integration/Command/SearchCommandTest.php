@@ -5,6 +5,10 @@ declare(strict_types=1);
 namespace Fuzzphony\Tests\Integration\Command;
 
 use Fuzzphony\Bundle\Command\SearchCommand;
+use Fuzzphony\Core\Definition\IndexDefinition;
+use Fuzzphony\Core\Fuzzphony;
+use Fuzzphony\Core\Registry\IndexRegistry;
+use Fuzzphony\Tests\Fixtures\Indexes;
 use PHPUnit\Framework\TestCase;
 use Symfony\Component\Console\Command\Command;
 use Symfony\Component\Console\Tester\CommandCompletionTester;
@@ -141,6 +145,72 @@ final class SearchCommandTest extends TestCase
 
         $this->tester->execute(['index' => 'products', 'query' => 'qq', '--suggest' => true], ['interactive' => false]);
         self::assertStringContainsString('No completions.', $this->tester->getDisplay(true));
+    }
+
+    public function testTenantAndUserSearchATenantScopedIndex(): void
+    {
+        $tester = $this->tenantTester();
+
+        // Brand 1 (Logitech) has products 1 and 4; brand 2 (Razer) has product 2. All three mention "mouse".
+        $status = $tester->execute(['index' => 'products', 'query' => 'mouse', '--tenant' => '1', '--user' => 'ada'], ['interactive' => false]);
+
+        self::assertSame(Command::SUCCESS, $status);
+        self::assertStringContainsString('2 hit(s)', $tester->getDisplay(true));
+    }
+
+    public function testAUserWithoutATenantIsRefusedOnATenantScopedIndex(): void
+    {
+        $tester = $this->tenantTester();
+
+        $status = $tester->execute(['index' => 'products', 'query' => 'mouse', '--user' => 'ada'], ['interactive' => false]);
+
+        self::assertSame(Command::FAILURE, $status);
+        self::assertStringContainsString('products', $tester->getDisplay(true));
+        self::assertStringNotContainsString('hit(s)', $tester->getDisplay(true));
+    }
+
+    public function testADigitsTenantWorksOnAStringTypedTenantFilter(): void
+    {
+        // the tenant column is text ("1" is Logitech's brand_id as text): --tenant=1 must stay the string "1"
+        $index = IndexDefinition::builder('products')
+            ->fromQuery('SELECT p.id, p.name, p.description, p.brand_id::text AS brand_key FROM fz_product p')
+            ->watch('fz_product')
+            ->field('name', 'A', fuzzy: true)
+            ->field('description', 'D')
+            ->filter('brand_key', 'string')
+            ->tenant('brand_key')
+            ->sync('manual')
+            ->build();
+        $fuzzphony = new Fuzzphony($this->context->engine, new IndexRegistry([$index]));
+        $fuzzphony->schema()->apply($this->context->connection);
+        $fuzzphony->reindex('products');
+        $tester = new CommandTester(new SearchCommand($fuzzphony));
+
+        // Brand 1 (Logitech) has products 1 and 4; brand 2 (Razer) has product 2. All three mention "mouse".
+        $status = $tester->execute(['index' => 'products', 'query' => 'mouse', '--tenant' => '1'], ['interactive' => false]);
+
+        self::assertSame(Command::SUCCESS, $status, $tester->getDisplay(true));
+        self::assertStringContainsString('2 hit(s)', $tester->getDisplay(true));
+    }
+
+    public function testATenantScopedIndexWithoutTenantOrUserIsAMessageNotAnException(): void
+    {
+        $tester = $this->tenantTester();
+
+        $status = $tester->execute(['index' => 'products', 'query' => 'mouse'], ['interactive' => false]);
+
+        self::assertSame(Command::FAILURE, $status);
+        self::assertStringContainsString('requires forTenant()', $tester->getDisplay(true));
+    }
+
+    private function tenantTester(): CommandTester
+    {
+        $connection = $this->context->connection;
+        $fuzzphony = new Fuzzphony($this->context->engine, new IndexRegistry([Indexes::products(tenant: true)]));
+        $fuzzphony->schema()->apply($connection);
+        $fuzzphony->reindex('products');
+
+        return new CommandTester(new SearchCommand($fuzzphony));
     }
 
     public function testAsYouTypeMatchesTheBeginningOfTheLastWord(): void

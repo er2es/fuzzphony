@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Fuzzphony\Core\Search;
 
+use Fuzzphony\Core\Definition\FilterType;
 use Fuzzphony\Core\Definition\IndexDefinition;
 use Fuzzphony\Core\Engine\Engine;
 use Fuzzphony\Core\Query\SearchQuery;
@@ -24,6 +25,7 @@ final readonly class SearchBuilder
         private Engine $engine,
         private IndexDefinition $index,
         private SearchQuery $query = new SearchQuery(),
+        private ?SearchGate $gate = null,
     ) {}
 
     public function query(string $text): self
@@ -55,6 +57,26 @@ final readonly class SearchBuilder
     public function forTenant(mixed $value): self
     {
         return $this->with($this->query->forTenant($value));
+    }
+
+    /**
+     * Searches as this actor: its tenant scopes a tenant-scoped index (it is ignored on any other index), its
+     * user is carried for the search log and the guards. The last of forTenant() / asActor() wins; an actor
+     * without a tenant leaves a tenant set before alone. An integer tenant (a resolver reading `account.id`)
+     * on a string tenant filter is turned into its string; any other pairing is left as it is.
+     */
+    public function asActor(Actor $actor): self
+    {
+        $query = $this->query->withActor($actor);
+        if ($this->index->tenant !== null && $actor->tenant !== null) {
+            $tenant = $actor->tenant;
+            if (is_int($tenant) && $this->index->filter($this->index->tenant)->type === FilterType::String) {
+                $tenant = (string) $tenant;
+            }
+            $query = $query->forTenant($tenant);
+        }
+
+        return $this->with($query);
     }
 
     public function profile(string $profile): self
@@ -137,14 +159,20 @@ final readonly class SearchBuilder
 
     public function get(): SearchResult
     {
-        $result = $this->engine->search($this->index, $this->effective());
+        $query = $this->effective();
+        $result = $this->gate !== null
+            ? $this->gate->search($this->engine, $this->index, $query)
+            : $this->engine->search($this->index, self::checked($this->index, $query));
 
         return $this->query->asYouType && $result->didYouMean !== null ? $result->withDidYouMean(Typeahead::withoutPrefixAlternative($result->didYouMean)) : $result;
     }
 
     public function explain(bool $analyze = false): Explanation
     {
-        $explanation = $this->engine->explain($this->index, $this->effective(), $analyze);
+        $query = $this->effective();
+        $explanation = $this->gate !== null
+            ? $this->gate->explain($this->engine, $this->index, $query, $analyze)
+            : $this->engine->explain($this->index, self::checked($this->index, $query), $analyze);
         $didYouMean = $explanation->result->didYouMean;
         if (!$this->query->asYouType || $didYouMean === null) {
             return $explanation;
@@ -164,8 +192,15 @@ final readonly class SearchBuilder
         return $this->query->asYouType ? $this->query->withText(Typeahead::lastWordAsPrefix($this->query->text)) : $this->query;
     }
 
+    private static function checked(IndexDefinition $index, SearchQuery $query): SearchQuery
+    {
+        SearchGate::assertActorHasTenant($index, $query);
+
+        return $query;
+    }
+
     private function with(SearchQuery $query): self
     {
-        return new self($this->engine, $this->index, $query);
+        return new self($this->engine, $this->index, $query, $this->gate);
     }
 }

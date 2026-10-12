@@ -45,6 +45,7 @@ final class PublicApiTest extends TestCase
         \Fuzzphony\Core\Engine\SynonymStems::class,
         \Fuzzphony\Core\Engine\Vocabulary::class,
         \Fuzzphony\Core\Engine\Engine::class,
+        \Fuzzphony\Core\Exception\ActorRequired::class,
         \Fuzzphony\Core\Exception\EngineFailure::class,
         \Fuzzphony\Core\Exception\FuzzphonyException::class,
         \Fuzzphony\Core\Exception\InvalidArgument::class,
@@ -70,6 +71,8 @@ final class PublicApiTest extends TestCase
         \Fuzzphony\Core\Registry\IndexRegistry::class,
         \Fuzzphony\Core\Schema\SchemaPlan::class,
         \Fuzzphony\Core\Schema\Statement::class,
+        \Fuzzphony\Core\Search\Actor::class,
+        \Fuzzphony\Core\Search\ActorResolver::class,
         \Fuzzphony\Core\Search\Explanation::class,
         \Fuzzphony\Core\Search\FacetValue::class,
         \Fuzzphony\Core\Search\FederatedHit::class,
@@ -78,6 +81,7 @@ final class PublicApiTest extends TestCase
         \Fuzzphony\Core\Search\Hit::class,
         \Fuzzphony\Core\Search\ScoreBreakdown::class,
         \Fuzzphony\Core\Search\SearchBuilder::class,
+        \Fuzzphony\Core\Search\SearchGate::class,
         \Fuzzphony\Core\Search\SearchResult::class,
         \Fuzzphony\Core\Sync\ImmediateRefreshDispatcher::class,
         \Fuzzphony\Core\Sync\RefreshDispatcher::class,
@@ -118,8 +122,8 @@ final class PublicApiTest extends TestCase
         }
 
         self::assertSame([], $wrong);
-        self::assertCount(82, self::PUBLIC);
-        self::assertCount(140, self::classes());
+        self::assertCount(86, self::PUBLIC);
+        self::assertCount(147, self::classes());
     }
 
     public function testThePublicApiExposesNoInternalType(): void

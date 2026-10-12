@@ -56,7 +56,8 @@ depends on it, so nothing built early has to be refactored once a later mileston
 
 ## v0.9: Security and analytics
 
-Built on the 0.6 events.
+Built on the 0.6 events. One release in three parts, in order: identity, the search log and analytics,
+guards. Part 1 (identity) is done and unreleased; see "Security" below.
 
 ### Search analytics
 
@@ -66,8 +67,13 @@ The most frequent queries and the queries that found nothing, for the people who
 
 Audit logging (who searched what, when) and per-tenant / per-user rate limiting. Symfony Security
 integration for index- and field-level authorization (for example, keeping a field out of
-highlights unless the viewer is authorized). A tenant resolver (for example from the Symfony
-Security user) for the API Platform filter, the Live Component and `fuzzphony:search`.
+highlights unless the viewer is authorized).
+
+Done (part 1, identity): the `Actor` (tenant and user), `SearchBuilder::asActor()`, the `fuzzphony.actor`
+resolver (a service of yours, or property paths on the Symfony Security user) for the API Platform filter
+and the Live Component, `fuzzphony:search --tenant --user`, a 403 for a tenant-scoped index searched
+without a tenant, and the counter `fuzzphony.search.denied`. See
+[Multi-tenancy](multi-tenancy.md#integrations).
 
 ## v1.0: Stable
 

@@ -7,6 +7,35 @@ changes; they are always listed under **Breaking** and explained in [UPGRADE.md]
 
 ## [Unreleased]
 
+Part 1 of 0.9 (identity). No upgrade steps: nothing changes unless you configure it.
+
+### Added
+
+- **The actor.** `Fuzzphony\Core\Search\Actor` (a tenant and a user, both optional), `ActorResolver`, and
+  `SearchBuilder::asActor()`, which sets the tenant of a tenant-scoped index and keeps the user on the query
+  (`forTenant()` stays; the last of the two wins). A search with an actor but no tenant on a tenant-scoped
+  index throws `ActorRequired` (an `InvalidQuery`); without an actor the original message stays. See
+  [Multi-tenancy](docs/multi-tenancy.md#the-actor-who-is-searching).
+- **`fuzzphony.actor`** (bundle): `resolver: <service id>` for your own `ActorResolver`, or `tenant:` and `user:` property paths
+  read on the Symfony Security user (`symfony/security-bundle` and `symfony/property-access` are `suggest`ed; a missing
+  package fails at container build with the `composer require` line). Nothing configured: an anonymous actor.
+- **Tenant-scoped indexes through the integrations.** The API Platform `FuzzphonySearchFilter` and the Live
+  Component resolve the actor on the server on every request (the Live Component never takes the tenant
+  from the client), and `fuzzphony:search` gets `--tenant` and `--user`. A refusal is a 403
+  (`AccessDeniedHttpException`) in the HTTP integrations, and a message with exit code 1 in the command.
+- **`SearchGate`** (public API): every search, `explain()` and federated search passes through it when
+  `Fuzzphony` is built with one (the bundle does); it checks the actor and is where parts 2 and 3 hook in.
+- **`fuzzphony.search.denied`**: a counter (labels `index`, `reason=actor_required`) and a log line per refusal.
+
+### Changed
+
+- `InvalidQuery` is no longer `final` (`ActorRequired` extends it).
+
+### Fixed
+
+- Demo, Languages: the list of every product of a language (the disclosure) had bullets and no padding; it is plain rows in columns now, inside the card.
+- Demo, Tune: the "out of stock" facet chip was plain text; it is a button now, like "in stock" (each narrows the search; "in stock only" wins when both are set).
+
 ## [0.8.4] - 2026-10-12
 
 Demo only; no upgrade steps.
@@ -39,7 +68,7 @@ No upgrade steps. One performance fix in the library, the rest is the demo.
 - **Demo: the "Under the hood" menu** lists the Config wizard, **Benchmark**, Doctor, Observability and **Synonyms**. The benchmark is a
   page of its own again (`/under-the-hood/benchmark`; the Speed view of the search links to it) and the synonym editor moved there from
   `/relevance/synonyms` to `/under-the-hood/synonyms` (no redirects). The "/ to search" hint in the toolbar is removed (the shortcut still works).
-- `demo/tools/flows.mjs` checks the loading behaviour and the menu (31 checks); `shots.mjs` lists the current routes.
+- `demo/tools/flows.mjs` checks the loading behaviour and the menu (32 checks); `shots.mjs` lists the current routes.
 
 ## [0.8.2] - 2026-10-12
 

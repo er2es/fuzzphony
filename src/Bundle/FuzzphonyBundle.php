@@ -17,10 +17,13 @@ use Fuzzphony\Bundle\Command\SchemaCommand;
 use Fuzzphony\Bundle\Command\SearchCommand;
 use Fuzzphony\Bundle\Command\WizardCommand;
 use Fuzzphony\Bundle\Command\WorkerCommand;
+use Fuzzphony\Bundle\EventListener\SearchExceptionListener;
 use Fuzzphony\Bundle\Messenger\MessengerRefreshDispatcher;
 use Fuzzphony\Bundle\Messenger\RefreshDocumentsHandler;
 use Fuzzphony\Bundle\Observability\MetricsCollectorFactory;
 use Fuzzphony\Bundle\Registry\RegistryFactory;
+use Fuzzphony\Bundle\Security\NullActorResolver;
+use Fuzzphony\Bundle\Security\PropertyPathActorResolver;
 use Fuzzphony\Bundle\Twig\SearchComponent;
 use Fuzzphony\Core\Database\Connection;
 use Fuzzphony\Core\Engine\Engine;
@@ -28,6 +31,8 @@ use Fuzzphony\Core\Exception\InvalidConfiguration;
 use Fuzzphony\Core\Fuzzphony;
 use Fuzzphony\Core\Observability\MetricsCollector;
 use Fuzzphony\Core\Registry\IndexRegistry;
+use Fuzzphony\Core\Search\ActorResolver;
+use Fuzzphony\Core\Search\SearchGate;
 use Fuzzphony\Core\Support\Coerce;
 use Fuzzphony\Core\Sync\ImmediateRefreshDispatcher;
 use Fuzzphony\Core\Sync\RefreshDispatcher;
@@ -39,6 +44,8 @@ use Symfony\Component\Config\Definition\Configurator\DefinitionConfigurator;
 use Symfony\Component\DependencyInjection\ContainerBuilder;
 use Symfony\Component\DependencyInjection\Loader\Configurator\ContainerConfigurator;
 use Symfony\Component\HttpKernel\Bundle\AbstractBundle;
+use Symfony\Component\PropertyAccess\PropertyAccessorInterface;
+use Symfony\Component\Security\Core\Authentication\Token\Storage\TokenStorageInterface;
 
 use function Symfony\Component\DependencyInjection\Loader\Configurator\service;
 
@@ -52,8 +59,12 @@ use function Symfony\Component\DependencyInjection\Loader\Configurator\service;
  *     discover_entities: true      # pick up #[Searchable] entities automatically
  *     worker: { batch_size: 500, idle_sleep: 1.0 }
  *     orm_sync: { async: false }   # true: refresh through Messenger (route RefreshDocuments to a transport)
+ *     actor:                       # who searches: the tenant scopes tenant-scoped indexes
+ *       resolver: app.my_resolver  # a service implementing Fuzzphony\Core\Search\ActorResolver, or:
+ *       tenant: account.id         # property path on the Security user (needs symfony/security-bundle + property-access)
+ *       user: userIdentifier       # property path on the Security user
  *     indexes:
- *       products:                  # overrides for an attribute index, or a pure YAML index
+ *       products:                # overrides for an attribute index, or a pure YAML index
  *         thresholds: { min_score: 0.05 }
  *         profiles: { popular: { boost: 0.05, recency: 0.3 } }
  */
@@ -87,6 +98,18 @@ final class FuzzphonyBundle extends AbstractBundle
                     ->children()
                         ->booleanNode('async')->defaultFalse()->info('Dispatch Fuzzphony\\Bundle\\Messenger\\RefreshDocuments instead of refreshing inside the request')->end()
                         ->integerNode('chunk_size')->defaultValue(500)->min(1)->end()
+                    ->end()
+                ->end()
+                ->arrayNode('actor')
+                    ->addDefaultsIfNotSet()
+                    ->validate()
+                        ->ifTrue(static fn(array $a): bool => $a['resolver'] !== null && ($a['tenant'] !== null || $a['user'] !== null))
+                        ->thenInvalid('fuzzphony.actor.resolver cannot be combined with fuzzphony.actor.tenant / fuzzphony.actor.user: the resolver decides both.')
+                    ->end()
+                    ->children()
+                        ->scalarNode('resolver')->defaultNull()->info('Service id of your own Fuzzphony\\Core\\Search\\ActorResolver')->end()
+                        ->scalarNode('tenant')->defaultNull()->info('Property path on the Security user that gives the tenant, e.g. account.id')->end()
+                        ->scalarNode('user')->defaultNull()->info('Property path on the Security user that gives the user, e.g. userIdentifier')->end()
                     ->end()
                 ->end()
                 ->arrayNode('indexes')
@@ -137,6 +160,14 @@ final class FuzzphonyBundle extends AbstractBundle
         $builder->prependExtensionConfig('doctrine', ['dbal' => ['connections' => [$connection => ['schema_filter' => SchemaAssetFilter::regex($schema)]]]]);
     }
 
+    /** @internal */
+    public static function assertActorPackages(bool $security, bool $propertyAccess): void
+    {
+        if (!$security || !$propertyAccess) {
+            throw new InvalidConfiguration('fuzzphony.actor.tenant / fuzzphony.actor.user need symfony/security-bundle and symfony/property-access: composer require symfony/security-bundle symfony/property-access');
+        }
+    }
+
     /** @param array<array-key, mixed> $config */
     public function loadExtension(array $config, ContainerConfigurator $container, ContainerBuilder $builder): void
     {
@@ -184,6 +215,28 @@ final class FuzzphonyBundle extends AbstractBundle
             ->tag('monolog.logger', ['channel' => 'fuzzphony']);
         $services->alias(MetricsCollector::class, 'fuzzphony.metrics');
 
+        $actor = is_array($config['actor'] ?? null) ? $config['actor'] : [];
+        $actorResolver = is_string($actor['resolver'] ?? null) ? $actor['resolver'] : null;
+        $tenantPath = is_string($actor['tenant'] ?? null) ? $actor['tenant'] : null;
+        $userPath = is_string($actor['user'] ?? null) ? $actor['user'] : null;
+        if ($actorResolver !== null) {
+            $services->alias('fuzzphony.actor_resolver', $actorResolver)->public();
+        } elseif ($tenantPath !== null || $userPath !== null) {
+            self::assertActorPackages(interface_exists(TokenStorageInterface::class), interface_exists(PropertyAccessorInterface::class));
+            $services->set('fuzzphony.actor_resolver', PropertyPathActorResolver::class)
+                ->args([service('security.token_storage'), service('property_accessor'), $tenantPath, $userPath])
+                ->public();
+        } else {
+            $services->set('fuzzphony.actor_resolver', NullActorResolver::class)->public();
+        }
+        $services->alias(ActorResolver::class, 'fuzzphony.actor_resolver')->public();
+
+        $services->set('fuzzphony.search_gate', SearchGate::class)
+            ->args([service('fuzzphony.metrics'), service('logger')])
+            ->tag('monolog.logger', ['channel' => 'fuzzphony']); // its log line goes to the same channel as the metrics
+        $services->alias(SearchGate::class, 'fuzzphony.search_gate');
+        $services->set('fuzzphony.exception_listener', SearchExceptionListener::class)->tag('kernel.event_listener', ['event' => 'kernel.exception', 'priority' => 64]);
+
         $services->set('fuzzphony.engine', PostgresEngine::class)
             ->args([service('fuzzphony.connection'), $names->extensionSchema, $names->schema, service('fuzzphony.metrics')]);
         $services->alias(Engine::class, 'fuzzphony.engine')->public();
@@ -205,7 +258,7 @@ final class FuzzphonyBundle extends AbstractBundle
         $services->alias(IndexRegistry::class, 'fuzzphony.registry');
 
         $services->set('fuzzphony', Fuzzphony::class)
-            ->args([service('fuzzphony.engine'), service('fuzzphony.registry')]);
+            ->args([service('fuzzphony.engine'), service('fuzzphony.registry'), service('fuzzphony.search_gate')]);
         $services->alias(Fuzzphony::class, 'fuzzphony')->public();
 
         $services->set('fuzzphony.introspector', PostgresIntrospector::class)->args([service('fuzzphony.connection'), $names->schema]);
@@ -231,14 +284,14 @@ final class FuzzphonyBundle extends AbstractBundle
         if (interface_exists(\ApiPlatform\Doctrine\Orm\Filter\FilterInterface::class)) {
             // #[ApiFilter(FuzzphonySearchFilter::class)] creates per-resource copies of this definition
             $services->set(FuzzphonySearchFilter::class)
-                ->args([service('fuzzphony')])
+                ->args([service('fuzzphony'), 'q', 'default', 500, service('fuzzphony.actor_resolver')])
                 ->autowire()
                 ->tag('api_platform.filter');
         }
 
         if (class_exists(\Symfony\UX\LiveComponent\Attribute\AsLiveComponent::class)) {
             $services->set(SearchComponent::class)
-                ->args([service('fuzzphony')])
+                ->args([service('fuzzphony'), service('fuzzphony.actor_resolver')])
                 ->autoconfigure();
         }
 

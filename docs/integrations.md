@@ -78,7 +78,8 @@ A few attributes add the search-as-you-type features:
 
 Override `templates/bundles/FuzzphonyBundle/components/Search.html.twig` to change the markup.
 
-The API Platform filter and the Live Component do not accept a tenant value yet; see
+The API Platform filter and the Live Component search as the configured actor (`fuzzphony.actor`), so a
+tenant-scoped index works with both; the tenant is resolved on the server, never taken from the client. See
 [Multi-tenancy](multi-tenancy.md#integrations).
 
 ## Messenger

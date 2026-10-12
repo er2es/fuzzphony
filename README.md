@@ -81,7 +81,8 @@ A good fit when:
 - Search must be as fresh as the data. In `trigger` mode the index changes in the same
   transaction as the row, so a sold-out product leaves search on commit.
 - You run a shared-schema multi-tenant SaaS. The tenant filter is enforced on every query, so a
-  forgotten `WHERE` can't leak another customer's rows.
+  forgotten `WHERE` can't leak another customer's rows; the API Platform filter and the Live
+  Component take the tenant from the logged-in user, and the console command from `--tenant` and `--user`.
 - Your content is multilingual: stemming for 28 languages, and accent folding that finds
   `Kávéfőző` for `kavefozo` and `Crème Brûlée` for `creme brulee`.
 
@@ -193,7 +194,7 @@ nothing drops the words that match nothing and says so. Details:
 - [Ranking and thresholds](https://github.com/er2es/fuzzphony/blob/main/docs/ranking.md): the score formula, profiles, per-query tuning, thresholds and their hard caps.
 - [Languages](https://github.com/er2es/fuzzphony/blob/main/docs/languages.md): stemming, stop words and accent folding for 28 languages.
 - [Keeping the index in sync](https://github.com/er2es/fuzzphony/blob/main/docs/sync.md): sync modes, triggers, `TRUNCATE`, orphan pruning, Messenger.
-- [Multi-tenancy](https://github.com/er2es/fuzzphony/blob/main/docs/multi-tenancy.md): a tenant filter enforced on every search.
+- [Multi-tenancy](https://github.com/er2es/fuzzphony/blob/main/docs/multi-tenancy.md): a tenant filter enforced on every search, and the actor (tenant and user) the integrations resolve.
 - [Console commands](https://github.com/er2es/fuzzphony/blob/main/docs/commands.md): every command, the doctor, the configuration wizard.
 - [Observability](https://github.com/er2es/fuzzphony/blob/main/docs/observability.md): metrics collectors, the Symfony bundle wiring, a `/metrics` endpoint, the Grafana dashboard.
 - [Integrations](https://github.com/er2es/fuzzphony/blob/main/docs/integrations.md): Doctrine, API Platform, Live Component.
@@ -236,8 +237,8 @@ Current: v0.8 (search-as-you-type, facets, federated search). Milestones build i
 order, each one a foundation for the next, up to v1.0's stable API and backward-compatibility
 promise. PostgreSQL only before 1.0:
 
-- v0.9 Security and analytics: search analytics, audit logging, rate limiting, Symfony Security
-  integration, a tenant resolver.
+- v0.9 Security and analytics (in progress; part 1, the actor and the tenant resolver for the
+  integrations, is done): search analytics, audit logging, rate limiting, Symfony Security integration.
 - v1.0 Stable: a documentation site with a "Migrating from `LIKE`" guide, mutation score 90% with
   a CI gate, the backward-compatibility promise.
 

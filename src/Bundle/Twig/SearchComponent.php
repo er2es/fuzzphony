@@ -6,6 +6,7 @@ namespace Fuzzphony\Bundle\Twig;
 
 use Fuzzphony\Core\Definition\FilterType;
 use Fuzzphony\Core\Fuzzphony;
+use Fuzzphony\Core\Search\ActorResolver;
 use Fuzzphony\Core\Search\SearchBuilder;
 use Fuzzphony\Core\Search\SearchResult;
 use Symfony\UX\LiveComponent\Attribute\AsLiveComponent;
@@ -73,7 +74,8 @@ final class SearchComponent
 
     private ?SearchResult $result = null;
 
-    public function __construct(private readonly Fuzzphony $fuzzphony) {}
+    /** The actor (tenant, user) comes from the server side (ActorResolver), never from a LiveProp: the browser must not choose its tenant. */
+    public function __construct(private readonly Fuzzphony $fuzzphony, private readonly ?ActorResolver $actors = null) {}
 
     /** "Did you mean ...?": searches the suggestion. */
     #[LiveAction]
@@ -122,6 +124,9 @@ final class SearchComponent
             ->highlight(...$fields)
             ->limit(max(1, min(50, $this->limit)))
             ->asYouType($this->asYouType);
+        if ($this->actors !== null) {
+            $search = $search->asActor($this->actors->resolve());
+        }
         $names = $this->facetNames();
         if ($names !== []) {
             $search = $this->narrow($search, $names)->facets(...$names);

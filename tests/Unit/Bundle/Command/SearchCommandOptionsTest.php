@@ -5,10 +5,12 @@ declare(strict_types=1);
 namespace Fuzzphony\Tests\Unit\Bundle\Command;
 
 use Fuzzphony\Bundle\Command\SearchCommand;
+use Fuzzphony\Core\Definition\FilterType;
 use Fuzzphony\Core\Definition\IndexDefinition;
 use Fuzzphony\Core\Engine\Engine;
 use Fuzzphony\Core\Engine\Suggestions;
 use Fuzzphony\Core\Exception\InvalidDefinition;
+use Fuzzphony\Core\Exception\InvalidQuery;
 use Fuzzphony\Core\Fuzzphony;
 use Fuzzphony\Core\Query\Filter\Operator;
 use Fuzzphony\Core\Query\SearchQuery;
@@ -214,6 +216,107 @@ final class SearchCommandOptionsTest extends TestCase
         self::assertTrue($query->asYouType);
     }
 
+    /** @return iterable<string, array{string, int}> */
+    public static function tenants(): iterable
+    {
+        // The option is a string, whatever it looks like: the FilterType of the tenant filter decides what it means
+        // (an Int filter accepts "12", a String filter keeps it).
+        yield 'digits stay a string here, the Int filter converts them' => ['12', 12];
+        yield 'zero' => ['0', 0];
+        yield 'a number with a sign' => ['-3', -3];
+    }
+
+    /** @return iterable<string, array{string}> */
+    public static function stringTenants(): iterable
+    {
+        yield 'digits' => ['12'];
+        yield 'a word' => ['acme'];
+        yield 'text with a digit first' => ['1t'];
+    }
+
+    #[DataProvider('stringTenants')]
+    public function testTheTenantOptionIsHandedOverAsItIsTyped(string $tenant): void
+    {
+        $tester = $this->tester(tenant: true);
+
+        $status = $tester->execute(['index' => 'products', 'query' => 'mouse', '--tenant' => $tenant, '--user' => 'ada'], ['interactive' => false]);
+
+        self::assertSame(Command::SUCCESS, $status);
+        $actor = $this->query()->actor;
+        self::assertNotNull($actor);
+        self::assertSame('ada', $actor->user);
+        self::assertSame($tenant, $actor->tenant, 'the raw string, never a guessed integer');
+    }
+
+    #[DataProvider('tenants')]
+    public function testADigitsTenantStillScopesAnIntegerTenantFilter(string $tenant, int $expected): void
+    {
+        $tester = $this->tester(tenant: true);
+
+        $tester->execute(['index' => 'products', 'query' => 'mouse', '--tenant' => $tenant], ['interactive' => false]);
+
+        // the query keeps what the user typed; the integer filter normalizes it when the engine compiles the condition
+        self::assertSame($tenant, $this->query()->tenant);
+        self::assertSame($expected, FilterType::Int->normalize($this->query()->tenant, 'brand_id'));
+    }
+
+    /** @return iterable<string, array{string}> */
+    public static function emptyOptions(): iterable
+    {
+        yield 'tenant' => ['--tenant'];
+        yield 'user' => ['--user'];
+    }
+
+    #[DataProvider('emptyOptions')]
+    public function testAnEmptyTenantOrUserIsRejectedBeforeSearching(string $option): void
+    {
+        $tester = $this->tester(tenant: true);
+
+        $status = $tester->execute(['index' => 'products', 'query' => 'mouse', $option => ''], ['interactive' => false]);
+
+        self::assertSame(Command::INVALID, $status);
+        self::assertStringContainsString(sprintf('%s needs a value', $option), $tester->getDisplay(true));
+        self::assertNull($this->query, 'the engine was not asked');
+    }
+
+    public function testATenantScopedIndexWithoutTenantOrUserIsAnErrorMessageNotAStackTrace(): void
+    {
+        $tester = $this->tester(tenant: true, throws: InvalidQuery::missingTenant('products'));
+
+        $status = $tester->execute(['index' => 'products', 'query' => 'mouse'], ['interactive' => false]);
+
+        self::assertSame(Command::FAILURE, $status);
+        self::assertStringContainsString('requires forTenant()', $tester->getDisplay(true));
+        self::assertStringNotContainsString('hit(s)', $tester->getDisplay(true));
+    }
+
+    public function testTheSameGoesForExplain(): void
+    {
+        $tester = $this->tester(tenant: true, throws: InvalidQuery::missingTenant('products'));
+
+        $status = $tester->execute(['index' => 'products', 'query' => 'mouse', '--explain' => true], ['interactive' => false]);
+
+        self::assertSame(Command::FAILURE, $status);
+        self::assertStringContainsString('requires forTenant()', $tester->getDisplay(true));
+    }
+
+    public function testTheUserOptionAloneIsAnActorWithoutATenant(): void
+    {
+        $tester = $this->tester();
+
+        $tester->execute(['index' => 'products', 'query' => 'mouse', '--user' => 'ada'], ['interactive' => false]);
+
+        self::assertNull($this->query()->actor?->tenant);
+        self::assertSame('ada', $this->query()->actor?->user);
+    }
+
+    public function testWithoutTenantOrUserThereIsNoActor(): void
+    {
+        $this->tester()->execute(['index' => 'products', 'query' => 'mouse'], ['interactive' => false]);
+
+        self::assertNull($this->query()->actor);
+    }
+
     public function testExplainAsksForAnAnalyzeOnlyWhenToldTo(): void
     {
         $tester = $this->tester();
@@ -309,23 +412,26 @@ final class SearchCommandOptionsTest extends TestCase
     }
 
     /** @param (Engine&Stub)|null $engine */
-    private function tester(?Engine $engine = null, ?SearchResult $result = null, ?Explanation $explanation = null): CommandTester
+    private function tester(?Engine $engine = null, ?SearchResult $result = null, ?Explanation $explanation = null, bool $tenant = false, ?\Throwable $throws = null): CommandTester
     {
         $result ??= $this->searchResult();
         $engine ??= self::createStub(Engine::class);
-        $engine->method('search')->willReturnCallback(function (IndexDefinition $index, SearchQuery $query) use ($result): SearchResult {
+        $engine->method('search')->willReturnCallback(function (IndexDefinition $index, SearchQuery $query) use ($result, $throws): SearchResult {
             $this->query = $query;
 
-            return $result;
+            return $throws !== null ? throw $throws : $result;
         });
-        $engine->method('explain')->willReturnCallback(function (IndexDefinition $index, SearchQuery $query, bool $analyze) use ($explanation, $result): Explanation {
+        $engine->method('explain')->willReturnCallback(function (IndexDefinition $index, SearchQuery $query, bool $analyze) use ($explanation, $result, $throws): Explanation {
             $this->query = $query;
             $this->analyze = $analyze;
+            if ($throws !== null) {
+                throw $throws;
+            }
 
             return $explanation ?? new Explanation('mouse', [], [], $result);
         });
 
-        return new CommandTester(new SearchCommand(new Fuzzphony($engine, new IndexRegistry([Indexes::products('manual')]))));
+        return new CommandTester(new SearchCommand(new Fuzzphony($engine, new IndexRegistry([Indexes::products('manual', tenant: $tenant)]))));
     }
 
     /**

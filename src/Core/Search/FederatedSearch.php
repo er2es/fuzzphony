@@ -42,6 +42,7 @@ final readonly class FederatedSearch
         private string $text = '',
         private int $limit = 20,
         private int $offset = 0,
+        private ?SearchGate $gate = null,
     ) {}
 
     /**
@@ -60,12 +61,12 @@ final readonly class FederatedSearch
             throw new InvalidQuery(sprintf('The weight of index "%s" must be positive, got %s.', $definition->name, $weight));
         }
 
-        return new self($this->engine, $this->registry, [...$this->indexes, $definition->name => ['weight' => $weight, 'configure' => $configure]], $this->text, $this->limit, $this->offset);
+        return new self($this->engine, $this->registry, [...$this->indexes, $definition->name => ['weight' => $weight, 'configure' => $configure]], $this->text, $this->limit, $this->offset, $this->gate);
     }
 
     public function query(string $text): self
     {
-        return new self($this->engine, $this->registry, $this->indexes, $text, $this->limit, $this->offset);
+        return new self($this->engine, $this->registry, $this->indexes, $text, $this->limit, $this->offset, $this->gate);
     }
 
     public function limit(int $limit, int $offset = 0): self
@@ -74,7 +75,7 @@ final readonly class FederatedSearch
             throw new InvalidQuery(sprintf('A federated search reads offset + limit hits from every index: limit must be at least 1 and offset + limit at most %d, got %d + %d.', self::MAX_READ, $offset, $limit));
         }
 
-        return new self($this->engine, $this->registry, $this->indexes, $this->text, $limit, $offset);
+        return new self($this->engine, $this->registry, $this->indexes, $this->text, $limit, $offset, $this->gate);
     }
 
     public function page(int $page, int $perPage = 20): self
@@ -94,7 +95,7 @@ final readonly class FederatedSearch
         $warnings = [];
         $order = 0;
         foreach ($this->indexes as $name => $options) {
-            $builder = (new SearchBuilder($this->engine, $this->registry->get($name)))->query($this->text);
+            $builder = (new SearchBuilder($this->engine, $this->registry->get($name), gate: $this->gate))->query($this->text);
             if ($options['configure'] !== null) {
                 $builder = ($options['configure'])($builder);
             }
