@@ -91,6 +91,7 @@ await p3.waitForSelector('#results[aria-busy="true"]');
 await p3.waitForTimeout(500);
 check('home: while the search runs the field shows a spinner', await spinnerShown(p3));
 check('home: and the bar runs along the top', await barShown(p3));
+check('home: and the rest of the page dims, the field does not', await p3.evaluate(() => parseFloat(getComputedStyle(document.querySelector('.hero h1')).opacity) < 0.9 && parseFloat(getComputedStyle(document.querySelector('.search-field')).opacity) > 0.95));
 check('home: and the results dim', await p3.evaluate(() => parseFloat(getComputedStyle(document.querySelector('#results')).opacity) < 0.9));
 await p3.waitForSelector('#results:not([aria-busy="true"])');
 await p3.waitForTimeout(500);
@@ -103,6 +104,7 @@ await p3.waitForSelector('.layout[aria-busy="true"]');
 await p3.waitForTimeout(600);
 check('tune: while it updates the field shows a spinner', await spinnerShown(p3));
 check('tune: and the bar runs along the top', await barShown(p3));
+check('tune: and the settings dim', await p3.evaluate(() => parseFloat(getComputedStyle(document.querySelector('.settings')).opacity) < 0.9));
 check('tune: and the results dim', await p3.evaluate(() => parseFloat(getComputedStyle(document.querySelector('.panels')).opacity) < 0.9));
 await p3.waitForSelector('.layout:not([aria-busy="true"])');
 

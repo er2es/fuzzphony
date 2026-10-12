@@ -163,6 +163,9 @@
        for assistive technology. */
     .busy-region { transition: opacity var(--t-base) var(--ease); }
     .busy-region[aria-busy="true"], .layout[aria-busy="true"] .busy-region { opacity: .55; transition-delay: .12s; }
+    /* an update in place dims the whole page around the field (the field stays clear: it is where the user is typing) */
+    .hero > :not(form), .settings, .pane-bar { transition: opacity var(--t-base) var(--ease); }
+    main:has([aria-busy="true"]:not([data-controller~="sequence"])) :is(.hero > :not(form), .settings, .pane-bar) { opacity: .55; transition-delay: .12s; }
     .field-spinner {
         position: absolute; right: 3.6rem; top: 50%; translate: 0 -50%; width: 1.1rem; height: 1.1rem; border: 2px solid var(--separator);
         border-top-color: var(--accent); border-radius: 50%; opacity: 0; pointer-events: none; animation: spin .7s linear infinite;
