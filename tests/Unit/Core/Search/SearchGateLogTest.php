@@ -107,14 +107,14 @@ final class SearchGateLogTest extends TestCase
     public function testTheRedactionHappensBeforeTheTextIsCutTo255Characters(): void
     {
         $log = new RecordingSearchLog();
-        // 240 characters, then an address that would be cut in half at 255: redacted first, it is cut whole
-        $text = str_repeat('a', 240) . ' ada@example.com';
+        // the cut at 255 falls inside the address ("... ada@exampl"): cut first, the pattern would no longer match and the start of the address would leak; redacted first, the 255 characters just hold the whole text
+        $text = str_repeat('a', 244) . ' ada@example.com';
         $gate = new SearchGate(log: $log, redactor: PatternQueryRedactor::fromSettings(['email']));
         $builder = new SearchBuilder($this->engineReturning(1, 1.0, false), Indexes::products(), gate: $gate);
 
         $builder->query($text)->get();
 
-        self::assertSame(str_repeat('a', 240) . ' [redacted]', $log->records[0]->query);
+        self::assertSame(str_repeat('a', 244) . ' [redacted]', $log->records[0]->query);
     }
 
     public function testALongQueryIsCutTo255Characters(): void
@@ -130,11 +130,33 @@ final class SearchGateLogTest extends TestCase
     public function testAnIndexWithLogFalseIsNotRecorded(): void
     {
         $log = new RecordingSearchLog();
-        $builder = new SearchBuilder($this->engineReturning(1, 1.0, false), Indexes::products()->withLog(false), gate: new SearchGate(log: $log));
+        $redactor = $this->createMock(QueryRedactor::class);
+        $redactor->expects(self::never())->method('redact');
+        $builder = new SearchBuilder($this->engineReturning(1, 1.0, false), Indexes::products()->withLog(false), gate: new SearchGate(log: $log, redactor: $redactor));
 
         $builder->query('mouse')->get();
 
         self::assertSame([], $log->records);
+    }
+
+    public function testTheEffectiveTenantOfTheSearchIsRecordedNotTheActors(): void
+    {
+        $log = new RecordingSearchLog();
+        $builder = new SearchBuilder($this->engineReturning(1, 1.0, false), Indexes::products(tenant: true), gate: new SearchGate(log: $log));
+
+        $builder->query('mouse')->asActor(new Actor(tenant: 3, user: 'ada'))->forTenant(9)->get();
+
+        self::assertSame([9, 'ada'], [$log->records[0]->tenant, $log->records[0]->user]);
+    }
+
+    public function testOnAnIndexWithoutTenantScopingTheActorsTenantIsRecordedAsWhoAsked(): void
+    {
+        $log = new RecordingSearchLog();
+        $builder = new SearchBuilder($this->engineReturning(1, 1.0, false), Indexes::products(), gate: new SearchGate(log: $log));
+
+        $builder->query('mouse')->asActor(new Actor(tenant: 3))->get();
+
+        self::assertSame(3, $log->records[0]->tenant);
     }
 
     public function testALogThatThrowsNeverFailsTheSearch(): void

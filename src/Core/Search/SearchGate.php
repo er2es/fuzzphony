@@ -82,10 +82,13 @@ final readonly class SearchGate
         return $result;
     }
 
-    /** The tenant the search ran for, in the shape the log stores: the actor's, else the one set with forTenant(). */
+    /**
+     * The tenant the search ran for, in the shape the log stores: the effective one of the query, else (an index
+     * without tenant scoping) the tenant of the actor who asked.
+     */
     private static function tenantOf(SearchQuery $query): int|string|null
     {
-        $tenant = $query->actor !== null ? ($query->actor->tenant ?? $query->tenant) : $query->tenant;
+        $tenant = $query->tenant ?? $query->actor?->tenant;
 
         return match (true) {
             $tenant === null, is_int($tenant), is_string($tenant) => $tenant,
