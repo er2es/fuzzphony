@@ -149,6 +149,15 @@ await page.click('label[for=view-sql]');
 await page.waitForSelector('.panel-sql pre');
 check('the SQL wraps instead of scrolling sideways', await page.evaluate(() => [...document.querySelectorAll('.panel-sql pre')].every((pre) => pre.scrollWidth <= pre.clientWidth + 1)));
 
+// both stock chips of Tune narrow the search
+await go(page, BASE + '/tune?query=mouse');
+await page.waitForSelector('.facets .chip');
+const chipCount = async (name) => Number((await page.locator('.facets .chip', { hasText: name }).first().innerText()).replace(/\D+/g, ' ').trim().split(' ').pop());
+const before = await chipCount('out of stock');
+await page.click('.facets .chip >> text=out of stock');
+await page.waitForSelector('.facets .chip[aria-pressed=true]');
+check('the out of stock chip is a button that narrows the search', (await page.locator('.facets .chip[aria-pressed=true]').innerText()).startsWith('out of stock') && before > 0);
+
 // 10. a phone: the tab bar is at the bottom of the screen
 const phone = await browser.newContext({ viewport: { width: 390, height: 844 }, reducedMotion: 'reduce' });
 const p2 = await phone.newPage();
