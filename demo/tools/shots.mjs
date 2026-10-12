@@ -44,7 +44,8 @@ for (const page of pages) {
             // localhost or https: it says something about the way the harness reaches the demo, not about the page
             p.on('console', (m) => ['error', 'warning'].includes(m.type()) && !m.text().includes('Cross-Origin-Opener-Policy') && messages.push(`${m.type()}: ${m.text()}`));
             p.on('pageerror', (e) => messages.push(`pageerror: ${e.message}`));
-            await p.goto(BASE + page.path, { waitUntil: 'load', timeout: 60000 });
+            // php -S serves one connection at a time and Chromium's speculative sockets can stall a load: retry once
+            await p.goto(BASE + page.path, { waitUntil: 'load', timeout: 10000 }).catch(() => p.goto(BASE + page.path, { waitUntil: 'load', timeout: 30000 }));
             await p.waitForLoadState('networkidle', { timeout: 8000 }).catch(() => {});
             await p.waitForTimeout(400);
             await p.screenshot({ path: `${OUT}/${page.name}-${vpName}-${scheme}.png`, fullPage: true });

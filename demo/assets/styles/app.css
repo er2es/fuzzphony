@@ -76,7 +76,7 @@
     a:hover { text-decoration: underline; text-underline-offset: .18em; }
     code, pre, kbd { font-family: var(--mono); font-size: .875em; }
     code { padding: .08em .35em; border-radius: .35rem; background: var(--surface-2); }
-    pre { margin: 0; padding: .9rem 1rem; overflow-x: auto; border-radius: var(--r-control); background: var(--surface-2); font-size: .8125rem; line-height: 1.5; }
+    pre { margin: 0; padding: .9rem 1rem; white-space: pre-wrap; overflow-wrap: anywhere; tab-size: 4; border-radius: var(--r-control); background: var(--surface-2); font-size: .8125rem; line-height: 1.5; }
     pre code { padding: 0; background: none; }
     kbd { display: inline-block; min-width: 1.5em; padding: .05em .4em; text-align: center; border-radius: .35rem; border: 1px solid var(--separator); border-bottom-width: 2px; color: var(--label-2); font-size: .75rem; }
     mark { background: none; color: inherit; font-weight: 650; }
@@ -419,6 +419,9 @@
     .setting.select-row select { width: auto; min-width: 8rem; }
     .check input { width: 1.15rem; height: 1.15rem; flex: none; }
     .pane { min-width: 0; display: grid; gap: 1rem; position: relative; }
+    .panels { display: grid; gap: 1rem; min-width: 0; }
+    .panels .stat-caption code { overflow-wrap: anywhere; }
+    .facets { display: flex; flex-wrap: wrap; gap: .5rem; }
     .pane-bar { display: flex; align-items: center; justify-content: space-between; gap: 1rem; margin: 0; }
     .pane:has(#view-sql:checked) .panel-results, .pane:not(:has(#view-sql:checked)) .panel-sql { display: none; }
     .bar { display: flex; height: .4rem; margin-top: .45rem; border-radius: .2rem; overflow: hidden; background: var(--surface-2); }
