@@ -7,6 +7,13 @@ changes; they are always listed under **Breaking** and explained in [UPGRADE.md]
 
 ## [Unreleased]
 
+### Changed
+
+- CI tests the supported Symfony versions the way a Symfony library should: the LTS (7.4) with every PHP and PostgreSQL version,
+  the current stable (8.1) on the newest PostgreSQL, and the next minor (8.2, in development) in a job of its own that may fail
+  without failing the build (an early warning before it is released). Symfony 8.0, end of life since July 2026, is no longer tested;
+  the composer constraint still allows it. The test matrix has 11 jobs instead of 16.
+
 ## [0.8.1] - 2026-10-12
 
 No upgrade steps. The library gains search-as-you-type matching; the rest is the demo, the dependencies and the tests.
