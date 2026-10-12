@@ -15,6 +15,7 @@ use Fuzzphony\Core\Registry\IndexRegistry;
 use Fuzzphony\Core\Schema\SchemaPlan;
 use Fuzzphony\Core\Search\FederatedSearch;
 use Fuzzphony\Core\Search\SearchBuilder;
+use Fuzzphony\Core\Search\SearchGate;
 use Fuzzphony\Core\Sync\Reindexer;
 use Fuzzphony\Core\Sync\ReindexOptions;
 use Fuzzphony\Core\Sync\ReindexResult;
@@ -22,21 +23,23 @@ use Fuzzphony\Core\Sync\ReindexResult;
 /** The one service applications talk to. */
 final readonly class Fuzzphony
 {
+    /** @internal The $gate argument is wired by the bundle; the other two are public API. */
     public function __construct(
         private Engine $engine,
         private IndexRegistry $registry,
+        private ?SearchGate $gate = null,
     ) {}
 
     /** @param string|class-string $indexOrEntityClass */
     public function in(string $indexOrEntityClass): SearchBuilder
     {
-        return new SearchBuilder($this->engine, $this->registry->get($indexOrEntityClass));
+        return new SearchBuilder($this->engine, $this->registry->get($indexOrEntityClass), gate: $this->gate);
     }
 
     /** One query over several indexes with one merged list (reciprocal rank fusion); see FederatedSearch. */
     public function federated(): FederatedSearch
     {
-        return new FederatedSearch($this->engine, $this->registry);
+        return new FederatedSearch($this->engine, $this->registry, gate: $this->gate);
     }
 
     public function schema(?string $index = null): SchemaPlan

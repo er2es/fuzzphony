@@ -20,10 +20,12 @@ use Fuzzphony\Core\Query\Typeahead;
  */
 final readonly class SearchBuilder
 {
+    /** @internal Get a builder from Fuzzphony::in(); the $gate argument is wired by the bundle. */
     public function __construct(
         private Engine $engine,
         private IndexDefinition $index,
         private SearchQuery $query = new SearchQuery(),
+        private ?SearchGate $gate = null,
     ) {}
 
     public function query(string $text): self
@@ -152,14 +154,20 @@ final readonly class SearchBuilder
 
     public function get(): SearchResult
     {
-        $result = $this->engine->search($this->index, $this->effective());
+        $query = $this->effective();
+        $result = $this->gate !== null
+            ? $this->gate->search($this->engine, $this->index, $query)
+            : $this->engine->search($this->index, self::checked($this->index, $query));
 
         return $this->query->asYouType && $result->didYouMean !== null ? $result->withDidYouMean(Typeahead::withoutPrefixAlternative($result->didYouMean)) : $result;
     }
 
     public function explain(bool $analyze = false): Explanation
     {
-        $explanation = $this->engine->explain($this->index, $this->effective(), $analyze);
+        $query = $this->effective();
+        $explanation = $this->gate !== null
+            ? $this->gate->explain($this->engine, $this->index, $query, $analyze)
+            : $this->engine->explain($this->index, self::checked($this->index, $query), $analyze);
         $didYouMean = $explanation->result->didYouMean;
         if (!$this->query->asYouType || $didYouMean === null) {
             return $explanation;
@@ -179,8 +187,15 @@ final readonly class SearchBuilder
         return $this->query->asYouType ? $this->query->withText(Typeahead::lastWordAsPrefix($this->query->text)) : $this->query;
     }
 
+    private static function checked(IndexDefinition $index, SearchQuery $query): SearchQuery
+    {
+        SearchGate::assertActorHasTenant($index, $query);
+
+        return $query;
+    }
+
     private function with(SearchQuery $query): self
     {
-        return new self($this->engine, $this->index, $query);
+        return new self($this->engine, $this->index, $query, $this->gate);
     }
 }
