@@ -53,6 +53,7 @@ for (const page of pages) {
                 const result = await new AxeBuilder({ page: p }).analyze();
                 for (const v of result.violations) {
                     console.log(`! axe ${page.name}: ${v.id} (${v.impact}) x${v.nodes.length}: ${v.help}`);
+                    for (const n of v.nodes.slice(0, 3)) console.log(`    ${n.html.slice(0, 140)}`);
                     failures++;
                 }
             }

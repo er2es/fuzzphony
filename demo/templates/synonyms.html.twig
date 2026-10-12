@@ -1,54 +1,65 @@
 {% extends 'base.html.twig' %}
+{% import '_ui.html.twig' as ui %}
 {% block title %}Synonyms · Fuzzphony{% endblock %}
 
 {% block body %}
-    <p class="muted">
-        Synonyms belong to an index, and so to its language: each language has its own list, and its words are stemmed with
-        that language's rules (<code>televisions</code> finds the group of <code>television</code>). One entry per line, in the Solr
-        format: <code>tv, television, telly</code> is a group (each finds the others), <code>laptop =&gt; notebook, portable</code> a
-        one-way rule, a line starting with <code>#</code> a comment. A change is saved in the demo's database and the next search
-        uses it, with no reindex. A long list can be pasted in.
-    </p>
-    <nav class="examples" aria-label="Index">
+<div class="page stack">
+    <div class="hero">
+        <p class="crumb"><a href="{{ path('relevance') }}">Relevance</a></p>
+        <h1>Synonyms</h1>
+        <p class="lede">Words that mean the same, one list per index and so per language. A saved list is used by the next search: no reindex.</p>
+    </div>
+
+    <nav class="chips chips-center" aria-label="Index">
         {% for name, label in indexes %}
-            <a class="button{{ name == index ? ' active' : '' }}" href="{{ path('synonyms', {index: name}) }}"{% if name == index %} aria-current="page"{% endif %}>{{ label }}</a>
+            <a class="chip{{ name == index ? ' is-current' }}" href="{{ path('synonyms', {index: name}) }}"{% if name == index %} aria-current="page"{% endif %}>{{ label }}</a>
         {% endfor %}
     </nav>
 
-    <h2>{{ indexes[index] }} <span class="muted">· <code>{{ index }}</code></span></h2>
-    {% if saved %}<p role="status"><strong>Saved.</strong> The next search uses the new list.</p>{% endif %}
-    {% if problems %}
-        <div role="alert">
-            <p><strong>Not saved:</strong></p>
-            <ul>{% for p in problems %}<li>{{ p }}</li>{% endfor %}</ul>
-        </div>
-    {% endif %}
-    <form method="post" action="{{ path('synonyms', {index: index, q: q}) }}" data-loading-message="Saving…">
-        <textarea name="body" rows="12" cols="80" spellcheck="false" aria-label="Synonyms of {{ indexes[index] }}" style="width:100%;font-family:monospace">{{ text }}</textarea>
-        <p><button type="submit" class="primary">Save</button></p>
-    </form>
+    <section aria-labelledby="list">
+        <h2 id="list" class="list-title">{{ indexes[index] }} · <code>{{ index }}</code></h2>
+        {% if saved %}<p class="callout is-ok" role="status"><svg class="icon" aria-hidden="true"><use href="#i-check"/></svg>Saved. The next search uses the new list.</p>{% endif %}
+        {% if problems %}
+            <div class="callout is-bad" role="alert">
+                <strong>Not saved</strong>
+                <ul>{% for p in problems %}<li>{{ p }}</li>{% endfor %}</ul>
+            </div>
+        {% endif %}
+        <form method="post" action="{{ path('synonyms', {index: index, q: q}) }}" class="editor" data-loading-message="Saving…">
+            <textarea name="body" rows="10" spellcheck="false" aria-label="Synonyms of {{ indexes[index] }}">{{ text }}</textarea>
+            <div class="editor-bar">
+                <span class="muted">One entry per line. <code>tv, television</code> is a group, <code>drill =&gt; screwdriver</code> a one-way rule, <code>#</code> a comment.</span>
+                <button type="submit" class="primary">Save</button>
+            </div>
+        </form>
+    </section>
 
-    <h2>Try it</h2>
-    <form method="get" class="searchbar" data-loading-message="Searching…" data-controller="suggest" data-suggest-url-value="{{ path('suggest') }}" data-suggest-index-value="{{ index }}" data-suggest-page-value="{{ path('synonyms') }}" data-suggest-params-value="{{ {index: index}|json_encode|e('html_attr') }}">
-        <input type="hidden" name="index" value="{{ index }}">
-        <input type="search" name="q" value="{{ q }}" aria-label="Search {{ indexes[index] }}" placeholder="Search {{ indexes[index] }}…" data-suggest-target="input" data-action="input->suggest#update" autocomplete="off">
-        <div class="suggest-panel" data-suggest-target="panel" data-live-ignore hidden></div>
-        <button type="submit" class="primary">Search</button>
-    </form>
-    <div class="examples">
-        {% for example in examples %}
-            <a class="button" href="{{ path('synonyms', {index: index, q: example}) }}"><code>{{ example }}</code></a>
-        {% endfor %}
-    </div>
-    {% if error %}<p role="alert">{{ error }}</p>{% endif %}
-    {% if result %}
-        <p class="muted">{{ result.total }}{{ result.totalIsLowerBound ? '+' }} hits · understood as <code>{{ result.interpretedAs }}</code></p>
-        <ul class="hits">
-            {% for hit in result.hits %}
-                <li>{{ names[hit.id] ?? hit.id }}</li>
-            {% else %}
-                <li class="muted">Nothing found.</li>
-            {% endfor %}
-        </ul>
-    {% endif %}
+    <details class="disclosure">
+        <summary>Group or rule?<svg class="icon" aria-hidden="true"><use href="#i-chevron"/></svg></summary>
+        <div class="stack">
+            <p><strong>A group</strong> (<code>tv, television, telly</code>) is mutual: any of them finds the others. Use it for words that really mean the same.</p>
+            <p><strong>A rule</strong> (<code>drill =&gt; screwdriver</code>) goes one way: a search for <code>drill</code> also finds screwdrivers, but a search for <code>screwdriver</code> does not find drills. Use it when the left word is the narrower one and you want to offer the broader or related things on the right (<code>laptop =&gt; notebook, portable</code>).</p>
+            <p>Words are compared by their stem in the index's language, with accents folded: <code>televisions</code> finds the group of <code>television</code>. English keeps a plural abbreviation such as <code>tvs</code> as it is, so list it as a member.</p>
+        </div>
+    </details>
+
+    <section aria-labelledby="try" class="stack">
+        <h2 id="try">Try it</h2>
+        {{ ui.search_field(path('synonyms'), q, index, 'Search ' ~ indexes[index], {index: index}) }}
+        <div class="chips">
+            {% for example in examples %}<a class="chip" href="{{ path('synonyms', {index: index, q: example}) }}"><code>{{ example }}</code></a>{% endfor %}
+        </div>
+        {% if error %}<p class="callout is-bad" role="alert">{{ error }}</p>{% endif %}
+        {% if result %}
+            <p class="muted">{{ result.total }}{{ result.totalIsLowerBound ? '+' }} hits · understood as <code>{{ result.interpretedAs }}</code></p>
+            <ul class="list">
+                {% for hit in result.hits %}
+                    <li class="row no-lead"><div class="row-body"><div class="row-title">{{ names[hit.id] ?? hit.id }}</div></div></li>
+                {% else %}
+                    <li class="row no-lead"><span class="muted">Nothing found.</span></li>
+                {% endfor %}
+            </ul>
+        {% endif %}
+    </section>
+</div>
 {% endblock %}

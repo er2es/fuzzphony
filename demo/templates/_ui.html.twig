@@ -1,0 +1,45 @@
+{#
+  Shared pieces of the interface, one place each so a page cannot drift from the others
+  (docs/superpowers/specs/2026-10-12-v082-demo-interface-design.md, section 4).
+#}
+
+{# The search field of a page that submits (the home page has its own, which also searches while you type). #}
+{% macro search_field(action, q, index, placeholder, params, categories, products) %}
+    <form method="get" action="{{ action }}" role="search" class="field-wrap" data-controller="suggest"
+          data-suggest-url-value="{{ path('suggest') }}" data-suggest-index-value="{{ index }}" data-suggest-page-value="{{ action }}"
+          data-suggest-params-value="{{ (params|default({}))|json_encode|e('html_attr') }}"
+          data-suggest-categories-value="{{ categories|default(false) ? 'true' : 'false' }}" data-suggest-products-value="{{ products|default(true) ? 'true' : 'false' }}">
+        {% for name, value in params|default({}) %}<input type="hidden" name="{{ name }}" value="{{ value }}">{% endfor %}
+        <div class="search-field">
+            <svg class="icon" aria-hidden="true"><use href="#i-search"/></svg>
+            <input type="search" name="q" value="{{ q }}" placeholder="{{ placeholder }}" aria-label="{{ placeholder }}" autocomplete="off" spellcheck="false" enterkeyhint="search" maxlength="100"
+                   {% if q == '' %}autofocus{% endif %} data-suggest-target="input" data-action="input->suggest#update">
+            <button type="button" class="clear" aria-label="Clear the search" data-action="suggest#clear"><svg class="icon" aria-hidden="true"><use href="#i-clear"/></svg></button>
+        </div>
+        <div class="suggest-panel" data-suggest-target="panel" data-live-ignore hidden></div>
+        <button type="submit" class="sr-only">Search</button>
+    </form>
+{% endmacro %}
+
+{# A product row of the catalogue: the category's tile, the name (the library's escaped highlight), brand and category, the price. #}
+{% macro hit_row(hit, row, flag) %}
+    {% set style = category_style(row.category ?? '') %}
+    <li class="row hit-row">
+        <span class="tile{{ style.hue < 0 ? ' is-neutral' }}" style="--h: {{ style.hue }}" aria-hidden="true"><svg class="icon"><use href="#{{ style.icon }}"/></svg></span>
+        <div class="row-body">
+            <div class="row-title">{% if hit.highlights.name is defined %}{{ hit.highlights.name|raw }}{% else %}{{ row.name ?? hit.id }}{% endif %}</div>
+            <div class="row-sub">{{ row.brand ?? '' }} · {{ row.category ?? '' }}</div>
+        </div>
+        {% if flag %}<span class="flag">{{ flag }}</span>{% endif %}
+        {% if row %}<div class="row-trailing">{{ row.price|number_format(0, '.', ' ') }} Ft</div>{% endif %}
+    </li>
+{% endmacro %}
+
+{# Example tokens that link to a search. #}
+{% macro examples(items, path_name, extra) %}
+    <div class="chips">
+        {% for label, example in items %}
+            <a class="chip" href="{{ path(path_name, {q: example}|merge(extra|default({}))) }}" data-loading-message="Searching for {{ example }}…"><code>{{ example }}</code> <small>{{ label }}</small></a>
+        {% endfor %}
+    </div>
+{% endmacro %}

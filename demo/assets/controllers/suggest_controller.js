@@ -159,6 +159,13 @@ export default class extends Controller {
         panel.style.width = `${field.offsetWidth}px`;
     }
 
+    /** The clear button of the search field: empties it, closes the panel and puts the cursor back. */
+    clear() {
+        this.inputTarget.value = '';
+        this.close();
+        this.inputTarget.focus();
+    }
+
     key(event) {
         if (this.panelTarget.hidden) {
             return;
