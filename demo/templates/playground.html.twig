@@ -1,5 +1,11 @@
 {% extends 'base.html.twig' %}
-{% block title %}Playground · Fuzzphony{% endblock %}
+{% block title %}Tune · Fuzzphony{% endblock %}
 {% block body %}
-    <twig:Playground />
+    <div class="page stack">
+        <div class="hero">
+            <h1>Tune</h1>
+            <p class="lede">Every weight and threshold of the ranking as a control. The results, the score of each hit and the SQL update as you move them.</p>
+        </div>
+        <twig:Playground />
+    </div>
 {% endblock %}

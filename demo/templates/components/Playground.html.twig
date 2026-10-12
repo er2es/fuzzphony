@@ -8,43 +8,59 @@
 {% import _self as ui %}
 
 <div {{ attributes.defaults(stimulus_controller('busy')|stimulus_controller('suggest', {url: path('suggest'), index: 'catalog', page: path('tune'), param: 'query', categories: false})) }} class="layout">
-    <aside class="card">
-        <h2>Ranking</h2>
-        {{ ui.slider('Full-text weight', 'text', text, 0, 2, 0.05) }}
-        {{ ui.slider('Fuzzy weight', 'fuzzy', fuzzy, 0, 2, 0.05) }}
-        {{ ui.slider('Exact title bonus', 'exactBonus', exactBonus, 0, 2, 0.05) }}
-        {{ ui.slider('Prefix bonus', 'prefixBonus', prefixBonus, 0, 1, 0.05) }}
-        {{ ui.slider('Popularity boost', 'boost', boost, 0, 0.2, 0.005) }}
-        {{ ui.slider('Recency', 'recency', recency, 0, 1, 0.05) }}
-        {{ ui.slider('Recency half-life (days)', 'halfLife', halfLife, 1, 365, 1) }}
+    <aside class="settings" aria-label="Settings">
+        <section>
+            <h2 class="list-title">Ranking</h2>
+            <div class="list">
+                {{ ui.slider('Full-text weight', 'text', text, 0, 2, 0.05) }}
+                {{ ui.slider('Fuzzy weight', 'fuzzy', fuzzy, 0, 2, 0.05) }}
+                {{ ui.slider('Exact title bonus', 'exactBonus', exactBonus, 0, 2, 0.05) }}
+                {{ ui.slider('Prefix bonus', 'prefixBonus', prefixBonus, 0, 1, 0.05) }}
+                {{ ui.slider('Popularity boost', 'boost', boost, 0, 0.2, 0.005) }}
+                {{ ui.slider('Recency', 'recency', recency, 0, 1, 0.05) }}
+                {{ ui.slider('Recency half-life (days)', 'halfLife', halfLife, 1, 365, 1) }}
+            </div>
+        </section>
 
-        <h2 style="margin-top:1rem">Thresholds</h2>
-        {{ ui.slider('Min relevance', 'minScore', minScore, 0, 1, 0.01) }}
-        <label class="check"><input type="checkbox" data-model="similarityByLength" {{ similarityByLength ? 'checked' }}> Fuzzy similarity by word length (the slider below sets one value for every word)</label>
-        {{ ui.slider('Fuzzy similarity', 'similarity', similarity, 0.05, 1, 0.05) }}
-        <label>Fuzzy mode
-            <select data-model="fuzzyMode">
-                {% for mode in ['fallback', 'always', 'never'] %}<option value="{{ mode }}" {{ mode == fuzzyMode ? 'selected' }}>{{ mode }}</option>{% endfor %}
-            </select>
-        </label>
-        {{ ui.slider('Fallback below (hits)', 'fallbackBelow', fallbackBelow, 1, 50, 1) }}
-        {{ ui.slider('Candidate limit', 'candidateLimit', candidateLimit, 100, 10000, 100) }}
+        <section>
+            <h2 class="list-title">Typos</h2>
+            <div class="list">
+                {{ ui.slider('Min relevance', 'minScore', minScore, 0, 1, 0.01) }}
+                <label class="check setting"><input type="checkbox" data-model="similarityByLength" {{ similarityByLength ? 'checked' }}><span>Similarity by word length <small class="muted">The slider below then sets one value for every word.</small></span></label>
+                {{ ui.slider('Fuzzy similarity', 'similarity', similarity, 0.05, 1, 0.05) }}
+                <label class="setting select-row">Fuzzy mode
+                    <select data-model="fuzzyMode">
+                        {% for mode in ['fallback', 'always', 'never'] %}<option value="{{ mode }}" {{ mode == fuzzyMode ? 'selected' }}>{{ mode }}</option>{% endfor %}
+                    </select>
+                </label>
+                {{ ui.slider('Fallback below (hits)', 'fallbackBelow', fallbackBelow, 1, 50, 1) }}
+                {{ ui.slider('Candidate limit', 'candidateLimit', candidateLimit, 100, 10000, 100) }}
+            </div>
+        </section>
 
-        <h2 style="margin-top:1rem">Filters</h2>
-        <label class="check"><input type="checkbox" data-model="inStockOnly" {{ inStockOnly ? 'checked' }}> In stock only</label>
-        {% if this.exactAllowed %}
-            <label class="check"><input type="checkbox" data-model="exactCounts" {{ exactCounts ? 'checked' }}> Exact counts (count every match: the total and the facets, not only the candidates)</label>
-        {% else %}
-            <p class="muted">The total and the facets count the candidates (the candidate limit above). Exact counts read every match: start the stack with <code>DEMO_ALLOW_EXACT=1</code> to try them.</p>
-        {% endif %}
-        {{ ui.slider('Max price (0 = any)', 'maxPrice', maxPrice, 0, 200000, 1000) }}
+        <section>
+            <h2 class="list-title">Filters</h2>
+            <div class="list">
+                <label class="check setting"><input type="checkbox" data-model="inStockOnly" {{ inStockOnly ? 'checked' }}><span>In stock only</span></label>
+                {{ ui.slider('Max price (0 = any)', 'maxPrice', maxPrice, 0, 200000, 1000) }}
+                {% if this.exactAllowed %}
+                    <label class="check setting"><input type="checkbox" data-model="exactCounts" {{ exactCounts ? 'checked' }}><span>Exact counts <small class="muted">Count every match: the total and the facets, not only the candidates.</small></span></label>
+                {% endif %}
+            </div>
+            {% if not this.exactAllowed %}
+                <p class="muted caption">The total and the facets count the candidates (the candidate limit above). Exact counts read every match: start the stack with <code>DEMO_ALLOW_EXACT=1</code> to try them.</p>
+            {% endif %}
+        </section>
     </aside>
 
     <section class="pane">
-        <input type="search" data-model="debounce(250)|query" value="{{ query }}" aria-label="Search query" autocomplete="off" data-suggest-target="input" data-action="input->suggest#update" placeholder="Try typos, accents, -exclusions, &quot;phrases&quot;, brand:…">
+        <div class="search-field">
+            <svg class="icon" aria-hidden="true"><use href="#i-search"/></svg>
+            <input type="search" data-model="debounce(250)|query" value="{{ query }}" aria-label="Search query" autocomplete="off" spellcheck="false" data-suggest-target="input" data-action="input->suggest#update" placeholder="Try typos, accents, -exclusions, &quot;phrases&quot;, brand:…">
+        </div>
         <div class="suggest-panel" data-suggest-target="panel" data-live-ignore hidden></div>
 
-        <div class="toolbar">
+        <div class="pane-bar">
             {# Results / SQL is pure client state: the radios are never re-rendered (data-live-ignore) and the panels below are
                shown or hidden with :has(), so a click is instant and exactly one radio is ever checked. #}
             <fieldset class="segmented" data-live-ignore>
@@ -62,13 +78,15 @@
                 <p class="s-error" role="alert">{{ this.error }}</p>
             {% elseif this.result %}
                 {% set result = this.result %}
-                <p class="muted summary" aria-live="polite">
-                    {{ result.total }}{{ result.totalIsLowerBound ? '+' }} hits · {{ result.tookMs|number_format(1) }} ms
-                    {% if result.usedFuzzy %}· typo tolerant{% endif %}
-                    {% if result.interpretedAs %}· understood as <code>{{ result.interpretedAs }}</code>{% endif %}
-                </p>
-                {% for warning in result.warnings %}<p class="s-warning">{{ warning }}</p>{% endfor %}
-                {% if result.didYouMean %}<p>Did you mean <code>{{ result.didYouMean }}</code>?</p>{% endif %}
+                <div class="stat summary" aria-live="polite">
+                    <span class="stat-value">{{ result.tookMs < 10 ? result.tookMs|number_format(1) : result.tookMs|number_format(0) }}</span><span class="stat-unit">ms</span>
+                    <span class="stat-caption">
+                        {{ result.total }}{{ result.totalIsLowerBound ? '+' }} hits{% if result.usedFuzzy %} · typo tolerant{% endif %}
+                        {% if result.interpretedAs %}· understood as <code>{{ result.interpretedAs }}</code>{% endif %}
+                    </span>
+                </div>
+                {% if result.warnings %}<div class="warnings">{% for warning in result.warnings %}<p>{{ warning }}</p>{% endfor %}</div>{% endif %}
+                {% if result.didYouMean %}<p class="did-you-mean">Did you mean <code>{{ result.didYouMean }}</code>?</p>{% endif %}
                 {# Facets: the values of a filter among the matches. A chosen category narrows the search; the facet still lists the other categories. #}
                 {% set categories = this.categories %}
                 {% set stock = result.facets.in_stock ?? [] %}
@@ -90,27 +108,34 @@
                 <div class="panel panel-results">
                     {% set rows = this.rows %}
                     {% set top = (result.hits|first).score ?? 1 %}
-                    <ol class="hits">
+                    <ol class="list" aria-label="Hits with their score breakdown">
                         {% for hit in result.hits %}
                             {% set b = hit.breakdown %}
                             {% set row = rows[hit.id] ?? null %}
-                            <li>
-                                {# the highlight is HTML-escaped by Fuzzphony (only <mark> is added); the fallback is raw database text #}
-                                {% if hit.highlights.name is defined %}{{ hit.highlights.name|raw }}{% else %}{{ row.name ?? hit.id }}{% endif %}
-                                <span class="muted">· {{ row.brand ?? '' }} · {{ row.category ?? '' }} · {{ row.price ?? '' }} Ft · score {{ hit.score|number_format(3) }}</span>
-                                <div class="bar" title="text {{ (b.textRank * text)|number_format(3) }} · fuzzy {{ (b.fuzzySimilarity * fuzzy)|number_format(3) }} · bonus {{ (b.exactBonus + b.prefixBonus)|number_format(2) }} · boost {{ b.boostBonus|number_format(3) }} · recency {{ b.recencyBonus|number_format(3) }}">
-                                    <span class="b-text" style="width: {{ 100 * b.textRank * text / max(top, 0.001) }}%"></span>
-                                    <span class="b-fuzzy" style="width: {{ 100 * b.fuzzySimilarity * fuzzy / max(top, 0.001) }}%"></span>
-                                    <span class="b-bonus" style="width: {{ 100 * (b.exactBonus + b.prefixBonus) / max(top, 0.001) }}%"></span>
-                                    <span class="b-boost" style="width: {{ 100 * b.boostBonus / max(top, 0.001) }}%"></span>
-                                    <span class="b-recency" style="width: {{ 100 * b.recencyBonus / max(top, 0.001) }}%"></span>
+                            {% set style = category_style(row.category ?? '') %}
+                            <li class="row hit-row">
+                                <span class="tile{{ style.hue < 0 ? ' is-neutral' }}" style="--h: {{ style.hue }}" aria-hidden="true"><svg class="icon"><use href="#{{ style.icon }}"/></svg></span>
+                                <div class="row-body">
+                                    {# the highlight is HTML-escaped by Fuzzphony (only <mark> is added); the fallback is raw database text, escaped by Twig #}
+                                    <div class="row-title">{% if hit.highlights.name is defined %}{{ hit.highlights.name|raw }}{% else %}{{ row.name ?? hit.id }}{% endif %}</div>
+                                    <div class="row-sub">{{ row.brand ?? '' }} · {{ row.category ?? '' }}{% if row %} · {{ row.price|number_format(0, '.', ' ') }} Ft{% endif %}</div>
+                                    <div class="bar" role="img" aria-label="Score {{ hit.score|number_format(3) }}: text {{ (b.textRank * text)|number_format(3) }}, fuzzy {{ (b.fuzzySimilarity * fuzzy)|number_format(3) }}, bonus {{ (b.exactBonus + b.prefixBonus)|number_format(2) }}, boost {{ b.boostBonus|number_format(3) }}, recency {{ b.recencyBonus|number_format(3) }}" title="text {{ (b.textRank * text)|number_format(3) }} · fuzzy {{ (b.fuzzySimilarity * fuzzy)|number_format(3) }} · bonus {{ (b.exactBonus + b.prefixBonus)|number_format(2) }} · boost {{ b.boostBonus|number_format(3) }} · recency {{ b.recencyBonus|number_format(3) }}">
+                                        <span class="b-text" style="width: {{ 100 * b.textRank * text / max(top, 0.001) }}%"></span>
+                                        <span class="b-fuzzy" style="width: {{ 100 * b.fuzzySimilarity * fuzzy / max(top, 0.001) }}%"></span>
+                                        <span class="b-bonus" style="width: {{ 100 * (b.exactBonus + b.prefixBonus) / max(top, 0.001) }}%"></span>
+                                        <span class="b-boost" style="width: {{ 100 * b.boostBonus / max(top, 0.001) }}%"></span>
+                                        <span class="b-recency" style="width: {{ 100 * b.recencyBonus / max(top, 0.001) }}%"></span>
+                                    </div>
                                 </div>
+                                <div class="row-trailing">{{ hit.score|number_format(3) }}</div>
                             </li>
                         {% else %}
-                            <li class="muted">No hits. Lower "Min relevance"{% if not similarityByLength %} or "Fuzzy similarity"{% endif %}, or switch fuzzy mode to "always".</li>
+                            <li class="row no-lead"><span class="muted">No hits. Lower "Min relevance"{% if not similarityByLength %} or "Fuzzy similarity"{% endif %}, or switch fuzzy mode to "always".</span></li>
                         {% endfor %}
                     </ol>
-                    <p class="muted">Bars: <span style="color:#5b3cc4">■</span> full-text <span style="color:#0e9384">■</span> fuzzy <span style="color:#f79009">■</span> exact/prefix <span style="color:#2e90fa">■</span> popularity <span style="color:#ee46bc">■</span> recency</p>
+                    <ul class="legend muted" aria-label="Bar colours">
+                        <li><i class="b-text"></i>full-text</li><li><i class="b-fuzzy"></i>fuzzy</li><li><i class="b-bonus"></i>exact / prefix</li><li><i class="b-boost"></i>popularity</li><li><i class="b-recency"></i>recency</li>
+                    </ul>
                 </div>
 
                 <div class="panel panel-sql">

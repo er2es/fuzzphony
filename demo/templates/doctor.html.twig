@@ -1,24 +1,42 @@
 {% extends 'base.html.twig' %}
 {% block title %}Doctor · Fuzzphony{% endblock %}
 {% block body %}
-    <h2>Index "{{ report.index }}": <span class="s-{{ report.status.value }}">{{ report.status.value }}</span></h2>
-    {% if deep_allowed %}
-        <p><a class="button" href="{{ path('doctor', {deep: deep ? 0 : 1}) }}" data-loading-message="{{ deep ? 'Re-running with estimates…' : 'Counting rows exactly…' }}">{{ deep ? 'Use estimates' : 'Exact counts (--deep)' }}</a></p>
-    {% else %}
-        <p class="muted">{{ deep_refused ? 'Exact counts were not run: ' : 'Exact counts (--deep) are off in this demo: ' }}they scan the whole catalogue. Start the stack with <code>DEMO_ALLOW_DEEP_DOCTOR=1</code> to enable them, or run <code>bin/console fuzzphony:doctor --deep</code>.</p>
-    {% endif %}
-    <table>
-        <thead><tr><th></th><th>Check</th><th>Result</th><th>Fix</th></tr></thead>
-        <tbody>
+{% set icons = {ok: 'i-check', warning: 'i-bolt', error: 'i-clear', skipped: 'i-chevron'} %}
+<div class="page stack">
+    <div class="hero">
+        <h1>Doctor</h1>
+        <p class="lede">The health checks of the <code>{{ report.index }}</code> index, each with its fix.</p>
+        <p class="status-line s-{{ report.status.value }}"><svg class="icon" aria-hidden="true"><use href="#{{ icons[report.status.value] }}"/></svg>{{ report.status.value|capitalize }}</p>
+    </div>
+
+    <ul class="list">
         {% for check in report.checks %}
-            <tr>
-                <td class="s-{{ check.status.value }}">{{ {ok: '✔', warning: '!', error: '✘', skipped: '–'}[check.status.value] }}</td>
-                <td>{{ check.name }}</td>
-                <td>{{ check.message }}</td>
-                <td>{% if check.fix %}<code>{{ check.fix }}</code>{% endif %}</td>
-            </tr>
+            <li class="row no-lead">
+                <span class="status-dot is-{{ check.status.value }}" role="img" aria-label="{{ check.status.value }}"><svg class="icon" aria-hidden="true"><use href="#{{ icons[check.status.value] }}"/></svg></span>
+                <div class="row-body">
+                    <div class="row-title">{{ check.name }}</div>
+                    <div class="row-sub">{{ check.message }}</div>
+                    {% if check.fix %}<div class="row-fix"><code>{{ check.fix }}</code></div>{% endif %}
+                </div>
+            </li>
         {% endfor %}
-        </tbody>
-    </table>
+    </ul>
+
+    <div class="list">
+        <div class="row no-lead">
+            <div class="row-body">
+                <div class="row-title">Exact counts</div>
+                <div class="row-sub">
+                    {% if deep_allowed %}
+                        {{ deep ? 'The counts above are exact: every row was scanned.' : 'The counts above are estimates; exact counts scan the whole catalogue.' }}
+                    {% else %}
+                        {{ deep_refused ? 'Exact counts were not run: ' : 'Exact counts (--deep) are off in this demo: ' }}they scan the whole catalogue. Start the stack with <code>DEMO_ALLOW_DEEP_DOCTOR=1</code> to enable them, or run <code>bin/console fuzzphony:doctor --deep</code>.
+                    {% endif %}
+                </div>
+            </div>
+            {% if deep_allowed %}<a class="button" href="{{ path('doctor', {deep: deep ? 0 : 1}) }}" data-loading-message="{{ deep ? 'Re-running with estimates…' : 'Counting rows exactly…' }}">{{ deep ? 'Use estimates' : 'Count exactly' }}</a>{% endif %}
+        </div>
+    </div>
     <p class="muted">Same in the terminal (and in CI): <code>bin/console fuzzphony:doctor --strict</code></p>
+</div>
 {% endblock %}

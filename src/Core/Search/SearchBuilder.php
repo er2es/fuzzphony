@@ -144,7 +144,13 @@ final readonly class SearchBuilder
 
     public function explain(bool $analyze = false): Explanation
     {
-        return $this->engine->explain($this->index, $this->effective(), $analyze);
+        $explanation = $this->engine->explain($this->index, $this->effective(), $analyze);
+        $didYouMean = $explanation->result->didYouMean;
+        if (!$this->query->asYouType || $didYouMean === null) {
+            return $explanation;
+        }
+
+        return new Explanation($explanation->interpretedAs, $explanation->statements, $explanation->plan, $explanation->result->withDidYouMean(Typeahead::withoutPrefixAlternative($didYouMean)));
     }
 
     public function toQuery(): SearchQuery

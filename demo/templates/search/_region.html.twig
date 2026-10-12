@@ -1,5 +1,5 @@
 {# The results region of the home page: swapped in place while the visitor types (live_search_controller.js). #}
-{% macro url(q, view, category, stock, extra) %}{{ path('search', {q: q, view: view == 'speed' ? 'speed' : null, cat: category ?: null, stock: stock is null ? null : (stock ? 1 : 0)}|merge(extra|default({}))) }}{% endmacro %}
+{% macro url(q, view, category, stock, extra = {}) %}{{ path('search', {q: q, view: view == 'speed' ? 'speed' : null, cat: category ?: null, stock: stock is null ? null : (stock ? 1 : 0)}|merge(extra)) }}{% endmacro %}
 {% import _self as u %}
 {% macro price(value) %}{{ value|number_format(0, '.', ' ') }} Ft{% endmacro %}
 
@@ -7,9 +7,10 @@
     <section class="results" aria-label="Results">
         <div class="results-head">
             {% if result %}
+                {% set took = view == 'speed' and speed ? speed.warm : result.tookMs %}
                 <div class="stat">
-                    <span class="stat-value">{{ result.tookMs < 10 ? result.tookMs|number_format(1) : result.tookMs|number_format(0) }}</span><span class="stat-unit">ms</span>
-                    <span class="stat-caption">
+                    <span class="stat-value">{{ took < 10 ? took|number_format(1) : took|number_format(0) }}</span><span class="stat-unit">ms</span>
+                    <span class="stat-caption">{% if view == 'speed' and speed %}warm median · {% endif %}
                         {{ result.total|number_format }}{{ result.totalIsLowerBound ? '+' }} {{ result.total == 1 ? 'product' : 'products' }}{% if result.usedFuzzy %} · typo tolerant{% endif %}
                         · understood as <code>{{ result.interpretedAs }}</code>
                     </span>

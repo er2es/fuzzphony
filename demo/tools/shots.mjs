@@ -41,8 +41,9 @@ for (const page of pages) {
             const messages = [];
             p.on('console', (m) => ['error', 'warning'].includes(m.type()) && messages.push(`${m.type()}: ${m.text()}`));
             p.on('pageerror', (e) => messages.push(`pageerror: ${e.message}`));
-            await p.goto(BASE + page.path, { waitUntil: 'networkidle' });
-            await p.waitForTimeout(500);
+            await p.goto(BASE + page.path, { waitUntil: 'load', timeout: 60000 });
+            await p.waitForLoadState('networkidle', { timeout: 8000 }).catch(() => {});
+            await p.waitForTimeout(400);
             await p.screenshot({ path: `${OUT}/${page.name}-${vpName}-${scheme}.png`, fullPage: true });
             const overflow = await p.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth);
             if (overflow > 0) {
@@ -67,7 +68,8 @@ for (const flow of flows) {
     for (const [vpName, viewport] of Object.entries(viewports)) {
         const context = await browser.newContext({ viewport, colorScheme: 'light', reducedMotion: 'reduce' });
         const p = await context.newPage();
-        await p.goto(BASE + flow.path, { waitUntil: 'networkidle' });
+        await p.goto(BASE + flow.path, { waitUntil: 'load', timeout: 60000 });
+        await p.waitForLoadState('networkidle', { timeout: 8000 }).catch(() => {});
         await p.click(flow.selector);
         await p.keyboard.type(flow.type, { delay: 40 });
         await p.waitForTimeout(900);
