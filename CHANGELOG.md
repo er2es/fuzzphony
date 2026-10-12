@@ -11,14 +11,14 @@ Demo only; no upgrade steps.
 
 ### Changed
 
-- **Demo: one loading language.** Waiting on the server looks the same on every page: after a short delay the region being replaced dims
-  and the search field shows a spinner, driven by `aria-busy` (the live search, Tune, the Speed bars and page navigations). Tune had lost
+- **Demo: one loading language.** Waiting on the server looks the same on every page: after a short delay a hairline bar runs along the top,
+  the region being replaced dims and the search field shows a spinner (a page without a field gets one of its own), driven by `aria-busy` (the live search, Tune, the Speed bars and page navigations). Tune had lost
   its loading indication when the Live Component (UX 3) moved from a `busy` attribute to `aria-busy`; that is fixed, and `busy_controller.js`
   and the separate "Updating…" pill are gone.
 - **Demo: the "Under the hood" menu** lists the Config wizard, **Benchmark**, Doctor, Observability and **Synonyms**. The benchmark is a
   page of its own again (`/under-the-hood/benchmark`; the Speed view of the search links to it) and the synonym editor moved there from
   `/relevance/synonyms` to `/under-the-hood/synonyms` (no redirects). The "/ to search" hint in the toolbar is removed (the shortcut still works).
-- `demo/tools/flows.mjs` checks the loading behaviour and the menu (23 checks); `shots.mjs` lists the current routes.
+- `demo/tools/flows.mjs` checks the loading behaviour and the menu (26 checks); `shots.mjs` lists the current routes.
 
 ## [0.8.2] - 2026-10-12
 

@@ -84,11 +84,13 @@ const spinnerShown = (page) => page.evaluate(() => {
     const el = document.querySelector('.field-spinner');
     return el !== null && parseFloat(getComputedStyle(el).opacity) > 0.5;
 });
+const barShown = (page) => page.evaluate(() => parseFloat(getComputedStyle(document.querySelector('.topbar')).opacity) > 0.5);
 await go(p3, BASE + '/?q=mouse');
 await p3.fill('input[type=search]', 'mouse pad');
 await p3.waitForSelector('#results[aria-busy="true"]');
 await p3.waitForTimeout(500);
 check('home: while the search runs the field shows a spinner', await spinnerShown(p3));
+check('home: and the bar runs along the top', await barShown(p3));
 check('home: and the results dim', await p3.evaluate(() => parseFloat(getComputedStyle(document.querySelector('#results')).opacity) < 0.9));
 await p3.waitForSelector('#results:not([aria-busy="true"])');
 await p3.waitForTimeout(500);
@@ -100,6 +102,7 @@ await p3.fill('.pane input[type=search]', 'mouse pad');
 await p3.waitForSelector('.layout[aria-busy="true"]');
 await p3.waitForTimeout(600);
 check('tune: while it updates the field shows a spinner', await spinnerShown(p3));
+check('tune: and the bar runs along the top', await barShown(p3));
 check('tune: and the results dim', await p3.evaluate(() => parseFloat(getComputedStyle(document.querySelector('.panels')).opacity) < 0.9));
 await p3.waitForSelector('.layout:not([aria-busy="true"])');
 
@@ -108,7 +111,7 @@ await p3.waitForSelector('.layout:not([aria-busy="true"])');
 await p3.addInitScript(() => {
     new MutationObserver(() => {
         if (document.documentElement.hasAttribute('data-navigating')) {
-            setTimeout(() => { sessionStorage.setItem('nav', getComputedStyle(document.querySelector('.topbar')).opacity); }, 400);
+            setTimeout(() => { sessionStorage.setItem('nav', getComputedStyle(document.querySelector('.topbar')).opacity); sessionStorage.setItem('after', getComputedStyle(document.body, '::after').animationName); }, 400);
         }
     }).observe(document, { attributes: true, subtree: true, attributeFilter: ['data-navigating'] });
 });
@@ -118,6 +121,14 @@ await p3.click('.nav a >> text=Relevance');
 await p3.waitForURL('**/relevance*');
 const seen = (await p3.evaluate(() => sessionStorage.getItem('nav'))) ?? '';
 check('a link: the page is marked as navigating and the top bar is visible', parseFloat(seen) > 0.5, seen);
+
+// leaving a page without a search field (the wizard) shows a spinner of its own
+await p3.unrouteAll();
+await go(p3, BASE + '/under-the-hood/wizard');
+await p3.route('**/relevance*', async (route) => { await new Promise((resolve) => setTimeout(resolve, 1500)); await route.continue(); });
+await p3.click('.nav a >> text=Relevance');
+await p3.waitForURL('**/relevance*');
+check('a page without a field shows a spinner of its own while it loads', (await p3.evaluate(() => sessionStorage.getItem('after'))) === 'spin');
 
 // 9. the Under the hood menu lists the benchmark and the synonyms
 await p3.unrouteAll();
