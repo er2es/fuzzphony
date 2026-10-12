@@ -7,7 +7,7 @@
 {% endmacro %}
 {% import _self as ui %}
 
-<div {{ attributes.defaults(stimulus_controller('busy')|stimulus_controller('suggest', {url: path('suggest'), index: 'catalog', page: path('playground'), param: 'query', categories: false})) }} class="layout">
+<div {{ attributes.defaults(stimulus_controller('busy')|stimulus_controller('suggest', {url: path('suggest'), index: 'catalog', page: path('tune'), param: 'query', categories: false})) }} class="layout">
     <aside class="card">
         <h2>Ranking</h2>
         {{ ui.slider('Full-text weight', 'text', text, 0, 2, 0.05) }}

@@ -10,3 +10,8 @@ demo/var/
 demo/assets/vendor/
 
 /.superpowers/
+
+# the screenshot harness installs Playwright next to its script (demo/tools/shots.mjs)
+/demo/tools/node_modules/
+/demo/tools/package*.json
+/build/shots/

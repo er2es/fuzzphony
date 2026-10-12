@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace App\Controller;
 
+use App\Service\CategoryStyle;
 use App\Service\Catalog;
 use App\Service\Facets;
 use App\Service\Languages;
@@ -28,7 +29,7 @@ final class SuggestController extends AbstractController
     private const int MAX_QUERY = 100;
 
     #[Route('/suggest', name: 'suggest', methods: ['GET'])]
-    public function __invoke(Request $request, Fuzzphony $fuzzphony, Catalog $catalog, Facets $facets, Languages $languages): JsonResponse
+    public function __invoke(Request $request, Fuzzphony $fuzzphony, Catalog $catalog, Facets $facets, Languages $languages, CategoryStyle $styles): JsonResponse
     {
         $index = (string) $request->query->get('index', '');
         if (!$fuzzphony->registry()->has($index)) {
@@ -48,7 +49,8 @@ final class SuggestController extends AbstractController
                     foreach ($found->hits as $hit) {
                         if (isset($rows[$hit->id])) {
                             $row = $rows[$hit->id];
-                            $products[] = ['name' => $row['name'], 'note' => sprintf('%s · %s · %s Ft', $row['brand'], $row['category'], number_format($row['price'], 0, '.', ' '))];
+                            $style = $styles->of($row['category']);
+                            $products[] = ['name' => $row['name'], 'note' => sprintf('%s · %s Ft', $row['brand'], number_format($row['price'], 0, '.', ' ')), 'icon' => $style['icon'], 'hue' => $style['hue']];
                         }
                     }
                 } else {
@@ -57,7 +59,8 @@ final class SuggestController extends AbstractController
                     $rows = $code !== false ? $languages->products((string) array_keys(Languages::LANGUAGES)[$code]) : [];
                     foreach ($found->hits as $hit) {
                         if (isset($rows[$hit->id])) {
-                            $products[] = ['name' => $rows[$hit->id]['name'], 'note' => $rows[$hit->id]['category']];
+                            $style = $styles->of($rows[$hit->id]['category']);
+                            $products[] = ['name' => $rows[$hit->id]['name'], 'note' => $rows[$hit->id]['category'], 'icon' => $style['icon'], 'hue' => $style['hue']];
                         }
                     }
                 }

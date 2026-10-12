@@ -1,0 +1,20 @@
+{# The two bars of the Speed view, on one scale; the ILIKE side has just been measured. #}
+{% if without %}
+    {% set scale = max(without.warm, fuzzphony_ms) %}
+    <div class="speed-row">
+        <span>Fuzzphony</span>
+        <span class="speed-bar"><span class="is-fuzzphony" style="width: {{ max(1, (fuzzphony_ms / scale * 100)|round) }}%"></span></span>
+        <span class="speed-value">{{ fuzzphony_ms|number_format(1) }} ms</span>
+    </div>
+    <div class="speed-row">
+        <span>ILIKE</span>
+        <span class="speed-bar"><span style="width: {{ max(1, (without.warm / scale * 100)|round) }}%"></span></span>
+        <span class="speed-value">{{ without.warm|number_format(1) }} ms</span>
+    </div>
+    <p class="speed-factor">
+        {% if without.warm >= fuzzphony_ms %}{{ (without.warm / fuzzphony_ms)|number_format(0) }}× faster{% else %}ILIKE is faster here, but not the same work{% endif %}
+        <span class="muted">· ILIKE found {{ without.value|length }}{{ without.value|length == 0 ? ': it needs the exact spelling' }}</span>
+    </p>
+{% else %}
+    <p class="muted">Type something to search.</p>
+{% endif %}

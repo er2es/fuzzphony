@@ -2,36 +2,52 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
     <meta name="color-scheme" content="light dark">
-    <title>{% block title %}Fuzzphony demo{% endblock %}</title>
+    <title>{% block title %}Fuzzphony{% endblock %}</title>
     {# An inline icon: without one the browser asks for /favicon.ico on every page load, and that 404 boots the whole kernel. #}
-    <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Ctext y='.9em' font-size='90'%3E%F0%9F%8E%BC%3C/text%3E%3C/svg%3E">
+    <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='8' fill='%235b3cc4'/%3E%3Ccircle cx='14.5' cy='14.5' r='6' fill='none' stroke='white' stroke-width='2.4'/%3E%3Cpath d='m19.5 19.5 5 5' stroke='white' stroke-width='2.4' stroke-linecap='round'/%3E%3C/svg%3E">
     {% block importmap %}{{ importmap('app') }}{% endblock %}
 </head>
-<body data-controller="progress">
+<body data-controller="progress shortcut">
+{{ include('_sprite.html.twig') }}
 <a class="skip-link" href="#main">Skip to content</a>
 <div class="topbar" aria-hidden="true"><span></span></div>
 <div class="nav-status" role="status" aria-live="polite"><span class="spinner" aria-hidden="true"></span><span data-progress-target="message"></span></div>
-<header>
-    <strong>🎼 Fuzzphony</strong>
-    <nav aria-label="Demo pages">
-        {% set route = app.request.attributes.get('_route') %}
-        {% set pages = {
-            compare: ['ILIKE vs Fuzzphony', 'Running ILIKE and Fuzzphony side by side…'],
-            relevance: ['Relevance', 'Comparing typo tolerance, synonyms and suggestions…'],
-            synonyms: ['Synonyms', 'Opening the synonym editor…'],
-            playground: ['Playground', 'Opening the playground…'],
-            languages: ['Languages', 'Opening the languages page…'],
-            wizard: ['Config wizard', 'Introspecting the database…'],
-            benchmark: ['Benchmark', 'Opening the benchmark…'],
-            doctor: ['Doctor', 'Running the health checks…'],
-            observability: ['Observability', 'Running a sample search to show the metrics…'],
-        } %}
-        {% for name, page in pages %}
-            <a href="{{ path(name) }}" data-loading-message="{{ page[1] }}"{% if route == name %} class="active" aria-current="page"{% endif %}>{{ page[0] }}</a>
-        {% endfor %}
-    </nav>
+
+{% set route = app.request.attributes.get('_route') %}
+{% set under = {wizard: 'Config wizard', doctor: 'Doctor', observability: 'Observability'} %}
+<header class="toolbar">
+    <div class="toolbar-inner">
+        <a class="wordmark" href="{{ path('search') }}">Fuzzphony</a>
+        <nav class="nav" aria-label="Pages">
+            <a href="{{ path('search') }}" data-loading-message="Opening search…"{% if route == 'search' %} aria-current="page"{% endif %}>
+                <svg class="icon nav-icon" aria-hidden="true"><use href="#i-search"/></svg>Search
+            </a>
+            <a href="{{ path('relevance') }}" data-loading-message="Opening relevance…"{% if route in ['relevance', 'synonyms'] %} aria-current="page"{% endif %}>
+                <svg class="icon nav-icon" aria-hidden="true"><use href="#i-text"/></svg>Relevance
+            </a>
+            <a href="{{ path('languages') }}" data-loading-message="Opening languages…"{% if route == 'languages' %} aria-current="page"{% endif %}>
+                <svg class="icon nav-icon" aria-hidden="true"><use href="#i-globe"/></svg>Languages
+            </a>
+            <a href="{{ path('tune') }}" data-loading-message="Opening tune…"{% if route == 'tune' %} aria-current="page"{% endif %}>
+                <svg class="icon nav-icon" aria-hidden="true"><use href="#i-sliders"/></svg>Tune
+            </a>
+            <details class="menu" data-controller="menu">
+                <summary>
+                    <svg class="icon nav-icon" aria-hidden="true"><use href="#i-more"/></svg>
+                    <span class="long">Under the hood</span><span class="short">More</span>
+                    <svg class="icon chev" aria-hidden="true"><use href="#i-chevron"/></svg>
+                </summary>
+                <div class="menu-panel">
+                    {% for name, label in under %}
+                        <a href="{{ path(name) }}" data-loading-message="Opening {{ label|lower }}…"{% if route == name %} aria-current="page"{% endif %}>{{ label }}</a>
+                    {% endfor %}
+                </div>
+            </details>
+        </nav>
+        <span class="toolbar-hint"><kbd>/</kbd> to search</span>
+    </div>
 </header>
 <main id="main" tabindex="-1">{% block body %}{% endblock %}</main>
 </body>
