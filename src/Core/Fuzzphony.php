@@ -4,8 +4,10 @@ declare(strict_types=1);
 
 namespace Fuzzphony\Core;
 
+use Fuzzphony\Core\Analytics\SearchAnalytics;
 use Fuzzphony\Core\Definition\Synonyms;
 use Fuzzphony\Core\Engine\Engine;
+use Fuzzphony\Core\Engine\SearchLogStore;
 use Fuzzphony\Core\Engine\Suggestions;
 use Fuzzphony\Core\Engine\SynonymStems;
 use Fuzzphony\Core\Exception\InvalidArgument;
@@ -145,6 +147,20 @@ final readonly class Fuzzphony
         return $this->engine instanceof SynonymStems
             ? $this->engine->stemSynonyms($this->registry->get($index), $synonyms)
             : throw new InvalidArgument(sprintf('The "%s" engine does not prepare synonyms; useSynonyms() works without it.', $this->engine->name()));
+    }
+
+    /**
+     * The reports over the search log, and its purge.
+     *
+     * @throws InvalidArgument when the engine keeps no search log
+     */
+    public function analytics(): SearchAnalytics
+    {
+        if (!$this->engine instanceof SearchLogStore) {
+            throw new InvalidArgument(sprintf('The "%s" engine keeps no search log.', $this->engine->name()));
+        }
+
+        return new SearchAnalytics($this->engine, $this->registry);
     }
 
     public function registry(): IndexRegistry

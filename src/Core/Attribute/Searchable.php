@@ -39,5 +39,7 @@ final readonly class Searchable
         public array $synonyms = [],
         /** A synonym file in the Solr format, added to `synonyms`. */
         public ?string $synonymsFile = null,
+        /** Whether searches on this index go to the search log; false keeps the index out of it. */
+        public bool $log = true,
     ) {}
 }

@@ -20,6 +20,13 @@ final class PublicApiTest extends TestCase
         \Fuzzphony\Bundle\FuzzphonyBundle::class,
         \Fuzzphony\Bundle\Messenger\RefreshDocuments::class,
         \Fuzzphony\Bundle\Twig\SearchComponent::class,
+        \Fuzzphony\Core\Analytics\PatternQueryRedactor::class,
+        \Fuzzphony\Core\Analytics\QueryRedactor::class,
+        \Fuzzphony\Core\Analytics\QueryStat::class,
+        \Fuzzphony\Core\Analytics\RecordStatus::class,
+        \Fuzzphony\Core\Analytics\SearchAnalytics::class,
+        \Fuzzphony\Core\Analytics\SearchLog::class,
+        \Fuzzphony\Core\Analytics\SearchRecord::class,
         \Fuzzphony\Core\Attribute\SearchField::class,
         \Fuzzphony\Core\Attribute\SearchFilter::class,
         \Fuzzphony\Core\Attribute\Searchable::class,
@@ -41,6 +48,7 @@ final class PublicApiTest extends TestCase
         \Fuzzphony\Core\Definition\Weight::class,
         \Fuzzphony\Core\Engine\Capabilities::class,
         \Fuzzphony\Core\Engine\Capability::class,
+        \Fuzzphony\Core\Engine\SearchLogStore::class,
         \Fuzzphony\Core\Engine\Suggestions::class,
         \Fuzzphony\Core\Engine\SynonymStems::class,
         \Fuzzphony\Core\Engine\Vocabulary::class,
@@ -122,8 +130,8 @@ final class PublicApiTest extends TestCase
         }
 
         self::assertSame([], $wrong);
-        self::assertCount(86, self::PUBLIC);
-        self::assertCount(147, self::classes());
+        self::assertCount(94, self::PUBLIC);
+        self::assertCount(156, self::classes());
     }
 
     public function testThePublicApiExposesNoInternalType(): void
