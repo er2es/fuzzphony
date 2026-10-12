@@ -246,6 +246,17 @@ final class SearchComponentLogicTest extends TestCase
         self::assertSame('ada', $this->queries[0]->actor?->user);
     }
 
+    public function testTheResolvedTenantScopesATenantScopedIndex(): void
+    {
+        $actors = self::createStub(ActorResolver::class);
+        $actors->method('resolve')->willReturn(new Actor(tenant: 7, user: 'ada'));
+
+        $this->component(query: 'mouse', actors: $actors, tenant: true)->getResult();
+
+        self::assertSame(7, $this->queries[0]->tenant, 'the engine is asked for the resolved tenant');
+        self::assertSame('ada', $this->queries[0]->actor?->user);
+    }
+
     public function testWithoutAResolverTheSearchHasNoActor(): void
     {
         $this->component(query: 'mouse')->getResult();
@@ -275,7 +286,7 @@ final class SearchComponentLogicTest extends TestCase
     /**
      * @param array<string, string> $selected
      */
-    private function component(string $query = '', string $index = 'products', string $profile = 'default', string $highlight = '', int $limit = 10, string $facets = '', int $suggestions = 5, bool $asYouType = true, array $selected = [], ?ActorResolver $actors = null): SearchComponent
+    private function component(string $query = '', string $index = 'products', string $profile = 'default', string $highlight = '', int $limit = 10, string $facets = '', int $suggestions = 5, bool $asYouType = true, array $selected = [], ?ActorResolver $actors = null, bool $tenant = false): SearchComponent
     {
         $engine = self::createStubForIntersectionOfInterfaces([Engine::class, Suggestions::class]);
         $engine->method('search')->willReturnCallback(function (IndexDefinition $index, SearchQuery $query): SearchResult {
@@ -292,7 +303,7 @@ final class SearchComponentLogicTest extends TestCase
         });
         assert($engine instanceof Engine);
 
-        $component = new SearchComponent(new Fuzzphony($engine, new IndexRegistry([Indexes::products('manual'), $this->shirts()])), $actors);
+        $component = new SearchComponent(new Fuzzphony($engine, new IndexRegistry([Indexes::products('manual', tenant: $tenant), $this->shirts()])), $actors);
         $component->query = $query;
         $component->index = $facets === 'colour' ? 'shirts' : $index;
         $component->profile = $profile;

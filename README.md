@@ -81,8 +81,8 @@ A good fit when:
 - Search must be as fresh as the data. In `trigger` mode the index changes in the same
   transaction as the row, so a sold-out product leaves search on commit.
 - You run a shared-schema multi-tenant SaaS. The tenant filter is enforced on every query, so a
-  forgotten `WHERE` can't leak another customer's rows, and the API Platform filter, the Live
-  Component and the console command take the tenant from the logged-in user.
+  forgotten `WHERE` can't leak another customer's rows; the API Platform filter and the Live
+  Component take the tenant from the logged-in user, and the console command from `--tenant` and `--user`.
 - Your content is multilingual: stemming for 28 languages, and accent folding that finds
   `Kávéfőző` for `kavefozo` and `Crème Brûlée` for `creme brulee`.
 

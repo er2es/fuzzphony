@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Fuzzphony\Core\Search;
 
+use Fuzzphony\Core\Definition\FilterType;
 use Fuzzphony\Core\Definition\IndexDefinition;
 use Fuzzphony\Core\Engine\Engine;
 use Fuzzphony\Core\Query\SearchQuery;
@@ -61,13 +62,18 @@ final readonly class SearchBuilder
     /**
      * Searches as this actor: its tenant scopes a tenant-scoped index (it is ignored on any other index), its
      * user is carried for the search log and the guards. The last of forTenant() / asActor() wins; an actor
-     * without a tenant leaves a tenant set before alone.
+     * without a tenant leaves a tenant set before alone. An integer tenant (a resolver reading `account.id`)
+     * on a string tenant filter is turned into its string; any other pairing is left as it is.
      */
     public function asActor(Actor $actor): self
     {
         $query = $this->query->withActor($actor);
         if ($this->index->tenant !== null && $actor->tenant !== null) {
-            $query = $query->forTenant($actor->tenant);
+            $tenant = $actor->tenant;
+            if (is_int($tenant) && $this->index->filter($this->index->tenant)->type === FilterType::String) {
+                $tenant = (string) $tenant;
+            }
+            $query = $query->forTenant($tenant);
         }
 
         return $this->with($query);

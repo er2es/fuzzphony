@@ -52,6 +52,22 @@ final class PropertyPathActorResolverTest extends TestCase
         $this->resolver(new TenantUser('ada', new Account(7)), 'account', null)->resolve();
     }
 
+    public function testAStringableValueLikeAUidIsCastToAString(): void
+    {
+        $actor = $this->resolver(new TenantUser('ada', new Account(7, new Uid('018f-uuid'))), 'account.uid', 'account.uid')->resolve();
+
+        self::assertSame('018f-uuid', $actor->tenant);
+        self::assertSame('018f-uuid', $actor->user);
+    }
+
+    public function testABooleanIsStillRefused(): void
+    {
+        $this->expectException(InvalidArgument::class);
+        $this->expectExceptionMessage('fuzzphony.actor.user');
+
+        $this->resolver(new TenantUser('ada', new Account(7, null, true)), null, 'account.active')->resolve();
+    }
+
     private function resolver(?UserInterface $user, ?string $tenantPath, ?string $userPath): PropertyPathActorResolver
     {
         $tokens = new TokenStorage();
@@ -65,7 +81,18 @@ final class PropertyPathActorResolverTest extends TestCase
 
 final class Account
 {
-    public function __construct(public readonly int $id) {}
+    public function __construct(public readonly int $id, public readonly ?Uid $uid = null, public readonly bool $active = false) {}
+}
+
+/** Stands in for Symfony's Uid / Uuid: an object that is a string only through __toString(). */
+final class Uid implements \Stringable
+{
+    public function __construct(private readonly string $value) {}
+
+    public function __toString(): string
+    {
+        return $this->value;
+    }
 }
 
 /**

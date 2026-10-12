@@ -13,9 +13,14 @@ final class SearchExceptionListener
 {
     public function __invoke(ExceptionEvent $event): void
     {
-        $e = $event->getThrowable();
-        if ($e instanceof ActorRequired) {
-            $event->setThrowable(new AccessDeniedHttpException($e->getMessage(), $e));
+        // Walk the previous-chain: a search that runs inside a Twig template (the Live Component) reaches the
+        // kernel wrapped in a Twig\Error\RuntimeError.
+        for ($t = $event->getThrowable(); $t !== null; $t = $t->getPrevious()) {
+            if ($t instanceof ActorRequired) {
+                $event->setThrowable(new AccessDeniedHttpException($t->getMessage(), $t));
+
+                return;
+            }
         }
     }
 }

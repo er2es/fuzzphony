@@ -80,6 +80,17 @@ final class FuzzphonySearchFilterApplyTest extends TestCase
         self::assertSame('ada', $this->queries[1]->actor?->user, 'resolved for every search, not once');
     }
 
+    public function testTheResolvedTenantScopesATenantScopedIndex(): void
+    {
+        $actors = self::createStub(ActorResolver::class);
+        $actors->method('resolve')->willReturn(new Actor(tenant: 7, user: 'ada'));
+
+        $this->filter(actors: $actors, tenant: true)->apply($this->queryBuilder(), new QueryNameGenerator(), 'products', null, ['filters' => ['q' => 'mouse']]);
+
+        self::assertSame(7, $this->queries[0]->tenant, 'the engine is asked for the resolved tenant');
+        self::assertSame('ada', $this->queries[0]->actor?->user);
+    }
+
     public function testWithoutAResolverTheSearchHasNoActor(): void
     {
         $this->filter()->apply($this->queryBuilder(), new QueryNameGenerator(), 'products', null, ['filters' => ['q' => 'mouse']]);
@@ -136,7 +147,7 @@ final class FuzzphonySearchFilterApplyTest extends TestCase
     }
 
     /** @param list<int> $hits ids the engine finds */
-    private function filter(array $hits = [], string $parameterName = 'q', string $profile = 'default', ?int $maxResults = null, ?ActorResolver $actors = null): FuzzphonySearchFilter
+    private function filter(array $hits = [], string $parameterName = 'q', string $profile = 'default', ?int $maxResults = null, ?ActorResolver $actors = null, bool $tenant = false): FuzzphonySearchFilter
     {
         $engine = self::createStub(Engine::class);
         $engine->method('search')->willReturnCallback(function (IndexDefinition $index, SearchQuery $query) use ($hits): SearchResult {
@@ -144,7 +155,7 @@ final class FuzzphonySearchFilterApplyTest extends TestCase
 
             return new SearchResult(array_map(static fn(int $id): Hit => new Hit($id, 1.0, new ScoreBreakdown()), $hits), count($hits), false, 1.0, false, [], $query->limit, 0);
         });
-        $fuzzphony = new Fuzzphony($engine, new IndexRegistry([Indexes::products('manual')]));
+        $fuzzphony = new Fuzzphony($engine, new IndexRegistry([Indexes::products('manual', tenant: $tenant)]));
 
         return $maxResults === null
             ? new FuzzphonySearchFilter($fuzzphony, $parameterName, $profile, actors: $actors)

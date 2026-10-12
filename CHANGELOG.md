@@ -17,7 +17,7 @@ Part 1 of 0.9 (identity). No upgrade steps: nothing changes unless you configure
   index throws `ActorRequired` (an `InvalidQuery`); without an actor the original message stays. See
   [Multi-tenancy](docs/multi-tenancy.md#the-actor-who-is-searching).
 - **`fuzzphony.actor`** (bundle): `resolver: <service id>` for your own `ActorResolver`, or `tenant:` and `user:` property paths
-  read on the Symfony Security user (`symfony/security-core` and `symfony/property-access` are `suggest`ed; a missing
+  read on the Symfony Security user (`symfony/security-bundle` and `symfony/property-access` are `suggest`ed; a missing
   package fails at container build with the `composer require` line). Nothing configured: an anonymous actor.
 - **Tenant-scoped indexes through the integrations.** The API Platform `FuzzphonySearchFilter` and the Live
   Component resolve the actor on the server on every request (the Live Component never takes the tenant

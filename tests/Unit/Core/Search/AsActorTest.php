@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Fuzzphony\Tests\Unit\Core\Search;
 
+use Fuzzphony\Core\Definition\IndexDefinition;
 use Fuzzphony\Core\Engine\Engine;
 use Fuzzphony\Core\Search\Actor;
 use Fuzzphony\Core\Search\SearchBuilder;
@@ -46,8 +47,46 @@ final class AsActorTest extends TestCase
         self::assertNotNull($query->actor);
     }
 
+    public function testAnIntegerTenantIsCastForAStringTenantFilter(): void
+    {
+        // a resolver reading account.id (an int) for an index whose tenant column is a string
+        $query = $this->stringTenantBuilder()->asActor(new Actor(tenant: 42))->toQuery();
+
+        self::assertSame('42', $query->tenant);
+        self::assertSame(42, $query->actor?->tenant, 'the actor itself is untouched');
+    }
+
+    public function testAStringTenantOnAStringFilterStaysAsItIs(): void
+    {
+        self::assertSame('acme', $this->stringTenantBuilder()->asActor(new Actor(tenant: 'acme'))->toQuery()->tenant);
+    }
+
+    public function testAnIntegerTenantOnAnIntegerFilterStaysAnInteger(): void
+    {
+        self::assertSame(5, $this->builder(tenant: true)->asActor(new Actor(tenant: 5))->toQuery()->tenant);
+    }
+
+    public function testAStringTenantOnAnIntegerFilterStaysAString(): void
+    {
+        // the filter's own normalization accepts a digits string for an Int filter
+        self::assertSame('5', $this->builder(tenant: true)->asActor(new Actor(tenant: '5'))->toQuery()->tenant);
+    }
+
     private function builder(bool $tenant): SearchBuilder
     {
         return new SearchBuilder(self::createStub(Engine::class), Indexes::products(tenant: $tenant));
+    }
+
+    private function stringTenantBuilder(): SearchBuilder
+    {
+        $index = IndexDefinition::builder('docs')
+            ->fromQuery('SELECT id, title, org FROM doc')
+            ->watch('doc')
+            ->field('title', 'A')
+            ->filter('org', 'string')
+            ->tenant('org')
+            ->build();
+
+        return new SearchBuilder(self::createStub(Engine::class), $index);
     }
 }

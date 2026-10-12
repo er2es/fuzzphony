@@ -52,6 +52,9 @@ final readonly class PropertyPathActorResolver implements ActorResolver
         if (is_scalar($value) && !is_bool($value)) {
             return (string) $value;
         }
+        if ($value instanceof \Stringable) { // a Symfony Uid / Uuid
+            return (string) $value;
+        }
 
         throw new InvalidArgument(sprintf('%s "%s" must read a string or an integer from the user, got %s.', $setting, $path, get_debug_type($value)));
     }

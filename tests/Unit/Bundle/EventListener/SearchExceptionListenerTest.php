@@ -12,6 +12,7 @@ use Symfony\Component\HttpFoundation\Request;
 use Symfony\Component\HttpKernel\Event\ExceptionEvent;
 use Symfony\Component\HttpKernel\Exception\AccessDeniedHttpException;
 use Symfony\Component\HttpKernel\HttpKernelInterface;
+use Twig\Error\RuntimeError;
 
 final class SearchExceptionListenerTest extends TestCase
 {
@@ -25,6 +26,30 @@ final class SearchExceptionListenerTest extends TestCase
         self::assertInstanceOf(AccessDeniedHttpException::class, $event->getThrowable());
         self::assertSame($original, $event->getThrowable()->getPrevious());
         self::assertSame($original->getMessage(), $event->getThrowable()->getMessage());
+    }
+
+    public function testActorRequiredWrappedByTwigBecomesA403(): void
+    {
+        // the Live Component searches inside its template: Twig wraps the throwable in a RuntimeError
+        $original = ActorRequired::forIndex('products');
+        $wrapped = new RuntimeError('An exception has been thrown during the rendering of a template.', -1, null, $original);
+        $event = new ExceptionEvent(self::createStub(HttpKernelInterface::class), new Request(), HttpKernelInterface::MAIN_REQUEST, $wrapped);
+
+        (new SearchExceptionListener())($event);
+
+        self::assertInstanceOf(AccessDeniedHttpException::class, $event->getThrowable());
+        self::assertSame($original, $event->getThrowable()->getPrevious());
+        self::assertSame($original->getMessage(), $event->getThrowable()->getMessage());
+    }
+
+    public function testAWrappedExceptionThatIsNotARefusalIsLeftAlone(): void
+    {
+        $wrapped = new RuntimeError('boom', -1, null, InvalidQuery::missingTenant('products'));
+        $event = new ExceptionEvent(self::createStub(HttpKernelInterface::class), new Request(), HttpKernelInterface::MAIN_REQUEST, $wrapped);
+
+        (new SearchExceptionListener())($event);
+
+        self::assertSame($wrapped, $event->getThrowable());
     }
 
     public function testOtherExceptionsAreLeftAlone(): void

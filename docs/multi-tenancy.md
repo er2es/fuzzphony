@@ -82,7 +82,7 @@ fuzzphony:
 fuzzphony:
   actor:
     tenant: account.id          # property paths on the Security user
-    user: userIdentifier        # (need symfony/security-core and symfony/property-access)
+    user: userIdentifier        # (need symfony/security-bundle and symfony/property-access)
 ```
 
 With nothing configured the actor is anonymous: an index without a tenant works as before, and a
@@ -92,8 +92,9 @@ tenant-scoped index is refused. No token (nobody logged in) is anonymous too, no
 - **Live Component:** the actor is resolved on the server on every render and re-render. The tenant
   is never a `LiveProp`: a client cannot send it, change it or replay another tenant's value.
 - **`fuzzphony:search`:** a command has no logged-in user, so it takes `--tenant` and `--user`:
-  `bin/console fuzzphony:search products 'mouse' --tenant=42 --user=ada` (a tenant of digits only is an
-  integer, anything else a string). On a tenant-scoped index without `--tenant` it prints why and exits with code 1.
+  `bin/console fuzzphony:search products 'mouse' --tenant=42 --user=ada` (the value is matched against
+  the type of the tenant filter: `42` works for an integer and for a string filter). On a tenant-scoped
+  index without `--tenant` it prints why and exits with code 1; an empty `--tenant=` or `--user=` is refused.
 - **Explicit stays explicit:** the core has no ambient actor. In your own controllers and services,
   resolve it and pass it yourself: `->asActor($resolver->resolve())`, with
   `Fuzzphony\Core\Search\ActorResolver` injected (the bundle aliases it to the configured resolver).

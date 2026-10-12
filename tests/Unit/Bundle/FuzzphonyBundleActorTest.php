@@ -30,6 +30,7 @@ final class FuzzphonyBundleActorTest extends TestCase
         self::assertTrue($container->getAlias(ActorResolver::class)->isPublic());
         self::assertSame(SearchGate::class, $container->getDefinition('fuzzphony.search_gate')->getClass());
         self::assertEquals([new Reference('fuzzphony.metrics'), new Reference('logger')], $container->getDefinition('fuzzphony.search_gate')->getArguments());
+        self::assertSame([['channel' => 'fuzzphony']], $container->getDefinition('fuzzphony.search_gate')->getTag('monolog.logger'), 'the log line has its own channel, like the metrics');
         self::assertTrue($container->hasAlias(SearchGate::class));
         self::assertEquals(
             [new Reference('fuzzphony.engine'), new Reference('fuzzphony.registry'), new Reference('fuzzphony.search_gate')],
@@ -93,7 +94,7 @@ final class FuzzphonyBundleActorTest extends TestCase
                 FuzzphonyBundle::assertActorPackages($security, $propertyAccess);
                 self::fail('A missing package must fail the container build.');
             } catch (InvalidConfiguration $e) {
-                self::assertStringContainsString('symfony/security-core', $e->getMessage());
+                self::assertStringContainsString('symfony/security-bundle', $e->getMessage());
                 self::assertStringContainsString('symfony/property-access', $e->getMessage());
             }
         }

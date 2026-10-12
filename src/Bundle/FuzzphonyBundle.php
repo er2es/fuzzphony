@@ -61,7 +61,7 @@ use function Symfony\Component\DependencyInjection\Loader\Configurator\service;
  *     orm_sync: { async: false }   # true: refresh through Messenger (route RefreshDocuments to a transport)
  *     actor:                       # who searches: the tenant scopes tenant-scoped indexes
  *       resolver: app.my_resolver  # a service implementing Fuzzphony\Core\Search\ActorResolver, or:
- *       tenant: account.id         # property path on the Security user (needs symfony/security-core + property-access)
+ *       tenant: account.id         # property path on the Security user (needs symfony/security-bundle + property-access)
  *       user: userIdentifier       # property path on the Security user
  *     indexes:
  *       products:                # overrides for an attribute index, or a pure YAML index
@@ -164,7 +164,7 @@ final class FuzzphonyBundle extends AbstractBundle
     public static function assertActorPackages(bool $security, bool $propertyAccess): void
     {
         if (!$security || !$propertyAccess) {
-            throw new InvalidConfiguration('fuzzphony.actor.tenant / fuzzphony.actor.user need symfony/security-core and symfony/property-access: composer require symfony/security-core symfony/property-access');
+            throw new InvalidConfiguration('fuzzphony.actor.tenant / fuzzphony.actor.user need symfony/security-bundle and symfony/property-access: composer require symfony/security-bundle symfony/property-access');
         }
     }
 
@@ -231,7 +231,9 @@ final class FuzzphonyBundle extends AbstractBundle
         }
         $services->alias(ActorResolver::class, 'fuzzphony.actor_resolver')->public();
 
-        $services->set('fuzzphony.search_gate', SearchGate::class)->args([service('fuzzphony.metrics'), service('logger')]);
+        $services->set('fuzzphony.search_gate', SearchGate::class)
+            ->args([service('fuzzphony.metrics'), service('logger')])
+            ->tag('monolog.logger', ['channel' => 'fuzzphony']); // its log line goes to the same channel as the metrics
         $services->alias(SearchGate::class, 'fuzzphony.search_gate');
         $services->set('fuzzphony.exception_listener', SearchExceptionListener::class)->tag('kernel.event_listener', ['event' => 'kernel.exception', 'priority' => 64]);
 

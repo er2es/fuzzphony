@@ -4,7 +4,7 @@ declare(strict_types=1);
 
 namespace Fuzzphony\Bundle\Command;
 
-use Fuzzphony\Core\Exception\ActorRequired;
+use Fuzzphony\Core\Exception\InvalidQuery;
 use Fuzzphony\Core\Fuzzphony;
 use Fuzzphony\Core\Search\Actor;
 use Fuzzphony\Core\Support\Coerce;
@@ -54,6 +54,13 @@ final class SearchCommand extends Command
     protected function execute(InputInterface $input, OutputInterface $output): int
     {
         $io = new SymfonyStyle($input, $output);
+        foreach (['tenant', 'user'] as $option) {
+            if ($input->getOption($option) === '') {
+                $io->error(sprintf('--%s needs a value.', $option));
+
+                return Command::INVALID;
+            }
+        }
         if ($input->getOption('suggest') === true) {
             $completions = $this->fuzzphony->suggest(Coerce::str($input->getArgument('index')), Coerce::str($input->getArgument('query')), max(1, min(20, Coerce::int($input->getOption('limit')))));
             $io->writeln($completions === [] ? '<comment>No completions.</comment>' : array_map(static fn(string $c): string => OutputFormatter::escape($c), $completions));
@@ -102,14 +109,14 @@ final class SearchCommand extends Command
         $tenant = $input->getOption('tenant');
         $user = $input->getOption('user');
         if (is_string($tenant) || is_string($user)) {
-            $search = $search->asActor(new Actor(is_string($tenant) ? self::tenantValue($tenant) : null, is_string($user) ? $user : null));
+            $search = $search->asActor(new Actor(is_string($tenant) ? $tenant : null, is_string($user) ? $user : null));
         }
 
         $explain = $input->getOption('explain') === true;
         try {
             $explanation = $explain ? $search->explain($input->getOption('analyze') === true) : null;
             $result = $explanation !== null ? $explanation->result : $search->get();
-        } catch (ActorRequired $e) {
+        } catch (InvalidQuery $e) { // includes ActorRequired: a tenant-scoped index searched without --tenant / --user
             $io->error($e->getMessage());
 
             return Command::FAILURE;
@@ -159,11 +166,6 @@ final class SearchCommand extends Command
         }
 
         return Command::SUCCESS;
-    }
-
-    private static function tenantValue(string $tenant): int|string
-    {
-        return ctype_digit($tenant) ? (int) $tenant : $tenant;
     }
 
     public function complete(CompletionInput $input, CompletionSuggestions $suggestions): void
