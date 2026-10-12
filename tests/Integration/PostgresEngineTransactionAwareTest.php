@@ -36,7 +36,8 @@ final class PostgresEngineTransactionAwareTest extends TestCase
 
         $search->in('products')->query('mouse')->thresholds(['fuzzy_mode' => 'always', 'did_you_mean' => false])->get();
 
-        self::assertSame(1, $recorder->setConfigCalls());
+        // the word is probed on its own (its candidates), then the search runs: one setting each
+        self::assertSame(2, $recorder->setConfigCalls());
     }
 
     public function testAnOuterTransactionKeepsBothRoundTripsAndLeavesTheSettingUnchanged(): void
@@ -54,7 +55,7 @@ final class PostgresEngineTransactionAwareTest extends TestCase
             self::assertSame($before, $after, "the caller's own transaction must see the setting unchanged after the search returns");
         });
 
-        self::assertSame(2, $recorder->setConfigCalls());
+        self::assertSame(4, $recorder->setConfigCalls());
     }
 
     /** Schema + reindex through a plain, unrecorded engine/connection — only the search itself is recorded. */

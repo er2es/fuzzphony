@@ -7,7 +7,7 @@
 {% endmacro %}
 {% import _self as ui %}
 
-<div {{ attributes.defaults(stimulus_controller('busy')|stimulus_controller('suggest', {url: path('suggest'), index: 'catalog', page: path('tune'), param: 'query', categories: false})) }} class="layout">
+<div {{ attributes.defaults(stimulus_controller('suggest', {url: path('suggest'), index: 'catalog', page: path('tune'), param: 'query', categories: false})) }} class="layout" data-loading-message="Updating…">
     <aside class="settings" aria-label="Settings">
         <section>
             <h2 class="list-title">Ranking</h2>
@@ -57,6 +57,7 @@
         <div class="search-field">
             <svg class="icon" aria-hidden="true"><use href="#i-search"/></svg>
             <input type="search" data-model="debounce(250)|query" value="{{ query }}" aria-label="Search query" autocomplete="off" spellcheck="false" data-suggest-target="input" data-action="input->suggest#update" placeholder="Try typos, accents, -exclusions, &quot;phrases&quot;, brand:…">
+            <span class="field-spinner" aria-hidden="true"></span>
         </div>
         <div class="suggest-panel" data-suggest-target="panel" data-live-ignore hidden></div>
 
@@ -70,10 +71,9 @@
                 <input type="radio" name="view" id="view-sql" value="sql">
                 <label for="view-sql">SQL / EXPLAIN</label>
             </fieldset>
-            <span class="live-status" aria-hidden="true"><span class="spinner"></span> Updating…</span>
         </div>
 
-        <div class="panels" data-busy-target="region">
+        <div class="panels busy-region">
             {% if this.error %}
                 <p class="s-error" role="alert">{{ this.error }}</p>
             {% elseif this.result %}

@@ -2,7 +2,7 @@
 <div class="stack">
     {% if speed %}
         <div class="speed-bars" data-controller="ilike" data-src="{{ path('search_ilike', {q: q, fz: speed.warm|round(3)}) }}">
-            <div data-ilike-target="region" aria-busy="true">
+            <div class="busy-region" data-ilike-target="region" data-loading-message="Measuring ILIKE…" aria-busy="true">
                 <div class="speed-row">
                     <span>Fuzzphony</span>
                     <span class="speed-bar"><span class="is-fuzzphony" style="width: 2%"></span></span>
@@ -20,41 +20,13 @@
         <div class="empty"><strong>Nothing to compare yet</strong>Search something, then see how long it takes next to a plain <code>ILIKE</code>.</div>
     {% endif %}
 
-    <section aria-labelledby="bench">
-        <h2 id="bench" class="facet-title" style="margin-left: 0">The benchmark</h2>
-        {% if not run %}
-            <div class="list">
-                <div class="row no-lead">
-                    <div class="row-body">
-                        <div class="row-title">Nine queries, one after the other</div>
-                        <div class="row-sub">{{ queries|length }} queries × (1 cold + {{ warmRuns }} warm runs) × {{ engines }} engines = {{ (queries|length * (1 + warmRuns) * engines)|number_format }} statements on {{ rowEstimate > 0 ? rowEstimate|number_format ~ ' products' : 'the catalogue' }}.</div>
-                    </div>
-                    <a class="button primary" href="{{ path('search', {q: q ?: null, view: 'speed', run: 1}) }}" data-loading-message="Starting the benchmark…">Run it</a>
-                </div>
+    <ul class="list">
+        <li class="row no-lead">
+            <div class="row-body">
+                <div class="row-title">The benchmark</div>
+                <div class="row-sub">Nine queries, one after the other, on {{ rowEstimate > 0 ? rowEstimate|number_format ~ ' products' : 'the catalogue' }}.</div>
             </div>
-        {% else %}
-            <p class="muted">20 results per query. Cold is the first run; warm is the median of the next {{ warmRuns }}. <code>ILIKE</code> does not rank and cannot exclude words, so a fast ILIKE row with hits is not the same work.</p>
-            {# Every row is measured by its own request, one after the other (sequence controller): the page is usable at once,
-               progress is real, and the queries never run in parallel, which would distort the timings. #}
-            <div data-controller="sequence" aria-busy="true">
-                <div class="run-status">
-                    <progress data-sequence-target="progress" value="0" max="{{ queries|length }}" aria-label="Benchmark progress"></progress>
-                    <span data-sequence-target="label" role="status">Starting…</span>
-                    <a class="button" href="{{ path('search', {q: q ?: null, view: 'speed', run: 1}) }}" data-sequence-target="done" hidden>Run again</a>
-                </div>
-                <table>
-                    <thead><tr><th>Query</th><th class="num">ILIKE cold</th><th class="num">ILIKE warm</th><th class="num">hits</th><th class="num">Fuzzphony cold</th><th class="num">Fuzzphony warm</th><th class="num">hits</th></tr></thead>
-                    <tbody>
-                    {% for label, example in queries %}
-                        <tr class="pending-row" data-src="{{ path('benchmark_row', {index: loop.index0}) }}" data-label="{{ label }}">
-                            <td>{{ label }}<br><code class="muted">{{ example }}</code></td>
-                            {% for i in 1..6 %}<td class="num"><span class="skeleton"></span></td>{% endfor %}
-                        </tr>
-                    {% endfor %}
-                    </tbody>
-                </table>
-            </div>
-            <p class="muted">~ means typo tolerant. Rows are timed one at a time: other requests at the same moment can skew them. Outside the browser: <code>php benchmarks/run.php --markdown</code>.</p>
-        {% endif %}
-    </section>
+            <a class="button" href="{{ path('benchmark') }}" data-loading-message="Opening the benchmark…">Open</a>
+        </li>
+    </ul>
 </div>

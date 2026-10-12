@@ -15,6 +15,7 @@
             <input type="search" name="q" value="{{ q }}" placeholder="{{ placeholder }}" aria-label="{{ placeholder }}" autocomplete="off" spellcheck="false" enterkeyhint="search" maxlength="100"
                    {% if q == '' %}autofocus{% endif %} data-suggest-target="input" data-action="input->suggest#update">
             <button type="button" class="clear" aria-label="Clear the search" data-action="suggest#clear"><svg class="icon" aria-hidden="true"><use href="#i-clear"/></svg></button>
+            <span class="field-spinner" aria-hidden="true"></span>
         </div>
         <div class="suggest-panel" data-suggest-target="panel" data-live-ignore hidden></div>
         <button type="submit" class="sr-only">Search</button>

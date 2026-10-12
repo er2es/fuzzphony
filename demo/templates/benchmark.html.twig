@@ -1,0 +1,34 @@
+{% extends 'base.html.twig' %}
+{% block title %}Benchmark · Fuzzphony{% endblock %}
+{% block body %}
+<div class="page stack">
+    <div class="hero">
+        <h1>Benchmark</h1>
+        <p class="lede">{{ queries|length }} queries, each on a plain <code>ILIKE</code> and on Fuzzphony: {{ queries|length }} × (1 cold + {{ warmRuns }} warm runs) × {{ engines }} engines = {{ (queries|length * (1 + warmRuns) * engines)|number_format }} statements on {{ rowEstimate > 0 ? rowEstimate|number_format ~ ' products' : 'the catalogue' }} (<code>{{ table }}</code>).</p>
+    </div>
+
+    {# Every row is measured by its own request, one after the other (sequence controller): the page is usable at once,
+       progress is real, and the queries never run in parallel, which would distort the timings. #}
+    <div data-controller="sequence" aria-busy="true">
+        <div class="run-status">
+            <progress data-sequence-target="progress" value="0" max="{{ queries|length }}" aria-label="Benchmark progress"></progress>
+            <span data-sequence-target="label" role="status">Starting…</span>
+            <a class="button" href="{{ path('benchmark') }}" data-sequence-target="done" hidden>Run again</a>
+        </div>
+        <div class="table-card">
+            <table>
+                <thead><tr><th>Query</th><th class="num">ILIKE cold</th><th class="num">ILIKE warm</th><th class="num">hits</th><th class="num">Fuzzphony cold</th><th class="num">Fuzzphony warm</th><th class="num">hits</th></tr></thead>
+                <tbody>
+                {% for label, q in queries %}
+                    <tr class="pending-row" data-src="{{ path('benchmark_row', {index: loop.index0}) }}" data-label="{{ label }}">
+                        <td>{{ label }}<br><code class="muted">{{ q }}</code></td>
+                        {% for i in 1..6 %}<td class="num"><span class="skeleton"></span></td>{% endfor %}
+                    </tr>
+                {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </div>
+    <p class="muted">20 results per query. Cold is the first run; warm is the median of the next {{ warmRuns }}. <code>ILIKE</code> does not rank and cannot exclude words, so a fast ILIKE row with hits is not the same work. <code>~</code> means typo tolerant. Rows are timed one at a time: other requests at the same moment can skew them. Outside the browser: <code>php benchmarks/run.php --markdown</code>.</p>
+</div>
+{% endblock %}

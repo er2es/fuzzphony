@@ -17,12 +17,13 @@ const pages = JSON.parse(process.env.PAGES ?? JSON.stringify([
     { name: 'home', path: '/' },
     { name: 'home-query', path: '/?q=mouse' },
     { name: 'relevance', path: '/relevance?q=tv' },
-    { name: 'synonyms', path: '/synonyms' },
+    { name: 'tune', path: '/tune?query=tv' },
     { name: 'languages', path: '/languages?lang=hu&q=tv' },
-    { name: 'playground', path: '/playground' },
-    { name: 'wizard', path: '/wizard' },
-    { name: 'doctor', path: '/doctor' },
-    { name: 'observability', path: '/observability' },
+    { name: 'synonyms', path: '/under-the-hood/synonyms' },
+    { name: 'benchmark', path: '/under-the-hood/benchmark' },
+    { name: 'wizard', path: '/under-the-hood/wizard' },
+    { name: 'doctor', path: '/under-the-hood/doctor' },
+    { name: 'observability', path: '/under-the-hood/observability' },
 ]));
 const viewports = { phone: { width: 390, height: 844 }, laptop: { width: 1280, height: 800 } };
 // interactions: typing into the search box and capturing the suggestion panel

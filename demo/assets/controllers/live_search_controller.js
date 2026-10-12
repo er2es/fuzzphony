@@ -27,6 +27,7 @@ export default class extends Controller {
         const mine = ++this.seq;
         this.abort?.abort();
         this.abort = new AbortController();
+        this.regionTarget.dataset.loadingMessage = text === '' ? 'Loading…' : `Searching for ${text}…`;
         this.regionTarget.setAttribute('aria-busy', 'true');
         try {
             const response = await fetch(url, { signal: this.abort.signal, headers: { 'X-Requested-With': 'fetch' } });

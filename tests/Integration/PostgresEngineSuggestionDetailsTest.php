@@ -78,11 +78,11 @@ final class PostgresEngineSuggestionDetailsTest extends TestCase
         $explain = static fn(): int => count($fuzzphony->in('products')->query('wireless mouse')->thresholds(['fuzzy_mode' => 'always', 'did_you_mean' => false])->explain()->plan);
 
         self::assertGreaterThan(0, $explain());
-        self::assertSame(2, self::setConfigStatements($spy), 'the search sets the threshold, explain() sets it again');
+        self::assertSame(4, self::setConfigStatements($spy), 'each of the two words is probed, the search sets the threshold, explain() sets it again');
 
         $spy->reset();
         $spy->transactional($explain);
-        self::assertSame(4, self::setConfigStatements($spy), 'and both put the previous value back');
+        self::assertSame(8, self::setConfigStatements($spy), 'and each puts the previous value back');
     }
 
     public function testAWordIsMeasuredInCharactersNotBytes(): void

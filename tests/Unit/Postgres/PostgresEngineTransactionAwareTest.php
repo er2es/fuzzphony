@@ -21,7 +21,8 @@ final class PostgresEngineTransactionAwareTest extends TestCase
 
         $engine->in('products')->query('mouse')->get();
 
-        self::assertSame(1, self::setConfigCalls($connection));
+        // the typo-tolerant word is probed on its own (its candidates), then the search runs: one setting each
+        self::assertSame(2, self::setConfigCalls($connection));
     }
 
     public function testAnOuterTransactionKeepsBothRoundTrips(): void
@@ -31,7 +32,7 @@ final class PostgresEngineTransactionAwareTest extends TestCase
 
         $engine->in('products')->query('mouse')->get();
 
-        self::assertSame(2, self::setConfigCalls($connection));
+        self::assertSame(4, self::setConfigCalls($connection));
     }
 
     public function testAConnectionWithoutTheCapabilityAlwaysKeepsBothRoundTrips(): void
@@ -73,7 +74,7 @@ final class PostgresEngineTransactionAwareTest extends TestCase
 
         $engine->in('products')->query('mouse')->get();
 
-        self::assertSame(2, count(array_filter($connection->sql, static fn(string $s): bool => str_contains($s, 'set_config'))));
+        self::assertSame(4, count(array_filter($connection->sql, static fn(string $s): bool => str_contains($s, 'set_config'))));
     }
 
     /**

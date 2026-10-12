@@ -16,7 +16,7 @@
 <div class="nav-status" role="status" aria-live="polite"><span class="spinner" aria-hidden="true"></span><span data-progress-target="message"></span></div>
 
 {% set route = app.request.attributes.get('_route') %}
-{% set under = {wizard: 'Config wizard', doctor: 'Doctor', observability: 'Observability'} %}
+{% set under = {wizard: 'Config wizard', benchmark: 'Benchmark', doctor: 'Doctor', observability: 'Observability', synonyms: 'Synonyms'} %}
 <header class="toolbar">
     <div class="toolbar-inner">
         <a class="wordmark" href="{{ path('search') }}">Fuzzphony</a>
@@ -24,7 +24,7 @@
             <a href="{{ path('search') }}" data-loading-message="Opening search…"{% if route == 'search' %} aria-current="page"{% endif %}>
                 <svg class="icon nav-icon" aria-hidden="true"><use href="#i-search"/></svg>Search
             </a>
-            <a href="{{ path('relevance') }}" data-loading-message="Opening relevance…"{% if route in ['relevance', 'synonyms'] %} aria-current="page"{% endif %}>
+            <a href="{{ path('relevance') }}" data-loading-message="Opening relevance…"{% if route == 'relevance' %} aria-current="page"{% endif %}>
                 <svg class="icon nav-icon" aria-hidden="true"><use href="#i-text"/></svg>Relevance
             </a>
             <a href="{{ path('languages') }}" data-loading-message="Opening languages…"{% if route == 'languages' %} aria-current="page"{% endif %}>
@@ -46,7 +46,6 @@
                 </div>
             </details>
         </nav>
-        <span class="toolbar-hint"><kbd>/</kbd> to search</span>
     </div>
 </header>
 <main id="main" tabindex="-1">{% block body %}{% endblock %}</main>

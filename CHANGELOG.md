@@ -7,6 +7,32 @@ changes; they are always listed under **Breaking** and explained in [UPGRADE.md]
 
 ## [Unreleased]
 
+## [0.8.3] - 2026-10-12
+
+No upgrade steps. One performance fix in the library, the rest is the demo.
+
+### Fixed
+
+- **Typo tolerance no longer reads 100 000 rows to find three.** The trigram index returns, for a word that needs a higher similarity
+  than the lowest word of the statement (pg_trgm has one threshold per session), every row that merely starts alike; PostgreSQL read
+  and rechecked all of them, over a second per statement and three statements per search (the page and each facet). In the demo's
+  1 000 003-row profile, `tv` (whose synonyms `television` and `telly` turn the fallback on) took 4.9 s. Each typo-tolerant word is now
+  asked for its matches alone first, at the similarity of its own length, and the search uses the ids (`s.id = ANY(...)`): the same
+  documents in the same order (checked on that catalogue: identical results, 0.23 s), also for the alternatives a synonym adds. A word
+  with more matches than the candidate limit keeps the trigram condition as before. The probes are not listed in `explain()`; a search with
+  typo tolerance makes one extra round trip per word.
+
+### Changed
+
+- **Demo: one loading language.** Waiting on the server looks the same on every page: after a short delay a hairline bar runs along the top,
+  the page dims (the field too, though it stays usable), the field shows a spinner (a page without a field gets one of its own) and the status pill at the bottom says what is going on, driven by `aria-busy` (the live search, Tune, the Speed bars and page navigations). Tune had lost
+  its loading indication when the Live Component (UX 3) moved from a `busy` attribute to `aria-busy`; that is fixed, and `busy_controller.js`
+  and the separate "Updating…" pill are gone.
+- **Demo: the "Under the hood" menu** lists the Config wizard, **Benchmark**, Doctor, Observability and **Synonyms**. The benchmark is a
+  page of its own again (`/under-the-hood/benchmark`; the Speed view of the search links to it) and the synonym editor moved there from
+  `/relevance/synonyms` to `/under-the-hood/synonyms` (no redirects). The "/ to search" hint in the toolbar is removed (the shortcut still works).
+- `demo/tools/flows.mjs` checks the loading behaviour and the menu (30 checks); `shots.mjs` lists the current routes.
+
 ## [0.8.2] - 2026-10-12
 
 No upgrade steps for the library. The demo's routes changed (below).
@@ -722,7 +748,8 @@ on its own:
 - Sync modes: queue (default), trigger, ORM, manual; watches for joined tables.
 - Doctor with fixes; CLI commands for schema, reindex, worker, search and explain.
 
-[Unreleased]: https://github.com/er2es/fuzzphony/compare/v0.8.2...HEAD
+[Unreleased]: https://github.com/er2es/fuzzphony/compare/v0.8.3...HEAD
+[0.8.3]: https://github.com/er2es/fuzzphony/compare/v0.8.2...v0.8.3
 [0.8.2]: https://github.com/er2es/fuzzphony/compare/v0.8.1...v0.8.2
 [0.8.1]: https://github.com/er2es/fuzzphony/compare/v0.8.0...v0.8.1
 [0.8.0]: https://github.com/er2es/fuzzphony/compare/v0.7.3...v0.8.0
