@@ -44,7 +44,8 @@ class Product
 ```
 
 `#[Searchable]` also takes `name` (default: the snake_cased plural of the class, `Product` →
-`products`), `table`, `unaccent`, `sync`, `triggerLevel` and `tenant`.
+`products`), `table`, `unaccent`, `sync`, `triggerLevel`, `tenant` and `log` (`false` keeps the index out of the
+[search log](analytics.md#keeping-a-search-or-an-index-out-of-the-log)).
 
 An index name matches `[a-z_][a-z0-9_]*`, at most 48 characters, and must not contain `__` (two
 underscores): that is reserved for the objects of an index's rebuild (`fuzzphony_<index>__next`,
@@ -277,6 +278,7 @@ fuzzphony:
   worker: { batch_size: 500, idle_sleep: 1.0 }
   orm_sync: { async: false, chunk_size: 500 }
   actor: { }                   # who searches, see below
+  search_log: { enabled: false, retention_days: 90, redact: [] }  # opt-in, see below
   indexes: { }                 # YAML indexes and overrides, see above
 ```
 
@@ -302,6 +304,22 @@ that part. A value that is a string, an integer or a `\Stringable` (such as a Sy
 an integer tenant on a string tenant filter is turned into its string. Nothing configured: the
 actor is anonymous. The resolver is also available to your own code, as
 `Fuzzphony\Core\Search\ActorResolver`.
+
+### The search log
+
+```yaml
+fuzzphony:
+  search_log:
+    enabled: false         # true: record every search; then run fuzzphony:schema --apply
+    retention_days: 90     # what fuzzphony:search-log:purge keeps (a whole number, at least 1)
+    redact: []             # "email" and/or regular expressions with delimiters: matches are stored as [redacted]
+```
+
+Off by default. Enabled, it adds the table `fuzzphony_search_log` to `fuzzphony:schema`, the commands
+`fuzzphony:analytics` and `fuzzphony:search-log:purge`, a buffered write after each response, and a "Search log"
+check in the doctor (neither command exists while the log is off). `redact` is validated when the container is built (also while the log is off), so a pattern that does not
+compile fails there. A single index opts out with `log: false` (attribute, builder `->log(false)`, or YAML under
+`indexes`). See [Search log and analytics](analytics.md).
 
 ## Building an index
 

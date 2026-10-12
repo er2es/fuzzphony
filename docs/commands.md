@@ -12,6 +12,8 @@ The `fuzzphony:*` commands, the doctor and the configuration wizard. Back to the
 | `fuzzphony:worker [--once] [--time-limit=s] [--index=x]` | drain the sync queue, including the full rebuilds a `TRUNCATE` queued (a failed one is retried after a back-off; `--once` then exits with code 1); graceful on SIGTERM |
 | `fuzzphony:doctor [index] [--deep] [--strict] [--format=text\|prometheus]` | health check with fixes; `--format=prometheus` prints Prometheus text-exposition lines instead, see [Observability](observability.md#fuzzphonydoctor---formatprometheus) |
 | `fuzzphony:search index 'query' [-w filter] [-f facet] [--exact] [--as-you-type] [--suggest] [--threshold key=value] [--tenant=ID] [--user=name] [--explain [--analyze]]` | try queries, see score breakdowns, SQL and plans; `-f in_stock` counts the values of a filter ([facets](searching.md#facets), `--exact` counts every match), `--as-you-type` also matches the last word as a prefix, `--suggest` only completes the last word ([search-as-you-type](searching.md#search-as-you-type)); `--tenant=42 --user=ada` searches as that actor ([multi-tenancy](multi-tenancy.md#integrations): a tenant-scoped index needs `--tenant`, otherwise the command prints why and exits with code 1; an empty `--tenant=` or `--user=` is refused, and the value is matched against the type of the tenant filter); `--threshold fuzzy_mode=always` overrides a [threshold](ranking.md#thresholds) for the run (`fuzzy_similarity=null` goes back to by word length) |
+| `fuzzphony:analytics index [--top\|--zero] [--since=7d] [--limit=20] [--tenant=ID\|--all-tenants] [--format=table\|json]` | report on the [search log](analytics.md): the most searched texts (`--top`, the default) or the ones that found nothing (`--zero`); `--since` takes hours, days or weeks (`12h`, `7d`, `4w`); a tenant-scoped index needs `--tenant` or `--all-tenants`; `--format=json` is for scripts. Only registered when `fuzzphony.search_log.enabled` is true |
+| `fuzzphony:search-log:purge` | delete the search log rows older than `fuzzphony.search_log.retention_days`; for cron, see [Retention](analytics.md#retention). Only registered when the log is enabled |
 | `fuzzphony:wizard [table] [--format=yaml\|builder\|attributes] [--write=file] [--try]` | suggest, explain and export a definition |
 
 `fuzzphony:schema` without `--apply` only prints the SQL, so you can review it first. See
@@ -63,6 +65,7 @@ It checks:
   attached after the last apply does not), a warning at `trigger_level: statement`, where a write
   that targets a partition directly is not synced, and a warning for that trigger left on a table
   that should not have it (a detached partition, or any partition in `orm` / `manual` mode);
+- with the search log enabled, its table (an error when it is missing: fixed by `fuzzphony:schema --apply`) and any rows older than `retention_days` (a warning: fixed by `fuzzphony:search-log:purge`);
 - queue backlog and age, a pending full-rebuild job a `TRUNCATE` queued, and whether the worker's
   rebuild of it keeps failing (the last error, how often, when);
 - a full reindex that did not finish (its rebuild table, change log or change log trigger is left

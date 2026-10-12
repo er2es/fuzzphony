@@ -83,6 +83,8 @@ A good fit when:
 - You run a shared-schema multi-tenant SaaS. The tenant filter is enforced on every query, so a
   forgotten `WHERE` can't leak another customer's rows; the API Platform filter and the Live
   Component take the tenant from the logged-in user, and the console command from `--tenant` and `--user`.
+- You want to know what people search for and what they do not find: an opt-in search log (redacted, with a
+  retention) and reports of the most searched and the zero-result texts, without a separate analytics service.
 - Your content is multilingual: stemming for 28 languages, and accent folding that finds
   `Kávéfőző` for `kavefozo` and `Crème Brûlée` for `creme brulee`.
 
@@ -195,6 +197,7 @@ nothing drops the words that match nothing and says so. Details:
 - [Languages](https://github.com/er2es/fuzzphony/blob/main/docs/languages.md): stemming, stop words and accent folding for 28 languages.
 - [Keeping the index in sync](https://github.com/er2es/fuzzphony/blob/main/docs/sync.md): sync modes, triggers, `TRUNCATE`, orphan pruning, Messenger.
 - [Multi-tenancy](https://github.com/er2es/fuzzphony/blob/main/docs/multi-tenancy.md): a tenant filter enforced on every search, and the actor (tenant and user) the integrations resolve.
+- [Search log and analytics](https://github.com/er2es/fuzzphony/blob/main/docs/analytics.md): an opt-in log of every search with e-mail and pattern redaction, retention and a purge command, the most searched and the zero-result texts as `Fuzzphony::analytics()`, `fuzzphony:analytics` and a demo page.
 - [Console commands](https://github.com/er2es/fuzzphony/blob/main/docs/commands.md): every command, the doctor, the configuration wizard.
 - [Observability](https://github.com/er2es/fuzzphony/blob/main/docs/observability.md): metrics collectors, the Symfony bundle wiring, a `/metrics` endpoint, the Grafana dashboard.
 - [Integrations](https://github.com/er2es/fuzzphony/blob/main/docs/integrations.md): Doctrine, API Platform, Live Component.
@@ -238,7 +241,8 @@ order, each one a foundation for the next, up to v1.0's stable API and backward-
 promise. PostgreSQL only before 1.0:
 
 - v0.9 Security and analytics (in progress; part 1, the actor and the tenant resolver for the
-  integrations, is done): search analytics, audit logging, rate limiting, Symfony Security integration.
+  integrations, and part 2, the search log with `fuzzphony:analytics`, are done): rate limiting and
+  Symfony Security integration (index- and field-level authorization) are next.
 - v1.0 Stable: a documentation site with a "Migrating from `LIKE`" guide, mutation score 90% with
   a CI gate, the backward-compatibility promise.
 

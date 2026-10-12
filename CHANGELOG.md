@@ -7,7 +7,7 @@ changes; they are always listed under **Breaking** and explained in [UPGRADE.md]
 
 ## [Unreleased]
 
-Part 1 of 0.9 (identity). No upgrade steps: nothing changes unless you configure it.
+Parts 1 (identity) and 2 (search log and analytics) of 0.9. Upgrade: nothing, unless you enable the log: run `fuzzphony:schema --apply`.
 
 ### Added
 
@@ -26,6 +26,22 @@ Part 1 of 0.9 (identity). No upgrade steps: nothing changes unless you configure
 - **`SearchGate`** (public API): every search, `explain()` and federated search passes through it when
   `Fuzzphony` is built with one (the bundle does); it checks the actor and is where parts 2 and 3 hook in.
 - **`fuzzphony.search.denied`**: a counter (labels `index`, `reason=actor_required`) and a log line per refusal.
+- **The search log** (opt-in, `fuzzphony.search_log`: `enabled` (default `false`), `retention_days` (90), `redact`). Every search and every
+  refusal is one row of `fuzzphony_search_log` (time, index, tenant, user, the text the visitor typed, normalised text, hits,
+  time taken, whether the typo-tolerant search ran, status `ok` / `denied` / `rate_limited`), created by `fuzzphony:schema --apply`
+  when enabled. Per index `log: false` (attribute, builder `->log(false)`, YAML). The bundle collects the rows of a request
+  and writes them in one batched `INSERT` (1000 rows a statement) after the response (`kernel.terminate`, `console.terminate`);
+  a failed write never touches the search: it is counted as `fuzzphony.search_log.failed`, logged and dropped. `SearchLog`,
+  `SearchRecord`, `RecordStatus` and the `SearchLogStore` engine capability are public; `SearchGate` takes a
+  log and a redactor. A "Search log" check in `fuzzphony:doctor` (an error when the table is missing, a warning for rows older
+  than the retention). See [Search log and analytics](docs/analytics.md).
+- **`QueryRedactor` and `PatternQueryRedactor`**: search texts are redacted before anything is stored; the preset `email` and your
+  own regular expressions replace matches with `[redacted]` (an invalid pattern fails the container build).
+- **`SearchAnalytics`** (`Fuzzphony::analytics()`): `topQueries()` and `zeroResultQueries()` over a time window, grouped by the
+  normalised text, returning `QueryStat` (query, searches, average hits, last seen), and `purge()`. A tenant-scoped index needs a
+  `tenant` or `allTenants: true`.
+- **`fuzzphony:analytics <index> [--top|--zero] [--since=7d] [--limit=20] [--tenant=ID|--all-tenants] [--format=table|json]`** and
+  **`fuzzphony:search-log:purge`** (deletes rows older than `retention_days`; for cron). Both exist only while the log is enabled.
 - **`SearchBuilder::unlogged()`** keeps one search out of the search log, for the requests of a live search box that fire on every
   pause in typing (`SearchQuery::$log`, `SearchQuery::unlogged()`); a refusal (`denied`) is recorded all the same. The Live Component
   has a `log` attribute (default `false`: its searches are unlogged; `log="true"` records them; never writable from the browser).

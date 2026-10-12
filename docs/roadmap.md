@@ -57,15 +57,24 @@ depends on it, so nothing built early has to be refactored once a later mileston
 ## v0.9: Security and analytics
 
 Built on the 0.6 events. One release in three parts, in order: identity, the search log and analytics,
-guards. Part 1 (identity) is done and unreleased; see "Security" below.
+guards. Parts 1 (identity) and 2 (the search log and analytics) are done and unreleased; see "Search
+analytics" and "Security" below.
 
 ### Search analytics
 
 The most frequent queries and the queries that found nothing, for the people who own the content.
 
+Done (part 2): an opt-in search log (`fuzzphony.search_log`: `enabled`, `retention_days`, `redact` with the
+`email` preset and regular expressions; a per-index `log: false`; `SearchBuilder::unlogged()` and the Live
+Component's `log` attribute for as-you-type requests), written in one batch after the response and never
+failing a search (`fuzzphony.search_log.failed`), `Fuzzphony::analytics()` (`SearchAnalytics`: top and
+zero-result queries, with tenant rules), the commands `fuzzphony:analytics` and `fuzzphony:search-log:purge`,
+a doctor check and an Analytics page in the demo. See [Search log and analytics](analytics.md).
+
 ### Security
 
-Audit logging (who searched what, when) and per-tenant / per-user rate limiting. Symfony Security
+Per-tenant / per-user rate limiting (audit logging is covered by the search log: it records the tenant, the
+user and every refusal). Symfony Security
 integration for index- and field-level authorization (for example, keeping a field out of
 highlights unless the viewer is authorized).
 
