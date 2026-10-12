@@ -2,7 +2,7 @@
 <div class="stack">
     {% if speed %}
         <div class="speed-bars" data-controller="ilike" data-src="{{ path('search_ilike', {q: q, fz: speed.warm|round(3)}) }}">
-            <div class="busy-region" data-ilike-target="region" aria-busy="true">
+            <div class="busy-region" data-ilike-target="region" data-loading-message="Measuring ILIKE…" aria-busy="true">
                 <div class="speed-row">
                     <span>Fuzzphony</span>
                     <span class="speed-bar"><span class="is-fuzzphony" style="width: 2%"></span></span>

@@ -7,7 +7,7 @@
 {% endmacro %}
 {% import _self as ui %}
 
-<div {{ attributes.defaults(stimulus_controller('suggest', {url: path('suggest'), index: 'catalog', page: path('tune'), param: 'query', categories: false})) }} class="layout">
+<div {{ attributes.defaults(stimulus_controller('suggest', {url: path('suggest'), index: 'catalog', page: path('tune'), param: 'query', categories: false})) }} class="layout" data-loading-message="Updating…">
     <aside class="settings" aria-label="Settings">
         <section>
             <h2 class="list-title">Ranking</h2>
