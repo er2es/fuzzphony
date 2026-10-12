@@ -7,6 +7,10 @@ changes; they are always listed under **Breaking** and explained in [UPGRADE.md]
 
 ## [Unreleased]
 
+### Fixed
+
+- Demo, Tune: the speed figure, the facet chips, the hits and the legend were run together (the results area had lost its spacing in the 0.8.2 rebuild); they have their gaps back and the chips wrap.
+
 ## [0.8.3] - 2026-10-12
 
 No upgrade steps. One performance fix in the library, the rest is the demo.
