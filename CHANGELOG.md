@@ -9,6 +9,7 @@ changes; they are always listed under **Breaking** and explained in [UPGRADE.md]
 
 ### Fixed
 
+- Demo, Languages: the list of every product of a language (the disclosure) had bullets and no padding; it is plain rows in columns now, inside the card.
 - Demo, Tune: the "out of stock" facet chip was plain text; it is a button now, like "in stock" (each narrows the search; "in stock only" wins when both are set).
 
 ## [0.8.4] - 2026-10-12

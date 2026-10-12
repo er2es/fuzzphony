@@ -400,7 +400,11 @@
     .word.is-stop .word-token { color: var(--label-2); text-decoration: line-through; text-decoration-thickness: 2px; }
     .word .arrow { width: 1rem; height: 1rem; rotate: -90deg; color: var(--label-2); }
     .lexeme { background: color-mix(in srgb, var(--fuzz) 16%, transparent); font-weight: 600; font-size: 1rem; }
-    .columns { columns: 16rem; margin: 0; padding-left: 1.1rem; font-size: .9375rem; }
+    /* the list of every product of a language: plain rows in columns, inside the disclosure's own padding */
+    .columns { columns: 16rem; column-gap: 2rem; margin: 0; padding: 0; list-style: none; font-size: .9375rem; }
+    .disclosure > .columns { margin: 0 1rem 1rem; }
+    .columns li { break-inside: avoid; padding: .4rem 0; border-bottom: .5px solid var(--separator); }
+    .columns li .muted { margin-left: .25rem; font-size: .8125rem; }
 
     /* Tune: the settings as grouped lists, the results as one */
     .layout { display: grid; grid-template-columns: 21rem minmax(0, 1fr); gap: 2rem; align-items: start; }
