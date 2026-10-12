@@ -10,10 +10,19 @@ const check = (name, ok, detail = '') => {
     console.log(`${ok ? 'ok  ' : 'FAIL'} ${name}${ok ? '' : ': ' + detail}`);
 };
 
+// php -S serves one connection at a time and Chromium opens speculative sockets, which can stall a load for a while: retry once.
+const go = async (page, url) => {
+    try {
+        await page.goto(url, { waitUntil: 'load', timeout: 10000 });
+    } catch {
+        await page.goto(url, { waitUntil: 'load', timeout: 20000 });
+    }
+};
+
 const context = await browser.newContext({ viewport: { width: 1280, height: 800 }, reducedMotion: 'reduce' });
 const page = await context.newPage();
 page.setDefaultTimeout(8000);
-await page.goto(BASE + '/', { waitUntil: 'load' });
+await go(page, BASE + '/');
 await page.evaluate(() => { window.__same = true; });
 
 // 1. results in place while typing
@@ -55,15 +64,73 @@ check('a facet narrows the search', /(cat|stock)=/.test(page.url()), page.url())
 check('and shows the chosen filter as a token', (await page.locator('.token').count()) > 0);
 
 // 6. the Speed view
-await page.goto(BASE + '/?q=mouse', { waitUntil: 'load' });
+await go(page, BASE + '/?q=mouse');
 await page.click('.segmented a >> text=Speed');
 await page.waitForSelector('.speed-bars');
 check('Speed shows the bars', (await page.locator('.speed-row').count()) >= 2);
 
-// 7. a phone: the tab bar is at the bottom of the screen
+// 7. waiting on the server looks the same everywhere: the field shows a spinner and the region dims (aria-busy is the signal)
+const slow = await browser.newContext({ viewport: { width: 1280, height: 800 }, reducedMotion: 'reduce' });
+const p3 = await slow.newPage();
+p3.setDefaultTimeout(30000);
+await p3.route('**/*', async (route) => {
+    const r = route.request();
+    if (r.headers()['x-requested-with'] === 'fetch' || r.url().includes('/_components/')) {
+        await new Promise((resolve) => setTimeout(resolve, 1200));
+    }
+    await route.continue();
+});
+const spinnerShown = (page) => page.evaluate(() => {
+    const el = document.querySelector('.field-spinner');
+    return el !== null && parseFloat(getComputedStyle(el).opacity) > 0.5;
+});
+await go(p3, BASE + '/?q=mouse');
+await p3.fill('input[type=search]', 'mouse pad');
+await p3.waitForSelector('#results[aria-busy="true"]');
+await p3.waitForTimeout(500);
+check('home: while the search runs the field shows a spinner', await spinnerShown(p3));
+check('home: and the results dim', await p3.evaluate(() => parseFloat(getComputedStyle(document.querySelector('#results')).opacity) < 0.9));
+await p3.waitForSelector('#results:not([aria-busy="true"])');
+await p3.waitForTimeout(500);
+check('home: afterwards both are gone', !(await spinnerShown(p3)) && (await p3.evaluate(() => parseFloat(getComputedStyle(document.querySelector('#results')).opacity) > 0.95)));
+
+await go(p3, BASE + '/tune?query=mouse');
+await p3.waitForSelector('.layout');
+await p3.fill('.pane input[type=search]', 'mouse pad');
+await p3.waitForSelector('.layout[aria-busy="true"]');
+await p3.waitForTimeout(600);
+check('tune: while it updates the field shows a spinner', await spinnerShown(p3));
+check('tune: and the results dim', await p3.evaluate(() => parseFloat(getComputedStyle(document.querySelector('.panels')).opacity) < 0.9));
+await p3.waitForSelector('.layout:not([aria-busy="true"])');
+
+// 8. a navigation: the top bar runs and the page dims. Playwright cannot evaluate while a navigation is pending, so the page
+// records what it looked like in sessionStorage.
+await p3.addInitScript(() => {
+    new MutationObserver(() => {
+        if (document.documentElement.hasAttribute('data-navigating')) {
+            setTimeout(() => { sessionStorage.setItem('nav', getComputedStyle(document.querySelector('.topbar')).opacity); }, 400);
+        }
+    }).observe(document, { attributes: true, subtree: true, attributeFilter: ['data-navigating'] });
+});
+await go(p3, BASE + '/');
+await p3.route('**/relevance*', async (route) => { await new Promise((resolve) => setTimeout(resolve, 1500)); await route.continue(); });
+await p3.click('.nav a >> text=Relevance');
+await p3.waitForURL('**/relevance*');
+const seen = (await p3.evaluate(() => sessionStorage.getItem('nav'))) ?? '';
+check('a link: the page is marked as navigating and the top bar is visible', parseFloat(seen) > 0.5, seen);
+
+// 9. the Under the hood menu lists the benchmark and the synonyms
+await p3.unrouteAll();
+await go(p3, BASE + '/');
+await p3.click('.nav .menu summary');
+const labels = (await p3.locator('.menu-panel a').allTextContents()).map((t) => t.trim());
+check('the menu lists wizard, benchmark, doctor, observability, synonyms', ['Config wizard', 'Benchmark', 'Doctor', 'Observability', 'Synonyms'].every((l) => labels.includes(l)), labels.join(', '));
+check('there is no "/ to search" hint in the toolbar', (await p3.locator('.toolbar-hint').count()) === 0);
+
+// 10. a phone: the tab bar is at the bottom of the screen
 const phone = await browser.newContext({ viewport: { width: 390, height: 844 }, reducedMotion: 'reduce' });
 const p2 = await phone.newPage();
-await p2.goto(BASE + '/', { waitUntil: 'load' });
+await go(p2, BASE + '/');
 const box = await p2.locator('nav.nav').boundingBox();
 check('on a phone the navigation is a tab bar at the bottom', box !== null && box.y > 700, JSON.stringify(box));
 await p2.click('.nav .menu summary');

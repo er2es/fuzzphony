@@ -16,6 +16,7 @@
                        {% if q == '' %}autofocus{% endif %}
                        data-suggest-target="input" data-live-search-target="input" data-action="input->suggest#update input->live-search#update">
                 <button type="button" class="clear" aria-label="Clear the search" data-action="live-search#clear"><svg class="icon" aria-hidden="true"><use href="#i-clear"/></svg></button>
+                <span class="field-spinner" aria-hidden="true"></span>
             </div>
             <div class="suggest-panel" data-suggest-target="panel" data-live-ignore hidden></div>
             {% if view == 'speed' %}<input type="hidden" name="view" value="speed">{% endif %}
@@ -32,7 +33,7 @@
         </div>
     </section>
 
-    <div id="results" data-live-search-target="region" aria-live="polite">
+    <div id="results" class="busy-region" data-live-search-target="region" aria-live="polite">
         {{ include('search/_region.html.twig') }}
     </div>
 </div>

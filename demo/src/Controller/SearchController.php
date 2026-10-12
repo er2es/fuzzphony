@@ -44,8 +44,6 @@ final class SearchController extends AbstractController
     /** Like the Languages page: the ILIKE fragment is a public endpoint that scans the whole table. */
     private const int MAX_QUERY = 100;
 
-    private const int ENGINES = 2;
-
     #[Route('/', name: 'search')]
     public function __invoke(Request $request, Fuzzphony $fuzzphony, Catalog $catalog, Facets $facets): Response
     {
@@ -90,11 +88,7 @@ final class SearchController extends AbstractController
             'stock' => $stock,
             'error' => $error,
             'speed' => $speed,
-            'run' => $view === 'speed' && $request->query->getBoolean('run'),
-            'queries' => self::benchmarkQueries(),
             'warmRuns' => Measure::WARM_RUNS,
-            'engines' => self::ENGINES,
-            'table' => Catalog::TABLE,
             'rowEstimate' => $catalog->estimatedProductCount(),
             'examples' => self::TRY,
         ];

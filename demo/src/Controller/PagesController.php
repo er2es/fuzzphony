@@ -23,6 +23,9 @@ use Symfony\Component\Routing\Attribute\Route;
 
 final class PagesController extends AbstractController
 {
+    /** benchmarkRow() below measures ILIKE and Fuzzphony, one Measure::median() call each: always these two. */
+    private const int ENGINES = 2;
+
     private const array LANGUAGES = ['english', 'german', 'french', 'spanish', 'italian', 'hungarian', 'dutch', 'simple'];
 
     #[Route('/tune', name: 'tune')]
@@ -76,8 +79,21 @@ final class PagesController extends AbstractController
         ]);
     }
 
+    /** The page shell is instant; every row is measured by its own request (see sequence_controller.js). */
+    #[Route('/under-the-hood/benchmark', name: 'benchmark')]
+    public function benchmark(Catalog $catalog): Response
+    {
+        return $this->render('benchmark.html.twig', [
+            'queries' => SearchController::benchmarkQueries(),
+            'table' => Catalog::TABLE,
+            'rowEstimate' => $catalog->estimatedProductCount(),
+            'warmRuns' => Measure::WARM_RUNS,
+            'engines' => self::ENGINES,
+        ]);
+    }
+
     /** One benchmark row, requested one at a time so the measurements never compete with each other. */
-    #[Route('/speed/row/{index}', name: 'benchmark_row', requirements: ['index' => '\d+'])]
+    #[Route('/under-the-hood/benchmark/row/{index}', name: 'benchmark_row', requirements: ['index' => '\d+'])]
     public function benchmarkRow(int $index, Fuzzphony $fuzzphony, Catalog $catalog): Response
     {
         $entry = array_slice(SearchController::benchmarkQueries(), $index, 1, true);
