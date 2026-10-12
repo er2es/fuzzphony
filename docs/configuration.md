@@ -319,7 +319,8 @@ Off by default. Enabled, it adds the table `fuzzphony_search_log` to `fuzzphony:
 `fuzzphony:analytics` and `fuzzphony:search-log:purge`, a buffered write after each response, and a "Search log"
 check in the doctor (neither command exists while the log is off). `redact` is validated when the container is built (also while the log is off), so a pattern that does not
 compile fails there. A single index opts out with `log: false` (attribute, builder `->log(false)`, or YAML under
-`indexes`). See [Search log and analytics](analytics.md).
+`indexes`). The role that only searches needs just `INSERT` on the table (the `id` is an identity column, so no
+sequence privilege); the reports need `SELECT`, the purge `DELETE`. See [Search log and analytics](analytics.md).
 
 ## Building an index
 

@@ -97,23 +97,35 @@ final class PostgresInspector
         return new InspectionReport($index->name, $checks);
     }
 
-    /** The opt-in search log: its table exists, and nothing older than the retention is left in it. */
+    /**
+     * The opt-in search log: its table exists, this role can read it, and nothing older than the retention is left in it.
+     * Never a full count: the log can be big, so the age check is one indexed EXISTS (the index on "at").
+     */
     private function searchLog(): Check
     {
         $table = $this->names->searchLog();
         if (!$this->regclass($table)) {
             return Check::error('Search log', sprintf('Table %s does not exist, so searches cannot be logged.', $table), self::APPLY);
         }
-        $row = $this->connection->fetchAll(
-            sprintf('SELECT count(*) AS total, count(*) FILTER (WHERE at < now() - make_interval(days => :days)) AS old FROM %s', $table),
-            ['days' => $this->searchLogRetentionDays],
-        )[0];
-        $total = Coerce::int($row['total']);
-        $old = Coerce::int($row['old']);
+        // the role, only when it may not read the table (reading it would fail the whole report)
+        $denied = $this->connection->fetchValue("SELECT current_user WHERE NOT has_table_privilege(:log, 'SELECT')", ['log' => $table]);
+        if ($denied !== null) {
+            $role = Coerce::str($denied);
 
-        return $old > 0
-            ? Check::warning('Search log', sprintf('%s rows, %s of them older than the %d days of retention.', number_format($total), number_format($old), $this->searchLogRetentionDays), 'bin/console fuzzphony:search-log:purge')
-            : Check::ok('Search log', sprintf('%s rows', number_format($total)));
+            return Check::warning(
+                'Search log',
+                sprintf('Role %s cannot read %s (no SELECT privilege), so its age is unknown.', $role, $table),
+                sprintf('GRANT SELECT ON %s TO %s;', $table, Sql::ident($role)),
+            );
+        }
+        $stale = $this->connection->fetchValue(
+            sprintf('SELECT EXISTS (SELECT 1 FROM %s WHERE at < now() - make_interval(days => :days))', $table),
+            ['days' => $this->searchLogRetentionDays],
+        );
+
+        return $stale === true
+            ? Check::warning('Search log', sprintf('Rows older than the %d days of retention are still in the table.', $this->searchLogRetentionDays), 'bin/console fuzzphony:search-log:purge')
+            : Check::ok('Search log', 'Table exists, nothing older than the retention.');
     }
 
     /** The words "did you mean" suggests from: created by the schema, filled by a full reindex. */

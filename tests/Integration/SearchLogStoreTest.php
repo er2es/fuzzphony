@@ -272,6 +272,45 @@ final class SearchLogStoreTest extends TestCase
         }
     }
 
+    /**
+     * The demo's runtime role only searches: it has SELECT, INSERT and DELETE on the log table and nothing on any sequence.
+     * A bigserial id would fail every flush with "permission denied for sequence"; an identity column does not.
+     */
+    public function testARoleWithOnlyTableGrantsCanWriteReadAndPurge(): void
+    {
+        $role = 'fz_log_only_' . bin2hex(random_bytes(3));
+        $this->connection->execute(sprintf('CREATE ROLE %s NOLOGIN', $role));
+        try {
+            $this->connection->execute(sprintf('GRANT USAGE ON SCHEMA public TO %s', $role));
+            $this->connection->execute(sprintf('GRANT SELECT, INSERT, DELETE ON fuzzphony_search_log TO %s', $role));
+            $this->connection->execute(sprintf('SET ROLE %s', $role));
+            try {
+                $written = $this->store()->writeSearchLog([$this->record($this->now, 'as a limited role'), $this->record($this->now, 'second')]);
+                $top = $this->store()->topQueries($this->index(), $this->now->modify('-1 hour'), null, 10, null, false);
+                $purged = $this->store()->purgeSearchLog($this->now->modify('+1 day'));
+            } finally {
+                $this->connection->execute('RESET ROLE');
+            }
+
+            self::assertSame(2, $written);
+            self::assertEqualsCanonicalizing(['as a limited role', 'second'], self::queries($top));
+            self::assertSame(2, $purged);
+        } finally {
+            $this->connection->execute('RESET ROLE');
+            $this->connection->execute(sprintf('DROP OWNED BY %s', $role));
+            $this->connection->execute(sprintf('DROP ROLE %s', $role));
+        }
+    }
+
+    public function testCreatingTheTableAgainKeepsAnEarlierLogTable(): void
+    {
+        $this->store()->writeSearchLog([$this->record($this->now, 'kept')]);
+
+        (new PostgresEngine($this->connection, searchLog: true))->globalSchema()->apply($this->connection);
+
+        self::assertSame(1, $this->connection->fetchValue('SELECT count(*) FROM fuzzphony_search_log'));
+    }
+
     public function testTheTableIsOnlyCreatedWhenTheLogIsOn(): void
     {
         $this->connection->execute('DROP TABLE fuzzphony_search_log');

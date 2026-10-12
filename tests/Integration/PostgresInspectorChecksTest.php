@@ -517,7 +517,7 @@ final class PostgresInspectorChecksTest extends TestCase
         self::assertSame([], array_values(array_filter($default, static fn(Check $c): bool => $c->name === 'Search log')));
         self::assertEquals($default, $explicit);
         self::assertEquals($default, $viaEngine);
-        self::assertSame([], $connection->statements('SELECT count(*) AS total'), 'the search log table is not even looked at');
+        self::assertSame([], $connection->statements('SELECT EXISTS (SELECT 1 FROM "public"."fuzzphony_search_log"'), 'the search log table is not even looked at');
         foreach ($connection->params('SELECT to_regclass') as $params) {
             self::assertStringNotContainsString('search_log', (string) json_encode($params));
         }
@@ -532,10 +532,10 @@ final class PostgresInspectorChecksTest extends TestCase
         $withLog->reindex('products');
 
         $empty = self::named($withLog, 'products', 'Search log');
-        self::assertEquals([Check::ok('Search log', '0 rows')], $empty);
+        self::assertEquals([Check::ok('Search log', 'Table exists, nothing older than the retention.')], $empty);
 
         $this->connection->execute("INSERT INTO fuzzphony_search_log (at, index_name, query, query_norm, hits, took_ms, used_fuzzy, status) VALUES (now(), 'products', 'a', 'a', 1, 1, false, 'ok'), (now() - interval '10 days', 'products', 'b', 'b', 0, 1, false, 'ok')");
-        self::assertEquals([Check::ok('Search log', '2 rows')], self::named($withLog, 'products', 'Search log'));
+        self::assertEquals([Check::ok('Search log', 'Table exists, nothing older than the retention.')], self::named($withLog, 'products', 'Search log'));
     }
 
     public function testRowsOlderThanTheRetentionAreAWarning(): void
@@ -549,8 +549,56 @@ final class PostgresInspectorChecksTest extends TestCase
         $this->connection->execute("INSERT INTO fuzzphony_search_log (at, index_name, query, query_norm, hits, took_ms, used_fuzzy, status) VALUES (now(), 'products', 'a', 'a', 1, 1, false, 'ok'), (now() - interval '29 days', 'products', 'b', 'b', 0, 1, false, 'ok'), (now() - interval '31 days', 'products', 'c', 'c', 0, 1, false, 'ok'), (now() - interval '90 days', 'products', 'd', 'd', 0, 1, false, 'ok')");
 
         self::assertEquals(
-            [Check::warning('Search log', '4 rows, 2 of them older than the 30 days of retention.', 'bin/console fuzzphony:search-log:purge')],
+            [Check::warning('Search log', 'Rows older than the 30 days of retention are still in the table.', 'bin/console fuzzphony:search-log:purge')],
             self::named($fuzzphony, 'products', 'Search log'),
+        );
+    }
+
+    /** The log can be big: the doctor looks for old rows with one indexed EXISTS and never counts the table. */
+    public function testTheSearchLogCheckNeverCountsTheTable(): void
+    {
+        $this->connection->execute('DROP TABLE IF EXISTS fuzzphony_search_log CASCADE');
+        $index = Indexes::products('manual');
+        $plain = new Fuzzphony(new PostgresEngine($this->connection, searchLog: true), new IndexRegistry([$index]));
+        $plain->schema()->apply($this->connection);
+        $plain->reindex('products');
+        $connection = new InterceptingConnection($this->connection);
+        $inspector = new PostgresInspector($connection, new PostgresSchemaGenerator(searchLog: true), true, 90);
+
+        $inspector->inspect($index, new InspectOptions());
+
+        foreach ($connection->log as [$sql]) {
+            if (str_contains($sql, 'fuzzphony_search_log')) {
+                self::assertStringNotContainsString('count(', $sql, 'no count over the log table');
+            }
+        }
+        self::assertCount(1, $connection->statements('SELECT EXISTS (SELECT 1 FROM "public"."fuzzphony_search_log"'));
+    }
+
+    public function testARoleThatCannotReadTheSearchLogGetsAWarningInsteadOfAFailure(): void
+    {
+        $this->connection->execute('DROP TABLE IF EXISTS fuzzphony_search_log CASCADE');
+        $index = Indexes::products('manual');
+        $fuzzphony = new Fuzzphony(new PostgresEngine($this->connection, searchLog: true), new IndexRegistry([$index]));
+        $fuzzphony->schema()->apply($this->connection);
+        $fuzzphony->reindex('products');
+        $role = 'fz_doctor_nolog_' . getmypid();
+        $this->connection->execute('DROP ROLE IF EXISTS ' . $role);
+        $this->connection->execute('CREATE ROLE ' . $role);
+        try {
+            $this->connection->execute('GRANT SELECT ON ALL TABLES IN SCHEMA public TO ' . $role);
+            $this->connection->execute('REVOKE SELECT ON fuzzphony_search_log FROM ' . $role);
+            $this->connection->execute('SET ROLE ' . $role);
+            $checks = self::named($fuzzphony, 'products', 'Search log');
+        } finally {
+            $this->connection->execute('RESET ROLE');
+            $this->connection->execute('DROP OWNED BY ' . $role);
+            $this->connection->execute('DROP ROLE ' . $role);
+        }
+
+        self::assertEquals(
+            [Check::warning('Search log', 'Role ' . $role . ' cannot read "public"."fuzzphony_search_log" (no SELECT privilege), so its age is unknown.', 'GRANT SELECT ON "public"."fuzzphony_search_log" TO "' . $role . '";')],
+            $checks,
         );
     }
 

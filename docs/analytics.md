@@ -62,8 +62,9 @@ bin/console fuzzphony:schema --apply
 
 `fuzzphony:doctor` has a "Search log" check: an **error** when the table is missing (fixed by the command
 above), a warning when it holds rows older than the retention (fixed by the purge command below), otherwise it
-shows the row count. A role that only searches needs `INSERT` on the table (and `USAGE` on its sequence); the
-reports need `SELECT`, the purge `DELETE`. See [Fuzzphony's schema](configuration.md#fuzzphonys-schema) for the
+reports that the table exists (it never counts the rows: the table can be big). A role that only searches needs
+`INSERT` on the table and nothing else (the `id` is an identity column, which needs no privilege on its hidden
+sequence); the reports need `SELECT`, the purge `DELETE`. See [Fuzzphony's schema](configuration.md#fuzzphonys-schema) for the
 `GRANT`.
 
 ## Redaction

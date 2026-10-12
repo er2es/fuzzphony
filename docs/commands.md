@@ -65,7 +65,7 @@ It checks:
   attached after the last apply does not), a warning at `trigger_level: statement`, where a write
   that targets a partition directly is not synced, and a warning for that trigger left on a table
   that should not have it (a detached partition, or any partition in `orm` / `manual` mode);
-- with the search log enabled, its table (an error when it is missing: fixed by `fuzzphony:schema --apply`) and any rows older than `retention_days` (a warning: fixed by `fuzzphony:search-log:purge`);
+- with the search log enabled, its table (an error when it is missing: fixed by `fuzzphony:schema --apply`) and any rows older than `retention_days` (a warning: fixed by `fuzzphony:search-log:purge`; it never counts the table, and a role without `SELECT` on it gets a warning with the `GRANT`);
 - queue backlog and age, a pending full-rebuild job a `TRUNCATE` queued, and whether the worker's
   rebuild of it keeps failing (the last error, how often, when);
 - a full reindex that did not finish (its rebuild table, change log or change log trigger is left
