@@ -32,7 +32,7 @@ final class WizardCommandTest extends TestCase
         $status = $tester->execute([], ['interactive' => false]);
 
         self::assertSame(Command::FAILURE, $status);
-        self::assertStringContainsString('No tables found.', $tester->getDisplay());
+        self::assertStringContainsString('No tables found.', $tester->getDisplay(true));
     }
 
     public function testInteractiveTablePickerAsksWhenNoArgumentIsGiven(): void
@@ -48,7 +48,7 @@ final class WizardCommandTest extends TestCase
         $status = $tester->execute([], ['interactive' => true]);
 
         self::assertSame(Command::SUCCESS, $status);
-        self::assertStringContainsString('Suggested index for "fz_gadget"', $tester->getDisplay());
+        self::assertStringContainsString('Suggested index for "fz_gadget"', $tester->getDisplay(true));
     }
 
     public function testNoUsableSuggestionIsAFailure(): void
@@ -59,7 +59,7 @@ final class WizardCommandTest extends TestCase
         $status = $tester->execute(['table' => 'fz_empty'], ['interactive' => false]);
 
         self::assertSame(Command::FAILURE, $status);
-        self::assertStringContainsString('No usable index could be suggested', $tester->getDisplay());
+        self::assertStringContainsString('No usable index could be suggested', $tester->getDisplay(true));
     }
 
     public function testInteractiveFieldsKeepPromptNarrowsTheSuggestion(): void
@@ -70,7 +70,7 @@ final class WizardCommandTest extends TestCase
         $status = $tester->execute(['table' => 'fz_gadget'], ['interactive' => true]);
 
         self::assertSame(Command::SUCCESS, $status);
-        $display = $tester->getDisplay();
+        $display = $tester->getDisplay(true);
         self::assertStringContainsString('title:', $display);
         self::assertStringNotContainsString('description:', $display, 'the unkept field must not appear in the exported definition');
     }
@@ -82,7 +82,7 @@ final class WizardCommandTest extends TestCase
         $status = $tester->execute(['table' => 'fz_order', '--format' => 'attributes'], ['interactive' => false]);
 
         self::assertSame(Command::SUCCESS, $status);
-        $display = $tester->getDisplay();
+        $display = $tester->getDisplay(true);
         // SymfonyStyle::warning() word-wraps its block, so check the fragments rather than one long string.
         self::assertStringContainsString('Joined sources cannot be expressed with attributes; showing YAML', $display);
         self::assertStringContainsString('instead.', $display);
@@ -96,7 +96,7 @@ final class WizardCommandTest extends TestCase
         $status = $tester->execute(['table' => 'fz_gadget', '--format' => 'attributes'], ['interactive' => false]);
 
         self::assertSame(Command::SUCCESS, $status);
-        $display = $tester->getDisplay();
+        $display = $tester->getDisplay(true);
         self::assertStringContainsString('#[Searchable(', $display);
         self::assertStringContainsString('final class Fz_gadget', $display);
     }

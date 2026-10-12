@@ -34,9 +34,9 @@ final class ReindexCommandTest extends TestCase
     {
         $status = $this->tester->execute(['index' => 'products'], ['interactive' => false]);
 
-        self::assertSame(Command::SUCCESS, $status, $this->tester->getDisplay());
-        self::assertStringContainsString('Built next to the live index and swapped in: searches never saw a partial index, and documents the source no longer returns went with the old one.', $this->tester->getDisplay());
-        self::assertStringNotContainsString('Rebuilt in place:', $this->tester->getDisplay());
+        self::assertSame(Command::SUCCESS, $status, $this->tester->getDisplay(true));
+        self::assertStringContainsString('Built next to the live index and swapped in: searches never saw a partial index, and documents the source no longer returns went with the old one.', $this->tester->getDisplay(true));
+        self::assertStringNotContainsString('Rebuilt in place:', $this->tester->getDisplay(true));
         self::assertSame(4, $this->indexed());
     }
 
@@ -44,9 +44,9 @@ final class ReindexCommandTest extends TestCase
     {
         $status = $this->tester->execute(['index' => 'products', '--in-place' => true], ['interactive' => false]);
 
-        self::assertSame(Command::SUCCESS, $status, $this->tester->getDisplay());
-        self::assertStringContainsString('1 orphaned document(s) removed', $this->tester->getDisplay());
-        self::assertStringNotContainsString('Rebuilt in place:', $this->tester->getDisplay());
+        self::assertSame(Command::SUCCESS, $status, $this->tester->getDisplay(true));
+        self::assertStringContainsString('1 orphaned document(s) removed', $this->tester->getDisplay(true));
+        self::assertStringNotContainsString('Rebuilt in place:', $this->tester->getDisplay(true));
         self::assertSame(4, $this->indexed());
     }
 
@@ -70,11 +70,11 @@ final class ReindexCommandTest extends TestCase
             $connection->execute(sprintf('DROP ROLE %s', $role));
         }
 
-        self::assertSame(Command::SUCCESS, $status, $this->tester->getDisplay());
-        self::assertStringContainsString('1 orphaned document(s) removed', $this->tester->getDisplay());
-        self::assertStringContainsString("Rebuilt in place: this role cannot build the index next to the live one (it needs CREATE on Fuzzphony's schema and ownership of the index table), or fuzzphony:schema --apply has not run since the upgrade.", $this->tester->getDisplay());
-        self::assertStringContainsString('The documents are indexed, but the vocabulary could not be rebuilt:', $this->tester->getDisplay());
-        self::assertStringContainsString('fuzzphony:reindex --vocabulary', $this->tester->getDisplay());
+        self::assertSame(Command::SUCCESS, $status, $this->tester->getDisplay(true));
+        self::assertStringContainsString('1 orphaned document(s) removed', $this->tester->getDisplay(true));
+        self::assertStringContainsString("Rebuilt in place: this role cannot build the index next to the live one (it needs CREATE on Fuzzphony's schema and ownership of the index table), or fuzzphony:schema --apply has not run since the upgrade.", $this->tester->getDisplay(true));
+        self::assertStringContainsString('The documents are indexed, but the vocabulary could not be rebuilt:', $this->tester->getDisplay(true));
+        self::assertStringContainsString('fuzzphony:reindex --vocabulary', $this->tester->getDisplay(true));
         self::assertSame(4, $this->indexed());
     }
 
@@ -82,9 +82,9 @@ final class ReindexCommandTest extends TestCase
     {
         $status = $this->tester->execute(['index' => 'products'], ['interactive' => false]);
 
-        self::assertSame(Command::SUCCESS, $status, $this->tester->getDisplay());
-        self::assertMatchesRegularExpression('/\d+ words in the vocabulary \("did you mean"\)/', $this->tester->getDisplay());
-        self::assertStringNotContainsString('could not be rebuilt', $this->tester->getDisplay());
+        self::assertSame(Command::SUCCESS, $status, $this->tester->getDisplay(true));
+        self::assertMatchesRegularExpression('/\d+ words in the vocabulary \("did you mean"\)/', $this->tester->getDisplay(true));
+        self::assertStringNotContainsString('could not be rebuilt', $this->tester->getDisplay(true));
     }
 
     public function testTheVocabularyOptionRebuildsOnlyTheVocabulary(): void
@@ -93,7 +93,7 @@ final class ReindexCommandTest extends TestCase
 
         $status = $this->tester->execute(['index' => 'products', '--vocabulary' => true], ['interactive' => false]);
 
-        $display = $this->tester->getDisplay();
+        $display = $this->tester->getDisplay(true);
         self::assertSame(Command::SUCCESS, $status, $display);
         self::assertMatchesRegularExpression('/\d+ words in the vocabulary, in \d{1,3}\.\ds/', $display);
         self::assertStringNotContainsString('documents in', $display);
@@ -109,7 +109,7 @@ final class ReindexCommandTest extends TestCase
         $status = $this->tester->execute(['index' => 'products', '--vocabulary' => true], ['interactive' => false]);
 
         self::assertSame(Command::FAILURE, $status);
-        self::assertStringContainsString('fuzzphony:schema --apply', $this->tester->getDisplay());
+        self::assertStringContainsString('fuzzphony:schema --apply', $this->tester->getDisplay(true));
     }
 
     public function testPrintsProgressPerBatchAndASummary(): void
@@ -117,7 +117,7 @@ final class ReindexCommandTest extends TestCase
         // Source rows 1, 2, 3, 5 (4 was deleted in setUp), two per batch.
         $status = $this->tester->execute(['index' => 'products', '--batch' => '2'], ['interactive' => false]);
 
-        $display = $this->tester->getDisplay();
+        $display = $this->tester->getDisplay(true);
         self::assertSame(Command::SUCCESS, $status, $display);
         // The rate must be a positive number of documents per second (generous bounds so slow CI can't flake).
         self::assertMatchesRegularExpression('~^  2 documents, [1-9][\d,]*/s, last id 2 \(resume: --from=2\)$~m', $display);
@@ -130,9 +130,9 @@ final class ReindexCommandTest extends TestCase
     {
         $status = $this->tester->execute(['index' => 'products', '--from' => '2'], ['interactive' => false]);
 
-        self::assertSame(Command::SUCCESS, $status, $this->tester->getDisplay());
-        self::assertStringContainsString('only removed by a full run', $this->tester->getDisplay());
-        self::assertStringNotContainsString('Rebuilt in place:', $this->tester->getDisplay());
+        self::assertSame(Command::SUCCESS, $status, $this->tester->getDisplay(true));
+        self::assertStringContainsString('only removed by a full run', $this->tester->getDisplay(true));
+        self::assertStringNotContainsString('Rebuilt in place:', $this->tester->getDisplay(true));
         self::assertSame(5, $this->indexed());
     }
 
@@ -140,10 +140,10 @@ final class ReindexCommandTest extends TestCase
     {
         $status = $this->tester->execute(['index' => 'products', '--no-prune' => true], ['interactive' => false]);
 
-        self::assertSame(Command::SUCCESS, $status, $this->tester->getDisplay());
-        self::assertStringContainsString('Pruning skipped (--no-prune)', $this->tester->getDisplay());
-        self::assertStringNotContainsString('orphaned document(s) removed', $this->tester->getDisplay());
-        self::assertStringNotContainsString('Rebuilt in place:', $this->tester->getDisplay());
+        self::assertSame(Command::SUCCESS, $status, $this->tester->getDisplay(true));
+        self::assertStringContainsString('Pruning skipped (--no-prune)', $this->tester->getDisplay(true));
+        self::assertStringNotContainsString('orphaned document(s) removed', $this->tester->getDisplay(true));
+        self::assertStringNotContainsString('Rebuilt in place:', $this->tester->getDisplay(true));
         self::assertSame(5, $this->indexed());
     }
 
@@ -153,10 +153,10 @@ final class ReindexCommandTest extends TestCase
 
         $status = $this->tester->execute(['index' => 'products'], ['interactive' => false]);
 
-        self::assertSame(Command::SUCCESS, $status, $this->tester->getDisplay());
-        self::assertStringContainsString('source returned no rows for this session, so nothing was pruned', $this->tester->getDisplay());
-        self::assertStringContainsString('--prune-empty', $this->tester->getDisplay());
-        self::assertStringNotContainsString('Rebuilt in place:', $this->tester->getDisplay());
+        self::assertSame(Command::SUCCESS, $status, $this->tester->getDisplay(true));
+        self::assertStringContainsString('source returned no rows for this session, so nothing was pruned', $this->tester->getDisplay(true));
+        self::assertStringContainsString('--prune-empty', $this->tester->getDisplay(true));
+        self::assertStringNotContainsString('Rebuilt in place:', $this->tester->getDisplay(true));
         self::assertSame(5, $this->indexed());
     }
 
@@ -166,8 +166,8 @@ final class ReindexCommandTest extends TestCase
 
         $status = $this->tester->execute(['index' => 'products', '--prune-empty' => true, '--force' => true], ['interactive' => false]);
 
-        self::assertSame(Command::SUCCESS, $status, $this->tester->getDisplay());
-        self::assertStringContainsString('Built next to the live index and swapped in', $this->tester->getDisplay());
+        self::assertSame(Command::SUCCESS, $status, $this->tester->getDisplay(true));
+        self::assertStringContainsString('Built next to the live index and swapped in', $this->tester->getDisplay(true));
         self::assertSame(0, $this->indexed());
     }
 
@@ -177,8 +177,8 @@ final class ReindexCommandTest extends TestCase
 
         $status = $this->tester->execute(['index' => 'products', '--prune-empty' => true, '--force' => true], ['interactive' => true]);
 
-        self::assertSame(Command::SUCCESS, $status, $this->tester->getDisplay());
-        self::assertStringNotContainsString('Prune every document of an empty source?', $this->tester->getDisplay());
+        self::assertSame(Command::SUCCESS, $status, $this->tester->getDisplay(true));
+        self::assertStringNotContainsString('Prune every document of an empty source?', $this->tester->getDisplay(true));
         self::assertSame(0, $this->indexed());
     }
 
@@ -188,8 +188,8 @@ final class ReindexCommandTest extends TestCase
 
         $status = $this->tester->execute(['index' => 'products', '--prune-empty' => true], ['interactive' => false]);
 
-        self::assertSame(Command::FAILURE, $status, $this->tester->getDisplay());
-        self::assertStringContainsString('Refusing to prune an empty source without confirmation: pass --force in non-interactive runs.', $this->tester->getDisplay());
+        self::assertSame(Command::FAILURE, $status, $this->tester->getDisplay(true));
+        self::assertStringContainsString('Refusing to prune an empty source without confirmation: pass --force in non-interactive runs.', $this->tester->getDisplay(true));
         self::assertSame(5, $this->indexed(), 'nothing should have been pruned');
     }
 
@@ -200,8 +200,8 @@ final class ReindexCommandTest extends TestCase
 
         $status = $this->tester->execute(['index' => 'products', '--prune-empty' => true]);
 
-        self::assertSame(Command::SUCCESS, $status, $this->tester->getDisplay());
-        self::assertStringContainsString('Prune every document of an empty source? (yes/no) [no]:', $this->tester->getDisplay());
+        self::assertSame(Command::SUCCESS, $status, $this->tester->getDisplay(true));
+        self::assertStringContainsString('Prune every document of an empty source? (yes/no) [no]:', $this->tester->getDisplay(true));
         self::assertSame(0, $this->indexed());
     }
 
@@ -212,8 +212,8 @@ final class ReindexCommandTest extends TestCase
 
         $status = $this->tester->execute(['index' => 'products', '--prune-empty' => true]);
 
-        self::assertSame(Command::FAILURE, $status, $this->tester->getDisplay());
-        self::assertStringContainsString('Prune every document of an empty source? (yes/no) [no]:', $this->tester->getDisplay());
+        self::assertSame(Command::FAILURE, $status, $this->tester->getDisplay(true));
+        self::assertStringContainsString('Prune every document of an empty source? (yes/no) [no]:', $this->tester->getDisplay(true));
         self::assertSame(5, $this->indexed(), 'nothing should have been pruned');
     }
 
@@ -224,7 +224,7 @@ final class ReindexCommandTest extends TestCase
 
         $status = $this->tester->execute(['index' => 'products', '--prune-empty' => true]);
 
-        self::assertSame(Command::FAILURE, $status, $this->tester->getDisplay());
+        self::assertSame(Command::FAILURE, $status, $this->tester->getDisplay(true));
         self::assertSame(5, $this->indexed(), 'nothing should have been pruned');
     }
 
@@ -236,7 +236,7 @@ final class ReindexCommandTest extends TestCase
 
         self::assertStringContainsString(
             'This will remove every indexed document of any index whose source returns no row this run (row-level security, search_path, or the source is genuinely empty); an index with at least one source row is pruned as usual.',
-            $this->tester->getDisplay(),
+            $this->tester->getDisplay(true),
         );
     }
 
@@ -244,8 +244,8 @@ final class ReindexCommandTest extends TestCase
     {
         $status = $this->tester->execute(['index' => 'products'], ['interactive' => false]);
 
-        self::assertSame(Command::SUCCESS, $status, $this->tester->getDisplay());
-        self::assertStringNotContainsString('Prune every document of an empty source?', $this->tester->getDisplay());
+        self::assertSame(Command::SUCCESS, $status, $this->tester->getDisplay(true));
+        self::assertStringNotContainsString('Prune every document of an empty source?', $this->tester->getDisplay(true));
     }
 
     public function testCompletesIndexNames(): void
@@ -266,7 +266,7 @@ final class ReindexCommandTest extends TestCase
             $status = $this->tester->execute(['index' => 'products', '--vocabulary' => true, $option => $value, '--force' => true], ['interactive' => false]);
 
             self::assertSame(Command::INVALID, $status, $option);
-            self::assertStringContainsString('cannot be combined', $this->tester->getDisplay());
+            self::assertStringContainsString('cannot be combined', $this->tester->getDisplay(true));
         }
     }
 
@@ -278,7 +278,7 @@ final class ReindexCommandTest extends TestCase
 
         $status = $tester->execute(['--vocabulary' => true], ['interactive' => false]);
 
-        self::assertSame(Command::SUCCESS, $status, $tester->getDisplay());
-        self::assertStringContainsString('No fuzzy field, so no vocabulary.', $tester->getDisplay());
+        self::assertSame(Command::SUCCESS, $status, $tester->getDisplay(true));
+        self::assertStringContainsString('No fuzzy field, so no vocabulary.', $tester->getDisplay(true));
     }
 }

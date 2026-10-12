@@ -29,9 +29,12 @@ use Fuzzphony\Engine\Postgres\PostgresEngine;
 use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\TestCase;
 use Symfony\Component\Config\Definition\Exception\InvalidConfigurationException;
+use Symfony\Component\Config\FileLocator;
 use Symfony\Component\DependencyInjection\ContainerBuilder;
 use Symfony\Component\DependencyInjection\Extension\Extension;
 use Symfony\Component\DependencyInjection\Extension\PrependExtensionInterface;
+use Symfony\Component\DependencyInjection\Loader\Configurator\ContainerConfigurator;
+use Symfony\Component\DependencyInjection\Loader\PhpFileLoader;
 use Symfony\Component\DependencyInjection\Reference;
 use Symfony\Component\Messenger\MessageBusInterface;
 
@@ -341,6 +344,158 @@ final class FuzzphonyBundleTest extends TestCase
         self::assertSame([null, 'public'], array_slice($container->getDefinition(DoctorCommand::class)->getArguments(), 1));
     }
 
+    public function testTheDefaultsOfTheConfigurationTree(): void
+    {
+        $container = $this->buildContainer(withOrm: false, config: ['orm_sync' => ['async' => true]]);
+
+        self::assertEquals(
+            [new Reference('fuzzphony'), 500, 1.0, new Reference('fuzzphony.metrics')],
+            $container->getDefinition(WorkerCommand::class)->getArguments(),
+        );
+        self::assertEquals(
+            [new Reference('messenger.default_bus'), 500],
+            $container->getDefinition('fuzzphony.refresh_dispatcher')->getArguments(),
+        );
+    }
+
+    public function testExplicitSettingsReachTheServices(): void
+    {
+        $container = $this->buildContainer(withOrm: true, config: [
+            'connection' => 'main',
+            'worker' => ['batch_size' => 250, 'idle_sleep' => 0.5],
+            'orm_sync' => ['async' => true, 'chunk_size' => 25],
+            'indexes' => ['products' => ['sync' => 'manual']],
+        ]);
+
+        self::assertEquals(new Reference('doctrine.dbal.main_connection'), $container->getDefinition('fuzzphony.connection')->getArgument(0));
+        self::assertEquals([new Reference('fuzzphony'), 250, 0.5, new Reference('fuzzphony.metrics')], $container->getDefinition(WorkerCommand::class)->getArguments());
+        self::assertEquals([new Reference('messenger.default_bus'), 25], $container->getDefinition('fuzzphony.refresh_dispatcher')->getArguments());
+        self::assertSame(['products' => ['sync' => 'manual']], $container->getDefinition('fuzzphony.registry')->getArgument(0));
+        self::assertSame(
+            ['main', 'main', 'main', 'main'],
+            array_column($container->getDefinition('fuzzphony.orm_sync_listener')->getTag('doctrine.event_listener'), 'connection'),
+        );
+    }
+
+    /** @return iterable<string, array{array<string, mixed>, bool}> */
+    public static function settingBoundaries(): iterable
+    {
+        yield 'batch_size 1' => [['worker' => ['batch_size' => 1]], true];
+        yield 'batch_size 0' => [['worker' => ['batch_size' => 0]], false];
+        yield 'idle_sleep 0.05' => [['worker' => ['idle_sleep' => 0.05]], true];
+        yield 'idle_sleep 0.04' => [['worker' => ['idle_sleep' => 0.04]], false];
+        yield 'chunk_size 1' => [['orm_sync' => ['chunk_size' => 1]], true];
+        yield 'chunk_size 0' => [['orm_sync' => ['chunk_size' => 0]], false];
+    }
+
+    /** @param array<string, mixed> $config */
+    #[DataProvider('settingBoundaries')]
+    public function testTheMinimumsOfTheNumericSettings(array $config, bool $accepted): void
+    {
+        if (!$accepted) {
+            $this->expectException(InvalidConfigurationException::class);
+        }
+
+        $container = $this->buildContainer(withOrm: false, config: $config);
+
+        self::assertTrue($container->hasDefinition('fuzzphony'));
+    }
+
+    /** @return iterable<string, array{string}> */
+    public static function aliases(): iterable
+    {
+        yield 'Connection' => [\Fuzzphony\Core\Database\Connection::class];
+        yield 'MetricsCollector' => [MetricsCollector::class];
+        yield 'Engine' => [Engine::class];
+        yield 'EntityLoader' => [EntityLoader::class];
+        yield 'IndexRegistry' => [IndexRegistry::class];
+        yield 'Fuzzphony' => [Fuzzphony::class];
+        yield 'SourceIntrospector' => [\Fuzzphony\Core\Wizard\SourceIntrospector::class];
+        yield 'RefreshDispatcher' => [\Fuzzphony\Core\Sync\RefreshDispatcher::class];
+    }
+
+    #[DataProvider('aliases')]
+    public function testEveryInterfaceIsAliasedToItsService(string $interface): void
+    {
+        $container = $this->buildContainer(withOrm: true);
+
+        self::assertTrue($container->hasAlias($interface));
+    }
+
+    public function testServicesAreNeitherAutowiredNorAutoconfiguredUnlessSaid(): void
+    {
+        $container = $this->buildContainer(withOrm: true);
+
+        foreach (['fuzzphony.connection', 'fuzzphony.engine', 'fuzzphony.registry', 'fuzzphony', 'fuzzphony.discovery', WorkerCommand::class] as $id) {
+            self::assertFalse($container->getDefinition($id)->isAutowired(), $id . ' autowired');
+            self::assertFalse($container->getDefinition($id)->isAutoconfigured(), $id . ' autoconfigured');
+        }
+        self::assertTrue($container->getDefinition(FuzzphonySearchFilter::class)->isAutowired());
+        self::assertFalse($container->getDefinition(FuzzphonySearchFilter::class)->isAutoconfigured());
+        self::assertTrue($container->getDefinition(SearchComponent::class)->isAutoconfigured());
+        self::assertFalse($container->getDefinition(SearchComponent::class)->isAutowired());
+    }
+
+    public function testEveryServiceReceivesItsCollaborators(): void
+    {
+        $container = $this->buildContainer(withOrm: true);
+        $fuzzphony = new Reference('fuzzphony');
+        $connection = new Reference('fuzzphony.connection');
+
+        self::assertEquals([new Reference('doctrine.orm.entity_manager')], $container->getDefinition('fuzzphony.discovery')->getArguments());
+        self::assertEquals([new Reference('doctrine.orm.entity_manager')], $container->getDefinition('fuzzphony.entity_loader')->getArguments());
+        self::assertEquals([new Reference('fuzzphony.engine')], $container->getDefinition('fuzzphony.refresh_dispatcher')->getArguments());
+        self::assertEquals([$fuzzphony], $container->getDefinition(FuzzphonySearchFilter::class)->getArguments());
+        self::assertEquals([$fuzzphony], $container->getDefinition(SearchComponent::class)->getArguments());
+        self::assertEquals([new Reference('fuzzphony.refresh_dispatcher'), new Reference('fuzzphony.registry')], $container->getDefinition('fuzzphony.orm_sync_listener')->getArguments());
+        self::assertEquals([$fuzzphony, $connection], $container->getDefinition(SchemaCommand::class)->getArguments());
+        self::assertEquals([$fuzzphony], $container->getDefinition(ReindexCommand::class)->getArguments());
+        self::assertEquals([$fuzzphony], $container->getDefinition(SearchCommand::class)->getArguments());
+        self::assertEquals(
+            [new Reference('fuzzphony.introspector'), new Reference('fuzzphony.engine'), $connection],
+            $container->getDefinition(WizardCommand::class)->getArguments(),
+        );
+    }
+
+    public function testTheOrmSyncListenerListensToEveryLifecycleEventOfTheConnection(): void
+    {
+        $container = $this->buildContainer(withOrm: true);
+
+        self::assertSame(
+            [
+                ['event' => 'postPersist', 'connection' => 'default'],
+                ['event' => 'postUpdate', 'connection' => 'default'],
+                ['event' => 'preRemove', 'connection' => 'default'],
+                ['event' => 'postFlush', 'connection' => 'default'],
+            ],
+            $container->getDefinition('fuzzphony.orm_sync_listener')->getTag('doctrine.event_listener'),
+        );
+    }
+
+    /** loadExtension() is public and takes a plain array: a configuration without the tree's defaults still yields the documented ones. */
+    public function testAnIncompleteConfigurationFallsBackToTheDocumentedDefaults(): void
+    {
+        $container = $this->buildContainer(withOrm: true, config: [], direct: true);
+
+        self::assertEquals(new Reference('doctrine.dbal.default_connection'), $container->getDefinition('fuzzphony.connection')->getArgument(0));
+        self::assertEquals(new Reference('fuzzphony.discovery'), $container->getDefinition('fuzzphony.registry')->getArgument(1), 'entities are discovered');
+        self::assertSame([], $container->getDefinition('fuzzphony.registry')->getArgument(0));
+        self::assertSame(ImmediateRefreshDispatcher::class, $container->getDefinition('fuzzphony.refresh_dispatcher')->getClass(), 'synchronous');
+        self::assertEquals([new Reference('fuzzphony'), 500, 1.0, new Reference('fuzzphony.metrics')], $container->getDefinition(WorkerCommand::class)->getArguments());
+
+        $async = $this->buildContainer(withOrm: false, config: ['orm_sync' => ['async' => true]], direct: true);
+        self::assertEquals([new Reference('messenger.default_bus'), 500], $async->getDefinition('fuzzphony.refresh_dispatcher')->getArguments());
+    }
+
+    public function testBlankNamesInAnIncompleteConfigurationFallBackToTheDefaults(): void
+    {
+        $container = $this->buildContainer(withOrm: false, config: ['connection' => '', 'extension_schema' => '', 'schema' => ''], direct: true);
+
+        self::assertEquals(new Reference('doctrine.dbal.default_connection'), $container->getDefinition('fuzzphony.connection')->getArgument(0));
+        self::assertSame('public', $container->getDefinition('fuzzphony.engine')->getArgument(1));
+        self::assertSame('public', $container->getDefinition('fuzzphony.engine')->getArgument(2));
+    }
+
     /**
      * Registers Fuzzphony's extension (and a fake "doctrine" one), loads the given configs and
      * runs the prepend phase, as a kernel does before loading the extensions.
@@ -377,7 +532,7 @@ final class FuzzphonyBundleTest extends TestCase
     }
 
     /** @param array<string, mixed> $config */
-    private function buildContainer(bool $withOrm, array $config = []): ContainerBuilder
+    private function buildContainer(bool $withOrm, array $config = [], bool $direct = false): ContainerBuilder
     {
         $container = new ContainerBuilder();
         // Older AbstractBundle/BundleExtension versions read these while loading; a real kernel always sets them.
@@ -408,6 +563,12 @@ final class FuzzphonyBundleTest extends TestCase
         $extension = $bundle->getContainerExtension();
         self::assertNotNull($extension);
         $container->registerExtension($extension);
+        if ($direct) {
+            $instanceof = [];
+            $bundle->loadExtension($config, new ContainerConfigurator($container, new PhpFileLoader($container, new FileLocator()), $instanceof, __FILE__, __FILE__), $container);
+
+            return $container;
+        }
         $extension->load([$config], $container);
 
         return $container;

@@ -27,7 +27,7 @@ final class SearchCommandTest extends TestCase
         $status = $this->tester->execute(['index' => 'products', 'query' => 'mouse'], ['interactive' => false]);
 
         self::assertSame(Command::SUCCESS, $status);
-        $display = $this->tester->getDisplay();
+        $display = $this->tester->getDisplay(true);
         self::assertStringContainsString('hit(s)', $display);
         self::assertMatchesRegularExpression('/\bid\b.*\bscore\b/s', $display);
         self::assertStringContainsString(' 1 ', $display, 'the wireless mouse (id 1) should be listed');
@@ -38,7 +38,7 @@ final class SearchCommandTest extends TestCase
         $status = $this->tester->execute(['index' => 'products', 'query' => 'wireless mouse <comment>zzqqx</comment>'], ['interactive' => false]);
 
         self::assertSame(Command::SUCCESS, $status);
-        self::assertStringContainsString('ignored words that match nothing: "<comment>zzqqx</comment>"', $this->tester->getDisplay());
+        self::assertStringContainsString('ignored words that match nothing: "<comment>zzqqx</comment>"', $this->tester->getDisplay(true));
     }
 
     public function testWhereFilterNarrowsResults(): void
@@ -50,7 +50,7 @@ final class SearchCommandTest extends TestCase
         ], ['interactive' => false]);
 
         self::assertSame(Command::SUCCESS, $status);
-        self::assertStringNotContainsString('Gaming mouse RGB', $this->tester->getDisplay());
+        self::assertStringNotContainsString('Gaming mouse RGB', $this->tester->getDisplay(true));
     }
 
     public function testInvalidWhereFilterIsRejected(): void
@@ -58,7 +58,7 @@ final class SearchCommandTest extends TestCase
         $status = $this->tester->execute(['index' => 'products', 'query' => 'mouse', '--where' => ['not a filter']], ['interactive' => false]);
 
         self::assertSame(Command::INVALID, $status);
-        self::assertStringContainsString('Cannot parse filter', $this->tester->getDisplay());
+        self::assertStringContainsString('Cannot parse filter', $this->tester->getDisplay(true));
     }
 
     public function testExplainPrintsSqlAndPlan(): void
@@ -66,7 +66,7 @@ final class SearchCommandTest extends TestCase
         $status = $this->tester->execute(['index' => 'products', 'query' => 'mouse', '--explain' => true], ['interactive' => false]);
 
         self::assertSame(Command::SUCCESS, $status);
-        $display = $this->tester->getDisplay();
+        $display = $this->tester->getDisplay(true);
         self::assertStringContainsString('SQL:', $display);
         self::assertStringContainsString('Plan', $display);
     }
@@ -76,7 +76,7 @@ final class SearchCommandTest extends TestCase
         $status = $this->tester->execute(['index' => 'products', '--where' => ['in_stock=false']], ['interactive' => false]);
 
         self::assertSame(Command::SUCCESS, $status);
-        self::assertStringContainsString('(no text: browsing)', $this->tester->getDisplay());
+        self::assertStringContainsString('(no text: browsing)', $this->tester->getDisplay(true));
     }
 
     public function testThresholdOverrideNarrowsWhatCountsAsAHit(): void
@@ -88,7 +88,7 @@ final class SearchCommandTest extends TestCase
         ], ['interactive' => false]);
 
         self::assertSame(Command::SUCCESS, $status);
-        self::assertStringContainsString('0 hit(s)', $this->tester->getDisplay(), 'an unreachable min_score must leave no hit standing');
+        self::assertStringContainsString('0 hit(s)', $this->tester->getDisplay(true), 'an unreachable min_score must leave no hit standing');
     }
 
     public function testFuzzySimilarityCanBeSetFlatOrBackToByWordLength(): void
@@ -97,7 +97,7 @@ final class SearchCommandTest extends TestCase
         $sql = function (string $threshold): string {
             $this->tester->execute(['index' => 'products', 'query' => 'mouse', '--explain' => true, '--threshold' => ['fuzzy_mode=always', $threshold]], ['interactive' => false]);
 
-            return $this->tester->getDisplay();
+            return $this->tester->getDisplay(true);
         };
 
         self::assertStringNotContainsString('char_length(replace(', $sql('fuzzy_similarity=0.3'), 'a number is flat');
@@ -117,10 +117,10 @@ final class SearchCommandTest extends TestCase
         $status = $this->tester->execute(['index' => 'products', 'query' => 'hedphones'], ['interactive' => false]);
 
         self::assertSame(Command::SUCCESS, $status);
-        self::assertStringContainsString('Did you mean headphones?', $this->tester->getDisplay());
+        self::assertStringContainsString('Did you mean headphones?', $this->tester->getDisplay(true));
 
         $this->tester->execute(['index' => 'products', 'query' => 'headphones'], ['interactive' => false]);
-        self::assertStringNotContainsString('Did you mean', $this->tester->getDisplay());
+        self::assertStringNotContainsString('Did you mean', $this->tester->getDisplay(true));
     }
 
     public function testFacetsAreCountedAndPrinted(): void
@@ -128,8 +128,8 @@ final class SearchCommandTest extends TestCase
         $status = $this->tester->execute(['index' => 'products', 'query' => 'mouse', '--facet' => ['in_stock', 'brand_id'], '--exact' => true], ['interactive' => false]);
 
         self::assertSame(Command::SUCCESS, $status);
-        self::assertStringContainsString('in_stock: true (3)', $this->tester->getDisplay());
-        self::assertMatchesRegularExpression('/brand_id: 1 \(2\), 2 \(1\)/', $this->tester->getDisplay());
+        self::assertStringContainsString('in_stock: true (3)', $this->tester->getDisplay(true));
+        self::assertMatchesRegularExpression('/brand_id: 1 \(2\), 2 \(1\)/', $this->tester->getDisplay(true));
     }
 
     public function testSuggestCompletesTheLastWord(): void
@@ -137,18 +137,18 @@ final class SearchCommandTest extends TestCase
         $status = $this->tester->execute(['index' => 'products', 'query' => 'wireless hea', '--suggest' => true], ['interactive' => false]);
 
         self::assertSame(Command::SUCCESS, $status);
-        self::assertStringContainsString('wireless headphones', $this->tester->getDisplay());
+        self::assertStringContainsString('wireless headphones', $this->tester->getDisplay(true));
 
         $this->tester->execute(['index' => 'products', 'query' => 'qq', '--suggest' => true], ['interactive' => false]);
-        self::assertStringContainsString('No completions.', $this->tester->getDisplay());
+        self::assertStringContainsString('No completions.', $this->tester->getDisplay(true));
     }
 
     public function testAsYouTypeMatchesTheBeginningOfTheLastWord(): void
     {
         $this->tester->execute(['index' => 'products', 'query' => 'mo'], ['interactive' => false]);
-        self::assertStringContainsString('0 hit(s)', $this->tester->getDisplay());
+        self::assertStringContainsString('0 hit(s)', $this->tester->getDisplay(true));
 
         $this->tester->execute(['index' => 'products', 'query' => 'mo', '--as-you-type' => true], ['interactive' => false]);
-        self::assertStringContainsString('3 hit(s)', $this->tester->getDisplay());
+        self::assertStringContainsString('3 hit(s)', $this->tester->getDisplay(true));
     }
 }

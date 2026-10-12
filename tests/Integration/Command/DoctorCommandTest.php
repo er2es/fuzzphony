@@ -33,13 +33,13 @@ final class DoctorCommandTest extends TestCase
         $this->context->applySchemaAndReindex();
         $tester = new CommandTester(new DoctorCommand($this->context->fuzzphony, '~^(?!legacy_)~'));
 
-        self::assertSame(Command::SUCCESS, $tester->execute([], ['interactive' => false]), $tester->getDisplay());
-        self::assertStringContainsString('Doctrine schema filter', $tester->getDisplay());
+        self::assertSame(Command::SUCCESS, $tester->execute([], ['interactive' => false]), $tester->getDisplay(true));
+        self::assertStringContainsString('Doctrine schema filter', $tester->getDisplay(true));
         self::assertStringContainsString(
             '! Your DBAL connection\'s schema_filter ~^(?!legacy_)~ lets Fuzzphony\'s tables through, so "doctrine:migrations:diff" will propose dropping them. Merge Fuzzphony\'s filter into yours: ~^(?!(public\.)?fuzzphony_)~',
-            preg_replace('/\s+/', ' ', $tester->getDisplay()) ?? '',
+            preg_replace('/\s+/', ' ', $tester->getDisplay(true)) ?? '',
         );
-        self::assertStringContainsString('Healthy, with warnings', $tester->getDisplay());
+        self::assertStringContainsString('Healthy, with warnings', $tester->getDisplay(true));
         self::assertSame(Command::FAILURE, $tester->execute(['--strict' => true], ['interactive' => false]));
     }
 
@@ -48,9 +48,9 @@ final class DoctorCommandTest extends TestCase
         $this->context->applySchemaAndReindex();
         $tester = new CommandTester(new DoctorCommand($this->context->fuzzphony, '~^(?!(public\.)?(fuzzphony_|legacy_))~'));
 
-        self::assertSame(Command::SUCCESS, $tester->execute(['--strict' => true], ['interactive' => false]), $tester->getDisplay());
-        self::assertStringNotContainsString('Doctrine schema filter', $tester->getDisplay());
-        self::assertStringContainsString('All checks passed', $tester->getDisplay());
+        self::assertSame(Command::SUCCESS, $tester->execute(['--strict' => true], ['interactive' => false]), $tester->getDisplay(true));
+        self::assertStringNotContainsString('Doctrine schema filter', $tester->getDisplay(true));
+        self::assertStringContainsString('All checks passed', $tester->getDisplay(true));
     }
 
     public function testTheSchemaFilterIsCheckedAgainstFuzzphonysSchema(): void
@@ -60,7 +60,7 @@ final class DoctorCommandTest extends TestCase
 
         $tester->execute([], ['interactive' => false]);
 
-        self::assertStringContainsString('Merge Fuzzphony\'s filter into yours: ~^(?!fuzzphony\.)~', preg_replace('/\s+/', ' ', $tester->getDisplay()) ?? '', 'merged for public, not for the dedicated schema');
+        self::assertStringContainsString('Merge Fuzzphony\'s filter into yours: ~^(?!fuzzphony\.)~', preg_replace('/\s+/', ' ', $tester->getDisplay(true)) ?? '', 'merged for public, not for the dedicated schema');
     }
 
     public function testTheApplicationFilterIsPrintedVerbatim(): void
@@ -70,7 +70,7 @@ final class DoctorCommandTest extends TestCase
 
         $tester->execute([], ['interactive' => false]);
 
-        self::assertStringContainsString('schema_filter ~^(?!<info>)~ lets', $tester->getDisplay());
+        self::assertStringContainsString('schema_filter ~^(?!<info>)~ lets', $tester->getDisplay(true));
     }
 
     public function testTheSchemaFilterWarningDoesNotHideAnError(): void
@@ -78,7 +78,7 @@ final class DoctorCommandTest extends TestCase
         $tester = new CommandTester(new DoctorCommand($this->context->fuzzphony, '~^(?!legacy_)~'));
 
         self::assertSame(Command::FAILURE, $tester->execute([], ['interactive' => false])); // schema never applied
-        self::assertStringContainsString('Problems found', $tester->getDisplay());
+        self::assertStringContainsString('Problems found', $tester->getDisplay(true));
     }
 
     public function testHealthyIndexExitsZero(): void
@@ -88,7 +88,7 @@ final class DoctorCommandTest extends TestCase
         $status = $this->tester->execute([], ['interactive' => false]);
 
         self::assertSame(Command::SUCCESS, $status);
-        self::assertStringContainsString('All checks passed', $this->tester->getDisplay());
+        self::assertStringContainsString('All checks passed', $this->tester->getDisplay(true));
     }
 
     public function testMissingSchemaIsAnErrorAndExitsOne(): void
@@ -97,7 +97,7 @@ final class DoctorCommandTest extends TestCase
         $status = $this->tester->execute([], ['interactive' => false]);
 
         self::assertSame(Command::FAILURE, $status);
-        self::assertStringContainsString('Problems found', $this->tester->getDisplay());
+        self::assertStringContainsString('Problems found', $this->tester->getDisplay(true));
     }
 
     public function testStaleCoverageIsAWarningThatExitsZeroWithoutStrict(): void
@@ -110,8 +110,8 @@ final class DoctorCommandTest extends TestCase
 
         $status = $this->tester->execute(['--deep' => true], ['interactive' => false]);
 
-        self::assertSame(Command::SUCCESS, $status, $this->tester->getDisplay());
-        self::assertStringContainsString('Healthy, with warnings', $this->tester->getDisplay());
+        self::assertSame(Command::SUCCESS, $status, $this->tester->getDisplay(true));
+        self::assertStringContainsString('Healthy, with warnings', $this->tester->getDisplay(true));
     }
 
     public function testStaleCoverageWithStrictExitsOne(): void
@@ -123,8 +123,8 @@ final class DoctorCommandTest extends TestCase
 
         $status = $this->tester->execute(['--deep' => true, '--strict' => true], ['interactive' => false]);
 
-        self::assertSame(Command::FAILURE, $status, $this->tester->getDisplay());
-        self::assertStringContainsString('Healthy, with warnings', $this->tester->getDisplay());
+        self::assertSame(Command::FAILURE, $status, $this->tester->getDisplay(true));
+        self::assertStringContainsString('Healthy, with warnings', $this->tester->getDisplay(true));
     }
 
     public function testCompletesIndexNames(): void
@@ -142,8 +142,8 @@ final class DoctorCommandTest extends TestCase
         $status = $tester->execute(['--format' => 'prometheus'], ['interactive' => false]);
 
         self::assertSame(Command::SUCCESS, $status);
-        self::assertMatchesRegularExpression('/^fuzzphony_doctor_check\{index="products",check="[^"]+"\} [01]\r?$/m', $tester->getDisplay());
-        self::assertStringNotContainsString('fuzzphony_queue_depth', $tester->getDisplay());
+        self::assertMatchesRegularExpression('/^fuzzphony_doctor_check\{index="products",check="[^"]+"\} [01]\r?$/m', $tester->getDisplay(true));
+        self::assertStringNotContainsString('fuzzphony_queue_depth', $tester->getDisplay(true));
     }
 
     public function testPrometheusFormatIncludesQueueDepthForAQueueModeIndex(): void
@@ -153,7 +153,7 @@ final class DoctorCommandTest extends TestCase
 
         $tester->execute(['--format' => 'prometheus'], ['interactive' => false]);
 
-        self::assertStringContainsString('fuzzphony_queue_depth{index="products"} 0', $tester->getDisplay());
+        self::assertStringContainsString('fuzzphony_queue_depth{index="products"} 0', $tester->getDisplay(true));
     }
 
     public function testPrometheusFormatReportsAMissingQueueTableInsteadOfCrashing(): void
@@ -165,8 +165,8 @@ final class DoctorCommandTest extends TestCase
         $status = $tester->execute(['--format' => 'prometheus'], ['interactive' => false]);
 
         self::assertSame(Command::FAILURE, $status);
-        self::assertStringContainsString('fuzzphony_doctor_check{index="products",check="Sync queue"} 0', $tester->getDisplay());
-        self::assertStringNotContainsString('fuzzphony_queue_depth', $tester->getDisplay());
+        self::assertStringContainsString('fuzzphony_doctor_check{index="products",check="Sync queue"} 0', $tester->getDisplay(true));
+        self::assertStringNotContainsString('fuzzphony_queue_depth', $tester->getDisplay(true));
     }
 
     private function queueModeFuzzphony(): Fuzzphony
