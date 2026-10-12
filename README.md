@@ -233,7 +233,6 @@ Current: v0.8 (search-as-you-type, facets, federated search). Milestones build i
 order, each one a foundation for the next, up to v1.0's stable API and backward-compatibility
 promise. PostgreSQL only before 1.0:
 
-- v0.8 Search features: `suggest()`, facets with an opt-in exact `total`, federated search.
 - v0.9 Security and analytics: search analytics, audit logging, rate limiting, Symfony Security
   integration, a tenant resolver.
 - v1.0 Stable: a documentation site with a "Migrating from `LIKE`" guide, mutation score 90% with
