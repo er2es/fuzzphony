@@ -23,8 +23,8 @@ steps and things to know:
 5. **`InvalidQuery` is no longer `final`** (`ActorRequired` extends it), and `Fuzzphony::suggest()` takes an
    optional trailing `?Actor`. `SearchGate` takes `guards` as a trailing constructor argument. A custom
    `Engine` needs nothing.
-6. `fuzzphony:search --tenant` / `--user` run the configured guards for that actor (see
-   [Security](docs/security.md#fuzzphonysearch-and-the-guards)).
+6. `fuzzphony:search` runs no guard, with or without `--tenant` / `--user`: the bundle gives it its own
+   `fuzzphony.operator` service (see [Security](docs/security.md#fuzzphonysearch-and-the-guards)).
 
 See [Security](docs/security.md) and [Search log and analytics](docs/analytics.md).
 

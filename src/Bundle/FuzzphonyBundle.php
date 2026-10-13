@@ -324,7 +324,7 @@ final class FuzzphonyBundle extends AbstractBundle
                 ->args([service('limiter.' . $limiterName), $per !== '' ? $per : 'tenant']);
             $guards[] = service('fuzzphony.guard.rate_limit');
         }
-        $gateArguments = [
+        $gateArguments = static fn(array $guards): array => [
             service('fuzzphony.metrics'),
             service('logger'),
             $searchLogEnabled ? service('fuzzphony.search_log') : inline_service(NullSearchLog::class),
@@ -332,9 +332,14 @@ final class FuzzphonyBundle extends AbstractBundle
             $guards,
         ];
         $services->set('fuzzphony.search_gate', SearchGate::class)
-            ->args($gateArguments)
+            ->args($gateArguments($guards))
             ->tag('monolog.logger', ['channel' => 'fuzzphony']); // its log line goes to the same channel as the metrics
         $services->alias(SearchGate::class, 'fuzzphony.search_gate');
+        // fuzzphony:search is an operator tool with database access: it runs no guard (a console has no Security
+        // token, so authorization would deny it). Its searches are still counted and, with the log on, logged.
+        $services->set('fuzzphony.search_gate.operator', SearchGate::class)
+            ->args($gateArguments([]))
+            ->tag('monolog.logger', ['channel' => 'fuzzphony']);
         $services->set('fuzzphony.exception_listener', SearchExceptionListener::class)->tag('kernel.event_listener', ['event' => 'kernel.exception', 'priority' => 64]);
 
         $services->set('fuzzphony.engine', PostgresEngine::class)
@@ -360,6 +365,8 @@ final class FuzzphonyBundle extends AbstractBundle
         $services->set('fuzzphony', Fuzzphony::class)
             ->args([service('fuzzphony.engine'), service('fuzzphony.registry'), service('fuzzphony.search_gate')]);
         $services->alias(Fuzzphony::class, 'fuzzphony')->public();
+        $services->set('fuzzphony.operator', Fuzzphony::class)
+            ->args([service('fuzzphony.engine'), service('fuzzphony.registry'), service('fuzzphony.search_gate.operator')]);
 
         $services->set('fuzzphony.introspector', PostgresIntrospector::class)->args([service('fuzzphony.connection'), $names->schema]);
         $services->alias(SourceIntrospector::class, 'fuzzphony.introspector');
@@ -408,7 +415,7 @@ final class FuzzphonyBundle extends AbstractBundle
             DoctorCommand::class => [service('fuzzphony'), $applicationSchemaFilter, $names->schema],
             ReindexCommand::class => [service('fuzzphony')],
             WorkerCommand::class => [service('fuzzphony'), $workerBatchSize, $workerIdleSleep, service('fuzzphony.metrics')],
-            SearchCommand::class => [service('fuzzphony')],
+            SearchCommand::class => [service('fuzzphony.operator')],
             WizardCommand::class => [service('fuzzphony.introspector'), service('fuzzphony.engine'), service('fuzzphony.connection')],
         ];
         if ($searchLogEnabled) {

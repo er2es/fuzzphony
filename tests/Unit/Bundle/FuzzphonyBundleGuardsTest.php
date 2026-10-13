@@ -5,11 +5,14 @@ declare(strict_types=1);
 namespace Fuzzphony\Tests\Unit\Bundle;
 
 use Doctrine\DBAL\Connection as DbalConnection;
+use Fuzzphony\Bundle\Command\SearchCommand;
 use Fuzzphony\Bundle\FuzzphonyBundle;
 use Fuzzphony\Bundle\Security\AuthorizationGuard;
 use Fuzzphony\Bundle\Security\RateLimitGuard;
 use Fuzzphony\Core\Analytics\NullSearchLog;
 use Fuzzphony\Core\Exception\InvalidConfiguration;
+use Fuzzphony\Core\Fuzzphony;
+use Fuzzphony\Core\Search\SearchGate;
 use PHPUnit\Framework\TestCase;
 use Symfony\Component\Config\Definition\Exception\InvalidConfigurationException;
 use Symfony\Component\DependencyInjection\ContainerBuilder;
@@ -85,6 +88,31 @@ final class FuzzphonyBundleGuardsTest extends TestCase
         $arguments = $this->gateArguments($container);
         self::assertEquals(new Reference('fuzzphony.search_log'), $arguments[2]);
         self::assertEquals([new Reference('fuzzphony.guard.authorization')], $arguments[4]);
+    }
+
+    public function testTheSearchCommandGetsAFuzzphonyWhoseGateRunsNoGuard(): void
+    {
+        $container = $this->buildContainer(['rate_limit' => ['limiter' => 'search'], 'authorization' => ['enabled' => true], 'search_log' => ['enabled' => true, 'redact' => ['email']]]);
+
+        $command = $container->getDefinition(SearchCommand::class);
+        self::assertEquals([new Reference('fuzzphony.operator')], $command->getArguments());
+        $operator = $container->getDefinition('fuzzphony.operator');
+        self::assertSame(Fuzzphony::class, $operator->getClass());
+        self::assertEquals(
+            [new Reference('fuzzphony.engine'), new Reference('fuzzphony.registry'), new Reference('fuzzphony.search_gate.operator')],
+            $operator->getArguments(),
+        );
+        $operatorGate = $container->getDefinition('fuzzphony.search_gate.operator');
+        self::assertSame(SearchGate::class, $operatorGate->getClass());
+        self::assertSame([['channel' => 'fuzzphony']], $operatorGate->getTag('monolog.logger'));
+        $mainGate = $this->gateArguments($container);
+        self::assertEquals([new Reference('fuzzphony.guard.authorization'), new Reference('fuzzphony.guard.rate_limit')], $mainGate[4], 'the main gate runs both guards');
+        self::assertEquals(
+            [...array_slice($mainGate, 0, 4), []],
+            $operatorGate->getArguments(),
+            'the operator gate counts and logs like the main one (metrics, logger, search log, redactor) but has no guard',
+        );
+        self::assertEquals([new Reference('fuzzphony.engine'), new Reference('fuzzphony.registry'), new Reference('fuzzphony.search_gate')], $container->getDefinition('fuzzphony')->getArguments());
     }
 
     public function testAnEmptyLimiterNameIsNoGuard(): void

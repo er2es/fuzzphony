@@ -179,11 +179,11 @@ intersected.
 
 ### `fuzzphony:search` and the guards
 
-`fuzzphony:search` is an operator tool: it needs database access anyway, and without `--tenant` and
-`--user` it searches as nobody, so no guard runs. When you give it `--tenant` or `--user` it searches
-as that actor, and the configured guards run for it like for any actor search; a console has no
-Security token, so with `authorization` enabled such a search is denied. See
-[Console commands](commands.md).
+`fuzzphony:search` is an operator tool: it needs database access anyway, so it runs no guard, with or
+without `--tenant` and `--user` (a console has no Security token, so an authorization guard could only
+deny it). The bundle gives the command its own `Fuzzphony` over a gate without guards; every other
+service keeps the guarded one. Its searches are still counted in the metrics and, with the
+[search log](analytics.md) on, logged with the `--user` you gave. See [Console commands](commands.md).
 
 ## The limits, stated honestly
 

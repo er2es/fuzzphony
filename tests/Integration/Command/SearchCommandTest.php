@@ -6,8 +6,13 @@ namespace Fuzzphony\Tests\Integration\Command;
 
 use Fuzzphony\Bundle\Command\SearchCommand;
 use Fuzzphony\Core\Definition\IndexDefinition;
+use Fuzzphony\Core\Exception\AccessDenied;
 use Fuzzphony\Core\Fuzzphony;
 use Fuzzphony\Core\Registry\IndexRegistry;
+use Fuzzphony\Core\Search\Access;
+use Fuzzphony\Core\Search\Actor;
+use Fuzzphony\Core\Search\SearchGate;
+use Fuzzphony\Core\Search\SearchGuard;
 use Fuzzphony\Tests\Fixtures\Indexes;
 use PHPUnit\Framework\TestCase;
 use Symfony\Component\Console\Command\Command;
@@ -201,6 +206,34 @@ final class SearchCommandTest extends TestCase
 
         self::assertSame(Command::FAILURE, $status);
         self::assertStringContainsString('requires forTenant()', $tester->getDisplay(true));
+    }
+
+    public function testTheOperatorSearchRunsNoGuardWhileTheApplicationGateDenies(): void
+    {
+        // what the bundle wires: the application's Fuzzphony has a gate with a denying guard, the command's one has none
+        $denying = new class implements SearchGuard {
+            public function check(IndexDefinition $index, Actor $actor, bool $charge = true): Access
+            {
+                throw AccessDenied::forIndex($index->name);
+            }
+        };
+        $registry = new IndexRegistry([Indexes::products(tenant: true)]);
+        $application = new Fuzzphony($this->context->engine, $registry, new SearchGate(guards: [$denying]));
+        $operator = new Fuzzphony($this->context->engine, $registry, new SearchGate());
+        $application->schema()->apply($this->context->connection);
+        $application->reindex('products');
+
+        try {
+            $application->in('products')->query('mouse')->asActor(new Actor(tenant: 1, user: 'ada'))->get();
+            self::fail('the application gate denies');
+        } catch (AccessDenied) {
+        }
+
+        $tester = new CommandTester(new SearchCommand($operator));
+        $status = $tester->execute(['index' => 'products', 'query' => 'mouse', '--tenant' => '1', '--user' => 'ada'], ['interactive' => false]);
+
+        self::assertSame(Command::SUCCESS, $status, $tester->getDisplay(true));
+        self::assertStringContainsString('2 hit(s)', $tester->getDisplay(true));
     }
 
     private function tenantTester(): CommandTester
