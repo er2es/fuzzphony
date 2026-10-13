@@ -110,7 +110,9 @@ final readonly class Fuzzphony
      * A search made as an actor runs the guards: a viewer who may not see every field of the index gets no
      * completions (the vocabulary holds the words of every field).
      *
-     * @param int $limit 1 to 20
+     * @param int  $limit  1 to 20
+     * @param bool $charge a search made as an actor spends a rate-limit token; pass false only when the same request
+     *                     already charged a search (the Live Component renders its result and its completions in one request)
      *
      * @return list<string>
      *
@@ -118,13 +120,13 @@ final readonly class Fuzzphony
      * @throws AccessDenied    when a guard refuses the actor
      * @throws RateLimited     when the actor searched too often
      */
-    public function suggest(string $index, string $text, int $limit = 8, ?Actor $actor = null): array
+    public function suggest(string $index, string $text, int $limit = 8, ?Actor $actor = null, bool $charge = true): array
     {
         if ($limit < 1 || $limit > 20) {
             throw new InvalidArgument(sprintf('The suggestion limit must be between 1 and 20, got %d.', $limit));
         }
         $definition = $this->registry->get($index);
-        if ($actor !== null && $this->gate !== null && !$this->gate->accessCounted($definition, $actor)->isAll()) {
+        if ($actor !== null && $this->gate !== null && !$this->gate->accessCounted($definition, $actor, $charge)->isAll()) {
             return [];
         }
         $text = mb_substr(ltrim($text), 0, 100);

@@ -11,6 +11,7 @@ use Fuzzphony\Core\Exception\RateLimited;
 use Fuzzphony\Core\Search\Actor;
 use Fuzzphony\Tests\Fixtures\Indexes;
 use PHPUnit\Framework\TestCase;
+use Symfony\Component\RateLimiter\CompoundRateLimiterFactory;
 use Symfony\Component\RateLimiter\RateLimiterFactory;
 use Symfony\Component\RateLimiter\Storage\InMemoryStorage;
 
@@ -81,6 +82,24 @@ final class RateLimitGuardTest extends TestCase
 
         self::assertTrue($guard->check($this->index(), new Actor(tenant: 1))->isAll());
         self::assertTrue($guard->check($this->index(), new Actor(tenant: 1), charge: false)->isAll());
+    }
+
+    public function testACompoundLimiterFactoryWorksToo(): void
+    {
+        // framework.rate_limiter.x: {policy: compound, limiters: [...]} registers limiter.x as a CompoundRateLimiterFactory
+        $compound = new CompoundRateLimiterFactory([$this->factory(limit: 2), $this->factory(limit: 1)]);
+        $guard = new RateLimitGuard($compound, per: 'tenant');
+        $actor = new Actor(tenant: 1);
+
+        $guard->check($this->index(), $actor);
+
+        try {
+            $guard->check($this->index(), $actor); // the stricter of the two limiters refuses
+            self::fail('RateLimited expected');
+        } catch (RateLimited $e) {
+            self::assertGreaterThanOrEqual(1, $e->retryAfter);
+        }
+        $guard->check($this->index(), new Actor(tenant: 2)); // another tenant has its own bucket
     }
 
     public function testAnUnknownPerIsRejected(): void

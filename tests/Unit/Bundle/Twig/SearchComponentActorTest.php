@@ -59,7 +59,29 @@ final class SearchComponentActorTest extends TestCase
         $this->component(Access::all(), $resolver)->getCompletions();
     }
 
-    private function component(Access $access, ?ActorResolver $resolver = null): SearchComponent
+    public function testARenderChargesTheActorOnceNotOncePerResultAndCompletions(): void
+    {
+        $guard = new class implements SearchGuard {
+            public int $calls = 0;
+            public int $charged = 0;
+
+            public function check(IndexDefinition $index, Actor $actor, bool $charge = true): Access
+            {
+                ++$this->calls;
+                $this->charged += $charge ? 1 : 0;
+
+                return Access::all();
+            }
+        };
+        $component = $this->component(Access::all(), guard: $guard);
+
+        $component->getResult();
+        $component->getCompletions();
+
+        self::assertSame([2, 1], [$guard->calls, $guard->charged], 'both run the guards, only the search spends a rate-limit token');
+    }
+
+    private function component(Access $access, ?ActorResolver $resolver = null, ?SearchGuard $guard = null): SearchComponent
     {
         $engine = self::createStubForIntersectionOfInterfaces([Engine::class, Suggestions::class]);
         $engine->method('search')->willReturnCallback(function (IndexDefinition $index, SearchQuery $query): SearchResult {
@@ -74,8 +96,10 @@ final class SearchComponentActorTest extends TestCase
         });
         assert($engine instanceof Engine);
 
-        $guard = self::createStub(SearchGuard::class);
-        $guard->method('check')->willReturn($access);
+        if ($guard === null) {
+            $guard = self::createStub(SearchGuard::class);
+            $guard->method('check')->willReturn($access);
+        }
         if ($resolver === null) {
             $resolver = self::createStub(ActorResolver::class);
             $resolver->method('resolve')->willReturn(new Actor(tenant: 7, user: 'ada'));

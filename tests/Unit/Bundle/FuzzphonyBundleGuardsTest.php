@@ -60,14 +60,14 @@ final class FuzzphonyBundleGuardsTest extends TestCase
         self::assertEquals([new Reference('fuzzphony.guard.authorization')], $this->gateArguments($container)[4]);
         $guard = $container->getDefinition('fuzzphony.guard.authorization');
         self::assertSame(AuthorizationGuard::class, $guard->getClass());
-        self::assertEquals([new Reference('security.authorization_checker'), 'FUZZPHONY_SEARCH'], $guard->getArguments());
+        self::assertEquals([new Reference('security.authorization_checker'), new Reference('security.token_storage'), 'FUZZPHONY_SEARCH'], $guard->getArguments());
     }
 
     public function testTheIndexAttributeIsPassedOn(): void
     {
         $container = $this->buildContainer(['authorization' => ['enabled' => true, 'index_attribute' => 'ROLE_USER']]);
 
-        self::assertSame('ROLE_USER', $container->getDefinition('fuzzphony.guard.authorization')->getArgument(1));
+        self::assertSame('ROLE_USER', $container->getDefinition('fuzzphony.guard.authorization')->getArgument(2));
     }
 
     public function testAuthorizationComesBeforeTheRateLimit(): void

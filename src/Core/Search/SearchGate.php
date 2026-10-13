@@ -87,12 +87,14 @@ final readonly class SearchGate
      * access() for a caller that has no search to run (the completions of Fuzzphony::suggest()): a refusal is counted
      * and logged like the one of a search, but no row is written to the search log (there is no query text).
      *
+     * @param bool $charge as in access()
+     *
      * @throws AccessDenied|RateLimited
      */
-    public function accessCounted(IndexDefinition $index, Actor $actor): Access
+    public function accessCounted(IndexDefinition $index, Actor $actor, bool $charge = true): Access
     {
         try {
-            return $this->access($index, $actor);
+            return $this->access($index, $actor, $charge);
         } catch (AccessDenied|RateLimited $e) {
             $this->countRefusal($index, $e);
 

@@ -155,7 +155,7 @@ final class SearchComponent
             return [];
         }
 
-        return $this->fuzzphony->suggest($this->index, $this->query, min(20, $this->suggestions), $this->actors?->resolve());
+        return $this->fuzzphony->suggest($this->index, $this->query, min(20, $this->suggestions), $this->actors?->resolve(), charge: false);
     }
 
     /** @return list<string> */

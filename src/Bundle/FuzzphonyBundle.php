@@ -314,7 +314,7 @@ final class FuzzphonyBundle extends AbstractBundle
             self::assertAuthorizationPackage(interface_exists(AuthorizationCheckerInterface::class));
             $indexAttribute = Coerce::str($authorization['index_attribute'] ?? null);
             $services->set('fuzzphony.guard.authorization', AuthorizationGuard::class)
-                ->args([service('security.authorization_checker'), $indexAttribute !== '' ? $indexAttribute : 'FUZZPHONY_SEARCH']);
+                ->args([service('security.authorization_checker'), service('security.token_storage'), $indexAttribute !== '' ? $indexAttribute : 'FUZZPHONY_SEARCH']);
             $guards[] = service('fuzzphony.guard.authorization');
         }
         if ($limiterName !== '') {

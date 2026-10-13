@@ -393,6 +393,32 @@ final class SearchGateGuardsTest extends TestCase
         self::assertSame(0, $guard->calls);
     }
 
+    public function testSuggestChargesTheActorUnlessToldNotTo(): void
+    {
+        $guard = new CountingGuard();
+        $fuzzphony = new Fuzzphony($this->suggestingEngine(), new IndexRegistry([Indexes::products()]), new SearchGate(guards: [$guard]));
+
+        $fuzzphony->suggest('products', 'wir', 8, new Actor(user: 'ada'));
+        self::assertSame([1, 1], [$guard->calls, $guard->charged], 'suggest() charges like a search');
+
+        $fuzzphony->suggest('products', 'wir', 8, new Actor(user: 'ada'), charge: false);
+        self::assertSame([2, 1], [$guard->calls, $guard->charged], 'charge: false still runs the guards but spends nothing');
+    }
+
+    public function testAnUnchargedAccessCountedStillRunsTheGuardsAndCountsARefusal(): void
+    {
+        $metrics = new RecordingMetricsCollector();
+        $gate = new SearchGate($metrics, guards: [new ThrowingGuard(AccessDenied::forIndex('products'))]);
+
+        try {
+            $gate->accessCounted(Indexes::products(), new Actor(user: 'ada'), charge: false);
+            self::fail('AccessDenied expected');
+        } catch (AccessDenied) {
+        }
+
+        self::assertSame([['increment', 'fuzzphony.search.denied', 1.0, ['index' => 'products', 'reason' => 'authorization']]], $metrics->calls);
+    }
+
     public function testSuggestWithoutAGateIgnoresTheActor(): void
     {
         $fuzzphony = new Fuzzphony($this->suggestingEngine(), new IndexRegistry([Indexes::products()]));

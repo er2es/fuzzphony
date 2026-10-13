@@ -10,12 +10,12 @@ use Fuzzphony\Core\Exception\RateLimited;
 use Fuzzphony\Core\Search\Access;
 use Fuzzphony\Core\Search\Actor;
 use Fuzzphony\Core\Search\SearchGuard;
-use Symfony\Component\RateLimiter\RateLimiterFactory;
+use Symfony\Component\RateLimiter\RateLimiterFactoryInterface;
 
 /** @internal Spends one token of a Symfony rate limiter per search, keyed by the actor's tenant or user. */
 final readonly class RateLimitGuard implements SearchGuard
 {
-    public function __construct(private RateLimiterFactory $limiter, private string $per)
+    public function __construct(private RateLimiterFactoryInterface $limiter, private string $per)
     {
         if (!in_array($per, ['tenant', 'user'], true)) {
             throw new InvalidConfiguration(sprintf('fuzzphony.rate_limit.per must be "tenant" or "user", got "%s".', $per));
