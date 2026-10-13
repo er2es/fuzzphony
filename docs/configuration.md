@@ -279,6 +279,8 @@ fuzzphony:
   orm_sync: { async: false, chunk_size: 500 }
   actor: { }                   # who searches, see below
   search_log: { enabled: false, retention_days: 90, redact: [] }  # opt-in, see below
+  rate_limit: { limiter: ~, per: tenant }                          # opt-in, see below
+  authorization: { enabled: false, index_attribute: FUZZPHONY_SEARCH }  # opt-in, see below
   indexes: { }                 # YAML indexes and overrides, see above
 ```
 
@@ -321,6 +323,41 @@ check in the doctor (neither command exists while the log is off). `redact` is v
 compile fails there. A single index opts out with `log: false` (attribute, builder `->log(false)`, or YAML under
 `indexes`). The role that only searches needs just `INSERT` on the table (the `id` is an identity column, so no
 sequence privilege); the reports need `SELECT`, the purge `DELETE`. See [Search log and analytics](analytics.md).
+
+### The rate limit
+
+```yaml
+fuzzphony:
+  rate_limit:
+    limiter: search     # a framework.rate_limiter entry (service limiter.search); empty (default) = no rate limit
+    per: user           # tenant (default) or user: whose searches share one bucket
+```
+
+Needs `symfony/rate-limiter` (suggested, not required: without it the container fails to build, with the
+`composer require` line). One token per search of an actor that has the key; over the limit the search
+throws `RateLimited` (HTTP 429 with `Retry-After`). See [Security](security.md#the-rate-limit) for what is
+and is not limited.
+
+### Authorization
+
+```yaml
+fuzzphony:
+  authorization:
+    enabled: false                      # true: check the index and the fields before every search of an actor
+    index_attribute: FUZZPHONY_SEARCH   # isGranted(attribute, indexName); write a voter, or name e.g. ROLE_USER
+```
+
+Needs `symfony/security-bundle` (suggested; the container fails to build without it, with the `composer
+require` line). With the default attribute and no voter every search is denied (fail closed), and so is a
+search without a Security token. A field is hidden from the viewers who are not granted its `granted:`
+attribute; see [Security](security.md#granted-a-field-only-some-viewers-may-search).
+
+### `granted` on a field
+
+`granted: ROLE_HR` marks a field that only some viewers may search and see. It is set in every definition
+style: `#[SearchField('B', granted: 'ROLE_HR')]`, the builder's `->field('salary', 'B', granted: 'ROLE_HR')`,
+YAML `salary: { weight: B, granted: ROLE_HR }`, and the same key in a plain PHP array. It needs no schema
+change and no reindex, and does nothing until `authorization` is enabled.
 
 ## Building an index
 

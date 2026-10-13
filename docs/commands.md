@@ -16,6 +16,11 @@ The `fuzzphony:*` commands, the doctor and the configuration wizard. Back to the
 | `fuzzphony:search-log:purge` | delete the search log rows older than `fuzzphony.search_log.retention_days`; for cron, see [Retention](analytics.md#retention). Only registered when the log is enabled |
 | `fuzzphony:wizard [table] [--format=yaml\|builder\|attributes] [--write=file] [--try]` | suggest, explain and export a definition |
 
+`fuzzphony:search` is an operator tool. Without `--tenant` and `--user` it searches as nobody, so no
+[guard](security.md#fuzzphonysearch-and-the-guards) (rate limit, authorization) runs; with either option it
+searches as that actor and the configured guards run for it, and a console has no Security token, so with
+`authorization` enabled such a search is denied.
+
 `fuzzphony:schema` without `--apply` only prints the SQL, so you can review it first. See
 [Reindexing and orphan pruning](sync.md#reindexing-and-orphan-pruning) for what `--no-prune` and
 `--prune-empty` are for.

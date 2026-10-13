@@ -57,8 +57,8 @@ $fuzzphony->in('products')
 
 `asActor()` sets the tenant when the actor has one (an actor without a tenant never clears a tenant
 set before; the last of `forTenant()` and `asActor()` wins) and keeps the user on the query. The user
-changes no SQL in this release: it is the identity that the search log and the guards of the coming
-0.9 parts read. `forTenant()` stays and works as before.
+changes no SQL: it is the identity that the [search log](analytics.md) and the
+[guards](security.md) (rate limit and authorization) read. `forTenant()` stays and works as before.
 
 On a tenant-scoped index, a search with an actor but no tenant throws `ActorRequired`, a subclass of
 `InvalidQuery`. A search without an actor still throws the original `InvalidQuery` ("requires
@@ -106,7 +106,16 @@ When a tenant-scoped index is searched by an actor without a tenant, the HTTP in
 **403 Forbidden** (`AccessDeniedHttpException`, the original `ActorRequired` as its previous
 exception), not a 500 and not an empty result. Each refusal increments the counter
 `fuzzphony.search.denied` (labels `index` and `reason=actor_required`, see
-[Observability](observability.md)) and writes a log line.
+[Observability](observability.md)) and writes a log line. The tenant check comes before the
+[guards](security.md#the-guards-and-their-order): an actor without a tenant is `ActorRequired` even if
+it would also lack the permission. A search denied by authorization (403) or over the rate limit (429
+with `Retry-After`) is explained in [Security](security.md).
+
+## Who may search, and how often
+
+The tenant scope decides *whose rows* a search sees. Who may search at all, how often, and which text
+fields a viewer may search and see are the guards of [Security](security.md): a rate limit per tenant or
+user, index- and field-level authorization on Symfony's voters.
 
 ## Did you mean
 

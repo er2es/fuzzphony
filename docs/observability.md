@@ -77,8 +77,12 @@ services:
   `LoggingMetricsCollector` when opted in — never for `PrometheusMetricsCollector`, see
   "Cardinality").
 - A refused search (an actor without a tenant on a tenant-scoped index): `fuzzphony.search.denied` (a
-  counter) labeled `index` and `reason` (`actor_required`); see
+  counter) labeled `index` and `reason` (`actor_required` or `authorization`); see
   [Multi-tenancy](multi-tenancy.md#a-refusal-is-a-403).
+- `fuzzphony.search.denied` also counts a search refused by the authorization guard (`reason=authorization`,
+  and a refused `suggest()`), and `fuzzphony.search.rate_limited` (a counter, label `index`) a search over the
+  rate limit; both write a warning log line and a `denied` / `rate_limited` row in the search log. See
+  [Security](security.md#refusals-in-metrics-logs-and-the-search-log).
 - The search log (opt-in): `fuzzphony.search_log.failed` (a counter) counts the records that could not be
   recorded or written (labeled `index` when one search failed to record, and by the size of the batch when a write
   failed, without a label); the search itself is never affected. See

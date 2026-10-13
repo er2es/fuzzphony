@@ -7,7 +7,7 @@ changes; they are always listed under **Breaking** and explained in [UPGRADE.md]
 
 ## [Unreleased]
 
-Parts 1 (identity) and 2 (search log and analytics) of 0.9. Upgrade: nothing, unless you enable the log: run `fuzzphony:schema --apply`.
+Parts 1 (identity), 2 (search log and analytics) and 3 (guards) of 0.9. Upgrade: nothing, unless you enable the log: run `fuzzphony:schema --apply`. See [UPGRADE.md](UPGRADE.md#from-08-to-09).
 
 ### Added
 
@@ -49,12 +49,36 @@ Parts 1 (identity) and 2 (search log and analytics) of 0.9. Upgrade: nothing, un
   pause in typing (`SearchQuery::$log`, `SearchQuery::unlogged()`); a refusal (`denied`) is recorded all the same. The Live Component
   has a `log` attribute (default `false`: its searches are unlogged; `log="true"` records them; never writable from the browser).
   In the demo, the live search and the suggestion dropdown are unlogged and a full page load (Enter) logs the settled query.
+- **Guards** (opt-in): `SearchGuard` (`check(IndexDefinition, Actor, bool $charge): Access`) and `Access` (`all()`, `only()`, intersected
+  across guards), `AccessDenied` and `RateLimited` (`$retryAfter`) exceptions, all public; `SearchGate` takes `guards`. They run for a
+  search made `asActor()`, in `get()`, `explain()` and `suggest()` (a federated search charges the rate limit once). The tenant check
+  comes before them. See [Security](docs/security.md).
+- **`fuzzphony.rate_limit`** (`limiter`, `per: tenant|user`): one token of a Symfony rate limiter per search, keyed by the tenant or the
+  user (no key: not limited); over the limit a 429 with `Retry-After`. `explain()` charges too. Needs `symfony/rate-limiter` (suggested).
+- **`fuzzphony.authorization`** (`enabled`, `index_attribute`, default `FUZZPHONY_SEARCH`): asks Symfony's authorization checker
+  `isGranted(attribute, indexName)` for the index (403 when denied; with the default attribute and no voter every search is denied, and no
+  token is denied too) and `isGranted(field.granted, indexName)` per field. Needs `symfony/security-bundle` (suggested).
+- **`granted`** on a field (`#[SearchField(granted:)]`, `IndexBuilder::field(granted:)`, YAML `granted:`, the wizard's exporters): the
+  attribute a viewer needs to search and see it. Not part of the fingerprint: no schema change, no reindex.
+- **The restricted path** (PostgreSQL): a viewer who is not granted a field does not match, rank (scores, bonuses, breakdown), highlight,
+  count (total, facets, exact counts) or get suggestions from it (no "did you mean", `suggest()` returns `[]`, the Live Component offers no
+  completions); an excluded word never excludes a document by a hidden field. `explain()` returns the statements and a note instead of the
+  plan. Filters and facets are not restricted. A viewer who may see every field takes the unchanged 0.8 path (a test compares the statements).
+- **`SearchBuilder::restrictedToFields()`** (`SearchQuery::$allowedFields`): the same restriction for application code.
+- **Metrics and logs for refusals:** `fuzzphony.search.rate_limited` (label `index`), and `fuzzphony.search.denied` now also with
+  `reason=authorization`; a warning log line and a `denied` / `rate_limited` search-log row for each, also for an unlogged search.
+- **403 and 429 mapping:** `AccessDenied` is a 403 and `RateLimited` a 429 with `Retry-After` in the HTTP integrations.
 - **Demo: the Analytics page** (under "Under the hood", `/under-the-hood/analytics`): the most searched texts of the last seven days and the searches that found nothing, from the search log (`search_log` is enabled in the demo with 30 days of retention and `redact: [email]`). A demo database from before 0.9 shows a hint to run `fuzzphony:schema --apply` instead of failing; `flows.mjs` has checks for it (36 checks: it searches a word unique to the run and looks for exactly that word). The demo's own measuring searches (the Benchmark rows, the extra searches of Relevance) are unlogged, so they do not skew the page.
 - **Demo: the Security page** (under "Under the hood", `/under-the-hood/security`): the worked example of [Security](docs/security.md). A small `intranet` index (24 notes of two companies, `demo/sql/demo_note.sql`, seeded and indexed by the init like the other demo tables) is searched by one of five fixed viewers chosen on the page and kept in the session (no passwords): Anonymous, Ada, Hana and Eve, a guest without `ROLE_USER` (Acme), Bob (Globex). It shows the tenant (the company: Ada and Bob find different notes for `budget`), the permission (Eve gets the `AccessDenied` card; an anonymous visitor is refused earlier with `ActorRequired`, because the tenant check comes before the authorization; the `confidential` field has `granted: ROLE_HR`, so for Ada `salary` finds nothing and her SQL has no column of that field, while Hana finds notes and sees the highlight) and the rate limit (five searches a minute per viewer: the sixth shows the seconds to wait). It uses the real configuration (`fuzzphony.actor`, `fuzzphony.authorization`, `fuzzphony.rate_limit`, a `SearchVoter`, a Security firewall that covers that page only); only the searches of this page are made `asActor()`, so the demo's other pages are unchanged. The demo now requires `symfony/security-bundle`, `symfony/rate-limiter` and `symfony/property-access`. `?reset=1` forgets the current viewer's searches of the minute (demo only). `flows.mjs` has 13 checks for it (49 checks); `shots.mjs` takes the page for the default viewer, Hana, Ada and Eve. The Analytics check of the nonsense word no longer claims it is absent from the most-searched table.
 
 ### Changed
 
 - `InvalidQuery` is no longer `final` (`ActorRequired` extends it).
+- `Fuzzphony::suggest()` takes an optional trailing `?Actor`: a restricted viewer gets `[]`, a refused one an exception.
+- **Highlight names are validated upfront**, for every viewer: `highlight('nosuch')` or a field with `highlight: false` throws
+  `InvalidQuery` even when the search finds nothing (before, only when there were hits).
+- The typo-tolerant candidate probes apply the search's tenant and filters, so `explain()` no longer shows other tenants' ids (a
+  disjunctive facet whose conditions differ from the search's uses the trigram condition instead of the ids).
 
 ### Fixed
 

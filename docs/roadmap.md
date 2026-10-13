@@ -57,8 +57,8 @@ depends on it, so nothing built early has to be refactored once a later mileston
 ## v0.9: Security and analytics
 
 Built on the 0.6 events. One release in three parts, in order: identity, the search log and analytics,
-guards. Parts 1 (identity) and 2 (the search log and analytics) are done and unreleased; see "Search
-analytics" and "Security" below.
+guards. All three parts (identity, the search log and analytics, guards) are done and unreleased; see "Search
+analytics" and "Security" below. The demo shows them on two pages under "Under the hood": Analytics and Security.
 
 ### Search analytics
 
@@ -74,9 +74,14 @@ a doctor check and an Analytics page in the demo. See [Search log and analytics]
 ### Security
 
 Per-tenant / per-user rate limiting (audit logging is covered by the search log: it records the tenant, the
-user and every refusal). Symfony Security
-integration for index- and field-level authorization (for example, keeping a field out of
-highlights unless the viewer is authorized).
+user and every refusal) and Symfony Security integration for index- and field-level authorization.
+
+Done (part 3, guards): `SearchGuard` and `Access`, `granted` on a field (attribute, builder, YAML),
+`restrictedToFields()`, the restricted SQL path (a hidden field is not matched, ranked, highlighted, suggested
+or counted), `fuzzphony.rate_limit` (429 with `Retry-After`) and `fuzzphony.authorization` (403), the metrics
+`fuzzphony.search.denied` and `fuzzphony.search.rate_limited`, refusals in the search log, and a Security page
+in the demo. Row-level authorization, restricted filters and facets, and IP limits are out of scope. See
+[Security](security.md).
 
 Done (part 1, identity): the `Actor` (tenant and user), `SearchBuilder::asActor()`, the `fuzzphony.actor`
 resolver (a service of yours, or property paths on the Symfony Security user) for the API Platform filter
