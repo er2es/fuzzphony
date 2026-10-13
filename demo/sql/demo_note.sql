@@ -3,7 +3,9 @@
 -- occur ONLY there, `budget` and `menu` occur in both companies' notes, and `bonus` is in a title and in the confidential
 -- text of the same note. Seeded once by docker/init.sh (only while the table does not exist).
 
-CREATE TABLE demo_note (
+-- Schema-qualified on purpose: the owner role is called `fuzzphony`, like Fuzzphony's own schema, so an unqualified name lands
+-- in that schema once it exists (an upgraded volume), where the application role (search_path "$user", public) cannot see it.
+CREATE TABLE public.demo_note (
     id           bigint PRIMARY KEY,
     company_id   integer NOT NULL,
     title        text NOT NULL,
@@ -11,7 +13,7 @@ CREATE TABLE demo_note (
     confidential text
 );
 
-INSERT INTO demo_note (id, company_id, title, body, confidential) VALUES
+INSERT INTO public.demo_note (id, company_id, title, body, confidential) VALUES
 -- Acme
 (1, 1, 'Budget review Q3', 'We go through the budget of the third quarter and agree the hiring plan for the platform team.', 'Salary bands for the platform team rise by 6 percent from January; do not share before the announcement.'),
 (2, 1, 'Project Atlas kickoff', 'Notes from the kickoff: scope, milestones and who owns the integration with the warehouse system.', NULL),

@@ -55,7 +55,8 @@ fuzzphony:
     # search sees one company's notes only; the confidential field is searched, ranked and highlighted for ROLE_HR only.
     intranet:
       source:
-        query: 'SELECT id, company_id, title, body, confidential FROM demo_note'
+        # public.: the table is schema-qualified because the application role must resolve it from its own search_path too
+        query: 'SELECT id, company_id, title, body, confidential FROM public.demo_note'
       fields:
         title: { weight: A, fuzzy: true }
         body: B
@@ -64,7 +65,7 @@ fuzzphony:
         company_id: int
       tenant: company_id
       watch:
-        demo_note: 'SELECT :id'
+        public.demo_note: 'SELECT :id'
       language: english
       # typo tolerance only when nothing matches exactly (as on the Languages page): a few notes, clean examples
       thresholds: { fallback_below: 1 }

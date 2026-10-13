@@ -71,7 +71,17 @@ fi
 
 # The intranet notes of the /under-the-hood/security page, seeded the same way (only while the table is missing).
 note_seeded=0
-if [ "$(psql -tAc "SELECT to_regclass('demo_note') IS NOT NULL")" = t ]; then
+# A volume seeded by an earlier version of this script has the table in the schema `fuzzphony` (the owner role is called
+# fuzzphony, so an unqualified CREATE TABLE lands in that schema once it exists), where the application role cannot see it:
+# drop that copy with its sync trigger function (the seed is re-created in `public` below, and the index is rebuilt).
+if [ "$(psql -tAc "SELECT to_regclass('public.demo_note') IS NULL AND to_regclass('fuzzphony.demo_note') IS NOT NULL")" = t ]; then
+    log "moving the intranet notes out of the fuzzphony schema (re-seeding them in public)"
+    psql -q -v ON_ERROR_STOP=1 <<'SQL'
+DROP TABLE fuzzphony.demo_note;
+DROP FUNCTION IF EXISTS fuzzphony.fuzzphony_sync_intranet__demo_note();
+SQL
+fi
+if [ "$(psql -tAc "SELECT to_regclass('public.demo_note') IS NOT NULL")" = t ]; then
     log "intranet notes present, not seeding"
 else
     log "seeding the intranet notes (sql/demo_note.sql)"

@@ -169,6 +169,13 @@ jobs:
         run: |
           php bin/console fuzzphony:schema --apply
           php bin/console fuzzphony:reindex --batch=1000
+      - name: The demo tables are in public and the application role can read them
+        # The owner role is called like Fuzzphony's schema, so an unqualified CREATE TABLE can land in the wrong schema; the
+        # application role (search_path "$user", public) then cannot see the table. Read it the way the page does.
+        run: |
+          psql -h 127.0.0.1 -U fuzzphony fuzzphony -v ON_ERROR_STOP=1 -tAc "SELECT to_regclass('public.demo_note') IS NOT NULL AND to_regclass('fuzzphony.demo_note') IS NULL" | grep -qx t
+          psql -h 127.0.0.1 -U fuzzphony fuzzphony -q -v ON_ERROR_STOP=1 -c "CREATE ROLE fuzzphony_app LOGIN PASSWORD 'fuzzphony'" -c 'GRANT USAGE ON SCHEMA public TO fuzzphony_app' -c 'GRANT SELECT ON ALL TABLES IN SCHEMA public TO fuzzphony_app'
+          PGPASSWORD=fuzzphony psql -h 127.0.0.1 -U fuzzphony_app fuzzphony -v ON_ERROR_STOP=1 -tAc 'SELECT count(*) FROM demo_note' | grep -qx 24
       - name: Doctor
         working-directory: demo
         run: php bin/console fuzzphony:doctor --strict
