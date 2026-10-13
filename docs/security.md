@@ -3,8 +3,10 @@
 Who may search, how often, and which fields of an index they may search and see. Back to the
 [README](../README.md).
 
-Everything here is opt-in. With nothing configured a search is what 0.8 did: the same SQL, the same
-number of statements, the same results. A search made without an actor never runs a guard, and a
+Everything here is opt-in. With nothing configured a search is what 0.8 did: the same results, and
+the same statements except the probe and facet change listed in the [CHANGELOG](../CHANGELOG.md)
+(the candidate probes carry the search's tenant and filters; a disjunctive facet with different
+conditions uses the trigram condition). A search made without an actor never runs a guard, and a
 viewer the guards let see every field takes the same fast path as before (a test compares the
 statements). The [demo](#a-worked-example) has a Security page that shows all of it running.
 
@@ -42,8 +44,8 @@ In a Symfony application the order is fixed:
    that is denied never spends a token.
 
 A refusal is shown by the HTTP integrations as **403** (`ActorRequired`, `AccessDenied`) or **429**
-with a `Retry-After` header (`RateLimited`), as the original exception's `previous`, and by
-`fuzzphony:search` as the exception message. Your own controllers catch the exceptions
+with a `Retry-After` header (`RateLimited`), as the original exception's `previous`. (`fuzzphony:search`
+runs no guard, so the only refusal it can show is `ActorRequired`, as its error message.) Your own controllers catch the exceptions
 (`Fuzzphony\Core\Exception\AccessDenied`, `RateLimited` with `$retryAfter` in seconds; all are
 `FuzzphonyException`s) or let the bundle's listener map them.
 
@@ -74,7 +76,9 @@ fuzzphony:
 ```
 
 It needs `symfony/rate-limiter` (a `suggest` dependency: without it the container fails to build with
-the `composer require` line). The key is the actor's tenant or user, as configured. When it is
+the `composer require` line). `limiter` must be the name of a `framework.rate_limiter` entry; an unknown
+name fails the container build with Symfony's own "non-existent service limiter.<name>" message. A
+`compound` limiter works too. The key is the actor's tenant or user, as configured. When it is
 exceeded the search throws `RateLimited` (429 with `Retry-After`).
 
 What is and is not limited:
@@ -83,10 +87,14 @@ What is and is not limited:
   user) is not limited. An IP limit is Symfony's own business (a limiter of its own in front of the
   controller).
 - **One token per search.** `explain()` runs the search, so it **charges** a token too.
-  `Fuzzphony::suggest()` (the completions) charges one token per call: the Live Component debounces its
-  requests, so it is one per pause in typing.
+  `Fuzzphony::suggest()` (the completions) charges one token per call, unless you pass `charge: false`
+  (only when the same request already charged a search). The Live Component does: a render is a
+  search plus its completions, and the search charges, so a render costs one token, and the Live
+  Component debounces its requests, so that is one per pause in typing. `useSuggestion` ("did you
+  mean") is a request of its own and can cost one extra token.
 - **A federated search charges once**, on the first index that has an actor; the other indexes run the
-  guards but do not charge again.
+  guards but do not charge again. If your `configure` closures set different actors for different
+  indexes, only the first actor's bucket is charged.
 
 ## Authorization
 
@@ -97,8 +105,9 @@ fuzzphony:
     index_attribute: FUZZPHONY_SEARCH   # the default
 ```
 
-It needs `symfony/security-bundle` (`symfony/security-core` provides the checker; a `suggest`
-dependency, with the same build-time message). The guard asks Symfony's authorization checker, with the
+It needs `symfony/security-bundle`, which provides the `security.authorization_checker` and
+`security.token_storage` services (`symfony/security-core` alone is not enough: the container build then
+fails with Symfony's own "non-existent service" message). The guard asks Symfony's authorization checker, with the
 current Security token:
 
 - **The index:** `isGranted(<index_attribute>, $indexName)`. Not granted: `AccessDenied` (403).
@@ -107,8 +116,19 @@ current Security token:
 
 `index_attribute` is `FUZZPHONY_SEARCH` by default: write a voter for it. **With the default attribute
 and no voter every search is denied (it fails closed).** Name an attribute that already exists to need
-no voter, for example `index_attribute: ROLE_USER`. **No token is denied too**: nobody logged in cannot
-search an index the guard protects.
+no voter, for example `index_attribute: ROLE_USER`. **No token is denied too**: the guard checks the
+token storage itself and refuses before it asks the checker (Symfony's checker would otherwise let the
+voters decide for an empty token), so a request outside any firewall cannot search an index the guard
+protects, whatever `index_attribute` or the voters say. A logged-out visitor has no token either (Symfony
+gives an anonymous visitor none), so with authorization enabled only signed-in users can search.
+
+**A footgun with the integrations.** With `authorization.enabled` the Live Component and the API
+Platform filter always search as an actor (an anonymous one when there is no session), so **every
+index they search** needs the index attribute granted. A voter that supports only some indexes (like
+the demo's `SearchVoter`, which supports only `intranet`) abstains on the others, and abstain means
+deny: either grant the attribute for all indexes, or name an existing attribute such as `ROLE_USER` in
+`index_attribute` (`PUBLIC_ACCESS` grants nothing to a logged-out visitor here: with no token the guard
+has already refused).
 
 ### `granted`: a field only some viewers may search
 

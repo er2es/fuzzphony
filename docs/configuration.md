@@ -334,7 +334,8 @@ fuzzphony:
 ```
 
 Needs `symfony/rate-limiter` (suggested, not required: without it the container fails to build, with the
-`composer require` line). One token per search of an actor that has the key; over the limit the search
+`composer require` line). `limiter` must name a `framework.rate_limiter` entry (a `compound` one works too);
+an unknown name fails the build with Symfony's own "non-existent service `limiter.<name>`" message. One token per search of an actor that has the key; over the limit the search
 throws `RateLimited` (HTTP 429 with `Retry-After`). See [Security](security.md#the-rate-limit) for what is
 and is not limited.
 
@@ -347,8 +348,10 @@ fuzzphony:
     index_attribute: FUZZPHONY_SEARCH   # isGranted(attribute, indexName); write a voter, or name e.g. ROLE_USER
 ```
 
-Needs `symfony/security-bundle` (suggested; the container fails to build without it, with the `composer
-require` line). With the default attribute and no voter every search is denied (fail closed), and so is a
+Needs `symfony/security-bundle` (suggested; it provides the `security.authorization_checker` and
+`security.token_storage` services. Without `symfony/security-core` the container fails to build with the
+`composer require` line; with security-core but without the bundle, with Symfony's own "non-existent
+service `security.authorization_checker`" message). With the default attribute and no voter every search is denied (fail closed), and so is a
 search without a Security token. A field is hidden from the viewers who are not granted its `granted:`
 attribute; see [Security](security.md#granted-a-field-only-some-viewers-may-search).
 

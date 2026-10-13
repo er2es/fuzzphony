@@ -52,12 +52,17 @@ Parts 1 (identity), 2 (search log and analytics) and 3 (guards) of 0.9. Upgrade:
 - **Guards** (opt-in): `SearchGuard` (`check(IndexDefinition, Actor, bool $charge): Access`) and `Access` (`all()`, `only()`, intersected
   across guards), `AccessDenied` and `RateLimited` (`$retryAfter`) exceptions, all public; `SearchGate` takes `guards`. They run for a
   search made `asActor()`, in `get()`, `explain()` and `suggest()` (a federated search charges the rate limit once). The tenant check
-  comes before them. See [Security](docs/security.md).
+  comes before them. `Fuzzphony::suggest()` takes a trailing `bool $charge = true` (and `SearchGate::accessCounted()` too): pass `false`
+  only when the same request already charged a search; the Live Component does, so a render costs one rate-limit token, not two.
+  See [Security](docs/security.md).
 - **`fuzzphony.rate_limit`** (`limiter`, `per: tenant|user`): one token of a Symfony rate limiter per search, keyed by the tenant or the
-  user (no key: not limited); over the limit a 429 with `Retry-After`. `explain()` charges too. Needs `symfony/rate-limiter` (suggested).
+  user (no key: not limited); over the limit a 429 with `Retry-After`. `explain()` charges too. Any `framework.rate_limiter` works, a
+  `compound` one included. Needs `symfony/rate-limiter` (suggested).
 - **`fuzzphony.authorization`** (`enabled`, `index_attribute`, default `FUZZPHONY_SEARCH`): asks Symfony's authorization checker
   `isGranted(attribute, indexName)` for the index (403 when denied; with the default attribute and no voter every search is denied, and no
-  token is denied too) and `isGranted(field.granted, indexName)` per field. Needs `symfony/security-bundle` (suggested).
+  token is denied too: the guard checks the token storage itself, because Symfony's checker would let the voters decide for an empty token,
+  so a request outside any firewall never searches a protected index) and `isGranted(field.granted, indexName)` per field. Needs
+  `symfony/security-bundle` (suggested).
 - **`granted`** on a field (`#[SearchField(granted:)]`, `IndexBuilder::field(granted:)`, YAML `granted:`, the wizard's exporters): the
   attribute a viewer needs to search and see it. Not part of the fingerprint: no schema change, no reindex.
 - **The restricted path** (PostgreSQL): a viewer who is not granted a field does not match, rank (scores, bonuses, breakdown), highlight,

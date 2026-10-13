@@ -22,7 +22,7 @@ use Symfony\Component\Routing\Attribute\Route;
 use Symfony\Component\Security\Core\Authorization\AuthorizationCheckerInterface;
 
 /**
- * Who is searching decides what a search may see: the worked example of docs/security.md. The visitor picks one of four
+ * Who is searching decides what a search may see: the worked example of docs/security.md. The visitor picks one of five
  * fixed viewers (ViewerAuthenticator); the search is made with `asActor()`, so the configured guards run: the company is the
  * tenant, ROLE_USER may search the `intranet` index (SearchVoter), the `confidential` field needs ROLE_HR, and a viewer
  * may search five times a minute. A refusal is an answer of the page, never an error page.

@@ -5,13 +5,18 @@ and the [CHANGELOG](CHANGELOG.md) has the full list of changes.
 
 ## From 0.8 to 0.9
 
-Nothing is required: without configuration a search is what 0.8 did (the same SQL and statements). Optional
-steps and things to know:
+Nothing is required: without configuration a search is what 0.8 did (the same results; the same statements
+except the probe and facet change listed in the CHANGELOG: the candidate probes carry the search's tenant and
+filters, and a disjunctive facet with different conditions uses the trigram condition). Optional steps and
+things to know:
 
 1. **The search log** needs a table only when you enable it (`fuzzphony.search_log.enabled: true`): run
    `fuzzphony:schema --apply` then. The guards (`fuzzphony.rate_limit`, `fuzzphony.authorization`) need no
-   table. New `suggest` packages: `symfony/rate-limiter`, `symfony/security-bundle` (a setting that needs a
-   missing one fails at container build with the `composer require` line).
+   table. New `suggest` packages: `symfony/rate-limiter` (for `rate_limit`) and `symfony/security-bundle` (for
+   `authorization`: `symfony/security-core` alone is not enough, Symfony's own "non-existent service
+   security.authorization_checker" message then fails the build). A missing `symfony/rate-limiter` fails at
+   container build with the `composer require` line; a `rate_limit.limiter` that is no `framework.rate_limiter`
+   entry fails with Symfony's "non-existent service limiter.<name>" message.
 2. **`granted` on a field** needs no schema change and no reindex, and does nothing until
    `fuzzphony.authorization` is enabled. If you enable it for an index built before 0.5, reindex first: a
    restricted viewer of an index without the per-field columns finds nothing (it fails closed).
