@@ -113,6 +113,7 @@
     button:active, .button:active { transform: scale(.98); }
     button.primary, .button.primary { background: var(--accent); color: var(--on-accent); font-weight: 600; }
     button.primary:hover, .button.primary:hover { background: color-mix(in srgb, var(--accent) 88%, var(--label)); }
+    button.small, .button.small { min-height: 1.875rem; padding: .2rem .75rem; font-size: .8125rem; }
 
     /* secondary text */
     .muted { color: var(--label-2); font-size: .875rem; }
@@ -379,6 +380,7 @@
     .callout ul { margin: .25rem 0 0; padding-left: 1.25rem; flex-basis: 100%; }
     .callout.is-ok { color: var(--ok); } .callout.is-bad { color: var(--bad); }
     .callout .icon { width: 1.25rem; height: 1.25rem; }
+    .callout .callout-body { display: grid; flex: 1 1 16rem; gap: .15rem; min-width: 0; }
 
     /* a text editor in a grouped surface */
     .editor { background: var(--surface); border-radius: var(--r-group); box-shadow: 0 0 0 .5px var(--hairline); overflow: hidden; }

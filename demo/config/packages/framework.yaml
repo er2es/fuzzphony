@@ -6,12 +6,12 @@ framework:
     session:
         save_path: '/tmp/fuzzphony-demo-sessions'
         cookie_samesite: lax
-    # The Security page's rate limit (fuzzphony.rate_limit.limiter below): five searches a minute for each viewer.
+    # The Security page's rate limit (fuzzphony.rate_limit.limiter below): five searches in 10 seconds for each viewer (short, so the demo does not make you wait).
     rate_limiter:
         fuzzphony_search:
             policy: fixed_window
             limit: 5
-            interval: '1 minute'
+            interval: '10 seconds'
             cache_pool: app.rate_limit_cache
     php_errors:
         log: true

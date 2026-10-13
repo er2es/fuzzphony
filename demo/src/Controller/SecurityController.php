@@ -25,7 +25,7 @@ use Symfony\Component\Security\Core\Authorization\AuthorizationCheckerInterface;
  * Who is searching decides what a search may see: the worked example of docs/security.md. The visitor picks one of five
  * fixed viewers (ViewerAuthenticator); the search is made with `asActor()`, so the configured guards run: the company is the
  * tenant, ROLE_USER may search the `intranet` index (SearchVoter), the `confidential` field needs ROLE_HR, and a viewer
- * may search five times a minute. A refusal is an answer of the page, never an error page.
+ * may search five times in 10 seconds. A refusal is an answer of the page, never an error page.
  */
 final class SecurityController extends AbstractController
 {
@@ -56,12 +56,15 @@ final class SecurityController extends AbstractController
         $viewer = $user instanceof DemoUser ? $user : null;
         $q = mb_substr(trim((string) $request->query->get('q', '')), 0, self::MAX_QUERY);
 
-        // Demo only: forget what this viewer has searched this minute (the flows and a second try need it).
-        $wasReset = false;
-        if ($viewer !== null && $request->query->getBoolean('reset')) {
+        // Demo only: forget what this viewer has searched in the current 10 seconds (the flows and a second try need it).
+        // It redirects (and leaves a one-time notice in the session) so that a reload or the back button does not reset again.
+        if ($viewer !== null && $request->query->getBoolean('reset') && $request->hasSession()) {
             $limiter->create($viewer->getUserIdentifier())->reset();
-            $wasReset = true;
+            $request->getSession()->getFlashBag()->add('reset', $viewer->name);
+
+            return $this->redirectToRoute('security', ['as' => $viewer->getUserIdentifier(), 'q' => $q !== '' ? $q : null], Response::HTTP_SEE_OTHER);
         }
+        $wasReset = $request->hasPreviousSession() && $request->hasSession() ? $request->getSession()->getFlashBag()->get('reset') !== [] : false;
 
         $result = $explanation = $outcome = null;
         $rows = [];

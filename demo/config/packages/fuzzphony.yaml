@@ -14,7 +14,7 @@ fuzzphony:
   actor: { tenant: company, user: userIdentifier }
   # isGranted('FUZZPHONY_SEARCH', 'intranet') before every actor search: App\Security\SearchVoter grants it to ROLE_USER.
   authorization: { enabled: true }
-  # Five searches a minute for each user (framework.rate_limiter.fuzzphony_search in framework.yaml).
+  # Five searches in 10 seconds for each user (framework.rate_limiter.fuzzphony_search in framework.yaml).
   rate_limit: { limiter: fuzzphony_search, per: user }
   indexes:
     catalog:

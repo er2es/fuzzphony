@@ -291,7 +291,7 @@ await go(sec, viewing('menu', 'ada'));
 check('security: five searches in 10 seconds are answered', (await sec.locator('.hit-row').count()) > 0 && (await sec.locator('.callout.is-warn').count()) === 0);
 await go(sec, viewing('menu', 'ada'));
 const refused = await sec.locator('.callout.is-warn').innerText().catch(() => '');
-check('security: the sixth is refused with the time to wait', /Too many searches: try again in \d+ (seconds )?\d+ s/.test(refused) && (await sec.locator('.hit-row').count()) === 0, refused);
+check('security: the sixth is refused with the time to wait', /Too many searches: try again in\s+(\d+ seconds\s+)?\d+ s/.test(refused) && (await sec.locator('.hit-row').count()) === 0, refused);
 // the wait counts down in the browser, and the card offers the reset next to it
 const seconds = async () => Number((await sec.locator('[data-countdown-target=seconds]').innerText()).replace(/\D+/g, ''));
 const first = await seconds();

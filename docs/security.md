@@ -297,5 +297,5 @@ fuzzphony:
 ```
 
 Ada searches `salary` and finds nothing (the word is only in `confidential`) and her `explain()` has no
-column of that field; Hana finds the notes and sees the highlight. The sixth search of a minute shows
+column of that field; Hana finds the notes and sees the highlight. The sixth search within 10 seconds shows
 the `RateLimited` card.

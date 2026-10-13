@@ -29,31 +29,43 @@
         </div>
     </div>
 
-    {% if wasReset %}<p class="callout" role="status">The rate limit of {{ viewer.name }} was reset (demo only).</p>{% endif %}
+    {% if wasReset %}<p class="callout" role="status">The count is back to zero: {{ viewer.name }} can search five times again (a shortcut for the demo).</p>{% endif %}
 
     {% if outcome %}
         <section aria-labelledby="outcome">
             <h2 id="outcome" class="sr-only">The answer</h2>
             {% if outcome.kind == 'limited' %}
-                <div class="callout is-warn" role="alert">
-                    <strong>Too many searches: try again in {{ outcome.retryAfter }} s.</strong>
-                    <span class="muted">{{ viewer.name }} may search {{ limit }} times a minute (<code>fuzzphony.rate_limit</code>, per user). In an application this is an HTTP 429 with a <code>Retry-After</code> header; here it is <code>{{ outcome.class }}</code> caught by the page.</span>
-                    <a class="button" href="{{ path('security', {as: viewerId, q: q, reset: 1}) }}">Reset the count (demo only)</a>
+                {# The wait counts down in the browser (countdown_controller.js); the ticking number is hidden from screen readers, the card
+                   announces the wait once and the end of it once. Without JavaScript the number stays as the server rendered it. #}
+                <div class="callout is-warn" role="alert" data-controller="countdown" data-countdown-seconds-value="{{ outcome.retryAfter }}">
+                    <div class="callout-body">
+                        <strong data-countdown-target="title">Too many searches: try again in <span class="sr-only">{{ outcome.retryAfter }} seconds</span><span aria-hidden="true" data-countdown-target="seconds">{{ outcome.retryAfter }} s</span>.</strong>
+                        <span class="muted">{{ viewer.name }} may search {{ limit }} times in 10 seconds (<code>fuzzphony.rate_limit</code>, per user). In an application this is an HTTP 429 with a <code>Retry-After</code> header; here it is <code>{{ outcome.class }}</code> caught by the page. Resetting the count is a shortcut for the demo.</span>
+                    </div>
+                    <a class="button primary small" data-countdown-target="reset" href="{{ path('security', {as: viewerId, q: q, reset: 1}) }}">Reset the count</a>
+                    <a class="button primary small" data-countdown-target="again" href="{{ path('security', {as: viewerId, q: q}) }}" hidden>Search again</a>
+                    <p class="sr-only" role="status" data-countdown-target="done"></p>
                 </div>
             {% elseif outcome.kind == 'actor' %}
                 <div class="callout is-bad" role="alert">
+                    <div class="callout-body">
                     <strong>Refused: an anonymous visitor cannot search the <code>intranet</code> index.</strong>
                     <span class="muted">The index is tenant-scoped and nobody is signed in, so there is no company to search in (<code>{{ outcome.class }}</code>; an application answers 403). The tenant check comes before the authorization: an anonymous visitor has no tenant, so the search is refused before anyone asks whether searching is granted (switch to Eve to see that refusal). Choose a viewer above.</span>
+                    </div>
                 </div>
             {% elseif outcome.kind == 'denied' %}
                 <div class="callout is-bad" role="alert">
+                    <div class="callout-body">
                     <strong>Searching <code>intranet</code> is not granted to this actor: {{ viewer.name }} has no <code>ROLE_USER</code>.</strong>
-                    <span class="muted"><code>{{ outcome.class }}</code>: {{ outcome.message }} {{ viewer.name }} is signed in and has a company, so the tenant is not the problem: <code>SearchVoter</code> denies <code>FUZZPHONY_SEARCH</code> without <code>ROLE_USER</code>. In an application this is an HTTP 403.</span>
+                    <span class="muted"><code>{{ outcome.class }}</code>: {{ outcome.message }} {{ viewer.name }} is signed in and has a company, so the tenant is not the problem: <code>SearchVoter</code> denies <code>FUZZPHONY_SEARCH</code> without <code>ROLE_USER</code>. In an application this is an HTTP 403. A refused search spends no token: the rate limit comes after the authorization.</span>
+                    </div>
                 </div>
             {% else %}
                 <div class="callout is-bad" role="alert">
+                    <div class="callout-body">
                     <strong>That search could not run.</strong>
                     <span class="muted"><code>{{ outcome.class }}</code>: {{ outcome.message }}</span>
+                    </div>
                 </div>
             {% endif %}
         </section>
@@ -61,7 +73,7 @@
         <section aria-labelledby="found">
             <h2 id="found" class="list-title">{{ result.total }} {{ result.total == 1 ? 'note' : 'notes' }} for {{ viewer.name }} in {{ viewer.companyName }}</h2>
             {% if result.hits is empty %}
-                <p class="muted" role="status">Nothing found{% if forbidden %}: the words of a field this viewer may not see are not matched, so they cannot find a note{% endif %}.</p>
+                <p class="muted" role="status">Nothing found.{% if forbidden %} A word that occurs only in a field this viewer may not search ({% for f, role in forbidden %}<code>{{ f }}</code>{{ loop.last ? '' : ', ' }}{% endfor %}) is not matched: it cannot find a note.{% endif %}</p>
             {% else %}
                 <ul class="list">
                     {% for hit in result.hits %}
@@ -96,7 +108,7 @@
             <li class="row no-lead">
                 <div class="row-body">
                     <div class="row-title">Company (the tenant)</div>
-                    <div class="row-sub">{% if viewer %}{{ viewer.companyName }} (<code>company_id = {{ viewer.company }}</code>): a search sees this company's notes and no other's{% else %}none: a tenant-scoped index refuses a search without one{% endif %}</div>
+                    <div class="row-sub">{% if viewer %}{{ viewer.companyName }} (<code>company_id = {{ viewer.company }}</code>): {% if allowed %}a search sees this company's notes and no other's{% else %}the tenant check passes, but searching is not granted{% endif %}{% else %}none: a tenant-scoped index refuses a search without one{% endif %}</div>
                 </div>
             </li>
             <li class="row no-lead">
@@ -117,13 +129,13 @@
                     <div class="row-title">Rate limit</div>
                     <div class="row-sub">
                         {% if viewer %}
-                            {{ used }} of {{ limit }} searches used this minute (per user)
+                            {{ used }} of {{ limit }} searches used in the current 10 seconds (per user); each search on this page spends one, its SQL included
                         {% else %}
                             not counted: the limit is per user, and an anonymous visitor is refused before it
                         {% endif %}
                     </div>
                 </div>
-                {% if viewer %}<a class="button" href="{{ path('security', {as: viewerId, q: q ?: null, reset: 1}) }}">Reset the count (demo only)</a>{% endif %}
+                {% if viewer %}<a class="button small" href="{{ path('security', {as: viewerId, q: q ?: null, reset: 1}) }}">Reset the count</a>{% endif %}
             </li>
         </ul>
     </section>
@@ -131,7 +143,7 @@
     {% if explanation %}
         <details class="disclosure">
             <summary>The SQL of this search<svg class="icon" aria-hidden="true"><use href="#i-chevron"/></svg></summary>
-            <p class="muted">Exactly what Fuzzphony ran for {{ viewer.name }}. {% if forbidden %}It reads only the columns of the fields this viewer may search ({% for f in allowed %}<code>t_{{ f }}</code>{{ loop.last ? '' : ', ' }}{% endfor %}): the hidden field is not in it, so it is not matched, not ranked and not highlighted.{% else %}This viewer may search every field, so the SQL is the one of an unrestricted search: it reads the combined <code>tsv</code> column of all of them.{% endif %}</p>
+            <p class="muted">This is what <code>explain()</code> returned for {{ viewer.name }}: the statements Fuzzphony ran for the search above. {% if forbidden %}It reads only the columns of the fields this viewer may search ({% for f in allowed %}<code>t_{{ f }}</code>{{ loop.last ? '' : ', ' }}{% endfor %}): the hidden field is not in it, so it is not matched, not ranked and not highlighted.{% else %}This viewer may search every field, so the SQL is the one of an unrestricted search: it reads the combined <code>tsv</code> column of all of them.{% endif %}</p>
             <p class="muted">Understood as <code>{{ explanation.interpretedAs }}</code></p>
             {% for s in explanation.statements %}
                 <h3 class="list-title">{{ s.label }}</h3>
