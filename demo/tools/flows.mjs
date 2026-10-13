@@ -174,6 +174,49 @@ check('the analytics page lists the exact word that was just searched among the 
 check('the analytics page lists the nonsense word among the searches that found nothing', zero.includes(nothing), `${nothing} in ${zero.join(', ')}`);
 check('the word that found something is not in the zero-result table', !zero.includes(found), zero.join(', '));
 check('the analytics page does not list what was typed on the way', !top.concat(zero).some((t) => typedOnTheWay.includes(t)), top.concat(zero).join(', '));
+
+// an example chip is a deliberate search: it is logged at once, by its own request, also when the visitor is on the Analytics page
+// before the settle time has passed. The chips are given words unique to this run (the log is shared); three rounds of three chips,
+// each click less than a second after the last, then Analytics straight away. A word typed and then left by navigation (no time to
+// settle) is logged too: the pending settle is sent when the page is hidden.
+const chipWords = ['a', 'b', 'c'].map((l) => `chip${l}${suffix}`);
+const leftWord = `leftw${suffix}`;
+await go(page, BASE + '/');
+await page.evaluate((words) => document.querySelectorAll('.examples-row a.chip').forEach((chip, i) => {
+    if (i < words.length) {
+        chip.setAttribute('data-live-search-q-param', words[i]);
+    }
+}), chipWords);
+for (let round = 0; round < 3; round++) {
+    const started = Date.now();
+    for (let i = 0; i < 3; i++) {
+        await page.locator('.examples-row a.chip').nth(i).click();
+    }
+    if (round === 0) {
+        check('three example chips are clicked less than a second apart', Date.now() - started < 1000, `${Date.now() - started} ms`);
+    }
+}
+await go(page, BASE + '/under-the-hood/analytics'); // at once: nothing has had 1.5 s to settle
+for (let round = 0; round < 3; round++) {
+    await go(page, BASE + '/');
+    await page.fill('input[name=q]', '');
+    await page.type('input[name=q]', leftWord, { delay: 40 });
+    await page.waitForSelector('#results');
+    await go(page, BASE + '/under-the-hood/analytics'); // left before the settle time: the pending settle goes out as the page hides
+}
+let logged = [];
+for (let attempt = 0; attempt < 8; attempt++) {
+    await go(page, BASE + '/under-the-hood/analytics');
+    const tables = page.locator('.table-card');
+    logged = [];
+    for (let t = 0; t < (await tables.count()); t++) {
+        logged = logged.concat((await tables.nth(t).locator('td code').allTextContents()).map((x) => x.trim()));
+    }
+    if (chipWords.every((w) => logged.includes(w)) && logged.includes(leftWord)) break;
+    await page.waitForTimeout(500);
+}
+check('each example chip clicked in quick succession was logged', chipWords.every((w) => logged.includes(w)), `${chipWords.join(', ')} in ${logged.join(', ')}`);
+check('a word typed and left at once by navigation was logged', logged.includes(leftWord), `${leftWord} in ${logged.join(', ')}`);
 check('there is no "/ to search" hint in the toolbar', (await p3.locator('.toolbar-hint').count()) === 0);
 
 // the SQL of the Tune page wraps instead of scrolling sideways
@@ -201,8 +244,9 @@ await p2.click('.nav .menu summary');
 check('the menu opens upwards from the tab bar', (await p2.locator('.menu-panel a').first().boundingBox())?.y < box.y);
 
 // 11. the Security page (docs/security.md): who searches decides what a search may see. A fresh browser context, so the viewer chosen on the
-// page (kept in the session) is its own. reset=1 forgets the viewer's searches of this minute (demo only), so a run within a minute of
-// the last one is not refused by the rate limit; the rate-limit check comes last, because it spends Ada's five searches.
+// page (kept in the session) is its own. The limit is 5 searches in 10 seconds; reset=1 forgets the viewer's searches of the window
+// (demo only), so a re-run is never refused by the previous one. The rate-limit checks come last: they spend Ada's five searches, and
+// the six searches are made in one go (the first four without rendering the page) so they fit in the window.
 const secContext = await browser.newContext({ viewport: { width: 1280, height: 800 }, reducedMotion: 'reduce' });
 const sec = await secContext.newPage();
 sec.setDefaultTimeout(8000);
@@ -242,11 +286,25 @@ await sec.waitForSelector('#results .hit-row');
 check('security: the other pages never ask for a viewer: the home page works for an anonymous visitor', homeResponse?.status() === 200 && (await sec.locator('#results .hit-row').count()) > 0);
 
 await go(sec, viewing('menu', 'ada', '&reset=1'));
-for (let i = 2; i <= 5; i++) await go(sec, viewing('menu', 'ada'));
-check('security: five searches in a minute are answered', (await sec.locator('.hit-row').count()) > 0 && (await sec.locator('.callout.is-warn').count()) === 0);
+for (let i = 2; i <= 4; i++) await sec.request.get(viewing('menu', 'ada'));
+await go(sec, viewing('menu', 'ada'));
+check('security: five searches in 10 seconds are answered', (await sec.locator('.hit-row').count()) > 0 && (await sec.locator('.callout.is-warn').count()) === 0);
 await go(sec, viewing('menu', 'ada'));
 const refused = await sec.locator('.callout.is-warn').innerText().catch(() => '');
-check('security: the sixth is refused with the time to wait', /Too many searches: try again in \d+ s/.test(refused) && (await sec.locator('.hit-row').count()) === 0, refused);
+check('security: the sixth is refused with the time to wait', /Too many searches: try again in \d+ (seconds )?\d+ s/.test(refused) && (await sec.locator('.hit-row').count()) === 0, refused);
+// the wait counts down in the browser, and the card offers the reset next to it
+const seconds = async () => Number((await sec.locator('[data-countdown-target=seconds]').innerText()).replace(/\D+/g, ''));
+const first = await seconds();
+const resetShown = await sec.locator('.callout.is-warn .button.primary.small', { hasText: 'Reset the count' }).isVisible();
+await sec.waitForTimeout(1300);
+const later = (await sec.locator('.callout.is-ok').count()) > 0 ? 0 : await seconds();
+check('security: the wait counts down in the page, with the reset button next to it', later < first && resetShown, `${first} -> ${later}, reset button ${resetShown}`);
+// past the window the card says so and a search works again
+await sec.waitForSelector('.callout.is-ok', { timeout: 15000 });
+check('security: at zero the card says the visitor can search again', /You can search again/.test(await sec.locator('.callout.is-ok').innerText()) && (await sec.locator('.callout.is-ok .button', { hasText: 'Search again' }).isVisible()));
+await sec.click('.callout.is-ok .button >> text=Search again');
+await sec.waitForSelector('.hit-row');
+check('security: after the window a search is answered again', (await sec.locator('.hit-row').count()) > 0 && (await sec.locator('.callout.is-warn').count()) === 0);
 await go(sec, viewing('', 'ada', '&reset=1')); // leave Ada's count at zero for whoever looks next
 await secContext.close();
 
