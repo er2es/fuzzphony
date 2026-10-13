@@ -10,7 +10,7 @@
 [![Packagist Version](https://img.shields.io/packagist/v/fuzzphony/fuzzphony)](https://packagist.org/packages/fuzzphony/fuzzphony)
 [![PHP](https://img.shields.io/packagist/dependency-v/fuzzphony/fuzzphony/php)](https://packagist.org/packages/fuzzphony/fuzzphony)
 [![PostgreSQL 15 | 16 | 17 | 18](https://img.shields.io/badge/PostgreSQL-15%20%7C%2016%20%7C%2017%20%7C%2018-336791?logo=postgresql&logoColor=white)](https://github.com/er2es/fuzzphony/blob/main/.github/workflows/ci.yml)
-[![Symfony 7.4 LTS | 8.1](https://img.shields.io/badge/Symfony-7.4%20LTS%20%7C%208.1-000000?logo=symfony)](https://github.com/er2es/fuzzphony/blob/main/.github/workflows/ci.yml)
+[![Symfony 7.4 LTS | 8.0 | 8.1](https://img.shields.io/badge/Symfony-7.4%20LTS%20%7C%208.0%20%7C%208.1-000000?logo=symfony)](https://github.com/er2es/fuzzphony/blob/main/.github/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://github.com/er2es/fuzzphony/blob/main/LICENSE)
 
 **Fuzzy search, in perfect harmony with your database.**
@@ -114,10 +114,10 @@ before 1.0).
   CREATE EXTENSION IF NOT EXISTS pg_trgm;
   CREATE EXTENSION IF NOT EXISTS unaccent;
   ```
-- Optional: Symfony 7.4+ and Doctrine (DBAL 4.2+, ORM 3.3+) for the bundle. CI tests the LTS (7.4) and every Symfony
-  release that is still maintained (8.1 today), and the next minor (8.2) as an early warning. A release that Symfony no
-  longer maintains (8.0 since July 2026) is dropped from CI in the next minor release of Fuzzphony; the `^7.4 || ^8.0`
-  constraint is not tightened, so it keeps installing.
+- Optional: Symfony 7.4+ and Doctrine (DBAL 4.2+, ORM 3.3+) for the bundle. CI tests every Symfony release the
+  `^7.4 || ^8.0` constraint allows (the 7.4 LTS, 8.0 and 8.1 today), and the next minor (8.2) as an early warning. What the
+  constraint allows and what CI tests are the same list: a release that Symfony no longer maintains (8.0 since July
+  2026) leaves the constraint and CI together, in a minor release of Fuzzphony, with a note in the CHANGELOG.
 
 `bin/console fuzzphony:doctor` checks all of this and prints the fix for anything missing.
 
