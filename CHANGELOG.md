@@ -48,7 +48,7 @@ Parts 1 (identity), 2 (search log and analytics) and 3 (guards) of 0.9. Upgrade:
 - **`SearchBuilder::unlogged()`** keeps one search out of the search log, for the requests of a live search box that fire on every
   pause in typing (`SearchQuery::$log`, `SearchQuery::unlogged()`); a refusal (`denied`) is recorded all the same. The Live Component
   has a `log` attribute (default `false`: its searches are unlogged; `log="true"` records them; never writable from the browser).
-  In the demo, the live search and the suggestion dropdown are unlogged and a full page load (Enter) logs the settled query.
+  In the demo, the live search and the suggestion dropdown are unlogged and the search that settles (a full page load with Enter, or the live search's silent repeat after 1.5 s without typing) is logged.
 - **Guards** (opt-in): `SearchGuard` (`check(IndexDefinition, Actor, bool $charge): Access`) and `Access` (`all()`, `only()`, intersected
   across guards), `AccessDenied` and `RateLimited` (`$retryAfter`) exceptions, all public; `SearchGate` takes `guards`. They run for a
   search made `asActor()`, in `get()`, `explain()` and `suggest()` (a federated search charges the rate limit once). The tenant check
@@ -89,6 +89,7 @@ Parts 1 (identity), 2 (search log and analytics) and 3 (guards) of 0.9. Upgrade:
 
 ### Fixed
 
+- Demo, Analytics: the page stayed empty for a visitor who only typed on the home page (the live requests are unlogged and only Enter logged). A search now counts once you stop typing for about a second: the live search repeats its request silently (`X-Settled: 1`) and that one is logged; the half-typed words are still not.
 - Demo, Languages: the list of every product of a language (the disclosure) had bullets and no padding; it is plain rows in columns now, inside the card.
 - Demo, Tune: the "out of stock" facet chip was plain text; it is a button now, like "in stock" (each narrows the search; "in stock only" wins when both are set).
 

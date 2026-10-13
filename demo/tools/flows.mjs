@@ -142,8 +142,8 @@ await p3.click('.nav .menu summary');
 const labels = (await p3.locator('.menu-panel a').allTextContents()).map((t) => t.trim());
 check('the menu lists wizard, benchmark, doctor, observability, synonyms, analytics, security', ['Config wizard', 'Benchmark', 'Doctor', 'Observability', 'Synonyms', 'Analytics', 'Security'].every((l) => labels.includes(l)), labels.join(', '));
 
-// the search log: a search submitted with Enter (a full page load, the settled query) shows up on the Analytics page, the requests of
-// the live search while typing do not. The words are unique to this run (the page lists the top 15 of the last seven days, and an
+// the search log: a search typed and left alone (no Enter: the live search repeats it silently after 1.5 s, and that one is logged)
+// shows up on the Analytics page, the requests of the live search while typing do not. The words are unique to this run (the page lists the top 15 of the last seven days, and an
 // earlier run's rows must not satisfy the check): "mouse" plus a random suffix, which the search tolerates (it still finds mice), and
 // a nonsense word that finds nothing. Each is searched three times so it outranks the single searches of other visitors on a
 // shared demo database (the tables sort by the number of searches). The log is written after the response: poll.
@@ -156,8 +156,7 @@ for (const q of [found, nothing]) {
         await page.fill('input[name=q]', '');
         await page.type('input[name=q]', q, { delay: 40 });
         await page.waitForSelector('#results');
-        await Promise.all([page.waitForNavigation({ waitUntil: 'load' }), page.press('input[name=q]', 'Enter')]);
-        await page.waitForSelector('#results');
+        await page.waitForTimeout(2500); // the text settles (1.5 s after the live response) and the silent request is made
     }
 }
 let top = [];

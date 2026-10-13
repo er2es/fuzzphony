@@ -56,8 +56,10 @@ final class SearchController extends AbstractController
             default => null,
         };
 
-        // the live search sends a request per pause in typing: only the settled query of a full page load is logged
+        // the live search sends a request per pause in typing: those are not logged (the half-typed words would fill the log);
+        // the settled query is: a full page load, or the live search's one silent repeat after the text has stood for a moment
         $live = $request->headers->get('X-Requested-With') === 'fetch';
+        $logged = !$live || $request->headers->get('X-Settled') === '1';
 
         $result = null;
         $rows = [];
@@ -67,7 +69,7 @@ final class SearchController extends AbstractController
         if ($q !== '') {
             try {
                 $search = $fuzzphony->in('catalog')->query($q)->asYouType()->highlight('name')->limit(20);
-                $search = $facets->narrow($live ? $search->unlogged() : $search, $category, $stock);
+                $search = $facets->narrow($logged ? $search : $search->unlogged(), $category, $stock);
                 $result = $search->facets('category_id', 'in_stock')->get();
                 $rows = $catalog->rows($result->ids());
                 $categories = $facets->categories($result->facets['category_id'] ?? []);
