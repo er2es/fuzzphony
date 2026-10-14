@@ -4,7 +4,7 @@
         "Read more about it at https://getcomposer.org/doc/01-basic-usage.md#installing-dependencies",
         "This file is @generated automatically"
     ],
-    "content-hash": "b9ef48ca094e72d007a0e934b364ff1c",
+    "content-hash": "0b676c3406eac1402360c0f5e6007b66",
     "packages": [
         {
             "name": "composer/semver",
@@ -596,128 +596,128 @@
             "time": "2026-02-08T16:21:46+00:00"
         },
         {
-            "name": "fuzzphony/core",
-            "version": "dev-v09-3-guards",
+            "name": "fuzzphony/fuzzphony",
+            "version": "dev-v094-one-package",
             "dist": {
                 "type": "path",
-                "url": "../src/Core",
-                "reference": "2b8ab8d59f947d7efa3d3440a09922b7285582ab"
+                "url": "..",
+                "reference": "9a4589c7ae6a98ad7332d430ed0a2b836f1e706b"
             },
             "require": {
                 "ext-mbstring": "*",
                 "ext-pdo": "*",
-                "php": ">=8.4"
-            },
-            "type": "library",
-            "autoload": {
-                "psr-4": {
-                    "Fuzzphony\\Core\\": ""
-                }
-            },
-            "license": [
-                "MIT"
-            ],
-            "description": "Fuzzphony core: index definitions, query language, ranking, thresholds, sync and inspection contracts. Framework- and database-agnostic.",
-            "transport-options": {
-                "symlink": true,
-                "relative": true
-            }
-        },
-        {
-            "name": "fuzzphony/doctrine-bridge",
-            "version": "dev-v09-3-guards",
-            "dist": {
-                "type": "path",
-                "url": "../src/Bridge/Doctrine",
-                "reference": "8e19b5a05b2742f87484ccba3157067cd986136a"
-            },
-            "require": {
-                "doctrine/dbal": "^4.2",
-                "fuzzphony/core": "self.version",
-                "php": ">=8.4"
-            },
-            "suggest": {
-                "doctrine/orm": "For #[Searchable] entities, ORM sync mode and entity hydration"
-            },
-            "type": "library",
-            "autoload": {
-                "psr-4": {
-                    "Fuzzphony\\Bridge\\Doctrine\\": ""
-                }
-            },
-            "license": [
-                "MIT"
-            ],
-            "description": "Fuzzphony Doctrine bridge: DBAL connection adapter, ORM metadata naming, ORM sync listener, entity hydration.",
-            "transport-options": {
-                "symlink": true,
-                "relative": true
-            }
-        },
-        {
-            "name": "fuzzphony/postgres-engine",
-            "version": "dev-v09-3-guards",
-            "dist": {
-                "type": "path",
-                "url": "../src/Engine/Postgres",
-                "reference": "8ea1dbf009374a0a52158b899b19696454a2c607"
-            },
-            "require": {
                 "ext-pdo_pgsql": "*",
-                "fuzzphony/core": "self.version",
-                "php": ">=8.4"
-            },
-            "type": "library",
-            "autoload": {
-                "psr-4": {
-                    "Fuzzphony\\Engine\\Postgres\\": ""
-                }
-            },
-            "license": [
-                "MIT"
-            ],
-            "description": "Fuzzphony PostgreSQL engine: tsvector + unaccent + pg_trgm, sidecar indexes, triggers and queue sync.",
-            "transport-options": {
-                "symlink": true,
-                "relative": true
-            }
-        },
-        {
-            "name": "fuzzphony/symfony-bundle",
-            "version": "dev-v09-3-guards",
-            "dist": {
-                "type": "path",
-                "url": "../src/Bundle",
-                "reference": "3a67118e518fecd18da1b9120b2e80673690be96"
-            },
-            "require": {
-                "fuzzphony/core": "self.version",
-                "fuzzphony/doctrine-bridge": "self.version",
-                "fuzzphony/postgres-engine": "self.version",
                 "php": ">=8.4",
+                "psr/log": "^3.0"
+            },
+            "conflict": {
+                "doctrine/dbal": "<4.2",
+                "doctrine/orm": "<3.3",
+                "symfony/framework-bundle": "<7.4"
+            },
+            "require-dev": {
+                "api-platform/doctrine-orm": "^4.1 || ^5.0",
+                "doctrine/dbal": "^4.2",
+                "doctrine/orm": "^3.3",
+                "friendsofphp/php-cs-fixer": "^3.64",
+                "infection/infection": "^0.35.4",
+                "phpstan/phpstan": "^2.1",
+                "phpstan/phpstan-strict-rules": "^2.0",
+                "phpunit/phpunit": "^11.5 || ^12.0",
+                "promphp/prometheus_client_php": "^2.15",
+                "symfony/browser-kit": "^7.4 || ^8.0",
                 "symfony/console": "^7.4 || ^8.0",
-                "symfony/framework-bundle": "^7.4 || ^8.0"
+                "symfony/css-selector": "^7.4 || ^8.0",
+                "symfony/framework-bundle": "^7.4 || ^8.0",
+                "symfony/messenger": "^7.4 || ^8.0",
+                "symfony/property-access": "^7.4 || ^8.0",
+                "symfony/rate-limiter": "^7.4 || ^8.0",
+                "symfony/security-core": "^7.4 || ^8.0",
+                "symfony/twig-bundle": "^7.4 || ^8.0",
+                "symfony/ux-live-component": "^2.22 || ^3.0",
+                "symfony/yaml": "^7.4 || ^8.0"
             },
             "suggest": {
                 "api-platform/doctrine-orm": "FuzzphonySearchFilter for API Platform collections",
+                "doctrine/dbal": "Use an existing Doctrine DBAL connection (Fuzzphony\\Bridge\\Doctrine\\DbalConnection)",
                 "doctrine/migrations": "Run the migration fuzzphony:schema --dump-migration writes (the bundle hides Fuzzphony's tables from migrations:diff)",
+                "doctrine/orm": "Load results as entities (EntityLoader) and sync in ORM mode (OrmSyncListener)",
+                "promphp/prometheus_client_php": "Export metrics in Prometheus's data model (Fuzzphony\\Bundle\\Observability\\PrometheusMetricsCollector)",
+                "symfony/framework-bundle": "Symfony integration: configuration, autowiring and the fuzzphony:* console commands",
                 "symfony/messenger": "Asynchronous refresh in ORM sync mode (fuzzphony.orm_sync.async)",
                 "symfony/property-access": "fuzzphony.actor.tenant / .user: property paths on the Security user",
                 "symfony/rate-limiter": "fuzzphony.rate_limit: limit how often a tenant or user may search (a framework.rate_limiter entry)",
                 "symfony/security-bundle": "fuzzphony.actor.tenant / .user: the actor from the Security user",
                 "symfony/security-core": "fuzzphony.authorization: grant an index or a field to a user (the security.authorization_checker service comes from symfony/security-bundle)",
-                "symfony/ux-live-component": "<twig:Fuzzphony:Search> search-as-you-type component"
+                "symfony/ux-live-component": "The <twig:Fuzzphony:Search> search-as-you-type component"
             },
-            "type": "symfony-bundle",
+            "type": "library",
             "autoload": {
                 "psr-4": {
-                    "Fuzzphony\\Bundle\\": ""
+                    "Fuzzphony\\Core\\": "src/Core/",
+                    "Fuzzphony\\Engine\\Postgres\\": "src/Engine/Postgres/",
+                    "Fuzzphony\\Bridge\\Doctrine\\": "src/Bridge/Doctrine/",
+                    "Fuzzphony\\Bundle\\": "src/Bundle/"
                 }
+            },
+            "autoload-dev": {
+                "psr-4": {
+                    "Fuzzphony\\Tests\\": "tests/"
+                }
+            },
+            "scripts": {
+                "test": [
+                    "phpunit --testsuite=unit"
+                ],
+                "test:integration": [
+                    "phpunit --testsuite=integration"
+                ],
+                "test:all": [
+                    "phpunit"
+                ],
+                "stan": [
+                    "phpstan analyse"
+                ],
+                "cs": [
+                    "php-cs-fixer fix --dry-run --diff"
+                ],
+                "cs:fix": [
+                    "php-cs-fixer fix"
+                ],
+                "mutation": [
+                    "infection --threads=max --only-covering-test-cases --show-mutations=0"
+                ],
+                "qa": [
+                    "@cs",
+                    "@stan",
+                    "@test"
+                ]
             },
             "license": [
                 "MIT"
             ],
-            "description": "Fuzzphony Symfony bundle: configuration, autowiring, console commands (schema, doctor, reindex, worker, search).",
+            "authors": [
+                {
+                    "name": "Szabó József",
+                    "homepage": "https://github.com/er2es"
+                }
+            ],
+            "description": "Fuzzy search, in perfect harmony with your database. PostgreSQL-native full-text + trigram search for PHP and Symfony, without an extra service.",
+            "homepage": "https://github.com/er2es/fuzzphony",
+            "keywords": [
+                "doctrine",
+                "full-text",
+                "fuzzy",
+                "pg_trgm",
+                "postgresql",
+                "search",
+                "symfony"
+            ],
+            "support": {
+                "issues": "https://github.com/er2es/fuzzphony/issues",
+                "source": "https://github.com/er2es/fuzzphony",
+                "security": "https://github.com/er2es/fuzzphony/security/advisories/new"
+            },
             "transport-options": {
                 "symlink": true,
                 "relative": true
@@ -5486,7 +5486,7 @@
     "aliases": [],
     "minimum-stability": "dev",
     "stability-flags": {
-        "fuzzphony/symfony-bundle": 20
+        "fuzzphony/fuzzphony": 20
     },
     "prefer-stable": true,
     "prefer-lowest": false,

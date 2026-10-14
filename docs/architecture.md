@@ -1,22 +1,23 @@
 # Architecture
 
-How the code is split into packages, and where design decisions are recorded. Back to the
+How the code is organised into layers, and where design decisions are recorded. Back to the
 [README](../README.md).
 
-## Packages
+## Layers
 
 ```
-fuzzphony/core             definitions, attributes, query language (AST), ranking, thresholds,
+src/Core             definitions, attributes, query language (AST), ranking, thresholds,
                            Engine contract, schema plans, inspection, reindexer, worker, wizard
-fuzzphony/postgres-engine  tsvector + unaccent + pg_trgm; SQL compilers, schema generator, doctor,
-                           introspector
-fuzzphony/doctrine-bridge  DBAL connection, ORM naming, ORM sync listener, entity loader
-fuzzphony/symfony-bundle   configuration, autowiring, console commands, Messenger, API Platform
-                           filter, Live Component
+src/Engine/Postgres  tsvector + unaccent + pg_trgm; SQL compilers, schema generator, doctor,
+                     introspector
+src/Bridge/Doctrine  DBAL connection, ORM naming, ORM sync listener, entity loader
+src/Bundle           configuration, autowiring, console commands, Messenger, API Platform
+                     filter, Live Component
 ```
 
-This is a monorepo, published as the single Composer package `fuzzphony/fuzzphony`. Each directory
-already has its own `composer.json` for a later split into separate packages.
+These are layers (namespaces and directories) of ONE Composer package, `fuzzphony/fuzzphony`; there are
+no separate packages and no split repositories. The layering is a rule of the code, not of Composer:
+`Core` knows nothing of the others, the engine and the bridge depend on `Core`, the bundle on all three.
 
 ## Engine
 
