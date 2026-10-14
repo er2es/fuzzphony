@@ -14,7 +14,7 @@ Tests and documentation only: the library's code and API do not change. No upgra
 ### Changed
 
 - README, "Try the demo": the Windows commands (`cmd` and PowerShell) for the `BUILDX_BAKE_ENTITLEMENTS_FS` variable (`setx` keeps it), `DEMO_ROWS` and the large profile.
-- **Mutation testing:** 117 new tests (about 80 test files named `<Subject>MutationsTest.php`) kill the mutants that escaped the full run on 0.9.1 (246 of 4 891 covered mutants, 94% covered-code MSI). The mutants that still escape are equivalent ones (a cast on a value that is already that type, array keys that are never read, a branch only a real clock would show); the dead or redundant code they point at is left as it is and listed in the repository's notes for a later cleanup.
+- **Mutation testing:** 134 new tests (49 files named `<Subject>MutationsTest.php`) kill 117 of the mutants that escaped the full run on 0.9.1 (246 of 4 891 covered mutants, 94% covered-code MSI). The mutants that still escape are equivalent ones (a cast on a value that is already that type, array keys that are never read, a branch only a real clock would show); the dead or redundant code they point at is left as it is and listed in the repository's notes for a later cleanup.
 
 ## [0.9.1] - 2026-10-14
 
