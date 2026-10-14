@@ -46,6 +46,44 @@ git clone https://github.com/er2es/fuzzphony
 cd fuzzphony/demo && docker compose up --build    # http://localhost:8000
 ```
 
+On **Windows**, newer Docker Compose versions ask for a build privilege on every build; one environment variable stops that
+(`cmd`: `setx` keeps it for every new window, `set` only for the current one):
+
+```bat
+:: cmd
+setx BUILDX_BAKE_ENTITLEMENTS_FS 0
+set BUILDX_BAKE_ENTITLEMENTS_FS=0
+cd fuzzphony\demo
+docker compose up --build
+```
+
+```powershell
+# PowerShell
+$env:BUILDX_BAKE_ENTITLEMENTS_FS = "0"
+cd fuzzphony\demo
+docker compose up --build
+```
+
+The default catalogue has 500 000 products (`DEMO_ROWS`, about a minute to index); the **large profile** (1 000 000 products, needs
+8 GB for Docker) and its setup are in the [demo README](https://github.com/er2es/fuzzphony/blob/main/demo/README.md#the-large-profile-1-000-000-products):
+
+```bat
+:: cmd: a fresh volume, 1 000 000 products
+docker compose down -v
+set DEMO_ROWS=1000000
+docker compose -f docker-compose.yml -f docker-compose.large.yml up --build
+```
+
+```powershell
+# PowerShell
+docker compose down -v
+$env:DEMO_ROWS = "1000000"
+docker compose -f docker-compose.yml -f docker-compose.large.yml up --build
+```
+
+`docker compose down -v` removes the data, so the next start seeds again (the seed only runs on an empty volume). To go back to
+the default size run `docker compose -f docker-compose.yml -f docker-compose.large.yml down -v` and start the plain command.
+
 | Page | What you see |
 |---|---|
 | Search | one search field over the catalogue: results appear in place while you type (typos, accents and half-typed words included), with the category and stock facets at the side; the Speed view puts the same search next to a plain `ILIKE` |

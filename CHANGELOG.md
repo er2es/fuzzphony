@@ -7,6 +7,10 @@ changes; they are always listed under **Breaking** and explained in [UPGRADE.md]
 
 ## [Unreleased]
 
+### Changed
+
+- README, "Try the demo": the Windows commands (`cmd` and PowerShell) for the `BUILDX_BAKE_ENTITLEMENTS_FS` variable (`setx` keeps it), `DEMO_ROWS` and the large profile.
+
 ## [0.9.1] - 2026-10-14
 
 No upgrade steps. Two small follow-ups to the 0.9 search log.
