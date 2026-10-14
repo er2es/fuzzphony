@@ -150,6 +150,9 @@ $result = $fuzzphony->in('products')->query($text)->asYouType()->unlogged()->get
 
 Only the `ok` row is skipped: a refusal is recorded all the same.
 
+A [federated search](searching.md#federated-search) has its own `unlogged()`: it keeps every per-index search out of the log
+(`$fuzzphony->federated()->index('products')->index('articles')->query($text)->unlogged()->get()`).
+
 The [Live Component](integrations.md#live-component) does this for you: its `log` attribute defaults to `false`
 (every pause in typing is a search), so its requests are unlogged. `<twig:Fuzzphony:Search index="products"
 log="true" />` records them. The attribute is set on the server; the browser cannot change it.

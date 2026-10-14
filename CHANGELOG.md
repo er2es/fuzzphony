@@ -7,6 +7,11 @@ changes; they are always listed under **Breaking** and explained in [UPGRADE.md]
 
 ## [Unreleased]
 
+### Added
+
+- **`FederatedSearch::unlogged()`**: keeps every per-index search of a federated search out of the search log (a refusal is
+  still recorded as a `denied` row), like `SearchBuilder::unlogged()` does for one index.
+
 ## [0.9.0] - 2026-10-14
 
 Parts 1 (identity), 2 (search log and analytics) and 3 (guards) of 0.9. Upgrade: nothing, unless you enable the log: run `fuzzphony:schema --apply`. See [UPGRADE.md](UPGRADE.md#from-08-to-09).
