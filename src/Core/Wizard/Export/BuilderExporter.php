@@ -70,6 +70,9 @@ final class BuilderExporter
         if ($index->tenant !== null) {
             $lines[] = sprintf('    ->tenant(%s)', $e($index->tenant));
         }
+        if (!$index->log) {
+            $lines[] = '    ->log(false)';
+        }
         if (!$index->synonyms->isEmpty()) {
             $lines[] = sprintf('    ->synonyms(%s)', $e($index->synonyms->toEntries()));
         }

@@ -12,6 +12,11 @@ changes; they are always listed under **Breaking** and explained in [UPGRADE.md]
 - **`FederatedSearch::unlogged()`**: keeps every per-index search of a federated search out of the search log (a refusal is
   still recorded as a `denied` row), like `SearchBuilder::unlogged()` does for one index.
 
+### Fixed
+
+- The wizard exporters (`ArrayExporter`/YAML, `AttributeExporter`, `BuilderExporter`) keep `log: false`: an index kept out of
+  the search log no longer comes back logged after an export.
+
 ## [0.9.0] - 2026-10-14
 
 Parts 1 (identity), 2 (search log and analytics) and 3 (guards) of 0.9. Upgrade: nothing, unless you enable the log: run `fuzzphony:schema --apply`. See [UPGRADE.md](UPGRADE.md#from-08-to-09).

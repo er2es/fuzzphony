@@ -98,6 +98,55 @@ final class ExportersTest extends TestCase
         self::assertEquals($original->synonyms, (new AttributeDefinitionLoader())->load($class)->synonyms);
     }
 
+    public function testArrayExportRoundTripsAnIndexKeptOutOfTheLog(): void
+    {
+        $original = IndexDefinition::builder('gadgets')->fromTable('gadget')->field('title', 'A')->log(false)->build();
+
+        $exported = (new ArrayExporter())->export($original);
+        $reloaded = (new ArrayDefinitionLoader())->load('gadgets', $exported);
+
+        self::assertFalse($exported['log']);
+        self::assertFalse($reloaded->log);
+        self::assertEquals($original, $reloaded);
+        self::assertStringContainsString('log: false', (new YamlExporter())->export($original));
+    }
+
+    public function testTheDefaultLogSettingIsNeverExported(): void
+    {
+        $original = IndexDefinition::builder('gadgets')->fromTable('gadget')->field('title', 'A')->build();
+
+        self::assertArrayNotHasKey('log', (new ArrayExporter())->export($original));
+        self::assertStringNotContainsString('log', (new BuilderExporter())->export($original));
+        self::assertStringNotContainsString('log:', (new AttributeExporter())->export($original, 'LoggedGadget' . bin2hex(random_bytes(4))));
+    }
+
+    public function testBuilderExportKeepsAnIndexOutOfTheLog(): void
+    {
+        $original = IndexDefinition::builder('gadgets')->fromTable('gadget')->field('title', 'A')->log(false)->build();
+
+        $code = (new BuilderExporter())->export($original);
+
+        self::assertNotEmpty(token_get_all("<?php\n" . $code, TOKEN_PARSE));
+        self::assertStringContainsString("\n    ->log(false)\n    ->build();", $code);
+    }
+
+    public function testAttributeExportKeepsAnIndexOutOfTheLog(): void
+    {
+        $original = IndexDefinition::builder('gadgets')->fromTable('gadget')->field('title', 'A')->log(false)->build();
+
+        $code = (new AttributeExporter())->export($original, 'QuietGadget' . bin2hex(random_bytes(4)));
+        self::assertNotEmpty(token_get_all($code, TOKEN_PARSE));
+        eval(substr($code, 5));
+        if (preg_match('/final class (\w+)/', $code, $m) !== 1) {
+            self::fail('Could not find the exported class name.');
+        }
+        /** @var class-string $class */
+        $class = '\\' . $m[1];
+
+        self::assertStringContainsString('log: false', $code);
+        self::assertFalse((new AttributeDefinitionLoader())->load($class)->log);
+    }
+
     public function testArrayExportRoundTripsTenantScoping(): void
     {
         $original = Indexes::products(tenant: true);
