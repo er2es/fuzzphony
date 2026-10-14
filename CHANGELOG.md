@@ -9,6 +9,7 @@ changes; they are always listed under **Breaking** and explained in [UPGRADE.md]
 
 ### Changed
 
+- Dead and redundant code removed (no behaviour change, no API change): the `relaxed: ` prefix on the `browse` statement (a relaxed search never browses) and a no-op `array_diff_key()` in the did-you-mean lookup (`PostgresEngine`); an unreachable default and an unreachable `null` check in the fuzzy query compiler; the `null` arm of the YAML exporter (the exported array holds no `null`); the redundant `array_values()` in `SearchQuery::highlight()` and `facets()` (`copy()` already normalises the lists); a guard in `fuzzphony:wizard` that could not be false; the recursion into the alternatives of a synonym expansion in `SynonymExpander::expandedWords()` (only a hand-built query tree reached it). `AuthorizationGuard::check()` now says why it ignores `$charge`.
 - `SECURITY.md`: security fixes are released for 0.9.x (it still said 0.8.x), and the trust model now covers the 0.9 features: authorization (what it guarantees and what it does not) and the search log.
 
 ## [0.9.3] - 2026-10-14

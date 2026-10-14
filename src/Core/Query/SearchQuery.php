@@ -122,7 +122,7 @@ final readonly class SearchQuery
 
     public function highlight(string ...$fields): self
     {
-        return $this->copy(highlight: array_values(array_unique([...$this->highlight, ...$fields])));
+        return $this->copy(highlight: array_unique([...$this->highlight, ...$fields]));
     }
 
     /** @param array<string, mixed> $overrides e.g. ['min_score' => 0.1, 'fuzzy_mode' => 'always'] */
@@ -140,7 +140,7 @@ final readonly class SearchQuery
     /** Counts the values of these filters among the matches (see SearchResult::$facets). */
     public function facets(string ...$filters): self
     {
-        return $this->copy(facets: array_values(array_unique([...$this->facets, ...$filters])));
+        return $this->copy(facets: array_unique([...$this->facets, ...$filters]));
     }
 
     public function facetValues(int $values): self

@@ -26,6 +26,7 @@ final readonly class AuthorizationGuard implements SearchGuard
         private string $indexAttribute = 'FUZZPHONY_SEARCH',
     ) {}
 
+    // $charge is unused here: the SearchGuard interface has it for the guards that spend a rate-limit token (RateLimitGuard)
     public function check(IndexDefinition $index, Actor $actor, bool $charge = true): Access
     {
         if ($this->tokens->getToken() === null) {

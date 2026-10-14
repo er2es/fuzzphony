@@ -111,8 +111,9 @@ final class FuzzyQueryCompiler
         $probes = [];
         foreach ($this->trigramLeaves($node, $emptyQueries) as $leaf) {
             $needle = $this->needle($leaf);
+            assert($needle !== null, 'trigramLeaves() keeps only the leaves that have a needle');
             $key = $this->candidateKey($leaf);
-            if ($needle === null || isset($probes[$key])) {
+            if (isset($probes[$key])) {
                 continue;
             }
             $params = new ParameterBag();
@@ -389,6 +390,7 @@ final class FuzzyQueryCompiler
         if ($field === null && $this->allowed !== null) {
             // A restricted viewer: "<%" on fz (every fuzzy field) only finds the candidates; the similarity, and so the
             // match and the score, is the best of the allowed fuzzy fields' own columns. needle() made sure there is one.
+            // A null $threshold means the thresholds fix fuzzySimilarity (both callers pass the per-length recheck otherwise).
             $similarities = array_map(
                 fn(FieldDefinition $f): string => sprintf('%s.word_similarity(%s, s.%s)', $schema, $norm, $this->names->fieldFuzzy($f->name)),
                 $this->fuzzyAllowed(null),
@@ -396,7 +398,7 @@ final class FuzzyQueryCompiler
             $similarity = count($similarities) === 1 ? $similarities[0] : 'GREATEST(' . implode(', ', $similarities) . ')';
 
             return [
-                'condition' => sprintf('(%s OPERATOR(%s.<%%) s.fz AND %s >= %s)', $norm, $schema, $similarity, $threshold ?? Sql::float($this->thresholds->fuzzySimilarity ?? 0.0)),
+                'condition' => sprintf('(%s OPERATOR(%s.<%%) s.fz AND %s >= %s)', $norm, $schema, $similarity, $threshold ?? Sql::float((float) $this->thresholds->fuzzySimilarity)),
                 'similarity' => $similarity,
             ];
         }

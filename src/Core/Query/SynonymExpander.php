@@ -121,7 +121,8 @@ final readonly class SynonymExpander
     public static function expandedWords(Node $expanded): array
     {
         return match (true) {
-            $expanded instanceof AnyOf && $expanded->expansion => array_values(array_unique(array_merge(self::queryWords($expanded->nodes[0]), ...array_map(self::expandedWords(...), array_slice($expanded->nodes, 1))))),
+            // the alternatives (the other nodes) are implied words the user did not type
+            $expanded instanceof AnyOf && $expanded->expansion => array_values(array_unique(self::queryWords($expanded->nodes[0]))),
             $expanded instanceof AllOf, $expanded instanceof AnyOf => array_values(array_unique(array_merge(...array_map(self::expandedWords(...), $expanded->nodes)))),
             $expanded instanceof Not => self::expandedWords($expanded->node),
             default => [],

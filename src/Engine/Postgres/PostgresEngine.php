@@ -685,12 +685,9 @@ final class PostgresEngine implements Engine, Vocabulary, SynonymStems, Suggesti
 
         /** @var array<string, array{int, int, string}> $best typed word => [distance, -documents, vocabulary word] */
         $best = [];
-        $known = [];
         foreach ($rows as $row) {
             $word = Coerce::str($row['w']);
             if (in_array($row['known'], [true, 't', 'true', 1, '1'], true)) {
-                $known[$word] = true;
-
                 continue;
             }
             if ($row['word'] === null) {
@@ -707,7 +704,7 @@ final class PostgresEngine implements Engine, Vocabulary, SynonymStems, Suggesti
                 $best[$word] = $rank;
             }
         }
-        $replace = array_map(static fn(array $rank): string => $rank[2], array_diff_key($best, $known));
+        $replace = array_map(static fn(array $rank): string => $rank[2], $best);
         if ($replace === []) {
             return null;
         }
@@ -851,7 +848,7 @@ final class PostgresEngine implements Engine, Vocabulary, SynonymStems, Suggesti
         $emptyQueries = $scopedRoot === null ? null : $this->emptyQueries($index, $fuzzy->leafQueries($scopedRoot));
 
         if ($tsquery === null && $plain === '') {
-            $statement = ['label' => $labelPrefix . 'browse'] + $builder->browse($conditions, $profile, $thresholds, $query->limit, $query->offset);
+            $statement = ['label' => 'browse'] + $builder->browse($conditions, $profile, $thresholds, $query->limit, $query->offset);
             $rows = $this->run($statement, null);
             $statements[] = $statement;
             $browse = true;
