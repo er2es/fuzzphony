@@ -25,6 +25,13 @@ const pages = JSON.parse(process.env.PAGES ?? JSON.stringify([
     { name: 'doctor', path: '/under-the-hood/doctor' },
     { name: 'observability', path: '/under-the-hood/observability' },
     { name: 'analytics', path: '/under-the-hood/analytics' },
+    // each context is a new visitor: the default viewer is nobody; reset=1 forgets the viewer's searches of the 10-second window (demo only); `before` are requests made first
+    // (five searches as Ada, so that the page itself is the refused sixth, with its countdown)
+    { name: 'security', path: '/under-the-hood/security?q=salary' },
+    { name: 'security-hana', path: '/under-the-hood/security?as=hana&q=salary&reset=1' },
+    { name: 'security-eve', path: '/under-the-hood/security?as=eve&q=salary' },
+    { name: 'security-limited', path: '/under-the-hood/security?as=ada&q=menu', before: ['reset=1', 'q=menu', 'q=menu', 'q=menu', 'q=menu', 'q=menu'].map((x) => `/under-the-hood/security?as=ada&${x}`) },
+    { name: 'security-ada', path: '/under-the-hood/security?as=ada&q=salary&reset=1' },
 ]));
 const viewports = { phone: { width: 390, height: 844 }, laptop: { width: 1280, height: 800 } };
 // interactions: typing into the search box and capturing the suggestion panel
@@ -46,6 +53,7 @@ for (const page of pages) {
             p.on('console', (m) => ['error', 'warning'].includes(m.type()) && !m.text().includes('Cross-Origin-Opener-Policy') && messages.push(`${m.type()}: ${m.text()}`));
             p.on('pageerror', (e) => messages.push(`pageerror: ${e.message}`));
             // php -S serves one connection at a time and Chromium's speculative sockets can stall a load: retry once
+            for (const before of page.before ?? []) await p.request.get(BASE + before, { timeout: 15000 });
             await p.goto(BASE + page.path, { waitUntil: 'load', timeout: 10000 }).catch(() => p.goto(BASE + page.path, { waitUntil: 'load', timeout: 30000 }));
             await p.waitForLoadState('networkidle', { timeout: 8000 }).catch(() => {});
             await p.waitForTimeout(400);

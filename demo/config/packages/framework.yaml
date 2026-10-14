@@ -1,6 +1,18 @@
 framework:
     secret: '%env(APP_SECRET)%'
     http_method_override: false
+    # Only the Security page uses the session (the "Viewing as" choice). The container's file system is read-only apart
+    # from /tmp, so the files live there, like the synonym cache (config/services.yaml).
+    session:
+        save_path: '/tmp/fuzzphony-demo-sessions'
+        cookie_samesite: lax
+    # The Security page's rate limit (fuzzphony.rate_limit.limiter below): five searches in 10 seconds for each viewer (short, so the demo does not make you wait).
+    rate_limiter:
+        fuzzphony_search:
+            policy: fixed_window
+            limit: 5
+            interval: '10 seconds'
+            cache_pool: app.rate_limit_cache
     php_errors:
         log: true
     asset_mapper:

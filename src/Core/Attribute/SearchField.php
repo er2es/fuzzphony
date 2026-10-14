@@ -14,5 +14,7 @@ final readonly class SearchField
         public bool $fuzzy = false,
         public bool $highlight = true,
         public ?string $column = null,
+        /** The role a viewer needs to search and see this field (see FieldDefinition::$granted). */
+        public ?string $granted = null,
     ) {}
 }

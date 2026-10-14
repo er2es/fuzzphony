@@ -26,9 +26,12 @@ use Fuzzphony\Bundle\Messenger\MessengerRefreshDispatcher;
 use Fuzzphony\Bundle\Messenger\RefreshDocumentsHandler;
 use Fuzzphony\Bundle\Observability\MetricsCollectorFactory;
 use Fuzzphony\Bundle\Registry\RegistryFactory;
+use Fuzzphony\Bundle\Security\AuthorizationGuard;
 use Fuzzphony\Bundle\Security\NullActorResolver;
 use Fuzzphony\Bundle\Security\PropertyPathActorResolver;
+use Fuzzphony\Bundle\Security\RateLimitGuard;
 use Fuzzphony\Bundle\Twig\SearchComponent;
+use Fuzzphony\Core\Analytics\NullSearchLog;
 use Fuzzphony\Core\Analytics\PatternQueryRedactor;
 use Fuzzphony\Core\Database\Connection;
 use Fuzzphony\Core\Engine\Engine;
@@ -50,8 +53,11 @@ use Symfony\Component\DependencyInjection\ContainerBuilder;
 use Symfony\Component\DependencyInjection\Loader\Configurator\ContainerConfigurator;
 use Symfony\Component\HttpKernel\Bundle\AbstractBundle;
 use Symfony\Component\PropertyAccess\PropertyAccessorInterface;
+use Symfony\Component\RateLimiter\RateLimiterFactory;
 use Symfony\Component\Security\Core\Authentication\Token\Storage\TokenStorageInterface;
+use Symfony\Component\Security\Core\Authorization\AuthorizationCheckerInterface;
 
+use function Symfony\Component\DependencyInjection\Loader\Configurator\inline_service;
 use function Symfony\Component\DependencyInjection\Loader\Configurator\service;
 use function Symfony\Component\DependencyInjection\Loader\Configurator\service_closure;
 
@@ -73,8 +79,14 @@ use function Symfony\Component\DependencyInjection\Loader\Configurator\service_c
  *       enabled: false             # run fuzzphony:schema --apply after enabling
  *       retention_days: 90         # fuzzphony:search-log:purge deletes older rows
  *       redact: [email]            # "email" or regular expressions: matches are stored as [redacted]
+ *     rate_limit:                  # opt-in: limit how often a tenant or user may search
+ *       limiter: search            # a framework.rate_limiter entry (service limiter.search); needs symfony/rate-limiter
+ *       per: tenant                # tenant or user
+ *     authorization:               # opt-in: who may search which index and which fields
+ *       enabled: false             # asks isGranted(index_attribute, indexName) and isGranted(field role, indexName)
+ *       index_attribute: FUZZPHONY_SEARCH  # write a voter for it, or name an existing attribute such as ROLE_USER
  *     indexes:
- *       products:                # overrides for an attribute index, or a pure YAML index
+ *       products:              # overrides for an attribute index, or a pure YAML index
  *         thresholds: { min_score: 0.05 }
  *         profiles: { popular: { boost: 0.05, recency: 0.3 } }
  */
@@ -130,6 +142,20 @@ final class FuzzphonyBundle extends AbstractBundle
                         ->arrayNode('redact')->scalarPrototype()->end()->info('"email" or a regular expression with delimiters: matches are replaced by [redacted] before anything is stored')->end()
                     ->end()
                 ->end()
+                ->arrayNode('rate_limit')
+                    ->addDefaultsIfNotSet()
+                    ->children()
+                        ->scalarNode('limiter')->defaultNull()->info('Name of a framework.rate_limiter entry (service limiter.<name>); empty = no rate limit')->end()
+                        ->enumNode('per')->values(['tenant', 'user'])->defaultValue('tenant')->info('Whose searches share one bucket; an actor without that key is not limited')->end()
+                    ->end()
+                ->end()
+                ->arrayNode('authorization')
+                    ->addDefaultsIfNotSet()
+                    ->children()
+                        ->booleanNode('enabled')->defaultFalse()->info('Check the index and the fields (granted: ...) with Symfony authorization before every search')->end()
+                        ->scalarNode('index_attribute')->defaultValue('FUZZPHONY_SEARCH')->info('Checked with isGranted(attribute, indexName) before every search; write a voter for it, or name an existing attribute such as ROLE_USER')->end()
+                    ->end()
+                ->end()
                 ->arrayNode('indexes')
                     ->info('Pure YAML indexes, or overrides (YAML wins) for attribute-defined ones. Validated by Fuzzphony with precise error messages.')
                     ->useAttributeAsKey('name')
@@ -183,6 +209,22 @@ final class FuzzphonyBundle extends AbstractBundle
     {
         if (!$security || !$propertyAccess) {
             throw new InvalidConfiguration('fuzzphony.actor.tenant / fuzzphony.actor.user need symfony/security-bundle and symfony/property-access: composer require symfony/security-bundle symfony/property-access');
+        }
+    }
+
+    /** @internal */
+    public static function assertRateLimiterPackage(bool $available): void
+    {
+        if (!$available) {
+            throw new InvalidConfiguration('fuzzphony.rate_limit needs symfony/rate-limiter: composer require symfony/rate-limiter');
+        }
+    }
+
+    /** @internal */
+    public static function assertAuthorizationPackage(bool $available): void
+    {
+        if (!$available) {
+            throw new InvalidConfiguration('fuzzphony.authorization needs symfony/security-core (symfony/security-bundle provides the authorization checker): composer require symfony/security-bundle');
         }
     }
 
@@ -263,15 +305,41 @@ final class FuzzphonyBundle extends AbstractBundle
                 ->factory([PatternQueryRedactor::class, 'fromSettings'])
                 ->args([$redact]);
         }
-        $gateArguments = [service('fuzzphony.metrics'), service('logger')];
-        if ($searchLogEnabled) {
-            $gateArguments[] = service('fuzzphony.search_log');
-            $gateArguments[] = $redact !== [] ? service('fuzzphony.query_redactor') : null;
+        $rateLimit = is_array($config['rate_limit'] ?? null) ? $config['rate_limit'] : [];
+        $limiterName = Coerce::str($rateLimit['limiter'] ?? null);
+        $authorization = is_array($config['authorization'] ?? null) ? $config['authorization'] : [];
+        // Authorization first: a search that is denied must not spend a rate-limit token.
+        $guards = [];
+        if ((bool) ($authorization['enabled'] ?? false)) {
+            self::assertAuthorizationPackage(interface_exists(AuthorizationCheckerInterface::class));
+            $indexAttribute = Coerce::str($authorization['index_attribute'] ?? null);
+            $services->set('fuzzphony.guard.authorization', AuthorizationGuard::class)
+                ->args([service('security.authorization_checker'), service('security.token_storage'), $indexAttribute !== '' ? $indexAttribute : 'FUZZPHONY_SEARCH']);
+            $guards[] = service('fuzzphony.guard.authorization');
         }
+        if ($limiterName !== '') {
+            self::assertRateLimiterPackage(class_exists(RateLimiterFactory::class));
+            $per = Coerce::str($rateLimit['per'] ?? null);
+            $services->set('fuzzphony.guard.rate_limit', RateLimitGuard::class)
+                ->args([service('limiter.' . $limiterName), $per !== '' ? $per : 'tenant']);
+            $guards[] = service('fuzzphony.guard.rate_limit');
+        }
+        $gateArguments = static fn(array $guards): array => [
+            service('fuzzphony.metrics'),
+            service('logger'),
+            $searchLogEnabled ? service('fuzzphony.search_log') : inline_service(NullSearchLog::class),
+            $searchLogEnabled && $redact !== [] ? service('fuzzphony.query_redactor') : null,
+            $guards,
+        ];
         $services->set('fuzzphony.search_gate', SearchGate::class)
-            ->args($gateArguments)
+            ->args($gateArguments($guards))
             ->tag('monolog.logger', ['channel' => 'fuzzphony']); // its log line goes to the same channel as the metrics
         $services->alias(SearchGate::class, 'fuzzphony.search_gate');
+        // fuzzphony:search is an operator tool with database access: it runs no guard (a console has no Security
+        // token, so authorization would deny it). Its searches are still counted and, with the log on, logged.
+        $services->set('fuzzphony.search_gate.operator', SearchGate::class)
+            ->args($gateArguments([]))
+            ->tag('monolog.logger', ['channel' => 'fuzzphony']);
         $services->set('fuzzphony.exception_listener', SearchExceptionListener::class)->tag('kernel.event_listener', ['event' => 'kernel.exception', 'priority' => 64]);
 
         $services->set('fuzzphony.engine', PostgresEngine::class)
@@ -297,6 +365,8 @@ final class FuzzphonyBundle extends AbstractBundle
         $services->set('fuzzphony', Fuzzphony::class)
             ->args([service('fuzzphony.engine'), service('fuzzphony.registry'), service('fuzzphony.search_gate')]);
         $services->alias(Fuzzphony::class, 'fuzzphony')->public();
+        $services->set('fuzzphony.operator', Fuzzphony::class)
+            ->args([service('fuzzphony.engine'), service('fuzzphony.registry'), service('fuzzphony.search_gate.operator')]);
 
         $services->set('fuzzphony.introspector', PostgresIntrospector::class)->args([service('fuzzphony.connection'), $names->schema]);
         $services->alias(SourceIntrospector::class, 'fuzzphony.introspector');
@@ -345,7 +415,7 @@ final class FuzzphonyBundle extends AbstractBundle
             DoctorCommand::class => [service('fuzzphony'), $applicationSchemaFilter, $names->schema],
             ReindexCommand::class => [service('fuzzphony')],
             WorkerCommand::class => [service('fuzzphony'), $workerBatchSize, $workerIdleSleep, service('fuzzphony.metrics')],
-            SearchCommand::class => [service('fuzzphony')],
+            SearchCommand::class => [service('fuzzphony.operator')],
             WizardCommand::class => [service('fuzzphony.introspector'), service('fuzzphony.engine'), service('fuzzphony.connection')],
         ];
         if ($searchLogEnabled) {

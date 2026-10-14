@@ -69,6 +69,26 @@ else
     psql -q -1 -v ON_ERROR_STOP=1 -f sql/demo_synonym.sql
 fi
 
+# The intranet notes of the /under-the-hood/security page, seeded the same way (only while the table is missing).
+note_seeded=0
+# A volume seeded by an earlier version of this script has the table in the schema `fuzzphony` (the owner role is called
+# fuzzphony, so an unqualified CREATE TABLE lands in that schema once it exists), where the application role cannot see it:
+# drop that copy with its sync trigger function (the seed is re-created in `public` below, and the index is rebuilt).
+if [ "$(psql -tAc "SELECT to_regclass('public.demo_note') IS NULL AND to_regclass('fuzzphony.demo_note') IS NOT NULL")" = t ]; then
+    log "moving the intranet notes out of the fuzzphony schema (re-seeding them in public)"
+    psql -q -v ON_ERROR_STOP=1 <<'SQL'
+DROP TABLE fuzzphony.demo_note;
+DROP FUNCTION IF EXISTS fuzzphony.fuzzphony_sync_intranet__demo_note();
+SQL
+fi
+if [ "$(psql -tAc "SELECT to_regclass('public.demo_note') IS NOT NULL")" = t ]; then
+    log "intranet notes present, not seeding"
+else
+    log "seeding the intranet notes (sql/demo_note.sql)"
+    psql -q -1 -v ON_ERROR_STOP=1 -f sql/demo_note.sql
+    note_seeded=1
+fi
+
 log "applying the schema"
 php bin/console fuzzphony:schema --apply --no-interaction
 
@@ -81,8 +101,8 @@ needs_reindex() { # <index> <its source was just seeded: 0|1>
     case "$DEMO_REINDEX" in always) return 0 ;; never) return 1 ;; esac
     [ "$2" = 1 ] || [ "$(psql -tAc "SELECT EXISTS (SELECT 1 FROM fuzzphony.fuzzphony_$1)")" != t ]
 }
-for index in catalog lang_en lang_de lang_fr lang_es lang_hu; do
-    case "$index" in catalog) fresh=$seeded ;; *) fresh=$lang_seeded ;; esac
+for index in catalog lang_en lang_de lang_fr lang_es lang_hu intranet; do
+    case "$index" in catalog) fresh=$seeded ;; intranet) fresh=$note_seeded ;; *) fresh=$lang_seeded ;; esac
     if needs_reindex "$index" "$fresh"; then
         log "reindexing $index"
         php bin/console fuzzphony:reindex "$index" --batch=20000 --no-interaction
@@ -93,7 +113,7 @@ done
 
 # A full reindex fills the vocabulary ("did you mean"); an index that already existed (an upgraded demo volume) has an
 # empty one, because the table is new: fill just that.
-for index in catalog lang_en lang_de lang_fr lang_es lang_hu; do
+for index in catalog lang_en lang_de lang_fr lang_es lang_hu intranet; do
     if [ "$(psql -tAc "SELECT NOT EXISTS (SELECT 1 FROM fuzzphony.fuzzphony_${index}__vocab)")" = t ]; then
         log "building the vocabulary of $index"
         php bin/console fuzzphony:reindex "$index" --vocabulary --no-interaction

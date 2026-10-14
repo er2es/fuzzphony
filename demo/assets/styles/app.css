@@ -113,6 +113,7 @@
     button:active, .button:active { transform: scale(.98); }
     button.primary, .button.primary { background: var(--accent); color: var(--on-accent); font-weight: 600; }
     button.primary:hover, .button.primary:hover { background: color-mix(in srgb, var(--accent) 88%, var(--label)); }
+    button.small, .button.small { min-height: 1.875rem; padding: .2rem .75rem; font-size: .8125rem; }
 
     /* secondary text */
     .muted { color: var(--label-2); font-size: .875rem; }
@@ -329,6 +330,7 @@
     .hero { max-width: 46rem; margin: 0 auto; display: grid; gap: 1.1rem; padding-top: 1.25rem; }
     .hero h1 { font-size: clamp(1.75rem, 1.2rem + 2.2vw, 2.5rem); text-align: center; }
     .hero .lede { text-align: center; color: var(--label-2); }
+    .hero .segmented { justify-self: center; }
     .field-wrap { position: relative; }
     .examples-row { display: flex; flex-wrap: wrap; justify-content: center; align-items: center; gap: .5rem .5rem; }
     .examples-row .label { color: var(--label-2); font-size: .8125rem; margin-right: .15rem; }
@@ -378,6 +380,7 @@
     .callout ul { margin: .25rem 0 0; padding-left: 1.25rem; flex-basis: 100%; }
     .callout.is-ok { color: var(--ok); } .callout.is-bad { color: var(--bad); }
     .callout .icon { width: 1.25rem; height: 1.25rem; }
+    .callout .callout-body { display: grid; flex: 1 1 16rem; gap: .15rem; min-width: 0; }
 
     /* a text editor in a grouped surface */
     .editor { background: var(--surface); border-radius: var(--r-group); box-shadow: 0 0 0 .5px var(--hairline); overflow: hidden; }

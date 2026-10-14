@@ -145,10 +145,17 @@ final class SearchComponent
         return $this->result ??= $search->get();
     }
 
-    /** @return list<string> the completions of the word being typed, as whole search texts */
+    /**
+     * @return list<string> the completions of the word being typed, as whole search texts; none for a viewer who may
+     *                      not see every field of the index (the vocabulary holds the words of all of them)
+     */
     public function getCompletions(): array
     {
-        return $this->suggestions > 0 && trim($this->query) !== '' ? $this->fuzzphony->suggest($this->index, $this->query, min(20, $this->suggestions)) : [];
+        if ($this->suggestions <= 0 || trim($this->query) === '') {
+            return [];
+        }
+
+        return $this->fuzzphony->suggest($this->index, $this->query, min(20, $this->suggestions), $this->actors?->resolve(), charge: false);
     }
 
     /** @return list<string> */

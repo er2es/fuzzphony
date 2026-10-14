@@ -3,6 +3,36 @@
 Before 1.0, a minor version may contain breaking changes. Each section lists what to change,
 and the [CHANGELOG](CHANGELOG.md) has the full list of changes.
 
+## From 0.8 to 0.9
+
+Nothing is required: without configuration a search is what 0.8 did (the same results; the same statements
+except the probe and facet change listed in the CHANGELOG: the candidate probes carry the search's tenant and
+filters, and a disjunctive facet with different conditions uses the trigram condition). Optional steps and
+things to know:
+
+1. **The search log** needs a table only when you enable it (`fuzzphony.search_log.enabled: true`): run
+   `fuzzphony:schema --apply` then. The guards (`fuzzphony.rate_limit`, `fuzzphony.authorization`) need no
+   table. New `suggest` packages: `symfony/rate-limiter` (for `rate_limit`) and `symfony/security-bundle` (for
+   `authorization`: `symfony/security-core` alone is not enough, Symfony's own "non-existent service
+   security.authorization_checker" message then fails the build). A missing `symfony/rate-limiter` fails at
+   container build with the `composer require` line; a `rate_limit.limiter` that is no `framework.rate_limiter`
+   entry fails with Symfony's "non-existent service limiter.<name>" message.
+2. **`granted` on a field** needs no schema change and no reindex, and does nothing until
+   `fuzzphony.authorization` is enabled. If you enable it for an index built before 0.5, reindex first: a
+   restricted viewer of an index without the per-field columns finds nothing (it fails closed).
+3. **Highlight names are validated upfront.** `highlight('nosuch')` (an unknown field, or one with
+   `highlight: false`) now throws `InvalidQuery` even when the search finds nothing; before, only when there
+   were hits.
+4. **`explain()` no longer shows other tenants' ids.** The typo-tolerant candidate probes now apply the
+   search's tenant and filters; the statements of a tenant-scoped search bind only that tenant's ids.
+5. **`InvalidQuery` is no longer `final`** (`ActorRequired` extends it), and `Fuzzphony::suggest()` takes an
+   optional trailing `?Actor`. `SearchGate` takes `guards` as a trailing constructor argument. A custom
+   `Engine` needs nothing.
+6. `fuzzphony:search` runs no guard, with or without `--tenant` / `--user`: the bundle gives it its own
+   `fuzzphony.operator` service (see [Security](docs/security.md#fuzzphonysearch-and-the-guards)).
+
+See [Security](docs/security.md) and [Search log and analytics](docs/analytics.md).
+
 ## From 0.7 to 0.8
 
 No breaking changes. Optional steps:

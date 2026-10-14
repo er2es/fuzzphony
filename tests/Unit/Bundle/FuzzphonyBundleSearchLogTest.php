@@ -16,6 +16,7 @@ use Fuzzphony\Bundle\Command\WizardCommand;
 use Fuzzphony\Bundle\Command\WorkerCommand;
 use Fuzzphony\Bundle\EventListener\SearchLogFlushListener;
 use Fuzzphony\Bundle\FuzzphonyBundle;
+use Fuzzphony\Core\Analytics\NullSearchLog;
 use Fuzzphony\Core\Analytics\PatternQueryRedactor;
 use Fuzzphony\Core\Exception\InvalidConfiguration;
 use Fuzzphony\Core\Observability\NullMetricsCollector;
@@ -24,6 +25,7 @@ use Psr\Log\NullLogger;
 use Symfony\Component\Config\Definition\Exception\InvalidConfigurationException;
 use Symfony\Component\DependencyInjection\Argument\ServiceClosureArgument;
 use Symfony\Component\DependencyInjection\ContainerBuilder;
+use Symfony\Component\DependencyInjection\Definition;
 use Symfony\Component\DependencyInjection\Reference;
 
 /** The fuzzphony.search_log node: the buffer, its flush, the two commands and the engine and gate wiring. */
@@ -38,7 +40,7 @@ final class FuzzphonyBundleSearchLogTest extends TestCase
         self::assertFalse($container->hasDefinition('fuzzphony.search_log'));
         self::assertFalse($container->hasDefinition('fuzzphony.search_log_flush_listener'));
         self::assertFalse($container->hasDefinition('fuzzphony.query_redactor'));
-        self::assertEquals([new Reference('fuzzphony.metrics'), new Reference('logger')], $container->getDefinition('fuzzphony.search_gate')->getArguments());
+        self::assertEquals([new Reference('fuzzphony.metrics'), new Reference('logger'), new Definition(NullSearchLog::class), null, []], $container->getDefinition('fuzzphony.search_gate')->getArguments());
         self::assertFalse($container->getDefinition('fuzzphony.engine')->getArgument(4));
         self::assertSame(90, $container->getDefinition('fuzzphony.engine')->getArgument(5));
         self::assertSame(self::BASE_COMMANDS, array_keys($container->findTaggedServiceIds('console.command')), 'the log commands exist only when the log is on');
@@ -94,7 +96,7 @@ final class FuzzphonyBundleSearchLogTest extends TestCase
         $container = $this->buildContainer(['search_log' => ['enabled' => true]]);
 
         self::assertEquals(
-            [new Reference('fuzzphony.metrics'), new Reference('logger'), new Reference('fuzzphony.search_log'), null],
+            [new Reference('fuzzphony.metrics'), new Reference('logger'), new Reference('fuzzphony.search_log'), null, []],
             $container->getDefinition('fuzzphony.search_gate')->getArguments(),
         );
     }

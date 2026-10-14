@@ -477,6 +477,14 @@ Developer mistakes, such as an unknown filter or a wrong value type, do throw, w
 Index "products" has no filter "prise". Did you mean "price"?
 ```
 
+## Restricted fields
+
+An index can mark a field `granted: ROLE_HR`; a viewer who is not granted it searches the other fields
+only: a word that exists only in the hidden field finds nothing, is not ranked or highlighted, and gets no
+"did you mean" or completion. The same restriction is available to your own code with
+`->restrictedToFields('title', 'body')`. Filters and facets are not restricted. Details and limits:
+[Security](security.md).
+
 ## Rendering results safely
 
 - Search text is parsed by Fuzzphony, reduced to letters and digits per lexeme, and bound as a

@@ -155,7 +155,8 @@ The [Live Component](integrations.md#live-component) does this for you: its `log
 log="true" />` records them. The attribute is set on the server; the browser cannot change it.
 
 A good pattern, which the demo follows: the live requests are `unlogged()`, and the request the visitor settles on
-(pressing Enter, a full page load of the results) is logged. The demo's suggestion dropdown and its measured
+(pressing Enter, a full page load of the results, or, in the demo, an example click or one silent repeat of the live request after
+the text has stood for 1.5 seconds) is logged. The demo's suggestion dropdown and its measured
 speed searches are unlogged as well.
 
 ## Reading it: three surfaces

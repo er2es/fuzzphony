@@ -7,6 +7,7 @@ namespace Fuzzphony\Core\Search;
 use Fuzzphony\Core\Definition\FilterType;
 use Fuzzphony\Core\Definition\IndexDefinition;
 use Fuzzphony\Core\Engine\Engine;
+use Fuzzphony\Core\Exception\InvalidQuery;
 use Fuzzphony\Core\Query\SearchQuery;
 use Fuzzphony\Core\Query\Typeahead;
 
@@ -166,11 +167,38 @@ final readonly class SearchBuilder
         return $this->with($this->query->unlogged());
     }
 
+    /**
+     * Searches, ranks and highlights only these fields (the guards use it for fields a viewer may not see). A word
+     * that exists only in another field finds nothing; calling it again can only narrow the list.
+     */
+    public function restrictedToFields(string ...$fields): self
+    {
+        $known = $this->index->fieldNames();
+        $unknown = array_values(array_diff($fields, $known));
+        if ($unknown !== []) {
+            throw new InvalidQuery(sprintf('Index "%s" has no field "%s". Known fields: %s.', $this->index->name, $unknown[0], implode(', ', $known)));
+        }
+        $allowed = $this->query->allowedFields === null ? array_values(array_unique($fields)) : array_values(array_intersect($this->query->allowedFields, $fields));
+
+        return $this->with($this->query->restrictedTo($allowed));
+    }
+
     public function get(): SearchResult
+    {
+        return $this->run(true);
+    }
+
+    /** @internal Never call it from application code (it skips the rate limit): the federated search uses it. */
+    public function getUncharged(): SearchResult
+    {
+        return $this->run(false);
+    }
+
+    private function run(bool $charge): SearchResult
     {
         $query = $this->effective();
         $result = $this->gate !== null
-            ? $this->gate->search($this->engine, $this->index, $query, $this->query->text)
+            ? $this->gate->search($this->engine, $this->index, $query, $this->query->text, $charge)
             : $this->engine->search($this->index, self::checked($this->index, $query));
 
         return $this->query->asYouType && $result->didYouMean !== null ? $result->withDidYouMean(Typeahead::withoutPrefixAlternative($result->didYouMean)) : $result;

@@ -36,6 +36,7 @@ final class ArrayExporter
                 'fuzzy' => $field->fuzzy ? true : null,
                 'highlight' => $field->highlight ? null : false,
                 'column' => $field->column,
+                'granted' => $field->granted,
             ], static fn(mixed $v): bool => $v !== null);
             $out['fields'][$field->name] = count($options) === 1 ? $field->weight->value : $options;
         }

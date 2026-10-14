@@ -37,7 +37,15 @@ final class TsQueryCompiler
     /** @var list<string> */
     private array $warnings = [];
 
-    public function __construct(private readonly IndexDefinition $index) {}
+    /**
+     * @param bool $positiveOnly every excluded part is left out (as an excluded field-scoped one is): the candidates of a
+     *                           restricted viewer's strict branch, where "!'cable'" on the whole tsv would also exclude
+     *                           by the hidden fields (SearchSqlBuilder; the allowed-field recheck decides)
+     */
+    public function __construct(
+        private readonly IndexDefinition $index,
+        private readonly bool $positiveOnly = false,
+    ) {}
 
     public function compile(Node $node): ?string
     {
@@ -85,7 +93,7 @@ final class TsQueryCompiler
             $node instanceof FieldScoped => $this->scoped($node),
             $node instanceof AllOf => $this->group($node->nodes, ' & ', $weights),
             $node instanceof AnyOf => $this->group($node->nodes, ' | ', $weights),
-            $node instanceof Not && $this->hasFieldScope($node->node) => self::UNCONSTRAINED,
+            $node instanceof Not && ($this->positiveOnly || $this->hasFieldScope($node->node)) => self::UNCONSTRAINED,
             $node instanceof Not => ($inner = $this->node($node->node, $weights)) === null ? null : '!' . $inner,
             default => null,
         };

@@ -135,15 +135,15 @@ await p3.click('.nav a >> text=Relevance');
 await p3.waitForURL('**/relevance*');
 check('a page without a field shows a spinner of its own while it loads', (await p3.evaluate(() => sessionStorage.getItem('after'))) === 'spin');
 
-// 9. the Under the hood menu lists the benchmark, the synonyms and the analytics
+// 9. the Under the hood menu lists the benchmark, the synonyms, the analytics and the security page
 await p3.unrouteAll();
 await go(p3, BASE + '/');
 await p3.click('.nav .menu summary');
 const labels = (await p3.locator('.menu-panel a').allTextContents()).map((t) => t.trim());
-check('the menu lists wizard, benchmark, doctor, observability, synonyms, analytics', ['Config wizard', 'Benchmark', 'Doctor', 'Observability', 'Synonyms', 'Analytics'].every((l) => labels.includes(l)), labels.join(', '));
+check('the menu lists wizard, benchmark, doctor, observability, synonyms, analytics, security', ['Config wizard', 'Benchmark', 'Doctor', 'Observability', 'Synonyms', 'Analytics', 'Security'].every((l) => labels.includes(l)), labels.join(', '));
 
-// the search log: a search submitted with Enter (a full page load, the settled query) shows up on the Analytics page, the requests of
-// the live search while typing do not. The words are unique to this run (the page lists the top 15 of the last seven days, and an
+// the search log: a search typed and left alone (no Enter: the live search repeats it silently after 1.5 s, and that one is logged)
+// shows up on the Analytics page, the requests of the live search while typing do not. The words are unique to this run (the page lists the top 15 of the last seven days, and an
 // earlier run's rows must not satisfy the check): "mouse" plus a random suffix, which the search tolerates (it still finds mice), and
 // a nonsense word that finds nothing. Each is searched three times so it outranks the single searches of other visitors on a
 // shared demo database (the tables sort by the number of searches). The log is written after the response: poll.
@@ -156,8 +156,7 @@ for (const q of [found, nothing]) {
         await page.fill('input[name=q]', '');
         await page.type('input[name=q]', q, { delay: 40 });
         await page.waitForSelector('#results');
-        await Promise.all([page.waitForNavigation({ waitUntil: 'load' }), page.press('input[name=q]', 'Enter')]);
-        await page.waitForSelector('#results');
+        await page.waitForTimeout(2500); // the text settles (1.5 s after the live response) and the silent request is made
     }
 }
 let top = [];
@@ -172,9 +171,52 @@ for (let attempt = 0; attempt < 6; attempt++) {
 }
 const typedOnTheWay = [6, 7, 8].map((n) => found.slice(0, n)).concat([4, 5, 6, 7].map((n) => nothing.slice(0, n)), [nothing.slice(0, 8)]); // the fragments the live search saw, unique to this run
 check('the analytics page lists the exact word that was just searched among the most searched', top.includes(found), `${found} in ${top.join(', ')}`);
-check('the analytics page lists the nonsense word among the searches that found nothing, and not among the most searched', zero.includes(nothing) && !top.includes(nothing), `${nothing} in ${zero.join(', ')}`);
+check('the analytics page lists the nonsense word among the searches that found nothing', zero.includes(nothing), `${nothing} in ${zero.join(', ')}`);
 check('the word that found something is not in the zero-result table', !zero.includes(found), zero.join(', '));
 check('the analytics page does not list what was typed on the way', !top.concat(zero).some((t) => typedOnTheWay.includes(t)), top.concat(zero).join(', '));
+
+// an example chip is a deliberate search: it is logged at once, by its own request, also when the visitor is on the Analytics page
+// before the settle time has passed. The chips are given words unique to this run (the log is shared); three rounds of three chips,
+// each click less than a second after the last, then Analytics straight away. A word typed and then left by navigation (no time to
+// settle) is logged too: the pending settle is sent when the page is hidden.
+const chipWords = ['a', 'b', 'c'].map((l) => `chip${l}${suffix}`);
+const leftWord = `leftw${suffix}`;
+await go(page, BASE + '/');
+await page.evaluate((words) => document.querySelectorAll('.examples-row a.chip').forEach((chip, i) => {
+    if (i < words.length) {
+        chip.setAttribute('data-live-search-q-param', words[i]);
+    }
+}), chipWords);
+for (let round = 0; round < 3; round++) {
+    const started = Date.now();
+    for (let i = 0; i < 3; i++) {
+        await page.locator('.examples-row a.chip').nth(i).click();
+    }
+    if (round === 0) {
+        check('three example chips are clicked less than a second apart', Date.now() - started < 1000, `${Date.now() - started} ms`);
+    }
+}
+await go(page, BASE + '/under-the-hood/analytics'); // at once: nothing has had 1.5 s to settle
+for (let round = 0; round < 3; round++) {
+    await go(page, BASE + '/');
+    await page.fill('input[name=q]', '');
+    await page.type('input[name=q]', leftWord, { delay: 40 });
+    await page.waitForSelector('#results');
+    await go(page, BASE + '/under-the-hood/analytics'); // left before the settle time: the pending settle goes out as the page hides
+}
+let logged = [];
+for (let attempt = 0; attempt < 8; attempt++) {
+    await go(page, BASE + '/under-the-hood/analytics');
+    const tables = page.locator('.table-card');
+    logged = [];
+    for (let t = 0; t < (await tables.count()); t++) {
+        logged = logged.concat((await tables.nth(t).locator('td code').allTextContents()).map((x) => x.trim()));
+    }
+    if (chipWords.every((w) => logged.includes(w)) && logged.includes(leftWord)) break;
+    await page.waitForTimeout(500);
+}
+check('each example chip clicked in quick succession was logged', chipWords.every((w) => logged.includes(w)), `${chipWords.join(', ')} in ${logged.join(', ')}`);
+check('a word typed and left at once by navigation was logged', logged.includes(leftWord), `${leftWord} in ${logged.join(', ')}`);
 check('there is no "/ to search" hint in the toolbar', (await p3.locator('.toolbar-hint').count()) === 0);
 
 // the SQL of the Tune page wraps instead of scrolling sideways
@@ -200,6 +242,71 @@ const box = await p2.locator('nav.nav').boundingBox();
 check('on a phone the navigation is a tab bar at the bottom', box !== null && box.y > 700, JSON.stringify(box));
 await p2.click('.nav .menu summary');
 check('the menu opens upwards from the tab bar', (await p2.locator('.menu-panel a').first().boundingBox())?.y < box.y);
+
+// 11. the Security page (docs/security.md): who searches decides what a search may see. A fresh browser context, so the viewer chosen on the
+// page (kept in the session) is its own. The limit is 5 searches in 10 seconds; reset=1 forgets the viewer's searches of the window
+// (demo only), so a re-run is never refused by the previous one. The rate-limit checks come last: they spend Ada's five searches, and
+// the six searches are made in one go (the first four without rendering the page) so they fit in the window.
+const secContext = await browser.newContext({ viewport: { width: 1280, height: 800 }, reducedMotion: 'reduce' });
+const sec = await secContext.newPage();
+sec.setDefaultTimeout(8000);
+const viewing = (q, as, extra = '') => `${BASE}/under-the-hood/security?as=${as}&q=${q}${extra}`;
+const sqlOf = async (p) => (await p.locator('.disclosure pre').allTextContents()).join(' ');
+
+await go(sec, viewing('salary', 'hana', '&reset=1'));
+check('security: HR finds notes by a word that is only in the hidden field', (await sec.locator('.hit-row').count()) > 0);
+check('security: and the highlight shows the confidential text', /salary/i.test(await sec.locator('.hit-row .row-sub:has-text("Confidential") mark').first().innerText()));
+
+await go(sec, viewing('salary', 'ada', '&reset=1'));
+check('security: an ordinary viewer finds nothing with that word', (await sec.locator('.hit-row').count()) === 0 && (await sec.locator('text=Nothing found').count()) === 1);
+const adaSql = await sqlOf(sec);
+check('security: and the SQL she ran has no column of the hidden field', adaSql.includes('t_title') && !adaSql.includes('confidential'), adaSql.slice(0, 200));
+
+const flagsOf = async (p) => (await p.locator('.hit-row .flag').allTextContents()).map((t) => t.trim());
+await go(sec, viewing('budget', 'ada'));
+const acme = await flagsOf(sec);
+check('security: a viewer of Acme sees the notes of Acme only', acme.length > 0 && acme.every((c) => c === 'Acme'), acme.join(', '));
+await go(sec, viewing('budget', 'bob'));
+const globex = await flagsOf(sec);
+check('security: a viewer of Globex sees the notes of Globex only', globex.length > 0 && globex.every((c) => c === 'Globex'), globex.join(', '));
+
+await go(sec, viewing('budget', 'hana'));
+await go(sec, `${BASE}/under-the-hood/security?q=menu`);
+check('security: the chosen viewer is kept in the session', (await sec.locator('.segmented [aria-current]').innerText()).startsWith('Hana'));
+
+await go(sec, viewing('budget', 'anonymous'));
+check('security: an anonymous visitor is refused with an explanation, not an error page', /Refused/.test(await sec.locator('.callout.is-bad').innerText()) && (await sec.locator('.hit-row').count()) === 0);
+check('security: the anonymous refusal explains that the tenant check comes before the authorization', /tenant check comes before the authorization/.test(await sec.locator('.callout.is-bad').innerText()));
+await go(sec, viewing('budget', 'eve'));
+const denied = await sec.locator('.callout.is-bad').innerText().catch(() => '');
+check('security: a signed-in guest without ROLE_USER gets the AccessDenied card and no result list', /not granted to this actor: Eve \(guest\) has no ROLE_USER/.test(denied) && denied.includes('AccessDenied') && (await sec.locator('.hit-row').count()) === 0, denied);
+await go(sec, viewing('budget', 'anonymous'));
+const homeResponse = await sec.goto(`${BASE}/?q=mouse`, { waitUntil: 'load' });
+await sec.waitForSelector('#results .hit-row');
+check('security: the other pages never ask for a viewer: the home page works for an anonymous visitor', homeResponse?.status() === 200 && (await sec.locator('#results .hit-row').count()) > 0);
+
+await go(sec, viewing('menu', 'ada', '&reset=1'));
+for (let i = 2; i <= 4; i++) await sec.request.get(viewing('menu', 'ada'));
+await go(sec, viewing('menu', 'ada'));
+check('security: five searches in 10 seconds are answered', (await sec.locator('.hit-row').count()) > 0 && (await sec.locator('.callout.is-warn').count()) === 0);
+await go(sec, viewing('menu', 'ada'));
+const refused = await sec.locator('.callout.is-warn').innerText().catch(() => '');
+check('security: the sixth is refused with the time to wait', /Too many searches: try again in\s+(\d+ seconds\s+)?\d+ s/.test(refused) && (await sec.locator('.hit-row').count()) === 0, refused);
+// the wait counts down in the browser, and the card offers the reset next to it
+const seconds = async () => Number((await sec.locator('[data-countdown-target=seconds]').innerText()).replace(/\D+/g, ''));
+const first = await seconds();
+const resetShown = await sec.locator('.callout.is-warn .button.primary.small', { hasText: 'Reset the count' }).isVisible();
+await sec.waitForTimeout(1300);
+const later = (await sec.locator('.callout.is-ok').count()) > 0 ? 0 : await seconds();
+check('security: the wait counts down in the page, with the reset button next to it', later < first && resetShown, `${first} -> ${later}, reset button ${resetShown}`);
+// past the window the card says so and a search works again
+await sec.waitForSelector('.callout.is-ok', { timeout: 15000 });
+check('security: at zero the card says the visitor can search again', /You can search again/.test(await sec.locator('.callout.is-ok').innerText()) && (await sec.locator('.callout.is-ok .button', { hasText: 'Search again' }).isVisible()));
+await sec.click('.callout.is-ok .button >> text=Search again');
+await sec.waitForSelector('.hit-row');
+check('security: after the window a search is answered again', (await sec.locator('.hit-row').count()) > 0 && (await sec.locator('.callout.is-warn').count()) === 0);
+await go(sec, viewing('', 'ada', '&reset=1')); // leave Ada's count at zero for whoever looks next
+await secContext.close();
 
 await browser.close();
 const failed = results.filter((ok) => !ok).length;

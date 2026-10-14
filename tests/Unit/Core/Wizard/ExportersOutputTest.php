@@ -4,9 +4,11 @@ declare(strict_types=1);
 
 namespace Fuzzphony\Tests\Unit\Core\Wizard;
 
+use Fuzzphony\Core\Definition\ArrayDefinitionLoader;
 use Fuzzphony\Core\Definition\IndexDefinition;
 use Fuzzphony\Core\Ranking\RankingProfile;
 use Fuzzphony\Core\Ranking\Thresholds;
+use Fuzzphony\Core\Wizard\Export\ArrayExporter;
 use Fuzzphony\Core\Wizard\Export\AttributeExporter;
 use Fuzzphony\Core\Wizard\Export\BuilderExporter;
 use Fuzzphony\Core\Wizard\Export\YamlExporter;
@@ -129,6 +131,34 @@ final class ExportersOutputTest extends TestCase
             PHP;
 
         self::assertSame(self::lf($expected), (new AttributeExporter())->export($index, 'Gadget'));
+    }
+
+    private static function withGrant(): IndexDefinition
+    {
+        return IndexDefinition::builder('people')->fromTable('person')
+            ->field('name', 'A')
+            ->field('salary', 'B', granted: 'ROLE_HR')
+            ->build();
+    }
+
+    public function testAGrantedFieldKeepsItsRoleInEveryExport(): void
+    {
+        $index = self::withGrant();
+
+        self::assertStringContainsString("    ->field('salary', 'B', granted: 'ROLE_HR')\n", (new BuilderExporter())->export($index));
+        self::assertStringNotContainsString("->field('name', 'A', granted", (new BuilderExporter())->export($index));
+        self::assertStringContainsString("#[SearchField('B', column: 'salary', granted: 'ROLE_HR')]", (new AttributeExporter())->export($index, 'Person'));
+        self::assertStringNotContainsString("#[SearchField('A', column: 'name', granted", (new AttributeExporter())->export($index, 'Person'));
+        self::assertStringContainsString("          granted: ROLE_HR\n", (new YamlExporter())->export($index));
+    }
+
+    public function testTheArrayExportOfAGrantedFieldRoundTrips(): void
+    {
+        $index = self::withGrant();
+        $array = (new ArrayExporter())->export($index);
+
+        self::assertSame(['name' => 'A', 'salary' => ['weight' => 'B', 'granted' => 'ROLE_HR']], $array['fields'] ?? null);
+        self::assertSame('ROLE_HR', (new ArrayDefinitionLoader())->load('people', $array)->field('salary')?->granted);
     }
 
     public function testAttributeSupportRequiresATableSourceAndNoWatches(): void

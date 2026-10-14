@@ -45,7 +45,7 @@ depends on it, so nothing built early has to be refactored once a later mileston
   file or from the application's own storage (`Fuzzphony::useSynonyms()`) and a synonym editor in the
   demo; 0.7.3 adds `Fuzzphony::stemSynonyms()` so long synonym lists can be cached prepared. See the
   [CHANGELOG](../CHANGELOG.md#070---2026-10-09) and [UPGRADE.md](../UPGRADE.md#from-06-to-07).
-- v0.8 Search features (current): `Fuzzphony::suggest()` completes the word being typed from the 0.7
+- v0.8 Search features: `Fuzzphony::suggest()` completes the word being typed from the 0.7
   vocabulary (a tenant-scoped index suggests nothing), `facets()` counts the values of filters among the
   matches (disjunctive: a facet does not count its own filter; over the candidates, or exact with
   `exactCounts()`, which also makes the total exact), and `federated()` searches several indexes with one
@@ -54,35 +54,17 @@ depends on it, so nothing built early has to be refactored once a later mileston
   search boxes use them. Additive: no breaking changes; `fuzzphony:schema --apply` adds a prefix index to
   each vocabulary. See the [CHANGELOG](../CHANGELOG.md#080---2026-10-10).
 
-## v0.9: Security and analytics
-
-Built on the 0.6 events. One release in three parts, in order: identity, the search log and analytics,
-guards. Parts 1 (identity) and 2 (the search log and analytics) are done and unreleased; see "Search
-analytics" and "Security" below.
-
-### Search analytics
-
-The most frequent queries and the queries that found nothing, for the people who own the content.
-
-Done (part 2): an opt-in search log (`fuzzphony.search_log`: `enabled`, `retention_days`, `redact` with the
-`email` preset and regular expressions; a per-index `log: false`; `SearchBuilder::unlogged()` and the Live
-Component's `log` attribute for as-you-type requests), written in one batch after the response and never
-failing a search (`fuzzphony.search_log.failed`), `Fuzzphony::analytics()` (`SearchAnalytics`: top and
-zero-result queries, with tenant rules), the commands `fuzzphony:analytics` and `fuzzphony:search-log:purge`,
-a doctor check and an Analytics page in the demo. See [Search log and analytics](analytics.md).
-
-### Security
-
-Per-tenant / per-user rate limiting (audit logging is covered by the search log: it records the tenant, the
-user and every refusal). Symfony Security
-integration for index- and field-level authorization (for example, keeping a field out of
-highlights unless the viewer is authorized).
-
-Done (part 1, identity): the `Actor` (tenant and user), `SearchBuilder::asActor()`, the `fuzzphony.actor`
-resolver (a service of yours, or property paths on the Symfony Security user) for the API Platform filter
-and the Live Component, `fuzzphony:search --tenant --user`, a 403 for a tenant-scoped index searched
-without a tenant, and the counter `fuzzphony.search.denied`. See
-[Multi-tenancy](multi-tenancy.md#integrations).
+- v0.9 Security and analytics (current): one release in three parts, in order. **Identity:** an `Actor` (a tenant and a user),
+  `SearchBuilder::asActor()`, the `fuzzphony.actor` configuration (your own resolver, or property paths on the Security user),
+  a 403 for a missing tenant, and tenant-scoped indexes through the API Platform filter, the Live Component and
+  `fuzzphony:search --tenant --user`. **Search log and analytics:** an opt-in log (`fuzzphony.search_log`) with retention, a
+  per-index and per-search opt-out and a query redactor, `Fuzzphony::analytics()`, `fuzzphony:analytics` and
+  `fuzzphony:search-log:purge`. **Guards:** a rate limit per tenant or user (`fuzzphony.rate_limit`, Symfony RateLimiter, a 429 with
+  `Retry-After`) and index- and field-level authorization (`fuzzphony.authorization`, `granted` on a field): a field a viewer may
+  not see is not matched, ranked, highlighted, counted or suggested from. The demo shows the log and the guards on two pages under
+  "Under the hood": Analytics and Security. All of it is optional and off by default: nothing configured means 0.8's behaviour.
+  See the [CHANGELOG](../CHANGELOG.md#090---2026-10-14), [UPGRADE.md](../UPGRADE.md#from-08-to-09), [Security](security.md) and
+  [Search log and analytics](analytics.md).
 
 ## v1.0: Stable
 

@@ -21,6 +21,8 @@
         "symfony/messenger": "Asynchronous refresh in ORM sync mode (fuzzphony.orm_sync.async)",
         "symfony/security-bundle": "fuzzphony.actor.tenant / .user: the actor from the Security user",
         "symfony/property-access": "fuzzphony.actor.tenant / .user: property paths on the Security user",
+        "symfony/rate-limiter": "fuzzphony.rate_limit: limit how often a tenant or user may search (a framework.rate_limiter entry)",
+        "symfony/security-core": "fuzzphony.authorization: grant an index or a field to a user (the security.authorization_checker service comes from symfony/security-bundle)",
         "symfony/ux-live-component": "<twig:Fuzzphony:Search> search-as-you-type component",
         "api-platform/doctrine-orm": "FuzzphonySearchFilter for API Platform collections"
     }

@@ -16,7 +16,7 @@
 <div class="nav-status" role="status" aria-live="polite"><span class="spinner" aria-hidden="true"></span><span data-progress-target="message"></span></div>
 
 {% set route = app.request.attributes.get('_route') %}
-{% set under = {wizard: 'Config wizard', benchmark: 'Benchmark', doctor: 'Doctor', observability: 'Observability', synonyms: 'Synonyms', analytics: 'Analytics'} %}
+{% set under = {wizard: 'Config wizard', benchmark: 'Benchmark', doctor: 'Doctor', observability: 'Observability', synonyms: 'Synonyms', analytics: 'Analytics', security: 'Security'} %}
 <header class="toolbar">
     <div class="toolbar-inner">
         <a class="wordmark" href="{{ path('search') }}">Fuzzphony</a>

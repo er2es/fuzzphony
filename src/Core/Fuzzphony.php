@@ -10,11 +10,14 @@ use Fuzzphony\Core\Engine\Engine;
 use Fuzzphony\Core\Engine\SearchLogStore;
 use Fuzzphony\Core\Engine\Suggestions;
 use Fuzzphony\Core\Engine\SynonymStems;
+use Fuzzphony\Core\Exception\AccessDenied;
 use Fuzzphony\Core\Exception\InvalidArgument;
+use Fuzzphony\Core\Exception\RateLimited;
 use Fuzzphony\Core\Inspection\InspectionReport;
 use Fuzzphony\Core\Inspection\InspectOptions;
 use Fuzzphony\Core\Registry\IndexRegistry;
 use Fuzzphony\Core\Schema\SchemaPlan;
+use Fuzzphony\Core\Search\Actor;
 use Fuzzphony\Core\Search\FederatedSearch;
 use Fuzzphony\Core\Search\SearchBuilder;
 use Fuzzphony\Core\Search\SearchGate;
@@ -104,18 +107,28 @@ final readonly class Fuzzphony
      * is new since the last rebuild is not suggested yet. A tenant-scoped index, an index without a
      * typo-tolerant field, and an engine without a vocabulary give an empty list.
      *
-     * @param int $limit 1 to 20
+     * A search made as an actor runs the guards: a viewer who may not see every field of the index gets no
+     * completions (the vocabulary holds the words of every field).
+     *
+     * @param int  $limit  1 to 20
+     * @param bool $charge a search made as an actor spends a rate-limit token; pass false only when the same request
+     *                     already charged a search (the Live Component renders its result and its completions in one request)
      *
      * @return list<string>
      *
      * @throws InvalidArgument for a limit outside 1 to 20
+     * @throws AccessDenied    when a guard refuses the actor
+     * @throws RateLimited     when the actor searched too often
      */
-    public function suggest(string $index, string $text, int $limit = 8): array
+    public function suggest(string $index, string $text, int $limit = 8, ?Actor $actor = null, bool $charge = true): array
     {
         if ($limit < 1 || $limit > 20) {
             throw new InvalidArgument(sprintf('The suggestion limit must be between 1 and 20, got %d.', $limit));
         }
         $definition = $this->registry->get($index);
+        if ($actor !== null && $this->gate !== null && !$this->gate->accessCounted($definition, $actor, $charge)->isAll()) {
+            return [];
+        }
         $text = mb_substr(ltrim($text), 0, 100);
         if (!$this->engine instanceof Suggestions || preg_match('/^(.*?)([\p{L}\p{N}]+)$/su', $text, $m) !== 1) {
             return [];

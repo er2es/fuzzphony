@@ -68,10 +68,10 @@ final class IndexBuilder
         return $this;
     }
 
-    public function field(string $name, Weight|string $weight = Weight::B, bool $fuzzy = false, bool $highlight = true, ?string $column = null): self
+    public function field(string $name, Weight|string $weight = Weight::B, bool $fuzzy = false, bool $highlight = true, ?string $column = null, ?string $granted = null): self
     {
         $weight = $weight instanceof Weight ? $weight : EnumOption::parse(Weight::class, strtoupper($weight), $this->name, 'weight', sprintf(' of field "%s"', $name));
-        $this->fields[] = new FieldDefinition($name, $weight, $fuzzy, $highlight, $column);
+        $this->fields[] = new FieldDefinition($name, $weight, $fuzzy, $highlight, $column, $granted);
 
         return $this;
     }

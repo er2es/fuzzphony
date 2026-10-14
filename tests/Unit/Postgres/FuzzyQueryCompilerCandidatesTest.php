@@ -45,6 +45,15 @@ final class FuzzyQueryCompilerCandidatesTest extends TestCase
         self::assertStringContainsString("WHERE \"public\".\"fuzzphony_norm\"(:p0) OPERATOR(\"public\".<%) s.fz\nLIMIT 11", $probe['sql']);
     }
 
+    public function testAProbeAppliesTheSearchsConditions(): void
+    {
+        $conditions = (new \Fuzzphony\Core\Query\SearchQuery())->where('brand_id', '=', 1)->where('price', '<', 5000)->conditions;
+        $probe = array_values((new FuzzyQueryCompiler(Indexes::products(), new Thresholds(fuzzySimilarity: 0.3), new Names()))->probes(self::parse('mouse'), 10, [], $conditions))[0];
+
+        self::assertSame("SELECT s.id\nFROM \"public\".\"fuzzphony_products\" AS s\nWHERE \"public\".\"fuzzphony_norm\"(:p0) OPERATOR(\"public\".<%) s.fz AND s.\"f_brand_id\" = :p1 AND s.\"f_price\" < :p2\nLIMIT 11", $probe['sql']);
+        self::assertSame(['p0' => 'mouse', 'p1' => 1, 'p2' => 5000], $probe['params']);
+    }
+
     public function testAWordIsProbedOnceNegatedAndShortWordsNever(): void
     {
         self::assertCount(1, self::compiler()->probes(self::parse('mouse mouse'), 10), 'the same word, the same matches');

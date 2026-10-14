@@ -27,11 +27,19 @@ use Fuzzphony\Engine\Postgres\Schema\Names;
  */
 final class SearchSqlBuilder
 {
+    /**
+     * @param list<string>|null $allowedFields the fields a restricted viewer may see (SearchQuery::$allowedFields); null =
+     *                                         every field, the unrestricted statement. Restricted: every word is rechecked
+     *                                         against the allowed fields (FuzzyQueryCompiler), the text rank reads only
+     *                                         their vectors, the exact and prefix bonuses are 0 unless the primary field
+     *                                         is allowed, and the full-text branch needs the parsed query ($scopedRoot)
+     */
     public function __construct(
         private readonly IndexDefinition $index,
         private readonly Names $names = new Names(),
         /** @var array<string, list<int|string>> the ids the trigram words match, from FuzzyQueryCompiler::probes() */
         private readonly array $candidates = [],
+        private readonly ?array $allowedFields = null,
     ) {}
 
     /**
@@ -87,18 +95,37 @@ final class SearchSqlBuilder
         $cap = $uncapped ? '' : "\n    LIMIT " . $thresholds->candidateLimit;
 
         $q = [];
+        // the full-text branch finds its candidates through GIN(tsv): "s.tsv @@ <lookup>"
+        $lookup = 's.tsv @@ q.tsq';
         if ($tsquery !== null) {
             $q[] = sprintf('to_tsquery(%s, %s) AS tsq', $config, $params->add($tsquery));
+            if ($this->allowedFields !== null) {
+                // An excluded word would exclude by every field, the hidden ones too: the lookup is the positive part
+                // only (a superset), the recheck below decides; nothing positive to look up leaves the recheck alone.
+                $positive = (new TsQueryCompiler($this->index, true))->compile($scopedRoot ?? throw new \LogicException('A restricted full-text branch needs the parsed query to recheck.'));
+                if ($positive === null) {
+                    $lookup = null;
+                } elseif ($positive !== $tsquery) {
+                    $q[] = sprintf('to_tsquery(%s, %s) AS tsp', $config, $params->add($positive));
+                    $lookup = 's.tsv @@ q.tsp';
+                }
+            }
         }
         $q[] = $plain !== ''
             ? sprintf('%s(%s) AS norm', $this->names->normFunction(), $params->add($plain))
             : "''::text AS norm";
-        $compiler = new FuzzyQueryCompiler($this->index, $thresholds, $this->names, $this->candidates);
-        // A word scoped to a known field is rechecked against the field's own column (q.sft<n>).
+        $compiler = new FuzzyQueryCompiler($this->index, $thresholds, $this->names, $this->candidates, $this->allowedFields);
+        // A word scoped to a known field is rechecked against the field's own column (q.sft<n>); a restricted viewer's
+        // every word against the allowed fields' columns.
         $scope = $scopedRoot === null ? null : $compiler->scope($scopedRoot, $params, $emptyQueries);
         if ($scope !== null) {
             array_push($q, ...$scope['columns']);
         }
+        $strict = array_values(array_filter([
+            $lookup,
+            // a restricted query of stop words only has nothing to recheck: it finds nothing, as its tsquery does
+            $scope['predicate'] ?? ($this->allowedFields !== null ? 'false' : null),
+        ], static fn(?string $part): bool => $part !== null));
         // Per-term fuzzy branch: every word is satisfied exactly or fuzzily, through the query's
         // own AND / OR / NOT. Its per-word values are extra q columns.
         $fuzzy = $fuzzyRoot === null ? null : $compiler->compile($fuzzyRoot, $params, $emptyQueries);
@@ -111,10 +138,11 @@ final class SearchSqlBuilder
         $branches = [];
         if ($tsquery !== null) {
             $ctes[] = sprintf(
-                "fts AS (\n    SELECT s.id, ts_rank_cd('%s'::real[], s.tsv, q.tsq, 32)::double precision AS r_text\n    FROM %s AS s CROSS JOIN q\n    WHERE s.tsv @@ q.tsq%s AND %s%s\n)",
+                "fts AS (\n    SELECT s.id, ts_rank_cd('%s'::real[], %s, q.tsq, 32)::double precision AS r_text\n    FROM %s AS s CROSS JOIN q\n    WHERE %s AND %s%s\n)",
                 self::tsRankWeights($profile),
+                $this->rankVector(),
                 $table,
-                $scope !== null ? ' AND ' . $scope['predicate'] : '',
+                implode(' AND ', $strict),
                 $filters->compile($conditions, $params),
                 $cap,
             );
@@ -138,12 +166,14 @@ final class SearchSqlBuilder
             "cand AS (\n    SELECT id, max(r_text) AS r_text, max(r_fuzzy) AS r_fuzzy\n    FROM (%s) AS u\n    GROUP BY id\n)",
             implode(' UNION ALL ', $branches),
         );
+        // the exact column is the primary field's text: a viewer who may not see it gets no bonus from it
+        $primaryAllowed = $this->allowedFields === null || in_array($this->index->primaryField()->name, $this->allowedFields, true);
         $ctes[] = sprintf(
-            "scored AS (\n    SELECT c.id, c.r_text, c.r_fuzzy,\n        %s * c.r_text + %s * c.r_fuzzy AS relevance,\n        CASE WHEN q.norm <> '' AND s.exact = q.norm THEN %s ELSE 0 END::double precision AS exact_bonus,\n        CASE WHEN q.norm <> '' AND s.exact <> q.norm AND left(s.exact, length(q.norm)) = q.norm THEN %s ELSE 0 END::double precision AS prefix_bonus,\n        %s AS boost_bonus,\n        %s AS recency_bonus\n    FROM cand AS c JOIN %s AS s ON s.id = c.id CROSS JOIN q\n)",
+            "scored AS (\n    SELECT c.id, c.r_text, c.r_fuzzy,\n        %s * c.r_text + %s * c.r_fuzzy AS relevance,\n        %s AS exact_bonus,\n        %s AS prefix_bonus,\n        %s AS boost_bonus,\n        %s AS recency_bonus\n    FROM cand AS c JOIN %s AS s ON s.id = c.id CROSS JOIN q\n)",
             Sql::float($profile->text),
             Sql::float($profile->fuzzy),
-            Sql::float($profile->exactBonus),
-            Sql::float($profile->prefixBonus),
+            $primaryAllowed ? sprintf("CASE WHEN q.norm <> '' AND s.exact = q.norm THEN %s ELSE 0 END::double precision", Sql::float($profile->exactBonus)) : '0::double precision',
+            $primaryAllowed ? sprintf("CASE WHEN q.norm <> '' AND s.exact <> q.norm AND left(s.exact, length(q.norm)) = q.norm THEN %s ELSE 0 END::double precision", Sql::float($profile->prefixBonus)) : '0::double precision',
             $this->boostExpression($profile),
             $this->recencyExpression($profile),
             $table,
@@ -251,9 +281,13 @@ final class SearchSqlBuilder
         $params = new ParameterBag();
         $filters = new FilterCompiler($this->index);
         $table = $this->names->sidecar($this->index);
-        $compiled = (new FuzzyQueryCompiler($this->index, $thresholds, $this->names))->leafConditions($leaves, $params, $emptyQueries, $fuzzy);
-        if ($compiled['columns'] === []) {
+        $compiled = (new FuzzyQueryCompiler($this->index, $thresholds, $this->names, [], $this->allowedFields))->leafConditions($leaves, $params, $emptyQueries, $fuzzy);
+        if (array_filter($compiled['predicates'], static fn(?string $p): bool => $p !== null) === []) {
             throw new \LogicException('A relaxation probe needs at least one leaf that is not a stop word.');
+        }
+        // a restricted viewer's word on a field it may not see is "false", with no value: q still needs a column
+        if ($compiled['columns'] === []) {
+            $compiled['columns'] = ['NULL AS none'];
         }
 
         // One MATERIALIZED CTE per leaf: it is planned for full retrieval, so the planner reads the
@@ -308,6 +342,25 @@ SELECT
         );
 
         return ['sql' => $sql, 'params' => $params->all()];
+    }
+
+    /** The vector the text rank reads: the whole tsv, or only the fields a restricted viewer may see. */
+    private function rankVector(): string
+    {
+        $allowed = $this->allowedFields;
+        if ($allowed === null) {
+            return 's.tsv';
+        }
+        $parts = array_map(
+            fn(string $name): string => 's.' . $this->names->fieldVector($name),
+            array_values(array_filter($this->index->fieldNames(), static fn(string $name): bool => in_array($name, $allowed, true))),
+        );
+
+        return match (count($parts)) {
+            0 => "''::tsvector",
+            1 => $parts[0],
+            default => '(' . implode(' || ', $parts) . ')',
+        };
     }
 
     private function boostExpression(RankingProfile $profile): string

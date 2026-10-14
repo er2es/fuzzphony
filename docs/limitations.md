@@ -4,8 +4,8 @@ What Fuzzphony does not do well yet, and the planned fix for each. Back to the
 [README](../README.md).
 
 Each of these has a planned fix on the [roadmap](roadmap.md), except attaching and detaching
-partitions, which fire no triggers in PostgreSQL, the trigram limits of typo tolerance, and the
-best-effort search log.
+partitions, which fire no triggers in PostgreSQL, the trigram limits of typo tolerance, the
+best-effort search log, and the limits of field authorization.
 
 ## Typo tolerance is trigram-based
 
@@ -41,3 +41,20 @@ loses the (at most 1000) records it still holds. The `hits` of a search that hit
 Redaction removes what a regular expression can describe, nothing more, and the live search of the Live Component
 is not logged unless you ask for it. A log you must not lose is a custom `SearchLog` that writes somewhere durable,
 which the built-in reports then do not read.
+
+## Field authorization hides content, not existence or timing
+
+Field-level authorization (`granted`, see [Security](security.md)) keeps the content of a hidden field out of
+what a restricted viewer can match, rank, highlight, count and be suggested. It is not row-level security (a
+viewer who may search an index may find every document of it, within the tenant) and it is not a covert-channel
+proof:
+
+- a hidden field's existence is visible (`salary:x` gives no "Unknown field" warning), and a highlight request for it shows nothing;
+- timing is not hidden: how long a search takes can depend on how often a word occurs in a hidden field;
+- filters and facets are not restricted;
+- the vocabulary of unrestricted viewers still holds every word (a restricted viewer gets no suggestions);
+- a phrase that spans two allowed fields does not match for a restricted viewer;
+- `explain()` of a restricted viewer returns the statements and a note instead of the plan, because estimates
+  and `ANALYZE` counts would leak how often a word occurs in the hidden fields;
+- an index upgraded to layout 2 without a full reindex has empty per-field columns, so a restricted viewer finds
+  nothing (it fails closed): reindex after upgrading.

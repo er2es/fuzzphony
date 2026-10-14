@@ -16,6 +16,8 @@ final readonly class FieldDefinition
         public bool $highlight = true,
         /** Column of the source / document query; defaults to the field name. */
         public ?string $column = null,
+        /** The role (a Symfony security attribute) a viewer needs to search and see this field; null = open to everyone. Not part of the definition hash. */
+        public ?string $granted = null,
     ) {}
 
     public function column(): string

@@ -13,7 +13,7 @@ use Fuzzphony\Core\Ranking\RankingProfile;
  *   products:
  *     source: { table: product, id: id }            # or { query: "SELECT ...", id: id }
  *     id_type: int
- *     fields: { name: { weight: A, fuzzy: true }, description: C }
+ *     fields: { name: { weight: A, fuzzy: true }, description: C, salary: { weight: B, granted: ROLE_HR } }
  *     filters: { price: int, in_stock: bool }
  *     watch: { brand: { ids: "SELECT id FROM product WHERE brand_id = :id", columns: [name] } }
  *     sync: queue
@@ -46,7 +46,7 @@ final class ArrayDefinitionLoader
 
         foreach ($this->map($config['fields'] ?? []) as $field => $options) {
             $options = is_string($options) ? ['weight' => $options] : $this->map($options);
-            $builder->field($field, self::str($options['weight'] ?? null, 'B'), (bool) ($options['fuzzy'] ?? false), (bool) ($options['highlight'] ?? true), isset($options['column']) ? self::str($options['column'], '') : null);
+            $builder->field($field, self::str($options['weight'] ?? null, 'B'), (bool) ($options['fuzzy'] ?? false), (bool) ($options['highlight'] ?? true), isset($options['column']) ? self::str($options['column'], '') : null, isset($options['granted']) ? self::str($options['granted'], '') : null);
         }
         foreach ($this->map($config['filters'] ?? []) as $filter => $options) {
             $options = is_string($options) ? ['type' => $options] : $this->map($options);

@@ -46,6 +46,6 @@
         </section>
     {% endif %}
 
-    <p class="muted">The log is written after the response, in one batch, so a search never waits for it. An e-mail address typed into the search box is stored as <code>[redacted]</code> (<code>search_log.redact: [email]</code>). Anyone who uses a publicly hosted demo can plant text that other visitors see here: only e-mail addresses are redacted. In the terminal: <code>bin/console fuzzphony:analytics catalog --since=7d</code>, and <code>--zero</code> for the searches that found nothing.</p>
+    <p class="muted">A search counts when you click an example, press Enter, or stop typing for about a second (also when you leave the page sooner); the half-typed words in between are not logged. The log is written after the response, in one batch, so a search never waits for it. An e-mail address typed into the search box is stored as <code>[redacted]</code> (<code>search_log.redact: [email]</code>). Anyone who uses a publicly hosted demo can plant text that other visitors see here: only e-mail addresses are redacted. In the terminal: <code>bin/console fuzzphony:analytics catalog --since=7d</code>, and <code>--zero</code> for the searches that found nothing.</p>
 </div>
 {% endblock %}
