@@ -7,6 +7,14 @@ changes; they are always listed under **Breaking** and explained in [UPGRADE.md]
 
 ## [Unreleased]
 
+## [0.9.3] - 2026-10-14
+
+Documentation only. No upgrade steps.
+
+### Added
+
+- [Screenshots](docs/screenshots.md) of the demo (search, synonyms and the "Under the hood" menu, relevance, languages, tune), linked from the README and the demo README.
+
 ## [0.9.2] - 2026-10-14
 
 Tests and documentation only: the library's code and API do not change. No upgrade steps.
@@ -867,7 +875,8 @@ on its own:
 - Sync modes: queue (default), trigger, ORM, manual; watches for joined tables.
 - Doctor with fixes; CLI commands for schema, reindex, worker, search and explain.
 
-[Unreleased]: https://github.com/er2es/fuzzphony/compare/v0.9.2...HEAD
+[Unreleased]: https://github.com/er2es/fuzzphony/compare/v0.9.3...HEAD
+[0.9.3]: https://github.com/er2es/fuzzphony/compare/v0.9.2...v0.9.3
 [0.9.2]: https://github.com/er2es/fuzzphony/compare/v0.9.1...v0.9.2
 [0.9.1]: https://github.com/er2es/fuzzphony/compare/v0.9.0...v0.9.1
 [0.9.0]: https://github.com/er2es/fuzzphony/compare/v0.8.4...v0.9.0

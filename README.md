@@ -84,6 +84,8 @@ docker compose -f docker-compose.yml -f docker-compose.large.yml up --build
 `docker compose down -v` removes the data, so the next start seeds again (the seed only runs on an empty volume). To go back to
 the default size run `docker compose -f docker-compose.yml -f docker-compose.large.yml down -v` and start the plain command.
 
+[Screenshots](https://github.com/er2es/fuzzphony/blob/main/docs/screenshots.md) of the demo's search, relevance, languages and tuning pages show what it looks like before you run it.
+
 | Page | What you see |
 |---|---|
 | Search | one search field over the catalogue: results appear in place while you type (typos, accents and half-typed words included), with the category and stock facets at the side; the Speed view puts the same search next to a plain `ILIKE` |
@@ -243,6 +245,7 @@ nothing drops the words that match nothing and says so. Details:
 - [Console commands](https://github.com/er2es/fuzzphony/blob/main/docs/commands.md): every command, the doctor, the configuration wizard.
 - [Observability](https://github.com/er2es/fuzzphony/blob/main/docs/observability.md): metrics collectors, the Symfony bundle wiring, a `/metrics` endpoint, the Grafana dashboard.
 - [Integrations](https://github.com/er2es/fuzzphony/blob/main/docs/integrations.md): Doctrine, API Platform, Live Component.
+- [Screenshots](https://github.com/er2es/fuzzphony/blob/main/docs/screenshots.md): what the demo looks like.
 - [Benchmarks](https://github.com/er2es/fuzzphony/blob/main/docs/benchmarks.md): Fuzzphony against `ILIKE` on 200 000 products.
 - [Known limitations](https://github.com/er2es/fuzzphony/blob/main/docs/limitations.md): the full text of the list below.
 - [Architecture](https://github.com/er2es/fuzzphony/blob/main/docs/architecture.md) and [design decisions (ADRs)](https://github.com/er2es/fuzzphony/tree/main/docs/adr).
