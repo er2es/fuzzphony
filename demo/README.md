@@ -4,6 +4,8 @@
 > search on purpose, and it ships throwaway secrets. Run it on your own machine; do not expose it
 > to the internet as is.
 
+[Screenshots](../docs/screenshots.md) of the search, relevance, languages and tuning pages show what the demo looks like.
+
 Clone the whole repository: the image is built from the repository root, because the demo uses the
 library's source in `../src` directly (not a Packagist release).
 
