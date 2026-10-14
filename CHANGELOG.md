@@ -7,6 +7,10 @@ changes; they are always listed under **Breaking** and explained in [UPGRADE.md]
 
 ## [Unreleased]
 
+## [0.9.4] - 2026-10-14
+
+No upgrade steps. The repository is now one Composer package (`fuzzphony/fuzzphony`), and some dead code is gone.
+
 ### Changed
 
 - Dead and redundant code removed (no behaviour change, no API change): the `relaxed: ` prefix on the `browse` statement (a relaxed search never browses) and a no-op `array_diff_key()` in the did-you-mean lookup (`PostgresEngine`); an unreachable default and an unreachable `null` check in the fuzzy query compiler; the `null` arm of the YAML exporter (the exported array holds no `null`); the redundant `array_values()` in `SearchQuery::highlight()` and `facets()` (`copy()` already normalises the lists); a guard in `fuzzphony:wizard` that could not be false. `AuthorizationGuard::check()` now says why it ignores `$charge`.
@@ -881,7 +885,8 @@ on its own:
 - Sync modes: queue (default), trigger, ORM, manual; watches for joined tables.
 - Doctor with fixes; CLI commands for schema, reindex, worker, search and explain.
 
-[Unreleased]: https://github.com/er2es/fuzzphony/compare/v0.9.3...HEAD
+[Unreleased]: https://github.com/er2es/fuzzphony/compare/v0.9.4...HEAD
+[0.9.4]: https://github.com/er2es/fuzzphony/compare/v0.9.3...v0.9.4
 [0.9.3]: https://github.com/er2es/fuzzphony/compare/v0.9.2...v0.9.3
 [0.9.2]: https://github.com/er2es/fuzzphony/compare/v0.9.1...v0.9.2
 [0.9.1]: https://github.com/er2es/fuzzphony/compare/v0.9.0...v0.9.1
