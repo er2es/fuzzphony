@@ -7,6 +7,15 @@ changes; they are always listed under **Breaking** and explained in [UPGRADE.md]
 
 ## [Unreleased]
 
+## [0.9.2] - 2026-10-14
+
+Tests and documentation only: the library's code and API do not change. No upgrade steps.
+
+### Changed
+
+- README, "Try the demo": the Windows commands (`cmd` and PowerShell) for the `BUILDX_BAKE_ENTITLEMENTS_FS` variable (`setx` keeps it), `DEMO_ROWS` and the large profile.
+- **Mutation testing:** 134 new tests (49 files named `<Subject>MutationsTest.php`) kill 117 of the mutants that escaped the full run on 0.9.1 (246 of 4 891 covered mutants, 94% covered-code MSI). The mutants that still escape are equivalent ones (a cast on a value that is already that type, array keys that are never read, a branch only a real clock would show); the dead or redundant code they point at is left as it is and listed in the repository's notes for a later cleanup.
+
 ## [0.9.1] - 2026-10-14
 
 No upgrade steps. Two small follow-ups to the 0.9 search log.
@@ -858,7 +867,8 @@ on its own:
 - Sync modes: queue (default), trigger, ORM, manual; watches for joined tables.
 - Doctor with fixes; CLI commands for schema, reindex, worker, search and explain.
 
-[Unreleased]: https://github.com/er2es/fuzzphony/compare/v0.9.1...HEAD
+[Unreleased]: https://github.com/er2es/fuzzphony/compare/v0.9.2...HEAD
+[0.9.2]: https://github.com/er2es/fuzzphony/compare/v0.9.1...v0.9.2
 [0.9.1]: https://github.com/er2es/fuzzphony/compare/v0.9.0...v0.9.1
 [0.9.0]: https://github.com/er2es/fuzzphony/compare/v0.8.4...v0.9.0
 [0.8.4]: https://github.com/er2es/fuzzphony/compare/v0.8.3...v0.8.4
