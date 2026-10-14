@@ -38,8 +38,10 @@ FROM base AS build
 COPY --from=composer /usr/bin/composer /usr/bin/composer
 RUN apk add --no-cache git unzip
 ENV COMPOSER_ALLOW_SUPERUSER=1 COMPOSER_NO_INTERACTION=1 COMPOSER_CACHE_DIR=/tmp/composer-cache
-# The path repositories in demo/composer.json (symlink: true) point at ../src/*, so the tree keeps its layout.
+# The path repository in demo/composer.json (symlink: true) points at the repository root (the one package
+# fuzzphony/fuzzphony: composer.json + src/), so the tree keeps its layout.
 WORKDIR /app
+COPY composer.json ./composer.json
 COPY src ./src
 WORKDIR /app/demo
 COPY demo/composer.json demo/composer.lock ./

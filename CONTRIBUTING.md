@@ -8,6 +8,7 @@ Thanks for helping! A few rules keep Fuzzphony predictable:
 3. **Every engine passes `tests/Conformance`.** New behaviour starts as a conformance test.
 4. **Every doctor check has a fix.** If something can be wrong in production, the doctor should say so.
 5. Record non-obvious design decisions as an ADR in `docs/adr`.
+6. **One Composer package.** The repository is the single package `fuzzphony/fuzzphony`; `src/Core`, `src/Engine/Postgres`, `src/Bridge/Doctrine` and `src/Bundle` are layers of it ([architecture](docs/architecture.md)), not packages: add dependencies and `suggest` entries to the root `composer.json` only.
 
 ## Running the checks
 
