@@ -7,6 +7,10 @@ changes; they are always listed under **Breaking** and explained in [UPGRADE.md]
 
 ## [Unreleased]
 
+## [0.9.1] - 2026-10-14
+
+No upgrade steps. Two small follow-ups to the 0.9 search log.
+
 ### Added
 
 - **`FederatedSearch::unlogged()`**: keeps every per-index search of a federated search out of the search log (a refusal is
@@ -854,7 +858,8 @@ on its own:
 - Sync modes: queue (default), trigger, ORM, manual; watches for joined tables.
 - Doctor with fixes; CLI commands for schema, reindex, worker, search and explain.
 
-[Unreleased]: https://github.com/er2es/fuzzphony/compare/v0.9.0...HEAD
+[Unreleased]: https://github.com/er2es/fuzzphony/compare/v0.9.1...HEAD
+[0.9.1]: https://github.com/er2es/fuzzphony/compare/v0.9.0...v0.9.1
 [0.9.0]: https://github.com/er2es/fuzzphony/compare/v0.8.4...v0.9.0
 [0.8.4]: https://github.com/er2es/fuzzphony/compare/v0.8.3...v0.8.4
 [0.8.3]: https://github.com/er2es/fuzzphony/compare/v0.8.2...v0.8.3
