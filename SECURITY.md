@@ -6,8 +6,8 @@ Fuzzphony is pre-1.0. Security fixes are released for the latest minor version o
 
 | Version | Supported |
 |---|---|
-| 0.8.x | yes |
-| < 0.8 | no |
+| 0.9.x | yes |
+| < 0.9 | no |
 
 ## Reporting a vulnerability
 
@@ -37,5 +37,11 @@ otherwise.
   where the existence of a word is itself secret.
 - **Cost.** Search input is bounded by the `max_query_length`, `max_terms` and `candidate_limit`
   thresholds. Also set a PostgreSQL `statement_timeout` for the application's database role.
+- **Authorization is part of the trust model since 0.9.** A field a viewer may not see (`granted`) is not matched, ranked,
+  highlighted, counted or suggested from, and a tenant-scoped index needs a tenant: a way around either is a vulnerability. What
+  it does not hide is documented (a hidden field's existence, timing, row-level access, filters and facets): see
+  [Security](docs/security.md#the-limits-stated-honestly).
+- **The search log** (opt-in) stores what visitors typed. Redact it (`search_log.redact`), set a retention and keep the table's
+  privileges as narrow as the rest of the schema: see [Search log and analytics](docs/analytics.md).
 - **The demo** (`demo/`) is a local showcase, not a production template. It exposes the SQL and
   query plans of every search on purpose.

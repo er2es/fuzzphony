@@ -7,6 +7,10 @@ changes; they are always listed under **Breaking** and explained in [UPGRADE.md]
 
 ## [Unreleased]
 
+### Changed
+
+- `SECURITY.md`: security fixes are released for 0.9.x (it still said 0.8.x), and the trust model now covers the 0.9 features: authorization (what it guarantees and what it does not) and the search log.
+
 ## [0.9.3] - 2026-10-14
 
 Documentation only. No upgrade steps.
