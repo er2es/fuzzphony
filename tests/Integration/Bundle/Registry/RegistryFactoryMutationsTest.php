@@ -2,7 +2,7 @@
 
 declare(strict_types=1);
 
-namespace Fuzzphony\Tests\Unit\Bundle\Registry;
+namespace Fuzzphony\Tests\Integration\Bundle\Registry;
 
 use Fuzzphony\Bridge\Doctrine\DoctrineIndexDiscovery;
 use Fuzzphony\Bundle\Registry\RegistryFactory;

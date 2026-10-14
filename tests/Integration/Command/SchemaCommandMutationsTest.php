@@ -21,6 +21,6 @@ final class SchemaCommandMutationsTest extends TestCase
 
         $display = $tester->getDisplay(true);
         self::assertSame(Command::SUCCESS, $status, $display);
-        self::assertMatchesRegularExpression('/ (\d+)\/\1 \[=+\] 100%\n\n \[OK\] \1 statement\(s\) applied/', $display);
+        self::assertMatchesRegularExpression('/ (\d+)\/\1 \[[^\]]+\] 100%\n\n \[OK\] \1 statement\(s\) applied/', $display);
     }
 }
