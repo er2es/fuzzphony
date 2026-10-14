@@ -310,10 +310,10 @@ ON CONFLICT (index_name) DO UPDATE SET layout_version = EXCLUDED.layout_version,
         ];
     }
 
-    /** For the record only: the monorepo package, or the engine package when installed split (as in the demo). */
+    /** For the record only: the version of the installed package. */
     private static function libraryVersion(): string
     {
-        return InstalledVersions::getPrettyVersion(InstalledVersions::isInstalled('fuzzphony/fuzzphony') ? 'fuzzphony/fuzzphony' : 'fuzzphony/postgres-engine') ?? 'unknown';
+        return InstalledVersions::getPrettyVersion('fuzzphony/fuzzphony') ?? 'unknown';
     }
 
     /**

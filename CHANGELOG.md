@@ -9,6 +9,7 @@ changes; they are always listed under **Breaking** and explained in [UPGRADE.md]
 
 ### Changed
 
+- **One Composer package.** The repository is published as `fuzzphony/fuzzphony` only: the `replace` block (`fuzzphony/core`, `postgres-engine`, `doctrine-bridge`, `symfony-bundle`), the dev dependency `symplify/monorepo-builder`, the four `src/*/composer.json` files and the `split.yml` workflow (it targeted split repositories that never existed) are removed. `docs/architecture.md` now describes `Core`, `Engine/Postgres`, `Bridge/Doctrine` and `Bundle` as layers of one package. The demo requires `fuzzphony/fuzzphony` through one path repository to the repository root (its image build copies the root `composer.json` and `src/`); with the live-edit compose file, an existing `vendor` volume is refreshed by the `composer install` of the first start. Nothing changes for applications that `composer require fuzzphony/fuzzphony`.
 - `SECURITY.md`: security fixes are released for 0.9.x (it still said 0.8.x), and the trust model now covers the 0.9 features: authorization (what it guarantees and what it does not) and the search log.
 
 ## [0.9.3] - 2026-10-14
