@@ -435,6 +435,8 @@ $result->results['products']->total;   // each index's own SearchResult (facets,
   prefixed with the index name (`[products] ...`), and the ids are those of each index (an `articles` id
   can equal a `products` id): use `$hit->index` to tell them apart. It works with every engine, as it only
   uses `search()`.
+- `unlogged()` keeps every per-index search out of the [search log](analytics.md#keeping-a-search-out-of-the-log)
+  (a refusal is still recorded).
 
 ## Empty-result relaxation
 

@@ -72,6 +72,9 @@ final class ArrayExporter
         if ($index->tenant !== null) {
             $out['tenant'] = $index->tenant;
         }
+        if (!$index->log) {
+            $out['log'] = false;
+        }
         if (!$index->synonyms->isEmpty()) {
             $out['synonyms'] = $index->synonyms->toEntries();
         }
