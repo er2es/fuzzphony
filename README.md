@@ -243,13 +243,10 @@ Details in [docs/limitations.md](https://github.com/er2es/fuzzphony/blob/main/do
 
 ## Roadmap
 
-Current: v0.8 (search-as-you-type, facets, federated search). Milestones build in
+Current: v0.9 (identity, search log and analytics, rate limit and authorization). Milestones build in
 order, each one a foundation for the next, up to v1.0's stable API and backward-compatibility
 promise. PostgreSQL only before 1.0:
 
-- v0.9 Security and analytics (all three parts are done, release pending): the actor and the tenant
-  resolver for the integrations, the search log with `fuzzphony:analytics`, and the guards (rate limit,
-  index- and field-level authorization on Symfony Security).
 - v1.0 Stable: a documentation site with a "Migrating from `LIKE`" guide, mutation score 90% with
   a CI gate, the backward-compatibility promise.
 

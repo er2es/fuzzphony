@@ -7,6 +7,8 @@ changes; they are always listed under **Breaking** and explained in [UPGRADE.md]
 
 ## [Unreleased]
 
+## [0.9.0] - 2026-10-14
+
 Parts 1 (identity), 2 (search log and analytics) and 3 (guards) of 0.9. Upgrade: nothing, unless you enable the log: run `fuzzphony:schema --apply`. See [UPGRADE.md](UPGRADE.md#from-08-to-09).
 
 ### Added
@@ -842,7 +844,8 @@ on its own:
 - Sync modes: queue (default), trigger, ORM, manual; watches for joined tables.
 - Doctor with fixes; CLI commands for schema, reindex, worker, search and explain.
 
-[Unreleased]: https://github.com/er2es/fuzzphony/compare/v0.8.4...HEAD
+[Unreleased]: https://github.com/er2es/fuzzphony/compare/v0.9.0...HEAD
+[0.9.0]: https://github.com/er2es/fuzzphony/compare/v0.8.4...v0.9.0
 [0.8.4]: https://github.com/er2es/fuzzphony/compare/v0.8.3...v0.8.4
 [0.8.3]: https://github.com/er2es/fuzzphony/compare/v0.8.2...v0.8.3
 [0.8.2]: https://github.com/er2es/fuzzphony/compare/v0.8.1...v0.8.2
