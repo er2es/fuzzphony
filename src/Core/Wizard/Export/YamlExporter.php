@@ -47,7 +47,6 @@ final class YamlExporter
             is_bool($value) => $value ? 'true' : 'false',
             is_int($value) => (string) $value,
             is_float($value) => self::floatLiteral($value),
-            $value === null => '~',
             default => self::stringLiteral(Coerce::str($value)),
         };
     }

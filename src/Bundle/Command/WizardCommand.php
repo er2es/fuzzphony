@@ -82,7 +82,7 @@ final class WizardCommand extends Command
             return Command::FAILURE;
         }
 
-        if ($input->isInteractive() && $index->fields !== []) {
+        if ($input->isInteractive()) {
             $fields = array_map(static fn($f): string => $f->name, $index->fields);
             $keep = $io->askQuestion((new ChoiceQuestion('Searchable fields to keep (comma-separated, Enter = all)', $fields, implode(',', array_keys($fields))))->setMultiselect(true));
             $kept = array_values(array_filter($index->fields, static fn($f): bool => in_array($f->name, (array) $keep, true)));
