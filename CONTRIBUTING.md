@@ -23,7 +23,7 @@ composer qa      # php-cs-fixer (PER-CS 2.0), PHPStan (level max + strict rules)
 ```
 
 Without `FUZZPHONY_TEST_DSN` the integration tests are skipped. CI additionally runs the suite
-against PHP 8.4 / 8.5, PostgreSQL 15 to 18, Symfony 7.4 LTS / 8.0 / 8.1 (and 8.2 in development, as an early warning) and the lowest allowed dependencies.
+against PHP 8.4 / 8.5, PostgreSQL 15 to 18, Symfony 7.4 LTS / 8.1 (and 8.2 in development, as an early warning) and the lowest allowed dependencies.
 
 The integration tests drop and recreate tables, so `PostgresTestCase::dsn()` refuses to run
 against a database whose name doesn't contain "test" (a case-insensitive substring check, so

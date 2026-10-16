@@ -40,7 +40,7 @@ jobs:
       fail-fast: false
       # Symfony only touches the bundle, PostgreSQL only the engine, so the two axes are not multiplied: every PHP and
       # PostgreSQL version runs on the LTS (7.4), and the other maintained Symfony releases run on the newest PostgreSQL.
-      # Every Symfony release the composer constraint allows is tested (7.4 LTS, 8.0, 8.1): what the README and the badge
+      # Every Symfony release the composer constraint allows is tested (7.4 LTS, 8.1): what the README and the badge
       # claim is what runs here. A release leaves the constraint and this list together, in a minor release of Fuzzphony.
       # The next minor is its own job below.
       matrix:
@@ -48,8 +48,6 @@ jobs:
         postgres: ['15', '16', '17', '18']
         symfony: ['7.4']
         include:
-          - { php: '8.4', postgres: '18', symfony: '8.0' }
-          - { php: '8.5', postgres: '18', symfony: '8.0' }
           - { php: '8.4', postgres: '18', symfony: '8.1' }
           - { php: '8.5', postgres: '18', symfony: '8.1' }
     services:

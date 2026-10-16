@@ -7,6 +7,12 @@ changes; they are always listed under **Breaking** and explained in [UPGRADE.md]
 
 ## [Unreleased]
 
+### Changed
+
+- **Symfony 8.0 is dropped** from the supported versions: the constraints are `^7.4 || ^8.1`, the CI matrix, the README badge and the
+  docs say 7.4 LTS and 8.1. Symfony 8.0 no longer receives fixes, and every 8.0.x is affected by four `symfony/yaml` advisories
+  (Composer refuses to install it). See [UPGRADE.md](UPGRADE.md).
+
 ## [0.9.4] - 2026-10-14
 
 No upgrade steps. The repository is now one Composer package (`fuzzphony/fuzzphony`), and some dead code is gone.
