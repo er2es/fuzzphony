@@ -3,7 +3,7 @@
 Before 1.0, a minor version may contain breaking changes. Each section lists what to change,
 and the [CHANGELOG](CHANGELOG.md) has the full list of changes.
 
-## From 0.9.4 to the next release
+## From 0.9.4 to 0.9.5
 
 1. **Symfony 8.0 is no longer supported** (the `symfony/*` constraints are now `^7.4 || ^8.1`). Symfony 8.0 is not a
    long-term release and no longer receives fixes: every 8.0.x is affected by four `symfony/yaml` denial-of-service
@@ -15,7 +15,10 @@ and the [CHANGELOG](CHANGELOG.md) has the full list of changes.
    entity manager. Nothing to do unless you had worked around the missing wiring: a hand-registered
    `DoctrineIndexDiscovery`, `EntityLoader` or `OrmSyncListener` is now a duplicate of the bundle's, and an index
    that is both an attribute and in YAML `indexes` is overridden by the YAML as documented.
-3. **Search log: who searched what, and the optional client IP.** Nothing is required. To keep the client address
+
+## From 0.9.5 to the next release
+
+1. **Search log: who searched what, and the optional client IP.** Nothing is required. To keep the client address
    (`fuzzphony.search_log.ip: masked`, recommended, or `full`; it is personal data, see
    [SECURITY.md](SECURITY.md)) run `fuzzphony:schema --apply` once: it adds the nullable column `actor_ip` to
    `fuzzphony_search_log` (the role must own the table). Without the setting nothing is stored and the column is not needed;
