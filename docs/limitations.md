@@ -196,13 +196,15 @@ applies the schema should retry. See [Reindexing](sync.md#reindexing-and-orphan-
 ### The registry cache in production needs `cache:clear`
 
 With `kernel.debug` off, the Symfony bundle keeps the `#[Searchable]` definitions it discovered in the
-`cache.system` pool, because discovering them loads the metadata of every entity. A change to `#[Searchable]`,
-`#[SearchField]` or `#[SearchFilter]`, or to a `synonyms_file` an attribute names, is not seen until
-`cache:clear`, and that includes `fuzzphony:schema --apply`, `fuzzphony:reindex` and `fuzzphony:doctor`, which
-read the same cached definitions. In debug mode nothing is cached, and YAML indexes are never cached.
+`cache.system` pool for **web requests**, because discovering them loads the metadata of every entity. A
+change to `#[Searchable]`, `#[SearchField]` or `#[SearchFilter]`, or to a `synonyms_file` an attribute names, is
+not seen by the web application until `cache:clear`. The console (`fuzzphony:schema --apply`,
+`fuzzphony:reindex`, `fuzzphony:doctor`, the worker, a Messenger consumer) always discovers fresh and never
+reads or writes the pool, so it sees current attributes whatever the cache holds. In debug mode nothing is
+cached, and YAML indexes are never cached.
 
-What to do: `cache:clear` as part of every deploy, before `fuzzphony:schema --apply` and a reindex. See
-[Attributes](configuration.md#attributes).
+What to do: `cache:clear` as part of every deploy, so that the web requests see the same definitions the
+schema was applied with. See [Attributes](configuration.md#attributes).
 
 ### Text search configuration caches assume the configuration does not change in a process
 

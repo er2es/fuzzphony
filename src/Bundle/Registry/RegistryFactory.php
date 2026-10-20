@@ -18,10 +18,11 @@ final class RegistryFactory
     /**
      * @param array<string, array<string, mixed>> $yaml
      * @param ?CacheItemPoolInterface             $cache Keeps the discovered definitions between requests (the bundle passes cache.system outside debug mode, so cache:clear drops it like Doctrine's own metadata cache); the YAML part is always rebuilt.
+     * @param bool                                $cacheInCli Test seam (the container parameter `fuzzphony.registry_cache_in_cli`, not a configuration option): the cache serves web requests only, so a command, a worker or a consumer (PHP_SAPI "cli") always discovers fresh and neither reads nor writes the pool; true lets a test prove the cache from the command line.
      */
-    public static function create(array $yaml, ?DoctrineIndexDiscovery $discovery = null, ?CacheItemPoolInterface $cache = null): IndexRegistry
+    public static function create(array $yaml, ?DoctrineIndexDiscovery $discovery = null, ?CacheItemPoolInterface $cache = null, bool $cacheInCli = false): IndexRegistry
     {
-        $registry = new IndexRegistry($discovery === null ? [] : self::discovered($discovery, $cache));
+        $registry = new IndexRegistry($discovery === null ? [] : self::discovered($discovery, \PHP_SAPI === 'cli' && !$cacheInCli ? null : $cache));
         $loader = new ArrayDefinitionLoader();
         foreach ($yaml as $name => $config) {
             $registry->register($registry->has($name) ? $loader->override($registry->get($name), $config) : $loader->load($name, $config));
