@@ -9,6 +9,13 @@ changes; they are always listed under **Breaking** and explained in [UPGRADE.md]
 
 ### Changed
 
+- **Fewer database round trips per search** (no change in results, order, counts, warnings or API). A plain search used to cost 5 round trips for one `SELECT`; it costs 1 now, a typo-tolerant one 35 down to 14, a search with two facets 15 down to 3 (measured on PostgreSQL 17, counted with `log_statement = 'all'`, see [Benchmarks](docs/benchmarks.md#round-trips)).
+  - `PdoConnection` sends its statements without PDO's server-side prepare on `pdo_pgsql` (`PDO::PGSQL_ATTR_DISABLE_PREPARES`, set per statement): one call instead of Parse + Bind/Execute + `DEALLOCATE`, with the same server-side parameter handling. The attribute is **not** set on your PDO, so your own statements on the same connection are prepared as before. DBAL's `pdo_pgsql` driver already does this by default, so `DbalConnection` is unchanged.
+  - A statement that sets no similarity threshold (every strict full-text search, the facets, the highlight and count statements) no longer runs inside its own `BEGIN` / `COMMIT`. A statement that sets the threshold, and any search inside the caller's transaction, behave exactly as before.
+  - The stop-word lookup of the typo-tolerant branch (which leaf tsqueries the text search configuration reduces to nothing) is asked once per tsquery and engine instead of once per search, and only for the tsqueries not seen yet. The answer depends only on the text search configuration, which does not change while a process runs; the cache holds at most about 5 000 entries per configuration and starts over beyond that.
+  - The digest that identifies an index's synonyms is computed once per `Synonyms` object instead of on every search (about 1 ms for 5 000 groups).
+  - What a round trip is worth is the network latency to the database: on a local PostgreSQL (about 0 ms) the time per search was a little lower in every run we made (a few milliseconds, within the noise of single runs), on a database across a network it is the saved round trips times the latency (12 round trips fewer at 1 ms are 12 ms for a search with two facets).
+- [Security](docs/security.md#the-rate-limit): the Symfony rate limiter keeps its state in the `cache.rate_limiter` pool, which is a filesystem cache by default (a file is locked and written on every search); the docs now recommend an APCu or Redis `cache_pool`.
 - **Symfony 8.0 is dropped** from the supported versions: the constraints are `^7.4 || ^8.1`, the CI matrix, the README badge and the
   docs say 7.4 LTS and 8.1. Symfony 8.0 no longer receives fixes, and every 8.0.x is affected by four `symfony/yaml` advisories
   (Composer refuses to install it). See [UPGRADE.md](UPGRADE.md).
