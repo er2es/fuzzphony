@@ -1,0 +1,4 @@
+Reindexing "customers"
+  4 documents in 0.1s
+  11 words in the vocabulary ("did you mean")
+ [OK] Done. Tip: run fuzzphony:doctor to verify coverage.
