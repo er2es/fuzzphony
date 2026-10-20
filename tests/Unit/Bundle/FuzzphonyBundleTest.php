@@ -146,6 +146,20 @@ final class FuzzphonyBundleTest extends TestCase
         self::assertNull($withoutDiscovery->getDefinition('fuzzphony.registry')->getArgument(1));
     }
 
+    public function testTheDiscoveredIndexesAreCachedOutsideDebugModeOnly(): void
+    {
+        $prod = $this->buildContainer(withOrm: true)->getDefinition('fuzzphony.registry')->getArgument(2);
+        $debug = $this->buildContainer(withOrm: true, debug: true)->getDefinition('fuzzphony.registry')->getArgument(2);
+        $noDiscovery = $this->buildContainer(withOrm: true, config: ['discover_entities' => false])->getDefinition('fuzzphony.registry')->getArgument(2);
+        $noOrm = $this->buildContainer(withOrm: false)->getDefinition('fuzzphony.registry')->getArgument(2);
+
+        self::assertInstanceOf(Reference::class, $prod);
+        self::assertSame('cache.system', (string) $prod);
+        self::assertNull($debug, 'in debug mode an edited attribute must show up on the next request');
+        self::assertNull($noDiscovery, 'nothing is discovered, so nothing is cached');
+        self::assertNull($noOrm);
+    }
+
     public function testAsyncOrmSyncWiresTheMessengerDispatcher(): void
     {
         $container = $this->buildContainer(withOrm: false, config: ['orm_sync' => ['async' => true]]);
@@ -525,12 +539,12 @@ final class FuzzphonyBundleTest extends TestCase
     }
 
     /** @param array<string, mixed> $config */
-    private function buildContainer(bool $withOrm, array $config = [], bool $direct = false): ContainerBuilder
+    private function buildContainer(bool $withOrm, array $config = [], bool $direct = false, bool $debug = false): ContainerBuilder
     {
         $container = new ContainerBuilder();
         // Older AbstractBundle/BundleExtension versions read these while loading; a real kernel always sets them.
         $container->setParameter('kernel.environment', 'test');
-        $container->setParameter('kernel.debug', false);
+        $container->setParameter('kernel.debug', $debug);
         $container->setParameter('kernel.project_dir', dirname(__DIR__, 3));
         $container->setParameter('kernel.cache_dir', sys_get_temp_dir());
         $container->setParameter('kernel.build_dir', sys_get_temp_dir());

@@ -9,6 +9,7 @@ changes; they are always listed under **Breaking** and explained in [UPGRADE.md]
 
 ### Changed
 
+- **Faster registry in the Symfony bundle (production only).** Every request that used Fuzzphony discovered the `#[Searchable]` entities again, which loads the metadata of every entity in the application. With `kernel.debug` off, the discovered index definitions are now kept in the `cache.system` pool, so `cache:clear` (part of every deploy) drops them like Doctrine's metadata cache; in debug mode nothing is cached, and YAML indexes are always rebuilt. Measured (PHP 8.4, opcache, warm Doctrine metadata cache, 3 searchable entities): about 0.6 ms per request with 20 mapped entities, 2.0 ms with 100 and 8 ms with 300, now one cache read (unserializing the definitions takes about 0.05 ms); on a machine without opcache the 100-entity figure was 13 ms. No configuration, no API change. If you edit `#[Searchable]`/`#[SearchField]` (or a synonyms file an attribute names) on a production server, run `cache:clear`.
 - **Symfony 8.0 is dropped** from the supported versions: the constraints are `^7.4 || ^8.1`, the CI matrix, the README badge and the
   docs say 7.4 LTS and 8.1. Symfony 8.0 no longer receives fixes, and every 8.0.x is affected by four `symfony/yaml` advisories
   (Composer refuses to install it). See [UPGRADE.md](UPGRADE.md).

@@ -359,6 +359,9 @@ final class FuzzphonyBundle extends AbstractBundle
             ->args([
                 $indexes,
                 $hasOrm && $discoverEntities ? service('fuzzphony.discovery') : null,
+                // Prod only: discovery loads the metadata of every entity, so its result is kept in cache.system (cache:clear drops it).
+                // Without kernel.debug (or when it is unknown) nothing is cached and an edited attribute shows up on the next request.
+                $hasOrm && $discoverEntities && $builder->hasParameter('kernel.debug') && $builder->getParameter('kernel.debug') === false ? service('cache.system')->nullOnInvalid() : null,
             ]);
         $services->alias(IndexRegistry::class, 'fuzzphony.registry');
 
