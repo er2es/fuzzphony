@@ -79,6 +79,12 @@ final class PostgresEngine implements Engine, Vocabulary, SynonymStems, Suggesti
     private array $expanders = [];
     /** @var array<string, array<string, string>> text configuration => lowercase word => stem */
     private array $stems = [];
+    /** Most leaf tsqueries remembered per text configuration; the cache starts over beyond it. */
+    private const int EMPTY_CACHE = 5_000;
+    /** @var array<string, array<string, bool>> text configuration => leaf tsquery => whether it reduces to nothing (a stop word) */
+    private array $emptyAnswers = [];
+    /** @var \WeakMap<Synonyms, string>|null the content digest of each Synonyms object (immutable), made once; see expandSynonyms() */
+    private ?\WeakMap $synonymDigests = null;
 
     /**
      * @param string $extensionSchema schema of the pg_trgm and unaccent extensions
@@ -777,7 +783,11 @@ final class PostgresEngine implements Engine, Vocabulary, SynonymStems, Suggesti
             return $root;
         }
         $config = $this->names->regconfig($index->text);
-        $key = $index->name . '|' . $config . '|' . md5(serialize($index->synonyms->toEntries()));
+        // the key follows the content of the synonyms (an equal list given again shares the expander); the digest of a long list
+        // costs about a millisecond, so it is made once per (immutable) Synonyms object, not on every search
+        $this->synonymDigests ??= new \WeakMap();
+        $digest = $this->synonymDigests[$index->synonyms] ??= md5(serialize($index->synonyms->toEntries()));
+        $key = $index->name . '|' . $config . '|' . $digest;
         if (count($this->stems[$config] ?? []) > self::STEM_CACHE) {
             $this->stems[$config] = [];
         }
@@ -964,15 +974,29 @@ final class PostgresEngine implements Engine, Vocabulary, SynonymStems, Suggesti
      */
     private function emptyQueries(IndexDefinition $index, array $queries): array
     {
-        $rows = $this->guard('search', fn(): array => $this->connection->fetchAll(
-            sprintf(
-                'SELECT t.q FROM unnest(CAST(:queries AS text[])) AS t(q) WHERE numnode(to_tsquery(%s, t.q)) = 0',
-                $this->names->regconfig($index->text),
-            ),
-            ['queries' => Sql::arrayLiteral($queries)],
-        ), 'Run "bin/console fuzzphony:doctor" to check the index.');
+        // Whether a tsquery reduces to nothing depends only on the text search configuration (its dictionaries and stop word
+        // lists), which does not change while a process runs: every answer, "empty" and "not empty", is kept per
+        // (configuration, tsquery), and PostgreSQL is asked only for the tsqueries it has not answered yet.
+        $config = $this->names->regconfig($index->text);
+        if (count($this->emptyAnswers[$config] ?? []) > self::EMPTY_CACHE) {
+            $this->emptyAnswers[$config] = [];
+        }
+        $unknown = array_values(array_unique(array_filter($queries, fn(string $query): bool => !isset($this->emptyAnswers[$config][$query]))));
+        if ($unknown !== []) {
+            $rows = $this->guard('search', fn(): array => $this->connection->fetchAll(
+                sprintf(
+                    'SELECT t.q FROM unnest(CAST(:queries AS text[])) AS t(q) WHERE numnode(to_tsquery(%s, t.q)) = 0',
+                    $config,
+                ),
+                ['queries' => Sql::arrayLiteral($unknown)],
+            ), 'Run "bin/console fuzzphony:doctor" to check the index.');
+            $empty = array_flip(array_map(static fn(array $row): string => Coerce::str($row['q']), $rows));
+            foreach ($unknown as $query) {
+                $this->emptyAnswers[$config][$query] = isset($empty[$query]);
+            }
+        }
 
-        return array_map(static fn(array $row): string => Coerce::str($row['q']), $rows);
+        return array_values(array_filter($queries, fn(string $query): bool => $this->emptyAnswers[$config][$query]));
     }
 
     /**
@@ -1008,6 +1032,11 @@ final class PostgresEngine implements Engine, Vocabulary, SynonymStems, Suggesti
      */
     private function run(array $statement, ?float $similarityThreshold): array
     {
+        if ($similarityThreshold === null) {
+            // nothing to set, so nothing to scope to a transaction: a single SELECT needs no BEGIN and COMMIT (two round trips)
+            return $this->guard('search', fn(): array => $this->connection->fetchAll($statement['sql'], $statement['params']), 'Run "bin/console fuzzphony:doctor" to check the index.');
+        }
+
         // Computed before transactional() opens (or joins) a transaction, so it reflects whether
         // the *caller* already had one open — not the one this call is about to start itself.
         $restore = !($this->connection instanceof TransactionAware) || $this->connection->inTransaction();

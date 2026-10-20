@@ -81,6 +81,13 @@ name fails the container build with Symfony's own "non-existent service limiter.
 `compound` limiter works too. The key is the actor's tenant or user, as configured. When it is
 exceeded the search throws `RateLimited` (429 with `Retry-After`).
 
+The limiter's state lives in the cache pool of the `framework.rate_limiter` entry (`cache.rate_limiter` unless you set
+`cache_pool`), and a search takes its lock (`lock_factory`) while it reads and writes it. With Symfony's default pools these are
+filesystem based, so every search touches a file. On a busy site point the entry at a faster pool, for example an APCu
+or Redis one (`cache_pool: cache.apcu`, or a Redis pool of your own; APCu is per server, so use Redis, with a Redis-backed
+`lock_factory`, when several servers must share one limit). See Symfony's
+[rate limiter documentation](https://symfony.com/doc/current/rate_limiter.html).
+
 What is and is not limited:
 
 - **A search without an actor, or with an actor that has no key** (`per: user` and an actor without a

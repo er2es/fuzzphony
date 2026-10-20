@@ -6,9 +6,20 @@ namespace Fuzzphony\Core\Database;
 
 final class PdoConnection implements Connection, TransactionAware
 {
+    /**
+     * pdo_pgsql prepares every statement on the server (Parse), executes it and drops it again (DEALLOCATE): three round
+     * trips for one SELECT. Fuzzphony's statements run once each, so they are sent in one call instead (same server-side
+     * parameter handling, same results). Set per statement: the attribute is read when PDO prepares, and the application's
+     * own statements on this PDO are left as they are. Any other driver is left alone.
+     *
+     * @var array<int, bool>
+     */
+    private readonly array $prepareOptions;
+
     public function __construct(private readonly \PDO $pdo)
     {
         $this->pdo->setAttribute(\PDO::ATTR_ERRMODE, \PDO::ERRMODE_EXCEPTION);
+        $this->prepareOptions = $pdo->getAttribute(\PDO::ATTR_DRIVER_NAME) === 'pgsql' ? [\Pdo\Pgsql::ATTR_DISABLE_PREPARES => true] : [];
     }
 
     public static function fromDsn(string $dsn, ?string $user = null, ?string $password = null): self
@@ -63,7 +74,7 @@ final class PdoConnection implements Connection, TransactionAware
     /** @param array<string, scalar|null> $params */
     private function run(string $sql, array $params): \PDOStatement
     {
-        $statement = $this->pdo->prepare($sql);
+        $statement = $this->pdo->prepare($sql, $this->prepareOptions);
         foreach ($params as $name => $value) {
             $statement->bindValue(':' . ltrim($name, ':'), $value, match (true) {
                 is_bool($value) => \PDO::PARAM_BOOL,
