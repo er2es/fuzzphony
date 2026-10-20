@@ -101,6 +101,22 @@ final class SynonymsTest extends TestCase
         self::assertSame([2, 3, 8], $search('tv'), 'and a replacement forgets the old ones');
     }
 
+    public function testTheSameSynonymsGivenAgainShareTheExpanderAndAChangedListDoesNot(): void
+    {
+        $fuzzphony = $this->fuzzphony();
+        $search = static fn(): array => self::ids($fuzzphony->in('products')->thresholds(['fuzzy_mode' => 'never'])->query('tv')->get());
+        $found = $search();
+        self::assertSame($found, $search());
+        self::assertSame(1, $this->roundTrips());
+
+        $fuzzphony->useSynonyms('products', Synonyms::fromEntries([['tv', 'television'], ['ssd', 'solid state drive'], 'laptop => notebook']));
+        self::assertSame($found, $search());
+        self::assertSame(1, $this->roundTrips(), 'equal content, another object: the same expander, no new stems');
+
+        $fuzzphony->useSynonyms('products', Synonyms::fromEntries([['tv', 'mouse']]));
+        self::assertSame([2, 3, 8], $search(), 'other content: its own expander');
+    }
+
     public function testPreparedSynonymsSpareTheStemmingOfTheMembers(): void
     {
         $fuzzphony = $this->fuzzphony([]);

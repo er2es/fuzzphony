@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Fuzzphony\Engine\Postgres\Sql;
 
+use Fuzzphony\Core\Definition\FilterType;
 use Fuzzphony\Core\Definition\IndexDefinition;
 use Fuzzphony\Core\Query\Ast\Node;
 use Fuzzphony\Core\Query\Filter\Condition;
@@ -207,6 +208,96 @@ final class SearchSqlBuilder
         );
 
         return ['sql' => $sql, 'params' => $params->all()];
+    }
+
+    /**
+     * Several facets in one statement: the candidates are evaluated once (`fc` holds the filter column of each facet for
+     * every match) and each facet is one `GROUP BY` branch, tagged with its position in `$filters` (`f`). For the facets
+     * whose conditions are the search's own (a facet that leaves a condition out needs its own candidates: see facet()).
+     * Rows: f, rk (the facet's own order: count descending, then the value), value (as text), n; ordered by f, rk.
+     *
+     * @param non-empty-list<string> $filters
+     * @param list<Condition>        $conditions
+     * @param list<string>           $emptyQueries
+     *
+     * @return array{sql: string, params: array<string, scalar|null>}
+     */
+    public function facets(array $filters, ?string $tsquery, string $plain, ?Node $fuzzyRoot, array $conditions, RankingProfile $profile, Thresholds $thresholds, int $values, bool $exact, array $emptyQueries = [], ?Node $scopedRoot = null): array
+    {
+        ['ctes' => $ctes, 'params' => $params] = $this->scored($tsquery, $plain, $fuzzyRoot, $conditions, $profile, $thresholds, $emptyQueries, $scopedRoot, $exact);
+        $ctes[] = sprintf(
+            "fc AS (
+    SELECT %s
+    FROM scored AS sc JOIN %s AS s ON s.id = sc.id
+    WHERE sc.relevance >= %s
+)",
+            self::facetColumns($filters),
+            $this->names->sidecar($this->index),
+            Sql::float($thresholds->minScore),
+        );
+
+        return ['sql' => $this->facetBranches($ctes, $filters, $values), 'params' => $params->all()];
+    }
+
+    /**
+     * The facets of a search without text in one statement (see facets()).
+     *
+     * @param non-empty-list<string> $filters
+     * @param list<Condition>        $conditions
+     *
+     * @return array{sql: string, params: array<string, scalar|null>}
+     */
+    public function browseFacets(array $filters, array $conditions, Thresholds $thresholds, int $values, bool $exact): array
+    {
+        $params = new ParameterBag();
+        $ctes = [sprintf(
+            "fc AS (
+    SELECT %s FROM %s AS s WHERE %s%s
+)",
+            self::facetColumns($filters),
+            $this->names->sidecar($this->index),
+            (new FilterCompiler($this->index))->compile($conditions, $params),
+            $exact ? '' : "
+    LIMIT " . $thresholds->candidateLimit,
+        )];
+
+        return ['sql' => $this->facetBranches($ctes, $filters, $values), 'params' => $params->all()];
+    }
+
+    /**
+     * @param non-empty-list<string> $filters
+     */
+    private static function facetColumns(array $filters): string
+    {
+        return implode(', ', array_map(static fn(string $filter, int $i): string => sprintf('s.%s AS v%d', FilterCompiler::column($filter), $i), $filters, array_keys($filters)));
+    }
+
+    /**
+     * One GROUP BY branch per facet over `fc`: the same order and limit as facet() (count descending, then the value in
+     * its own type, NULL last), kept in `rk`; the value travels as text (a bool as 1 / 0) so the branches can be united.
+     *
+     * @param list<string>           $ctes
+     * @param non-empty-list<string> $filters
+     */
+    private function facetBranches(array $ctes, array $filters, int $values): string
+    {
+        $branches = [];
+        foreach ($filters as $i => $filter) {
+            $cast = $this->index->filter($filter)->type === FilterType::Bool ? 'g.value::int::text' : 'g.value::text';
+            $branches[] = sprintf(
+                'SELECT %1$d AS f, g.rk, %2$s AS value, g.n FROM (SELECT v%1$d AS value, count(*) AS n, row_number() OVER (ORDER BY count(*) DESC, v%1$d NULLS LAST) AS rk FROM fc GROUP BY v%1$d ORDER BY rk LIMIT %3$d) AS g',
+                $i,
+                $cast,
+                $values,
+            );
+        }
+
+        return sprintf("WITH %s
+%s
+ORDER BY f, rk", implode(",
+", $ctes), implode("
+UNION ALL
+", $branches));
     }
 
     /**

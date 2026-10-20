@@ -7,11 +7,29 @@ changes; they are always listed under **Breaking** and explained in [UPGRADE.md]
 
 ## [Unreleased]
 
+## [0.9.5] - 2026-10-20
+
+The performance round, a bug fix for the Doctrine ORM wiring, and Symfony 8.0 leaves the supported versions. See [UPGRADE.md](UPGRADE.md#from-094-to-095) (nothing to do in most applications).
+
 ### Changed
 
+- **Fewer database round trips per search** (no change in results, order, counts, warnings or API). A plain search used to cost 5 round trips for one `SELECT`; it costs 1 now, a typo-tolerant one 35 down to 14, a search with two facets 15 down to 3 (measured on PostgreSQL 17, counted with `log_statement = 'all'`, see [Benchmarks](docs/benchmarks.md#round-trips)).
+  - `PdoConnection` sends its statements without PDO's server-side prepare on `pdo_pgsql` (`PDO::PGSQL_ATTR_DISABLE_PREPARES`, set per statement): one call instead of Parse + Bind/Execute + `DEALLOCATE`, with the same server-side parameter handling. The attribute is **not** set on your PDO, so your own statements on the same connection are prepared as before. DBAL's `pdo_pgsql` driver already does this by default, so `DbalConnection` is unchanged.
+  - A statement that sets no similarity threshold (every strict full-text search, the facets, the highlight and count statements) no longer runs inside its own `BEGIN` / `COMMIT`. A statement that sets the threshold, and any search inside the caller's transaction, behave exactly as before.
+  - The stop-word lookup of the typo-tolerant branch (which leaf tsqueries the text search configuration reduces to nothing) is asked once per tsquery and engine instead of once per search, and only for the tsqueries not seen yet. The answer depends only on the text search configuration, which does not change while a process runs; the cache holds at most about 5 000 entries per configuration and starts over beyond that.
+  - The digest that identifies an index's synonyms is computed once per `Synonyms` object instead of on every search (about 1 ms for 5 000 groups).
+  - What a round trip is worth is the network latency to the database: on a local PostgreSQL (about 0 ms) the time per search was a little lower in every run we made (a few milliseconds, within the noise of single runs), on a database across a network it is the saved round trips times the latency (12 round trips fewer at 1 ms are 12 ms for a search with two facets).
+- [Security](docs/security.md#the-rate-limit): the Symfony rate limiter keeps its state in the `cache.rate_limiter` pool, which is a filesystem cache by default (a file is locked and written on every search); the docs now recommend an APCu or Redis `cache_pool`.
+- **Facets share one statement.** The facets that count the search's own candidates (every facet whose filter has no condition in the search, with or without text, with `exactCounts()` or without, for a restricted viewer, on a tenant index) are computed by one statement that evaluates the candidates once and groups them per facet, where each facet used to run its own statement that repeated the whole candidate query. A facet whose own filter has a condition keeps its own statement (it leaves that condition out, so it counts other candidates), and a search with a single such facet runs exactly the statement it ran before. The facets (values, types, counts, order, `facetValues` limit, `null` values) are identical: a differential test compares every facet with the per-facet statement over a matrix of searches. Measured on the 100 000-row benchmark (local PostgreSQL, no network latency; two runs each, before to after): `wireless` with 2 facets 27-35 to 20 ms; with 3 facets on a 5-filter index 47-81 to 22-24 ms; with 5 facets 75-84 to 24-26 ms; the typo search `wireles mose` with 5 facets 299-338 to 126-143 ms; 5 facets of which one has a condition (4 share) 67-76 to 47-69 ms. A search with 2 or more shared facets also saves one database round trip per facet beyond the first (`wireless` with 2 facets: 3 statements, now 2). `explain()` lists the shared facets as one statement labelled `facet: color, size, active` (a facet on its own is still `facet: color`); the statements of `explain()` are not a stable API.
+- **Faster registry in the Symfony bundle (production only).** Every request that used Fuzzphony discovered the `#[Searchable]` entities again, which loads the metadata of every entity in the application. With `kernel.debug` off, the discovered index definitions are now kept in the `cache.system` pool, so `cache:clear` (part of every deploy) drops them like Doctrine's metadata cache; in debug mode nothing is cached, and YAML indexes are always rebuilt. Measured (PHP 8.4, opcache, warm Doctrine metadata cache, 3 searchable entities): about 0.6 ms per request with 20 mapped entities, 2.0 ms with 100 and 8 ms with 300, now one cache read (unserializing the definitions takes about 0.05 ms); on a machine without opcache the 100-entity figure was 13 ms. No configuration, no API change. If you edit `#[Searchable]`/`#[SearchField]` (or a synonyms file an attribute names) on a production server, run `cache:clear`.
+- Development dependency: PHPUnit `^13.0` (it was `^11.5 || ^12.0`). It is a `require-dev` entry, so it affects only people who work on Fuzzphony and the CI, not the applications that install it; `composer update -W` is done for the repository and the demo.
 - **Symfony 8.0 is dropped** from the supported versions: the constraints are `^7.4 || ^8.1`, the CI matrix, the README badge and the
   docs say 7.4 LTS and 8.1. Symfony 8.0 no longer receives fixes, and every 8.0.x is affected by four `symfony/yaml` advisories
   (Composer refuses to install it). See [UPGRADE.md](UPGRADE.md).
+
+### Fixed
+
+- **Doctrine ORM wiring in a real Symfony kernel.** `FuzzphonyBundle` asked `$builder->hasExtension('doctrine')` while loading its services, but Symfony hands an extension a temporary container without any extensions, so the answer was always "no" in an application: `#[Searchable]` discovery (`discover_entities`), `EntityLoader` and the ORM sync listener were never registered, and only the container-definition tests (which load the extension straight onto a container that has a fake `doctrine` extension) saw them. The prepend phase, which runs on the real container, now records that the ORM is configured (`doctrine.orm` is set; DoctrineBundle without `orm:` has no entity manager to wire to; the container parameter `fuzzphony.doctrine_orm`) and the load phase reads it. An application that relied on YAML `indexes` alone is unaffected; one that has `#[Searchable]` entities, `sync: orm` or `EntityLoader` now gets them without any change. A test boots a compiled production kernel with a real `cache.system` to prove it, including the registry cache above (written on the first use, read by a fresh kernel without touching the metadata, absent in debug mode, gone after `cache:clear`).
 
 ## [0.9.4] - 2026-10-14
 
@@ -891,7 +909,8 @@ on its own:
 - Sync modes: queue (default), trigger, ORM, manual; watches for joined tables.
 - Doctor with fixes; CLI commands for schema, reindex, worker, search and explain.
 
-[Unreleased]: https://github.com/er2es/fuzzphony/compare/v0.9.4...HEAD
+[Unreleased]: https://github.com/er2es/fuzzphony/compare/v0.9.5...HEAD
+[0.9.5]: https://github.com/er2es/fuzzphony/compare/v0.9.4...v0.9.5
 [0.9.4]: https://github.com/er2es/fuzzphony/compare/v0.9.3...v0.9.4
 [0.9.3]: https://github.com/er2es/fuzzphony/compare/v0.9.2...v0.9.3
 [0.9.2]: https://github.com/er2es/fuzzphony/compare/v0.9.1...v0.9.2

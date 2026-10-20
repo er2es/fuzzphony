@@ -17,7 +17,6 @@ use Fuzzphony\Core\Registry\IndexRegistry;
 use Fuzzphony\Core\Sync\RefreshDispatcher;
 use Fuzzphony\Tests\Fixtures\Doctrine\Article;
 use Fuzzphony\Tests\Fixtures\Product;
-use PHPUnit\Framework\MockObject\MockObject;
 use PHPUnit\Framework\TestCase;
 
 /**
@@ -142,13 +141,17 @@ final class OrmSyncListenerTest extends TestCase
     }
 
     /** @param array<string, int|string> $identifier */
-    private function entityManagerFor(object $entity, array $identifier): EntityManagerInterface&MockObject
+    private function entityManagerFor(object $entity, array $identifier): EntityManagerInterface
     {
-        $metadata = $this->createMock(ClassMetadata::class);
-        $metadata->method('getIdentifierValues')->with($entity)->willReturn($identifier);
+        $metadata = self::createStub(ClassMetadata::class);
+        $metadata->method('getIdentifierValues')->willReturnCallback(
+            static fn(object $given): array => $given === $entity ? $identifier : throw new \LogicException('unexpected entity'),
+        );
 
-        $em = $this->createMock(EntityManagerInterface::class);
-        $em->method('getClassMetadata')->with($entity::class)->willReturn($metadata);
+        $em = self::createStub(EntityManagerInterface::class);
+        $em->method('getClassMetadata')->willReturnCallback(
+            static fn(string $class): ClassMetadata => $class === $entity::class ? $metadata : throw new \LogicException('unexpected class'),
+        );
 
         return $em;
     }
