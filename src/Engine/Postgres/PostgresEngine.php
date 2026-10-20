@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Fuzzphony\Engine\Postgres;
 
+use Fuzzphony\Core\Analytics\RecordStatus;
 use Fuzzphony\Core\Database\Connection;
 use Fuzzphony\Core\Database\TransactionAware;
 use Fuzzphony\Core\Definition\FilterType;
@@ -434,6 +435,11 @@ final class PostgresEngine implements Engine, Vocabulary, SynonymStems, Suggesti
     public function zeroResultQueries(IndexDefinition $index, \DateTimeInterface $from, ?\DateTimeInterface $to, int $limit, int|string|null $tenant, bool $allTenants): array
     {
         return $this->guard('search log', fn(): array => $this->searchLog()->top($index->name, $from, $to, $limit, $allTenants ? null : $tenant, true), self::SEARCH_LOG_HINT);
+    }
+
+    public function recentSearches(IndexDefinition $index, \DateTimeInterface $from, ?\DateTimeInterface $to, int $limit, int|string|null $tenant, bool $allTenants, ?string $user, bool $anonymousOnly, ?RecordStatus $status): array
+    {
+        return $this->guard('search log', fn(): array => $this->searchLog()->recent($index->name, $from, $to, $limit, $allTenants ? null : $tenant, $user, $anonymousOnly, $status), self::SEARCH_LOG_HINT);
     }
 
     private function searchLog(): SearchLogRepository

@@ -4,7 +4,9 @@ declare(strict_types=1);
 
 namespace Fuzzphony\Engine\Postgres;
 
+use Fuzzphony\Core\Analytics\LoggedSearch;
 use Fuzzphony\Core\Analytics\QueryStat;
+use Fuzzphony\Core\Analytics\RecordStatus;
 use Fuzzphony\Core\Analytics\SearchRecord;
 use Fuzzphony\Core\Database\Connection;
 use Fuzzphony\Core\Support\Coerce;
@@ -108,5 +110,64 @@ final readonly class SearchLogRepository
             Coerce::float($r['avg_hits']),
             new \DateTimeImmutable(Coerce::str($r['last_seen'])),
         ), $rows);
+    }
+
+    /**
+     * @param int|string|null $tenant        null = no tenant filter
+     * @param string|null     $user          exactly this user
+     * @param bool            $anonymousOnly only the rows without a user (the caller does not pass both)
+     *
+     * @return list<LoggedSearch> newest first (the id breaks a tie in the time)
+     */
+    public function recent(string $index, \DateTimeInterface $from, ?\DateTimeInterface $to, int $limit, int|string|null $tenant, ?string $user, bool $anonymousOnly, ?RecordStatus $status): array
+    {
+        $params = ['ix' => $index, 'from' => $from->format(self::TIMESTAMP), 'lim' => $limit];
+        $where = 'index_name = :ix AND at >= CAST(:from AS timestamptz)';
+        if ($to !== null) {
+            $where .= ' AND at < CAST(:to AS timestamptz)';
+            $params['to'] = $to->format(self::TIMESTAMP);
+        }
+        if ($tenant !== null) {
+            $where .= ' AND tenant = :tn';
+            $params['tn'] = (string) $tenant;
+        }
+        if ($user !== null) {
+            $where .= ' AND actor_user = :us';
+            $params['us'] = $user;
+        } elseif ($anonymousOnly) {
+            $where .= ' AND actor_user IS NULL';
+        }
+        if ($status !== null) {
+            $where .= ' AND status = :st';
+            $params['st'] = $status->value;
+        }
+        $rows = $this->connection->fetchAll(sprintf(
+            'SELECT at, index_name, tenant, actor_user, %s AS actor_ip, query, hits, took_ms, used_fuzzy, status FROM %s WHERE %s ORDER BY at DESC, id DESC LIMIT :lim',
+            $this->hasIpColumn() ? 'actor_ip' : 'CAST(NULL AS text)',
+            $this->names->searchLog(),
+            $where,
+        ), $params);
+
+        return array_map(static fn(array $r): LoggedSearch => new LoggedSearch(
+            new \DateTimeImmutable(Coerce::str($r['at'])),
+            Coerce::str($r['index_name']),
+            $r['tenant'] === null ? null : Coerce::str($r['tenant']),
+            $r['actor_user'] === null ? null : Coerce::str($r['actor_user']),
+            $r['actor_ip'] === null ? null : Coerce::str($r['actor_ip']),
+            Coerce::str($r['query']),
+            Coerce::int($r['hits']),
+            Coerce::float($r['took_ms']),
+            $r['used_fuzzy'] === true,
+            RecordStatus::from(Coerce::str($r['status'])),
+        ), $rows);
+    }
+
+    /** An install that never enabled the client IP has no actor_ip column (it comes with fuzzphony:schema --apply): one catalog lookup tells. */
+    private function hasIpColumn(): bool
+    {
+        return $this->connection->fetchValue(
+            "SELECT EXISTS (SELECT 1 FROM pg_attribute WHERE attrelid = to_regclass(:log) AND attname = 'actor_ip' AND NOT attisdropped)",
+            ['log' => $this->names->searchLog()],
+        ) === true;
     }
 }

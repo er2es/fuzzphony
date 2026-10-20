@@ -53,7 +53,7 @@ everything else in `src/` is marked `@internal` and may change in any release.
 - Search log: `Fuzzphony\Core\Analytics\SearchLog`, `Fuzzphony\Core\Analytics\SearchRecord`,
   `Fuzzphony\Core\Analytics\RecordStatus`, `Fuzzphony\Core\Analytics\QueryRedactor`,
   `Fuzzphony\Core\Analytics\PatternQueryRedactor`, `Fuzzphony\Core\Analytics\SearchAnalytics`,
-  `Fuzzphony\Core\Analytics\QueryStat`
+  `Fuzzphony\Core\Analytics\QueryStat`, `Fuzzphony\Core\Analytics\LoggedSearch`
 - Ranking: `Fuzzphony\Core\Ranking\RankingProfile`, `Fuzzphony\Core\Ranking\Thresholds`,
   `Fuzzphony\Core\Ranking\FuzzyMode`
 - Database: `Fuzzphony\Core\Database\Connection`, `Fuzzphony\Core\Database\PdoConnection`,

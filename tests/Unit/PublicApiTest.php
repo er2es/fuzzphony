@@ -20,6 +20,7 @@ final class PublicApiTest extends TestCase
         \Fuzzphony\Bundle\FuzzphonyBundle::class,
         \Fuzzphony\Bundle\Messenger\RefreshDocuments::class,
         \Fuzzphony\Bundle\Twig\SearchComponent::class,
+        \Fuzzphony\Core\Analytics\LoggedSearch::class,
         \Fuzzphony\Core\Analytics\PatternQueryRedactor::class,
         \Fuzzphony\Core\Analytics\QueryRedactor::class,
         \Fuzzphony\Core\Analytics\QueryStat::class,
@@ -134,8 +135,8 @@ final class PublicApiTest extends TestCase
         }
 
         self::assertSame([], $wrong);
-        self::assertCount(98, self::PUBLIC);
-        self::assertCount(167, self::classes());
+        self::assertCount(99, self::PUBLIC);
+        self::assertCount(168, self::classes());
     }
 
     public function testThePublicApiExposesNoInternalType(): void

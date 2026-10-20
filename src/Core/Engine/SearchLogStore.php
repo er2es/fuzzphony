@@ -4,7 +4,9 @@ declare(strict_types=1);
 
 namespace Fuzzphony\Core\Engine;
 
+use Fuzzphony\Core\Analytics\LoggedSearch;
 use Fuzzphony\Core\Analytics\QueryStat;
+use Fuzzphony\Core\Analytics\RecordStatus;
 use Fuzzphony\Core\Analytics\SearchRecord;
 use Fuzzphony\Core\Definition\IndexDefinition;
 
@@ -38,4 +40,13 @@ interface SearchLogStore
      * @return list<QueryStat>
      */
     public function zeroResultQueries(IndexDefinition $index, \DateTimeInterface $from, ?\DateTimeInterface $to, int $limit, int|string|null $tenant, bool $allTenants): array;
+
+    /**
+     * The most recent logged searches of $index from $from until $to (null = now), newest first, whatever their status.
+     * The tenant arguments work as in topQueries(). $user keeps the searches of that user, $anonymousOnly those without
+     * a user (not both), $status those that ended so.
+     *
+     * @return list<LoggedSearch>
+     */
+    public function recentSearches(IndexDefinition $index, \DateTimeInterface $from, ?\DateTimeInterface $to, int $limit, int|string|null $tenant, bool $allTenants, ?string $user, bool $anonymousOnly, ?RecordStatus $status): array;
 }
