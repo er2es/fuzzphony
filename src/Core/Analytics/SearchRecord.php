@@ -4,7 +4,7 @@ declare(strict_types=1);
 
 namespace Fuzzphony\Core\Analytics;
 
-/** One line of the search log: who searched what, where, and how it went. */
+/** One line of the search log: who searched what, where, and how it went. The ip is what the log is to store (already masked), or null. */
 final readonly class SearchRecord
 {
     public function __construct(
@@ -17,6 +17,7 @@ final readonly class SearchRecord
         public float $tookMs,
         public bool $usedFuzzy,
         public RecordStatus $status = RecordStatus::Ok,
+        public ?string $ip = null,
     ) {}
 
     /** The text the reports group by: lower-cased, whitespace collapsed, trimmed. */

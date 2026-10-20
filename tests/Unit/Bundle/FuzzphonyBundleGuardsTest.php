@@ -9,6 +9,7 @@ use Fuzzphony\Bundle\Command\SearchCommand;
 use Fuzzphony\Bundle\FuzzphonyBundle;
 use Fuzzphony\Bundle\Security\AuthorizationGuard;
 use Fuzzphony\Bundle\Security\RateLimitGuard;
+use Fuzzphony\Core\Analytics\IpMode;
 use Fuzzphony\Core\Analytics\NullSearchLog;
 use Fuzzphony\Core\Exception\InvalidConfiguration;
 use Fuzzphony\Core\Fuzzphony;
@@ -26,7 +27,8 @@ final class FuzzphonyBundleGuardsTest extends TestCase
     {
         $arguments = $this->gateArguments($this->buildContainer());
 
-        self::assertCount(5, $arguments);
+        self::assertCount(6, $arguments);
+        self::assertSame(IpMode::Off, $arguments[5], 'the client IP is off by default');
         self::assertEquals(new Reference('fuzzphony.metrics'), $arguments[0]);
         self::assertEquals(new Reference('logger'), $arguments[1]);
         self::assertInstanceOf(Definition::class, $arguments[2], 'no search log: the gate gets a log that records nothing');
@@ -108,7 +110,7 @@ final class FuzzphonyBundleGuardsTest extends TestCase
         $mainGate = $this->gateArguments($container);
         self::assertEquals([new Reference('fuzzphony.guard.authorization'), new Reference('fuzzphony.guard.rate_limit')], $mainGate[4], 'the main gate runs both guards');
         self::assertEquals(
-            [...array_slice($mainGate, 0, 4), []],
+            [...array_slice($mainGate, 0, 4), [], IpMode::Off],
             $operatorGate->getArguments(),
             'the operator gate counts and logs like the main one (metrics, logger, search log, redactor) but has no guard',
         );

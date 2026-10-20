@@ -16,10 +16,16 @@ use Fuzzphony\Bundle\Command\WizardCommand;
 use Fuzzphony\Bundle\Command\WorkerCommand;
 use Fuzzphony\Bundle\EventListener\SearchLogFlushListener;
 use Fuzzphony\Bundle\FuzzphonyBundle;
+use Fuzzphony\Bundle\Security\NullActorResolver;
+use Fuzzphony\Bundle\Security\PropertyPathActorResolver;
+use Fuzzphony\Bundle\Security\RequestIpActorResolver;
+use Fuzzphony\Core\Analytics\IpMode;
 use Fuzzphony\Core\Analytics\NullSearchLog;
 use Fuzzphony\Core\Analytics\PatternQueryRedactor;
 use Fuzzphony\Core\Exception\InvalidConfiguration;
 use Fuzzphony\Core\Observability\NullMetricsCollector;
+use Fuzzphony\Core\Search\ActorResolver;
+use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\TestCase;
 use Psr\Log\NullLogger;
 use Symfony\Component\Config\Definition\Exception\InvalidConfigurationException;
@@ -40,7 +46,7 @@ final class FuzzphonyBundleSearchLogTest extends TestCase
         self::assertFalse($container->hasDefinition('fuzzphony.search_log'));
         self::assertFalse($container->hasDefinition('fuzzphony.search_log_flush_listener'));
         self::assertFalse($container->hasDefinition('fuzzphony.query_redactor'));
-        self::assertEquals([new Reference('fuzzphony.metrics'), new Reference('logger'), new Definition(NullSearchLog::class), null, []], $container->getDefinition('fuzzphony.search_gate')->getArguments());
+        self::assertEquals([new Reference('fuzzphony.metrics'), new Reference('logger'), new Definition(NullSearchLog::class), null, [], IpMode::Off], $container->getDefinition('fuzzphony.search_gate')->getArguments());
         self::assertFalse($container->getDefinition('fuzzphony.engine')->getArgument(4));
         self::assertSame(90, $container->getDefinition('fuzzphony.engine')->getArgument(5));
         self::assertSame(self::BASE_COMMANDS, array_keys($container->findTaggedServiceIds('console.command')), 'the log commands exist only when the log is on');
@@ -96,7 +102,7 @@ final class FuzzphonyBundleSearchLogTest extends TestCase
         $container = $this->buildContainer(['search_log' => ['enabled' => true]]);
 
         self::assertEquals(
-            [new Reference('fuzzphony.metrics'), new Reference('logger'), new Reference('fuzzphony.search_log'), null, []],
+            [new Reference('fuzzphony.metrics'), new Reference('logger'), new Reference('fuzzphony.search_log'), null, [], IpMode::Off],
             $container->getDefinition('fuzzphony.search_gate')->getArguments(),
         );
     }
@@ -135,6 +141,76 @@ final class FuzzphonyBundleSearchLogTest extends TestCase
         $this->expectException(InvalidConfiguration::class);
 
         $this->buildContainer(['search_log' => ['redact' => ['/(unclosed']]]);
+    }
+
+    public function testTheClientIpIsOffByDefaultAndTheResolverIsNotWrapped(): void
+    {
+        $container = $this->buildContainer(['search_log' => ['enabled' => true]]);
+
+        self::assertSame(IpMode::Off, $container->getDefinition('fuzzphony.search_gate')->getArgument(5));
+        self::assertSame(NullActorResolver::class, $container->getDefinition('fuzzphony.actor_resolver')->getClass());
+        self::assertFalse($container->has('fuzzphony.actor_resolver.inner'));
+    }
+
+    /** @return iterable<string, array{string, IpMode}> */
+    public static function ipModes(): iterable
+    {
+        yield 'masked' => ['masked', IpMode::Masked];
+        yield 'full' => ['full', IpMode::Full];
+        yield 'off' => ['off', IpMode::Off];
+    }
+
+    #[DataProvider('ipModes')]
+    public function testTheModeGoesToBothGates(string $setting, IpMode $mode): void
+    {
+        $container = $this->buildContainer(['search_log' => ['enabled' => true, 'ip' => $setting]]);
+
+        self::assertSame($mode, $container->getDefinition('fuzzphony.search_gate')->getArgument(5));
+        self::assertSame($mode, $container->getDefinition('fuzzphony.search_gate.operator')->getArgument(5));
+    }
+
+    public function testWithTheIpOnTheResolverIsWrappedAndStillPublic(): void
+    {
+        $container = $this->buildContainer(['search_log' => ['enabled' => true, 'ip' => 'masked']]);
+
+        $resolver = $container->getDefinition('fuzzphony.actor_resolver');
+        self::assertSame(RequestIpActorResolver::class, $resolver->getClass());
+        self::assertTrue($resolver->isPublic());
+        self::assertEquals([new Reference('fuzzphony.actor_resolver.inner'), new Reference('request_stack')], $resolver->getArguments());
+        self::assertSame(NullActorResolver::class, $container->getDefinition('fuzzphony.actor_resolver.inner')->getClass());
+        self::assertSame('fuzzphony.actor_resolver', (string) $container->getAlias(ActorResolver::class));
+    }
+
+    public function testWithTheIpOnAPropertyPathResolverIsWrapped(): void
+    {
+        $container = $this->buildContainer(['search_log' => ['enabled' => true, 'ip' => 'full'], 'actor' => ['tenant' => 'account.id', 'user' => 'userIdentifier']]);
+
+        self::assertSame(RequestIpActorResolver::class, $container->getDefinition('fuzzphony.actor_resolver')->getClass());
+        self::assertSame(PropertyPathActorResolver::class, $container->getDefinition('fuzzphony.actor_resolver.inner')->getClass());
+    }
+
+    public function testWithTheIpOnYourOwnResolverIsWrapped(): void
+    {
+        $container = $this->buildContainer(['search_log' => ['enabled' => true, 'ip' => 'masked'], 'actor' => ['resolver' => 'app.my_resolver']]);
+
+        self::assertSame(RequestIpActorResolver::class, $container->getDefinition('fuzzphony.actor_resolver')->getClass());
+        self::assertSame('app.my_resolver', (string) $container->getAlias('fuzzphony.actor_resolver.inner'));
+    }
+
+    public function testTheIpSettingDoesNothingWhileTheLogIsOff(): void
+    {
+        $container = $this->buildContainer(['search_log' => ['ip' => 'full']]);
+
+        self::assertSame(IpMode::Off, $container->getDefinition('fuzzphony.search_gate')->getArgument(5));
+        self::assertSame(NullActorResolver::class, $container->getDefinition('fuzzphony.actor_resolver')->getClass(), 'nothing stores an address, so nothing reads it');
+    }
+
+    public function testTheIpModeMustBeOffMaskedOrFull(): void
+    {
+        $this->expectException(InvalidConfigurationException::class);
+        $this->expectExceptionMessageMatches('/search_log\.ip/');
+
+        $this->buildContainer(['search_log' => ['enabled' => true, 'ip' => 'partial']]);
     }
 
     public function testRetentionMustBeAtLeastOneDay(): void

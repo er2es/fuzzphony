@@ -21,6 +21,15 @@ final class ActorTest extends TestCase
         self::assertFalse($actor->isAnonymous());
     }
 
+    public function testTheIpIsOptionalAndTrailing(): void
+    {
+        self::assertNull((new Actor(7, 'ada'))->ip);
+        self::assertNull(Actor::anonymous()->ip);
+        self::assertSame('203.0.113.45', (new Actor(7, 'ada', '203.0.113.45'))->ip);
+        self::assertSame('203.0.113.45', (new Actor(ip: '203.0.113.45'))->ip);
+        self::assertTrue((new Actor(ip: '203.0.113.45'))->isAnonymous(), 'an address alone does not make somebody');
+    }
+
     public function testTheAnonymousActorHasNeither(): void
     {
         $actor = Actor::anonymous();

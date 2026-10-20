@@ -32,21 +32,23 @@ final readonly class SearchLogRepository
     public function write(array $records): int
     {
         $written = 0;
-        // 10 bind parameters a row: PostgreSQL allows 65,535 a statement, so at most 1,000 rows each
+        // an install that never enabled the client IP has no actor_ip column: the column is named only when a record carries an address
+        $withIp = array_any($records, static fn(SearchRecord $r): bool => $r->ip !== null);
+        // at most 11 bind parameters a row: PostgreSQL allows 65,535 a statement, so at most 1,000 rows each
         foreach (array_chunk(array_values($records), self::CHUNK) as $chunk) {
-            $written += $this->insert($chunk);
+            $written += $this->insert($chunk, $withIp);
         }
 
         return $written;
     }
 
     /** @param list<SearchRecord> $records */
-    private function insert(array $records): int
+    private function insert(array $records, bool $withIp): int
     {
         $values = [];
         $params = [];
         foreach ($records as $i => $r) {
-            $values[] = sprintf('(CAST(:at%1$d AS timestamptz), :ix%1$d, :tn%1$d, :us%1$d, :q%1$d, :qn%1$d, :h%1$d, :ms%1$d, CAST(:fz%1$d AS boolean), :st%1$d)', $i);
+            $values[] = sprintf('(CAST(:at%1$d AS timestamptz), :ix%1$d, :tn%1$d, :us%1$d, :q%1$d, :qn%1$d, :h%1$d, :ms%1$d, CAST(:fz%1$d AS boolean), :st%1$d%2$s)', $i, $withIp ? sprintf(', :ip%d', $i) : '');
             $params += [
                 "at$i" => $r->at->format(self::TIMESTAMP),
                 "ix$i" => $r->index,
@@ -59,11 +61,15 @@ final readonly class SearchLogRepository
                 "fz$i" => $r->usedFuzzy ? 't' : 'f',
                 "st$i" => $r->status->value,
             ];
+            if ($withIp) {
+                $params["ip$i"] = $r->ip;
+            }
         }
 
         return $this->connection->execute(sprintf(
-            'INSERT INTO %s (at, index_name, tenant, actor_user, query, query_norm, hits, took_ms, used_fuzzy, status) VALUES %s',
+            'INSERT INTO %s (at, index_name, tenant, actor_user, query, query_norm, hits, took_ms, used_fuzzy, status%s) VALUES %s',
             $this->names->searchLog(),
+            $withIp ? ', actor_ip' : '',
             implode(', ', $values),
         ), $params);
     }
