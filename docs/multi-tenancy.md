@@ -55,10 +55,17 @@ $fuzzphony->in('products')
     ->get();
 ```
 
+The actor has an optional third argument, `ip`, for the client address: the Core is HTTP-agnostic, so the caller (the
+Symfony bundle, from `Request::getClientIp()`) gives it, and it only ever reaches the [search log](analytics.md#the-client-ip),
+masked or not at all as `search_log.ip` says.
+
 `asActor()` sets the tenant when the actor has one (an actor without a tenant never clears a tenant
 set before; the last of `forTenant()` and `asActor()` wins) and keeps the user on the query. The user
 changes no SQL: it is the identity that the [search log](analytics.md) and the
-[guards](security.md) (rate limit and authorization) read. `forTenant()` stays and works as before.
+[guards](security.md) (rate limit and authorization) read. `forTenant()` stays and works as before. The search log's
+per-user report, [`recentSearches()`](analytics.md#who-searched-what), follows the same tenant rule as the other reports:
+on a tenant-scoped index it needs a tenant or an explicit `allTenants: true`, and the history of a user in one tenant is
+never returned for another tenant, even when two tenants have a user of the same name.
 
 On a tenant-scoped index, a search with an actor but no tenant throws `ActorRequired`, a subclass of
 `InvalidQuery`. A search without an actor still throws the original `InvalidQuery` ("requires

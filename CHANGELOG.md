@@ -7,6 +7,30 @@ changes; they are always listed under **Breaking** and explained in [UPGRADE.md]
 
 ## [Unreleased]
 
+### Added
+
+- **Who searched what.** `SearchAnalytics::recentSearches()` lists the most recent logged searches of an index in a time window,
+  newest first, as `LoggedSearch` objects (`at`, `index`, `tenant`, `user` with null for anonymous, `ip`, the stored (redacted)
+  `query`, `hits`, `tookMs`, `usedFuzzy` and `status`). Filters: `user:` (exactly that name), `anonymousOnly:` and `status:`
+  (the refused searches, `denied` and `rate_limited`, are included by default); `limit` 1 to 1000 (default 50). It follows the tenant
+  rule of the other reports to the letter (a tenant-scoped index needs a `tenant` or an explicit `allTenants: true`; a call for one
+  tenant never returns another tenant's rows, even for a user of the same name), and the user, the tenant, the status and the limit
+  are bound parameters. `SearchLogStore` has the matching `recentSearches()` method (a custom implementation must add it). It needs
+  no new index. A per-user history is personal data: see [SECURITY.md](SECURITY.md) and [Search log and analytics](docs/analytics.md#privacy-the-log-is-personal-data).
+- **`fuzzphony:analytics --recent`** with `--user=`, `--anonymous`, `--status=`, `--since`, `--limit`, `--tenant` / `--all-tenants`
+  and `--format=table|json`: the same report on the console.
+- **The client IP in the search log (opt-in).** `fuzzphony.search_log.ip: off|masked|full` (default `off`: nothing is stored, even
+  when the actor carries an address). `masked` zeroes the last octet of an IPv4 address and keeps the first 48 bits of an IPv6
+  address (an IPv4-mapped IPv6 address is masked as IPv4); `full` keeps the valid address; anything that is not a valid IP
+  address is never stored. The Core stays HTTP-agnostic: `Actor` has a new optional trailing `?string $ip = null` (nothing
+  changes for existing calls), `SearchRecord` has `?string $ip = null`, and `SearchGate` takes an `IpMode` (new public enum, the
+  masking is `IpMode::apply()`) and applies it before anything is stored. The Symfony bundle fills the address from
+  `Request::getClientIp()` (so `framework.trusted_proxies` applies; `X-Forwarded-For` is never read directly) for the actor
+  the configured resolver returns, only when the mode is not `off`. The table gets a nullable column `actor_ip`: existing installs
+  add it with `fuzzphony:schema --apply` (`ADD COLUMN IF NOT EXISTS`); an install that does not use the IP does not need it (the
+  `INSERT` names the column only when a record has an address, and the report reads it only if the table has it). The retention
+  purge deletes whole rows, so it covers the IP. See [The client IP](docs/analytics.md#the-client-ip).
+
 ### Changed
 
 - **Fewer database round trips per search** (no change in results, order, counts, warnings or API). A plain search used to cost 5 round trips for one `SELECT`; it costs 1 now, a typo-tolerant one 35 down to 14, a search with two facets 15 down to 3 (measured on PostgreSQL 17, counted with `log_statement = 'all'`, see [Benchmarks](docs/benchmarks.md#round-trips)).

@@ -1,7 +1,7 @@
 # Search log and analytics
 
-Which texts people search for the most, and which searches find nothing: the questions of the people who own
-the content. Fuzzphony keeps an opt-in log of every search and reports on it. Back to the
+Which texts people search for the most, which searches find nothing, and who searched what: the questions of the
+people who own the content. Fuzzphony keeps an opt-in log of every search and reports on it. Back to the
 [README](../README.md).
 
 Off by default: nothing is stored, no table exists and no search does any extra work until you turn it on.
@@ -15,7 +15,8 @@ One row per search in `fuzzphony_search_log` (in [Fuzzphony's schema](configurat
 | `at` | when the search ran (`timestamptz`) |
 | `index_name` | the index searched |
 | `tenant` | the tenant the search ran for, as text: the tenant of the query on a tenant-scoped index, else the tenant of the actor, else null |
-| `actor_user` | the user of the [actor](multi-tenancy.md#the-actor-who-is-searching), or null |
+| `actor_user` | the user of the [actor](multi-tenancy.md#the-actor-who-is-searching), or null (anonymous) |
+| `actor_ip` | the client IP of the actor, masked or whole, only when [`search_log.ip`](#the-client-ip) is not `off`; null otherwise. The column is nullable and only needed when you use the IP |
 | `query` | the text the visitor typed, after [redaction](#redaction), cut at 255 characters |
 | `query_norm` | `query` lower-cased, whitespace collapsed and trimmed: the key the reports group by |
 | `hits` | the total of the search (a lower bound when the search hit `candidate_limit`) |
@@ -23,7 +24,12 @@ One row per search in `fuzzphony_search_log` (in [Fuzzphony's schema](configurat
 | `used_fuzzy` | whether the typo-tolerant search ran |
 | `status` | `ok`; `denied` (a refusal, for example an actor without a tenant on a tenant-scoped index); `rate_limited` |
 
-Indexes on `(index_name, at)` and `(index_name, query_norm)` keep the reports fast.
+Indexes on `(index_name, at)` and `(index_name, query_norm)` keep the reports fast. The "who searched what" report
+([`recentSearches()`](#who-searched-what)) reads the rows of one index in a time window, newest first, and needs no index of
+its own: the window bounds the rows it looks at, and a filter on the user or the tenant is applied to those.
+
+A row is **personal data** as soon as it has a user, and the IP is personal data too: read
+[Privacy](#privacy-the-log-is-personal-data) before you turn on the user, the IP or a report per user.
 
 What is recorded, precisely:
 
@@ -52,6 +58,7 @@ fuzzphony:
     enabled: true
     retention_days: 90          # fuzzphony:search-log:purge deletes older rows (default 90)
     redact: [email]             # see below (default: nothing)
+    ip: off                     # off (default) | masked | full: keep the client IP, see "The client IP"
 ```
 
 Then create the table, once (it is part of `fuzzphony:schema`, only when the log is enabled; the statements are
@@ -100,6 +107,58 @@ $redactor->redact('invoice for ada@example.com');   // "invoice for [redacted]"
 ```
 
 A different redactor is any class implementing `Fuzzphony\Core\Analytics\QueryRedactor` (`redact(string): string`).
+
+## The client IP
+
+`search_log.ip` decides whether the log keeps the IP address of the client and how much of it:
+
+| Mode | What is stored | Example |
+|---|---|---|
+| `off` (default) | nothing, even when the actor carries an address | |
+| `masked` | IPv4 with the last octet zeroed; IPv6 cut to its first 48 bits; an IPv4-mapped IPv6 address (`::ffff:203.0.113.45`) is masked as the IPv4 address it carries | `203.0.113.45` becomes `203.0.113.0`; `2001:db8:abcd:12::1` becomes `2001:db8:abcd::` |
+| `full` | the valid address, as given | `203.0.113.45` |
+
+`masked` is the mode this documentation recommends: it keeps what is useful for "the same office keeps searching for
+this" and for spotting abuse, and drops the host part. In **both** modes anything that is not a valid IP address
+(a host name, `unknown`, an address with a port, a zone id such as `fe80::1%eth0`, an address list) is **not stored**
+(null): the column never holds free text. The masking is a pure function (`Fuzzphony\Core\Analytics\IpMode::apply()`),
+applied by the `SearchGate` **before** anything is stored, like the redactor: the full address is not kept in the
+buffer, the table or a report in `masked` mode.
+
+```yaml
+fuzzphony:
+  search_log:
+    enabled: true
+    ip: masked
+```
+
+Then add the column, once (it is nullable; the plan uses `ADD COLUMN IF NOT EXISTS`, so it is safe to run again and it
+works on a table that already exists):
+
+```
+bin/console fuzzphony:schema --apply
+```
+
+A deployment that never enables the IP does not need the column: the `INSERT` names `actor_ip` only when at least one
+record of the batch has an address, and the report reads the column only if the table has it (the address of every row
+is then null). Turning `ip` on **without** applying the schema makes the batches that carry an address fail like any other
+log write, **the whole batch with the rows that have no address**: counted in `fuzzphony.search_log.failed` and logged
+with the hint to run `fuzzphony:schema --apply`; the searches themselves are not affected. Apply the schema before (or
+together with) the deploy that turns `ip` on. The role that applies the schema
+must own the table (it is an `ALTER TABLE`). The [retention purge](#retention) deletes whole rows, so it covers the IP.
+
+**Where the address comes from.** The Core knows nothing of HTTP: the address belongs to the
+[`Actor`](multi-tenancy.md#the-actor-who-is-searching), whose third, optional argument is `ip`
+(`new Actor(tenant: 7, user: 'ada', ip: '203.0.113.45')`; `Actor::anonymous()` and every existing call keep working). The
+Symfony bundle fills it, when `ip` is not `off`, with `Request::getClientIp()` of the main request, for every actor the
+configured resolver returns (an anonymous visitor, a user read from the Security token, or your own `ActorResolver`; an
+actor your resolver built with an `ip` of its own keeps it). `getClientIp()` follows `framework.trusted_proxies`: behind a
+reverse proxy or a load balancer, **set `trusted_proxies` and `trusted_headers`**, or every search is logged with the
+proxy's address; the bundle never reads `X-Forwarded-For` itself, so a visitor cannot make up an address by sending the
+header. The console command `fuzzphony:search` builds its own actor and stores no address.
+
+A visitor without a user (`actor_user` null) is anonymous: the report shows `user` as null. The log makes **no
+attempt** to tell anonymous visitors apart except through this address.
 
 ## Retention
 
@@ -164,6 +223,8 @@ speed searches are unlogged as well.
 
 ## Reading it: three surfaces
 
+(The third report, who searched what, is [below](#who-searched-what).)
+
 ### `SearchAnalytics`
 
 ```php
@@ -186,12 +247,50 @@ limit is 1 to 1000, most searched first (ties by text). Texts are grouped by the
 `mouse` and ` mouse ` are one row; `query` in the result is that normalised text. `$analytics->purge($before)` is
 the purge.
 
+### Who searched what
+
+```php
+use Fuzzphony\Core\Analytics\RecordStatus;
+
+// the 50 most recent searches of the last 24 hours, newest first
+foreach ($analytics->recentSearches('products', new \DateTimeImmutable('-1 day')) as $s) {
+    // $s->at, ->index, ->tenant (?string), ->user (null = anonymous), ->ip (?string), ->query (as stored, redacted),
+    // ->hits, ->tookMs, ->usedFuzzy, ->status (RecordStatus)
+    printf("%s %-12s %-15s %s\n", $s->at->format('H:i:s'), $s->user ?? '(anonymous)', $s->ip ?? '-', $s->query);
+}
+
+$analytics->recentSearches('products', $since, user: 'ada', limit: 100);             // one user, exactly this name
+$analytics->recentSearches('products', $since, anonymousOnly: true);                 // the searches without a user
+$analytics->recentSearches('products', $since, status: RecordStatus::RateLimited);   // only the refusals by the rate limit
+$analytics->recentSearches('tickets', $since, tenant: 42, user: 'ada');              // a tenant-scoped index needs a tenant ...
+$analytics->recentSearches('tickets', $since, allTenants: true, user: 'ada');        // ... or an explicit allTenants
+```
+
+`recentSearches(string $index, \DateTimeInterface $from, ?\DateTimeInterface $to = null, int $limit = 50, int|string|null
+$tenant = null, bool $allTenants = false, ?string $user = null, bool $anonymousOnly = false, ?RecordStatus $status = null)`
+returns a `list<LoggedSearch>` (`Fuzzphony\Core\Analytics\LoggedSearch`, final and readonly):
+
+- the window and the limit work as in the other reports: `from` inclusive, `to` exclusive (default now), limit 1 to 1000;
+  newest first (the later insert first when two searches share a timestamp);
+- the text is the **stored** one (`query`: already redacted and cut at 255), never the normalised one;
+- rows with the status `denied` and `rate_limited` are included (a refusal is information, with the user who was
+  refused); filter with `status:` to see only some;
+- `user:` keeps the searches of exactly that user (case-sensitive; an empty string is refused, it is not "nobody"),
+  `anonymousOnly: true` those without a user, and the two together throw `InvalidArgument`. A user whose name is
+  the empty string is stored as such and is not anonymous;
+- the [tenant rules](#tenant-rules-for-reports) are the ones of the other reports, to the letter: a tenant-scoped index
+  needs `tenant:` or `allTenants: true`, naming both is refused, and a call for one tenant never returns a row of
+  another, whatever the user name. The user, the tenant, the status and the limit are bound parameters.
+
 ### The command
 
 ```
 bin/console fuzzphony:analytics products                       # the most searched, last 7 days
 bin/console fuzzphony:analytics products --zero --since=30d    # searches that found nothing
 bin/console fuzzphony:analytics products --limit=50 --since=12h
+bin/console fuzzphony:analytics products --recent --user=ada   # who searched what: the searches of one user
+bin/console fuzzphony:analytics products --recent --anonymous --since=24h
+bin/console fuzzphony:analytics tickets  --recent --tenant=42 --status=denied
 ```
 
 ```
@@ -204,7 +303,23 @@ bin/console fuzzphony:analytics products --limit=50 --since=12h
  --------------- ---------- ---------- ---------------------------
 ```
 
-Options: `--top` (the default) or `--zero`, not both; `--since=<n><h|d|w>` (`12h`, `7d`, `4w`; default `7d`);
+With `--recent` the table is one search per line, newest first (the `tenant` column appears when you did not name a tenant):
+
+```
+ ---------------------------- ------------- ------------- -------------- ------ ----------------
+  time                         user          ip            status         hits   query
+ ---------------------------- ------------- ------------- -------------- ------ ----------------
+  2026-10-12 09:14:51 +00:00   ada           203.0.113.0   ok             18     wireless mouse
+  2026-10-12 09:12:03 +00:00   (anonymous)   198.51.100.0  rate_limited   0      mouse
+ ---------------------------- ------------- ------------- -------------- ------ ----------------
+```
+
+`--format=json` lists `at`, `index`, `tenant`, `user` (null for anonymous), `ip`, `query`, `hits`, `took_ms`, `used_fuzzy` and
+`status` of each search. `--user=NAME` (not empty), `--anonymous` (not with `--user`) and `--status=ok|denied|rate_limited`
+belong to `--recent` and are refused without it; `--recent` is not combined with `--top` or `--zero`. `--since`, `--limit`,
+`--tenant`, `--all-tenants` and `--format` work as below.
+
+Options: `--top` (the default), `--zero` or `--recent`, one of them; `--since=<n><h|d|w>` (`12h`, `7d`, `4w`; default `7d`);
 `--limit=N` (1 to 1000, default 20); `--tenant=ID` or `--all-tenants`; `--format=table|json`. The table shows
 "last seen" in PHP's default time zone, with its offset; `--format=json` is for scripts (ISO 8601), with the query text written as is (never read as console markup):
 
@@ -239,7 +354,8 @@ are redacted, so treat what it lists as public input, or keep a page like this b
 ## Tenant rules for reports
 
 On a [tenant-scoped index](multi-tenancy.md) a report across every customer is a decision, not a default, so the
-report needs one of two things, or it throws `InvalidArgument` (the command prints the same message and fails):
+report needs one of two things, or it throws `InvalidArgument` (the command prints the same message and fails). This
+holds for `recentSearches()` and `--recent` too, where the rows are per person:
 
 ```php
 $analytics->topQueries('tickets', $since, tenant: 42);            // one tenant: its own searches only
@@ -257,6 +373,24 @@ too, so a per-customer report on a shared index shows that customer's searches o
 is reported across everyone, as before). Naming a tenant **and** `allTenants: true` is contradictory and throws
 `InvalidArgument` (the command refuses `--tenant` with `--all-tenants`). Never show an `allTenants` report to a
 tenant: what one customer searched for is that customer's information.
+
+## Privacy: the log is personal data
+
+The log holds what people typed, who they are (`actor_user`) and, if you turn it on, where from (`actor_ip`). With a user,
+it is a history of that person's interests. Treat it like any other personal data:
+
+- **Collect little.** Leave `ip` off unless you use it; prefer `masked` to `full`; add `redact` patterns for what your
+  users paste into a search box (the [redaction](#redaction) removes what you can describe, not names or free text).
+- **Keep it short.** Set `retention_days` to what you really use and run the [purge](#retention) from cron: the purge deletes
+  whole rows, the user and the IP with them. If a person asks to be erased, delete their rows
+  (`DELETE FROM fuzzphony_search_log WHERE actor_user = :user`); the table has no other copy.
+- **Limit who may read.** `recentSearches()` and `--recent` show who searched what; the table needs `SELECT` for the
+  reader and nothing for the role that only searches (it needs `INSERT`). Put the report behind an operator role and
+  never behind a tenant's own page without a tenant filter that you control. Do not pass a tenant or a user from
+  request input to `recentSearches()` without checking that the requester may see it.
+- **Say so.** A search history that names a user is something your privacy notice should mention.
+
+See also [SECURITY.md](../SECURITY.md).
 
 ## How it is written, and what happens when it fails
 
@@ -283,7 +417,7 @@ tenant: what one customer searched for is that customer's information.
 The core needs three things: an engine that keeps the log, a `SearchLog` to write to, and a gate:
 
 ```php
-use Fuzzphony\Core\Analytics\{PatternQueryRedactor, SearchLog, SearchRecord};
+use Fuzzphony\Core\Analytics\{IpMode, PatternQueryRedactor, SearchLog, SearchRecord};
 use Fuzzphony\Core\Search\SearchGate;
 
 $engine = new PostgresEngine($connection, searchLog: true, searchLogRetentionDays: 90);
@@ -297,10 +431,16 @@ $log = new class($engine) implements SearchLog {
 $fuzzphony = new Fuzzphony(
     $engine,
     new IndexRegistry([$products]),
-    new SearchGate(log: $log, redactor: PatternQueryRedactor::fromSettings(['email'])),
+    new SearchGate(log: $log, redactor: PatternQueryRedactor::fromSettings(['email']), ipMode: IpMode::Masked),
 );
 $fuzzphony->schema()->apply($connection);   // creates the table: the engine was built with searchLog: true
 ```
+
+`ipMode:` is optional (`IpMode::Off`, the default, keeps no address); the address comes from the actor you give to
+`asActor()`, which you fill from your own request: `new Actor(tenant: $t, user: $u, ip: $_SERVER['REMOTE_ADDR'])`. Behind a
+proxy, take the client address from a source you trust (your framework's trusted-proxy handling), never from a header
+the visitor can set. To add the column to an existing table, apply the schema again
+(`$fuzzphony->schema()->apply($connection)`, as above).
 
 The code above writes inside the search; the bundle's buffer writes after the response, which is why it is the
 better default.
@@ -308,8 +448,8 @@ better default.
 ## A custom `SearchLog`
 
 `SearchLog` is one method, `record(SearchRecord $record): void`. The `SearchRecord` is final and readonly: `at`,
-`index`, `tenant`, `user`, `query` (already redacted and cut), `hits`, `tookMs`, `usedFuzzy` and `status`
-(`RecordStatus::Ok`, `Denied`, `RateLimited`). To send the records somewhere else (Monolog, a queue, Elasticsearch,
+`index`, `tenant`, `user`, `query` (already redacted and cut), `hits`, `tookMs`, `usedFuzzy`, `status`
+(`RecordStatus::Ok`, `Denied`, `RateLimited`) and `ip` (what the log is to store: masked as `search_log.ip` says, or null). To send the records somewhere else (Monolog, a queue, Elasticsearch,
 an analytics service), implement it and pass it to the `SearchGate` (plain PHP). The bundle has no setting for it:
 leave `search_log` off and define the `fuzzphony.search_gate` service yourself, as a `SearchGate` built with your log.
 The gate takes care of redaction, the 255-character cut, the per-index `log: false`, `unlogged()` and of a log that
