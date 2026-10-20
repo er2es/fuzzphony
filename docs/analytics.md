@@ -284,8 +284,9 @@ returns a `list<LoggedSearch>` (`Fuzzphony\Core\Analytics\LoggedSearch`, final a
   `anonymousOnly: true` those without a user, and the two together throw `InvalidArgument`. A user whose name is
   the empty string is stored as such and is not anonymous;
 - the [tenant rules](#tenant-rules-for-reports) are the ones of the other reports, to the letter: a tenant-scoped index
-  needs `tenant:` or `allTenants: true`, naming both is refused, and a call for one tenant never returns a row of
-  another, whatever the user name. The user, the tenant, the status and the limit are bound parameters.
+  needs `tenant:` or `allTenants: true`, naming both is refused, and a call that names a tenant never returns a row of
+  another, whatever the user name. On an index that is **not** tenant-scoped, a call without a tenant covers everyone, as
+  `topQueries()` does (the log records the actor's tenant there too, so name it to get one customer's rows). The user, the tenant, the status and the limit are bound parameters.
 
 ### The command
 

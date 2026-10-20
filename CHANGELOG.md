@@ -13,8 +13,9 @@ changes; they are always listed under **Breaking** and explained in [UPGRADE.md]
   newest first, as `LoggedSearch` objects (`at`, `index`, `tenant`, `user` with null for anonymous, `ip`, the stored (redacted)
   `query`, `hits`, `tookMs`, `usedFuzzy` and `status`). Filters: `user:` (exactly that name), `anonymousOnly:` and `status:`
   (the refused searches, `denied` and `rate_limited`, are included by default); `limit` 1 to 1000 (default 50). It follows the tenant
-  rule of the other reports to the letter (a tenant-scoped index needs a `tenant` or an explicit `allTenants: true`; a call for one
-  tenant never returns another tenant's rows, even for a user of the same name), and the user, the tenant, the status and the limit
+  rule of the other reports to the letter (a tenant-scoped index needs a `tenant` or an explicit `allTenants: true`; a call that
+  names a tenant never returns another tenant's rows, even for a user of the same name; on an index that is not tenant-scoped a call
+  without a tenant covers everyone, as the other reports do), and the user, the tenant, the status and the limit
   are bound parameters. The store side is a new optional interface, `Fuzzphony\Core\Engine\RecentSearchStore` (the PostgreSQL engine implements it; `SearchLogStore` is unchanged, so a custom store keeps working, and `recentSearches()` throws `InvalidArgument` naming the interface for a store without it). It needs
   no new index. A per-user history is personal data: see [SECURITY.md](SECURITY.md) and [Search log and analytics](docs/analytics.md#privacy-the-log-is-personal-data).
 - **`fuzzphony:analytics --recent`** with `--user=`, `--anonymous`, `--status=`, `--since`, `--limit`, `--tenant` / `--all-tenants`

@@ -64,8 +64,9 @@ set before; the last of `forTenant()` and `asActor()` wins) and keeps the user o
 changes no SQL: it is the identity that the [search log](analytics.md) and the
 [guards](security.md) (rate limit and authorization) read. `forTenant()` stays and works as before. The search log's
 per-user report, [`recentSearches()`](analytics.md#who-searched-what), follows the same tenant rule as the other reports:
-on a tenant-scoped index it needs a tenant or an explicit `allTenants: true`, and the history of a user in one tenant is
-never returned for another tenant, even when two tenants have a user of the same name.
+on a tenant-scoped index it needs a tenant or an explicit `allTenants: true`, and with a tenant named the history of a user in
+one tenant is never returned for another tenant, even when two tenants have a user of the same name. On an index that is not
+tenant-scoped, a call without a tenant covers everyone (as the other reports do, but these rows are per person): name the tenant.
 
 On a tenant-scoped index, a search with an actor but no tenant throws `ActorRequired`, a subclass of
 `InvalidQuery`. A search without an actor still throws the original `InvalidQuery` ("requires
