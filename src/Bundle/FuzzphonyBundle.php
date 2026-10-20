@@ -30,7 +30,9 @@ use Fuzzphony\Bundle\Security\AuthorizationGuard;
 use Fuzzphony\Bundle\Security\NullActorResolver;
 use Fuzzphony\Bundle\Security\PropertyPathActorResolver;
 use Fuzzphony\Bundle\Security\RateLimitGuard;
+use Fuzzphony\Bundle\Security\RequestIpActorResolver;
 use Fuzzphony\Bundle\Twig\SearchComponent;
+use Fuzzphony\Core\Analytics\IpMode;
 use Fuzzphony\Core\Analytics\NullSearchLog;
 use Fuzzphony\Core\Analytics\PatternQueryRedactor;
 use Fuzzphony\Core\Database\Connection;
@@ -79,6 +81,7 @@ use function Symfony\Component\DependencyInjection\Loader\Configurator\service_c
  *       enabled: false             # run fuzzphony:schema --apply after enabling
  *       retention_days: 90         # fuzzphony:search-log:purge deletes older rows
  *       redact: [email]            # "email" or regular expressions: matches are stored as [redacted]
+ *       ip: off                    # off | masked | full: keep the client IP of the searcher (personal data; masked is recommended)
  *     rate_limit:                  # opt-in: limit how often a tenant or user may search
  *       limiter: search            # a framework.rate_limiter entry (service limiter.search); needs symfony/rate-limiter
  *       per: tenant                # tenant or user
@@ -142,6 +145,7 @@ final class FuzzphonyBundle extends AbstractBundle
                         ->booleanNode('enabled')->defaultFalse()->info('Record every search (who, what, how many hits) in fuzzphony_search_log; run fuzzphony:schema --apply after enabling')->end()
                         ->integerNode('retention_days')->defaultValue(90)->min(1)->info('fuzzphony:search-log:purge deletes older rows')->end()
                         ->arrayNode('redact')->scalarPrototype()->end()->info('"email" or a regular expression with delimiters: matches are replaced by [redacted] before anything is stored')->end()
+                        ->enumNode('ip')->values(['off', 'masked', 'full'])->defaultValue('off')->info('Keep the client IP (Request::getClientIp(), so framework.trusted_proxies applies) with each search: off, masked (IPv4 /24, IPv6 /48) or full; it is personal data. Run fuzzphony:schema --apply after enabling')->end()
                     ->end()
                 ->end()
                 ->arrayNode('rate_limit')
@@ -267,6 +271,8 @@ final class FuzzphonyBundle extends AbstractBundle
         $retentionDaysRaw = Coerce::int($searchLog['retention_days'] ?? null);
         $retentionDays = $retentionDaysRaw !== 0 ? $retentionDaysRaw : 90;
         $redact = array_values(array_map(Coerce::str(...), is_array($searchLog['redact'] ?? null) ? $searchLog['redact'] : []));
+        // the address is only ever stored by the log: with the log off there is nothing to keep it for
+        $ipMode = $searchLogEnabled ? (IpMode::tryFrom(Coerce::str($searchLog['ip'] ?? null)) ?? IpMode::Off) : IpMode::Off;
         if ($redact !== []) {
             // built once here so a bad pattern fails the container build (InvalidConfiguration), not the first search
             PatternQueryRedactor::fromSettings($redact);
@@ -296,15 +302,22 @@ final class FuzzphonyBundle extends AbstractBundle
         $actorResolver = is_string($actor['resolver'] ?? null) ? $actor['resolver'] : null;
         $tenantPath = is_string($actor['tenant'] ?? null) ? $actor['tenant'] : null;
         $userPath = is_string($actor['user'] ?? null) ? $actor['user'] : null;
+        // with the client IP on, the configured resolver is wrapped: it adds the address of the request to an actor that has none
+        $resolverId = $ipMode !== IpMode::Off ? 'fuzzphony.actor_resolver.inner' : 'fuzzphony.actor_resolver';
         if ($actorResolver !== null) {
-            $services->alias('fuzzphony.actor_resolver', $actorResolver)->public();
+            $services->alias($resolverId, $actorResolver)->public();
         } elseif ($tenantPath !== null || $userPath !== null) {
             self::assertActorPackages(interface_exists(TokenStorageInterface::class), interface_exists(PropertyAccessorInterface::class));
-            $services->set('fuzzphony.actor_resolver', PropertyPathActorResolver::class)
+            $services->set($resolverId, PropertyPathActorResolver::class)
                 ->args([service('security.token_storage'), service('property_accessor'), $tenantPath, $userPath])
                 ->public();
         } else {
-            $services->set('fuzzphony.actor_resolver', NullActorResolver::class)->public();
+            $services->set($resolverId, NullActorResolver::class)->public();
+        }
+        if ($ipMode !== IpMode::Off) {
+            $services->set('fuzzphony.actor_resolver', RequestIpActorResolver::class)
+                ->args([service($resolverId), service('request_stack')])
+                ->public();
         }
         $services->alias(ActorResolver::class, 'fuzzphony.actor_resolver')->public();
 
@@ -338,6 +351,7 @@ final class FuzzphonyBundle extends AbstractBundle
             $searchLogEnabled ? service('fuzzphony.search_log') : inline_service(NullSearchLog::class),
             $searchLogEnabled && $redact !== [] ? service('fuzzphony.query_redactor') : null,
             $guards,
+            $ipMode,
         ];
         $services->set('fuzzphony.search_gate', SearchGate::class)
             ->args($gateArguments($guards))
@@ -351,7 +365,7 @@ final class FuzzphonyBundle extends AbstractBundle
         $services->set('fuzzphony.exception_listener', SearchExceptionListener::class)->tag('kernel.event_listener', ['event' => 'kernel.exception', 'priority' => 64]);
 
         $services->set('fuzzphony.engine', PostgresEngine::class)
-            ->args([service('fuzzphony.connection'), $names->extensionSchema, $names->schema, service('fuzzphony.metrics'), $searchLogEnabled, $retentionDays]);
+            ->args([service('fuzzphony.connection'), $names->extensionSchema, $names->schema, service('fuzzphony.metrics'), $searchLogEnabled, $retentionDays, $ipMode !== IpMode::Off]);
         $services->alias(Engine::class, 'fuzzphony.engine')->public();
 
         if ($hasOrm) {

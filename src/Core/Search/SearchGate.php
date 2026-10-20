@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Fuzzphony\Core\Search;
 
+use Fuzzphony\Core\Analytics\IpMode;
 use Fuzzphony\Core\Analytics\NullSearchLog;
 use Fuzzphony\Core\Analytics\QueryRedactor;
 use Fuzzphony\Core\Analytics\RecordStatus;
@@ -29,13 +30,17 @@ final readonly class SearchGate
     /** The characters of a text the redactor may see: four times the 255 that are stored. */
     private const int MAX_REDACTED_INPUT = 4 * 255;
 
-    /** @param list<SearchGuard> $guards run, in order, for a search made as an actor; what they allow is intersected */
+    /**
+     * @param list<SearchGuard> $guards run, in order, for a search made as an actor; what they allow is intersected
+     * @param IpMode            $ipMode whether the search log keeps the client IP of the actor, and how much of it (the default: none)
+     */
     public function __construct(
         private MetricsCollector $metrics = new NullMetricsCollector(),
         private ?LoggerInterface $logger = null,
         private SearchLog $log = new NullSearchLog(),
         private ?QueryRedactor $redactor = null,
         private array $guards = [],
+        private IpMode $ipMode = IpMode::Off,
     ) {}
 
     /**
@@ -198,7 +203,7 @@ final readonly class SearchGate
             // a pattern is never cut in half by the final cut, and the bound is far above it (4 x the 255 that is kept)
             $text = mb_substr($typed ?? $query->text, 0, self::MAX_REDACTED_INPUT);
             $text = $this->redactor?->redact($text) ?? $text;
-            $this->log->record(new SearchRecord(new \DateTimeImmutable(), $index->name, self::tenantOf($query), $query->actor?->user, mb_substr($text, 0, 255), $hits, $tookMs, $usedFuzzy, $status));
+            $this->log->record(new SearchRecord(new \DateTimeImmutable(), $index->name, self::tenantOf($query), $query->actor?->user, mb_substr($text, 0, 255), $hits, $tookMs, $usedFuzzy, $status, $this->ipMode->apply($query->actor?->ip)));
         } catch (\Throwable $e) {
             $this->metrics->increment('fuzzphony.search_log.failed', ['index' => $index->name]);
             $this->logger?->error('Fuzzphony could not record a search: {message}', ['message' => $e->getMessage(), 'index' => $index->name]);

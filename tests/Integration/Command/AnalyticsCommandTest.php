@@ -239,6 +239,114 @@ final class AnalyticsCommandTest extends TestCase
         self::assertStringContainsString('between 1 and 1000', $tester->getDisplay());
     }
 
+    private function recentRecord(string $query, ?string $user, int|string|null $tenant = null, RecordStatus $status = RecordStatus::Ok, ?string $ip = null, string $ago = '-1 hour'): SearchRecord
+    {
+        return new SearchRecord(new \DateTimeImmutable($ago), 'products', $tenant, $user, $query, 1, 1.0, false, $status, $ip);
+    }
+
+    public function testRecentListsWhoSearchedWhatNewestFirst(): void
+    {
+        $this->engine->writeSearchLog([
+            $this->recentRecord('older', 'ada', ago: '-3 hours'),
+            $this->recentRecord('newest', null, ip: '203.0.113.0', ago: '-1 hour'),
+            $this->recentRecord('middle', 'bob', status: RecordStatus::Denied, ago: '-2 hours'),
+        ]);
+        $tester = $this->tester();
+
+        $status = $tester->execute(['index' => 'products', '--recent' => true, '--format' => 'json']);
+
+        self::assertSame(Command::SUCCESS, $status);
+        $rows = self::json($tester);
+        self::assertSame(['newest', 'middle', 'older'], array_column($rows, 'query'));
+        self::assertSame([null, 'bob', 'ada'], array_column($rows, 'user'));
+        self::assertSame(['203.0.113.0', null, null], array_column($rows, 'ip'));
+        self::assertSame(['ok', 'denied', 'ok'], array_column($rows, 'status'));
+    }
+
+    public function testRecentTableShowsTheUserTheStatusAndTheQuery(): void
+    {
+        $this->engine->writeSearchLog([$this->recentRecord('wireless mouse', 'ada', ip: '203.0.113.0'), $this->recentRecord('mose', null, status: RecordStatus::RateLimited)]);
+        $tester = $this->tester();
+
+        $tester->execute(['index' => 'products', '--recent' => true, '--tenant' => 'x']);
+        self::assertStringContainsString('No searches', $tester->getDisplay());
+        $tester->execute(['index' => 'products', '--recent' => true]);
+
+        $display = $tester->getDisplay();
+        self::assertMatchesRegularExpression('/time\s+tenant\s+user\s+ip\s+status\s+hits\s+query/', $display);
+        self::assertMatchesRegularExpression('/-\s+ada\s+203\.0\.113\.0\s+ok\s+1\s+wireless mouse/', $display);
+        self::assertMatchesRegularExpression('/-\s+\(anonymous\)\s+-\s+rate_limited\s+1\s+mose/', $display);
+    }
+
+    public function testRecentFiltersByUserAnonymousAndStatusAndLimit(): void
+    {
+        $this->engine->writeSearchLog([
+            $this->recentRecord('a1', 'ada', ago: '-5 minutes'),
+            $this->recentRecord('a2', 'ada', status: RecordStatus::Denied, ago: '-4 minutes'),
+            $this->recentRecord('a3', 'ada', ago: '-3 minutes'),
+            $this->recentRecord('b1', 'bob', ago: '-2 minutes'),
+            $this->recentRecord('n1', null, ago: '-1 minutes'),
+        ]);
+        $run = function (array $options): array {
+            $tester = $this->tester();
+            $tester->execute(['index' => 'products', '--recent' => true, '--format' => 'json', ...$options]);
+
+            return array_column(self::json($tester), 'query');
+        };
+
+        self::assertSame(['a3', 'a2', 'a1'], $run(['--user' => 'ada']));
+        self::assertSame(['n1'], $run(['--anonymous' => true]));
+        self::assertSame(['a2'], $run(['--status' => 'denied']));
+        self::assertSame(['a3'], $run(['--user' => 'ada', '--status' => 'ok', '--limit' => '1']));
+        self::assertSame([], $run(['--user' => "ada' OR '1'='1"]));
+    }
+
+    public function testRecentNeverCrossesTenants(): void
+    {
+        $this->engine->writeSearchLog([
+            $this->recentRecord('a secret', 'ada', 'tenant-a'),
+            $this->recentRecord('b secret', 'ada', 'tenant-b'),
+        ]);
+        $run = function (array $options): array {
+            $tester = $this->tester(tenantScoped: true);
+            $status = $tester->execute(['index' => 'products', '--recent' => true, '--format' => 'json', ...$options]);
+
+            return [$status, $status === Command::SUCCESS ? array_column(self::json($tester), 'query') : $tester->getDisplay()];
+        };
+
+        self::assertSame([Command::SUCCESS, ['a secret']], $run(['--tenant' => 'tenant-a', '--user' => 'ada']));
+        self::assertSame([Command::SUCCESS, ['b secret']], $run(['--tenant' => 'tenant-b', '--user' => 'ada']));
+        [$status, $message] = $run(['--user' => 'ada']);
+        self::assertSame(Command::FAILURE, $status);
+        self::assertIsString($message);
+        self::assertStringContainsString('allTenants', $message);
+        [$status, $across] = $run(['--user' => 'ada', '--all-tenants' => true]);
+        self::assertSame(Command::SUCCESS, $status);
+        self::assertEqualsCanonicalizing(['a secret', 'b secret'], $across);
+    }
+
+    public function testRecentWorksOnAnInstallWithoutTheIpColumn(): void
+    {
+        $this->connection->execute('ALTER TABLE fuzzphony_search_log DROP COLUMN actor_ip');
+        $this->engine->writeSearchLog([$this->recentRecord('plain', 'ada')]);
+        $tester = $this->tester();
+
+        $status = $tester->execute(['index' => 'products', '--recent' => true, '--format' => 'json']);
+
+        self::assertSame(Command::SUCCESS, $status);
+        self::assertSame([null], array_column(self::json($tester), 'ip'));
+    }
+
+    public function testRecentWithALimitOutOfRangeIsReportedWithoutAStackTrace(): void
+    {
+        $tester = $this->tester();
+
+        $status = $tester->execute(['index' => 'products', '--recent' => true, '--limit' => '0']);
+
+        self::assertSame(Command::FAILURE, $status);
+        self::assertStringContainsString('between 1 and 1000', $tester->getDisplay());
+    }
+
     public function testAnEngineWithoutALogIsReportedWithoutAStackTrace(): void
     {
         $engine = self::createStub(Engine::class);

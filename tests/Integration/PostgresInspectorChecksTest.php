@@ -602,6 +602,29 @@ final class PostgresInspectorChecksTest extends TestCase
         );
     }
 
+    public function testTheIpColumnIsWantedOnlyWhenTheIpIsOn(): void
+    {
+        $this->connection->execute('DROP TABLE IF EXISTS fuzzphony_search_log CASCADE');
+        $index = Indexes::products('manual');
+        $registry = new IndexRegistry([$index]);
+        $setup = new Fuzzphony(new PostgresEngine($this->connection, searchLog: true), $registry);
+        $setup->schema()->apply($this->connection);
+        $setup->reindex('products');
+        $ipOn = new Fuzzphony(new PostgresEngine($this->connection, searchLog: true, searchLogIp: true), $registry);
+        $ipOff = new Fuzzphony(new PostgresEngine($this->connection, searchLog: true), $registry);
+        $ok = [Check::ok('Search log', 'Table exists, nothing older than the retention.')];
+
+        self::assertEquals($ok, self::named($ipOn, 'products', 'Search log'), 'the column is there');
+
+        $this->connection->execute('ALTER TABLE fuzzphony_search_log DROP COLUMN actor_ip');
+
+        self::assertEquals($ok, self::named($ipOff, 'products', 'Search log'), 'nobody wants the column');
+        self::assertEquals(
+            [Check::error('Search log', 'search_log.ip is on, but table "public"."fuzzphony_search_log" has no actor_ip column: the addresses are dropped (the rows are kept).', 'bin/console fuzzphony:schema --apply')],
+            self::named($ipOn, 'products', 'Search log'),
+        );
+    }
+
     public function testAMissingSearchLogTableIsAnError(): void
     {
         $index = Indexes::products('manual');

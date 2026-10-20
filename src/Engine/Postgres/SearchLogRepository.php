@@ -4,7 +4,9 @@ declare(strict_types=1);
 
 namespace Fuzzphony\Engine\Postgres;
 
+use Fuzzphony\Core\Analytics\LoggedSearch;
 use Fuzzphony\Core\Analytics\QueryStat;
+use Fuzzphony\Core\Analytics\RecordStatus;
 use Fuzzphony\Core\Analytics\SearchRecord;
 use Fuzzphony\Core\Database\Connection;
 use Fuzzphony\Core\Support\Coerce;
@@ -20,31 +22,62 @@ final readonly class SearchLogRepository
     private const string TIMESTAMP = 'Y-m-d H:i:s.uP';
     private const int CHUNK = 1000;
 
-    public function __construct(private Connection $connection, private Names $names) {}
+    /** SQLSTATE of "undefined column": the table has no actor_ip yet. */
+    private const string UNDEFINED_COLUMN = '42703';
+
+    /** @param (\Closure(int): void)|null $onIpDropped told how many addresses a write dropped because the table has no actor_ip column */
+    public function __construct(private Connection $connection, private Names $names, private ?\Closure $onIpDropped = null) {}
 
     /**
      * @param list<SearchRecord> $records
      *
-     * @return int the number of rows inserted (no statement runs for an empty list)
+     * @return int the number of rows inserted (no statement runs for an empty list). A table without the actor_ip column
+     *             (an install that has not applied the schema since it turned the IP on) keeps its rows: the batch is
+     *             written once more without the column, and the addresses are dropped (onIpDropped is told how many).
      */
     public function write(array $records): int
     {
         $written = 0;
-        // 10 bind parameters a row: PostgreSQL allows 65,535 a statement, so at most 1,000 rows each
+        // an install that never enabled the client IP has no actor_ip column: the column is named only when a record carries an address
+        $withIp = array_any($records, static fn(SearchRecord $r): bool => $r->ip !== null);
+        // at most 11 bind parameters a row: PostgreSQL allows 65,535 a statement, so at most 1,000 rows each
         foreach (array_chunk(array_values($records), self::CHUNK) as $chunk) {
-            $written += $this->insert($chunk);
+            try {
+                $written += $this->insert($chunk, $withIp);
+            } catch (\Throwable $e) {
+                if (!$withIp || !self::undefinedIpColumn($e)) {
+                    throw $e;
+                }
+                // once: the rest of the batch goes without the column too
+                $withIp = false;
+                $written += $this->insert($chunk, false);
+                $this->onIpDropped?->__invoke(count(array_filter($records, static fn(SearchRecord $r): bool => $r->ip !== null)));
+            }
         }
 
         return $written;
     }
 
+    /** SQLSTATE 42703 for actor_ip, from PDO (the code) or DBAL (getSQLState()), anywhere in the chain. */
+    private static function undefinedIpColumn(\Throwable $e): bool
+    {
+        for ($cause = $e; $cause !== null; $cause = $cause->getPrevious()) {
+            $state = $cause instanceof \PDOException ? $cause->getCode() : (method_exists($cause, 'getSQLState') ? $cause->getSQLState() : null);
+            if ($state === self::UNDEFINED_COLUMN && str_contains($cause->getMessage(), 'actor_ip')) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
     /** @param list<SearchRecord> $records */
-    private function insert(array $records): int
+    private function insert(array $records, bool $withIp): int
     {
         $values = [];
         $params = [];
         foreach ($records as $i => $r) {
-            $values[] = sprintf('(CAST(:at%1$d AS timestamptz), :ix%1$d, :tn%1$d, :us%1$d, :q%1$d, :qn%1$d, :h%1$d, :ms%1$d, CAST(:fz%1$d AS boolean), :st%1$d)', $i);
+            $values[] = sprintf('(CAST(:at%1$d AS timestamptz), :ix%1$d, :tn%1$d, :us%1$d, :q%1$d, :qn%1$d, :h%1$d, :ms%1$d, CAST(:fz%1$d AS boolean), :st%1$d%2$s)', $i, $withIp ? sprintf(', :ip%d', $i) : '');
             $params += [
                 "at$i" => $r->at->format(self::TIMESTAMP),
                 "ix$i" => $r->index,
@@ -57,11 +90,15 @@ final readonly class SearchLogRepository
                 "fz$i" => $r->usedFuzzy ? 't' : 'f',
                 "st$i" => $r->status->value,
             ];
+            if ($withIp) {
+                $params["ip$i"] = $r->ip;
+            }
         }
 
         return $this->connection->execute(sprintf(
-            'INSERT INTO %s (at, index_name, tenant, actor_user, query, query_norm, hits, took_ms, used_fuzzy, status) VALUES %s',
+            'INSERT INTO %s (at, index_name, tenant, actor_user, query, query_norm, hits, took_ms, used_fuzzy, status%s) VALUES %s',
             $this->names->searchLog(),
+            $withIp ? ', actor_ip' : '',
             implode(', ', $values),
         ), $params);
     }
@@ -108,5 +145,68 @@ final readonly class SearchLogRepository
             Coerce::float($r['avg_hits']),
             new \DateTimeImmutable(Coerce::str($r['last_seen'])),
         ), $rows);
+    }
+
+    /**
+     * @param int|string|null $tenant        null = no tenant filter
+     * @param string|null     $user          exactly this user
+     * @param bool            $anonymousOnly only the rows without a user (the caller does not pass both)
+     *
+     * @return list<LoggedSearch> newest first (the id breaks a tie in the time)
+     */
+    public function recent(string $index, \DateTimeInterface $from, ?\DateTimeInterface $to, int $limit, int|string|null $tenant, ?string $user, bool $anonymousOnly, ?RecordStatus $status): array
+    {
+        $params = ['ix' => $index, 'from' => $from->format(self::TIMESTAMP), 'lim' => $limit];
+        $where = 'index_name = :ix AND at >= CAST(:from AS timestamptz)';
+        if ($to !== null) {
+            $where .= ' AND at < CAST(:to AS timestamptz)';
+            $params['to'] = $to->format(self::TIMESTAMP);
+        }
+        if ($tenant !== null) {
+            $where .= ' AND tenant = :tn';
+            $params['tn'] = (string) $tenant;
+        }
+        if ($user !== null) {
+            $where .= ' AND actor_user = :us';
+            $params['us'] = $user;
+        } elseif ($anonymousOnly) {
+            $where .= ' AND actor_user IS NULL';
+        }
+        if ($status !== null) {
+            $where .= ' AND status = :st';
+            $params['st'] = $status->value;
+        }
+        $rows = $this->connection->fetchAll(sprintf(
+            'SELECT at, index_name, tenant, actor_user, %s AS actor_ip, query, hits, took_ms, used_fuzzy, status FROM %s WHERE %s ORDER BY at DESC, id DESC LIMIT :lim',
+            $this->hasIpColumn() ? 'actor_ip' : 'CAST(NULL AS text)',
+            $this->names->searchLog(),
+            $where,
+        ), $params);
+
+        return array_map(static fn(array $r): LoggedSearch => new LoggedSearch(
+            new \DateTimeImmutable(Coerce::str($r['at'])),
+            Coerce::str($r['index_name']),
+            $r['tenant'] === null ? null : Coerce::str($r['tenant']),
+            $r['actor_user'] === null ? null : Coerce::str($r['actor_user']),
+            $r['actor_ip'] === null ? null : Coerce::str($r['actor_ip']),
+            Coerce::str($r['query']),
+            Coerce::int($r['hits']),
+            Coerce::float($r['took_ms']),
+            $r['used_fuzzy'] === true,
+            RecordStatus::from(Coerce::str($r['status'])),
+        ), $rows);
+    }
+
+    /**
+     * An install that never enabled the client IP has no actor_ip column (it comes with fuzzphony:schema --apply): one
+     * catalog lookup tells. A role that may not read the column (column-level grants) counts as "no column": its report
+     * shows no addresses instead of failing.
+     */
+    private function hasIpColumn(): bool
+    {
+        return $this->connection->fetchValue(
+            "SELECT EXISTS (SELECT 1 FROM pg_attribute WHERE attrelid = to_regclass(:log) AND attname = 'actor_ip' AND NOT attisdropped AND has_column_privilege(attrelid, attname, 'SELECT'))",
+            ['log' => $this->names->searchLog()],
+        ) === true;
     }
 }

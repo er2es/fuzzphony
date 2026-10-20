@@ -16,6 +16,19 @@ and the [CHANGELOG](CHANGELOG.md) has the full list of changes.
    `DoctrineIndexDiscovery`, `EntityLoader` or `OrmSyncListener` is now a duplicate of the bundle's, and an index
    that is both an attribute and in YAML `indexes` is overridden by the YAML as documented.
 
+## From 0.9.5 to the next release
+
+1. **Search log: who searched what, and the optional client IP.** Nothing is required. To keep the client address
+   (`fuzzphony.search_log.ip: masked`, recommended, or `full`; it is personal data, see
+   [SECURITY.md](SECURITY.md)) run `fuzzphony:schema --apply` once: it adds the nullable column `actor_ip` to
+   `fuzzphony_search_log` (the role must own the table). Without the setting nothing is stored and the column is not needed;
+   `SearchAnalytics::recentSearches()` and `fuzzphony:analytics --recent` work either way (the address is then null). If you
+   implement `Fuzzphony\Core\Engine\SearchLogStore` yourself, nothing changes: `recentSearches()` needs the new, optional
+   `Fuzzphony\Core\Engine\RecentSearchStore` (implement it to offer the report; without it `recentSearches()` throws
+   `InvalidArgument` and the other reports keep working). If you call
+   `new SearchRecord(...)` or `new SearchGate(...)` with positional arguments, nothing changes: the new `ip` and `ipMode`
+   arguments are trailing and optional.
+
 ## From 0.8 to 0.9
 
 Nothing is required: without configuration a search is what 0.8 did (the same results; the same statements

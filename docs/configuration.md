@@ -282,7 +282,7 @@ fuzzphony:
   worker: { batch_size: 500, idle_sleep: 1.0 }
   orm_sync: { async: false, chunk_size: 500 }
   actor: { }                   # who searches, see below
-  search_log: { enabled: false, retention_days: 90, redact: [] }  # opt-in, see below
+  search_log: { enabled: false, retention_days: 90, redact: [], ip: off }  # opt-in, see below
   rate_limit: { limiter: ~, per: tenant }                          # opt-in, see below
   authorization: { enabled: false, index_attribute: FUZZPHONY_SEARCH }  # opt-in, see below
   indexes: { }                 # YAML indexes and overrides, see above
@@ -319,6 +319,7 @@ fuzzphony:
     enabled: false         # true: record every search; then run fuzzphony:schema --apply
     retention_days: 90     # what fuzzphony:search-log:purge keeps (a whole number, at least 1)
     redact: []             # "email" and/or regular expressions with delimiters: matches are stored as [redacted]
+    ip: off                # off | masked | full: keep the client IP (personal data; masked is recommended)
 ```
 
 Off by default. Enabled, it adds the table `fuzzphony_search_log` to `fuzzphony:schema`, the commands
@@ -327,6 +328,12 @@ check in the doctor (neither command exists while the log is off). `redact` is v
 compile fails there. A single index opts out with `log: false` (attribute, builder `->log(false)`, or YAML under
 `indexes`). The role that only searches needs just `INSERT` on the table (the `id` is an identity column, so no
 sequence privilege); the reports need `SELECT`, the purge `DELETE`. See [Search log and analytics](analytics.md).
+
+`ip` decides whether the log keeps the client IP (`Request::getClientIp()`, so `framework.trusted_proxies` applies) in the
+nullable column `actor_ip`: `off` keeps nothing, `masked` the IPv4 address with the last octet zeroed or the first 48 bits of
+an IPv6 address, `full` the whole valid address; anything that is not an IP address is never stored. Enabling it needs
+`fuzzphony:schema --apply` (an additive `ADD COLUMN`, run only when the column is missing); it does nothing while `enabled` is false. The values
+and the privacy notes are in [The client IP](analytics.md#the-client-ip).
 
 ### The rate limit
 

@@ -43,5 +43,22 @@ otherwise.
   [Security](docs/security.md#the-limits-stated-honestly).
 - **The search log** (opt-in) stores what visitors typed. Redact it (`search_log.redact`), set a retention and keep the table's
   privileges as narrow as the rest of the schema: see [Search log and analytics](docs/analytics.md).
+  - **A per-user search history is personal data.** With an actor the log records the user of every search, and
+    `SearchAnalytics::recentSearches()` / `fuzzphony:analytics --recent` read it back person by person (including the
+    refused searches). What a person searched for can be sensitive: redaction removes only what a pattern can describe,
+    the retention (`search_log.retention_days`, the purge command) is how long it is kept, and the report is for an
+    operator role, never for a page that a tenant or a visitor can steer to another person. The report refuses a
+    tenant-scoped index without a tenant (or an explicit `allTenants: true`) and, when a tenant is named, never returns another
+    tenant's rows, even for a user of the same name. On an index that is **not** tenant-scoped a call without a tenant covers
+    everyone (as `topQueries()` does, but these rows are per person), so never let one reach a tenant; the user, the tenant and the limit are bound parameters. To erase a person,
+    delete their rows (the purge deletes whole rows).
+  - **The client IP is personal data too.** `search_log.ip` is `off` by default (nothing is stored, even when the actor carries
+    an address). `masked` (IPv4 `/24`, IPv6 `/48`; the mode the documentation recommends) or `full` store it in `actor_ip`;
+    an invalid address is never stored, and `full` stores the canonical form. Masking is weaker for IPv6: a `/48` usually identifies one
+    customer site, so a masked IPv6 address is less private than a masked IPv4 address (a 6to4 address `2002::/16` has the last octet
+    of its embedded IPv4 address masked too). The address is `Request::getClientIp()`, which follows `framework.trusted_proxies`:
+    configure it behind a proxy, and know that Fuzzphony never reads `X-Forwarded-For` itself, so a visitor cannot invent an
+    address by sending the header. A per-user history with an address says where a person searched from: keep both short and
+    narrow.
 - **The demo** (`demo/`) is a local showcase, not a production template. It exposes the SQL and
   query plans of every search on purpose.

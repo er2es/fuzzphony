@@ -124,7 +124,8 @@ A good fit when:
   forgotten `WHERE` can't leak another customer's rows; the API Platform filter and the Live
   Component take the tenant from the logged-in user, and the console command from `--tenant` and `--user`.
 - You want to know what people search for and what they do not find: an opt-in search log (redacted, with a
-  retention) and reports of the most searched and the zero-result texts, without a separate analytics service.
+  retention) and reports of the most searched and the zero-result texts, and of who searched what (per user, with an
+  optional masked client IP), without a separate analytics service.
 - You need to protect the search: a rate limit per tenant or user (429), index-level authorization on Symfony's
   voters (403), and fields only some viewers may search (`granted: ROLE_HR`): a hidden field is not matched,
   ranked, highlighted or suggested for the others.
@@ -240,7 +241,7 @@ nothing drops the words that match nothing and says so. Details:
 - [Languages](https://github.com/er2es/fuzzphony/blob/main/docs/languages.md): stemming, stop words and accent folding for 28 languages.
 - [Keeping the index in sync](https://github.com/er2es/fuzzphony/blob/main/docs/sync.md): sync modes, triggers, `TRUNCATE`, orphan pruning, Messenger.
 - [Multi-tenancy](https://github.com/er2es/fuzzphony/blob/main/docs/multi-tenancy.md): a tenant filter enforced on every search, and the actor (tenant and user) the integrations resolve.
-- [Search log and analytics](https://github.com/er2es/fuzzphony/blob/main/docs/analytics.md): an opt-in log of every search with e-mail and pattern redaction, retention and a purge command, the most searched and the zero-result texts as `Fuzzphony::analytics()`, `fuzzphony:analytics` and a demo page.
+- [Search log and analytics](https://github.com/er2es/fuzzphony/blob/main/docs/analytics.md): an opt-in log of every search with e-mail and pattern redaction, retention and a purge command, the most searched and the zero-result texts, and who searched what (per user, optional masked IP), as `Fuzzphony::analytics()`, `fuzzphony:analytics` and a demo page.
 - [Security](https://github.com/er2es/fuzzphony/blob/main/docs/security.md): rate limits, index- and field-level authorization, what a restricted viewer sees, the limits, and the demo's Security page.
 - [Console commands](https://github.com/er2es/fuzzphony/blob/main/docs/commands.md): every command, the doctor, the configuration wizard.
 - [Observability](https://github.com/er2es/fuzzphony/blob/main/docs/observability.md): metrics collectors, the Symfony bundle wiring, a `/metrics` endpoint, the Grafana dashboard.
