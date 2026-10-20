@@ -37,6 +37,10 @@ changes; they are always listed under **Breaking** and explained in [UPGRADE.md]
   the column is missing. The retention
   purge deletes whole rows, so it covers the IP. See [The client IP](docs/analytics.md#the-client-ip).
 
+### Changed
+
+- A synonym member that is one plain word of more than 256 characters is now cut at 256 characters, as any other member text already was (the plain-word fast path of `SynonymExpander` kept it whole, so the same word followed by a space was cut and the word alone was not). Both paths now give the same words; a test compares them.
+
 ## [0.9.5] - 2026-10-20
 
 The performance round, a bug fix for the Doctrine ORM wiring, and Symfony 8.0 leaves the supported versions. See [UPGRADE.md](UPGRADE.md#from-094-to-095) (nothing to do in most applications).
