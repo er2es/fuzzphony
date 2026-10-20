@@ -7,7 +7,11 @@ fuzzphony:
   # Every search is recorded after the response (the /under-the-hood/analytics page and `bin/console fuzzphony:analytics` read it).
   # E-mail addresses are replaced by [redacted] before anything is stored; rows older than 30 days are purged by
   # `bin/console fuzzphony:search-log:purge`.
-  search_log: { enabled: true, retention_days: 30, redact: [email] }
+  # `ip: masked` also stores where a search of an actor came from (192.0.2.45 is kept as 192.0.2.0) and the log already has the
+  # user: that is personal data (docs/analytics.md, "Privacy"). Only the searches made ->asActor() (the Security page) carry an
+  # address; the other pages make no actor search, so their rows have none. The address is Request::getClientIp(): here nginx
+  # hands PHP the client's address over FastCGI (REMOTE_ADDR), so no framework.trusted_proxies is set (see framework.yaml).
+  search_log: { enabled: true, retention_days: 30, redact: [email], ip: masked }
   # The /under-the-hood/security page (docs/security.md): who searches decides what a search may see. All three apply only
   # to a search made with ->asActor() (the Security page makes those; the other pages never do).
   # The actor is read from the Security user: its company is the tenant, its identifier the user.

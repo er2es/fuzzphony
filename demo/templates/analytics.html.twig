@@ -46,6 +46,56 @@
         </section>
     {% endif %}
 
-    <p class="muted">A search counts when you click an example, press Enter, or stop typing for about a second (also when you leave the page sooner); the half-typed words in between are not logged. The log is written after the response, in one batch, so a search never waits for it. An e-mail address typed into the search box is stored as <code>[redacted]</code> (<code>search_log.redact: [email]</code>). Anyone who uses a publicly hosted demo can plant text that other visitors see here: only e-mail addresses are redacted. In the terminal: <code>bin/console fuzzphony:analytics catalog --since=7d</code>, and <code>--zero</code> for the searches that found nothing.</p>
+    {% if not error %}
+        <section aria-labelledby="who">
+            <h2 id="who" class="list-title">Who searched what · the latest {{ limit }}</h2>
+            <p class="callout"><span><strong>This is personal data.</strong> Each row says who asked (the viewer of the Security page; the home page has no user, so those searches are anonymous), what, and where from. The demo keeps 30 days (<code>retention_days: 30</code>), stores e-mail addresses as <code>[redacted]</code> (<code>redact: [email]</code>) and keeps the client address masked (<code>ip: masked</code>: the last octet of an IPv4 address is zeroed, an IPv6 address is cut to its first 48 bits). Only the Security page makes searches as a user, so only its rows carry an address. See <code>docs/analytics.md</code>, "Privacy".</span></p>
+
+            {% if recentError %}
+                <p class="callout is-bad" role="alert">The list cannot be read. A demo database from before 0.9.6 has no <code>actor_ip</code> column yet: run <code>bin/console fuzzphony:schema --apply</code> (in Docker: <code>docker compose run --rm init</code>) and reload this page.</p>
+            {% else %}
+                <div class="filters">
+                    {% for group, caption in {index: 'Index', who: 'Who', status: 'Status'} %}
+                        <nav class="filter-group" aria-label="{{ caption }}">
+                            <span class="list-title" aria-hidden="true">{{ caption }}</span>
+                            <div class="chips">
+                                {% for key, label in filters[group] %}
+                                    {% set query = {index: chosen.index, who: chosen.who, status: chosen.status}|merge({(group): key}) %}
+                                    <a class="chip{{ chosen[group] == key ? ' is-current' }}" href="{{ path('analytics', {index: query.index != 'all' ? query.index, who: query.who != 'all' ? query.who, status: query.status != 'all' ? query.status, _fragment: 'who'}) }}"{% if chosen[group] == key %} aria-current="true"{% endif %}>{{ label }}</a>
+                                {% endfor %}
+                            </div>
+                        </nav>
+                    {% endfor %}
+                </div>
+
+                {% if recent is empty %}
+                    <p class="muted" role="status">No search matches these filters in the last seven days.</p>
+                {% else %}
+                    <div class="table-card">
+                        <table>
+                            <caption class="sr-only">The latest searches of the last seven days, newest first</caption>
+                            <thead><tr><th>When</th><th>Who</th><th>Tenant</th><th>Index</th><th>Query</th><th class="num">Hits</th><th>Status</th><th>Client IP</th></tr></thead>
+                            <tbody>
+                            {% for s in recent %}
+                                <tr>
+                                    <td>{{ s.at|date('Y-m-d H:i:s') }}</td>
+                                    <td>{% if s.user is null %}<span class="muted">anonymous</span>{% else %}{{ userNames[s.user] ?? s.user }}{% endif %}</td>
+                                    <td>{% if s.tenant is null %}<span class="muted">&ndash;</span>{% else %}{{ companies[s.tenant] ?? s.tenant }}{% endif %}</td>
+                                    <td>{{ s.index }}</td>
+                                    <td><code>{{ s.query }}</code></td>
+                                    <td class="num">{{ s.hits|number_format }}</td>
+                                    <td>{% if s.status.value == 'ok' %}<span class="flag is-ok">answered</span>{% elseif s.status.value == 'denied' %}<span class="flag is-bad">denied</span>{% else %}<span class="flag is-limit">rate limited</span>{% endif %}</td>
+                                    <td>{% if s.ip is null %}<span class="muted">&ndash;</span>{% else %}<span class="ip">{{ s.ip }}</span>{% endif %}</td>
+                                </tr>
+                            {% endfor %}
+                            </tbody>
+                        </table>
+                    </div>
+                {% endif %}
+            {% endif %}
+        </section>
+    {% endif %}
+
+    <p class="muted">A search counts when you click an example, press Enter, or stop typing for about a second (also when you leave the page sooner); the half-typed words in between are not logged. The log is written after the response, in one batch, so a search never waits for it. An e-mail address typed into the search box is stored as <code>[redacted]</code> (<code>search_log.redact: [email]</code>). Anyone who uses a publicly hosted demo can plant text that other visitors see here: only e-mail addresses are redacted. In the terminal: <code>bin/console fuzzphony:analytics catalog --since=7d</code>, <code>--zero</code> for the searches that found nothing, and <code>--recent</code> for who searched what.</p>
 </div>
 {% endblock %}

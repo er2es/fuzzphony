@@ -36,6 +36,16 @@ changes; they are always listed under **Breaking** and explained in [UPGRADE.md]
   once without it (metric `fuzzphony.search_log.ip_dropped`), and the doctor's "Search log" check is an error while `ip` is on and
   the column is missing. The retention
   purge deletes whole rows, so it covers the IP. See [The client IP](docs/analytics.md#the-client-ip).
+- **Demo: who searched what.** The Analytics page has a new section "Who searched what": the latest 20 searches of the `catalog` and
+  `intranet` indexes (when, who, tenant, index, query, hits, status, masked client IP), newest first, with link filters for the index,
+  the viewer (anonymous, Ada, Hana, Eve, Bob) and the status (answered, denied, rate limited), and a note that it is personal data
+  (retention 30 days, e-mail redaction, masked IP). The demo turns on `search_log.ip: masked`. The Security page's searches are now
+  logged: it used to call `explain()`, which records only refusals, so an answered search left no row; it now runs `get()` as the viewer
+  (one row with the viewer as the user, the company as the tenant and the masked address; a refusal is a `denied` / `rate_limited` row) and
+  takes the SQL from an unlogged search with the same tenant and fields, so the typed text is logged once and the rate limit is charged
+  once. The demo sets no `trusted_proxies` on purpose (nginx hands php-fpm the client address as `REMOTE_ADDR`, and a private-range list
+  would make a forged `X-Forwarded-For` believed). The Observability page points to the new section. Rows of the home page are
+  anonymous and carry no address (only searches made `->asActor()` do). `flows.mjs` has 13 more checks.
 
 ## [0.9.5] - 2026-10-20
 

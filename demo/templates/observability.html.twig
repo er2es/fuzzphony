@@ -25,6 +25,11 @@
         </div>
     </section>
 
+    <section aria-labelledby="other-half">
+        <h2 id="other-half" class="list-title">The other half</h2>
+        <p class="callout"><span>Metrics count searches and never say who searched what: the query text is left out on purpose. That is the job of the search log, which keeps the text, the user, the tenant, the outcome and (masked) the client address of each search, and is personal data. See it on the <a href="{{ path('analytics') }}#who">Analytics page, &ldquo;Who searched what&rdquo;</a>.</span></p>
+    </section>
+
     <details class="disclosure">
         <summary>The log lines for it<svg class="icon" aria-hidden="true"><use href="#i-chevron"/></svg></summary>
         <p class="muted">This demo uses the logging collector (it has neither <code>promphp/prometheus_client_php</code> nor <code>apcu</code>) and writes the lines to the php container's log: <code>docker compose logs -f php</code>. The values are this run's.</p>
