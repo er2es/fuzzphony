@@ -178,8 +178,8 @@ final class EmptyResultRelaxationTest extends TestCase
 
         self::assertSame([1], $result->ids());
         $lookups = array_filter($log->getArrayCopy(), static fn(string $sql): bool => str_contains($sql, 'numnode('));
-        // one for the fuzzy fallback of the search, one for the fallback of the relaxed search; the probe reuses the first
-        self::assertCount(2, $lookups);
+        // one for the fuzzy fallback of the search; the probe and the fallback of the relaxed search (the same words) reuse its answers
+        self::assertCount(1, $lookups);
     }
 
     public function testARelaxedSearchThatFindsNothingKeepsTheOriginalAnswer(): void
@@ -266,8 +266,8 @@ final class EmptyResultRelaxationTest extends TestCase
         self::assertSame([2], $search->query('brand:razr')->get()->ids(), 'found by the fuzzy fallback');
         self::assertSame([2], $search->query('brand:razr')->thresholds(['fuzzy_mode' => 'always'])->get()->ids());
         $lookups = array_filter($log->getArrayCopy(), static fn(string $sql): bool => str_contains($sql, 'numnode('));
-        // fetched up front for the recheck, reused by the fuzzy branch
-        self::assertCount(2, $lookups);
+        // fetched up front for the recheck, reused by the fuzzy branch and by the second search (the same word)
+        self::assertCount(1, $lookups);
     }
 
     /** @param \ArrayObject<int, string> $log */
