@@ -341,6 +341,14 @@ final class FuzzphonyBundleTest extends TestCase
         self::assertFalse($container->hasParameter('fuzzphony.app_schema_filter'), 'and nothing for the doctor to check');
     }
 
+    public function testThePrependPhaseRemembersDoctrineForTheLoadPhase(): void
+    {
+        // loadExtension() runs on a temporary builder without extensions; only this parameter tells it that Doctrine is there
+        self::assertTrue($this->prepended([], null)->getParameter('fuzzphony.doctrine_extension'));
+        self::assertTrue($this->prepended(['connection' => '%env(DB)%'], null)->getParameter('fuzzphony.doctrine_extension'));
+        self::assertFalse($this->prepended([], null, withDoctrine: false)->hasParameter('fuzzphony.doctrine_extension'));
+    }
+
     public function testWithoutDoctrineNothingIsPrepended(): void
     {
         $container = $this->prepended([], null, withDoctrine: false);

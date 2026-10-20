@@ -24,6 +24,10 @@ changes; they are always listed under **Breaking** and explained in [UPGRADE.md]
   docs say 7.4 LTS and 8.1. Symfony 8.0 no longer receives fixes, and every 8.0.x is affected by four `symfony/yaml` advisories
   (Composer refuses to install it). See [UPGRADE.md](UPGRADE.md).
 
+### Fixed
+
+- **Doctrine ORM wiring in a real Symfony kernel.** `FuzzphonyBundle` asked `$builder->hasExtension('doctrine')` while loading its services, but Symfony hands an extension a temporary container without any extensions, so the answer was always "no" in an application: `#[Searchable]` discovery (`discover_entities`), `EntityLoader` and the ORM sync listener were never registered, and only the container-definition tests (which load the extension straight onto a container that has a fake `doctrine` extension) saw them. The prepend phase, which runs on the real container, now records that DoctrineBundle is present (the container parameter `fuzzphony.doctrine_extension`) and the load phase reads it. An application that relied on YAML `indexes` alone is unaffected; one that has `#[Searchable]` entities, `sync: orm` or `EntityLoader` now gets them without any change. A test boots a compiled production kernel with a real `cache.system` to prove it, including the registry cache above (written on the first use, read by a fresh kernel without touching the metadata, absent in debug mode, gone after `cache:clear`).
+
 ## [0.9.4] - 2026-10-14
 
 No upgrade steps. The repository is now one Composer package (`fuzzphony/fuzzphony`), and some dead code is gone.
