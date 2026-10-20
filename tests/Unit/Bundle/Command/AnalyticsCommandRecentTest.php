@@ -119,6 +119,45 @@ final class AnalyticsCommandRecentTest extends TestCase
         self::assertStringContainsString('<comment>mouse</comment>', $display);
     }
 
+    public function testControlCharactersAreNeverPrintedToTheTerminal(): void
+    {
+        $this->logged = [new LoggedSearch(
+            new \DateTimeImmutable('2026-10-12 10:00:00 UTC'),
+            'products',
+            "ac\tme",
+            "ada\e[2J",
+            "1.2\r.3",
+            "line one\nfake row\e[31mred\e[0m \x07bell \x7f del \u{85} c1 caf\xE9",
+            1,
+            1.0,
+            false,
+            RecordStatus::Ok,
+        )];
+        $tester = $this->tester();
+
+        $tester->execute(['index' => 'products', '--recent' => true, '--all-tenants' => true], ['interactive' => false]);
+
+        $display = $tester->getDisplay(true);
+        self::assertSame(0, preg_match('/[\x00-\x08\x0b-\x1f\x7f]/', $display), 'no control byte but the newlines of the table');
+        self::assertStringNotContainsString("\u{85}", $display);
+        self::assertStringContainsString("line one\u{FFFD}fake row\u{FFFD}[31mred\u{FFFD}[0m \u{FFFD}bell \u{FFFD} del \u{FFFD} c1 caf", $display);
+        self::assertStringContainsString("ada\u{FFFD}[2J", $display);
+        self::assertStringContainsString("ac\u{FFFD}me", $display);
+        self::assertStringContainsString("1.2\u{FFFD}.3", $display);
+    }
+
+    public function testTheJsonKeepsTheTextExactlyAndEscapesItAsJson(): void
+    {
+        $this->logged = [new LoggedSearch(new \DateTimeImmutable('2026-10-12 10:00:00 UTC'), 'products', null, null, null, "a\nb\e[31m", 1, 1.0, false, RecordStatus::Ok)];
+        $tester = $this->tester();
+
+        $tester->execute(['index' => 'products', '--recent' => true, '--format' => 'json'], ['interactive' => false]);
+
+        $rows = json_decode($tester->getDisplay(true), true, flags: JSON_THROW_ON_ERROR);
+        self::assertIsArray($rows);
+        self::assertSame("a\nb\e[31m", $rows[0]['query']);
+    }
+
     public function testAnEmptyTableSaysSoInsteadOfPrintingAnEmptyTable(): void
     {
         $tester = $this->tester();

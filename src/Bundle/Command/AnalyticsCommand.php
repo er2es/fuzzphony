@@ -170,16 +170,25 @@ final class AnalyticsCommand extends Command
             ['time', ...($showTenant ? ['tenant'] : []), 'user', 'ip', 'status', 'hits', 'query'],
             array_map(static fn(LoggedSearch $s): array => [
                 self::local($s->at),
-                ...($showTenant ? [OutputFormatter::escape($s->tenant ?? '-')] : []),
-                OutputFormatter::escape($s->user ?? '(anonymous)'),
-                OutputFormatter::escape($s->ip ?? '-'),
+                ...($showTenant ? [self::cell($s->tenant ?? '-')] : []),
+                self::cell($s->user ?? '(anonymous)'),
+                self::cell($s->ip ?? '-'),
                 $s->status->value,
                 $s->hits,
-                OutputFormatter::escape($s->query),
+                self::cell($s->query),
             ], $searches),
         );
 
         return Command::SUCCESS;
+    }
+
+    /**
+     * Text a visitor typed, printed to an operator's terminal: control characters (a newline, an ANSI escape) become U+FFFD,
+     * so a search cannot break the table or write to the terminal, and console markup is printed as text.
+     */
+    private static function cell(string $text): string
+    {
+        return OutputFormatter::escape((string) preg_replace('/\p{Cc}/u', "\u{FFFD}", mb_scrub($text)));
     }
 
     /** The database returns the time in its session's zone: show it in PHP's zone, with the offset, so it is unambiguous. */

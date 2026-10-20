@@ -19,7 +19,7 @@ changes; they are always listed under **Breaking** and explained in [UPGRADE.md]
   are bound parameters. The store side is a new optional interface, `Fuzzphony\Core\Engine\RecentSearchStore` (the PostgreSQL engine implements it; `SearchLogStore` is unchanged, so a custom store keeps working, and `recentSearches()` throws `InvalidArgument` naming the interface for a store without it). It needs
   no new index. A per-user history is personal data: see [SECURITY.md](SECURITY.md) and [Search log and analytics](docs/analytics.md#privacy-the-log-is-personal-data).
 - **`fuzzphony:analytics --recent`** with `--user=`, `--anonymous`, `--status=`, `--since`, `--limit`, `--tenant` / `--all-tenants`
-  and `--format=table|json`: the same report on the console.
+  and `--format=table|json`: the same report on the console (control characters of the typed text are shown as U+FFFD in the table).
 - **The client IP in the search log (opt-in).** `fuzzphony.search_log.ip: off|masked|full` (default `off`: nothing is stored, even
   when the actor carries an address). `masked` zeroes the last octet of an IPv4 address and keeps the first 48 bits of an IPv6
   address (an IPv4-mapped IPv6 address is masked as IPv4); `full` keeps the valid address; anything that is not a valid IP

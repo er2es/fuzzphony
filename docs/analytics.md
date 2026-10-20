@@ -321,7 +321,9 @@ With `--recent` the table is one search per line, newest first (the `tenant` col
 ```
 
 `--format=json` lists `at`, `index`, `tenant`, `user` (null for anonymous), `ip`, `query`, `hits`, `took_ms`, `used_fuzzy` and
-`status` of each search. `--user=NAME` (not empty), `--anonymous` (not with `--user`) and `--status=ok|denied|rate_limited`
+`status` of each search (the text exactly as stored, JSON-escaped). In the table, control characters in the text of a search, the user,
+the tenant and the IP (a newline, an ANSI escape) are printed as `U+FFFD`, so what a visitor typed cannot fake a row or write to
+your terminal. `--user=NAME` (not empty), `--anonymous` (not with `--user`) and `--status=ok|denied|rate_limited`
 belong to `--recent` and are refused without it; `--recent` is not combined with `--top` or `--zero`. `--since`, `--limit`,
 `--tenant`, `--all-tenants` and `--format` work as below.
 
