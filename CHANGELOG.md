@@ -9,6 +9,8 @@ changes; they are always listed under **Breaking** and explained in [UPGRADE.md]
 
 ### Changed
 
+- Development dependency: PHPUnit `^13.0` (it was `^11.5 || ^12.0`). It is a `require-dev` entry, so it affects only people who work on Fuzzphony and the CI, not the applications that install it; `composer update -W` is done for the repository and the demo.
+
 - **Symfony 8.0 is dropped** from the supported versions: the constraints are `^7.4 || ^8.1`, the CI matrix, the README badge and the
   docs say 7.4 LTS and 8.1. Symfony 8.0 no longer receives fixes, and every 8.0.x is affected by four `symfony/yaml` advisories
   (Composer refuses to install it). See [UPGRADE.md](UPGRADE.md).
