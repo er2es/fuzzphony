@@ -8,7 +8,7 @@ use Fuzzphony\Core\Analytics\IpMode;
 use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\TestCase;
 
-/** What the search log may keep of a client IP: nothing, the masked address, or the valid address as given. */
+/** What the search log may keep of a client IP: nothing, the masked address, or the valid address in its canonical form. */
 final class IpModeTest extends TestCase
 {
     /** @return iterable<string, array{string, string}> */
@@ -27,6 +27,12 @@ final class IpModeTest extends TestCase
         yield 'IPv6 upper case' => ['2001:DB8:ABCD:12::1', '2001:db8:abcd::'];
         yield 'IPv4-mapped IPv6' => ['::ffff:203.0.113.45', '203.0.113.0'];
         yield 'IPv4-mapped IPv6 in hex' => ['::ffff:cb00:712d', '203.0.113.0'];
+        yield '6to4 hides the embedded IPv4 last octet' => ['2002:cb00:712d::1', '2002:cb00:7100::'];
+        yield '6to4 with a subnet and host part' => ['2002:cb00:712d:1:2:3:4:5', '2002:cb00:7100::'];
+        yield '6to4 upper case' => ['2002:CB00:712D::1', '2002:cb00:7100::'];
+        yield '6to4 first and last' => ['2002:ffff:ffff:ffff:ffff:ffff:ffff:ffff', '2002:ffff:ff00::'];
+        yield 'IPv6 that starts like 6to4 in the second group only' => ['1:2002:cb00:712d::1', '1:2002:cb00::'];
+        yield 'IPv6 next to 6to4' => ['2003:cb00:712d::1', '2003:cb00:712d::'];
         yield 'IPv6 that only starts like a mapped one' => ['::fffe:203.0.113.45', '::'];
         yield 'IPv6 with ffff in the wrong place' => ['1::ffff:203.0.113.45', '1::'];
     }
@@ -65,24 +71,41 @@ final class IpModeTest extends TestCase
         self::assertNull(IpMode::Off->apply($ip));
     }
 
-    /** @return iterable<string, array{string}> */
+    public function testA6to4AddressNoLongerEncodesTheWholeClientAddress(): void
+    {
+        $masked = (string) IpMode::Masked->apply('2002:cb00:712d::1'); // 203.0.113.45
+
+        self::assertNotSame('2002:cb00:712d::', $masked, 'the plain /48 would keep all of 203.0.113.45');
+        self::assertSame("\x20\x02\xcb\x00\x71\x00", substr((string) inet_pton($masked), 0, 6));
+        self::assertSame(str_repeat("\0", 10), substr((string) inet_pton($masked), 6));
+    }
+
+    /** @return iterable<string, array{string, string}> */
     public static function valid(): iterable
     {
-        yield 'IPv4' => ['203.0.113.45'];
-        yield 'IPv6' => ['2001:db8:abcd:12::1'];
-        yield 'IPv6 loopback' => ['::1'];
-        yield 'IPv4-mapped IPv6' => ['::ffff:203.0.113.45'];
-        yield 'IPv6 upper case' => ['2001:DB8::A'];
+        yield 'IPv4' => ['203.0.113.45', '203.0.113.45'];
+        yield 'IPv6' => ['2001:db8:abcd:12::1', '2001:db8:abcd:12::1'];
+        yield 'IPv6 loopback' => ['::1', '::1'];
+        yield 'IPv4-mapped IPv6' => ['::ffff:203.0.113.45', '::ffff:203.0.113.45'];
+        yield 'IPv6 upper case' => ['2001:DB8::A', '2001:db8::a'];
+        yield 'IPv6 with zero groups written out' => ['2001:0db8:0:0:0:0:0:1', '2001:db8::1'];
+        yield 'IPv6 with leading zeros' => ['2001:0DB8:0000:0000:0000:0000:0000:0001', '2001:db8::1'];
+        yield 'IPv4-mapped in hex' => ['::ffff:cb00:712d', '::ffff:203.0.113.45'];
     }
 
     #[DataProvider('valid')]
-    public function testFullKeepsAValidAddressAsGiven(string $ip): void
+    public function testFullKeepsTheValidAddressInItsCanonicalForm(string $ip, string $canonical): void
     {
-        self::assertSame($ip, IpMode::Full->apply($ip));
+        self::assertSame($canonical, IpMode::Full->apply($ip));
+    }
+
+    public function testDifferentSpellingsOfOneAddressAreOneValue(): void
+    {
+        self::assertSame(IpMode::Full->apply('2001:DB8::1'), IpMode::Full->apply('2001:0db8:0:0:0:0:0:1'));
     }
 
     #[DataProvider('valid')]
-    public function testOffKeepsNothing(string $ip): void
+    public function testOffKeepsNothing(string $ip, string $canonical): void
     {
         self::assertNull(IpMode::Off->apply($ip));
     }

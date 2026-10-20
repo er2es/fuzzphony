@@ -53,7 +53,9 @@ otherwise.
     delete their rows (the purge deletes whole rows).
   - **The client IP is personal data too.** `search_log.ip` is `off` by default (nothing is stored, even when the actor carries
     an address). `masked` (IPv4 `/24`, IPv6 `/48`; the mode the documentation recommends) or `full` store it in `actor_ip`;
-    an invalid address is never stored. The address is `Request::getClientIp()`, which follows `framework.trusted_proxies`:
+    an invalid address is never stored, and `full` stores the canonical form. Masking is weaker for IPv6: a `/48` usually identifies one
+    customer site, so a masked IPv6 address is less private than a masked IPv4 address (a 6to4 address `2002::/16` has the last octet
+    of its embedded IPv4 address masked too). The address is `Request::getClientIp()`, which follows `framework.trusted_proxies`:
     configure it behind a proxy, and know that Fuzzphony never reads `X-Forwarded-For` itself, so a visitor cannot invent an
     address by sending the header. A per-user history with an address says where a person searched from: keep both short and
     narrow.

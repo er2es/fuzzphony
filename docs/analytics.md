@@ -115,11 +115,14 @@ A different redactor is any class implementing `Fuzzphony\Core\Analytics\QueryRe
 | Mode | What is stored | Example |
 |---|---|---|
 | `off` (default) | nothing, even when the actor carries an address | |
-| `masked` | IPv4 with the last octet zeroed; IPv6 cut to its first 48 bits; an IPv4-mapped IPv6 address (`::ffff:203.0.113.45`) is masked as the IPv4 address it carries | `203.0.113.45` becomes `203.0.113.0`; `2001:db8:abcd:12::1` becomes `2001:db8:abcd::` |
-| `full` | the valid address, as given | `203.0.113.45` |
+| `masked` | IPv4 with the last octet zeroed; IPv6 cut to its first 48 bits; an IPv4-mapped IPv6 address (`::ffff:203.0.113.45`) is masked as the IPv4 address it carries, and so is the IPv4 address that a 6to4 address (`2002::/16`) embeds | `203.0.113.45` becomes `203.0.113.0`; `2001:db8:abcd:12::1` becomes `2001:db8:abcd::`; `2002:cb00:712d::1` becomes `2002:cb00:7100::` |
+| `full` | the valid address in its canonical form (so `2001:DB8::1` and `2001:0db8:0:0:0:0:0:1` are one value) | `203.0.113.45` |
 
 `masked` is the mode this documentation recommends: it keeps what is useful for "the same office keeps searching for
-this" and for spotting abuse, and drops the host part. In **both** modes anything that is not a valid IP address
+this" and for spotting abuse, and drops the host part. It is **not anonymous**, and IPv6 is the weaker case: a `/24` of IPv4
+is shared by up to 254 other addresses, but a `/48` of IPv6 is what an internet provider usually hands to **one customer
+site**, so a masked IPv6 address often still points at one household or office. Treat masked IPv6 as less private than
+masked IPv4 (the `/48` rule is fixed; use `off` if that matters to you). In **both** modes anything that is not a valid IP address
 (a host name, `unknown`, an address with a port, a zone id such as `fe80::1%eth0`, an address list) is **not stored**
 (null): the column never holds free text. The masking is a pure function (`Fuzzphony\Core\Analytics\IpMode::apply()`),
 applied by the `SearchGate` **before** anything is stored, like the redactor: the full address is not kept in the

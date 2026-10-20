@@ -22,7 +22,9 @@ changes; they are always listed under **Breaking** and explained in [UPGRADE.md]
 - **The client IP in the search log (opt-in).** `fuzzphony.search_log.ip: off|masked|full` (default `off`: nothing is stored, even
   when the actor carries an address). `masked` zeroes the last octet of an IPv4 address and keeps the first 48 bits of an IPv6
   address (an IPv4-mapped IPv6 address is masked as IPv4); `full` keeps the valid address; anything that is not a valid IP
-  address is never stored. The Core stays HTTP-agnostic: `Actor` has a new optional trailing `?string $ip = null` (nothing
+  address is never stored (`full` keeps the canonical form of the address, so two spellings of one IPv6 address are one value; a 6to4
+  address, `2002::/16`, has the last octet of its embedded IPv4 address masked as well, because the plain /48 would keep all of it;
+  an IPv6 /48 usually identifies one customer site, so masked IPv6 is less private than masked IPv4). The Core stays HTTP-agnostic: `Actor` has a new optional trailing `?string $ip = null` (nothing
   changes for existing calls), `SearchRecord` has `?string $ip = null`, and `SearchGate` takes an `IpMode` (new public enum, the
   masking is `IpMode::apply()`) and applies it before anything is stored. The Symfony bundle fills the address from
   `Request::getClientIp()` (so `framework.trusted_proxies` applies; `X-Forwarded-For` is never read directly) for the actor

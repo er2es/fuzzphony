@@ -16,7 +16,7 @@ use Fuzzphony\Core\Search\SearchResult;
 use Fuzzphony\Tests\Fixtures\Indexes;
 use PHPUnit\Framework\TestCase;
 
-/** The client IP of an actor reaches the search log only as the mode allows: masked, as given, or not at all. */
+/** The client IP of an actor reaches the search log only as the mode allows: masked, canonical, or not at all. */
 final class SearchGateIpTest extends TestCase
 {
     private function builder(RecordingSearchLog $log, ?IpMode $mode, bool $tenant = false): SearchBuilder
