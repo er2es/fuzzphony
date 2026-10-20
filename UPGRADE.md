@@ -3,7 +3,7 @@
 Before 1.0, a minor version may contain breaking changes. Each section lists what to change,
 and the [CHANGELOG](CHANGELOG.md) has the full list of changes.
 
-## From 0.9.4 to the next release
+## From 0.9.4 to 0.9.5
 
 1. **Symfony 8.0 is no longer supported** (the `symfony/*` constraints are now `^7.4 || ^8.1`). Symfony 8.0 is not a
    long-term release and no longer receives fixes: every 8.0.x is affected by four `symfony/yaml` denial-of-service
