@@ -1008,6 +1008,11 @@ final class PostgresEngine implements Engine, Vocabulary, SynonymStems, Suggesti
      */
     private function run(array $statement, ?float $similarityThreshold): array
     {
+        if ($similarityThreshold === null) {
+            // nothing to set, so nothing to scope to a transaction: a single SELECT needs no BEGIN and COMMIT (two round trips)
+            return $this->guard('search', fn(): array => $this->connection->fetchAll($statement['sql'], $statement['params']), 'Run "bin/console fuzzphony:doctor" to check the index.');
+        }
+
         // Computed before transactional() opens (or joins) a transaction, so it reflects whether
         // the *caller* already had one open — not the one this call is about to start itself.
         $restore = !($this->connection instanceof TransactionAware) || $this->connection->inTransaction();
