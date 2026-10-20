@@ -13,6 +13,11 @@ framework:
             limit: 5
             interval: '10 seconds'
             cache_pool: app.rate_limit_cache
+    # No trusted_proxies on purpose: nginx talks FastCGI to php-fpm and sets REMOTE_ADDR to the client's address, so
+    # Request::getClientIp() (what search_log.ip stores, masked) is right as it is. A trusted_proxies list that holds the private
+    # ranges would be harmful here: Docker Desktop's gateway (the client's address) is private, so a forged X-Forwarded-For
+    # header would be believed. Put another reverse proxy in front of nginx and the address is that proxy's: then
+    # list that proxy only (framework.trusted_proxies, and trusted_headers), or log the real address in nginx (realip module).
     php_errors:
         log: true
     asset_mapper:

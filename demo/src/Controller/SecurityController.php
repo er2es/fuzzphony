@@ -66,30 +66,6 @@ final class SecurityController extends AbstractController
         }
         $wasReset = $request->hasPreviousSession() && $request->hasSession() ? $request->getSession()->getFlashBag()->get('reset') !== [] : false;
 
-        $result = $explanation = $outcome = null;
-        $rows = [];
-        if ($q !== '') {
-            try {
-                // One explain() is the search and its SQL together, and charges the rate limit once.
-                $explanation = $fuzzphony->in(self::INDEX)
-                    ->asActor($actors->resolve())
-                    ->query($q)
-                    ->highlight('title', 'body', 'confidential')
-                    ->limit(20)
-                    ->explain();
-                $result = $explanation->result;
-                $rows = $this->rows($connection, array_map(static fn($hit) => $hit->id, $result->hits));
-            } catch (AccessDenied $e) {
-                $outcome = ['kind' => 'denied', 'class' => 'AccessDenied', 'message' => $e->getMessage()];
-            } catch (RateLimited $e) {
-                $outcome = ['kind' => 'limited', 'class' => 'RateLimited', 'message' => $e->getMessage(), 'retryAfter' => $e->retryAfter];
-            } catch (ActorRequired $e) {
-                $outcome = ['kind' => 'actor', 'class' => 'ActorRequired', 'message' => $e->getMessage()];
-            } catch (FuzzphonyException $e) {
-                $outcome = ['kind' => 'error', 'class' => (new \ReflectionClass($e))->getShortName(), 'message' => $e->getMessage()];
-            }
-        }
-
         // The facts of this viewer, computed from the same checks the guards make.
         $definition = $fuzzphony->registry()->get(self::INDEX);
         $allowed = $forbidden = [];
@@ -102,6 +78,42 @@ final class SecurityController extends AbstractController
                 }
             }
         }
+
+        $result = $explanation = $outcome = null;
+        $rows = [];
+        if ($q !== '') {
+            try {
+                // The search itself: the guards run, the rate limit is charged once, and the search log gets one row
+                // (the viewer as the user, the company as the tenant, the masked client IP; a refusal is a `denied` or
+                // `rate_limited` row). explain() would run the same search but records no row for an answered one.
+                $actor = $actors->resolve();
+                $result = $fuzzphony->in(self::INDEX)
+                    ->asActor($actor)
+                    ->query($q)
+                    ->highlight('title', 'body', 'confidential')
+                    ->limit(20)
+                    ->get();
+                // Its SQL, from a search that is not an actor search: no guard runs (nothing is charged twice) and nothing is
+                // logged (the typed text would be a second row), so it is given what the guards decided: the company and the fields.
+                $explanation = $fuzzphony->in(self::INDEX)
+                    ->forTenant($actor->tenant)
+                    ->restrictedToFields(...$allowed)
+                    ->query($q)
+                    ->highlight('title', 'body', 'confidential')
+                    ->limit(20)
+                    ->explain();
+                $rows = $this->rows($connection, array_map(static fn($hit) => $hit->id, $result->hits));
+            } catch (AccessDenied $e) {
+                $outcome = ['kind' => 'denied', 'class' => 'AccessDenied', 'message' => $e->getMessage()];
+            } catch (RateLimited $e) {
+                $outcome = ['kind' => 'limited', 'class' => 'RateLimited', 'message' => $e->getMessage(), 'retryAfter' => $e->retryAfter];
+            } catch (ActorRequired $e) {
+                $outcome = ['kind' => 'actor', 'class' => 'ActorRequired', 'message' => $e->getMessage()];
+            } catch (FuzzphonyException $e) {
+                $outcome = ['kind' => 'error', 'class' => (new \ReflectionClass($e))->getShortName(), 'message' => $e->getMessage()];
+            }
+        }
+
         $used = null;
         if ($viewer !== null) {
             $used = self::LIMIT - $limiter->create($viewer->getUserIdentifier())->consume(0)->getRemainingTokens();

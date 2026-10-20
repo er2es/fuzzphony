@@ -306,6 +306,57 @@ await sec.click('.callout.is-ok .button >> text=Search again');
 await sec.waitForSelector('.hit-row');
 check('security: after the window a search is answered again', (await sec.locator('.hit-row').count()) > 0 && (await sec.locator('.callout.is-warn').count()) === 0);
 await go(sec, viewing('', 'ada', '&reset=1')); // leave Ada's count at zero for whoever looks next
+
+// 12. who searched what: the Security page's searches are in the search log with the viewer as the user (an answered one once, a refusal as a
+// `denied` row), and the Analytics page lists them newest first with the masked client address. The words are unique to this run (the log is shared).
+const whoQuery = (word, as) => viewing(word, as);
+const adaWord = `adaq${suffix}`;
+const anonWord = `anonq${suffix}`;
+const eveWord = `eveq${suffix}`;
+await go(sec, viewing('', 'ada', '&reset=1'));
+await go(sec, whoQuery(adaWord, 'ada'));
+await go(sec, whoQuery(anonWord, 'anonymous'));
+await go(sec, whoQuery(eveWord, 'eve'));
+const listSection = page.locator('section[aria-labelledby=who]');
+const listRows = async (qs) => {
+    await go(page, `${BASE}/under-the-hood/analytics${qs}`);
+    const rows = [];
+    for (const tr of await listSection.locator('tbody tr').all()) {
+        rows.push((await tr.locator('td').allTextContents()).map((t) => t.trim().replace(/\s+/g, ' ')));
+    }
+    return rows; // when, who, tenant, index, query, hits, status, ip
+};
+const rowOf = (rows, word) => rows.filter((r) => r[4] === word);
+let allRows = [];
+for (let attempt = 0; attempt < 8; attempt++) {
+    allRows = await listRows('');
+    if ([adaWord, anonWord, eveWord].every((w) => rowOf(allRows, w).length > 0)) break;
+    await page.waitForTimeout(500);
+}
+const adaRow = rowOf(allRows, adaWord)[0] ?? [];
+const anonRow = rowOf(allRows, anonWord)[0] ?? [];
+const eveRow = rowOf(allRows, eveWord)[0] ?? [];
+check('who: a search of the Security page as Ada is listed with her name, her company, the intranet and "answered"', adaRow[1] === 'Ada' && adaRow[2] === 'Acme' && adaRow[3] === 'intranet' && adaRow[6] === 'answered', adaRow.join(' | '));
+check('who: the anonymous refusal is a denied row without a user', anonRow[1] === 'anonymous' && anonRow[6] === 'denied', anonRow.join(' | '));
+check('who: the refusal of Eve is a denied row with her name', eveRow[1] === 'Eve (guest)' && eveRow[6] === 'denied', eveRow.join(' | '));
+check('who: the typed text of an answered search is listed once, not twice', rowOf(allRows, adaWord).length === 1, String(rowOf(allRows, adaWord).length));
+const masked = (ip) => /^\d{1,3}\.\d{1,3}\.\d{1,3}\.0$/.test(ip ?? '') || /^[0-9a-f:]+::$/i.test(ip ?? '');
+check('who: the client address is masked (IPv4 ends in .0, IPv6 keeps 48 bits)', masked(adaRow[7]) && masked(anonRow[7]), `${adaRow[7]} / ${anonRow[7]}`);
+check('who: the newest search is first', allRows.length > 1 && allRows.every((r, i) => i === 0 || allRows[i - 1][0] >= r[0]), allRows.map((r) => r[0]).join(', '));
+const adaOnly = await listRows('?who=ada');
+check('who: the filter for one viewer shows only that viewer, and her search is there', adaOnly.length > 0 && adaOnly.every((r) => r[1] === 'Ada') && rowOf(adaOnly, adaWord).length === 1, adaOnly.map((r) => r[1]).join(', '));
+const anonOnly = await listRows('?who=anonymous');
+check('who: the filter for anonymous shows only searches without a user (the home page and the refused ones)', anonOnly.length > 0 && anonOnly.every((r) => r[1] === 'anonymous') && rowOf(anonOnly, anonWord).length === 1 && anonOnly.some((r) => r[3] === 'catalog'), anonOnly.map((r) => `${r[1]}/${r[3]}`).join(', '));
+const deniedOnly = await listRows('?status=denied');
+check('who: the filter for denied shows the refusals only', deniedOnly.length > 0 && deniedOnly.every((r) => r[6] === 'denied') && rowOf(deniedOnly, eveWord).length === 1 && rowOf(deniedOnly, adaWord).length === 0, deniedOnly.map((r) => r[6]).join(', '));
+const intranetOnly = await listRows('?index=intranet');
+check('who: the filter for the intranet shows its searches only', intranetOnly.length > 0 && intranetOnly.every((r) => r[3] === 'intranet'), intranetOnly.map((r) => r[3]).join(', '));
+check('who: the page says it is personal data, with the retention and the masking', /personal data/i.test(await listSection.innerText()) && /retention_days: 30/.test(await listSection.innerText()) && /ip: masked/.test(await listSection.innerText()));
+await go(page, `${BASE}/under-the-hood/analytics?who=bob`);
+check('who: the chosen filter is marked for assistive technology and a link is reachable with the keyboard', (await listSection.locator('nav[aria-label=Who] a[aria-current=true]').innerText()) === 'Bob' && (await listSection.locator('nav[aria-label=Who] a').first().evaluate((a) => a.tabIndex >= 0)));
+await go(page, BASE + '/under-the-hood/observability');
+check('the observability page points to who searched what', (await page.locator('a[href$="/under-the-hood/analytics#who"]').count()) === 1);
+
 await secContext.close();
 
 await browser.close();
