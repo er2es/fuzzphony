@@ -13,6 +13,7 @@ use Fuzzphony\Core\Definition\Synonyms;
 use Fuzzphony\Core\Engine\Capabilities;
 use Fuzzphony\Core\Engine\Capability;
 use Fuzzphony\Core\Engine\Engine;
+use Fuzzphony\Core\Engine\RecentSearchStore;
 use Fuzzphony\Core\Engine\SearchLogStore;
 use Fuzzphony\Core\Engine\Suggestions;
 use Fuzzphony\Core\Engine\SynonymStems;
@@ -60,7 +61,7 @@ use Fuzzphony\Engine\Postgres\Sql\SearchSqlBuilder;
 use Fuzzphony\Engine\Postgres\Sql\Sql;
 use Fuzzphony\Engine\Postgres\Sql\TsQueryCompiler;
 
-final class PostgresEngine implements Engine, Vocabulary, SynonymStems, Suggestions, SearchLogStore
+final class PostgresEngine implements Engine, Vocabulary, SynonymStems, Suggestions, SearchLogStore, RecentSearchStore
 {
     private const PROBE_LABEL = 'relaxation probe';
     private const SUGGEST_LABEL = 'did you mean';
