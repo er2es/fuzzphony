@@ -550,17 +550,37 @@ final class PostgresEngine implements Engine, Vocabulary, SynonymStems, Suggesti
             $capped = false;
         }
         $facets = [];
+        // disjunctive: the conditions on a facet's own filter are left out, so it shows what another value would find (the tenant's stay)
+        $others = [];
         foreach ($query->facets as $name) {
-            // disjunctive: the conditions on the facet's own filter are left out, so it shows what another value would find (the tenant's stay)
-            $others = array_values(array_filter($conditions, static fn(Condition $c): bool => $c->filter !== $name || $c->filter === $index->tenant));
-            // the probed candidates passed every condition: a facet that leaves one out keeps the words' trigram condition
-            $facetBuilder = $others === $conditions ? $builder : new SearchSqlBuilder($index, $this->names, [], $query->allowedFields);
-            $statement = ['label' => self::FACET_LABEL . $name] + ($run['ranked'] === null
-                ? $facetBuilder->browseFacet($name, $others, $thresholds, $query->facetValues, $query->exactCounts)
-                : $facetBuilder->facet($name, $run['ranked']['tsquery'], $run['ranked']['plain'], $run['ranked']['fuzzyRoot'], $others, $profile, $thresholds, $query->facetValues, $query->exactCounts, $run['ranked']['emptyQueries'], $run['ranked']['scopedRoot']));
-            $type = $index->filter($name)->type;
-            $facets[$name] = array_map(static fn(array $row): FacetValue => new FacetValue(self::facetValue($type, $row['value'] ?? null), Coerce::int($row['n'])), $this->run($statement, $threshold));
+            $others[$name] = array_values(array_filter($conditions, static fn(Condition $c): bool => $c->filter !== $name || $c->filter === $index->tenant));
+        }
+        // the facets that keep every condition count the very candidates of the search: two or more of them share one statement
+        $common = array_values(array_unique(array_filter($query->facets, static fn(string $name): bool => $others[$name] === $conditions)));
+        $facetRows = [];
+        if (count($common) > 1) {
+            $statement = ['label' => self::FACET_LABEL . implode(', ', $common)] + ($run['ranked'] === null
+                ? $builder->browseFacets($common, $conditions, $thresholds, $query->facetValues, $query->exactCounts)
+                : $builder->facets($common, $run['ranked']['tsquery'], $run['ranked']['plain'], $run['ranked']['fuzzyRoot'], $conditions, $profile, $thresholds, $query->facetValues, $query->exactCounts, $run['ranked']['emptyQueries'], $run['ranked']['scopedRoot']));
+            $facetRows = array_fill_keys($common, []);
+            foreach ($this->run($statement, $threshold) as $row) {
+                $facetRows[$common[Coerce::int($row['f'])]][] = $row;
+            }
             $statements[] = $statement;
+        }
+        foreach ($query->facets as $name) {
+            if (!isset($facetRows[$name])) {
+                // the conditions differ from the search's: the facet needs its own candidates
+                // the probed candidates passed every condition: a facet that leaves one out keeps the words' trigram condition
+                $facetBuilder = $others[$name] === $conditions ? $builder : new SearchSqlBuilder($index, $this->names, [], $query->allowedFields);
+                $statement = ['label' => self::FACET_LABEL . $name] + ($run['ranked'] === null
+                    ? $facetBuilder->browseFacet($name, $others[$name], $thresholds, $query->facetValues, $query->exactCounts)
+                    : $facetBuilder->facet($name, $run['ranked']['tsquery'], $run['ranked']['plain'], $run['ranked']['fuzzyRoot'], $others[$name], $profile, $thresholds, $query->facetValues, $query->exactCounts, $run['ranked']['emptyQueries'], $run['ranked']['scopedRoot']));
+                $facetRows[$name] = $this->run($statement, $threshold);
+                $statements[] = $statement;
+            }
+            $type = $index->filter($name)->type;
+            $facets[$name] = array_map(static fn(array $row): FacetValue => new FacetValue(self::facetValue($type, $row['value'] ?? null), Coerce::int($row['n'])), $facetRows[$name]);
         }
         $rows = self::hitsOnly($rows);
         $suggestion = null;

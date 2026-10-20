@@ -399,8 +399,10 @@ foreach ($result->facets['category_id'] as $facet) {   // FacetValue: ->value, -
   still the ranked candidates). It is deliberately a method of its own, not a threshold: **never wire it to
   request input**, as an override of `candidate_limit` can only tighten the limit. It costs nothing when
   the candidates were not cut off (the total is exact already).
-- Every facet is one more statement (listed by `explain()`, labelled `facet: category_id`), with its own
-  candidate stage: three facets cost roughly four searches. A search without text (filter browsing) is
+- The facets without a condition on their own filter share one statement (listed by `explain()` as
+  `facet: category_id, in_stock`) that evaluates the search's candidates once, however many facets there
+  are. A facet that leaves a condition out (see above) counts other candidates: it is one more statement
+  (`facet: category_id`) with its own candidate stage. A search without text (filter browsing) is
   counted too. With empty-result relaxation the facets follow the relaxed search.
 - `fuzzphony:search products mouse -f category_id -f in_stock [--exact]` prints them.
 
