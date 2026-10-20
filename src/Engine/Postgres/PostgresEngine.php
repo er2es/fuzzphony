@@ -110,6 +110,23 @@ final class PostgresEngine implements Engine, Vocabulary, SynonymStems, Suggesti
         $this->rebuild = new ShadowRebuild($connection, $this->schema);
     }
 
+    /**
+     * Forgets what this engine remembered for the life of the process: which words the text search configuration reduces
+     * to nothing (stop words), the stems of the words of the synonyms, the expanders built from them and the synonyms'
+     * digests. They hold as long as the text search configuration does not change, which a long-lived process cannot
+     * know: the Symfony bundle calls this on kernel.reset (between two messages or requests of a worker or a server), so
+     * the next search asks PostgreSQL again. The Core knows nothing of Symfony; any host can call it.
+     *
+     * @internal
+     */
+    public function resetCaches(): void
+    {
+        $this->expanders = [];
+        $this->stems = [];
+        $this->emptyAnswers = [];
+        $this->synonymDigests = null;
+    }
+
     public function name(): string
     {
         return 'postgresql';

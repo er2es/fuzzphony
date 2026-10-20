@@ -167,6 +167,13 @@ final class FuzzphonyBundleTest extends TestCase
         self::assertTrue($this->buildContainer(withOrm: true, registryCacheInCli: true)->getDefinition('fuzzphony.registry')->getArgument(3), 'the seam of the real-kernel test');
     }
 
+    public function testTheEngineIsResetOnKernelReset(): void
+    {
+        $engine = $this->buildContainer(withOrm: false)->getDefinition('fuzzphony.engine');
+
+        self::assertSame([['method' => 'resetCaches']], $engine->getTag('kernel.reset'), 'a worker or a long-running server forgets the per-process caches between messages and requests');
+    }
+
     public function testAsyncOrmSyncWiresTheMessengerDispatcher(): void
     {
         $container = $this->buildContainer(withOrm: false, config: ['orm_sync' => ['async' => true]]);
