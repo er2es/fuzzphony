@@ -9,6 +9,10 @@ changes; they are always listed under **Breaking** and explained in [UPGRADE.md]
 
 ### Added
 
+- **Guide: [Migrating from `LIKE`](docs/migrating-from-like.md).** Step by step from `WHERE name ILIKE '%x%'` to Fuzzphony
+  (index, build, query, entities in rank order, pagination, sync, tests), a table that maps `LIKE` patterns to the query syntax
+  (and says what is not supported), and a rollout plan (shadow search, feature flag, measuring, rollback). Every PHP and YAML snippet
+  and every query of the table is run by `tests/Integration/Docs/LikeGuideTest.php`, which fails when the guide shows other code.
 - **Who searched what.** `SearchAnalytics::recentSearches()` lists the most recent logged searches of an index in a time window,
   newest first, as `LoggedSearch` objects (`at`, `index`, `tenant`, `user` with null for anonymous, `ip`, the stored (redacted)
   `query`, `hits`, `tookMs`, `usedFuzzy` and `status`). Filters: `user:` (exactly that name), `anonymousOnly:` and `status:`
