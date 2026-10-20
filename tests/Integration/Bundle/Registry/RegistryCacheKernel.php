@@ -81,6 +81,9 @@ final class RegistryCacheKernel extends Kernel
             'php_errors' => ['log' => false],
         ]);
 
+        // the bundle wires the ORM only when `orm:` is configured (the real DoctrineBundle's config tree is not loaded here: any array will do)
+        $container->extension('doctrine', ['orm' => ['auto_mapping' => true]]);
+
         $services = $container->services();
         $services->set('doctrine.dbal.default_connection', DbalConnection::class)->factory([DoctrineTestCase::class, 'dbalConnection']);
         $services->set('doctrine.orm.entity_manager', EntityManagerInterface::class)->factory([self::class, 'entityManager']);

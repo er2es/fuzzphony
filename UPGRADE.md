@@ -9,7 +9,7 @@ and the [CHANGELOG](CHANGELOG.md) has the full list of changes.
    long-term release and no longer receives fixes: every 8.0.x is affected by four `symfony/yaml` denial-of-service
    advisories (CVE-2026-45133, -45304, -45305, CVE-2026-109413), so Composer refuses to install it. Move to Symfony 8.1
    (`composer update "symfony/*" -W` after raising your constraints to `^8.1`) or stay on the 7.4 LTS. Nothing else changes.
-2. **With DoctrineBundle and Doctrine ORM, the ORM wiring is now really active** (a bug: the bundle never detected
+2. **With DoctrineBundle and `doctrine.orm` configured, the ORM wiring is now really active** (a bug: the bundle never detected
    DoctrineBundle in a running application, see the CHANGELOG). `#[Searchable]` entities are discovered
    (`discover_entities: false` turns that off), `EntityLoader` is a service and `sync: orm` indexes follow the
    entity manager. Nothing to do unless you had worked around the missing wiring: a hand-registered

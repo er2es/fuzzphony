@@ -94,7 +94,7 @@ final class FuzzphonyBundle extends AbstractBundle
 {
     protected string $extensionAlias = 'fuzzphony';
 
-    private const string DOCTRINE_PARAMETER = 'fuzzphony.doctrine_extension';
+    private const string DOCTRINE_PARAMETER = 'fuzzphony.doctrine_orm';
 
     /** AbstractBundle assumes the class lives one level below the package root; here it IS the root. */
     public function getPath(): string
@@ -182,7 +182,8 @@ final class FuzzphonyBundle extends AbstractBundle
             return;
         }
         // loadExtension() runs on a temporary builder that has no extensions registered, so it cannot ask hasExtension() itself.
-        $builder->setParameter(self::DOCTRINE_PARAMETER, true);
+        // It is told that the ORM is configured, not only DoctrineBundle: without `orm:` there is no entity manager service to wire to.
+        $builder->setParameter(self::DOCTRINE_PARAMETER, array_filter($builder->getExtensionConfig('doctrine'), static fn(mixed $doctrine): bool => is_array($doctrine) && isset($doctrine['orm'])) !== []);
         $connection = 'default';
         $schema = 'public';
         foreach ($builder->getExtensionConfig('fuzzphony') as $config) {

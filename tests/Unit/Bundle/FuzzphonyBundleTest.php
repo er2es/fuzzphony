@@ -341,12 +341,16 @@ final class FuzzphonyBundleTest extends TestCase
         self::assertFalse($container->hasParameter('fuzzphony.app_schema_filter'), 'and nothing for the doctor to check');
     }
 
-    public function testThePrependPhaseRemembersDoctrineForTheLoadPhase(): void
+    public function testThePrependPhaseRemembersTheOrmForTheLoadPhase(): void
     {
-        // loadExtension() runs on a temporary builder without extensions; only this parameter tells it that Doctrine is there
-        self::assertTrue($this->prepended([], null)->getParameter('fuzzphony.doctrine_extension'));
-        self::assertTrue($this->prepended(['connection' => '%env(DB)%'], null)->getParameter('fuzzphony.doctrine_extension'));
-        self::assertFalse($this->prepended([], null, withDoctrine: false)->hasParameter('fuzzphony.doctrine_extension'));
+        // loadExtension() runs on a temporary builder without extensions; only this parameter tells it that the ORM is configured
+        $orm = ['orm' => ['auto_mapping' => true]];
+        self::assertTrue($this->prepended([], $orm)->getParameter('fuzzphony.doctrine_orm'));
+        self::assertTrue($this->prepended(['connection' => '%env(DB)%'], $orm)->getParameter('fuzzphony.doctrine_orm'));
+        // DoctrineBundle without `orm:` has no entity manager service to wire to
+        self::assertFalse($this->prepended([], null)->getParameter('fuzzphony.doctrine_orm'));
+        self::assertFalse($this->prepended([], ['dbal' => ['url' => 'x']])->getParameter('fuzzphony.doctrine_orm'));
+        self::assertFalse($this->prepended([], null, withDoctrine: false)->hasParameter('fuzzphony.doctrine_orm'));
     }
 
     public function testWithoutDoctrineNothingIsPrepended(): void
