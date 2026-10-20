@@ -30,7 +30,10 @@ changes; they are always listed under **Breaking** and explained in [UPGRADE.md]
   `Request::getClientIp()` (so `framework.trusted_proxies` applies; `X-Forwarded-For` is never read directly) for the actor
   the configured resolver returns, only when the mode is not `off`. The table gets a nullable column `actor_ip`: existing installs
   add it with `fuzzphony:schema --apply` (`ADD COLUMN IF NOT EXISTS`); an install that does not use the IP does not need it (the
-  `INSERT` names the column only when a record has an address, and the report reads it only if the table has it). The retention
+  `INSERT` names the column only when a record has an address, and the report reads it only if the table has it and the role may
+  read it). Turning `ip` on before applying the schema loses nothing but the addresses: the write that finds no column is repeated
+  once without it (metric `fuzzphony.search_log.ip_dropped`), and the doctor's "Search log" check is an error while `ip` is on and
+  the column is missing. The retention
   purge deletes whole rows, so it covers the IP. See [The client IP](docs/analytics.md#the-client-ip).
 
 ## [0.9.5] - 2026-10-20

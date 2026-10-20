@@ -68,8 +68,8 @@ idempotent):
 bin/console fuzzphony:schema --apply
 ```
 
-`fuzzphony:doctor` has a "Search log" check: an **error** when the table is missing (fixed by the command
-above), a warning when it holds rows older than the retention (fixed by the purge command below), otherwise it
+`fuzzphony:doctor` has a "Search log" check: an **error** when the table is missing, or when [`ip`](#the-client-ip) is on and the
+`actor_ip` column is not (both fixed by the command above), a warning when it holds rows older than the retention (fixed by the purge command below), otherwise it
 reports that the table exists (it never counts the rows: the table can be big). A role that only searches needs
 `INSERT` on the table and nothing else (the `id` is an identity column, which needs no privilege on its hidden
 sequence); the reports need `SELECT`, the purge `DELETE`. See [Fuzzphony's schema](configuration.md#fuzzphonys-schema) for the
@@ -145,9 +145,11 @@ bin/console fuzzphony:schema --apply
 A deployment that never enables the IP does not need the column: the `INSERT` names `actor_ip` only when at least one
 record of the batch has an address, and the report reads the column only if the table has it (the address of every row
 is then null). Turning `ip` on **without** applying the schema makes the batches that carry an address fail like any other
-log write, **the whole batch with the rows that have no address**: counted in `fuzzphony.search_log.failed` and logged
-with the hint to run `fuzzphony:schema --apply`; the searches themselves are not affected. Apply the schema before (or
-together with) the deploy that turns `ip` on. The role that applies the schema
+log write would: so the log keeps its rows. A write that finds no `actor_ip` column (SQLSTATE `42703`) is repeated **once**
+without it: the rows are kept, the addresses of that batch are dropped, and the metric `fuzzphony.search_log.ip_dropped` counts
+the dropped addresses (the metrics collector logs it like any event). `fuzzphony:doctor` reports an **error** in its "Search
+log" check while `ip` is on and the column is missing, so run `fuzzphony:schema --apply` before (or together with) the
+deploy that turns `ip` on; the searches themselves are never affected. The role that applies the schema
 must own the table (it is an `ALTER TABLE`). The [retention purge](#retention) deletes whole rows, so it covers the IP.
 
 **Where the address comes from.** The Core knows nothing of HTTP: the address belongs to the

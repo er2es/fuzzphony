@@ -22,12 +22,18 @@ final readonly class SearchLogRepository
     private const string TIMESTAMP = 'Y-m-d H:i:s.uP';
     private const int CHUNK = 1000;
 
-    public function __construct(private Connection $connection, private Names $names) {}
+    /** SQLSTATE of "undefined column": the table has no actor_ip yet. */
+    private const string UNDEFINED_COLUMN = '42703';
+
+    /** @param (\Closure(int): void)|null $onIpDropped told how many addresses a write dropped because the table has no actor_ip column */
+    public function __construct(private Connection $connection, private Names $names, private ?\Closure $onIpDropped = null) {}
 
     /**
      * @param list<SearchRecord> $records
      *
-     * @return int the number of rows inserted (no statement runs for an empty list)
+     * @return int the number of rows inserted (no statement runs for an empty list). A table without the actor_ip column
+     *             (an install that has not applied the schema since it turned the IP on) keeps its rows: the batch is
+     *             written once more without the column, and the addresses are dropped (onIpDropped is told how many).
      */
     public function write(array $records): int
     {
@@ -36,10 +42,33 @@ final readonly class SearchLogRepository
         $withIp = array_any($records, static fn(SearchRecord $r): bool => $r->ip !== null);
         // at most 11 bind parameters a row: PostgreSQL allows 65,535 a statement, so at most 1,000 rows each
         foreach (array_chunk(array_values($records), self::CHUNK) as $chunk) {
-            $written += $this->insert($chunk, $withIp);
+            try {
+                $written += $this->insert($chunk, $withIp);
+            } catch (\Throwable $e) {
+                if (!$withIp || !self::undefinedIpColumn($e)) {
+                    throw $e;
+                }
+                // once: the rest of the batch goes without the column too
+                $withIp = false;
+                $written += $this->insert($chunk, false);
+                $this->onIpDropped?->__invoke(count(array_filter($records, static fn(SearchRecord $r): bool => $r->ip !== null)));
+            }
         }
 
         return $written;
+    }
+
+    /** SQLSTATE 42703 for actor_ip, from PDO (the code) or DBAL (getSQLState()), anywhere in the chain. */
+    private static function undefinedIpColumn(\Throwable $e): bool
+    {
+        for ($cause = $e; $cause !== null; $cause = $cause->getPrevious()) {
+            $state = $cause instanceof \PDOException ? $cause->getCode() : (method_exists($cause, 'getSQLState') ? $cause->getSQLState() : null);
+            if ($state === self::UNDEFINED_COLUMN && str_contains($cause->getMessage(), 'actor_ip')) {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     /** @param list<SearchRecord> $records */
@@ -168,11 +197,15 @@ final readonly class SearchLogRepository
         ), $rows);
     }
 
-    /** An install that never enabled the client IP has no actor_ip column (it comes with fuzzphony:schema --apply): one catalog lookup tells. */
+    /**
+     * An install that never enabled the client IP has no actor_ip column (it comes with fuzzphony:schema --apply): one
+     * catalog lookup tells. A role that may not read the column (column-level grants) counts as "no column": its report
+     * shows no addresses instead of failing.
+     */
     private function hasIpColumn(): bool
     {
         return $this->connection->fetchValue(
-            "SELECT EXISTS (SELECT 1 FROM pg_attribute WHERE attrelid = to_regclass(:log) AND attname = 'actor_ip' AND NOT attisdropped)",
+            "SELECT EXISTS (SELECT 1 FROM pg_attribute WHERE attrelid = to_regclass(:log) AND attname = 'actor_ip' AND NOT attisdropped AND has_column_privilege(attrelid, attname, 'SELECT'))",
             ['log' => $this->names->searchLog()],
         ) === true;
     }
