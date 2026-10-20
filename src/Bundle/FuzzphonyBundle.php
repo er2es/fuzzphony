@@ -94,6 +94,8 @@ final class FuzzphonyBundle extends AbstractBundle
 {
     protected string $extensionAlias = 'fuzzphony';
 
+    private const string DOCTRINE_PARAMETER = 'fuzzphony.doctrine_extension';
+
     /** AbstractBundle assumes the class lives one level below the package root; here it IS the root. */
     public function getPath(): string
     {
@@ -179,6 +181,8 @@ final class FuzzphonyBundle extends AbstractBundle
         if (!$builder->hasExtension('doctrine')) {
             return;
         }
+        // loadExtension() runs on a temporary builder that has no extensions registered, so it cannot ask hasExtension() itself.
+        $builder->setParameter(self::DOCTRINE_PARAMETER, true);
         $connection = 'default';
         $schema = 'public';
         foreach ($builder->getExtensionConfig('fuzzphony') as $config) {
@@ -232,7 +236,10 @@ final class FuzzphonyBundle extends AbstractBundle
     public function loadExtension(array $config, ContainerConfigurator $container, ContainerBuilder $builder): void
     {
         $services = $container->services()->defaults()->autowire(false)->autoconfigure(false);
-        $hasOrm = interface_exists(EntityManagerInterface::class) && $builder->hasExtension('doctrine');
+        // In a real kernel $builder is a temporary builder without extensions: hasExtension() is always false there, so the
+        // answer comes from the parameter prependExtension() set on the real one (hasExtension() still serves a direct load()).
+        $hasOrm = interface_exists(EntityManagerInterface::class)
+            && ($builder->hasExtension('doctrine') || ($builder->hasParameter(self::DOCTRINE_PARAMETER) && $builder->getParameter(self::DOCTRINE_PARAMETER) === true));
 
         // configure()'s tree guarantees these shapes/types; narrowed here because AbstractBundle
         // declares $config as plain array (a stricter @param on the override would violate LSP).
