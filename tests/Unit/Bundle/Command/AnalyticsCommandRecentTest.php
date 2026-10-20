@@ -155,6 +155,7 @@ final class AnalyticsCommandRecentTest extends TestCase
 
         $rows = json_decode($tester->getDisplay(true), true, flags: JSON_THROW_ON_ERROR);
         self::assertIsArray($rows);
+        self::assertIsArray($rows[0]);
         self::assertSame("a\nb\e[31m", $rows[0]['query']);
     }
 
