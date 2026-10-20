@@ -79,6 +79,8 @@ final class PostgresEngine implements Engine, Vocabulary, SynonymStems, Suggesti
     private array $expanders = [];
     /** @var array<string, array<string, string>> text configuration => lowercase word => stem */
     private array $stems = [];
+    /** @var \WeakMap<Synonyms, string>|null the content digest of each Synonyms object (immutable), made once; see expandSynonyms() */
+    private ?\WeakMap $synonymDigests = null;
 
     /**
      * @param string $extensionSchema schema of the pg_trgm and unaccent extensions
@@ -777,7 +779,11 @@ final class PostgresEngine implements Engine, Vocabulary, SynonymStems, Suggesti
             return $root;
         }
         $config = $this->names->regconfig($index->text);
-        $key = $index->name . '|' . $config . '|' . md5(serialize($index->synonyms->toEntries()));
+        // the key follows the content of the synonyms (an equal list given again shares the expander); the digest of a long list
+        // costs about a millisecond, so it is made once per (immutable) Synonyms object, not on every search
+        $this->synonymDigests ??= new \WeakMap();
+        $digest = $this->synonymDigests[$index->synonyms] ??= md5(serialize($index->synonyms->toEntries()));
+        $key = $index->name . '|' . $config . '|' . $digest;
         if (count($this->stems[$config] ?? []) > self::STEM_CACHE) {
             $this->stems[$config] = [];
         }
