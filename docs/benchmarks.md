@@ -42,6 +42,35 @@ against the similarity of its own length; on 200 000 rows (`wireles mouse`, `hed
 indexes and the statements run within roughly 0.9 to 1.4 times the time of a flat `fuzzy_similarity`.
 Re-run `benchmarks/run.php` on your own data to compare.
 
+## Round trips
+
+A search is mostly waiting on the network when the database is not on the same machine, so the number of
+statements it sends matters as much as the time PostgreSQL spends on them. Measured on a 100 000-row catalogue,
+PostgreSQL 17, a local container (latency about 0), through `PdoConnection`:
+
+| case | before 0.9.5 | now |
+|---|---:|---:|
+| plain word (`wireless`) | 5 | 1 |
+| two words | 5 | 1 |
+| plain word with highlight | 8 | 2 |
+| plain word with 2 facets | 15 | 3 |
+| plain word, 2 facets and an active filter | 15 | 3 |
+| typo, fallback (`hedphones`) | 35 | 14 |
+| typo, 2 words (`wireles mose`) | 43 | 18 |
+| no hit, did-you-mean (`zzqxy`) | 35 | 14 |
+
+Before, PDO prepared every statement on the server (Parse, Bind/Execute, `DEALLOCATE`) and every search ran inside
+a `BEGIN` / `COMMIT`. A typo-tolerant search still sets its similarity threshold per word inside a transaction, which
+is most of what is left. Multiply the difference by your network latency to know what it saves: on a local database
+the time per search was a little lower in every run we made (a plain word 11.6 to 8.5 ms, `wireles mose` 85.8 to
+74.7 ms on one laptop; single runs of 5 repetitions, so treat them as indications, not as a promise). On a database
+1 ms away the saved round trips alone are 4 ms for a plain word and 12 ms for the word with two facets.
+
+Count them yourself on a disposable database: `ALTER SYSTEM SET log_statement = 'all'; SELECT pg_reload_conf();`, run
+one search, and read the server log: each logged line is one `BEGIN`, `COMMIT`, `DEALLOCATE`, simple statement or
+`execute <unnamed>` / `execute pdo_stmt_...` (the last form is a prepared statement, and its Parse is not logged, so
+it is one more round trip). Reset with `ALTER SYSTEM SET log_statement = 'none'`.
+
 ## Reading the numbers
 
 The two columns do different work. `ILIKE … LIMIT 20` returns the first 20 rows the scan reaches,

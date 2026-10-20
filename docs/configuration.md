@@ -56,7 +56,11 @@ Filter and field names are always snake_case, even when the attribute is on a ca
 `Identifier::snake()`.
 
 The Symfony bundle registers every Doctrine entity with `#[Searchable]` (turn this off with
-`discover_entities: false`).
+`discover_entities: false`). Finding them means loading the metadata of every mapped entity, so with
+`kernel.debug` off (production) the discovered definitions are kept in the `cache.system` pool: a
+change to an attribute (or to a `synonyms_file` an attribute names) shows up after `cache:clear`,
+the same as a change to Doctrine's own metadata. In debug mode nothing is cached. YAML indexes are
+never cached.
 
 ## YAML
 
