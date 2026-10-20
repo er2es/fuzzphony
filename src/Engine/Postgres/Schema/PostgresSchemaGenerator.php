@@ -104,7 +104,12 @@ final class PostgresSchemaGenerator
 )",
                     $this->names->searchLog(),
                 ), 'Search log (opt-in)'),
-                new Statement(sprintf('ALTER TABLE %s ADD COLUMN IF NOT EXISTS actor_ip text', $this->names->searchLog()), 'Search log: the client IP (search_log.ip; stays empty when it is off, and an existing table gets the column here)'),
+                // only when the column is missing: ADD COLUMN IF NOT EXISTS takes an ACCESS EXCLUSIVE lock even when it exists, and every apply would queue behind the log's writers
+                new Statement(sprintf(
+                    'DO ' . self::TAG . ' BEGIN IF NOT EXISTS (SELECT 1 FROM pg_attribute WHERE attrelid = to_regclass(%s) AND attname = \'actor_ip\' AND NOT attisdropped) THEN ALTER TABLE %s ADD COLUMN actor_ip text; END IF; END ' . self::TAG,
+                    Sql::string($this->names->searchLog()),
+                    $this->names->searchLog(),
+                ), 'Search log: the client IP (search_log.ip; stays empty when it is off, and an existing table gets the column here)'),
                 new Statement(sprintf('CREATE INDEX IF NOT EXISTS %s ON %s (index_name, at)', $this->names->searchLogIndexName('index_at'), $this->names->searchLog()), 'Search log by index and time'),
                 new Statement(sprintf('CREATE INDEX IF NOT EXISTS %s ON %s (index_name, query_norm)', $this->names->searchLogIndexName('index_norm'), $this->names->searchLog()), 'Search log grouped by query'),
                 new Statement(sprintf('CREATE INDEX IF NOT EXISTS %s ON %s (at)', $this->names->searchLogIndexName('at'), $this->names->searchLog()), 'Search log by time alone (the purge and the doctor look at the oldest rows)'),

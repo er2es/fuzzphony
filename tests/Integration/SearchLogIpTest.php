@@ -69,6 +69,26 @@ final class SearchLogIpTest extends TestCase
         self::assertNull($found[0]->ip);
     }
 
+    /** An apply that finds the column takes no lock on the table: it does not queue behind (or block) the log's readers and writers. */
+    public function testApplyingAgainTakesNoLockOnTheTable(): void
+    {
+        $plan = (new PostgresEngine($this->connection, searchLog: true))->globalSchema();
+        $statement = array_values(array_filter($plan->statements, static fn(\Fuzzphony\Core\Schema\Statement $s): bool => str_contains($s->sql, 'actor_ip')))[0];
+        $other = PostgresTestCase::connect();
+        $this->connection->execute('BEGIN');
+        try {
+            $this->connection->execute('LOCK TABLE fuzzphony_search_log IN ACCESS SHARE MODE'); // a reader that is still busy
+            $other->execute('BEGIN');
+            $other->execute("SET LOCAL lock_timeout = '300ms'");
+            $other->execute($statement->sql); // would time out if it asked for ACCESS EXCLUSIVE
+            $other->execute('ROLLBACK');
+        } finally {
+            $this->connection->execute('ROLLBACK');
+        }
+
+        self::assertTrue($this->hasColumn());
+    }
+
     public function testAnAddressIsStoredAndReadBackAndNullsStayNull(): void
     {
         (new PostgresEngine($this->connection, searchLog: true))->writeSearchLog([

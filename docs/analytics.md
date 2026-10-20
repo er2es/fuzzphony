@@ -135,7 +135,8 @@ fuzzphony:
     ip: masked
 ```
 
-Then add the column, once (it is nullable; the plan uses `ADD COLUMN IF NOT EXISTS`, so it is safe to run again and it
+Then add the column, once (it is nullable; the plan runs the `ALTER TABLE ... ADD COLUMN` only when the column is missing, so it is safe to run again, takes no lock on
+the table when the column exists, and it
 works on a table that already exists):
 
 ```
