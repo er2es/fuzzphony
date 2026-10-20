@@ -40,6 +40,7 @@ changes; they are always listed under **Breaking** and explained in [UPGRADE.md]
 ### Changed
 
 - A synonym member that is one plain word of more than 256 characters is now cut at 256 characters, as any other member text already was (the plain-word fast path of `SynonymExpander` kept it whole, so the same word followed by a space was cut and the word alone was not). Both paths now give the same words; a test compares them.
+- [Known limitations](docs/limitations.md) reviewed line by line against the code and grouped by topic: the candidate limit keeps the first matches the index returns, not the best ones (a better match can be missing; the page said "approximate", and promised a fix that shipped in 0.8 as `exactCounts()`), a phrase across two allowed fields for a restricted viewer, `mose` ties with `monitor` and `mower` instead of ranking below the mice; new entries for stop words, whole-word matching, typo-tolerant highlights, unstable scores, query cuts, the registry cache in production, process caches, `explain()` as not a stable API, the search-log IP and per-person history, the rate limit by tenant or user, deny-by-default authorization and tenant isolation. Documentation only.
 
 ## [0.9.5] - 2026-10-20
 

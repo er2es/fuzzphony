@@ -279,9 +279,10 @@ Details in [docs/limitations.md](https://github.com/er2es/fuzzphony/blob/main/do
   tolerated; the similarity a word needs is proportional to its length, or flat if you set it.
 - [Attaching or detaching a partition is not followed](https://github.com/er2es/fuzzphony/blob/main/docs/limitations.md#attaching-or-detaching-a-partition-is-not-followed):
   PostgreSQL fires no trigger for it; run `fuzzphony:reindex` afterwards.
-- [Ranking is approximate beyond `candidate_limit`](https://github.com/er2es/fuzzphony/blob/main/docs/limitations.md#ranking-is-approximate-beyond-candidate_limit),
-  and `total` is then a lower bound. Fix planned: an opt-in exact `total`, part of
-  [facets](https://github.com/er2es/fuzzphony/blob/main/docs/roadmap.md#facets).
+- [Ranking is approximate beyond `candidate_limit`](https://github.com/er2es/fuzzphony/blob/main/docs/limitations.md#ranking-is-approximate-beyond-candidate_limit):
+  a very common word is ranked over the first `candidate_limit` matches the index returns, not the
+  best ones (a better match can be missing), and `total` is then a lower bound; `exactCounts()` makes
+  the total and the facet counts exact.
 
 ## Roadmap
 
