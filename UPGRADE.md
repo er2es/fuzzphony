@@ -23,7 +23,9 @@ and the [CHANGELOG](CHANGELOG.md) has the full list of changes.
    [SECURITY.md](SECURITY.md)) run `fuzzphony:schema --apply` once: it adds the nullable column `actor_ip` to
    `fuzzphony_search_log` (the role must own the table). Without the setting nothing is stored and the column is not needed;
    `SearchAnalytics::recentSearches()` and `fuzzphony:analytics --recent` work either way (the address is then null). If you
-   implement `Fuzzphony\Core\Engine\SearchLogStore` yourself, add the new `recentSearches()` method. If you call
+   implement `Fuzzphony\Core\Engine\SearchLogStore` yourself, nothing changes: `recentSearches()` needs the new, optional
+   `Fuzzphony\Core\Engine\RecentSearchStore` (implement it to offer the report; without it `recentSearches()` throws
+   `InvalidArgument` and the other reports keep working). If you call
    `new SearchRecord(...)` or `new SearchGate(...)` with positional arguments, nothing changes: the new `ip` and `ipMode`
    arguments are trailing and optional.
 

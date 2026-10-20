@@ -85,7 +85,9 @@ services:
   [Security](security.md#refusals-in-metrics-logs-and-the-search-log).
 - The search log (opt-in): `fuzzphony.search_log.failed` (a counter) counts the records that could not be
   recorded or written (labeled `index` when one search failed to record, and by the size of the batch when a write
-  failed, without a label); the search itself is never affected. See
+  failed, without a label); the search itself is never affected. `fuzzphony.search_log.ip_dropped` counts the client
+  addresses a write dropped because the table has no `actor_ip` column yet (the rows are kept; run
+  `fuzzphony:schema --apply`). See
   [Search log and analytics](analytics.md#how-it-is-written-and-what-happens-when-it-fails).
 - `Worker`: `fuzzphony.queue.depth` (a gauge, once per cycle, reusing `queueSize()`),
   `fuzzphony.queue.processed` (a counter) and `fuzzphony.worker.rebuild_failures` (a counter).

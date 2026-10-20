@@ -205,6 +205,14 @@ final class FuzzphonyBundleSearchLogTest extends TestCase
         self::assertSame(NullActorResolver::class, $container->getDefinition('fuzzphony.actor_resolver')->getClass(), 'nothing stores an address, so nothing reads it');
     }
 
+    public function testTheEngineKnowsWhetherTheDoctorShouldWantTheIpColumn(): void
+    {
+        self::assertFalse($this->buildContainer(['search_log' => ['enabled' => true]])->getDefinition('fuzzphony.engine')->getArgument(6));
+        self::assertTrue($this->buildContainer(['search_log' => ['enabled' => true, 'ip' => 'masked']])->getDefinition('fuzzphony.engine')->getArgument(6));
+        self::assertTrue($this->buildContainer(['search_log' => ['enabled' => true, 'ip' => 'full']])->getDefinition('fuzzphony.engine')->getArgument(6));
+        self::assertFalse($this->buildContainer(['search_log' => ['ip' => 'full']])->getDefinition('fuzzphony.engine')->getArgument(6), 'the log is off');
+    }
+
     public function testTheIpModeMustBeOffMaskedOrFull(): void
     {
         $this->expectException(InvalidConfigurationException::class);

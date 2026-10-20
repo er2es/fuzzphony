@@ -68,8 +68,8 @@ idempotent):
 bin/console fuzzphony:schema --apply
 ```
 
-`fuzzphony:doctor` has a "Search log" check: an **error** when the table is missing (fixed by the command
-above), a warning when it holds rows older than the retention (fixed by the purge command below), otherwise it
+`fuzzphony:doctor` has a "Search log" check: an **error** when the table is missing, or when [`ip`](#the-client-ip) is on and the
+`actor_ip` column is not (both fixed by the command above), a warning when it holds rows older than the retention (fixed by the purge command below), otherwise it
 reports that the table exists (it never counts the rows: the table can be big). A role that only searches needs
 `INSERT` on the table and nothing else (the `id` is an identity column, which needs no privilege on its hidden
 sequence); the reports need `SELECT`, the purge `DELETE`. See [Fuzzphony's schema](configuration.md#fuzzphonys-schema) for the
@@ -115,11 +115,14 @@ A different redactor is any class implementing `Fuzzphony\Core\Analytics\QueryRe
 | Mode | What is stored | Example |
 |---|---|---|
 | `off` (default) | nothing, even when the actor carries an address | |
-| `masked` | IPv4 with the last octet zeroed; IPv6 cut to its first 48 bits; an IPv4-mapped IPv6 address (`::ffff:203.0.113.45`) is masked as the IPv4 address it carries | `203.0.113.45` becomes `203.0.113.0`; `2001:db8:abcd:12::1` becomes `2001:db8:abcd::` |
-| `full` | the valid address, as given | `203.0.113.45` |
+| `masked` | IPv4 with the last octet zeroed; IPv6 cut to its first 48 bits; an IPv4-mapped IPv6 address (`::ffff:203.0.113.45`) is masked as the IPv4 address it carries, and so is the IPv4 address that a 6to4 address (`2002::/16`) embeds | `203.0.113.45` becomes `203.0.113.0`; `2001:db8:abcd:12::1` becomes `2001:db8:abcd::`; `2002:cb00:712d::1` becomes `2002:cb00:7100::` |
+| `full` | the valid address in its canonical form (so `2001:DB8::1` and `2001:0db8:0:0:0:0:0:1` are one value) | `203.0.113.45` |
 
 `masked` is the mode this documentation recommends: it keeps what is useful for "the same office keeps searching for
-this" and for spotting abuse, and drops the host part. In **both** modes anything that is not a valid IP address
+this" and for spotting abuse, and drops the host part. It is **not anonymous**, and IPv6 is the weaker case: a `/24` of IPv4
+is shared by up to 254 other addresses, but a `/48` of IPv6 is what an internet provider usually hands to **one customer
+site**, so a masked IPv6 address often still points at one household or office. Treat masked IPv6 as less private than
+masked IPv4 (the `/48` rule is fixed; use `off` if that matters to you). In **both** modes anything that is not a valid IP address
 (a host name, `unknown`, an address with a port, a zone id such as `fe80::1%eth0`, an address list) is **not stored**
 (null): the column never holds free text. The masking is a pure function (`Fuzzphony\Core\Analytics\IpMode::apply()`),
 applied by the `SearchGate` **before** anything is stored, like the redactor: the full address is not kept in the
@@ -132,7 +135,8 @@ fuzzphony:
     ip: masked
 ```
 
-Then add the column, once (it is nullable; the plan uses `ADD COLUMN IF NOT EXISTS`, so it is safe to run again and it
+Then add the column, once (it is nullable; the plan runs the `ALTER TABLE ... ADD COLUMN` only when the column is missing, so it is safe to run again, takes no lock on
+the table when the column exists, and it
 works on a table that already exists):
 
 ```
@@ -142,9 +146,11 @@ bin/console fuzzphony:schema --apply
 A deployment that never enables the IP does not need the column: the `INSERT` names `actor_ip` only when at least one
 record of the batch has an address, and the report reads the column only if the table has it (the address of every row
 is then null). Turning `ip` on **without** applying the schema makes the batches that carry an address fail like any other
-log write, **the whole batch with the rows that have no address**: counted in `fuzzphony.search_log.failed` and logged
-with the hint to run `fuzzphony:schema --apply`; the searches themselves are not affected. Apply the schema before (or
-together with) the deploy that turns `ip` on. The role that applies the schema
+log write would: so the log keeps its rows. A write that finds no `actor_ip` column (SQLSTATE `42703`) is repeated **once**
+without it: the rows are kept, the addresses of that batch are dropped, and the metric `fuzzphony.search_log.ip_dropped` counts
+the dropped addresses (the metrics collector logs it like any event). `fuzzphony:doctor` reports an **error** in its "Search
+log" check while `ip` is on and the column is missing, so run `fuzzphony:schema --apply` before (or together with) the
+deploy that turns `ip` on; the searches themselves are never affected. The role that applies the schema
 must own the table (it is an `ALTER TABLE`). The [retention purge](#retention) deletes whole rows, so it covers the IP.
 
 **Where the address comes from.** The Core knows nothing of HTTP: the address belongs to the
@@ -279,8 +285,9 @@ returns a `list<LoggedSearch>` (`Fuzzphony\Core\Analytics\LoggedSearch`, final a
   `anonymousOnly: true` those without a user, and the two together throw `InvalidArgument`. A user whose name is
   the empty string is stored as such and is not anonymous;
 - the [tenant rules](#tenant-rules-for-reports) are the ones of the other reports, to the letter: a tenant-scoped index
-  needs `tenant:` or `allTenants: true`, naming both is refused, and a call for one tenant never returns a row of
-  another, whatever the user name. The user, the tenant, the status and the limit are bound parameters.
+  needs `tenant:` or `allTenants: true`, naming both is refused, and a call that names a tenant never returns a row of
+  another, whatever the user name. On an index that is **not** tenant-scoped, a call without a tenant covers everyone, as
+  `topQueries()` does (the log records the actor's tenant there too, so name it to get one customer's rows). The user, the tenant, the status and the limit are bound parameters.
 
 ### The command
 
@@ -315,7 +322,9 @@ With `--recent` the table is one search per line, newest first (the `tenant` col
 ```
 
 `--format=json` lists `at`, `index`, `tenant`, `user` (null for anonymous), `ip`, `query`, `hits`, `took_ms`, `used_fuzzy` and
-`status` of each search. `--user=NAME` (not empty), `--anonymous` (not with `--user`) and `--status=ok|denied|rate_limited`
+`status` of each search (the text exactly as stored, JSON-escaped). In the table, control characters in the text of a search, the user,
+the tenant and the IP (a newline, an ANSI escape) are printed as `U+FFFD`, so what a visitor typed cannot fake a row or write to
+your terminal. `--user=NAME` (not empty), `--anonymous` (not with `--user`) and `--status=ok|denied|rate_limited`
 belong to `--recent` and are refused without it; `--recent` is not combined with `--top` or `--zero`. `--since`, `--limit`,
 `--tenant`, `--all-tenants` and `--format` work as below.
 

@@ -332,7 +332,7 @@ sequence privilege); the reports need `SELECT`, the purge `DELETE`. See [Search 
 `ip` decides whether the log keeps the client IP (`Request::getClientIp()`, so `framework.trusted_proxies` applies) in the
 nullable column `actor_ip`: `off` keeps nothing, `masked` the IPv4 address with the last octet zeroed or the first 48 bits of
 an IPv6 address, `full` the whole valid address; anything that is not an IP address is never stored. Enabling it needs
-`fuzzphony:schema --apply` (an additive `ADD COLUMN IF NOT EXISTS`); it does nothing while `enabled` is false. The values
+`fuzzphony:schema --apply` (an additive `ADD COLUMN`, run only when the column is missing); it does nothing while `enabled` is false. The values
 and the privacy notes are in [The client IP](analytics.md#the-client-ip).
 
 ### The rate limit

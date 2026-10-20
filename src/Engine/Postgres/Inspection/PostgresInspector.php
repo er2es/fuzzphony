@@ -39,6 +39,8 @@ final class PostgresInspector
         /** Whether the engine keeps a search log: only then is its table checked. */
         private readonly bool $searchLog = false,
         private readonly int $searchLogRetentionDays = 90,
+        /** Whether the log is to keep the client IP (search_log.ip is not off): the table then needs its actor_ip column. */
+        private readonly bool $searchLogIp = false,
     ) {
         $this->names = $schema->names();
     }
@@ -117,6 +119,9 @@ final class PostgresInspector
                 sprintf('Role %s cannot read %s (no SELECT privilege), so its age is unknown.', $role, $table),
                 sprintf('GRANT SELECT ON %s TO %s;', $table, Sql::ident($role)),
             );
+        }
+        if ($this->searchLogIp && !$this->hasColumn($table, 'actor_ip')) {
+            return Check::error('Search log', sprintf('search_log.ip is on, but table %s has no actor_ip column: the addresses are dropped (the rows are kept).', $table), self::APPLY);
         }
         $stale = $this->connection->fetchValue(
             sprintf('SELECT EXISTS (SELECT 1 FROM %s WHERE at < now() - make_interval(days => :days))', $table),
@@ -824,6 +829,14 @@ final class PostgresInspector
         );
 
         return [$broken ? Check::error('Rebuild', $message, $fix) : Check::warning('Rebuild', $message, $fix)];
+    }
+
+    private function hasColumn(string $table, string $column): bool
+    {
+        return $this->connection->fetchValue(
+            'SELECT EXISTS (SELECT 1 FROM pg_attribute WHERE attrelid = to_regclass(:table) AND attname = :column AND NOT attisdropped)',
+            ['table' => $table, 'column' => $column],
+        ) === true;
     }
 
     private function regclass(string $name): bool

@@ -10,6 +10,7 @@ use Fuzzphony\Core\Analytics\RecordStatus;
 use Fuzzphony\Core\Analytics\SearchAnalytics;
 use Fuzzphony\Core\Definition\IndexDefinition;
 use Fuzzphony\Core\Engine\Engine;
+use Fuzzphony\Core\Engine\RecentSearchStore;
 use Fuzzphony\Core\Engine\SearchLogStore;
 use Fuzzphony\Core\Exception\InvalidArgument;
 use Fuzzphony\Core\Fuzzphony;
@@ -255,6 +256,76 @@ final class SearchAnalyticsTest extends TestCase
         self::assertSame([], $store->calls);
     }
 
+    public function testAStoreWithDifferentlyNamedParametersStillGetsEveryArgumentInItsPlace(): void
+    {
+        $store = new class implements SearchLogStore, RecentSearchStore {
+            /** @var list<mixed> */
+            public array $seen = [];
+
+            public function writeSearchLog(array $records): int
+            {
+                return 0;
+            }
+
+            public function purgeSearchLog(\DateTimeInterface $before): int
+            {
+                return 0;
+            }
+
+            public function topQueries(IndexDefinition $i, \DateTimeInterface $a, ?\DateTimeInterface $b, int $c, int|string|null $d, bool $e): array
+            {
+                return [];
+            }
+
+            public function zeroResultQueries(IndexDefinition $i, \DateTimeInterface $a, ?\DateTimeInterface $b, int $c, int|string|null $d, bool $e): array
+            {
+                return [];
+            }
+
+            public function recentSearches(IndexDefinition $x1, \DateTimeInterface $x2, ?\DateTimeInterface $x3, int $x4, int|string|null $x5, bool $x6, ?string $x7, bool $x8, ?RecordStatus $x9): array
+            {
+                $this->seen = [$x1->name, $x2, $x3, $x4, $x5, $x6, $x7, $x8, $x9];
+
+                return [];
+            }
+        };
+        $from = new \DateTimeImmutable('-7 days');
+        $to = new \DateTimeImmutable('-1 day');
+
+        (new SearchAnalytics($store, new IndexRegistry([Indexes::products()])))->recentSearches('products', $from, $to, 7, 'acme', false, 'ada', false, RecordStatus::Denied);
+
+        self::assertSame(['products', $from, $to, 7, 'acme', false, 'ada', false, RecordStatus::Denied], $store->seen);
+    }
+
+    public function testAStoreThatCannotListSearchesIsRefusedClearly(): void
+    {
+        $store = new class implements SearchLogStore {
+            public function writeSearchLog(array $records): int
+            {
+                return 0;
+            }
+
+            public function purgeSearchLog(\DateTimeInterface $before): int
+            {
+                return 0;
+            }
+
+            public function topQueries(IndexDefinition $index, \DateTimeInterface $from, ?\DateTimeInterface $to, int $limit, int|string|null $tenant, bool $allTenants): array
+            {
+                return [];
+            }
+
+            public function zeroResultQueries(IndexDefinition $index, \DateTimeInterface $from, ?\DateTimeInterface $to, int $limit, int|string|null $tenant, bool $allTenants): array
+            {
+                return [];
+            }
+        };
+
+        $this->expectException(InvalidArgument::class);
+        $this->expectExceptionMessage(RecentSearchStore::class);
+        (new SearchAnalytics($store, new IndexRegistry([Indexes::products()])))->recentSearches('products', new \DateTimeImmutable('-1 day'));
+    }
+
     public function testThePurgeIsDelegated(): void
     {
         $store = new FakeSearchLogStore();
@@ -284,7 +355,7 @@ final class SearchAnalyticsTest extends TestCase
 }
 
 /** A store that records what it was asked and returns a fixed list. */
-final class FakeSearchLogStore implements SearchLogStore
+final class FakeSearchLogStore implements SearchLogStore, RecentSearchStore
 {
     /** @var list<array<int, mixed>> */
     public array $calls = [];

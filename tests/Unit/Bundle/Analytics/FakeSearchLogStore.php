@@ -4,7 +4,6 @@ declare(strict_types=1);
 
 namespace Fuzzphony\Tests\Unit\Bundle\Analytics;
 
-use Fuzzphony\Core\Analytics\RecordStatus;
 use Fuzzphony\Core\Definition\IndexDefinition;
 use Fuzzphony\Core\Engine\SearchLogStore;
 
@@ -37,11 +36,6 @@ final class FakeSearchLogStore implements SearchLogStore
     }
 
     public function zeroResultQueries(IndexDefinition $index, \DateTimeInterface $from, ?\DateTimeInterface $to, int $limit, int|string|null $tenant, bool $allTenants): array
-    {
-        return [];
-    }
-
-    public function recentSearches(IndexDefinition $index, \DateTimeInterface $from, ?\DateTimeInterface $to, int $limit, int|string|null $tenant, bool $allTenants, ?string $user, bool $anonymousOnly, ?RecordStatus $status): array
     {
         return [];
     }

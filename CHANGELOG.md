@@ -13,22 +13,28 @@ changes; they are always listed under **Breaking** and explained in [UPGRADE.md]
   newest first, as `LoggedSearch` objects (`at`, `index`, `tenant`, `user` with null for anonymous, `ip`, the stored (redacted)
   `query`, `hits`, `tookMs`, `usedFuzzy` and `status`). Filters: `user:` (exactly that name), `anonymousOnly:` and `status:`
   (the refused searches, `denied` and `rate_limited`, are included by default); `limit` 1 to 1000 (default 50). It follows the tenant
-  rule of the other reports to the letter (a tenant-scoped index needs a `tenant` or an explicit `allTenants: true`; a call for one
-  tenant never returns another tenant's rows, even for a user of the same name), and the user, the tenant, the status and the limit
-  are bound parameters. `SearchLogStore` has the matching `recentSearches()` method (a custom implementation must add it). It needs
+  rule of the other reports to the letter (a tenant-scoped index needs a `tenant` or an explicit `allTenants: true`; a call that
+  names a tenant never returns another tenant's rows, even for a user of the same name; on an index that is not tenant-scoped a call
+  without a tenant covers everyone, as the other reports do), and the user, the tenant, the status and the limit
+  are bound parameters. The store side is a new optional interface, `Fuzzphony\Core\Engine\RecentSearchStore` (the PostgreSQL engine implements it; `SearchLogStore` is unchanged, so a custom store keeps working, and `recentSearches()` throws `InvalidArgument` naming the interface for a store without it). It needs
   no new index. A per-user history is personal data: see [SECURITY.md](SECURITY.md) and [Search log and analytics](docs/analytics.md#privacy-the-log-is-personal-data).
 - **`fuzzphony:analytics --recent`** with `--user=`, `--anonymous`, `--status=`, `--since`, `--limit`, `--tenant` / `--all-tenants`
-  and `--format=table|json`: the same report on the console.
+  and `--format=table|json`: the same report on the console (control characters of the typed text are shown as U+FFFD in the table).
 - **The client IP in the search log (opt-in).** `fuzzphony.search_log.ip: off|masked|full` (default `off`: nothing is stored, even
   when the actor carries an address). `masked` zeroes the last octet of an IPv4 address and keeps the first 48 bits of an IPv6
   address (an IPv4-mapped IPv6 address is masked as IPv4); `full` keeps the valid address; anything that is not a valid IP
-  address is never stored. The Core stays HTTP-agnostic: `Actor` has a new optional trailing `?string $ip = null` (nothing
+  address is never stored (`full` keeps the canonical form of the address, so two spellings of one IPv6 address are one value; a 6to4
+  address, `2002::/16`, has the last octet of its embedded IPv4 address masked as well, because the plain /48 would keep all of it;
+  an IPv6 /48 usually identifies one customer site, so masked IPv6 is less private than masked IPv4). The Core stays HTTP-agnostic: `Actor` has a new optional trailing `?string $ip = null` (nothing
   changes for existing calls), `SearchRecord` has `?string $ip = null`, and `SearchGate` takes an `IpMode` (new public enum, the
   masking is `IpMode::apply()`) and applies it before anything is stored. The Symfony bundle fills the address from
   `Request::getClientIp()` (so `framework.trusted_proxies` applies; `X-Forwarded-For` is never read directly) for the actor
   the configured resolver returns, only when the mode is not `off`. The table gets a nullable column `actor_ip`: existing installs
-  add it with `fuzzphony:schema --apply` (`ADD COLUMN IF NOT EXISTS`); an install that does not use the IP does not need it (the
-  `INSERT` names the column only when a record has an address, and the report reads it only if the table has it). The retention
+  add it with `fuzzphony:schema --apply` (an `ADD COLUMN` that runs only when the column is missing, so a repeated apply takes no lock on the table); an install that does not use the IP does not need it (the
+  `INSERT` names the column only when a record has an address, and the report reads it only if the table has it and the role may
+  read it). Turning `ip` on before applying the schema loses nothing but the addresses: the write that finds no column is repeated
+  once without it (metric `fuzzphony.search_log.ip_dropped`), and the doctor's "Search log" check is an error while `ip` is on and
+  the column is missing. The retention
   purge deletes whole rows, so it covers the IP. See [The client IP](docs/analytics.md#the-client-ip).
 - **Demo: who searched what.** The Analytics page has a new section "Who searched what": the latest 20 searches of the `catalog` and
   `intranet` indexes (when, who, tenant, index, query, hits, status, masked client IP), newest first, with link filters for the index,

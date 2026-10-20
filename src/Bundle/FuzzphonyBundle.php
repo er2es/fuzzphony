@@ -365,7 +365,7 @@ final class FuzzphonyBundle extends AbstractBundle
         $services->set('fuzzphony.exception_listener', SearchExceptionListener::class)->tag('kernel.event_listener', ['event' => 'kernel.exception', 'priority' => 64]);
 
         $services->set('fuzzphony.engine', PostgresEngine::class)
-            ->args([service('fuzzphony.connection'), $names->extensionSchema, $names->schema, service('fuzzphony.metrics'), $searchLogEnabled, $retentionDays]);
+            ->args([service('fuzzphony.connection'), $names->extensionSchema, $names->schema, service('fuzzphony.metrics'), $searchLogEnabled, $retentionDays, $ipMode !== IpMode::Off]);
         $services->alias(Engine::class, 'fuzzphony.engine')->public();
 
         if ($hasOrm) {
