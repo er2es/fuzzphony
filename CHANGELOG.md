@@ -51,6 +51,9 @@ changes; they are always listed under **Breaking** and explained in [UPGRADE.md]
   once. The demo sets no `trusted_proxies` on purpose (nginx hands php-fpm the client address as `REMOTE_ADDR`, and a private-range list
   would make a forged `X-Forwarded-For` believed). The Observability page points to the new section. Rows of the home page are
   anonymous and carry no address (only searches made `->asActor()` do). `flows.mjs` has 13 more checks.
+- **A documentation index, [docs/README.md](docs/README.md).** GitHub shows it when the `docs` folder is opened: every page in a reading
+  order, grouped (getting started, concepts, guides and recipes, reference, operations), with the question each page answers. The
+  README's Documentation section points to it and lists the LIKE guide and the three recipes; the recipes link back to the index.
 
 ### Changed
 

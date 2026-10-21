@@ -3,7 +3,7 @@
 A product catalogue with a search box that completes while the visitor types, a listing with filters in a sidebar
 that show how many products each choice would find, synonyms ("tv" finds the television), popular and new
 products ranked higher, and one list for products and categories. Back to the
-[documentation](../../README.md#documentation).
+[documentation](../README.md).
 
 The code is real: it lives in [`tests/Recipes/Shop`](../../tests/Recipes/Shop), in a Symfony kernel with the Live
 Component, against PostgreSQL. Every block marked in this page is copied from it and a test fails if they differ.

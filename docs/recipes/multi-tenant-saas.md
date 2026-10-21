@@ -3,7 +3,7 @@
 Support tickets of many customers live in one table, and every user of the application must find their own
 customer's tickets and no one else's. On top of that: some fields only the support lead may search, a limit on how
 often a user may search, a log of what was searched (with the user, a masked address and no e-mail addresses in
-it), and reports of it per customer. Back to the [documentation](../../README.md#documentation).
+it), and reports of it per customer. Back to the [documentation](../README.md).
 
 The code is real: it lives in [`tests/Recipes/MultiTenant`](../../tests/Recipes/MultiTenant), in a Symfony kernel
 that handles real requests against PostgreSQL. Every marked block is copied from it and a test fails if they
