@@ -235,8 +235,12 @@ nothing drops the words that match nothing and says so. Details:
 
 ## Documentation
 
+The [documentation index](https://github.com/er2es/fuzzphony/blob/main/docs/README.md) lists every page with a reading order. The main ones:
+
 - [Index definitions](https://github.com/er2es/fuzzphony/blob/main/docs/configuration.md): attributes, YAML, builder, bundle configuration, building an index.
 - [Searching](https://github.com/er2es/fuzzphony/blob/main/docs/searching.md): the search builder, controller examples, query syntax, typo tolerance, synonyms, "did you mean", search-as-you-type, facets, federated search, empty-result relaxation.
+- [Migrating from `LIKE`](https://github.com/er2es/fuzzphony/blob/main/docs/migrating-from-like.md): moving a `WHERE name ILIKE '%mouse%'` search over, step by step, and what you give up.
+- Recipes, each backed by tests: [an admin panel](https://github.com/er2es/fuzzphony/blob/main/docs/recipes/admin-panel.md) (API Platform filter), [a shop](https://github.com/er2es/fuzzphony/blob/main/docs/recipes/shop.md) (search-as-you-type, facets, synonyms, boosts) and [a multi-tenant SaaS](https://github.com/er2es/fuzzphony/blob/main/docs/recipes/multi-tenant-saas.md) (tenants, guards, search log, reports).
 - [Ranking and thresholds](https://github.com/er2es/fuzzphony/blob/main/docs/ranking.md): the score formula, profiles, per-query tuning, thresholds and their hard caps.
 - [Languages](https://github.com/er2es/fuzzphony/blob/main/docs/languages.md): stemming, stop words and accent folding for 28 languages.
 - [Keeping the index in sync](https://github.com/er2es/fuzzphony/blob/main/docs/sync.md): sync modes, triggers, `TRUNCATE`, orphan pruning, Messenger.
@@ -279,9 +283,10 @@ Details in [docs/limitations.md](https://github.com/er2es/fuzzphony/blob/main/do
   tolerated; the similarity a word needs is proportional to its length, or flat if you set it.
 - [Attaching or detaching a partition is not followed](https://github.com/er2es/fuzzphony/blob/main/docs/limitations.md#attaching-or-detaching-a-partition-is-not-followed):
   PostgreSQL fires no trigger for it; run `fuzzphony:reindex` afterwards.
-- [Ranking is approximate beyond `candidate_limit`](https://github.com/er2es/fuzzphony/blob/main/docs/limitations.md#ranking-is-approximate-beyond-candidate_limit),
-  and `total` is then a lower bound. Fix planned: an opt-in exact `total`, part of
-  [facets](https://github.com/er2es/fuzzphony/blob/main/docs/roadmap.md#facets).
+- [Ranking is approximate beyond `candidate_limit`](https://github.com/er2es/fuzzphony/blob/main/docs/limitations.md#ranking-is-approximate-beyond-candidate_limit):
+  a very common word is ranked over the first `candidate_limit` matches the index returns, not the
+  best ones (a better match can be missing), and `total` is then a lower bound; `exactCounts()` makes
+  the total and the facet counts exact.
 
 ## Roadmap
 
@@ -289,8 +294,9 @@ Current: v0.9 (identity, search log and analytics, rate limit and authorization)
 order, each one a foundation for the next, up to v1.0's stable API and backward-compatibility
 promise. PostgreSQL only before 1.0:
 
-- v1.0 Stable: a documentation site with a "Migrating from `LIKE`" guide, mutation score 90% with
-  a CI gate, the backward-compatibility promise.
+- v1.0 Stable: a reviewed public API (a smaller stable surface, the rest `@internal`), the
+  backward-compatibility promise, mutation score 90% with a CI gate. The documentation (an index, the
+  "Migrating from `LIKE`" guide and three recipes, with a link check in CI) is in place since 0.9.6.
 
 After 1.0: a Laravel Scout driver, and record linkage (matching people and companies across
 records, with explainable match scores). Details in

@@ -70,13 +70,6 @@ final class LiveComponentTestKernel extends Kernel
             'php_errors' => ['log' => false],
             'property_access' => true,
         ]);
-        // WORKAROUND for a known bug in the bundle itself (see FuzzphonyBundleTest::testTemplatesAreWhereTwigBundleLooksForThem):
-        // FuzzphonyBundle::getPath() resolves one directory too high for this package's layout, so TwigBundle never
-        // registers the bundle's "@Fuzzphony" template namespace on its own. Registering it here by hand lets these
-        // tests exercise SearchComponent's real behaviour instead of dying on the missing namespace.
-        $container->extension('twig', [
-            'paths' => [self::bundleDirectory() . '/templates' => 'Fuzzphony'],
-        ]);
         $container->extension('twig_component', [
             'defaults' => ['Fuzzphony\\Tests\\Integration\\Twig\\Components\\' => 'components/'],
             'anonymous_template_directory' => 'components/',
@@ -105,15 +98,5 @@ final class LiveComponentTestKernel extends Kernel
     protected function configureRoutes(RoutingConfigurator $routes): void
     {
         $routes->import('@LiveComponentBundle/config/routes.php')->prefix('/_components');
-    }
-
-    private static function bundleDirectory(): string
-    {
-        $file = (new \ReflectionClass(FuzzphonyBundle::class))->getFileName();
-        if ($file === false) {
-            throw new \LogicException('Cannot locate FuzzphonyBundle on disk.');
-        }
-
-        return dirname($file);
     }
 }

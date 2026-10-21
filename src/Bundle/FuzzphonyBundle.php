@@ -384,6 +384,9 @@ final class FuzzphonyBundle extends AbstractBundle
                 // Prod only: discovery loads the metadata of every entity, so its result is kept in cache.system (cache:clear drops it).
                 // Without kernel.debug (or when it is unknown) nothing is cached and an edited attribute shows up on the next request.
                 $hasOrm && $discoverEntities && $builder->hasParameter('kernel.debug') && $builder->getParameter('kernel.debug') === false ? service('cache.system')->nullOnInvalid() : null,
+                // Web requests only: a command, a worker or a consumer (PHP_SAPI "cli") always discovers fresh. The parameter is a test seam
+                // (the real-kernel test proves the cache from the command line), not a configuration option.
+                $builder->hasParameter('fuzzphony.registry_cache_in_cli') && $builder->getParameter('fuzzphony.registry_cache_in_cli') === true,
             ]);
         $services->alias(IndexRegistry::class, 'fuzzphony.registry');
 

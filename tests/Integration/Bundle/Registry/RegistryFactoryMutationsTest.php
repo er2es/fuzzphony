@@ -31,14 +31,44 @@ final class RegistryFactoryMutationsTest extends TestCase
     public function testACachedDiscoveryIsNotRunAgainAndTheYamlIsStillAppliedFresh(): void
     {
         $cache = new ArrayAdapter();
-        $first = RegistryFactory::create([], new DoctrineIndexDiscovery(DoctrineTestCase::entityManager()), $cache);
+        $first = RegistryFactory::create([], new DoctrineIndexDiscovery(DoctrineTestCase::entityManager()), $cache, cacheInCli: true);
 
         $entityManager = $this->createMock(EntityManagerInterface::class);
         $entityManager->expects(self::never())->method('getMetadataFactory');
-        $second = RegistryFactory::create(['articles' => ['sync' => 'manual']], new DoctrineIndexDiscovery($entityManager), $cache);
+        $second = RegistryFactory::create(['articles' => ['sync' => 'manual']], new DoctrineIndexDiscovery($entityManager), $cache, cacheInCli: true);
 
         self::assertSame('orm', $first->get('articles')->sync->value);
         self::assertSame('manual', $second->get('articles')->sync->value, 'the YAML is applied on top of the cached definitions on every request');
+    }
+
+    public function testInTheCommandLineTheCacheIsNeitherReadNorWrittenByDefault(): void
+    {
+        self::assertSame('cli', \PHP_SAPI, 'the suite runs in the command line');
+        $cache = new ArrayAdapter();
+        // a warm pool, as a web request left it: a command must not take its (possibly stale) definitions
+        RegistryFactory::create([], new DoctrineIndexDiscovery(DoctrineTestCase::entityManager()), $cache, cacheInCli: true);
+        $stale = $cache->getItem('fuzzphony_discovered_indexes')->get();
+        self::assertNotSame([], $stale);
+        $cache->save($cache->getItem('fuzzphony_discovered_indexes')->set([])); // the pool says: no indexes
+
+        $entityManager = $this->createMock(EntityManagerInterface::class);
+        $entityManager->expects(self::exactly(2))->method('getMetadataFactory');
+        $first = RegistryFactory::create([], new DoctrineIndexDiscovery($entityManager), $cache);
+        $second = RegistryFactory::create([], new DoctrineIndexDiscovery($entityManager), $cache);
+
+        self::assertFalse($first->has('articles'), 'the warm pool was not read: what the metadata says now is what a command sees');
+        self::assertFalse($second->has('articles'));
+        self::assertSame([], $cache->getItem('fuzzphony_discovered_indexes')->get(), 'and nothing was written to it');
+    }
+
+    public function testInTheCommandLineAnEmptyPoolStaysEmptyByDefault(): void
+    {
+        $cache = new ArrayAdapter();
+
+        $registry = RegistryFactory::create([], new DoctrineIndexDiscovery(DoctrineTestCase::entityManager()), $cache);
+
+        self::assertTrue($registry->has('articles'));
+        self::assertFalse($cache->hasItem('fuzzphony_discovered_indexes'), 'no pool item is written');
     }
 
     public function testTheCachedDefinitionsSurviveAFilesystemRoundTripUnchanged(): void
@@ -46,11 +76,11 @@ final class RegistryFactoryMutationsTest extends TestCase
         $directory = sys_get_temp_dir() . '/fuzzphony_discovery_' . bin2hex(random_bytes(4));
         try {
             $fresh = RegistryFactory::create([], new DoctrineIndexDiscovery(DoctrineTestCase::entityManager()));
-            RegistryFactory::create([], new DoctrineIndexDiscovery(DoctrineTestCase::entityManager()), new FilesystemAdapter('fz', 0, $directory));
+            RegistryFactory::create([], new DoctrineIndexDiscovery(DoctrineTestCase::entityManager()), new FilesystemAdapter('fz', 0, $directory), cacheInCli: true);
 
             $entityManager = $this->createMock(EntityManagerInterface::class);
             $entityManager->expects(self::never())->method('getMetadataFactory');
-            $cached = RegistryFactory::create([], new DoctrineIndexDiscovery($entityManager), new FilesystemAdapter('fz', 0, $directory));
+            $cached = RegistryFactory::create([], new DoctrineIndexDiscovery($entityManager), new FilesystemAdapter('fz', 0, $directory), cacheInCli: true);
 
             self::assertEquals($fresh->get('articles'), $cached->get('articles'));
         } finally {
@@ -64,7 +94,7 @@ final class RegistryFactoryMutationsTest extends TestCase
             $cache = new ArrayAdapter();
             $cache->save($cache->getItem('fuzzphony_discovered_indexes')->set($garbage));
 
-            $registry = RegistryFactory::create([], new DoctrineIndexDiscovery(DoctrineTestCase::entityManager()), $cache);
+            $registry = RegistryFactory::create([], new DoctrineIndexDiscovery(DoctrineTestCase::entityManager()), $cache, cacheInCli: true);
 
             self::assertTrue($registry->has('articles'));
             $stored = $cache->getItem('fuzzphony_discovered_indexes')->get();

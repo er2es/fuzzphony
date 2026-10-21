@@ -1,0 +1,30 @@
+name: Docs links
+
+# Every relative link, every `#anchor` and every absolute link to this repository in the Markdown files must resolve
+# (tools/check-docs-links.php: no dependencies, no network; links to other sites are not checked).
+#
+# It runs on EVERY pull request, not only on those that touch `*.md`: a link breaks just as well when a pull request
+# renames a file the docs point at (an image, a source file, a workflow). It takes seconds, and because it is not
+# path-filtered it can be made a required status check without blocking pull requests that touch no documentation:
+# add the job name `docs-links` to the required checks of the `main` branch (it is not part of `ci-ok`, which only
+# aggregates the jobs of ci.yml).
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  docs-links:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: shivammathur/setup-php@eb7c497e18156a6bbabfef1d3a82760b9eda3962 # 2.40.0
+        with:
+          php-version: '8.4'
+          extensions: mbstring
+          coverage: none
+      - run: php tools/check-docs-links.php

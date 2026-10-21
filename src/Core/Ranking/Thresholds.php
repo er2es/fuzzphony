@@ -19,6 +19,9 @@ final readonly class Thresholds
     public const int MAX_QUERY_LENGTH = 1_024;
     public const int MAX_TERMS = 64;
 
+    /** The default of maxQueryLength; the query parser and the synonym expander cut a text at the same length. */
+    public const int DEFAULT_MAX_QUERY_LENGTH = 256;
+
     public function __construct(
         /** Minimum relevance (0..~1.5) a hit needs; bonuses are not counted. */
         public float $minScore = 0.0,
@@ -35,7 +38,7 @@ final readonly class Thresholds
         /** Upper bound of candidates ranked per branch; protects against "match half the table" queries. At most MAX_CANDIDATE_LIMIT. */
         public int $candidateLimit = 2000,
         /** Longer search text is truncated (with a warning). At most MAX_QUERY_LENGTH. */
-        public int $maxQueryLength = 256,
+        public int $maxQueryLength = self::DEFAULT_MAX_QUERY_LENGTH,
         /** Queries with more terms are truncated (with a warning). At most MAX_TERMS. */
         public int $maxTerms = 16,
         /**

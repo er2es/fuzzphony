@@ -13,6 +13,7 @@ use Fuzzphony\Core\Query\Ast\NodeInspector;
 use Fuzzphony\Core\Query\Ast\Not;
 use Fuzzphony\Core\Query\Ast\Phrase;
 use Fuzzphony\Core\Query\Ast\Term;
+use Fuzzphony\Core\Ranking\Thresholds;
 
 /**
  * @internal Rewrites a parsed query with the synonyms of its index: a word (or quoted phrase) that is
@@ -210,8 +211,13 @@ final readonly class SynonymExpander
      */
     private static function words(string $text): array
     {
-        // the common member, one plain word, needs no parser (a long list has thousands of them)
+        // the common member, one plain word, needs no parser (a long list has thousands of them); it is cut
+        // at the parser's default length, in characters, so both paths give the same words
         if (preg_match('/^[\p{L}\p{N}]+$/u', $text) === 1 && !in_array($text, ['AND', 'OR', 'NOT'], true)) {
+            if (strlen($text) > Thresholds::DEFAULT_MAX_QUERY_LENGTH && mb_strlen($text) > Thresholds::DEFAULT_MAX_QUERY_LENGTH) {
+                $text = mb_substr($text, 0, Thresholds::DEFAULT_MAX_QUERY_LENGTH);
+            }
+
             return [mb_strtolower($text)];
         }
 

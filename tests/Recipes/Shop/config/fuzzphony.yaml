@@ -1,0 +1,27 @@
+# region: indexes
+fuzzphony:
+  indexes:
+    products:
+      source: { table: recipe_product }
+      language: english
+      fields:
+        name: { weight: A, fuzzy: true }
+        brand: { weight: B, fuzzy: true }
+        description: D
+      filters:
+        category_id: int
+        in_stock: bool
+        price: int
+      boost: popularity                # builder: ->boostBy('popularity')
+      recency: published_at            # builder: ->recencyBy('published_at')
+      profiles:
+        popular: { boost: 0.05, recency: 0.3, recency_half_life_days: 14 }
+      synonyms:
+        - [tv, television]
+        - 'laptop => notebook | portable'
+    categories:
+      source: { table: recipe_category }
+      language: english
+      fields:
+        name: { weight: A, fuzzy: true }
+# endregion

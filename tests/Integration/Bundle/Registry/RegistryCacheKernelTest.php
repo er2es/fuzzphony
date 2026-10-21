@@ -64,6 +64,17 @@ final class RegistryCacheKernelTest extends TestCase
         self::assertEquals($first->get('articles'), $second->get('articles'));
     }
 
+    public function testTheCommandLineNeverUsesTheCacheUnlessTheSeamIsSet(): void
+    {
+        [$first, $firstPool] = $this->boot(false, cacheInCli: false);
+        [$second, $secondPool] = $this->boot(false, cacheInCli: false);
+
+        self::assertSame(2, RegistryCacheKernel::$metadataEnumerations, 'a command asks the metadata factory on every build, production or not');
+        self::assertFalse($firstPool->hasItem(self::KEY));
+        self::assertFalse($secondPool->hasItem(self::KEY), 'and writes nothing to cache.system');
+        self::assertEquals($first->get('articles'), $second->get('articles'));
+    }
+
     public function testClearingTheKernelCacheDirDropsTheDiscoveredList(): void
     {
         $this->boot(false);
@@ -80,11 +91,11 @@ final class RegistryCacheKernelTest extends TestCase
     }
 
     /** @return array{IndexRegistry, CacheItemPoolInterface} a kernel booted like a new process: new Kernel object, new container instance. */
-    private function boot(bool $debug): array
+    private function boot(bool $debug, bool $cacheInCli = true): array
     {
         // PhpFilesAdapter memoises the values it read in a process-wide static; a new process starts without it
         (new \ReflectionProperty(PhpFilesAdapter::class, 'valuesCache'))->setValue(null, []);
-        $kernel = new RegistryCacheKernel($this->dir, $debug);
+        $kernel = new RegistryCacheKernel($this->dir, $debug, $cacheInCli);
         $kernel->boot();
         $container = $kernel->getContainer();
         $registry = $container->get('test.registry');

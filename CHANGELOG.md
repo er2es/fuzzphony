@@ -7,8 +7,17 @@ changes; they are always listed under **Breaking** and explained in [UPGRADE.md]
 
 ## [Unreleased]
 
+## [0.9.6] - 2026-10-21
+
+Who searched what (the report, the optional masked client IP, the demo), the documentation round (an index, the "Migrating from `LIKE`" guide, three recipes, a link check in CI) and a reviewed list of known limitations. Nothing breaks. See [UPGRADE.md](UPGRADE.md#from-095-to-096) for the one optional step (`fuzzphony:schema --apply`, only to store the client IP).
+
 ### Added
 
+- **Guide: [Migrating from `LIKE`](docs/migrating-from-like.md).** Step by step from `WHERE name ILIKE '%x%'` to Fuzzphony
+  (index, build, query, entities in rank order, pagination, sync, tests), a table that maps `LIKE` patterns to the query syntax
+  (and says what is not supported), and a rollout plan (shadow search, feature flag, measuring, rollback). Every PHP and YAML snippet
+  and every query of the table is run by `tests/Integration/Docs/LikeGuideTest.php`, which fails when the guide shows other code.
+- **Recipes** in [docs/recipes](docs/recipes): an admin panel (API Platform search filter), a shop (facets, search as you type, synonyms, ranking, federated search, the Live Component) and a multi-tenant SaaS (tenant, actor, guards, search log, reports). Their code lives in `tests/Recipes` and runs in a new `recipes` test suite (`composer test:recipes`, included in a plain `phpunit` run); a test fails when a code block of a recipe differs from that code.
 - **Who searched what.** `SearchAnalytics::recentSearches()` lists the most recent logged searches of an index in a time window,
   newest first, as `LoggedSearch` objects (`at`, `index`, `tenant`, `user` with null for anonymous, `ip`, the stored (redacted)
   `query`, `hits`, `tookMs`, `usedFuzzy` and `status`). Filters: `user:` (exactly that name), `anonymousOnly:` and `status:`
@@ -46,6 +55,22 @@ changes; they are always listed under **Breaking** and explained in [UPGRADE.md]
   once. The demo sets no `trusted_proxies` on purpose (nginx hands php-fpm the client address as `REMOTE_ADDR`, and a private-range list
   would make a forged `X-Forwarded-For` believed). The Observability page points to the new section. Rows of the home page are
   anonymous and carry no address (only searches made `->asActor()` do). `flows.mjs` has 13 more checks.
+- **A documentation index, [docs/README.md](docs/README.md).** GitHub shows it when the `docs` folder is opened: every page in a reading
+  order, grouped (getting started, concepts, guides and recipes, reference, operations), with the question each page answers. The
+  README's Documentation section points to it and lists the LIKE guide and the three recipes; the recipes link back to the index.
+- **A link check for the documentation**, `php tools/check-docs-links.php` (no dependencies, no network), and the `docs-links` workflow that runs it
+  on every pull request and on `main`. It checks every relative Markdown link and image, every `#anchor` (GitHub's heading slugs, `-1`
+  for repeated headings, explicit `id` / `name` anchors) and every absolute link to this repository (`.../blob/main/...`, `.../tree/main/...`);
+  links to other sites are not checked, and neither is code (fences, inline code). Its parser and slug rules are unit-tested
+  (`tests/Unit/Docs/DocsLinkCheckerTest.php`); `tools/` is analysed by PHPStan and php-cs-fixer like `src/` and `tests/` and is not part of the package download.
+
+### Changed
+
+- [Console commands](docs/commands.md) lists every option of `fuzzphony:analytics` (`--recent`, `--user`, `--anonymous`, `--status`). The Live Component test kernel no longer registers the `@Fuzzphony` Twig path by hand: the bundle's own `getPath()` is enough (tests only).
+- A synonym member that is one plain word of more than 256 characters is now cut at 256 characters, as any other member text already was (the plain-word fast path of `SynonymExpander` kept it whole, so the same word followed by a space was cut and the word alone was not). Both paths now give the same words; a test compares them.
+- [Known limitations](docs/limitations.md) reviewed line by line against the code and grouped by topic: the candidate limit keeps the first matches the index returns, not the best ones (a better match can be missing; the page said "approximate", and promised a fix that shipped in 0.8 as `exactCounts()`), a phrase across two allowed fields for a restricted viewer, `mose` ties with `monitor` and `mower` instead of ranking below the mice; new entries for stop words, whole-word matching, typo-tolerant highlights, unstable scores, query cuts, the registry cache in production, process caches, `explain()` as not a stable API, the search-log IP and per-person history, the rate limit by tenant or user, deny-by-default authorization and tenant isolation. Documentation only.
+- **The registry cache (0.9.5) serves web requests only.** A console command, a worker or a Messenger consumer (`PHP_SAPI` is `cli`) now always discovers the `#[Searchable]` entities fresh and neither reads nor writes `cache.system`, so a deploy that runs `fuzzphony:schema --apply` before `cache:clear` no longer builds the schema from stale definitions; production web requests behave exactly as before (`cache:clear` is still what refreshes them). No configuration option: the container parameter `fuzzphony.registry_cache_in_cli` is an `@internal` test seam (the real-kernel test proves the cache from the command line).
+- **`PostgresEngine::resetCaches()`.** The engine remembers the stop words of the text search configuration, the stems of the synonyms and the synonym lookup tables for the life of the process, assuming the configuration does not change. The new `@internal` method forgets them, for an application that changes the text search configuration or a dictionary while a long-lived process runs (or restart the process). Nothing calls it by itself, not even `kernel.reset`: a long-lived worker keeps the caches on purpose, the prepared synonym lookup and the stop-word answers would otherwise be paid again on every request (a test pins that the engine is not tagged `kernel.reset`).
 
 ## [0.9.5] - 2026-10-20
 
@@ -949,7 +974,8 @@ on its own:
 - Sync modes: queue (default), trigger, ORM, manual; watches for joined tables.
 - Doctor with fixes; CLI commands for schema, reindex, worker, search and explain.
 
-[Unreleased]: https://github.com/er2es/fuzzphony/compare/v0.9.5...HEAD
+[Unreleased]: https://github.com/er2es/fuzzphony/compare/v0.9.6...HEAD
+[0.9.6]: https://github.com/er2es/fuzzphony/compare/v0.9.5...v0.9.6
 [0.9.5]: https://github.com/er2es/fuzzphony/compare/v0.9.4...v0.9.5
 [0.9.4]: https://github.com/er2es/fuzzphony/compare/v0.9.3...v0.9.4
 [0.9.3]: https://github.com/er2es/fuzzphony/compare/v0.9.2...v0.9.3

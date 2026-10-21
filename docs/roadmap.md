@@ -71,9 +71,12 @@ depends on it, so nothing built early has to be refactored once a later mileston
 Enterprise readiness, a stable API and a backward-compatibility promise. PostgreSQL only: no other
 engine is planned before 1.0.
 
-### Documentation site
+### Documentation
 
-With a "Migrating from `LIKE`" guide and recipes (admin panel, shop, multi-tenant SaaS).
+Done in 0.9.6, and it stays on GitHub (rendered Markdown, no site generator): the [index](README.md), the
+"[Migrating from `LIKE`](migrating-from-like.md)" guide and recipes ([admin panel](recipes/admin-panel.md),
+[shop](recipes/shop.md), [multi-tenant SaaS](recipes/multi-tenant-saas.md)), all with tested code, and a link
+check in CI.
 
 ### Mutation testing
 
