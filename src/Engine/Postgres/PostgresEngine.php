@@ -66,6 +66,8 @@ final class PostgresEngine implements Engine, Vocabulary, SynonymStems, Suggesti
     private const PROBE_LABEL = 'relaxation probe';
     private const SUGGEST_LABEL = 'did you mean';
     private const string EXACT_LABEL = 'exact total';
+    private const string WORD_SIMILARITY = 'pg_trgm.word_similarity_threshold';
+    private const string SEARCH_HINT = 'Run "bin/console fuzzphony:doctor" to check the index.';
     private const string FACET_LABEL = 'facet: ';
     private const string RESTRICTED_PLAN = 'No plan for a search restricted to some fields: its estimates and row counts are taken over every field.';
     private const string REBUILD_HINT = 'Run "fuzzphony:schema --apply" and "fuzzphony:doctor".';
@@ -87,6 +89,15 @@ final class PostgresEngine implements Engine, Vocabulary, SynonymStems, Suggesti
     private array $emptyAnswers = [];
     /** @var \WeakMap<Synonyms, string>|null the content digest of each Synonyms object (immutable), made once; see expandSynonyms() */
     private ?\WeakMap $synonymDigests = null;
+    /** @var array<string, true> vocabulary tables this engine has seen exist and be readable; only a positive answer is kept (see suggest()) */
+    private array $vocabularyReadable = [];
+    /**
+     * Set while this engine itself holds the transaction of a search (see inSearchTransaction()): the pg_trgm settings it has set
+     * in it, by name, with the value the session had before (original) and the one in force now (current). Null outside one.
+     *
+     * @var array<string, array{original: string|null, current: string|null}>|null
+     */
+    private ?array $settings = null;
 
     /**
      * @param string $extensionSchema schema of the pg_trgm and unaccent extensions
@@ -116,12 +127,14 @@ final class PostgresEngine implements Engine, Vocabulary, SynonymStems, Suggesti
      * digests. They hold as long as the text search configuration does not change, which a long-lived process cannot
      * know. A long-lived worker keeps them on purpose (the prepared synonym lookup and the stop-word answers would
      * otherwise be paid again on every request), so nothing calls this by itself: an application that changes the text
-     * search configuration or a dictionary while its process runs calls it, or restarts the process.
+     * search configuration or a dictionary while its process runs calls it, or restarts the process. It also forgets which
+     * vocabulary tables the did-you-mean lookup has found readable, so a table created or dropped since is looked at again.
      *
      * @internal
      */
     public function resetCaches(): void
     {
+        $this->vocabularyReadable = [];
         $this->expanders = [];
         $this->stems = [];
         $this->emptyAnswers = [];
@@ -534,94 +547,102 @@ final class PostgresEngine implements Engine, Vocabulary, SynonymStems, Suggesti
         }
         $expandedRoot = $root;
 
-        $run = $this->pipeline($index, $root, $conditions, $profile, $thresholds, $query, '');
-        $statements = $run['statements'];
-        array_push($warnings, ...$run['warnings']);
-        // setting of the last search statement, which explain() runs again
-        $threshold = $run['threshold'];
+        $run = $this->pipeline($index, $root, $conditions, $profile, $thresholds, $query, '', true);
+        // What is left of the search (the typo-tolerant statements, the relaxation, the facets, the suggestion) runs in ONE transaction
+        // when typo tolerance is due (see inSearchTransaction()); a search that needs no setting has no transaction at all.
+        $rest = function () use ($index, $query, $conditions, $profile, $thresholds, $typedRoot, $expandedRoot, $root, $warnings, $run): array {
+            $run = $this->completed($run);
+            $statements = $run['statements'];
+            array_push($warnings, ...$run['warnings']);
+            // setting of the last search statement, which explain() runs again
+            $threshold = $run['threshold'];
 
-        // Empty-result relaxation: drop the words that match nothing on their own, search once more.
-        if ($root !== null && $thresholds->relaxWhenEmpty && self::total($run['rows']) === 0) {
-            $probe = $this->probe($index, $root, $run['fuzzy'], $run['emptyQueries'], $conditions, $thresholds, $query->allowedFields);
-            if ($probe !== null) {
-                $statements[] = $probe['statement'];
-                $reduced = $probe['ignored'] === [] ? null : Relaxation::without($root, $probe['ignored']);
-                // the same guard as for the query itself: a relaxed query must still look for something
-                if ($reduced !== null && NodeInspector::hasPositive($reduced)) {
-                    $relaxed = $this->pipeline($index, $reduced, $conditions, $profile, $thresholds, $query, 'relaxed: ');
-                    array_push($statements, ...$relaxed['statements']);
-                    $threshold = $relaxed['threshold'];
-                    // Still nothing: the user would be told words were ignored and see no result anyway,
-                    // so the original (empty) answer stands.
-                    if (self::total($relaxed['rows']) > 0) {
-                        $root = $reduced;
-                        $run = $relaxed;
-                        array_push($warnings, ...$relaxed['warnings']);
-                        $warnings[] = Relaxation::warning($probe['ignored']);
+            // Empty-result relaxation: drop the words that match nothing on their own, search once more.
+            if ($root !== null && $thresholds->relaxWhenEmpty && self::total($run['rows']) === 0) {
+                $probe = $this->probe($index, $root, $run['fuzzy'], $run['emptyQueries'], $conditions, $thresholds, $query->allowedFields);
+                if ($probe !== null) {
+                    $statements[] = $probe['statement'];
+                    $reduced = $probe['ignored'] === [] ? null : Relaxation::without($root, $probe['ignored']);
+                    // the same guard as for the query itself: a relaxed query must still look for something
+                    if ($reduced !== null && NodeInspector::hasPositive($reduced)) {
+                        $relaxed = $this->pipeline($index, $reduced, $conditions, $profile, $thresholds, $query, 'relaxed: ');
+                        array_push($statements, ...$relaxed['statements']);
+                        $threshold = $relaxed['threshold'];
+                        // Still nothing: the user would be told words were ignored and see no result anyway,
+                        // so the original (empty) answer stands.
+                        if (self::total($relaxed['rows']) > 0) {
+                            $root = $reduced;
+                            $run = $relaxed;
+                            array_push($warnings, ...$relaxed['warnings']);
+                            $warnings[] = Relaxation::warning($probe['ignored']);
+                        }
                     }
                 }
             }
-        }
 
-        $rows = $run['rows'];
-        $tsquery = $run['tsquery'];
-        $total = self::total($rows);
-        $capped = $rows !== [] && (Coerce::int($rows[0]['fts_n']) >= $thresholds->candidateLimit || Coerce::int($rows[0]['fuzzy_n']) >= $thresholds->candidateLimit);
-        if ($run['browse']) {
-            $capped = $total >= $thresholds->candidateLimit;
-        }
-        $builder = new SearchSqlBuilder($index, $this->names, $run['ranked']['candidates'] ?? [], $query->allowedFields);
-        // exactCounts(): when the candidate limit cut the matches off, count them all
-        if ($query->exactCounts && $capped) {
-            $statement = ['label' => self::EXACT_LABEL] + ($run['ranked'] === null
-                ? $builder->browseExactTotal($conditions)
-                : $builder->exactTotal($run['ranked']['tsquery'], $run['ranked']['plain'], $run['ranked']['fuzzyRoot'], $conditions, $profile, $thresholds, $run['ranked']['emptyQueries'], $run['ranked']['scopedRoot']));
-            $total = Coerce::int($this->run($statement, $threshold)[0]['total'] ?? 0);
-            $statements[] = $statement;
-            $capped = false;
-        }
-        $facets = [];
-        // disjunctive: the conditions on a facet's own filter are left out, so it shows what another value would find (the tenant's stay)
-        $others = [];
-        foreach ($query->facets as $name) {
-            $others[$name] = array_values(array_filter($conditions, static fn(Condition $c): bool => $c->filter !== $name || $c->filter === $index->tenant));
-        }
-        // the facets that keep every condition count the very candidates of the search: two or more of them share one statement
-        $common = array_values(array_unique(array_filter($query->facets, static fn(string $name): bool => $others[$name] === $conditions)));
-        $facetRows = [];
-        if (count($common) > 1) {
-            $statement = ['label' => self::FACET_LABEL . implode(', ', $common)] + ($run['ranked'] === null
-                ? $builder->browseFacets($common, $conditions, $thresholds, $query->facetValues, $query->exactCounts)
-                : $builder->facets($common, $run['ranked']['tsquery'], $run['ranked']['plain'], $run['ranked']['fuzzyRoot'], $conditions, $profile, $thresholds, $query->facetValues, $query->exactCounts, $run['ranked']['emptyQueries'], $run['ranked']['scopedRoot']));
-            $facetRows = array_fill_keys($common, []);
-            foreach ($this->run($statement, $threshold) as $row) {
-                $facetRows[$common[Coerce::int($row['f'])]][] = $row;
+            $rows = $run['rows'];
+            $tsquery = $run['tsquery'];
+            $total = self::total($rows);
+            $capped = $rows !== [] && (Coerce::int($rows[0]['fts_n']) >= $thresholds->candidateLimit || Coerce::int($rows[0]['fuzzy_n']) >= $thresholds->candidateLimit);
+            if ($run['browse']) {
+                $capped = $total >= $thresholds->candidateLimit;
             }
-            $statements[] = $statement;
-        }
-        foreach ($query->facets as $name) {
-            if (!isset($facetRows[$name])) {
-                // the conditions differ from the search's: the facet needs its own candidates
-                // the probed candidates passed every condition: a facet that leaves one out keeps the words' trigram condition
-                $facetBuilder = $others[$name] === $conditions ? $builder : new SearchSqlBuilder($index, $this->names, [], $query->allowedFields);
-                $statement = ['label' => self::FACET_LABEL . $name] + ($run['ranked'] === null
-                    ? $facetBuilder->browseFacet($name, $others[$name], $thresholds, $query->facetValues, $query->exactCounts)
-                    : $facetBuilder->facet($name, $run['ranked']['tsquery'], $run['ranked']['plain'], $run['ranked']['fuzzyRoot'], $others[$name], $profile, $thresholds, $query->facetValues, $query->exactCounts, $run['ranked']['emptyQueries'], $run['ranked']['scopedRoot']));
-                $facetRows[$name] = $this->run($statement, $threshold);
+            $builder = new SearchSqlBuilder($index, $this->names, $run['ranked']['candidates'] ?? [], $query->allowedFields);
+            // exactCounts(): when the candidate limit cut the matches off, count them all
+            if ($query->exactCounts && $capped) {
+                $statement = ['label' => self::EXACT_LABEL] + ($run['ranked'] === null
+                    ? $builder->browseExactTotal($conditions)
+                    : $builder->exactTotal($run['ranked']['tsquery'], $run['ranked']['plain'], $run['ranked']['fuzzyRoot'], $conditions, $profile, $thresholds, $run['ranked']['emptyQueries'], $run['ranked']['scopedRoot']));
+                $total = Coerce::int($this->run($statement, $threshold)[0]['total'] ?? 0);
+                $statements[] = $statement;
+                $capped = false;
+            }
+            $facets = [];
+            // disjunctive: the conditions on a facet's own filter are left out, so it shows what another value would find (the tenant's stay)
+            $others = [];
+            foreach ($query->facets as $name) {
+                $others[$name] = array_values(array_filter($conditions, static fn(Condition $c): bool => $c->filter !== $name || $c->filter === $index->tenant));
+            }
+            // the facets that keep every condition count the very candidates of the search: two or more of them share one statement
+            $common = array_values(array_unique(array_filter($query->facets, static fn(string $name): bool => $others[$name] === $conditions)));
+            $facetRows = [];
+            if (count($common) > 1) {
+                $statement = ['label' => self::FACET_LABEL . implode(', ', $common)] + ($run['ranked'] === null
+                    ? $builder->browseFacets($common, $conditions, $thresholds, $query->facetValues, $query->exactCounts)
+                    : $builder->facets($common, $run['ranked']['tsquery'], $run['ranked']['plain'], $run['ranked']['fuzzyRoot'], $conditions, $profile, $thresholds, $query->facetValues, $query->exactCounts, $run['ranked']['emptyQueries'], $run['ranked']['scopedRoot']));
+                $facetRows = array_fill_keys($common, []);
+                foreach ($this->run($statement, $threshold) as $row) {
+                    $facetRows[$common[Coerce::int($row['f'])]][] = $row;
+                }
                 $statements[] = $statement;
             }
-            $type = $index->filter($name)->type;
-            $facets[$name] = array_map(static fn(array $row): FacetValue => new FacetValue(self::facetValue($type, $row['value'] ?? null), Coerce::int($row['n'])), $facetRows[$name]);
-        }
-        $rows = self::hitsOnly($rows);
-        $suggestion = null;
-        // the vocabulary holds the words of every field: a restricted viewer gets no suggestion (nor the lookup's statement)
-        $didYouMean = $thresholds->didYouMean && $query->allowedFields === null && $typedRoot !== null && $expandedRoot !== null && !$run['browse'] && $index->hasFuzzy() && ($total < $thresholds->fallbackBelow || $run['usedFuzzy'])
-            ? $this->suggest($index, $typedRoot, $expandedRoot, $thresholds, $suggestion)
-            : null;
-        if ($suggestion !== null) {
-            $statements[] = $suggestion;
-        }
+            foreach ($query->facets as $name) {
+                if (!isset($facetRows[$name])) {
+                    // the conditions differ from the search's: the facet needs its own candidates
+                    // the probed candidates passed every condition: a facet that leaves one out keeps the words' trigram condition
+                    $facetBuilder = $others[$name] === $conditions ? $builder : new SearchSqlBuilder($index, $this->names, [], $query->allowedFields);
+                    $statement = ['label' => self::FACET_LABEL . $name] + ($run['ranked'] === null
+                        ? $facetBuilder->browseFacet($name, $others[$name], $thresholds, $query->facetValues, $query->exactCounts)
+                        : $facetBuilder->facet($name, $run['ranked']['tsquery'], $run['ranked']['plain'], $run['ranked']['fuzzyRoot'], $others[$name], $profile, $thresholds, $query->facetValues, $query->exactCounts, $run['ranked']['emptyQueries'], $run['ranked']['scopedRoot']));
+                    $facetRows[$name] = $this->run($statement, $threshold);
+                    $statements[] = $statement;
+                }
+                $type = $index->filter($name)->type;
+                $facets[$name] = array_map(static fn(array $row): FacetValue => new FacetValue(self::facetValue($type, $row['value'] ?? null), Coerce::int($row['n'])), $facetRows[$name]);
+            }
+            $rows = self::hitsOnly($rows);
+            $suggestion = null;
+            // the vocabulary holds the words of every field: a restricted viewer gets no suggestion (nor the lookup's statement)
+            $didYouMean = $thresholds->didYouMean && $query->allowedFields === null && $typedRoot !== null && $expandedRoot !== null && !$run['browse'] && $index->hasFuzzy() && ($total < $thresholds->fallbackBelow || $run['usedFuzzy'])
+                ? $this->suggest($index, $typedRoot, $expandedRoot, $thresholds, $suggestion)
+                : null;
+            if ($suggestion !== null) {
+                $statements[] = $suggestion;
+            }
+
+            return [$run, $statements, $warnings, $threshold, $root, $rows, $tsquery, $total, $capped, $facets, $didYouMean];
+        };
+        [$run, $statements, $warnings, $threshold, $root, $rows, $tsquery, $total, $capped, $facets, $didYouMean] = $run['phase'] !== null ? $this->inSearchTransaction($rest) : $rest();
 
         $highlights = [];
         // a field the viewer may not see is dropped from the highlights (not an error: the application asks the same for everyone)
@@ -727,13 +748,19 @@ final class PostgresEngine implements Engine, Vocabulary, SynonymStems, Suggesti
             return null;
         }
         $vocabulary = $this->names->vocabulary($index);
-        // a table the schema has not created yet, or one this role may not read (an upgrade before "fuzzphony:schema --apply"
-        // and the GRANT), is no reason to fail a search, and a failed statement would abort a transaction the caller may have open
-        if ($this->connection->fetchValue("SELECT to_regclass(:a) IS NOT NULL AND has_table_privilege(to_regclass(:b), 'SELECT')", ['a' => $vocabulary, 'b' => $vocabulary]) !== true) {
-            return null;
-        }
         $extension = $this->names->extension();
-        $restore = !($this->connection instanceof TransactionAware) || $this->connection->inTransaction();
+        $restore = $this->settings === null && (!($this->connection instanceof TransactionAware) || $this->connection->inTransaction());
+        // A table the schema has not created yet, or one this role may not read (an upgrade before "fuzzphony:schema --apply"
+        // and the GRANT), is no reason to fail a search, and a failed statement would abort a transaction the caller may have open.
+        // A positive answer is kept for the life of the engine (resetCaches() forgets it), a negative one never, so the check is one
+        // round trip per process, not per search. It is not trusted when the caller may have a transaction open: a lookup that fails
+        // there (the table dropped or the privilege revoked since) would abort it, so that case asks every time, as it always did.
+        if ($restore || !isset($this->vocabularyReadable[$vocabulary])) {
+            if ($this->connection->fetchValue("SELECT to_regclass(:a) IS NOT NULL AND has_table_privilege(to_regclass(:b), 'SELECT')", ['a' => $vocabulary, 'b' => $vocabulary]) !== true) {
+                return null;
+            }
+            $this->vocabularyReadable[$vocabulary] = true;
+        }
         // known: a stop word, a word of the vocabulary, or any word the index finds (a word of a field that is not typo-tolerant,
         // an inflection, a word added since the last full reindex): the search above found what it could
         $sql = sprintf(
@@ -748,10 +775,15 @@ final class PostgresEngine implements Engine, Vocabulary, SynonymStems, Suggesti
         $statement = ['label' => self::SUGGEST_LABEL, 'sql' => $sql, 'params' => $parameters];
         // the candidates are the words with a trigram similarity of 0.3 or more, whatever the session has set
         /** @var \Closure(): list<array<string, mixed>> $lookup */
-        $lookup = fn() => $this->connection->transactional(
-            static fn(Connection $c) => self::withSimilarityThreshold($c, 0.3, $restore, static fn() => $c->fetchAll($sql, $parameters), 'pg_trgm.similarity_threshold'),
-        );
-        $rows = $this->guard('did_you_mean', $lookup, 'Run "bin/console fuzzphony:schema --apply", then "bin/console fuzzphony:reindex --vocabulary".');
+        $lookup = fn() => $this->fetchWithSetting($sql, $parameters, 0.3, 'pg_trgm.similarity_threshold');
+        try {
+            $rows = $this->guard('did_you_mean', $lookup, 'Run "bin/console fuzzphony:schema --apply", then "bin/console fuzzphony:reindex --vocabulary".');
+        } catch (FuzzphonyException $e) {
+            // the table may be gone (or unreadable) since it was last seen: the next search asks again
+            unset($this->vocabularyReadable[$vocabulary]);
+
+            throw $e;
+        }
 
         /** @var array<string, array{int, int, string}> $best typed word => [distance, -documents, vocabulary word] */
         $best = [];
@@ -874,6 +906,11 @@ final class PostgresEngine implements Engine, Vocabulary, SynonymStems, Suggesti
      * The normal search: strict full text, then the typo-tolerant branch as the fuzzy mode says
      * (or browsing when there is no text). Runs once, or twice when an empty result is relaxed.
      *
+     * The typo-tolerant branch (the per-word candidate probes and the ranked statement it ends with) is a "phase". With
+     * $defer it is not run but returned in "phase", with the strict statement's rows (none when typo tolerance comes first)
+     * as they are: the caller runs the rest of the search inside one transaction (see completed()). Without $defer the
+     * phase runs here, in a transaction of its own.
+     *
      * @param list<Condition> $conditions
      *
      * @return array{
@@ -886,10 +923,11 @@ final class PostgresEngine implements Engine, Vocabulary, SynonymStems, Suggesti
      *     emptyQueries: list<string>|null,
      *     browse: bool,
      *     warnings: list<string>,
-     *     ranked: array{tsquery: string|null, plain: string, fuzzyRoot: Node|null, emptyQueries: list<string>, scopedRoot: Node|null, candidates: array<string, list<int|string>>}|null
+     *     ranked: array{tsquery: string|null, plain: string, fuzzyRoot: Node|null, emptyQueries: list<string>, scopedRoot: Node|null, candidates: array<string, list<int|string>>}|null,
+     *     phase: (\Closure(): array{rows: list<array<string, mixed>>, statements: list<array{label: string, sql: string, params: array<string, scalar|null>}>, threshold: float|null, ranked: array{tsquery: string|null, plain: string, fuzzyRoot: Node|null, emptyQueries: list<string>, scopedRoot: Node|null, candidates: array<string, list<int|string>>}})|null
      * }
      */
-    private function pipeline(IndexDefinition $index, ?Node $root, array $conditions, RankingProfile $profile, Thresholds $thresholds, SearchQuery $query, string $labelPrefix): array
+    private function pipeline(IndexDefinition $index, ?Node $root, array $conditions, RankingProfile $profile, Thresholds $thresholds, SearchQuery $query, string $labelPrefix, bool $defer = false): array
     {
         $warnings = [];
         $tsquery = null;
@@ -913,13 +951,30 @@ final class PostgresEngine implements Engine, Vocabulary, SynonymStems, Suggesti
             && $fuzzy->hasFuzzyLeaf($root) ? $root : null;
 
         $builder = new SearchSqlBuilder($index, $this->names, [], $query->allowedFields);
+        /** @var list<array{label: string, sql: string, params: array<string, scalar|null>}> $statements */
         $statements = [];
-        $usedFuzzy = false;
         $threshold = null;
         $browse = false;
         $ranked = null;
+        $phase = null;
+        $rows = [];
         // the recheck drops stop words as the strict tsquery does, so it needs them up front
         $emptyQueries = $scopedRoot === null ? null : $this->fuzzyStopWords($index, $fuzzy, $scopedRoot, $fuzzyRoot);
+        // the typo-tolerant statements: the candidates of each word probed on its own, then the ranked statement over them
+        $typoPhase = fn(Node $fuzzyRoot, string $label, array $empty): \Closure => fn(): array => $this->inSearchTransaction(function () use ($index, $fuzzy, $builder, $fuzzyRoot, $label, $empty, $conditions, $profile, $thresholds, $query, $tsquery, $plain, $scopedRoot): array {
+            /** @var list<string> $empty */
+            $candidates = $this->fuzzyCandidates($fuzzy, $fuzzyRoot, $empty, $thresholds, $conditions);
+            $statement = ['label' => $label]
+                + ($candidates === [] ? $builder : new SearchSqlBuilder($index, $this->names, $candidates, $query->allowedFields))->ranked($tsquery, $plain, $fuzzyRoot, $conditions, $profile, $thresholds, $query->limit, $query->offset, $empty, $scopedRoot);
+            $threshold = $fuzzy->lowestSimilarity($fuzzyRoot, $empty);
+
+            return [
+                'rows' => $this->run($statement, $threshold),
+                'statements' => [$statement],
+                'threshold' => $threshold,
+                'ranked' => ['tsquery' => $tsquery, 'plain' => $plain, 'fuzzyRoot' => $fuzzyRoot, 'emptyQueries' => $empty, 'scopedRoot' => $scopedRoot, 'candidates' => $candidates],
+            ];
+        });
 
         if ($tsquery === null && $plain === '') {
             $statement = ['label' => 'browse'] + $builder->browse($conditions, $profile, $thresholds, $query->limit, $query->offset);
@@ -930,37 +985,29 @@ final class PostgresEngine implements Engine, Vocabulary, SynonymStems, Suggesti
             $alwaysFuzzy = $fuzzyRoot !== null
                 && ($thresholds->fuzzyMode === FuzzyMode::Always || $tsquery === null)
                 && $fuzzy->hasFuzzyLeaf($fuzzyRoot, $emptyQueries ??= $this->fuzzyStopWords($index, $fuzzy, $fuzzyRoot, $fuzzyRoot));
-            $candidates = $alwaysFuzzy && $fuzzyRoot !== null ? $this->fuzzyCandidates($fuzzy, $fuzzyRoot, $emptyQueries ?? [], $thresholds, $conditions) : [];
-            $statement = ['label' => $labelPrefix . ($alwaysFuzzy ? 'full-text + fuzzy' : 'full-text')]
-                + ($candidates === [] ? $builder : new SearchSqlBuilder($index, $this->names, $candidates, $query->allowedFields))->ranked($tsquery, $plain, $alwaysFuzzy ? $fuzzyRoot : null, $conditions, $profile, $thresholds, $query->limit, $query->offset, $emptyQueries ?? [], $scopedRoot);
-            $threshold = $alwaysFuzzy && $fuzzyRoot !== null ? $fuzzy->lowestSimilarity($fuzzyRoot, $emptyQueries ?? []) : null;
-            $rows = $this->run($statement, $threshold);
-            $statements[] = $statement;
-            $usedFuzzy = $alwaysFuzzy;
-            $ranked = ['tsquery' => $tsquery, 'plain' => $plain, 'fuzzyRoot' => $alwaysFuzzy ? $fuzzyRoot : null, 'emptyQueries' => $emptyQueries ?? [], 'scopedRoot' => $scopedRoot, 'candidates' => $candidates];
-
-            if (
-                !$alwaysFuzzy
-                && $fuzzyRoot !== null
-                && $thresholds->fuzzyMode === FuzzyMode::Fallback
-                && self::total($rows) < $thresholds->fallbackBelow
-                && $fuzzy->hasFuzzyLeaf($fuzzyRoot, $emptyQueries ??= $this->fuzzyStopWords($index, $fuzzy, $fuzzyRoot, $fuzzyRoot))
-            ) {
-                $candidates = $this->fuzzyCandidates($fuzzy, $fuzzyRoot, $emptyQueries, $thresholds, $conditions);
-                $statement = ['label' => $labelPrefix . 'fallback: full-text + fuzzy']
-                    + ($candidates === [] ? $builder : new SearchSqlBuilder($index, $this->names, $candidates, $query->allowedFields))->ranked($tsquery, $plain, $fuzzyRoot, $conditions, $profile, $thresholds, $query->limit, $query->offset, $emptyQueries, $scopedRoot);
-                $threshold = $fuzzy->lowestSimilarity($fuzzyRoot, $emptyQueries);
-                $rows = $this->run($statement, $threshold);
+            if ($alwaysFuzzy && $fuzzyRoot !== null) {
+                $phase = $typoPhase($fuzzyRoot, $labelPrefix . 'full-text + fuzzy', $emptyQueries ?? []);
+            } else {
+                $statement = ['label' => $labelPrefix . 'full-text'] + $builder->ranked($tsquery, $plain, null, $conditions, $profile, $thresholds, $query->limit, $query->offset, $emptyQueries ?? [], $scopedRoot);
+                $rows = $this->run($statement, null);
                 $statements[] = $statement;
-                $usedFuzzy = true;
-                $ranked = ['tsquery' => $tsquery, 'plain' => $plain, 'fuzzyRoot' => $fuzzyRoot, 'emptyQueries' => $emptyQueries, 'scopedRoot' => $scopedRoot, 'candidates' => $candidates];
+                $ranked = ['tsquery' => $tsquery, 'plain' => $plain, 'fuzzyRoot' => null, 'emptyQueries' => $emptyQueries ?? [], 'scopedRoot' => $scopedRoot, 'candidates' => []];
+
+                if (
+                    $fuzzyRoot !== null
+                    && $thresholds->fuzzyMode === FuzzyMode::Fallback
+                    && self::total($rows) < $thresholds->fallbackBelow
+                    && $fuzzy->hasFuzzyLeaf($fuzzyRoot, $emptyQueries ??= $this->fuzzyStopWords($index, $fuzzy, $fuzzyRoot, $fuzzyRoot))
+                ) {
+                    $phase = $typoPhase($fuzzyRoot, $labelPrefix . 'fallback: full-text + fuzzy', $emptyQueries);
+                }
             }
         }
 
-        return [
+        $run = [
             'rows' => $rows,
             'statements' => $statements,
-            'usedFuzzy' => $usedFuzzy,
+            'usedFuzzy' => false,
             'threshold' => $threshold,
             'tsquery' => $tsquery,
             'fuzzy' => $fuzzyRoot !== null,
@@ -968,7 +1015,59 @@ final class PostgresEngine implements Engine, Vocabulary, SynonymStems, Suggesti
             'browse' => $browse,
             'warnings' => $warnings,
             'ranked' => $ranked,
+            'phase' => $phase,
         ];
+
+        return $defer ? $run : $this->completed($run);
+    }
+
+    /**
+     * A pipeline result with its typo-tolerant phase run (see pipeline()): the phase's rows, statements, setting and
+     * ranked statement replace the strict statement's, as they always did. A result without a phase is returned as it is.
+     *
+     * @param array{
+     *     rows: list<array<string, mixed>>,
+     *     statements: list<array{label: string, sql: string, params: array<string, scalar|null>}>,
+     *     usedFuzzy: bool,
+     *     threshold: float|null,
+     *     tsquery: string|null,
+     *     fuzzy: bool,
+     *     emptyQueries: list<string>|null,
+     *     browse: bool,
+     *     warnings: list<string>,
+     *     ranked: array{tsquery: string|null, plain: string, fuzzyRoot: Node|null, emptyQueries: list<string>, scopedRoot: Node|null, candidates: array<string, list<int|string>>}|null,
+     *     phase: (\Closure(): array{rows: list<array<string, mixed>>, statements: list<array{label: string, sql: string, params: array<string, scalar|null>}>, threshold: float|null, ranked: array{tsquery: string|null, plain: string, fuzzyRoot: Node|null, emptyQueries: list<string>, scopedRoot: Node|null, candidates: array<string, list<int|string>>}})|null
+     * } $run
+     *
+     * @return array{
+     *     rows: list<array<string, mixed>>,
+     *     statements: list<array{label: string, sql: string, params: array<string, scalar|null>}>,
+     *     usedFuzzy: bool,
+     *     threshold: float|null,
+     *     tsquery: string|null,
+     *     fuzzy: bool,
+     *     emptyQueries: list<string>|null,
+     *     browse: bool,
+     *     warnings: list<string>,
+     *     ranked: array{tsquery: string|null, plain: string, fuzzyRoot: Node|null, emptyQueries: list<string>, scopedRoot: Node|null, candidates: array<string, list<int|string>>}|null,
+     *     phase: (\Closure(): array{rows: list<array<string, mixed>>, statements: list<array{label: string, sql: string, params: array<string, scalar|null>}>, threshold: float|null, ranked: array{tsquery: string|null, plain: string, fuzzyRoot: Node|null, emptyQueries: list<string>, scopedRoot: Node|null, candidates: array<string, list<int|string>>}})|null
+     * }
+     */
+    private function completed(array $run): array
+    {
+        if ($run['phase'] === null) {
+            return $run;
+        }
+        $phase = ($run['phase'])();
+
+        return [
+            'rows' => $phase['rows'],
+            'statements' => [...$run['statements'], ...$phase['statements']],
+            'usedFuzzy' => true,
+            'threshold' => $phase['threshold'],
+            'ranked' => $phase['ranked'],
+            'phase' => null,
+        ] + $run;
     }
 
     /**
@@ -1110,26 +1209,126 @@ final class PostgresEngine implements Engine, Vocabulary, SynonymStems, Suggesti
      */
     private function run(array $statement, ?float $similarityThreshold): array
     {
-        if ($similarityThreshold === null) {
+        return $this->guard('search', fn(): array => $this->fetchWithSetting($statement['sql'], $statement['params'], $similarityThreshold, self::WORD_SIMILARITY), self::SEARCH_HINT);
+    }
+
+    /**
+     * Runs $work, the statements of one search, in ONE transaction when this engine may own it, instead of one transaction
+     * per statement that sets a pg_trgm setting (BEGIN, the setting, the statement, COMMIT: four round trips for one SELECT).
+     * Each statement still sets what it needs (settle()), so none sees another's value, and the settings are transaction-local,
+     * so COMMIT leaves the session as it was. When the caller has a transaction open, or the connection cannot say, nothing
+     * is opened here: each statement does what it always did (its own setting, and the previous value put back).
+     *
+     * A statement that fails ends the search with its EngineFailure and rolls the transaction back, as it did when the
+     * transaction was its own; no statement of a search is allowed to fail and be ignored, so nothing is left to poison.
+     * A failing BEGIN or COMMIT is an EngineFailure of the search too.
+     *
+     * @template T
+     *
+     * @param \Closure(): T $work
+     *
+     * @return T
+     */
+    private function inSearchTransaction(\Closure $work): mixed
+    {
+        if ($this->settings !== null || !$this->connection instanceof TransactionAware || $this->connection->inTransaction()) {
+            return $work();
+        }
+        $state = new \stdClass();
+        $state->entered = false;
+        $state->thrown = null;
+        try {
+            return $this->connection->transactional(function () use ($work, $state): mixed {
+                $state->entered = true;
+                $this->settings = [];
+                try {
+                    return $work();
+                } catch (\Throwable $e) {
+                    $state->thrown = $e;
+
+                    throw $e;
+                } finally {
+                    $this->settings = null;
+                }
+            });
+        } catch (FuzzphonyException $e) {
+            throw $e;
+        } catch (\Throwable $e) {
+            if ($state->entered === true && $e === $state->thrown) {
+                throw $e; // not the database's: it passes as it would without a transaction
+            }
+            // BEGIN, COMMIT or ROLLBACK failed
+            $this->metrics->increment('fuzzphony.search.errors');
+
+            throw EngineFailure::wrap('search', $e, self::SEARCH_HINT);
+        }
+    }
+
+    /**
+     * One statement, with the pg_trgm setting $name at $value (null: it needs none).
+     *
+     * Inside the search transaction of this engine the setting is made there; otherwise a statement with a setting is
+     * wrapped in a transaction of its own (and joins the caller's, putting the previous value back).
+     *
+     * @param array<string, scalar|null> $params
+     *
+     * @return list<array<string, mixed>>
+     */
+    private function fetchWithSetting(string $sql, array $params, ?float $value, string $name): array
+    {
+        if ($this->settings !== null) {
+            $this->settle($sql, $value, $name);
+
+            return $this->connection->fetchAll($sql, $params);
+        }
+        if ($value === null) {
             // nothing to set, so nothing to scope to a transaction: a single SELECT needs no BEGIN and COMMIT (two round trips)
-            return $this->guard('search', fn(): array => $this->connection->fetchAll($statement['sql'], $statement['params']), 'Run "bin/console fuzzphony:doctor" to check the index.');
+            return $this->connection->fetchAll($sql, $params);
         }
 
         // Computed before transactional() opens (or joins) a transaction, so it reflects whether
-        // the *caller* already had one open — not the one this call is about to start itself.
+        // the *caller* already had one open, not the one this call is about to start itself.
         $restore = !($this->connection instanceof TransactionAware) || $this->connection->inTransaction();
 
-        /** @var \Closure(): list<array<string, mixed>> $search */
-        $search = fn() => $this->connection->transactional(
-            static fn(Connection $c) => self::withSimilarityThreshold(
-                $c,
-                $similarityThreshold,
-                $restore,
-                static fn() => $c->fetchAll($statement['sql'], $statement['params']),
-            ),
+        /** @var list<array<string, mixed>> $rows */
+        $rows = $this->connection->transactional(
+            static fn(Connection $c) => self::withSimilarityThreshold($c, $value, $restore, static fn() => $c->fetchAll($sql, $params), $name),
         );
 
-        return $this->guard('search', $search, 'Run "bin/console fuzzphony:doctor" to check the index.');
+        return $rows;
+    }
+
+    /**
+     * Inside the search transaction: makes the setting what the next statement needs, and nothing more.
+     *
+     * A value that is already in force is not set again (a transaction keeps it until it ends). The first time a setting is
+     * set, the value the session had is read in the same round trip, as withSimilarityThreshold() reads it. A statement that
+     * sets nothing must see the session's own value, as it did outside a transaction: the one that compares words with `<%`
+     * (the only operator that reads word_similarity_threshold) gets it back when this transaction has changed it; the others
+     * (the strict full-text statements, the facets over strict candidates) do not read the setting and cost no round trip.
+     */
+    private function settle(string $sql, ?float $value, string $name): void
+    {
+        $setting = $this->settings[$name] ?? null;
+        if ($value === null) {
+            if ($setting !== null && $setting['current'] !== $setting['original'] && $name === self::WORD_SIMILARITY && str_contains($sql, '<%')) {
+                $this->connection->fetchValue(sprintf("SELECT set_config('%s', :v, true)", $name), ['v' => $setting['original']]);
+                $this->settings[$name]['current'] = $setting['original'];
+            }
+
+            return;
+        }
+        $text = (string) $value;
+        if ($setting === null) {
+            $previous = $this->connection->fetchValue(
+                sprintf("WITH old AS MATERIALIZED (SELECT current_setting('%1\$s', true) AS v) SELECT v, set_config('%1\$s', :t, true) FROM old", $name),
+                ['t' => $text],
+            );
+            $this->settings[$name] = ['original' => is_string($previous) ? $previous : null, 'current' => $text];
+        } elseif ($setting['current'] !== $text) {
+            $this->connection->fetchValue(sprintf("SELECT set_config('%s', :v, true)", $name), ['v' => $text]);
+            $this->settings[$name]['current'] = $text;
+        }
     }
 
     /**
@@ -1144,7 +1343,7 @@ final class PostgresEngine implements Engine, Vocabulary, SynonymStems, Suggesti
      *
      * @return T
      */
-    private static function withSimilarityThreshold(Connection $c, ?float $similarityThreshold, bool $restore, \Closure $work, string $name = 'pg_trgm.word_similarity_threshold'): mixed
+    private static function withSimilarityThreshold(Connection $c, ?float $similarityThreshold, bool $restore, \Closure $work, string $name = self::WORD_SIMILARITY): mixed
     {
         if ($similarityThreshold === null) {
             return $work();

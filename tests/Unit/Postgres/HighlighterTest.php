@@ -156,9 +156,9 @@ final class HighlighterTest extends TestCase
     }
 
     /** @param list<list<array<string, mixed>>> $answers the rows of each statement, in order */
-    private function scripted(array $answers): ScriptedConnection
+    private function scripted(array $answers): AnswerScriptedConnection
     {
-        return new ScriptedConnection($answers);
+        return new AnswerScriptedConnection($answers);
     }
 
     private function neverCalledConnection(): Connection
