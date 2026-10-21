@@ -51,9 +51,18 @@ changes; they are always listed under **Breaking** and explained in [UPGRADE.md]
   once. The demo sets no `trusted_proxies` on purpose (nginx hands php-fpm the client address as `REMOTE_ADDR`, and a private-range list
   would make a forged `X-Forwarded-For` believed). The Observability page points to the new section. Rows of the home page are
   anonymous and carry no address (only searches made `->asActor()` do). `flows.mjs` has 13 more checks.
+- **A documentation index, [docs/README.md](docs/README.md).** GitHub shows it when the `docs` folder is opened: every page in a reading
+  order, grouped (getting started, concepts, guides and recipes, reference, operations), with the question each page answers. The
+  README's Documentation section points to it and lists the LIKE guide and the three recipes; the recipes link back to the index.
+- **A link check for the documentation**, `php tools/check-docs-links.php` (no dependencies, no network), and the `docs-links` workflow that runs it
+  on every pull request and on `main`. It checks every relative Markdown link and image, every `#anchor` (GitHub's heading slugs, `-1`
+  for repeated headings, explicit `id` / `name` anchors) and every absolute link to this repository (`.../blob/main/...`, `.../tree/main/...`);
+  links to other sites are not checked, and neither is code (fences, inline code). Its parser and slug rules are unit-tested
+  (`tests/Unit/Docs/DocsLinkCheckerTest.php`); `tools/` is analysed by PHPStan and php-cs-fixer like `src/` and `tests/` and is not part of the package download.
 
 ### Changed
 
+- [Console commands](docs/commands.md) lists every option of `fuzzphony:analytics` (`--recent`, `--user`, `--anonymous`, `--status`). The Live Component test kernel no longer registers the `@Fuzzphony` Twig path by hand: the bundle's own `getPath()` is enough (tests only).
 - A synonym member that is one plain word of more than 256 characters is now cut at 256 characters, as any other member text already was (the plain-word fast path of `SynonymExpander` kept it whole, so the same word followed by a space was cut and the word alone was not). Both paths now give the same words; a test compares them.
 - [Known limitations](docs/limitations.md) reviewed line by line against the code and grouped by topic: the candidate limit keeps the first matches the index returns, not the best ones (a better match can be missing; the page said "approximate", and promised a fix that shipped in 0.8 as `exactCounts()`), a phrase across two allowed fields for a restricted viewer, `mose` ties with `monitor` and `mower` instead of ranking below the mice; new entries for stop words, whole-word matching, typo-tolerant highlights, unstable scores, query cuts, the registry cache in production, process caches, `explain()` as not a stable API, the search-log IP and per-person history, the rate limit by tenant or user, deny-by-default authorization and tenant isolation. Documentation only.
 - **The registry cache (0.9.5) serves web requests only.** A console command, a worker or a Messenger consumer (`PHP_SAPI` is `cli`) now always discovers the `#[Searchable]` entities fresh and neither reads nor writes `cache.system`, so a deploy that runs `fuzzphony:schema --apply` before `cache:clear` no longer builds the schema from stale definitions; production web requests behave exactly as before (`cache:clear` is still what refreshes them). No configuration option: the container parameter `fuzzphony.registry_cache_in_cli` is an `@internal` test seam (the real-kernel test proves the cache from the command line).

@@ -235,8 +235,12 @@ nothing drops the words that match nothing and says so. Details:
 
 ## Documentation
 
+The [documentation index](https://github.com/er2es/fuzzphony/blob/main/docs/README.md) lists every page with a reading order. The main ones:
+
 - [Index definitions](https://github.com/er2es/fuzzphony/blob/main/docs/configuration.md): attributes, YAML, builder, bundle configuration, building an index.
 - [Searching](https://github.com/er2es/fuzzphony/blob/main/docs/searching.md): the search builder, controller examples, query syntax, typo tolerance, synonyms, "did you mean", search-as-you-type, facets, federated search, empty-result relaxation.
+- [Migrating from `LIKE`](https://github.com/er2es/fuzzphony/blob/main/docs/migrating-from-like.md): moving a `WHERE name ILIKE '%mouse%'` search over, step by step, and what you give up.
+- Recipes, each backed by tests: [an admin panel](https://github.com/er2es/fuzzphony/blob/main/docs/recipes/admin-panel.md) (API Platform filter), [a shop](https://github.com/er2es/fuzzphony/blob/main/docs/recipes/shop.md) (search-as-you-type, facets, synonyms, boosts) and [a multi-tenant SaaS](https://github.com/er2es/fuzzphony/blob/main/docs/recipes/multi-tenant-saas.md) (tenants, guards, search log, reports).
 - [Ranking and thresholds](https://github.com/er2es/fuzzphony/blob/main/docs/ranking.md): the score formula, profiles, per-query tuning, thresholds and their hard caps.
 - [Languages](https://github.com/er2es/fuzzphony/blob/main/docs/languages.md): stemming, stop words and accent folding for 28 languages.
 - [Keeping the index in sync](https://github.com/er2es/fuzzphony/blob/main/docs/sync.md): sync modes, triggers, `TRUNCATE`, orphan pruning, Messenger.

@@ -3,7 +3,7 @@
 You have an API Platform resource behind an admin panel (a list of customers, orders, tickets) and the staff
 type names badly: `smiht` has to find `Smith`. You add one filter to the collection endpoint. The rest of the
 endpoint (your other filters, the order filter, pagination, serialization) stays as it is. Back to the
-[documentation](../../README.md#documentation).
+[documentation](../README.md).
 
 The code below is real: it lives in [`tests/Recipes/AdminPanel`](../../tests/Recipes/AdminPanel), and the tests
 there run it against PostgreSQL. What they do not do is boot API Platform (the package is not installed in this
