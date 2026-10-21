@@ -161,6 +161,28 @@ final class TranspositionTest extends TestCase
         self::assertSame([1, 2, 6], self::sorted($search->restrictedToFields('name')->query('mosue')->get()));
     }
 
+    public function testWhatAHiddenFieldHoldsNeverChangesWhatARestrictedViewerFindsBySwap(): void
+    {
+        $find = function (string $brand): array {
+            $connection = PostgresTestCase::connect();
+            PostgresTestCase::createFixtures($connection, [
+                'brands' => [[1, $brand]],
+                'products' => [[1, 'Wireless mouse', 'Silent', 1, 1, true, 1.0, 'now'], [2, 'Desk lamp', 'Bright', 1, 1, true, 1.0, 'now']],
+            ]);
+            $fuzzphony = new Fuzzphony(new PostgresEngine($connection), new IndexRegistry([Indexes::products('manual')]));
+            $fuzzphony->schema()->apply($connection);
+            $fuzzphony->reindex('products');
+            $result = $fuzzphony->in('products')->restrictedToFields('name')->query('mosue')->facets('in_stock')->get();
+
+            return [$result->ids(), array_map(static fn($h): float => $h->score, $result->hits), $result->total, $result->facets['in_stock'][0]->count];
+        };
+
+        // the brand is hidden: that it holds the swapped word, or a look-alike, or a long text, changes nothing
+        self::assertSame($find('Acme'), $find('Mouse'));
+        self::assertSame($find('Acme'), $find('Mosue mouse ' . str_repeat('mouse ', 3_000)));
+        self::assertSame([1], $find('Acme')[0]);
+    }
+
     public function testAFacetCountsTheSameDocumentsAsTheResult(): void
     {
         $result = $this->fuzzphony()->in('products')->query('mosue')->facets('in_stock')->get();
