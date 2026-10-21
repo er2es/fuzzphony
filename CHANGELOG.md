@@ -7,6 +7,10 @@ changes; they are always listed under **Breaking** and explained in [UPGRADE.md]
 
 ## [Unreleased]
 
+### Fixed
+
+- **A hit found only by typo tolerance now has its mistyped words highlighted.** `highlight('name')` of a search for `hedphones` returns `Wireless <mark>Headphones</mark>` instead of the unmarked start of the text. The words are those the typo-tolerant branch matched (the same normalisation and per-word-length similarity), in the typo-tolerant fields, honouring field-scoped words, exclusions, synonyms, phrases, `fuzzy_mode` and a restricted viewer's fields; the output is still HTML-escaped with only `<mark>` added. The highlight of a hit that matched strictly is byte for byte what it was, and a search without `highlight()` runs the same statements. One more statement runs only when the page has typo-only hits and a `fuzzy` field is highlighted. No change to the API or the configuration. The limitation entry is rewritten ([Limitations](docs/limitations.md#highlights-run-the-source-query-and-mark-typo-matches-by-word)), and [Searching](docs/searching.md#highlighting) describes the rule.
+
 ## [0.9.6] - 2026-10-21
 
 Who searched what (the report, the optional masked client IP, the demo), the documentation round (an index, the "Migrating from `LIKE`" guide, three recipes, a link check in CI) and a reviewed list of known limitations. Nothing breaks. See [UPGRADE.md](UPGRADE.md#from-095-to-096) for the one optional step (`fuzzphony:schema --apply`, only to store the client IP).

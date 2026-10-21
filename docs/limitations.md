@@ -10,7 +10,7 @@ happens, why, and what to do. The statements here were checked against the code 
 - [Search quality](#search-quality): [typo tolerance](#typo-tolerance-is-trigram-based), [whole words](#a-word-is-matched-as-a-whole-word),
   [stop words](#stop-words-cannot-be-searched), [languages](#stemming-covers-regular-forms-one-language-per-index),
   [candidate limit](#ranking-is-approximate-beyond-candidate_limit), [facet counts](#facet-counts-are-over-the-candidates),
-  [synonyms](#synonyms-are-expanded-on-the-query-and-stop-there), [highlights](#highlights-of-typo-tolerant-hits-and-the-source-query),
+  [synonyms](#synonyms-are-expanded-on-the-query-and-stop-there), [highlights](#highlights-run-the-source-query-and-mark-typo-matches-by-word),
   [scores](#scores-are-not-stable), [query limits](#long-queries-are-cut),
   [did you mean](#did-you-mean-and-completions-come-from-a-vocabulary-that-ages)
 - [Data and sync](#data-and-sync): [partitions](#attaching-or-detaching-a-partition-is-not-followed), [sync modes](#what-each-sync-mode-sees),
@@ -113,13 +113,19 @@ counted: in the example above, a limit of 10 gave 4, 3 and 3 for three categorie
 
 The rest is in [Synonyms](searching.md#synonyms).
 
-### Highlights of typo-tolerant hits, and the source query
+### Highlights run the source query, and mark typo matches by word
 
-A hit that was found only through typo tolerance has no marked words: the snippet is the start of the text
-without `<mark>` (a search for `hedphones` shows `headphones` unmarked). Highlighting also runs your source
-query for the ids on the page, in the searching session: the role that searches needs `SELECT` on the source
-tables, and the snippet shows the row as the source has it now, which in `queue` mode can be newer than the
-index.
+Highlighting runs your source query for the ids on the page, in the searching session: the role that searches
+needs `SELECT` on the source tables, and the snippet shows the row as the source has it now, which in `queue`
+mode can be newer than the index.
+
+A hit found only through typo tolerance has its mistyped words marked too (`hedphones` marks `Headphones`),
+by a simpler rule than the search's: each word of the field text is compared with the typed word on its own,
+with the similarity the search used, so a match that the search found across two words (`head phones` for
+`headphones`) is not marked, and a hit can have no mark although it was found. Only typo-tolerant fields get
+these marks (a field that is not `fuzzy` shows ts_headline's snippet), and only the first 2000 words of a
+field are looked at. A hit that the strict full-text query also matches keeps the highlight ts_headline gives
+it, even when a typed word was found in it by typo only. See [Highlighting](searching.md#highlighting).
 
 ### Scores are not stable
 
