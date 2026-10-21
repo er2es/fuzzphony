@@ -21,8 +21,9 @@ final class PostgresEngineTransactionAwareTest extends TestCase
 
         $engine->in('products')->query('mouse')->get();
 
-        // the typo-tolerant word is probed on its own (its candidates), then the search runs: one setting each
-        self::assertSame(2, self::setConfigCalls($connection));
+        // the word is probed on its own, then the search runs, both in one transaction that this engine owns: the setting is made
+        // once (the second statement wants the same value) and the previous value is not put back, the COMMIT drops it
+        self::assertSame(1, self::setConfigCalls($connection));
     }
 
     public function testAnOuterTransactionKeepsBothRoundTrips(): void

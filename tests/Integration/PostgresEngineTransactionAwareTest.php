@@ -36,8 +36,9 @@ final class PostgresEngineTransactionAwareTest extends TestCase
 
         $search->in('products')->query('mouse')->thresholds(['fuzzy_mode' => 'always', 'did_you_mean' => false])->get();
 
-        // the word is probed on its own (its candidates), then the search runs: one setting each
-        self::assertSame(2, $recorder->setConfigCalls());
+        // the word is probed on its own, then the search runs, both in one transaction that this engine owns: the setting is made
+        // once (the second statement wants the same value) and the previous value is not put back, the COMMIT drops it
+        self::assertSame(1, $recorder->setConfigCalls());
     }
 
     public function testAnOuterTransactionKeepsBothRoundTripsAndLeavesTheSettingUnchanged(): void
