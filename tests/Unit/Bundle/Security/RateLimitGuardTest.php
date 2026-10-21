@@ -103,12 +103,88 @@ final class RateLimitGuardTest extends TestCase
         $guard->check($this->index(), new Actor(tenant: 2)); // another tenant has its own bucket
     }
 
+    public function testPerIpKeysOnTheClientAddressAndIgnoresTenantAndUser(): void
+    {
+        $guard = new RateLimitGuard($this->factory(limit: 2), per: 'ip');
+
+        $guard->check($this->index(), new Actor(ip: '203.0.113.45'));
+        $guard->check($this->index(), new Actor(tenant: 1, user: 'ada', ip: '203.0.113.45')); // a signed-in user shares the bucket of the address
+        $guard->check($this->index(), new Actor(ip: '203.0.113.46')); // another address, another bucket
+
+        try {
+            $guard->check($this->index(), new Actor(tenant: 9, user: 'bob', ip: '203.0.113.45'));
+            self::fail('RateLimited expected');
+        } catch (RateLimited $e) {
+            self::assertGreaterThanOrEqual(1, $e->retryAfter);
+            self::assertStringNotContainsString('203.0.113', $e->getMessage(), 'the address is never in a message');
+        }
+    }
+
+    public function testPerIpSharesOneBucketInsideAnIpv6Slash64AndNotAcrossIt(): void
+    {
+        $guard = new RateLimitGuard($this->factory(limit: 1), per: 'ip');
+
+        $guard->check($this->index(), new Actor(ip: '2001:db8:abcd:12::1'));
+        $guard->check($this->index(), new Actor(ip: '2001:db8:abcd:13::1')); // the next /64
+
+        $this->expectException(RateLimited::class);
+        $guard->check($this->index(), new Actor(ip: '2001:db8:abcd:12:ffff:ffff:ffff:ffff')); // rotating inside the /64 does not help
+    }
+
+    public function testPerIpTreatsAnIpv4MappedAddressAsTheIpv4One(): void
+    {
+        $guard = new RateLimitGuard($this->factory(limit: 1), per: 'ip');
+
+        $guard->check($this->index(), new Actor(ip: '203.0.113.45'));
+
+        $this->expectException(RateLimited::class);
+        $guard->check($this->index(), new Actor(ip: '::ffff:203.0.113.45'));
+    }
+
+    public function testPerIpDoesNotLimitAnActorWithoutAUsableAddress(): void
+    {
+        $guard = new RateLimitGuard($this->factory(limit: 1), per: 'ip');
+
+        foreach ([new Actor(), new Actor(tenant: 1, user: 'ada'), new Actor(ip: 'not-an-ip'), new Actor(ip: '')] as $actor) {
+            for ($i = 0; $i < 4; ++$i) {
+                self::assertTrue($guard->check($this->index(), $actor)->isAll());
+            }
+        }
+    }
+
+    public function testPerIpUnchargedCheckConsumesNothing(): void
+    {
+        $guard = new RateLimitGuard($this->factory(limit: 1), per: 'ip');
+        $actor = new Actor(ip: '203.0.113.45');
+
+        for ($i = 0; $i < 3; ++$i) {
+            $guard->check($this->index(), $actor, charge: false);
+        }
+        $guard->check($this->index(), $actor);
+
+        $this->expectException(RateLimited::class);
+        $guard->check($this->index(), $actor);
+    }
+
+    public function testTenantAndUserIgnoreTheAddress(): void
+    {
+        $perTenant = new RateLimitGuard($this->factory(limit: 1), per: 'tenant');
+        $perTenant->check($this->index(), new Actor(tenant: 1, ip: '203.0.113.45'));
+        $perTenant->check($this->index(), new Actor(tenant: 2, ip: '203.0.113.45')); // same address, another tenant: its own bucket
+
+        $perUser = new RateLimitGuard($this->factory(limit: 1), per: 'user');
+        $perUser->check($this->index(), new Actor(user: 'ada', ip: '203.0.113.45'));
+        $perUser->check($this->index(), new Actor(user: 'bob', ip: '203.0.113.45'));
+        self::assertTrue($perUser->check($this->index(), new Actor(ip: '203.0.113.45'))->isAll(), 'no user, no bucket');
+        self::assertTrue($perUser->check($this->index(), new Actor(ip: '203.0.113.45'))->isAll());
+    }
+
     public function testAnUnknownPerIsRejected(): void
     {
         $this->expectException(InvalidConfiguration::class);
-        $this->expectExceptionMessage('fuzzphony.rate_limit.per must be "tenant" or "user", got "ip"');
+        $this->expectExceptionMessage('fuzzphony.rate_limit.per must be "tenant", "user" or "ip", got "account"');
 
-        new RateLimitGuard($this->factory(limit: 1), per: 'ip');
+        new RateLimitGuard($this->factory(limit: 1), per: 'account');
     }
 
     private function factory(int $limit): RateLimiterFactory

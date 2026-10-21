@@ -12,21 +12,28 @@ use Fuzzphony\Core\Search\Actor;
 use Fuzzphony\Core\Search\SearchGuard;
 use Symfony\Component\RateLimiter\RateLimiterFactoryInterface;
 
-/** @internal Spends one token of a Symfony rate limiter per search, keyed by the actor's tenant or user. */
+/**
+ * @internal Spends one token of a Symfony rate limiter per search, keyed by the actor's tenant, user or client IP (the
+ * address, or its /64 for IPv6: see ClientIpKey). An actor without that key is not limited.
+ */
 final readonly class RateLimitGuard implements SearchGuard
 {
     public function __construct(private RateLimiterFactoryInterface $limiter, private string $per)
     {
-        if (!in_array($per, ['tenant', 'user'], true)) {
-            throw new InvalidConfiguration(sprintf('fuzzphony.rate_limit.per must be "tenant" or "user", got "%s".', $per));
+        if (!in_array($per, ['tenant', 'user', 'ip'], true)) {
+            throw new InvalidConfiguration(sprintf('fuzzphony.rate_limit.per must be "tenant", "user" or "ip", got "%s".', $per));
         }
     }
 
     public function check(IndexDefinition $index, Actor $actor, bool $charge = true): Access
     {
-        $key = $this->per === 'tenant' ? $actor->tenant : $actor->user;
+        $key = match ($this->per) {
+            'tenant' => $actor->tenant,
+            'user' => $actor->user,
+            default => ClientIpKey::of($actor->ip),
+        };
         if ($key === null || !$charge) {
-            return Access::all(); // no key, no bucket: an IP limit is Symfony's own business
+            return Access::all(); // no key, no bucket (an actor without an IP is not limited by IP: the library sees no request)
         }
         $limit = $this->limiter->create((string) $key)->consume(1);
         if (!$limit->isAccepted()) {
