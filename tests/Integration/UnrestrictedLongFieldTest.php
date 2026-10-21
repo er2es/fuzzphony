@@ -95,7 +95,8 @@ final class UnrestrictedLongFieldTest extends TestCase
         $fuzzphony->schema()->apply($this->connection);
 
         $filler = implode(' ', array_map(static fn(int $i): string => 'h' . $i, range(1, 17_000)));
-        $outcomes = [];
+        /** @var array{short: array<string, list<mixed>>, long: array<string, list<mixed>>} $outcomes */
+        $outcomes = ['short' => [], 'long' => []];
         // one word in the short variant, so that a phrase never reaches across the field in either
         foreach (['short' => 'x', 'long' => $filler] as $variant => $notes) {
             $this->connection->execute('DELETE FROM fz_long_doc');
@@ -112,7 +113,7 @@ final class UnrestrictedLongFieldTest extends TestCase
                         sort($ids);
                         $facets = array_map(static fn($facet): array => array_map(static fn($v): array => [$v->value, $v->count], $facet), $result->facets);
                         // the candidates of a capped statement are an arbitrary part of the matches: only the exact counts are compared there
-                        $outcomes[$text . ' | ' . $mode . ' | ' . $limit . ($exact ? ' exact' : '')][$variant] = $exact
+                        $outcomes[$variant][$text . ' | ' . $mode . ' | ' . $limit . ($exact ? ' exact' : '')] = $exact
                             ? [$result->total, $facets, $result->warnings]
                             : [$ids, $result->total, $result->totalIsLowerBound, $facets, $result->warnings];
                     }
@@ -120,9 +121,9 @@ final class UnrestrictedLongFieldTest extends TestCase
             }
         }
         $changed = [];
-        foreach ($outcomes as $case => $byVariant) {
-            if ($byVariant['short'] !== $byVariant['long']) {
-                $changed[] = sprintf('%s: short %s, long %s', $case, json_encode($byVariant['short']), json_encode($byVariant['long']));
+        foreach ($outcomes['short'] as $case => $short) {
+            if ($short !== $outcomes['long'][$case]) {
+                $changed[] = sprintf('%s: short %s, long %s', $case, json_encode($short), json_encode($outcomes['long'][$case]));
             }
         }
         self::assertSame([], $changed, 'a long field changed what is found');
