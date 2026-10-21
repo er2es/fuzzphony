@@ -241,7 +241,7 @@ final class TypoHighlightTest extends TestCase
         foreach ($seen as $case => $perSecret) {
             self::assertCount(1, array_unique(array_map('serialize', $perSecret)), $case . ': the hidden field changes nothing the viewer sees');
         }
-        self::assertSame('<mark>Logitech</mark> wireles mouse', $seen['always|logitek | salary'][0][0][2]['title'], 'and the typo word is marked');
+        self::assertSame('<mark>Logitech</mark> wireles mouse', $seen['always|logitek | salary'][0][0][2]['title'] ?? self::fail('no hit'), 'and the typo word is marked');
     }
 
     public function testATextThatHoldsOurMarkersCannotDrawAMark(): void

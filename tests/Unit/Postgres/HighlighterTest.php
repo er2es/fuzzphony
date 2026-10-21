@@ -184,7 +184,7 @@ final class HighlighterTest extends TestCase
         $asked = array_values(array_filter($params, static fn(mixed $p): bool => is_string($p) && str_starts_with($p, '{')));
         self::assertCount(1, $asked);
         self::assertLessThanOrEqual(4_000, substr_count((string) $asked[0], ',') + 1, 'at most 4000 distinct words are compared');
-        self::assertLessThanOrEqual(200, substr_count((string) $connection->log[0][1]['p5'] ?? '', ',') + 1);
+        self::assertLessThanOrEqual(200, substr_count((string) $connection->log[0][1]['p5'], ',') + 1);
         self::assertStringContainsString('UNION ALL', $statement);
     }
 
