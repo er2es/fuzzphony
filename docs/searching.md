@@ -3,6 +3,9 @@
 The search builder, the query syntax, typo tolerance and empty-result relaxation. Back to the
 [README](../README.md).
 
+Coming from `LIKE` or `ILIKE`? [Migrating from `LIKE`](migrating-from-like.md) maps your patterns to this syntax,
+step by step.
+
 ## The search builder
 
 ```php
