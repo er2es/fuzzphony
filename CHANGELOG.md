@@ -13,6 +13,7 @@ changes; they are always listed under **Breaking** and explained in [UPGRADE.md]
   (index, build, query, entities in rank order, pagination, sync, tests), a table that maps `LIKE` patterns to the query syntax
   (and says what is not supported), and a rollout plan (shadow search, feature flag, measuring, rollback). Every PHP and YAML snippet
   and every query of the table is run by `tests/Integration/Docs/LikeGuideTest.php`, which fails when the guide shows other code.
+- **Recipes** in [docs/recipes](docs/recipes): an admin panel (API Platform search filter), a shop (facets, search as you type, synonyms, ranking, federated search, the Live Component) and a multi-tenant SaaS (tenant, actor, guards, search log, reports). Their code lives in `tests/Recipes` and runs in a new `recipes` test suite (`composer test:recipes`, included in a plain `phpunit` run); a test fails when a code block of a recipe differs from that code.
 - **Who searched what.** `SearchAnalytics::recentSearches()` lists the most recent logged searches of an index in a time window,
   newest first, as `LoggedSearch` objects (`at`, `index`, `tenant`, `user` with null for anonymous, `ip`, the stored (redacted)
   `query`, `hits`, `tookMs`, `usedFuzzy` and `status`). Filters: `user:` (exactly that name), `anonymousOnly:` and `status:`

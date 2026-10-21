@@ -1,0 +1,4 @@
+{# region: page #}
+<h1>Shop</h1>
+<twig:Fuzzphony:Search index="products" query="{{ q }}" highlight="name" facets="category_id,in_stock" suggestions="5" placeholder="Search the shop…" />
+{# endregion #}

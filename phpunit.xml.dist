@@ -13,6 +13,10 @@
         <testsuite name="integration">
             <directory>tests/Integration</directory>
         </testsuite>
+        <!-- The code of docs/recipes: the tests run what the recipes show (and RecipeDocsTest keeps the text in step with it). -->
+        <testsuite name="recipes">
+            <directory>tests/Recipes</directory>
+        </testsuite>
     </testsuites>
     <php>
         <!-- Integration tests are skipped unless this points to a disposable PostgreSQL 15+ database. -->

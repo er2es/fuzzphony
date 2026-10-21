@@ -1,0 +1,39 @@
+# region: framework
+framework:
+  cache:
+    pools:
+      cache.search_limiter:
+        adapter: cache.adapter.apcu     # not the default filesystem pool; Redis (and a Redis lock_factory) when several servers share one limit
+  rate_limiter:
+    search:
+      policy: sliding_window
+      limit: 5
+      interval: '1 minute'
+      cache_pool: cache.search_limiter
+# endregion
+
+# region: fuzzphony
+fuzzphony:
+  actor:
+    tenant: account.id                  # property paths on the Security user
+    user: userIdentifier
+  authorization: { enabled: true }      # FUZZPHONY_SEARCH, decided by SearchVoter; fields by `granted`
+  rate_limit: { limiter: search, per: user }
+  search_log:
+    enabled: true
+    retention_days: 30
+    redact: [email]
+    ip: masked
+  indexes:
+    tickets:
+      source: { table: recipe_ticket }
+      tenant: account_id
+      language: english
+      fields:
+        subject: { weight: A, fuzzy: true }
+        body: B
+        internal_note: { weight: C, fuzzy: true, granted: ROLE_SUPPORT_LEAD }
+      filters:
+        account_id: int
+        status: string
+# endregion

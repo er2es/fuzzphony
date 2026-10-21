@@ -1,0 +1,1 @@
+[OK] Deleted 1 search log rows older than 30 days.
