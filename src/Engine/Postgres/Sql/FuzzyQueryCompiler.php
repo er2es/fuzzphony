@@ -612,7 +612,26 @@ final class FuzzyQueryCompiler
 
             return sprintf('(s.tsv @@ %s AND %s)', $lookup, count($checks) === 1 ? $checks[0] : '(' . implode(' OR ', $checks) . ')');
         }
-        $query = $this->column('ft', sprintf('to_tsquery(%s, %s)', $this->names->regconfig($this->index->text), $params->add($tsquery)));
+        $config = $this->names->regconfig($this->index->text);
+        $query = $this->column('ft', sprintf('to_tsquery(%s, %s)', $config, $params->add($tsquery)));
+        if (count($this->index->fields) > 1 && ($field !== null || str_contains($tsquery, '<->'))) {
+            // A word with a weight, or a phrase, on tsv: its positions are capped at 16 383 after the fields joined before the
+            // word's own, so after a field of more than about 16 000 words a lexeme there keeps only the highest weight of its
+            // fields and a phrase does not match. The candidates come from the words alone (phrases ANDed, no weight labels),
+            // which GIN(tsv) serves as it serves the phrase; the field's own column decides a scoped word (positions inside
+            // the field), a phrase is read from tsv or from the fields' vectors that start after the first (Names::laterVectors()).
+            $loose = (new TsQueryCompiler($this->index, false, true))->compile($node) ?? $tsquery;
+            $lookup = $loose !== $tsquery ? $this->column('fl', sprintf('to_tsquery(%s, %s)', $config, $params->add($loose))) : $query;
+            if ($field !== null) {
+                return sprintf('(s.tsv @@ %s AND s.%s @@ %s)', $lookup, $this->names->fieldVector($field->name), $query);
+            }
+            $checks = ['s.tsv @@ ' . $query];
+            foreach ($this->names->laterVectors($this->index) as $vector) {
+                $checks[] = sprintf('(%s) @@ %s', $vector, $query);
+            }
+
+            return sprintf('(s.tsv @@ %s AND (%s))', $lookup, implode(' OR ', $checks));
+        }
 
         return $field === null
             ? 's.tsv @@ ' . $query

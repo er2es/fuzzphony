@@ -79,6 +79,27 @@ final class TsQueryCompiler
         };
     }
 
+    /** True when a position or a weight on `tsv` decides something: a word scoped to a known field, or a phrase. */
+    public function dependsOnPositions(Node $node): bool
+    {
+        return $this->hasFieldScope($node) || $this->hasSequence($node);
+    }
+
+    /**
+     * True when the query has a phrase, or a word that splits into several ("usb-c"), anywhere (excluded ones too): it is a
+     * sequence on `tsv`, whose positions are capped (see $lookupForm).
+     */
+    public function hasSequence(Node $node): bool
+    {
+        return match (true) {
+            $node instanceof Term => count(self::lexemes($node->text)) > 1,
+            $node instanceof Phrase => count(array_merge(...array_map(self::lexemes(...), $node->words))) > 1,
+            $node instanceof FieldScoped, $node instanceof Not => $this->hasSequence($node->node),
+            $node instanceof AllOf, $node instanceof AnyOf => array_any($node->nodes, $this->hasSequence(...)),
+            default => false,
+        };
+    }
+
     private function knownScope(Node $node): bool
     {
         return $node instanceof FieldScoped && $this->index->field($node->field) !== null;

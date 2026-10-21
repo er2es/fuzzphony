@@ -98,9 +98,14 @@ final class SearchSqlBuilder
         $q = [];
         // the full-text branch finds its candidates through GIN(tsv): "s.tsv @@ <lookup>"
         $lookup = 's.tsv @@ q.tsq';
+        // A phrase or a scoped word of an unrestricted viewer on an index with several fields: tsv reads them in one vector whose
+        // positions are capped at 16 383, so after a long field they and their weights are unreliable (see TsQueryCompiler); the
+        // candidates are then looked up in the form a restricted viewer's are, and the recheck decides
+        $positional = $this->allowedFields === null && $scopedRoot !== null && count($this->index->fields) > 1
+            && (new TsQueryCompiler($this->index))->dependsOnPositions($scopedRoot);
         if ($tsquery !== null) {
             $q[] = sprintf('to_tsquery(%s, %s) AS tsq', $config, $params->add($tsquery));
-            if ($this->allowedFields !== null) {
+            if ($this->allowedFields !== null || $positional) {
                 // An excluded word would exclude by every field, the hidden ones too: the lookup is the positive part
                 // only (a superset), the recheck below decides; nothing positive to look up leaves the recheck alone.
                 // The lookup is in the form a hidden field cannot change: phrases as the AND of their words, no weight labels (the
@@ -142,9 +147,8 @@ final class SearchSqlBuilder
         $branches = [];
         if ($tsquery !== null) {
             $ctes[] = sprintf(
-                "fts AS (\n    SELECT s.id, ts_rank_cd('%s'::real[], %s, q.tsq, 32)::double precision AS r_text\n    FROM %s AS s CROSS JOIN q\n    WHERE %s AND %s%s\n)",
-                self::tsRankWeights($profile),
-                $this->rankVector(),
+                "fts AS (\n    SELECT s.id, %s::double precision AS r_text\n    FROM %s AS s CROSS JOIN q\n    WHERE %s AND %s%s\n)",
+                $this->textRank($profile, $positional),
                 $table,
                 implode(' AND ', $strict),
                 $filters->compile($conditions, $params),
@@ -436,6 +440,24 @@ SELECT
         );
 
         return ['sql' => $sql, 'params' => $params->all()];
+    }
+
+    /**
+     * The text rank of a full-text candidate: ts_rank_cd of the vector the viewer reads (rankVector()). A document that `tsv`
+     * does not match but the search found anyway (a phrase or a scoped word after a long field, see TsQueryCompiler) has no
+     * usable rank on tsv, whose positions and weights were capped: it is ranked on the fields' own vectors (the best of the
+     * first field's and of every run of later fields, Names::laterVectors()). A document tsv matches keeps its rank.
+     */
+    private function textRank(RankingProfile $profile, bool $positional): string
+    {
+        $weights = self::tsRankWeights($profile);
+        $rank = static fn(string $vector): string => sprintf("ts_rank_cd('%s'::real[], %s, q.tsq, 32)", $weights, $vector);
+        if (!$positional) {
+            return $rank($this->rankVector());
+        }
+        $vectors = ['s.' . $this->names->fieldVector($this->index->fieldNames()[0]), ...array_map(static fn(string $v): string => '(' . $v . ')', $this->names->laterVectors($this->index))];
+
+        return sprintf('CASE WHEN s.tsv @@ q.tsq THEN %s ELSE GREATEST(%s) END', $rank('s.tsv'), implode(', ', array_map($rank, $vectors)));
     }
 
     /** The vector the text rank reads: the whole tsv, or only the fields a restricted viewer may see. */
