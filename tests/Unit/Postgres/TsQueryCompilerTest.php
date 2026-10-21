@@ -117,12 +117,16 @@ final class TsQueryCompilerTest extends TestCase
         }
     }
 
-    public function testPhrasesAsAndKeepsTheWordsAndDropsTheOrder(): void
+    public function testTheLookupFormKeepsTheWordsAndDropsTheOrderAndTheWeights(): void
     {
         $root = (new \Fuzzphony\Core\Query\QueryParser())->parse('"usb receiver" wi-fi mouse*')->root;
         self::assertNotNull($root);
 
         self::assertSame("(('usb' & 'receiver') & ('wi' & 'fi') & 'mouse':*)", (new TsQueryCompiler(Indexes::products(), false, true))->compile($root));
         self::assertSame("(('usb' <-> 'receiver') & ('wi' <-> 'fi') & 'mouse':*)", (new TsQueryCompiler(Indexes::products()))->compile($root));
+        $scoped = (new QueryParser())->parse('name:"usb receiver" brand:sony name:mou*')->root;
+        self::assertNotNull($scoped);
+        self::assertSame("(('usb':A <-> 'receiver':A) & 'sony':B & 'mou':*A)", (new TsQueryCompiler(Indexes::products()))->compile($scoped));
+        self::assertSame("(('usb' & 'receiver') & 'sony' & 'mou':*)", (new TsQueryCompiler(Indexes::products(), false, true))->compile($scoped), 'the weight labels are left out, a prefix stays');
     }
 }

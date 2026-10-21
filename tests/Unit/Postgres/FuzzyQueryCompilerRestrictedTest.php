@@ -64,7 +64,7 @@ final class FuzzyQueryCompilerRestrictedTest extends TestCase
     {
         $one = self::compiler(['name'])->compile(self::parse('"usb receiver"'), new ParameterBag());
         self::assertNotNull($one);
-        self::assertStringContainsString('(s.tsv @@ q.ft0 AND s."t_name" @@ q.ft0)', $one->predicate);
+        self::assertStringContainsString('(s.tsv @@ q.fl1 AND s."t_name" @@ q.ft0)', $one->predicate, 'the lookup is the AND of the words, the field decides');
         self::assertStringNotContainsString('||', $one->predicate);
         $word = self::compiler(['name', 'brand'])->compile(self::parse('usb'), new ParameterBag());
         self::assertNotNull($word);
@@ -118,13 +118,17 @@ final class FuzzyQueryCompilerRestrictedTest extends TestCase
         self::assertSame([], self::compiler(['name'])->probes(self::parse('brand:sony'), 10), 'no typo tolerance on a hidden field');
     }
 
-    public function testAWordScopedToAnAllowedFieldIsUnchanged(): void
+    public function testAWordScopedToAnAllowedFieldIsLookedUpWithoutItsWeight(): void
     {
         $restricted = self::compiler(['name', 'brand'])->compile(self::parse('brand:razr'), $a = new ParameterBag());
         $unrestricted = self::compiler(null)->compile(self::parse('brand:razr'), $b = new ParameterBag());
 
-        self::assertEquals($unrestricted, $restricted);
-        self::assertSame($b->all(), $a->all());
+        self::assertNotNull($restricted);
+        self::assertNotNull($unrestricted);
+        // tsv keeps only the highest weight of a lexeme at a clamped position (after a long hidden field), so its lookup has none
+        self::assertSame('((s.tsv @@ q.fl1 AND s."t_brand" @@ q.ft0) OR (q.fn2 OPERATOR("public".<%) s.fz AND q.fn2 OPERATOR("public".<%) s."z_brand"))', $restricted->predicate);
+        self::assertSame(["'razr':B", "'razr'", 'razr'], array_values($a->all()));
+        self::assertSame('((s.tsv @@ q.ft0 AND s."t_brand" @@ q.ft0) OR (q.fn1 OPERATOR("public".<%) s.fz AND q.fn1 OPERATOR("public".<%) s."z_brand"))', $unrestricted->predicate, 'the unrestricted path is as it was');
     }
 
     public function testTheStrictBranchRechecksEveryWordAgainstTheAllowedFields(): void
@@ -162,8 +166,8 @@ final class FuzzyQueryCompilerRestrictedTest extends TestCase
         $phrase = self::compiler(['name'])->scope(self::parse('"usb receiver"'), $p = new ParameterBag());
         $prefix = self::compiler(['name'])->scope(self::parse('recei*'), $q = new ParameterBag());
 
-        self::assertSame('(s.tsv @@ q.sft0 AND s."t_name" @@ q.sft0)', $phrase['predicate'] ?? null);
-        self::assertSame(['p0' => "('usb' <-> 'receiver')"], $p->all());
+        self::assertSame('(s.tsv @@ q.sfl1 AND s."t_name" @@ q.sft0)', $phrase['predicate'] ?? null);
+        self::assertSame(['p0' => "('usb' <-> 'receiver')", 'p1' => "('usb' & 'receiver')"], $p->all());
         self::assertSame('(s.tsv @@ q.sft0 AND s."t_name" @@ q.sft0)', $prefix['predicate'] ?? null);
         self::assertSame(['p0' => "'recei':*"], $q->all());
     }

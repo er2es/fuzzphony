@@ -252,6 +252,18 @@ final class FuzzyQueryCompilerTest extends TestCase
         self::assertSame([], $compiler->keepingStopWords(self::parse('abc'), ["'abc'"]), 'exactly the minimum length is long enough');
     }
 
+    public function testAtMostThreeStopWordsAreKept(): void
+    {
+        $compiler = $this->compiler();
+        $stops = ["'the'", "'who'", "'for'", "'and'", "'but'"];
+
+        self::assertSame(3, FuzzyQueryCompiler::MAX_STOP_WORDS);
+        self::assertSame(["'and'", "'but'"], $compiler->keepingStopWords(self::parse('the who for'), $stops), 'three words');
+        self::assertSame($stops, $compiler->keepingStopWords(self::parse('the who for and'), $stops), 'four: each one is a trigram condition over most of the index, and they add up');
+        self::assertSame($stops, $compiler->keepingStopWords(self::parse('the the the the'), $stops), 'the same word four times counts four times');
+        self::assertSame(["'for'", "'and'", "'but'"], $compiler->keepingStopWords(self::parse('the who -for -and -but'), $stops), 'excluded words are not counted, and stay dropped');
+    }
+
     public function testAQueryWithoutLeavesChangesNothing(): void
     {
         self::assertSame([], $this->compiler()->keepingStopWords(new AllOf([]), []));

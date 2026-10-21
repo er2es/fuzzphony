@@ -78,10 +78,15 @@ limits:
   "The Who" first and also lists `whole`. Each word must be at least `fuzzy_min_length` (3) letters long: a
   shorter stop word has to match exactly, which a stop word never does, so `to be or not to be` without
   quotes finds nothing (the quoted phrase is one word of 14 letters and finds it).
-- It costs a typo-tolerant search: one probe per word, at most `candidate_limit` candidates each, so the work
-  is bounded even when a stop word is in half of the names. Measured on 100 000 products with `the` in half of
-  the names: 43 ms for `the` and 109 ms for five stop words (a plain word such as `wireless` takes 8 ms);
-  `candidate_limit` applies as always (the total is a lower bound).
+- At most three stop words are searched; a query of four or more finds nothing, as it always did. It costs a
+  typo-tolerant search, one probe per word with at most `candidate_limit` candidates each, and every word that
+  is in most documents keeps all its matches, so the cost grows quickly with the number of words: with
+  `the and were there those` all in the title of every one of 100 000 documents, five words took 15 s for a viewer
+  restricted to some fields (0.7 s unrestricted). Measured on the same data with the cap: one word 0.12 s (restricted)
+  and 0.2 s (unrestricted), two 0.23 and 0.27 s, three 0.36 and 0.42 s (`wireless` alone: 8 ms on another
+  catalogue); with `the` in half of the names of 100 000 products, `the` takes 43 ms and three stop words that no
+  document has together 80 ms, the empty-result relaxation included. `candidate_limit` applies as always (the total is
+  a lower bound).
 - An excluded stop word (`the -who`) is still dropped. The empty-result relaxation works as for any words.
 
 What to do: for names, titles or codes use `language: simple` (no stemming and no stop words), in an index of

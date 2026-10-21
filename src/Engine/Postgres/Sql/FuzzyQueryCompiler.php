@@ -68,6 +68,9 @@ use Fuzzphony\Engine\Postgres\TypoTerm;
  */
 final class FuzzyQueryCompiler
 {
+    /** Most stop words of a query of stop words only that are searched (see keepingStopWords()); a longer query finds nothing, as it always did. */
+    public const int MAX_STOP_WORDS = 3;
+
     private readonly TsQueryCompiler $tsquery;
     /** @var list<string> */
     private array $columns = [];
@@ -246,7 +249,11 @@ final class FuzzyQueryCompiler
      * there. Only when every word of the query, excluded ones too, is a stop word (a real word left to exclude makes the
      * strict branch a pure exclusion, and what it finds stays as it is), and only when every positive word is long
      * enough for typo tolerance (a shorter one must match exactly, which a stop word never does: the search would find
-     * nothing, so it does not run). Otherwise $emptyQueries come back unchanged; the negated stop words stay dropped.
+     * nothing, so it does not run), and only for at most MAX_STOP_WORDS words: every kept word is a trigram condition
+     * that, for a word in most documents, keeps all of its matches (it is over the candidate limit), and several of them
+     * in one statement cost seconds on a large index (measured: five common stop words took 15 s for a restricted viewer
+     * on 100 000 rows, under 1 s for an unrestricted one; three take under half a second for both). Otherwise $emptyQueries
+     * come back unchanged; the negated stop words stay dropped.
      *
      * @param list<string> $emptyQueries leaf tsqueries the text configuration reduces to nothing (stop words)
      *
@@ -256,7 +263,7 @@ final class FuzzyQueryCompiler
     {
         $queries = $this->leafQueries($root);
         $positive = $this->positiveLeaves($root);
-        if ($queries === [] || array_diff($queries, $emptyQueries) !== [] || array_any($positive, fn(Node $leaf): bool => $this->needle($leaf) === null)) {
+        if ($queries === [] || count($positive) > self::MAX_STOP_WORDS || array_diff($queries, $emptyQueries) !== [] || array_any($positive, fn(Node $leaf): bool => $this->needle($leaf) === null)) {
             return $emptyQueries;
         }
 
@@ -586,13 +593,21 @@ final class FuzzyQueryCompiler
             $query = $this->column('ft', sprintf('to_tsquery(%s, %s)', $config, $params->add($tsquery)));
             $checks = array_map(fn(FieldDefinition $f): string => sprintf('s.%s @@ %s', $this->names->fieldVector($f->name), $query), $targets);
             $lookup = $query;
-            if ($field === null && count($targets) > 1 && str_contains($tsquery, '<->')) {
-                // A phrase may span two allowed fields, as it does in the whole tsv: it is also read from the allowed fields'
-                // vectors joined in the index's order, as if the hidden fields did not exist (what a hidden field holds, or
-                // lacks, never decides). The candidates then come from the AND of its words, which every allowed match has.
-                $checks[] = sprintf('(%s) @@ %s', implode(' || ', array_map(fn(FieldDefinition $f): string => 's.' . $this->names->fieldVector($f->name), $targets)), $query);
-                $loose = (new TsQueryCompiler($this->index, false, true))->compile($node) ?? $tsquery;
+            // The candidates come from the words alone (phrases ANDed, no weight labels), never from the phrase or the weights on
+            // tsv: its positions are capped (16 383) after the fields joined before it, so a long hidden field in front of an
+            // allowed one would decide whether the phrase is found there, or keep only the highest weight of a lexeme at a clamped
+            // position. Every allowed match has the words; the allowed fields' own columns decide.
+            $loose = (new TsQueryCompiler($this->index, false, true))->compile($node) ?? $tsquery;
+            if ($loose !== $tsquery) {
                 $lookup = $this->column('fl', sprintf('to_tsquery(%s, %s)', $config, $params->add($loose)));
+            }
+            if (str_contains($tsquery, '<->')) {
+                if ($field === null && count($targets) > 1) {
+                    // A phrase may span two allowed fields, as it does in the whole tsv: it is also read from the allowed fields'
+                    // vectors joined in the index's order, as if the hidden fields did not exist (what a hidden field holds, or
+                    // lacks, never decides).
+                    $checks[] = sprintf('(%s) @@ %s', implode(' || ', array_map(fn(FieldDefinition $f): string => 's.' . $this->names->fieldVector($f->name), $targets)), $query);
+                }
             }
 
             return sprintf('(s.tsv @@ %s AND %s)', $lookup, count($checks) === 1 ? $checks[0] : '(' . implode(' OR ', $checks) . ')');

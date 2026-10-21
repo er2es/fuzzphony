@@ -116,6 +116,16 @@ final class StopWordQueriesTest extends TestCase
         self::assertSame([1, 2], self::sorted($this->search('title:who', $mode)->get()->ids()), 'a word scoped to a field is checked against that field only');
     }
 
+    public function testAtMostThreeStopWordsAreSearched(): void
+    {
+        $this->connection->execute("INSERT INTO fz_stop_doc VALUES (30, 'The Who and for', '', '', 'music', 1)");
+        $this->fuzzphony->reindex('stop_docs');
+
+        self::assertSame([30], $this->search('the who and')->get()->ids());
+        self::assertSame([], $this->search('the who and for')->get()->ids(), 'four stop words: the cost adds up, so the query is left as it always was');
+        self::assertSame([], $this->search('the who and for', 'always')->restrictedToFields('title')->get()->ids());
+    }
+
     public function testShortStopWordsStillMustMatchExactly(): void
     {
         // "to", "be" ... are shorter than fuzzy_min_length (3): such a word matches exactly, which a stop word never does
