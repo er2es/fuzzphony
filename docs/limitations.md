@@ -271,8 +271,11 @@ proof:
 - timing is not hidden: how long a search takes can depend on how often a word occurs in a hidden field;
 - filters and facets are not restricted;
 - the vocabulary of unrestricted viewers still holds every word (a restricted viewer gets no suggestions and no "did you mean");
-- an exact phrase does not span two allowed fields for a restricted viewer, while an unrestricted search
-  matches across the boundary (the typo-tolerant fallback can still find it for the restricted viewer);
+- an exact phrase is read from the fields the viewer may see, as if the hidden ones did not exist: it spans two
+  allowed fields as it does for an unrestricted search, and never reaches into a hidden one. With a hidden field
+  between two allowed ones a restricted phrase can match where the unrestricted search (which sees the hidden
+  text in between) does not. The typo-tolerant similarity of a phrase that spans two fields is still taken per
+  field (a typo in it is found less reliably than for an unrestricted viewer);
 - `explain()` of a restricted viewer returns the statements and a note instead of the plan, because estimates
   and `ANALYZE` counts would leak how often a word occurs in the hidden fields;
 - an index upgraded to layout 2 without a full reindex has empty per-field columns, so a restricted viewer finds

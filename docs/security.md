@@ -231,9 +231,13 @@ a covert-channel proof:
 - **The vocabulary of unrestricted viewers still holds every word.** An unrestricted viewer of an
   index with a hidden field still gets suggestions and "did you mean" built from the words of all its
   fields, which is why a restricted viewer gets none.
-- **A phrase that spans two allowed fields does not match for a restricted viewer.** The restricted
-  recheck is per field, so `"ada lovelace"` with `ada` in one field and `lovelace` in the next finds
-  nothing (an unrestricted search can match across the boundary).
+- **A phrase is read from the fields the viewer may see, as if the others did not exist.** Like an
+  unrestricted search, a restricted one matches `"ada lovelace"` with `ada` at the end of one allowed field and
+  `lovelace` at the start of the next. A hidden field never takes part: a phrase that reaches into one does not
+  match, and what a hidden field holds (or lacks) never changes what the viewer finds. The one visible
+  difference to an unrestricted search: with a hidden field *between* two allowed ones (index order `name`,
+  `notes` hidden, `title`), a phrase made of the last word of `name` and the first of `title` matches for the restricted
+  viewer even when `notes` has text, where the unrestricted search sees that text in between and does not match.
 - **`explain()` of a restricted viewer returns the statements and a note instead of the plan.** A
   plan's row estimates and `EXPLAIN ANALYZE` counts (for example "Rows Removed by Filter") would leak
   how often a word occurs in the hidden fields. The statements themselves name no hidden column.

@@ -48,6 +48,32 @@ final class FuzzyQueryCompilerRestrictedTest extends TestCase
         self::assertStringNotContainsString('word_similarity(q.fn1, s.fz)', $match->predicate . $match->score, 'the combined text holds the hidden description too');
     }
 
+    public function testAPhraseOfSeveralAllowedFieldsIsAlsoReadFromTheirJoinedVectors(): void
+    {
+        $params = new ParameterBag();
+        $match = self::compiler(['name', 'brand'])->compile(self::parse('"usb receiver"'), $params);
+
+        self::assertNotNull($match);
+        self::assertStringContainsString('(s.tsv @@ q.fl1 AND (s."t_name" @@ q.ft0 OR s."t_brand" @@ q.ft0 OR (s."t_name" || s."t_brand") @@ q.ft0))', $match->predicate);
+        self::assertContains("('usb' & 'receiver')", $params->all(), 'the candidates come from the AND of the words');
+        self::assertContains("('usb' <-> 'receiver')", $params->all());
+        self::assertStringNotContainsString('t_description', $match->predicate . $match->score);
+    }
+
+    public function testAPhraseOfOneAllowedFieldOrAWordIsAsItWas(): void
+    {
+        $one = self::compiler(['name'])->compile(self::parse('"usb receiver"'), new ParameterBag());
+        self::assertNotNull($one);
+        self::assertStringContainsString('(s.tsv @@ q.ft0 AND s."t_name" @@ q.ft0)', $one->predicate);
+        self::assertStringNotContainsString('||', $one->predicate);
+        $word = self::compiler(['name', 'brand'])->compile(self::parse('usb'), new ParameterBag());
+        self::assertNotNull($word);
+        self::assertStringNotContainsString('||', $word->predicate);
+        $scoped = self::compiler(['name', 'brand'])->compile(self::parse('name:"usb receiver"'), new ParameterBag());
+        self::assertNotNull($scoped);
+        self::assertStringNotContainsString('||', $scoped->predicate, 'a scoped phrase stays in its own field');
+    }
+
     public function testTheLengthAwareRecheckUsesTheAllowedColumns(): void
     {
         $match = (new FuzzyQueryCompiler(Indexes::products(), new Thresholds(), new Names(), [], ['name']))->compile(self::parse('mouse'), new ParameterBag());

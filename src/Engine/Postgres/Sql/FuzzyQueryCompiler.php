@@ -561,10 +561,20 @@ final class FuzzyQueryCompiler
             if ($targets === []) {
                 return 'false'; // nothing the viewer may see can match
             }
-            $query = $this->column('ft', sprintf('to_tsquery(%s, %s)', $this->names->regconfig($this->index->text), $params->add($tsquery)));
+            $config = $this->names->regconfig($this->index->text);
+            $query = $this->column('ft', sprintf('to_tsquery(%s, %s)', $config, $params->add($tsquery)));
             $checks = array_map(fn(FieldDefinition $f): string => sprintf('s.%s @@ %s', $this->names->fieldVector($f->name), $query), $targets);
+            $lookup = $query;
+            if ($field === null && count($targets) > 1 && str_contains($tsquery, '<->')) {
+                // A phrase may span two allowed fields, as it does in the whole tsv: it is also read from the allowed fields'
+                // vectors joined in the index's order, as if the hidden fields did not exist (what a hidden field holds, or
+                // lacks, never decides). The candidates then come from the AND of its words, which every allowed match has.
+                $checks[] = sprintf('(%s) @@ %s', implode(' || ', array_map(fn(FieldDefinition $f): string => 's.' . $this->names->fieldVector($f->name), $targets)), $query);
+                $loose = (new TsQueryCompiler($this->index, false, true))->compile($node) ?? $tsquery;
+                $lookup = $this->column('fl', sprintf('to_tsquery(%s, %s)', $config, $params->add($loose)));
+            }
 
-            return sprintf('(s.tsv @@ %s AND %s)', $query, count($checks) === 1 ? $checks[0] : '(' . implode(' OR ', $checks) . ')');
+            return sprintf('(s.tsv @@ %s AND %s)', $lookup, count($checks) === 1 ? $checks[0] : '(' . implode(' OR ', $checks) . ')');
         }
         $query = $this->column('ft', sprintf('to_tsquery(%s, %s)', $this->names->regconfig($this->index->text), $params->add($tsquery)));
 

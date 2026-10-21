@@ -103,7 +103,9 @@ final class SearchSqlBuilder
             if ($this->allowedFields !== null) {
                 // An excluded word would exclude by every field, the hidden ones too: the lookup is the positive part
                 // only (a superset), the recheck below decides; nothing positive to look up leaves the recheck alone.
-                $positive = (new TsQueryCompiler($this->index, true))->compile($scopedRoot ?? throw new \LogicException('A restricted full-text branch needs the parsed query to recheck.'));
+                // a phrase may span two allowed fields (FuzzyQueryCompiler::matches()): its lookup is the AND of its words
+                $spanning = count(array_filter($this->index->fieldNames(), fn(string $name): bool => in_array($name, $this->allowedFields, true))) > 1;
+                $positive = (new TsQueryCompiler($this->index, true, $spanning))->compile($scopedRoot ?? throw new \LogicException('A restricted full-text branch needs the parsed query to recheck.'));
                 if ($positive === null) {
                     $lookup = null;
                 } elseif ($positive !== $tsquery) {
