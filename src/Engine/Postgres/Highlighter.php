@@ -25,9 +25,13 @@ final class Highlighter
     public const string START = "\u{E000}";
     public const string STOP = "\u{E001}";
     /** A text longer than this is looked at up to here for typo matches (ts_headline reads all of it). */
-    private const int MAX_CHARS = 20_000;
+    private const int MAX_CHARS = 10_000;
     /** The most distinct words (or runs of words) one page asks PostgreSQL to compare. */
     private const int MAX_WORDS = 4_000;
+    /** The typo marks are made for the first hits of the page only (a page can hold a thousand): the others keep ts_headline's snippet. */
+    private const int MAX_HITS = 200;
+    /** The runs of words (see TypoMarker::cost()) the typo marks of one page may go through; a hit that would pass it keeps ts_headline's snippet. */
+    private const int MAX_RUNS = 100_000;
     private const string TYPO = 'fz_typo';
     private const string TEXT = 'x_';
 
@@ -59,9 +63,11 @@ final class Highlighter
         foreach ($fields as $name) {
             // native prepared statements cannot reuse a placeholder, so each column binds its own copy
             $columns[] = sprintf(
-                "ts_headline(%s, coalesce(d.%s::text, ''), to_tsquery(%s, %s), %s) AS %s",
+                "ts_headline(%s, translate(coalesce(d.%s::text, ''), %s, ''), to_tsquery(%s, %s), %s) AS %s",
                 $config,
                 Sql::ident('fld_' . $name),
+                // the markers are ours: a text that holds them must not be able to draw a <mark>
+                $params->add(self::START . self::STOP),
                 $config,
                 $params->add($tsquery),
                 $params->add($options),
@@ -71,7 +77,7 @@ final class Highlighter
         // the typo marks apply to the typo-tolerant fields the typed words can be in; none: the statement is the strict one
         $typoFields = $typo === null ? [] : array_values(array_filter($fields, static fn(string $name): bool => self::typoField($index, $name, $typo)));
         if ($typo !== null && $typoFields !== [] && $typo->ids !== []) {
-            array_push($columns, ...$this->typoColumns($index, $typoFields, $typo->ids, $tsquery, $params));
+            array_push($columns, ...$this->typoColumns($index, $typo, $typoFields, array_slice($typo->ids, 0, self::MAX_HITS), $tsquery, $params));
         } else {
             $typo = null;
         }
@@ -122,6 +128,7 @@ final class Highlighter
         // [id, field, ts_headline's snippet, the text when that snippet has no mark]
         $work = [];
         $words = [];
+        $budget = self::MAX_RUNS;
         foreach ($rows as $row) {
             if (!in_array($row[self::TYPO] ?? null, [true, 't', '1', 1], true)) {
                 continue;
@@ -130,6 +137,12 @@ final class Highlighter
             foreach ($fields as $name) {
                 $snippet = $marked[$id][$name];
                 $text = str_contains($snippet, self::START) ? null : self::scanned(Coerce::str($row[self::TEXT . $name] ?? ''));
+                $cost = $marker->cost($text ?? $snippet, $name);
+                // nothing to compare, or the page's budget of work (or of distinct words) is spent: ts_headline's snippet stays
+                if ($cost === 0 || $cost > $budget || count($words) >= self::MAX_WORDS) {
+                    continue;
+                }
+                $budget -= $cost;
                 foreach ($marker->candidates($text ?? $snippet, $name) as $word) {
                     $words[$word] = true;
                 }
@@ -198,14 +211,15 @@ final class Highlighter
      *
      * @return list<string>
      */
-    private function typoColumns(IndexDefinition $index, array $fields, array $ids, string $tsquery, ParameterBag $params): array
+    private function typoColumns(IndexDefinition $index, TypoPlan $typo, array $fields, array $ids, string $tsquery, ParameterBag $params): array
     {
         $type = Types::id($index->idType);
         $columns = [sprintf(
-            'd.fz_id = ANY(CAST(%s AS %s[])) AND NOT EXISTS (SELECT 1 FROM %s AS s WHERE s.id = d.fz_id AND s.tsv @@ to_tsquery(%s, %s)) AS %s',
+            'd.fz_id = ANY(CAST(%s AS %s[])) AND NOT EXISTS (SELECT 1 FROM %s AS s WHERE s.id = d.fz_id AND %s @@ to_tsquery(%s, %s)) AS %s',
             $params->add(Sql::arrayLiteral($ids)),
             $type,
             $this->names->sidecar($index),
+            $this->strictVector($index, $typo->allowedFields),
             $this->names->regconfig($index->text),
             $params->add($tsquery),
             Sql::ident(self::TYPO),
@@ -222,6 +236,29 @@ final class Highlighter
         }
 
         return $columns;
+    }
+
+    /**
+     * The vector the strict query is judged on: the whole document, or for a restricted viewer only the fields it may see
+     * (the vector the text rank reads). A hidden field never takes part: it would tell the viewer whether it holds a word.
+     *
+     * @param list<string>|null $allowed
+     */
+    private function strictVector(IndexDefinition $index, ?array $allowed): string
+    {
+        if ($allowed === null) {
+            return 's.tsv';
+        }
+        $parts = array_map(
+            fn(string $name): string => 's.' . $this->names->fieldVector($name),
+            array_values(array_filter($index->fieldNames(), static fn(string $name): bool => in_array($name, $allowed, true))),
+        );
+
+        return match (count($parts)) {
+            0 => "''::tsvector",
+            1 => $parts[0],
+            default => '(' . implode(' || ', $parts) . ')',
+        };
     }
 
     /** Whether the typed words can be marked in this field: it is typo-tolerant, and no word is scoped to another field only. */

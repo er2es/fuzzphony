@@ -20,6 +20,8 @@ final class TypoMarker
 {
     /** The words a text is looked at in: a bound on the work for a very long document. */
     public const int MAX_WORDS_SCANNED = 2000;
+    /** A phrase of more words than this is not looked for (a query can hold a very long one; the work grows with its length). */
+    public const int MAX_PHRASE_WORDS = 8;
     /** A text of at most this many words is returned whole; a longer one as fragments. */
     private const int WHOLE_TEXT_WORDS = 30;
     private const int FRAGMENT_WORDS = 15;
@@ -29,6 +31,21 @@ final class TypoMarker
 
     /** @param list<TypoTerm> $terms */
     public function __construct(private readonly array $terms) {}
+
+    /**
+     * The work marking $text costs, in runs of words to compare (what candidates() and the marking each go through): the
+     * highlighter spends a budget of them on a page.
+     */
+    public function cost(string $text, string $field): int
+    {
+        $count = count(self::tokens($text));
+        $cost = 0;
+        foreach ($this->applicable($field) as $i) {
+            $cost += max(0, $count - $this->terms[$i]->words + 1);
+        }
+
+        return $cost;
+    }
 
     /**
      * What to ask PostgreSQL about: the lower-cased words, or runs of words, of $text a term of this field compares with.
@@ -100,10 +117,10 @@ final class TypoMarker
         return implode(self::DELIMITER, $fragments);
     }
 
-    /** @return list<int> the terms that apply to the field's text: unscoped, or scoped to this field */
+    /** @return list<int> the terms that apply to the field's text: unscoped, or scoped to this field, and not a very long phrase */
     private function applicable(string $field): array
     {
-        return array_keys(array_filter($this->terms, static fn(TypoTerm $term): bool => $term->field === null || $term->field === $field));
+        return array_keys(array_filter($this->terms, static fn(TypoTerm $term): bool => $term->words <= self::MAX_PHRASE_WORDS && ($term->field === null || $term->field === $field)));
     }
 
     /**
@@ -153,11 +170,10 @@ final class TypoMarker
      *
      * @param list<array{int, int, bool, string}> $tokens
      *
-     * @return list<array{int, string}>
+     * @return \Generator<int, array{int, string}>
      */
-    private static function runs(array $tokens, string $text, int $length): array
+    private static function runs(array $tokens, string $text, int $length): \Generator
     {
-        $runs = [];
         for ($start = 0, $last = count($tokens) - $length; $start <= $last; ++$start) {
             $words = [];
             $open = false;
@@ -170,11 +186,9 @@ final class TypoMarker
                 $words[] = $word;
             }
             if ($open) {
-                $runs[] = [$start, implode(' ', $words)];
+                yield [$start, implode(' ', $words)];
             }
         }
-
-        return $runs;
     }
 
     /** Whether the text between two words, [$from, $to), holds no fragment delimiter (the words are neighbours in the document). */

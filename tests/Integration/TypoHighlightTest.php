@@ -224,6 +224,53 @@ final class TypoHighlightTest extends TestCase
         self::assertLessThanOrEqual(30, preg_match_all('/\p{L}+/u', strip_tags($long->highlights['body'])), 'two fragments of fifteen words, as ts_headline MaxWords');
     }
 
+    public function testAHiddenFieldNeverDecidesWhatARestrictedViewerSees(): void
+    {
+        $seen = [];
+        foreach (['', 'salary negotiation', 'contains wireless', 'logitech logitek salary wireles'] as $i => $secret) {
+            $this->connection->execute('DELETE FROM fz_typo_doc');
+            $this->connection->execute('INSERT INTO fz_typo_doc VALUES (:id, :title, :body, :extra, :secret)', ['id' => 1, 'title' => 'Logitech wireles mouse', 'body' => 'plain', 'extra' => 'plain', 'secret' => $secret]);
+            $this->fuzzphony->reindex('typo_docs');
+            foreach (['fallback', 'always'] as $mode) {
+                foreach (['logitek | salary', 'logitek | wireless', 'logitek wireles', 'logitek'] as $query) {
+                    $hits = $this->search($query, ['title', 'body'], $mode)->restrictedToFields('title', 'body')->get()->hits;
+                    $seen[$mode . '|' . $query][$i] = array_map(static fn($h): array => [$h->id, $h->score, $h->highlights], $hits);
+                }
+            }
+        }
+        foreach ($seen as $case => $perSecret) {
+            self::assertCount(1, array_unique(array_map('serialize', $perSecret)), $case . ': the hidden field changes nothing the viewer sees');
+        }
+        self::assertSame('<mark>Logitech</mark> wireles mouse', $seen['always|logitek | salary'][0][0][2]['title'] ?? self::fail('no hit'), 'and the typo word is marked');
+    }
+
+    public function testATextThatHoldsOurMarkersCannotDrawAMark(): void
+    {
+        $this->connection->execute('DELETE FROM fz_typo_doc');
+        $rows = [
+            [1, "x\u{E000} wireless <b>\u{E001}"],
+            [2, "lone \u{E000} wireless"],
+            [3, "wireles\u{E001} mouse"],
+        ];
+        foreach ($rows as [$id, $title]) {
+            $this->connection->execute('INSERT INTO fz_typo_doc VALUES (:id, :title, :body, :extra, :secret)', ['id' => $id, 'title' => $title, 'body' => 'plain', 'extra' => 'plain', 'secret' => 'plain']);
+        }
+        $this->fuzzphony->reindex('typo_docs');
+
+        $strict = $this->search('wireless', ['title'], 'never')->get();
+        self::assertSame('<mark>wireless</mark>', $this->hitIn($strict, 1)->highlights['title'], 'a strict hit: ts_headline cuts the short words and the tag, and the planted markers are gone');
+        self::assertSame('lone  <mark>wireless</mark>', $this->hitIn($strict, 2)->highlights['title']);
+        foreach (['wireless', 'wireles'] as $query) {
+            foreach ($this->search($query, ['title'], 'always')->get()->hits as $hit) {
+                $html = $hit->highlights['title'];
+                self::assertSame(substr_count($html, '<mark>'), substr_count($html, '</mark>'), $html);
+                self::assertStringNotContainsString("\u{E000}", $html);
+                self::assertStringNotContainsString("\u{E001}", $html);
+            }
+        }
+        self::assertSame('<mark>wireles</mark> mouse', $this->hitIn($this->search('wirelss', ['title'])->get(), 3)->highlights['title']);
+    }
+
     public function testARelaxedSearchMarksTheWordsOfTheQueryThatWasRun(): void
     {
         $result = $this->search('hedphones zzqxyw', ['title'])->get();
