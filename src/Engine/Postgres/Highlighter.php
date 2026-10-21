@@ -59,9 +59,11 @@ final class Highlighter
         foreach ($fields as $name) {
             // native prepared statements cannot reuse a placeholder, so each column binds its own copy
             $columns[] = sprintf(
-                "ts_headline(%s, coalesce(d.%s::text, ''), to_tsquery(%s, %s), %s) AS %s",
+                "ts_headline(%s, translate(coalesce(d.%s::text, ''), %s, ''), to_tsquery(%s, %s), %s) AS %s",
                 $config,
                 Sql::ident('fld_' . $name),
+                // the markers are ours: a text that holds them must not be able to draw a <mark>
+                $params->add(self::START . self::STOP),
                 $config,
                 $params->add($tsquery),
                 $params->add($options),
@@ -202,10 +204,11 @@ final class Highlighter
     {
         $type = Types::id($index->idType);
         $columns = [sprintf(
-            'd.fz_id = ANY(CAST(%s AS %s[])) AND NOT EXISTS (SELECT 1 FROM %s AS s WHERE s.id = d.fz_id AND s.tsv @@ to_tsquery(%s, %s)) AS %s',
+            'd.fz_id = ANY(CAST(%s AS %s[])) AND NOT EXISTS (SELECT 1 FROM %s AS s WHERE s.id = d.fz_id AND %s @@ to_tsquery(%s, %s)) AS %s',
             $params->add(Sql::arrayLiteral($ids)),
             $type,
             $this->names->sidecar($index),
+            's.tsv',
             $this->names->regconfig($index->text),
             $params->add($tsquery),
             Sql::ident(self::TYPO),

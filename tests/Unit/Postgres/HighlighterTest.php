@@ -155,6 +155,15 @@ final class HighlighterTest extends TestCase
         self::assertSame(['1' => ['name' => 'Plain note']], $out);
     }
 
+    public function testTheMarkersAreRemovedFromTheTextBeforeTsHeadline(): void
+    {
+        $connection = $this->scripted([[['id' => '1', 'h_name' => 'x']]]);
+        (new Highlighter($connection))->highlight(Indexes::products(), ['name'], "'mouse'", [1]);
+
+        self::assertStringContainsString("translate(coalesce(d.\"fld_name\"::text, ''), :p0, '')", $connection->log[0][0]);
+        self::assertSame("\u{E000}\u{E001}", $connection->log[0][1]['p0']);
+    }
+
     /** @param list<list<array<string, mixed>>> $answers the rows of each statement, in order */
     private function scripted(array $answers): ScriptedConnection
     {
