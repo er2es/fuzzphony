@@ -67,6 +67,9 @@ use Fuzzphony\Engine\Postgres\Schema\Types;
  */
 final class FuzzyQueryCompiler
 {
+    /** Most stop words of a query of stop words only that are searched (see keepingStopWords()); a longer query finds nothing, as it always did. */
+    public const int MAX_STOP_WORDS = 3;
+
     private readonly TsQueryCompiler $tsquery;
     /** @var list<string> */
     private array $columns = [];
@@ -225,7 +228,11 @@ final class FuzzyQueryCompiler
      * there. Only when every word of the query, excluded ones too, is a stop word (a real word left to exclude makes the
      * strict branch a pure exclusion, and what it finds stays as it is), and only when every positive word is long
      * enough for typo tolerance (a shorter one must match exactly, which a stop word never does: the search would find
-     * nothing, so it does not run). Otherwise $emptyQueries come back unchanged; the negated stop words stay dropped.
+     * nothing, so it does not run), and only for at most MAX_STOP_WORDS words: every kept word is a trigram condition
+     * that, for a word in most documents, keeps all of its matches (it is over the candidate limit), and several of them
+     * in one statement cost seconds on a large index (measured: five common stop words took 15 s for a restricted viewer
+     * on 100 000 rows, under 1 s for an unrestricted one; three take under half a second for both). Otherwise $emptyQueries
+     * come back unchanged; the negated stop words stay dropped.
      *
      * @param list<string> $emptyQueries leaf tsqueries the text configuration reduces to nothing (stop words)
      *
@@ -235,7 +242,7 @@ final class FuzzyQueryCompiler
     {
         $queries = $this->leafQueries($root);
         $positive = $this->positiveLeaves($root);
-        if ($queries === [] || array_diff($queries, $emptyQueries) !== [] || array_any($positive, fn(Node $leaf): bool => $this->needle($leaf) === null)) {
+        if ($queries === [] || count($positive) > self::MAX_STOP_WORDS || array_diff($queries, $emptyQueries) !== [] || array_any($positive, fn(Node $leaf): bool => $this->needle($leaf) === null)) {
             return $emptyQueries;
         }
 
