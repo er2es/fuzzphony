@@ -126,7 +126,7 @@ A good fit when:
 - You want to know what people search for and what they do not find: an opt-in search log (redacted, with a
   retention) and reports of the most searched and the zero-result texts, and of who searched what (per user, with an
   optional masked client IP), without a separate analytics service.
-- You need to protect the search: a rate limit per tenant or user (429), index-level authorization on Symfony's
+- You need to protect the search: a rate limit per tenant, user or client IP (429), index-level authorization on Symfony's
   voters (403), and fields only some viewers may search (`granted: ROLE_HR`): a hidden field is not matched,
   ranked, highlighted or suggested for the others.
 - Your content is multilingual: stemming for 28 languages, and accent folding that finds

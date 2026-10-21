@@ -156,7 +156,7 @@ must own the table (it is an `ALTER TABLE`). The [retention purge](#retention) d
 **Where the address comes from.** The Core knows nothing of HTTP: the address belongs to the
 [`Actor`](multi-tenancy.md#the-actor-who-is-searching), whose third, optional argument is `ip`
 (`new Actor(tenant: 7, user: 'ada', ip: '203.0.113.45')`; `Actor::anonymous()` and every existing call keep working). The
-Symfony bundle fills it, when `ip` is not `off`, with `Request::getClientIp()` of the main request, for every actor the
+Symfony bundle fills it, when `ip` is not `off` (or when [`rate_limit.per`](security.md#limiting-anonymous-visitors-by-ip) is `ip`, which needs the address for the limit; the log still stores nothing while `ip` is `off`), with `Request::getClientIp()` of the main request, for every actor the
 configured resolver returns (an anonymous visitor, a user read from the Security token, or your own `ActorResolver`; an
 actor your resolver built with an `ip` of its own keeps it). `getClientIp()` follows `framework.trusted_proxies`: behind a
 reverse proxy or a load balancer, **set `trusted_proxies` and `trusted_headers`**, or every search is logged with the

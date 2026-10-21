@@ -285,7 +285,7 @@ fuzzphony:
   orm_sync: { async: false, chunk_size: 500 }
   actor: { }                   # who searches, see below
   search_log: { enabled: false, retention_days: 90, redact: [], ip: off }  # opt-in, see below
-  rate_limit: { limiter: ~, per: tenant }                          # opt-in, see below
+  rate_limit: { limiter: ~, per: tenant }                          # opt-in (tenant, user or ip), see below
   authorization: { enabled: false, index_attribute: FUZZPHONY_SEARCH }  # opt-in, see below
   indexes: { }                 # YAML indexes and overrides, see above
 ```
@@ -342,13 +342,23 @@ and the privacy notes are in [The client IP](analytics.md#the-client-ip).
 ```yaml
 fuzzphony:
   rate_limit:
-    limiter: search     # a framework.rate_limiter entry (service limiter.search); empty (default) = no rate limit
-    per: user           # tenant (default) or user: whose searches share one bucket
+    limiter: search     # a framework.rate_limiter entry (service limiter.search); empty (default) = no rate limit, except per: ip
+    per: user           # tenant (default), user or ip: whose searches share one bucket
 ```
+
+`per: ip` limits the anonymous visitors of a public search box by client address and needs no `limiter`: without
+one the bundle prepends `framework.rate_limiter.fuzzphony_ip` (a sliding window of 600 searches a minute per
+address) and uses it; name your own entry in `limiter` to change the numbers (an application that defines an
+entry called `fuzzphony_ip` keeps it too). The key is `Request::getClientIp()` (so `framework.trusted_proxies`
+applies; without it everyone behind a proxy shares one bucket), an IPv6 address by its /64; an actor without an
+address (a console command, a worker, a plain PHP call) is not limited by it. The address is used for the limit
+whatever `search_log.ip` says; the log stores it only when `search_log.ip` is `masked` or `full`. A company
+network or NAT shares one address among many people, hence the loose default. All of it, with the caveats, in
+[Limiting anonymous visitors by IP](security.md#limiting-anonymous-visitors-by-ip).
 
 Needs `symfony/rate-limiter` (suggested, not required: without it the container fails to build, with the
 `composer require` line). `limiter` must name a `framework.rate_limiter` entry (a `compound` one works too);
-an unknown name fails the build with Symfony's own "non-existent service `limiter.<name>`" message. One token per search of an actor that has the key; over the limit the search
+an unknown name fails the build with Symfony's own "non-existent service `limiter.<name>`" message. One token per search of an actor that has the key (the tenant, the user, or a client address); over the limit the search
 throws `RateLimited` (HTTP 429 with `Retry-After`). See [Security](security.md#the-rate-limit) for what is
 and is not limited.
 

@@ -133,11 +133,11 @@ final class FuzzphonyBundleGuardsTest extends TestCase
         self::assertFalse($container->hasDefinition('fuzzphony.guard.authorization'));
     }
 
-    public function testPerMustBeTenantOrUser(): void
+    public function testPerMustBeTenantUserOrIp(): void
     {
         $this->expectException(InvalidConfigurationException::class);
 
-        $this->buildContainer(['rate_limit' => ['limiter' => 'search', 'per' => 'ip']]);
+        $this->buildContainer(['rate_limit' => ['limiter' => 'search', 'per' => 'account']]);
     }
 
     public function testTheRateLimitNeedsItsPackage(): void
