@@ -32,6 +32,9 @@ final readonly class RateLimitGuard implements SearchGuard
             'user' => $actor->user,
             default => ClientIpKey::of($actor->ip),
         };
+        if ($this->per === 'ip' && $key !== null) {
+            $key = hash('sha256', (string) $key); // the limiter keeps its key in its cache pool: not the address itself
+        }
         if ($key === null || !$charge) {
             return Access::all(); // no key, no bucket (an actor without an IP is not limited by IP: the library sees no request)
         }

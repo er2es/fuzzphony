@@ -14,6 +14,6 @@ final class RecordingLogger extends AbstractLogger
 
     public function log($level, string|\Stringable $message, array $context = []): void
     {
-        self::$lines[] = (string) json_encode([(string) $level, (string) $message, $context], \JSON_PARTIAL_OUTPUT_ON_ERROR);
+        self::$lines[] = (string) json_encode([$level, (string) $message, $context], \JSON_PARTIAL_OUTPUT_ON_ERROR);
     }
 }

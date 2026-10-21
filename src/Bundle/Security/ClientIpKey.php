@@ -9,7 +9,7 @@ namespace Fuzzphony\Bundle\Security;
  * address shares one with the rest of its /64 (a visitor owns a whole /64 and can rotate inside it, so a bucket per
  * address would limit nothing). An IPv4-mapped IPv6 address (::ffff:203.0.113.45) is the IPv4 address it carries. No
  * address, or text that is not an IP address, has no bucket (null): such an actor is not limited by IP.
- * The key is only handed to the rate limiter, which hashes it into its storage key; it is never logged or stored by Fuzzphony.
+ * RateLimitGuard hashes the key before it reaches the limiter, so the cache pool never holds the address; Fuzzphony never logs or stores it.
  */
 final class ClientIpKey
 {

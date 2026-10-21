@@ -4,8 +4,8 @@ declare(strict_types=1);
 
 namespace Fuzzphony\Tests\Integration\Bundle\IpLimit;
 
-use Fuzzphony\Core\Search\Actor;
 use Fuzzphony\Core\Fuzzphony;
+use Fuzzphony\Core\Search\Actor;
 use Fuzzphony\Tests\Integration\PostgresTestCase;
 use PHPUnit\Framework\TestCase;
 use Symfony\Bundle\FrameworkBundle\Console\Application;
@@ -199,7 +199,8 @@ final class IpLimitTest extends TestCase
         $all = PostgresTestCase::connect()->fetchAll('SELECT row_to_json(l)::text AS j FROM fuzzphony_search_log l');
         self::assertCount(4, $all);
         foreach ($all as $row) {
-            self::assertStringNotContainsString('203.0.113', (string) $row['j'], 'the address is not stored when search_log.ip is off');
+            self::assertIsString($row['j']);
+            self::assertStringNotContainsString('203.0.113', $row['j'], 'the address is not stored when search_log.ip is off');
         }
         $ips = PostgresTestCase::connect()->fetchAll('SELECT actor_ip FROM fuzzphony_search_log');
         self::assertSame([null, null, null, null], array_column($ips, 'actor_ip'), 'the actor_ip column holds nothing');

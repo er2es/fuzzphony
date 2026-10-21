@@ -12,8 +12,10 @@ use Fuzzphony\Core\Search\Actor;
 use Fuzzphony\Tests\Fixtures\Indexes;
 use PHPUnit\Framework\TestCase;
 use Symfony\Component\RateLimiter\CompoundRateLimiterFactory;
+use Symfony\Component\RateLimiter\LimiterStateInterface;
 use Symfony\Component\RateLimiter\RateLimiterFactory;
 use Symfony\Component\RateLimiter\Storage\InMemoryStorage;
+use Symfony\Component\RateLimiter\Storage\StorageInterface;
 
 final class RateLimitGuardTest extends TestCase
 {
@@ -177,6 +179,37 @@ final class RateLimitGuardTest extends TestCase
         $perUser->check($this->index(), new Actor(user: 'bob', ip: '203.0.113.45'));
         self::assertTrue($perUser->check($this->index(), new Actor(ip: '203.0.113.45'))->isAll(), 'no user, no bucket');
         self::assertTrue($perUser->check($this->index(), new Actor(ip: '203.0.113.45'))->isAll());
+    }
+
+    public function testPerIpHandsTheLimiterAHashAndNeverTheAddress(): void
+    {
+        $storage = new class implements StorageInterface {
+            /** @var list<string> */
+            public array $saved = [];
+
+            public function save(LimiterStateInterface $limiterState): void
+            {
+                $this->saved[] = $limiterState->getId() . '|' . serialize($limiterState);
+            }
+
+            public function fetch(string $limiterStateId): ?LimiterStateInterface
+            {
+                return null;
+            }
+
+            public function delete(string $limiterStateId): void {}
+        };
+        $guard = new RateLimitGuard(new RateLimiterFactory(['id' => 'search', 'policy' => 'sliding_window', 'limit' => 5, 'interval' => '1 minute'], $storage), per: 'ip');
+
+        $guard->check($this->index(), new Actor(ip: '203.0.113.45'));
+        $guard->check($this->index(), new Actor(ip: '2001:db8:abcd:12::1'));
+
+        self::assertCount(2, $storage->saved);
+        foreach ($storage->saved as $saved) {
+            self::assertStringNotContainsString('203.0.113', $saved);
+            self::assertStringNotContainsString('2001:db8', $saved);
+        }
+        self::assertStringContainsString('search-' . hash('sha256', '203.0.113.45'), $storage->saved[0]);
     }
 
     public function testAnUnknownPerIsRejected(): void
