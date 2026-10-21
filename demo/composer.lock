@@ -601,7 +601,7 @@
             "dist": {
                 "type": "path",
                 "url": "..",
-                "reference": "970fdccc8d0fdd352281bd06f7d4e2ccbe98e63d"
+                "reference": "0a9489e1d629f6a278d7817ef3f38c64103522b2"
             },
             "require": {
                 "ext-mbstring": "*",
@@ -671,6 +671,9 @@
                 ],
                 "test:integration": [
                     "phpunit --testsuite=integration"
+                ],
+                "test:recipes": [
+                    "phpunit --testsuite=recipes"
                 ],
                 "test:all": [
                     "phpunit"
