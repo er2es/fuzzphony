@@ -194,11 +194,13 @@ self::assertSame([7], $laptop->ids());                                 // a one-
 self::assertSame('(laptop OR notebook OR portable)', $laptop->interpretedAs);
 
 $typo = $this->fuzzphony()->in('products')->query('hedphones')->get();
-self::assertSame('headphones', $typo->didYouMean);                     // a suggestion to show as a link: it is never searched by itself
+self::assertSame('headphones', $typo->didYouMean);                     // a suggestion to show as a link: it is not searched for the visitor unless a search finds nothing
 ```
 
 Synonyms are expanded on the query, so changing the list needs neither `schema --apply` nor a reindex, and typo
-tolerance applies to a synonym too ([Synonyms](../searching.md#synonyms)). Escape `didYouMean` when you render it.
+tolerance applies to a synonym too ([Synonyms](../searching.md#synonyms)). Escape `didYouMean` when you render it. A search that finds nothing at all and has a word with exactly one
+one-edit correction (`mpuse` for `mouse`) is searched again with it, and `$result->correctedFrom` and a warning say so
+([zero-result rescue](../searching.md#zero-result-rescue)): show a "Showing results for ..." line when `correctedFrom` is set.
 
 <!-- tested: tests/Recipes/Shop/ShopTest.php#ranking -->
 ```php

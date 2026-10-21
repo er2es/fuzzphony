@@ -276,7 +276,8 @@ $result = $fuzzphony->in('products')->query('hedphones -cable')->get();
 $result->didYouMean;   // "headphones -cable": the query with the word replaced, the rest as typed
 ```
 
-- It is a suggestion: Fuzzphony never searches it by itself. Show it as a link that searches
+- It is a suggestion: Fuzzphony does not search it for the visitor, except for a search that found nothing at all and has
+  a unique one-edit correction (the [zero-result rescue](#zero-result-rescue) below). Show it as a link that searches
   `$result->didYouMean`. It is plain text made of the user's own words: escape it when you render it.
 - When: fewer hits than `fallback_below` (5), or typo tolerance had to run (so it also appears next to the
   results typo tolerance found: `hedphones` finds headphones and still suggests the word). It is not computed for a browse, a search with enough hits, or when `did_you_mean` is `false`.
@@ -317,6 +318,54 @@ $result->didYouMean;   // "headphones -cable": the query with the word replaced,
 - `explain()` (and `fuzzphony:search --explain`, and the demo's SQL views) list the lookup as the
   statement labelled `did you mean`, with the words bound as parameters; the plan shown is still the
   search statement's.
+
+### Zero-result rescue
+
+A search that finds **nothing** and has a word the vocabulary can correct with certainty is run once more with the
+corrected words, and the result is the one of the corrected search, flagged:
+
+```php
+$result = $fuzzphony->in('products')->query('mpuse')->get();   // nothing contains "mpuse", one word of the index is one edit away
+$result->correctedFrom;   // "mpuse": the text as the visitor wrote it (null when nothing was corrected)
+$result->interpretedAs;   // "mouse": the query that really ran
+$result->warnings;        // ["No results for 'mpuse'; showing results for 'mouse'."]
+$result->didYouMean;      // null: the suggestion was taken
+```
+
+Show it as a bar ("Showing results for mouse", with a link that searches the typed text again as it is, for example
+with `thresholds(['rescue_empty' => false])`). `correctedFrom` is the visitor's own text: escape it when you render it.
+
+- **When**: the search found nothing after everything else (strict match, typo tolerance, the empty-result
+  relaxation: a search that found something, however few hits, is never rescued), `rescue_empty` is on (the
+  default) and so is `did_you_mean` (the rescue uses its vocabulary lookup, the same statement: no extra lookup), typo
+  tolerance is not switched off (`fuzzy_mode: never` or a profile with `fuzzy: 0` never rescue), and the text is not a
+  search-as-you-type one (`asYouType()`: its last word is not finished, nothing is wrong with it).
+- **Which words**: the words did-you-mean may correct (whole words that the index does not know; not prefixes,
+  excluded words, synonyms or words with a digit). A word is corrected only when the vocabulary has **exactly one word
+  one edit away** (one letter replaced, missing or extra) among its ten closest candidates: `mpuse` becomes `mouse` when
+  nothing else of the vocabulary is one edit from `mpuse`. A tie (`mpuse` with both `mouse` and `mause` in the index)
+  means no rescue at all, and so does a tie in any one word of a longer query. A word with no one-edit candidate is left
+  as typed (the corrected query may then be relaxed as any query, naming the word it ignored). Two edits, such as a
+  word typed with two wrong letters, is for the plain did-you-mean suggestion, never for the rescue.
+- **One attempt**: the corrected query is searched once, with the rescue off. When it finds nothing too, the answer is
+  the original, empty one (with its did-you-mean as always); the rescue never loops and never corrects the correction.
+- **Everything else is the original search's**: filters, facets (counted over the corrected search), paging,
+  highlights (of the corrected words), the tenant, the actor, the guards and a restricted viewer's fields. The
+  corrected search is the same `SearchQuery` with other text.
+- **Never**: on a tenant-scoped index or for a restricted viewer (the vocabulary holds the words of every tenant's and every
+  field's documents; as for did-you-mean there is no lookup, so no rescue, and what a viewer finds never depends on a hidden
+  field or another tenant), with `did_you_mean: false`, or with `rescue_empty: false`. On an index whose filters hide rows
+  whose words must stay secret, switch both off, as for did-you-mean: the rescued results honour the filters, but the choice
+  of the corrected word is made from the whole vocabulary.
+- **Observability**: `explain()` lists the rescue's statements with the label prefix `rescue: ` (`rescue: full-text`,
+  `rescue: fallback: full-text + fuzzy`, `rescue: facet: category`, ...) after the original's and the `did you mean`
+  lookup, also when the attempt found nothing; the counter `fuzzphony.search.rescued` counts the rescued searches
+  ([Observability](observability.md#instrumentation-points)). The search log records what the visitor **typed** with the
+  hits of the rescued search (so an analytics report no longer lists `mpuse` as a zero-result search; it lists it as
+  a search that found `mouse`'s hits), and `FederatedSearch` rescues each index on its own (the warning is prefixed
+  with the index: `[products] No results for ...`, and `$result->results['products']->correctedFrom` says which).
+- **Cost**: nothing for a search that has results. For a search with none, one more search (its statements: the same
+  as any search of that text), and no extra vocabulary lookup.
 
 ## Search-as-you-type
 

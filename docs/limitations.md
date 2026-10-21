@@ -46,6 +46,12 @@ typo from a different word that looks alike:
 - By default (`fuzzy_mode: fallback`) it runs only when exact matching finds fewer than `fallback_below` (5)
   hits, so a typo next to enough exact hits is not corrected. `always` runs it every time, `never` switches
   it off.
+- A letter replaced in the middle of a 5 to 7 letter word (`mpuse`) is **not** added to the results of a search. Only the
+  [zero-result rescue](searching.md#zero-result-rescue) reaches it, and only when the search found nothing at all, the
+  vocabulary has exactly one word one edit away, and the index is not tenant-scoped (no vocabulary there) and the viewer
+  is not restricted: then the corrected search answers, flagged (`SearchResult::$correctedFrom`). A tie between two
+  candidates, a word with two wrong letters, a code with digits, a search-as-you-type text and a search that found
+  something are not rescued; on a tenant-scoped index or for a restricted viewer `mpuse` still finds nothing.
 
 What to do: set `fuzzy_similarity` to a number to use one value for every word. That trades the other way: it
 finds more typos and lists more look-alikes (the measured trade-off is in

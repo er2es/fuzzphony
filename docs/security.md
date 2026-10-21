@@ -179,7 +179,9 @@ leaks. A word that exists only in a hidden field is:
   field, so two documents that differ only in a hidden field score the same;
 - **not highlighted**: a hit never shows a snippet of a hidden field;
 - **not suggested**: a restricted viewer gets no "did you mean" and `suggest()` returns `[]`, because
-  the vocabulary holds the words of every field;
+  the vocabulary holds the words of every field; for the same reason a restricted viewer's search that finds nothing is
+  never rescued with a corrected spelling ([zero-result rescue](searching.md#zero-result-rescue); a tenant-scoped index
+  has none either). The two swapped letters of `mosue` are matched in the fields the viewer may see only;
 - **not counted**: `total`, the facet counts and the exact counts cover the documents the viewer
   could match through their allowed fields only. An excluded word (`lamp -plain`) never excludes a
   document because of a hidden field.
@@ -229,8 +231,8 @@ a covert-channel proof:
 - **Filters and facets are not restricted.** Their values are attributes of the document, searchable
   and countable by anyone who may search the index.
 - **The vocabulary of unrestricted viewers still holds every word.** An unrestricted viewer of an
-  index with a hidden field still gets suggestions and "did you mean" built from the words of all its
-  fields, which is why a restricted viewer gets none.
+  index with a hidden field still gets suggestions, "did you mean" and the zero-result rescue built from the words of
+  all its fields, which is why a restricted viewer gets none.
 - **What a hidden field holds, or how long it is, never changes what a restricted viewer finds.** The candidates of a
   phrase or of a field-scoped word are looked up by the words alone, because the positions of the whole-text vector are
   capped at 16 383 and a long hidden field in front of an allowed one would otherwise decide whether a phrase of the

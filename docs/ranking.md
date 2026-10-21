@@ -79,6 +79,7 @@ $fuzzphony->in('products')->query('mouse')->profile('popular')->ranking(['boost'
 | `candidate_limit` | `2000` | max candidates ranked per branch (the first matches the index returns, not the best ones: [limitation](limitations.md#ranking-is-approximate-beyond-candidate_limit)); `total` becomes a lower bound (`2000+`) |
 | `max_query_length` / `max_terms` | `256` / `16` | input limits |
 | `did_you_mean` | `true` | a search with fewer than `fallback_below` hits, or one that needed typo tolerance, suggests the spelling of a word the index does not know in `SearchResult::$didYouMean`; never on a tenant-scoped index ([details](searching.md#did-you-mean)) |
+| `rescue_empty` | `true` | a search that finds nothing, with a word that has exactly one vocabulary word one edit away (`mpuse` / `mouse`), is searched again with the corrected words and answers with that, flagged in `SearchResult::$correctedFrom` and a warning; never with `did_you_mean: false`, on a tenant-scoped index, for a restricted viewer, or with typo tolerance off ([details](searching.md#zero-result-rescue)) |
 | `relax_when_empty` | `true` | a multi-word query that finds nothing drops the words that match nothing and says so in `warnings` ([details](searching.md#empty-result-relaxation)); independent of `fuzzy_mode` |
 
 Set them per index (YAML `thresholds:`) or per query:

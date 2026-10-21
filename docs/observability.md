@@ -72,6 +72,9 @@ services:
   queue processing, orphan pruning and more, by its own operation name, e.g.
   `fuzzphony.rebuild.duration_ms`): `fuzzphony.<operation>.duration_ms` (a histogram) always,
   `fuzzphony.<operation>.errors` (a counter) on failure.
+- A search that found nothing and was answered with the results of its corrected spelling (`mpuse` ->
+  `mouse`, [Zero-result rescue](searching.md#zero-result-rescue)): `fuzzphony.search.rescued` (a counter), labeled
+  as `fuzzphony.search.fallback` below. `took_ms` is observed once per search, rescue included.
 - Each search: `fuzzphony.search.took_ms` (a histogram) and `fuzzphony.search.fallback` (a counter,
   incremented when the full-text/fuzzy fallback ran), both labeled `index` (and `query` for
   `LoggingMetricsCollector` when opted in — never for `PrometheusMetricsCollector`, see

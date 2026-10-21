@@ -37,12 +37,19 @@ final readonly class SearchResult implements \IteratorAggregate, \Countable
          * the conditions on its own filter, so it shows what choosing another value would find.
          */
         public array $facets = [],
+        /**
+         * The search text as the visitor wrote it, when the search found nothing and this result is the one of the
+         * corrected query instead (`mpuse` found nothing, `mouse` did): `interpretedAs` then shows the corrected query and a
+         * warning says so. Null when nothing was corrected. Plain text, not HTML: it is the visitor's own text, so
+         * escape it when you render it. See Thresholds::$rescueEmpty.
+         */
+        public ?string $correctedFrom = null,
     ) {}
 
     /** The same result with another "did you mean" text. */
     public function withDidYouMean(?string $didYouMean): self
     {
-        return new self($this->hits, $this->total, $this->totalIsLowerBound, $this->tookMs, $this->usedFuzzy, $this->warnings, $this->limit, $this->offset, $this->interpretedAs, $didYouMean, $this->facets);
+        return new self($this->hits, $this->total, $this->totalIsLowerBound, $this->tookMs, $this->usedFuzzy, $this->warnings, $this->limit, $this->offset, $this->interpretedAs, $didYouMean, $this->facets, $this->correctedFrom);
     }
 
     /** @param list<string> $warnings */

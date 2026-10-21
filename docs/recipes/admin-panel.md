@@ -195,9 +195,11 @@ a change only after the worker has processed it, which an editor who saves and r
 - **Doctrine's identity map.** After a reindex in the same process, entities the entity manager already loaded keep
   their old values (`$em->clear()`); a request starts clean.
 - **Sorting by column and relevance** are two different jobs: see above.
-- **Typo tolerance has limits**, for example a letter replaced in the middle of a five to seven letter word may not
-  be tolerated (`smyth` does not find `Smith`): see [Typo tolerance](../searching.md#typo-tolerance) and the
-  [known limitations](../limitations.md).
+- **Typo tolerance has limits**, for example a letter replaced in the middle of a five to seven letter word is not
+  added to the results (`smyth` does not find `Smith` next to other hits). A search that finds nothing at all is
+  searched again with the one vocabulary word that is one edit away, when there is exactly one (the
+  [zero-result rescue](../searching.md#zero-result-rescue)), and two swapped letters (`smiht`) are found: see
+  [Typo tolerance](../searching.md#typo-tolerance) and the [known limitations](../limitations.md).
 
 ## Reference
 

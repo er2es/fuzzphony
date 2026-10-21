@@ -51,6 +51,12 @@ final readonly class Thresholds
          * the index does not know, suggests the spelling it probably meant (SearchResult::$didYouMean).
          */
         public bool $didYouMean = true,
+        /**
+         * A search that found nothing, and has a word with a unique one-edit spelling in the did-you-mean vocabulary
+         * (`mpuse` -> `mouse`), runs once more with the corrected words and returns that result, flagged
+         * (SearchResult::$correctedFrom). It uses the did-you-mean lookup, so it needs didYouMean too.
+         */
+        public bool $rescueEmpty = true,
     ) {
         $violations = [];
         if ($minScore < 0.0) {
@@ -99,6 +105,7 @@ final readonly class Thresholds
             'max_terms' => 'maxTerms',
             'relax_when_empty' => 'relaxWhenEmpty',
             'did_you_mean' => 'didYouMean',
+            'rescue_empty' => 'rescueEmpty',
         ];
         $unknown = array_diff(array_keys($overrides), array_keys($map));
         if ($unknown !== []) {
@@ -115,6 +122,7 @@ final readonly class Thresholds
         $maxTerms = $this->maxTerms;
         $relaxWhenEmpty = $this->relaxWhenEmpty;
         $didYouMean = $this->didYouMean;
+        $rescueEmpty = $this->rescueEmpty;
 
         foreach ($overrides as $key => $value) {
             $property = $map[$key];
@@ -128,6 +136,7 @@ final readonly class Thresholds
                 'maxQueryLength' => $maxQueryLength = is_int($value) ? $value : throw new InvalidDefinition('thresholds', [sprintf('"%s" must be an integer.', $key)]),
                 'relaxWhenEmpty' => $relaxWhenEmpty = self::bool($value) ?? throw new InvalidDefinition('thresholds', [sprintf('"%s" must be a boolean.', $key)]),
                 'didYouMean' => $didYouMean = self::bool($value) ?? throw new InvalidDefinition('thresholds', [sprintf('"%s" must be a boolean.', $key)]),
+                'rescueEmpty' => $rescueEmpty = self::bool($value) ?? throw new InvalidDefinition('thresholds', [sprintf('"%s" must be a boolean.', $key)]),
                 default => $maxTerms = is_int($value) ? $value : throw new InvalidDefinition('thresholds', [sprintf('"%s" must be an integer.', $key)]),
             };
         }
@@ -143,6 +152,7 @@ final readonly class Thresholds
             maxTerms: $maxTerms,
             relaxWhenEmpty: $relaxWhenEmpty,
             didYouMean: $didYouMean,
+            rescueEmpty: $rescueEmpty,
         );
     }
 
