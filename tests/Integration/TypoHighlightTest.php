@@ -224,6 +224,26 @@ final class TypoHighlightTest extends TestCase
         self::assertLessThanOrEqual(30, preg_match_all('/\p{L}+/u', strip_tags($long->highlights['body'])), 'two fragments of fifteen words, as ts_headline MaxWords');
     }
 
+    public function testAHiddenFieldNeverDecidesWhatARestrictedViewerSees(): void
+    {
+        $seen = [];
+        foreach (['', 'salary negotiation', 'contains wireless', 'logitech logitek salary wireles'] as $i => $secret) {
+            $this->connection->execute('DELETE FROM fz_typo_doc');
+            $this->connection->execute('INSERT INTO fz_typo_doc VALUES (:id, :title, :body, :extra, :secret)', ['id' => 1, 'title' => 'Logitech wireles mouse', 'body' => 'plain', 'extra' => 'plain', 'secret' => $secret]);
+            $this->fuzzphony->reindex('typo_docs');
+            foreach (['fallback', 'always'] as $mode) {
+                foreach (['logitek | salary', 'logitek | wireless', 'logitek wireles', 'logitek'] as $query) {
+                    $hits = $this->search($query, ['title', 'body'], $mode)->restrictedToFields('title', 'body')->get()->hits;
+                    $seen[$mode . '|' . $query][$i] = array_map(static fn($h): array => [$h->id, $h->score, $h->highlights], $hits);
+                }
+            }
+        }
+        foreach ($seen as $case => $perSecret) {
+            self::assertCount(1, array_unique(array_map('serialize', $perSecret)), $case . ': the hidden field changes nothing the viewer sees');
+        }
+        self::assertSame('<mark>Logitech</mark> wireles mouse', $seen['always|logitek | salary'][0][0][2]['title'], 'and the typo word is marked');
+    }
+
     public function testATextThatHoldsOurMarkersCannotDrawAMark(): void
     {
         $this->connection->execute('DELETE FROM fz_typo_doc');

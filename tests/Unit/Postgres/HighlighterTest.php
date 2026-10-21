@@ -155,6 +155,29 @@ final class HighlighterTest extends TestCase
         self::assertSame(['1' => ['name' => 'Plain note']], $out);
     }
 
+    public function testARestrictedViewerJudgesTheStrictQueryOnItsOwnFieldsOnly(): void
+    {
+        $connection = $this->scripted([[['id' => '1', 'h_name' => 'Mouse', 'fz_typo' => false, 'x_name' => 'Mouse']]]);
+        (new Highlighter($connection))->highlight(Indexes::products(), ['name'], "'mose'", [1], new TypoPlan([new TypoTerm('mose')], [1], null, ['name']));
+        $sql = $connection->log[0][0];
+
+        self::assertStringContainsString('s."t_name" @@ to_tsquery', $sql);
+        self::assertStringNotContainsString('s.tsv @@', $sql, 'a hidden field must not decide whether a hit is a strict one');
+
+        $two = $this->scripted([[['id' => '1', 'h_name' => 'Mouse', 'fz_typo' => false, 'x_name' => 'Mouse']]]);
+        (new Highlighter($two))->highlight(Indexes::products(), ['name'], "'mose'", [1], new TypoPlan([new TypoTerm('mose')], [1], null, ['name', 'brand']));
+        self::assertStringContainsString('(s."t_name" || s."t_brand") @@ to_tsquery', $two->log[0][0]);
+
+        $none = $this->scripted([[['id' => '1', 'h_name' => 'Mouse', 'fz_typo' => false, 'x_name' => 'Mouse']]]);
+        (new Highlighter($none))->highlight(Indexes::products(), ['name'], "'mose'", [1], new TypoPlan([new TypoTerm('mose')], [1], null, ['description']));
+        self::assertStringContainsString('s."t_description" @@ to_tsquery', $none->log[0][0], 'only an allowed field, whatever the index has');
+        self::assertStringNotContainsString('s.tsv @@', $none->log[0][0]);
+
+        $open = $this->scripted([[['id' => '1', 'h_name' => 'Mouse', 'fz_typo' => false, 'x_name' => 'Mouse']]]);
+        (new Highlighter($open))->highlight(Indexes::products(), ['name'], "'mose'", [1], new TypoPlan([new TypoTerm('mose')], [1]));
+        self::assertStringContainsString('s.tsv @@ to_tsquery', $open->log[0][0], 'an unrestricted viewer: the whole document');
+    }
+
     public function testTheMarkersAreRemovedFromTheTextBeforeTsHeadline(): void
     {
         $connection = $this->scripted([[['id' => '1', 'h_name' => 'x']]]);

@@ -638,7 +638,7 @@ final class PostgresEngine implements Engine, Vocabulary, SynonymStems, Suggesti
                     }
                 }
                 $terms = $typoIds === [] ? [] : (new FuzzyQueryCompiler($index, $thresholds, $this->names, [], $query->allowedFields))->typoTerms($root, $run['emptyQueries'] ?? []);
-                $typo = $terms === [] ? null : new TypoPlan($terms, $typoIds, $thresholds->fuzzySimilarity);
+                $typo = $terms === [] ? null : new TypoPlan($terms, $typoIds, $thresholds->fuzzySimilarity, $query->allowedFields);
             }
             $highlights = $this->guard('highlighting', fn(): array => (new Highlighter($this->connection, $this->names))->highlight(
                 $index,

@@ -73,7 +73,7 @@ final class Highlighter
         // the typo marks apply to the typo-tolerant fields the typed words can be in; none: the statement is the strict one
         $typoFields = $typo === null ? [] : array_values(array_filter($fields, static fn(string $name): bool => self::typoField($index, $name, $typo)));
         if ($typo !== null && $typoFields !== [] && $typo->ids !== []) {
-            array_push($columns, ...$this->typoColumns($index, $typoFields, $typo->ids, $tsquery, $params));
+            array_push($columns, ...$this->typoColumns($index, $typo, $typoFields, $typo->ids, $tsquery, $params));
         } else {
             $typo = null;
         }
@@ -200,7 +200,7 @@ final class Highlighter
      *
      * @return list<string>
      */
-    private function typoColumns(IndexDefinition $index, array $fields, array $ids, string $tsquery, ParameterBag $params): array
+    private function typoColumns(IndexDefinition $index, TypoPlan $typo, array $fields, array $ids, string $tsquery, ParameterBag $params): array
     {
         $type = Types::id($index->idType);
         $columns = [sprintf(
@@ -208,7 +208,7 @@ final class Highlighter
             $params->add(Sql::arrayLiteral($ids)),
             $type,
             $this->names->sidecar($index),
-            's.tsv',
+            $this->strictVector($index, $typo->allowedFields),
             $this->names->regconfig($index->text),
             $params->add($tsquery),
             Sql::ident(self::TYPO),
@@ -225,6 +225,29 @@ final class Highlighter
         }
 
         return $columns;
+    }
+
+    /**
+     * The vector the strict query is judged on: the whole document, or for a restricted viewer only the fields it may see
+     * (the vector the text rank reads). A hidden field never takes part: it would tell the viewer whether it holds a word.
+     *
+     * @param list<string>|null $allowed
+     */
+    private function strictVector(IndexDefinition $index, ?array $allowed): string
+    {
+        if ($allowed === null) {
+            return 's.tsv';
+        }
+        $parts = array_map(
+            fn(string $name): string => 's.' . $this->names->fieldVector($name),
+            array_values(array_filter($index->fieldNames(), static fn(string $name): bool => in_array($name, $allowed, true))),
+        );
+
+        return match (count($parts)) {
+            0 => "''::tsvector",
+            1 => $parts[0],
+            default => '(' . implode(' || ', $parts) . ')',
+        };
     }
 
     /** Whether the typed words can be marked in this field: it is typo-tolerant, and no word is scoped to another field only. */
