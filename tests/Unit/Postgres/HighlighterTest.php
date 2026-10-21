@@ -124,8 +124,8 @@ final class HighlighterTest extends TestCase
 
     public function testATextCutAtTheLimitLosesTheWordTheCutMayHaveSplit(): void
     {
-        $text = str_repeat('word ', 3_998) . 'headphones'; // exactly 20 000 characters: the limit
-        self::assertSame(20_000, mb_strlen($text));
+        $text = str_repeat('word ', 1_998) . 'headphones'; // exactly 10 000 characters: the limit
+        self::assertSame(10_000, mb_strlen($text));
         $connection = $this->scripted([
             [['id' => '1', 'h_name' => 'word word', 'fz_typo' => true, 'x_name' => $text]],
             [],
@@ -153,6 +153,51 @@ final class HighlighterTest extends TestCase
         $out = (new Highlighter($connection))->highlight(Indexes::products(), ['name'], "'hedphon'", [1], new TypoPlan([new TypoTerm('hedphones')], [1]));
 
         self::assertSame(['1' => ['name' => 'Plain note']], $out);
+    }
+
+    public function testAHostilePageIsBoundedInWordsRunsHitsAndMemory(): void
+    {
+        $rows = [];
+        $ids = [];
+        for ($i = 1; $i <= 1_000; ++$i) {
+            $words = [];
+            for ($w = 0; $w < 1_900; ++$w) {
+                $words[] = substr(md5($i . ':' . $w), 0, 6);
+            }
+            $text = implode(' ', $words);
+            $rows[] = ['id' => (string) $i, 'h_name' => 'plain', 'fz_typo' => true, 'x_name' => $text, 'h_brand' => 'plain', 'x_brand' => $text];
+            $ids[] = $i;
+        }
+        $hostile = [new TypoTerm('wireles')];
+        for ($n = 0; $n < 20; ++$n) {
+            $hostile[] = new TypoTerm(implode(' ', array_fill(0, 63, 'aax')));
+        }
+        $connection = $this->scripted([$rows, []]);
+        gc_collect_cycles();
+        $before = memory_get_usage();
+        memory_reset_peak_usage();
+        (new Highlighter($connection))->highlight(Indexes::products(), ['name', 'brand'], "'wireles'", $ids, new TypoPlan($hostile, $ids));
+        $peak = memory_get_peak_usage() - $before;
+
+        self::assertLessThan(40 * 1024 * 1024, $peak, 'the words and runs of a thousand long hits are not all held');
+        [$statement, $params] = $connection->log[1];
+        $asked = array_values(array_filter($params, static fn(mixed $p): bool => is_string($p) && str_starts_with($p, '{')));
+        self::assertCount(1, $asked);
+        self::assertLessThanOrEqual(4_000, substr_count((string) $asked[0], ',') + 1, 'at most 4000 distinct words are compared');
+        self::assertLessThanOrEqual(200, substr_count((string) $connection->log[0][1]['p5'] ?? '', ',') + 1);
+        self::assertStringContainsString('UNION ALL', $statement);
+    }
+
+    public function testTheTypoMarksAreMadeForTheFirstTwoHundredHitsOnly(): void
+    {
+        $ids = range(1, 500);
+        $connection = $this->scripted([[['id' => '1', 'h_name' => 'x', 'fz_typo' => false, 'x_name' => null]]]);
+        (new Highlighter($connection))->highlight(Indexes::products(), ['name'], "'mose'", $ids, new TypoPlan([new TypoTerm('mose')], $ids));
+
+        $arrays = array_filter($connection->log[0][1], static fn(mixed $p): bool => is_string($p) && str_starts_with($p, '{'));
+        $counts = array_map(static fn(string $p): int => substr_count($p, ',') + 1, $arrays);
+        sort($counts);
+        self::assertSame([200, 200, 500], $counts, 'the typo flag and the text of the first 200 hits, and the page itself');
     }
 
     public function testARestrictedViewerJudgesTheStrictQueryOnItsOwnFieldsOnly(): void

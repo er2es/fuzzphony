@@ -25,9 +25,13 @@ final class Highlighter
     public const string START = "\u{E000}";
     public const string STOP = "\u{E001}";
     /** A text longer than this is looked at up to here for typo matches (ts_headline reads all of it). */
-    private const int MAX_CHARS = 20_000;
+    private const int MAX_CHARS = 10_000;
     /** The most distinct words (or runs of words) one page asks PostgreSQL to compare. */
     private const int MAX_WORDS = 4_000;
+    /** The typo marks are made for the first hits of the page only (a page can hold a thousand): the others keep ts_headline's snippet. */
+    private const int MAX_HITS = 200;
+    /** The runs of words (see TypoMarker::cost()) the typo marks of one page may go through; a hit that would pass it keeps ts_headline's snippet. */
+    private const int MAX_RUNS = 100_000;
     private const string TYPO = 'fz_typo';
     private const string TEXT = 'x_';
 
@@ -73,7 +77,7 @@ final class Highlighter
         // the typo marks apply to the typo-tolerant fields the typed words can be in; none: the statement is the strict one
         $typoFields = $typo === null ? [] : array_values(array_filter($fields, static fn(string $name): bool => self::typoField($index, $name, $typo)));
         if ($typo !== null && $typoFields !== [] && $typo->ids !== []) {
-            array_push($columns, ...$this->typoColumns($index, $typo, $typoFields, $typo->ids, $tsquery, $params));
+            array_push($columns, ...$this->typoColumns($index, $typo, $typoFields, array_slice($typo->ids, 0, self::MAX_HITS), $tsquery, $params));
         } else {
             $typo = null;
         }
@@ -124,6 +128,7 @@ final class Highlighter
         // [id, field, ts_headline's snippet, the text when that snippet has no mark]
         $work = [];
         $words = [];
+        $budget = self::MAX_RUNS;
         foreach ($rows as $row) {
             if (!in_array($row[self::TYPO] ?? null, [true, 't', '1', 1], true)) {
                 continue;
@@ -132,6 +137,12 @@ final class Highlighter
             foreach ($fields as $name) {
                 $snippet = $marked[$id][$name];
                 $text = str_contains($snippet, self::START) ? null : self::scanned(Coerce::str($row[self::TEXT . $name] ?? ''));
+                $cost = $marker->cost($text ?? $snippet, $name);
+                // nothing to compare, or the page's budget of work (or of distinct words) is spent: ts_headline's snippet stays
+                if ($cost === 0 || $cost > $budget || count($words) >= self::MAX_WORDS) {
+                    continue;
+                }
+                $budget -= $cost;
                 foreach ($marker->candidates($text ?? $snippet, $name) as $word) {
                     $words[$word] = true;
                 }

@@ -238,4 +238,24 @@ final class TypoMarkerTest extends TestCase
             $marker->snippet('Wireless mouse pad', 'name', ['wireless' => [0 => 0.9], 'mouse' => [1 => 0.8]]),
         );
     }
+
+    public function testAPhraseOfMoreThanEightWordsIsNotLookedFor(): void
+    {
+        $long = new TypoTerm(implode(' ', array_fill(0, 9, 'aax')));
+        $ok = new TypoTerm(implode(' ', array_fill(0, 8, 'aax')));
+
+        self::assertSame(0, (new TypoMarker([$long]))->cost('aax aax aax aax aax aax aax aax aax aax', 'name'));
+        self::assertSame([], (new TypoMarker([$long]))->candidates('aax aax aax aax aax aax aax aax aax aax', 'name'));
+        self::assertSame(3, (new TypoMarker([$ok]))->cost('aax aax aax aax aax aax aax aax aax aax', 'name'), 'ten words: three runs of eight');
+    }
+
+    public function testTheCostIsTheRunsOfEveryApplicableTerm(): void
+    {
+        $marker = new TypoMarker([new TypoTerm('mouse'), new TypoTerm('red shoes'), new TypoTerm('brand only', field: 'brand')]);
+
+        self::assertSame(5 + 4, $marker->cost('one two three four five', 'name'));
+        self::assertSame(5 + 4 + 4, $marker->cost('one two three four five', 'brand'));
+        self::assertSame(0, $marker->cost('', 'name'));
+        self::assertSame(0, $marker->cost('one', 'name') - 1, 'a text shorter than a phrase has no run of it');
+    }
 }
