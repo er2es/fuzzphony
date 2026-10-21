@@ -294,8 +294,9 @@ Current: v0.9 (identity, search log and analytics, rate limit and authorization)
 order, each one a foundation for the next, up to v1.0's stable API and backward-compatibility
 promise. PostgreSQL only before 1.0:
 
-- v1.0 Stable: a documentation site with a "Migrating from `LIKE`" guide, mutation score 90% with
-  a CI gate, the backward-compatibility promise.
+- v1.0 Stable: a reviewed public API (a smaller stable surface, the rest `@internal`), the
+  backward-compatibility promise, mutation score 90% with a CI gate. The documentation (an index, the
+  "Migrating from `LIKE`" guide and three recipes, with a link check in CI) is in place since 0.9.6.
 
 After 1.0: a Laravel Scout driver, and record linkage (matching people and companies across
 records, with explainable match scores). Details in

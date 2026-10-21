@@ -16,7 +16,7 @@ and the [CHANGELOG](CHANGELOG.md) has the full list of changes.
    `DoctrineIndexDiscovery`, `EntityLoader` or `OrmSyncListener` is now a duplicate of the bundle's, and an index
    that is both an attribute and in YAML `indexes` is overridden by the YAML as documented.
 
-## From 0.9.5 to the next release
+## From 0.9.5 to 0.9.6
 
 1. **Search log: who searched what, and the optional client IP.** Nothing is required. To keep the client address
    (`fuzzphony.search_log.ip: masked`, recommended, or `full`; it is personal data, see

@@ -7,6 +7,10 @@ changes; they are always listed under **Breaking** and explained in [UPGRADE.md]
 
 ## [Unreleased]
 
+## [0.9.6] - 2026-10-21
+
+Who searched what (the report, the optional masked client IP, the demo), the documentation round (an index, the "Migrating from `LIKE`" guide, three recipes, a link check in CI) and a reviewed list of known limitations. Nothing breaks. See [UPGRADE.md](UPGRADE.md#from-095-to-096) for the one optional step (`fuzzphony:schema --apply`, only to store the client IP).
+
 ### Added
 
 - **Guide: [Migrating from `LIKE`](docs/migrating-from-like.md).** Step by step from `WHERE name ILIKE '%x%'` to Fuzzphony
@@ -970,7 +974,8 @@ on its own:
 - Sync modes: queue (default), trigger, ORM, manual; watches for joined tables.
 - Doctor with fixes; CLI commands for schema, reindex, worker, search and explain.
 
-[Unreleased]: https://github.com/er2es/fuzzphony/compare/v0.9.5...HEAD
+[Unreleased]: https://github.com/er2es/fuzzphony/compare/v0.9.6...HEAD
+[0.9.6]: https://github.com/er2es/fuzzphony/compare/v0.9.5...v0.9.6
 [0.9.5]: https://github.com/er2es/fuzzphony/compare/v0.9.4...v0.9.5
 [0.9.4]: https://github.com/er2es/fuzzphony/compare/v0.9.3...v0.9.4
 [0.9.3]: https://github.com/er2es/fuzzphony/compare/v0.9.2...v0.9.3
