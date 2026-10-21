@@ -27,7 +27,8 @@ codes, names or mixed-language text).
 
 - Stemming: word forms are reduced to a common stem, so a search for one form finds the others.
 - Stop words: the language's filler words ("the", "for", "und", and accented ones such as "für",
-  "és" or "à") are ignored.
+  "és" or "à") are ignored. A query of nothing else (`the who`) is searched anyway by typo tolerance, in the
+  typo-tolerant fields ([how and when](limitations.md#stop-words-are-ignored-and-only-a-query-of-nothing-else-finds-them)).
 - Accent folding (on by default): `fuzzphony:schema --apply` creates a configuration
   `fuzzphony_<language>` in Fuzzphony's schema that copies the built-in one and removes accents
   before stemming, so `cafe` finds `café`. Stop words are dropped before the accents are removed,

@@ -906,7 +906,7 @@ final class PostgresEngine implements Engine, Vocabulary, SynonymStems, Suggesti
         $browse = false;
         $ranked = null;
         // the recheck drops stop words as the strict tsquery does, so it needs them up front
-        $emptyQueries = $scopedRoot === null ? null : $this->emptyQueries($index, $fuzzy->leafQueries($scopedRoot));
+        $emptyQueries = $scopedRoot === null ? null : $this->fuzzyStopWords($index, $fuzzy, $scopedRoot, $fuzzyRoot);
 
         if ($tsquery === null && $plain === '') {
             $statement = ['label' => 'browse'] + $builder->browse($conditions, $profile, $thresholds, $query->limit, $query->offset);
@@ -916,7 +916,7 @@ final class PostgresEngine implements Engine, Vocabulary, SynonymStems, Suggesti
         } else {
             $alwaysFuzzy = $fuzzyRoot !== null
                 && ($thresholds->fuzzyMode === FuzzyMode::Always || $tsquery === null)
-                && $fuzzy->hasFuzzyLeaf($fuzzyRoot, $emptyQueries ??= $this->emptyQueries($index, $fuzzy->leafQueries($fuzzyRoot)));
+                && $fuzzy->hasFuzzyLeaf($fuzzyRoot, $emptyQueries ??= $this->fuzzyStopWords($index, $fuzzy, $fuzzyRoot, $fuzzyRoot));
             $candidates = $alwaysFuzzy && $fuzzyRoot !== null ? $this->fuzzyCandidates($fuzzy, $fuzzyRoot, $emptyQueries ?? [], $thresholds, $conditions) : [];
             $statement = ['label' => $labelPrefix . ($alwaysFuzzy ? 'full-text + fuzzy' : 'full-text')]
                 + ($candidates === [] ? $builder : new SearchSqlBuilder($index, $this->names, $candidates, $query->allowedFields))->ranked($tsquery, $plain, $alwaysFuzzy ? $fuzzyRoot : null, $conditions, $profile, $thresholds, $query->limit, $query->offset, $emptyQueries ?? [], $scopedRoot);
@@ -931,7 +931,7 @@ final class PostgresEngine implements Engine, Vocabulary, SynonymStems, Suggesti
                 && $fuzzyRoot !== null
                 && $thresholds->fuzzyMode === FuzzyMode::Fallback
                 && self::total($rows) < $thresholds->fallbackBelow
-                && $fuzzy->hasFuzzyLeaf($fuzzyRoot, $emptyQueries ??= $this->emptyQueries($index, $fuzzy->leafQueries($fuzzyRoot)))
+                && $fuzzy->hasFuzzyLeaf($fuzzyRoot, $emptyQueries ??= $this->fuzzyStopWords($index, $fuzzy, $fuzzyRoot, $fuzzyRoot))
             ) {
                 $candidates = $this->fuzzyCandidates($fuzzy, $fuzzyRoot, $emptyQueries, $thresholds, $conditions);
                 $statement = ['label' => $labelPrefix . 'fallback: full-text + fuzzy']
@@ -1011,6 +1011,20 @@ final class PostgresEngine implements Engine, Vocabulary, SynonymStems, Suggesti
         }
 
         return ['statement' => $statement, 'ignored' => count($ignored) < count($probed) ? $ignored : []];
+    }
+
+    /**
+     * The stop-word leaf tsqueries a search drops (emptyQueries()), except, for a query of stop words only and when the
+     * typo-tolerant branch can run, its positive words: that branch matches them on the normalised text, where the
+     * stop words are (FuzzyQueryCompiler::keepingStopWords()). A query with a real word is as it was.
+     *
+     * @return list<string>
+     */
+    private function fuzzyStopWords(IndexDefinition $index, FuzzyQueryCompiler $fuzzy, Node $query, ?Node $fuzzyRoot): array
+    {
+        $empty = $this->emptyQueries($index, $fuzzy->leafQueries($query));
+
+        return $fuzzyRoot === null || $empty === [] ? $empty : $fuzzy->keepingStopWords($fuzzyRoot, $empty);
     }
 
     /**

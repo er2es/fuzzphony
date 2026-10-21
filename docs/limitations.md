@@ -8,7 +8,7 @@ bounded, some protect the privacy of a log, and some are things to do when you d
 happens, why, and what to do. The statements here were checked against the code and the tests.
 
 - [Search quality](#search-quality): [typo tolerance](#typo-tolerance-is-trigram-based), [whole words](#a-word-is-matched-as-a-whole-word),
-  [stop words](#stop-words-cannot-be-searched), [languages](#stemming-covers-regular-forms-one-language-per-index),
+  [stop words](#stop-words-are-ignored-and-only-a-query-of-nothing-else-finds-them), [languages](#stemming-covers-regular-forms-one-language-per-index),
   [candidate limit](#ranking-is-approximate-beyond-candidate_limit), [facet counts](#facet-counts-are-over-the-candidates),
   [synonyms](#synonyms-are-expanded-on-the-query-and-stop-there), [highlights](#highlights-of-typo-tolerant-hits-and-the-source-query),
   [scores](#scores-are-not-stable), [query limits](#long-queries-are-cut),
@@ -59,10 +59,30 @@ fewer than `fallback_below` hits, and as a look-alike ranked by similarity, neve
 What to do: if one column needs a guaranteed substring match (a part-number fragment), keep a `LIKE` (with a
 trigram index) on that column next to Fuzzphony.
 
-### Stop words cannot be searched
+### Stop words are ignored, and only a query of nothing else finds them
 
-The stop words of the index language are removed from documents and from queries. With `english`, `who` and
-`the who` find nothing, not even a document titled "The Who", and neither does a query of stop words only.
+The stop words of the index language are removed from documents and from queries, so they never narrow a
+search (`mouse for gaming` is `mouse gaming`) and a document is not found through them. A query made of
+stop words only has nothing left for the full-text branch: with `english`, `who` or `the who` finds nothing
+there, not even a document titled "The Who". The typo-tolerant branch searches such a query anyway, because
+it works on the normalised text of the typo-tolerant fields, stop words included: `the who`, `who`,
+`title:who` and the quoted phrase `"to be or not to be"` find "The Who" and "To be or not to be". It has its
+limits:
+
+- Only a query whose every word is a stop word. One real word and the stop words around it are ignored as
+  before, and so is a query that excludes a real word (`the who -rock`: its full-text branch is "everything
+  but rock", which is left as it is).
+- Only with typo tolerance: the index has a typo-tolerant field and `fuzzy_mode` is not `never` (the ranking
+  profile's `fuzzy` weight is not 0). Without it nothing changes and the query finds nothing.
+- Only in the typo-tolerant fields, and as a look-alike, like every typo-tolerant word: `who` ranks "Who" and
+  "The Who" first and also lists `whole`. Each word must be at least `fuzzy_min_length` (3) letters long: a
+  shorter stop word has to match exactly, which a stop word never does, so `to be or not to be` without
+  quotes finds nothing (the quoted phrase is one word of 14 letters and finds it).
+- It costs a typo-tolerant search: one probe per word, at most `candidate_limit` candidates each, so the work
+  is bounded even when a stop word is in half of the names. Measured on 100 000 products with `the` in half of
+  the names: 43 ms for `the` and 109 ms for five stop words (a plain word such as `wireless` takes 8 ms);
+  `candidate_limit` applies as always (the total is a lower bound).
+- An excluded stop word (`the -who`) is still dropped. The empty-result relaxation works as for any words.
 
 What to do: for names, titles or codes use `language: simple` (no stemming and no stop words), in an index of
 their own. See [Languages](languages.md#what-the-language-decides).

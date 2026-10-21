@@ -219,6 +219,40 @@ final class FuzzyQueryCompiler
     }
 
     /**
+     * The stop-word tsqueries of the typo-tolerant branch for a query of stop words only ("the who"): the strict branch
+     * has nothing to match then (the text search configuration drops the words from the query and from the documents),
+     * but the trigram side works on the normalised text, stop words included, so the positive words stay ordinary leaves
+     * there. Only when every word of the query, excluded ones too, is a stop word (a real word left to exclude makes the
+     * strict branch a pure exclusion, and what it finds stays as it is), and only when every positive word is long
+     * enough for typo tolerance (a shorter one must match exactly, which a stop word never does: the search would find
+     * nothing, so it does not run). Otherwise $emptyQueries come back unchanged; the negated stop words stay dropped.
+     *
+     * @param list<string> $emptyQueries leaf tsqueries the text configuration reduces to nothing (stop words)
+     *
+     * @return list<string>
+     */
+    public function keepingStopWords(Node $root, array $emptyQueries): array
+    {
+        $queries = $this->leafQueries($root);
+        $positive = $this->positiveLeaves($root);
+        if ($queries === [] || array_diff($queries, $emptyQueries) !== [] || array_any($positive, fn(Node $leaf): bool => $this->needle($leaf) === null)) {
+            return $emptyQueries;
+        }
+
+        return array_values(array_diff($emptyQueries, array_map($this->tsquery->compile(...), $positive)));
+    }
+
+    /** @return list<Node> the leaves of the positive part of the query, in order */
+    private function positiveLeaves(Node $node): array
+    {
+        return match (true) {
+            $node instanceof Not => [],
+            $node instanceof AllOf, $node instanceof AnyOf => array_merge(...array_map($this->positiveLeaves(...), $node->nodes)),
+            default => [$node],
+        };
+    }
+
+    /**
      * Registers every user-derived value in $params (the statement's own bag, so placeholder
      * names stay unique). Null when nothing positive is left to match.
      *

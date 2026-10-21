@@ -7,6 +7,10 @@ changes; they are always listed under **Breaking** and explained in [UPGRADE.md]
 
 ## [Unreleased]
 
+### Fixed
+
+- **A query made only of stop words finds something.** With `english`, `the who`, `who` or `to be or not to be` found nothing, not even a title "The Who": the text search configuration drops the words from the query and from the indexed text, and the typo-tolerant branch dropped them too. When every word of the query is a stop word, the typo-tolerant branch now keeps them as ordinary words (it works on the normalised text, stop words included), so the query is searched there: as a look-alike, ranked by similarity, within `candidate_limit`, with the filters, the tenant and a restricted viewer's fields applied as for any word. Only for such a query and only when the index has a typo-tolerant field and `fuzzy_mode` is not `never`; every other query (one real word, an excluded real word, no typo tolerance) runs the very statements it ran before (a differential run of about 9 500 searches over three indexes, three fuzzy modes, five viewers, filters, facets, exact counts, relaxation and highlights changed only 490 searches, all of stop words and all empty before). A stop word shorter than `fuzzy_min_length` (3) still has to match exactly, so `to be or not to be` finds nothing unquoted and the quoted phrase finds it. See [Known limitations](docs/limitations.md#stop-words-are-ignored-and-only-a-query-of-nothing-else-finds-them).
+
 ## [0.9.6] - 2026-10-21
 
 Who searched what (the report, the optional masked client IP, the demo), the documentation round (an index, the "Migrating from `LIKE`" guide, three recipes, a link check in CI) and a reviewed list of known limitations. Nothing breaks. See [UPGRADE.md](UPGRADE.md#from-095-to-096) for the one optional step (`fuzzphony:schema --apply`, only to store the client IP).
