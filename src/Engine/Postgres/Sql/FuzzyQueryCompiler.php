@@ -18,6 +18,7 @@ use Fuzzphony\Core\Ranking\Thresholds;
 use Fuzzphony\Core\Ranking\TypoCurve;
 use Fuzzphony\Engine\Postgres\Schema\Names;
 use Fuzzphony\Engine\Postgres\Schema\Types;
+use Fuzzphony\Engine\Postgres\TypoTerm;
 
 /**
  * @internal Compiles the AST into the predicate and score of the typo-tolerant (fuzzy) branch.
@@ -67,6 +68,9 @@ use Fuzzphony\Engine\Postgres\Schema\Types;
  */
 final class FuzzyQueryCompiler
 {
+    /** Most stop words of a query of stop words only that are searched (see keepingStopWords()); a longer query finds nothing, as it always did. */
+    public const int MAX_STOP_WORDS = 3;
+
     private readonly TsQueryCompiler $tsquery;
     /** @var list<string> */
     private array $columns = [];
@@ -131,6 +135,26 @@ final class FuzzyQueryCompiler
         }
 
         return $probes;
+    }
+
+    /**
+     * The words of the positive part of the query that match fuzzily, for the highlighter: one term per leaf, in order
+     * (the same leaves the trigram branch has, so a negated word, a stop word, a word too short for typo tolerance, a
+     * word scoped to a field that is not typo-tolerant, and for a restricted viewer a word with no allowed typo-tolerant
+     * field, are not among them).
+     *
+     * @param list<string> $emptyQueries leaf tsqueries the text configuration reduces to nothing (stop words)
+     *
+     * @return list<TypoTerm>
+     */
+    public function typoTerms(Node $node, array $emptyQueries = []): array
+    {
+        return array_map(function (Node $leaf): TypoTerm {
+            $needle = $this->needle($leaf);
+            assert($needle !== null, 'trigramLeaves() keeps only the leaves that have a needle');
+
+            return new TypoTerm($needle, $this->isPrefix($leaf), $this->scopedField($leaf)?->name);
+        }, $this->trigramLeaves($node, $emptyQueries));
     }
 
     /**
@@ -216,6 +240,44 @@ final class FuzzyQueryCompiler
         $tsquery = $this->tsquery->compile($node instanceof Not ? $node->node : $node);
 
         return $tsquery === null ? [] : [$tsquery];
+    }
+
+    /**
+     * The stop-word tsqueries of the typo-tolerant branch for a query of stop words only ("the who"): the strict branch
+     * has nothing to match then (the text search configuration drops the words from the query and from the documents),
+     * but the trigram side works on the normalised text, stop words included, so the positive words stay ordinary leaves
+     * there. Only when every word of the query, excluded ones too, is a stop word (a real word left to exclude makes the
+     * strict branch a pure exclusion, and what it finds stays as it is), and only when every positive word is long
+     * enough for typo tolerance (a shorter one must match exactly, which a stop word never does: the search would find
+     * nothing, so it does not run), and only for at most MAX_STOP_WORDS words: every kept word is a trigram condition
+     * that, for a word in most documents, keeps all of its matches (it is over the candidate limit), and several of them
+     * in one statement cost seconds on a large index (measured: five common stop words took 15 s for a restricted viewer
+     * on 100 000 rows, under 1 s for an unrestricted one; three take under half a second for both). Otherwise $emptyQueries
+     * come back unchanged; the negated stop words stay dropped.
+     *
+     * @param list<string> $emptyQueries leaf tsqueries the text configuration reduces to nothing (stop words)
+     *
+     * @return list<string>
+     */
+    public function keepingStopWords(Node $root, array $emptyQueries): array
+    {
+        $queries = $this->leafQueries($root);
+        $positive = $this->positiveLeaves($root);
+        if ($queries === [] || count($positive) > self::MAX_STOP_WORDS || array_diff($queries, $emptyQueries) !== [] || array_any($positive, fn(Node $leaf): bool => $this->needle($leaf) === null)) {
+            return $emptyQueries;
+        }
+
+        return array_values(array_diff($emptyQueries, array_map($this->tsquery->compile(...), $positive)));
+    }
+
+    /** @return list<Node> the leaves of the positive part of the query, in order */
+    private function positiveLeaves(Node $node): array
+    {
+        return match (true) {
+            $node instanceof Not => [],
+            $node instanceof AllOf, $node instanceof AnyOf => array_merge(...array_map($this->positiveLeaves(...), $node->nodes)),
+            default => [$node],
+        };
     }
 
     /**
@@ -501,7 +563,7 @@ final class FuzzyQueryCompiler
      * letters without the spaces between its words). A prefix gets the allowance of one letter: its
      * last trigram, padded with a space, can never match inside a longer word.
      */
-    private static function similaritySql(string $norm, bool $prefix): string
+    public static function similaritySql(string $norm, bool $prefix): string
     {
         $length = sprintf("char_length(replace(%s, ' ', ''))%s", $norm, $prefix ? ' - 1' : '');
         $whens = '';
@@ -527,10 +589,28 @@ final class FuzzyQueryCompiler
             if ($targets === []) {
                 return 'false'; // nothing the viewer may see can match
             }
-            $query = $this->column('ft', sprintf('to_tsquery(%s, %s)', $this->names->regconfig($this->index->text), $params->add($tsquery)));
+            $config = $this->names->regconfig($this->index->text);
+            $query = $this->column('ft', sprintf('to_tsquery(%s, %s)', $config, $params->add($tsquery)));
             $checks = array_map(fn(FieldDefinition $f): string => sprintf('s.%s @@ %s', $this->names->fieldVector($f->name), $query), $targets);
+            $lookup = $query;
+            // The candidates come from the words alone (phrases ANDed, no weight labels), never from the phrase or the weights on
+            // tsv: its positions are capped (16 383) after the fields joined before it, so a long hidden field in front of an
+            // allowed one would decide whether the phrase is found there, or keep only the highest weight of a lexeme at a clamped
+            // position. Every allowed match has the words; the allowed fields' own columns decide.
+            $loose = (new TsQueryCompiler($this->index, false, true))->compile($node) ?? $tsquery;
+            if ($loose !== $tsquery) {
+                $lookup = $this->column('fl', sprintf('to_tsquery(%s, %s)', $config, $params->add($loose)));
+            }
+            if (str_contains($tsquery, '<->')) {
+                if ($field === null && count($targets) > 1) {
+                    // A phrase may span two allowed fields, as it does in the whole tsv: it is also read from the allowed fields'
+                    // vectors joined in the index's order, as if the hidden fields did not exist (what a hidden field holds, or
+                    // lacks, never decides).
+                    $checks[] = sprintf('(%s) @@ %s', implode(' || ', array_map(fn(FieldDefinition $f): string => 's.' . $this->names->fieldVector($f->name), $targets)), $query);
+                }
+            }
 
-            return sprintf('(s.tsv @@ %s AND %s)', $query, count($checks) === 1 ? $checks[0] : '(' . implode(' OR ', $checks) . ')');
+            return sprintf('(s.tsv @@ %s AND %s)', $lookup, count($checks) === 1 ? $checks[0] : '(' . implode(' OR ', $checks) . ')');
         }
         $query = $this->column('ft', sprintf('to_tsquery(%s, %s)', $this->names->regconfig($this->index->text), $params->add($tsquery)));
 

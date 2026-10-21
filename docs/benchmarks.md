@@ -55,13 +55,18 @@ PostgreSQL 17, a local container (latency about 0), through `PdoConnection`:
 | plain word with highlight | 8 | 2 |
 | plain word with 2 facets | 15 | 3 |
 | plain word, 2 facets and an active filter | 15 | 3 |
-| typo, fallback (`hedphones`) | 35 | 14 |
-| typo, 2 words (`wireles mose`) | 43 | 18 |
-| no hit, did-you-mean (`zzqxy`) | 35 | 14 |
+| typo, fallback (`hedphones`) | 35 | 8 |
+| typo, 2 words (`wireles mose`) | 43 | 10 |
+| no hit, did-you-mean (`zzqxy`) | 35 | 8 |
+| `fuzzy_mode: always` (`wireles`) | n/a | 7 |
+| relaxed empty result (`wireless zzqxyk`) | n/a | 11 |
 
 Before, PDO prepared every statement on the server (Parse, Bind/Execute, `DEALLOCATE`) and every search ran inside
-a `BEGIN` / `COMMIT`. A typo-tolerant search still sets its similarity threshold per word inside a transaction, which
-is most of what is left. Multiply the difference by your network latency to know what it saves: on a local database
+a `BEGIN` / `COMMIT`. Since 0.9.7 a typo-tolerant search runs everything from its first statement that sets a similarity
+threshold (the per-word candidate probes, the ranked statement, the relaxation, the facets and the did-you-mean lookup) in
+one transaction that the engine opens, instead of one per statement (0.9.6 measured: 14, 18, 14, `always` 13, relaxed 18). The
+threshold is still set per statement, once when two statements want the same value, and the check that the vocabulary table
+is readable is asked once per process. Inside a transaction of your own nothing changes. Multiply the difference by your network latency to know what it saves: on a local database
 the time per search was a little lower in every run we made (a plain word 11.6 to 8.5 ms, `wireles mose` 85.8 to
 74.7 ms on one laptop; single runs of 5 repetitions, so treat them as indications, not as a promise). On a database
 1 ms away the saved round trips alone are 4 ms for a plain word and 12 ms for the word with two facets.

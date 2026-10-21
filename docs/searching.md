@@ -134,6 +134,21 @@ public function __invoke(Request $request, Fuzzphony $fuzzphony): JsonResponse
 }
 ```
 
+## Highlighting
+
+`highlight('name', 'description')` puts an HTML snippet in `$hit->highlights['name']`: the matching words wrapped in
+`<mark>`, the rest escaped (nothing else is ever a tag), as a short text or up to two fragments joined by ` … `.
+
+A hit found only through typo tolerance has no word that matches the query exactly, so Fuzzphony marks the words
+of the text that are the typo-tolerant match: a search for `hedphones` shows `Wireless <mark>Headphones</mark>`.
+It uses the same normalisation (case, accents) and the same similarity rule the search used, per word, for every word
+of the query that is typo-tolerant and not excluded, in the fields that are `fuzzy` (a word scoped to a field, `name:hedphones`,
+is marked in that field only; a field the viewer may not see is not highlighted). In a hit that matched some words
+exactly and others by typo (`wireles headphones`), the typo matches are added to the snippet ts_headline made. A hit
+that the strict query matches is highlighted exactly as without typo tolerance. This costs one more statement
+only when the page has hits found by typo tolerance and a `fuzzy` field is highlighted; without `highlight()` nothing
+changes. See [Limitations](limitations.md#highlights-run-the-source-query-and-mark-typo-matches-by-word) for what it does not mark.
+
 ## Query syntax
 
 End-user search text never throws. Malformed input is repaired and reported in
@@ -194,7 +209,9 @@ So a typo in one word never lets through documents that lack the other words.
   for example `0.3` for the pre-0.7 behaviour, or to `null` (`--threshold fuzzy_similarity=null` on
   the command line) to go back to by length.
 - Words shorter than `fuzzy_min_length` must match exactly.
-- Stop words of the index language ("for", "the") are ignored, as in the full-text query.
+- Stop words of the index language ("for", "the") are ignored, as in the full-text query, except in a query of
+  nothing else: `the who` is searched as it is, on the typo-tolerant fields (see
+  [Known limitations](limitations.md#stop-words-are-ignored-and-only-a-query-of-nothing-else-finds-them)).
 
 ## Synonyms
 

@@ -8,9 +8,9 @@ bounded, some protect the privacy of a log, and some are things to do when you d
 happens, why, and what to do. The statements here were checked against the code and the tests.
 
 - [Search quality](#search-quality): [typo tolerance](#typo-tolerance-is-trigram-based), [whole words](#a-word-is-matched-as-a-whole-word),
-  [stop words](#stop-words-cannot-be-searched), [languages](#stemming-covers-regular-forms-one-language-per-index),
+  [stop words](#stop-words-are-ignored-and-only-a-query-of-nothing-else-finds-them), [languages](#stemming-covers-regular-forms-one-language-per-index),
   [candidate limit](#ranking-is-approximate-beyond-candidate_limit), [facet counts](#facet-counts-are-over-the-candidates),
-  [synonyms](#synonyms-are-expanded-on-the-query-and-stop-there), [highlights](#highlights-of-typo-tolerant-hits-and-the-source-query),
+  [synonyms](#synonyms-are-expanded-on-the-query-and-stop-there), [highlights](#highlights-run-the-source-query-and-mark-typo-matches-by-word),
   [scores](#scores-are-not-stable), [query limits](#long-queries-are-cut),
   [did you mean](#did-you-mean-and-completions-come-from-a-vocabulary-that-ages)
 - [Data and sync](#data-and-sync): [partitions](#attaching-or-detaching-a-partition-is-not-followed), [sync modes](#what-each-sync-mode-sees),
@@ -59,10 +59,35 @@ fewer than `fallback_below` hits, and as a look-alike ranked by similarity, neve
 What to do: if one column needs a guaranteed substring match (a part-number fragment), keep a `LIKE` (with a
 trigram index) on that column next to Fuzzphony.
 
-### Stop words cannot be searched
+### Stop words are ignored, and only a query of nothing else finds them
 
-The stop words of the index language are removed from documents and from queries. With `english`, `who` and
-`the who` find nothing, not even a document titled "The Who", and neither does a query of stop words only.
+The stop words of the index language are removed from documents and from queries, so they never narrow a
+search (`mouse for gaming` is `mouse gaming`) and a document is not found through them. A query made of
+stop words only has nothing left for the full-text branch: with `english`, `who` or `the who` finds nothing
+there, not even a document titled "The Who". The typo-tolerant branch searches such a query anyway, because
+it works on the normalised text of the typo-tolerant fields, stop words included: `the who`, `who`,
+`title:who` and the quoted phrase `"to be or not to be"` find "The Who" and "To be or not to be". It has its
+limits:
+
+- Only a query whose every word is a stop word. One real word and the stop words around it are ignored as
+  before, and so is a query that excludes a real word (`the who -rock`: its full-text branch is "everything
+  but rock", which is left as it is).
+- Only with typo tolerance: the index has a typo-tolerant field and `fuzzy_mode` is not `never` (the ranking
+  profile's `fuzzy` weight is not 0). Without it nothing changes and the query finds nothing.
+- Only in the typo-tolerant fields, and as a look-alike, like every typo-tolerant word: `who` ranks "Who" and
+  "The Who" first and also lists `whole`. Each word must be at least `fuzzy_min_length` (3) letters long: a
+  shorter stop word has to match exactly, which a stop word never does, so `to be or not to be` without
+  quotes finds nothing (the quoted phrase is one word of 14 letters and finds it).
+- At most three stop words are searched; a query of four or more finds nothing, as it always did. It costs a
+  typo-tolerant search, one probe per word with at most `candidate_limit` candidates each, and every word that
+  is in most documents keeps all its matches, so the cost grows quickly with the number of words: with
+  `the and were there those` all in the title of every one of 100 000 documents, five words took 15 s for a viewer
+  restricted to some fields (0.7 s unrestricted). Measured on the same data with the cap: one word 0.12 s (restricted)
+  and 0.2 s (unrestricted), two 0.23 and 0.27 s, three 0.36 and 0.42 s (`wireless` alone: 8 ms on another
+  catalogue); with `the` in half of the names of 100 000 products, `the` takes 43 ms and three stop words that no
+  document has together 80 ms, the empty-result relaxation included. `candidate_limit` applies as always (the total is
+  a lower bound).
+- An excluded stop word (`the -who`) is still dropped. The empty-result relaxation works as for any words.
 
 What to do: for names, titles or codes use `language: simple` (no stemming and no stop words), in an index of
 their own. See [Languages](languages.md#what-the-language-decides).
@@ -113,13 +138,21 @@ counted: in the example above, a limit of 10 gave 4, 3 and 3 for three categorie
 
 The rest is in [Synonyms](searching.md#synonyms).
 
-### Highlights of typo-tolerant hits, and the source query
+### Highlights run the source query, and mark typo matches by word
 
-A hit that was found only through typo tolerance has no marked words: the snippet is the start of the text
-without `<mark>` (a search for `hedphones` shows `headphones` unmarked). Highlighting also runs your source
-query for the ids on the page, in the searching session: the role that searches needs `SELECT` on the source
-tables, and the snippet shows the row as the source has it now, which in `queue` mode can be newer than the
-index.
+Highlighting runs your source query for the ids on the page, in the searching session: the role that searches
+needs `SELECT` on the source tables, and the snippet shows the row as the source has it now, which in `queue`
+mode can be newer than the index.
+
+A hit found only through typo tolerance has its mistyped words marked too (`hedphones` marks `Headphones`),
+by a simpler rule than the search's: each word of the field text is compared with the typed word on its own,
+with the similarity the search used, so a match that the search found across two words (`head phones` for
+`headphones`) is not marked, and a hit can have no mark although it was found. Only typo-tolerant fields get
+these marks (a field that is not `fuzzy` shows ts_headline's snippet). The work is bounded: the marks are made
+for the first 200 typo-found hits of a page, of each field only the first 10 000 characters (2000 words) are
+looked at, a page spends a budget of 100 000 word comparisons and 4000 distinct words, and a phrase of more than
+8 words is not marked; a hit past a bound keeps ts_headline's snippet. A hit that the strict full-text query also matches keeps the highlight ts_headline gives
+it, even when a typed word was found in it by typo only. See [Highlighting](searching.md#highlighting).
 
 ### Scores are not stable
 
@@ -251,8 +284,11 @@ proof:
 - timing is not hidden: how long a search takes can depend on how often a word occurs in a hidden field;
 - filters and facets are not restricted;
 - the vocabulary of unrestricted viewers still holds every word (a restricted viewer gets no suggestions and no "did you mean");
-- an exact phrase does not span two allowed fields for a restricted viewer, while an unrestricted search
-  matches across the boundary (the typo-tolerant fallback can still find it for the restricted viewer);
+- an exact phrase is read from the fields the viewer may see, as if the hidden ones did not exist: it spans two
+  allowed fields as it does for an unrestricted search, and never reaches into a hidden one. With a hidden field
+  between two allowed ones a restricted phrase can match where the unrestricted search (which sees the hidden
+  text in between) does not. The typo-tolerant similarity of a phrase that spans two fields is still taken per
+  field (a typo in it is found less reliably than for an unrestricted viewer);
 - `explain()` of a restricted viewer returns the statements and a note instead of the plan, because estimates
   and `ANALYZE` counts would leak how often a word occurs in the hidden fields;
 - an index upgraded to layout 2 without a full reindex has empty per-field columns, so a restricted viewer finds
