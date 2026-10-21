@@ -325,8 +325,8 @@ final class FuzzyQueryCompilerTest extends TestCase
         $params = new ParameterBag();
         $conditions = $this->compiler()->leafConditions([new Term('wireless'), self::parse('name:"usb receiver"')], $params, [], fuzzy: false);
 
-        self::assertSame(['s.tsv @@ q.ft0', '(s.tsv @@ q.ft1 AND s."t_name" @@ q.ft1)'], $conditions['predicates']);
-        self::assertSame(['p0' => "'wireless'", 'p1' => "('usb':A <-> 'receiver':A)"], $params->all());
+        self::assertSame(['s.tsv @@ q.ft0', '(s.tsv @@ q.fl2 AND s."t_name" @@ q.ft1)'], $conditions['predicates']);
+        self::assertSame(['p0' => "'wireless'", 'p1' => "('usb':A <-> 'receiver':A)", 'p2' => "('usb' & 'receiver')"], $params->all());
     }
 
     public function testAFieldScopedWordMatchesOnlyItsFieldOnBothSides(): void
@@ -335,11 +335,16 @@ final class FuzzyQueryCompilerTest extends TestCase
         $match = $this->compiler()->compile(self::parse('brand:razr'), $params);
 
         self::assertNotNull($match);
-        self::assertSame(["to_tsquery('\"public\".\"fuzzphony_english\"'::regconfig, :p0) AS ft0", '"public"."fuzzphony_norm"(:p1) AS fn1'], $match->columns);
-        // GIN(tsv) / GIN(fz) find the candidates, the field's own columns decide
-        self::assertSame('((s.tsv @@ q.ft0 AND s."t_brand" @@ q.ft0) OR (q.fn1 OPERATOR("public".<%) s.fz AND q.fn1 OPERATOR("public".<%) s."z_brand"))', $match->predicate);
-        self::assertSame('GREATEST("public".word_similarity(q.fn1, s."z_brand"), CASE WHEN (s.tsv @@ q.ft0 AND s."t_brand" @@ q.ft0) THEN 1.0 ELSE 0.0 END)', $match->score);
-        self::assertSame(['p0' => "'razr':B", 'p1' => 'razr'], $params->all());
+        self::assertSame([
+            "to_tsquery('\"public\".\"fuzzphony_english\"'::regconfig, :p0) AS ft0",
+            "to_tsquery('\"public\".\"fuzzphony_english\"'::regconfig, :p1) AS fl1",
+            '"public"."fuzzphony_norm"(:p2) AS fn2',
+        ], $match->columns);
+        // GIN(tsv) / GIN(fz) find the candidates (tsv by the word without its weight: after a long field in front the weight is lost
+        // there), the field's own columns decide
+        self::assertSame('((s.tsv @@ q.fl1 AND s."t_brand" @@ q.ft0) OR (q.fn2 OPERATOR("public".<%) s.fz AND q.fn2 OPERATOR("public".<%) s."z_brand"))', $match->predicate);
+        self::assertSame('GREATEST("public".word_similarity(q.fn2, s."z_brand"), CASE WHEN (s.tsv @@ q.fl1 AND s."t_brand" @@ q.ft0) THEN 1.0 ELSE 0.0 END)', $match->score);
+        self::assertSame(['p0' => "'razr':B", 'p1' => "'razr'", 'p2' => 'razr'], $params->all());
     }
 
     public function testAScopedWordOfAFieldThatIsNotFuzzyIsExactOnly(): void
@@ -347,7 +352,7 @@ final class FuzzyQueryCompilerTest extends TestCase
         $match = $this->compiler()->compile(self::parse('description:office mouse'), new ParameterBag());
 
         self::assertNotNull($match);
-        self::assertSame('((s.tsv @@ q.ft0 AND s."t_description" @@ q.ft0) AND (s.tsv @@ q.ft1 OR q.fn2 OPERATOR("public".<%) s.fz))', $match->predicate);
+        self::assertSame('((s.tsv @@ q.fl1 AND s."t_description" @@ q.ft0) AND (s.tsv @@ q.ft2 OR q.fn3 OPERATOR("public".<%) s.fz))', $match->predicate);
         self::assertFalse($this->compiler()->hasFuzzyLeaf(self::parse('description:office')));
     }
 
@@ -356,7 +361,7 @@ final class FuzzyQueryCompilerTest extends TestCase
         $match = $this->compiler()->compile(self::parse('mouse -brand:logitech'), new ParameterBag());
 
         self::assertNotNull($match);
-        self::assertSame('((s.tsv @@ q.ft0 OR q.fn1 OPERATOR("public".<%) s.fz) AND NOT ((s.tsv @@ q.ft2 AND s."t_brand" @@ q.ft2)))', $match->predicate);
+        self::assertSame('((s.tsv @@ q.ft0 OR q.fn1 OPERATOR("public".<%) s.fz) AND NOT ((s.tsv @@ q.fl3 AND s."t_brand" @@ q.ft2)))', $match->predicate);
     }
 
     public function testAnExcludedGroupWithAScopedWordExcludesEachWordByItsOwnField(): void
@@ -366,13 +371,14 @@ final class FuzzyQueryCompilerTest extends TestCase
         $match = $compiler->compile(self::parse('-(brand:sony | cable) mouse'), $params);
 
         self::assertNotNull($match);
-        self::assertSame('(NOT (((s.tsv @@ q.ft0 AND s."t_brand" @@ q.ft0) OR s.tsv @@ q.ft1)) AND (s.tsv @@ q.ft2 OR q.fn3 OPERATOR("public".<%) s.fz))', $match->predicate, 'the word after the excluded group is typo-tolerant again');
-        self::assertSame(['p0' => "'sony':B", 'p1' => "'cable'", 'p2' => "'mouse'", 'p3' => 'mouse'], $params->all());
+        self::assertSame('(NOT (((s.tsv @@ q.fl1 AND s."t_brand" @@ q.ft0) OR s.tsv @@ q.ft2)) AND (s.tsv @@ q.ft3 OR q.fn4 OPERATOR("public".<%) s.fz))', $match->predicate, 'the word after the excluded group is typo-tolerant again');
+        self::assertSame(['p0' => "'sony':B", 'p1' => "'sony'", 'p2' => "'cable'", 'p3' => "'mouse'", 'p4' => 'mouse'], $params->all());
         self::assertSame(
-            ['predicate' => '(NOT (((s.tsv @@ q.sft0 AND s."t_brand" @@ q.sft0) OR s.tsv @@ q.sft1)) AND s.tsv @@ q.sft2)', 'columns' => [
+            ['predicate' => '(NOT (((s.tsv @@ q.sfl1 AND s."t_brand" @@ q.sft0) OR s.tsv @@ q.sft2)) AND s.tsv @@ q.sft3)', 'columns' => [
                 "to_tsquery('\"public\".\"fuzzphony_english\"'::regconfig, :p0) AS sft0",
-                "to_tsquery('\"public\".\"fuzzphony_english\"'::regconfig, :p1) AS sft1",
+                "to_tsquery('\"public\".\"fuzzphony_english\"'::regconfig, :p1) AS sfl1",
                 "to_tsquery('\"public\".\"fuzzphony_english\"'::regconfig, :p2) AS sft2",
+                "to_tsquery('\"public\".\"fuzzphony_english\"'::regconfig, :p3) AS sft3",
             ]],
             $compiler->scope(self::parse('-(brand:sony | cable) mouse'), new ParameterBag()),
             'scope() stays exact only after the excluded group',
@@ -391,7 +397,7 @@ final class FuzzyQueryCompilerTest extends TestCase
     public function testTheScopeKeepsAnExcludedScopedWordInsideAnOr(): void
     {
         self::assertSame(
-            '(s.tsv @@ q.sft0 AND (s.tsv @@ q.sft1 OR NOT ((s.tsv @@ q.sft2 AND s."t_brand" @@ q.sft2))))',
+            '(s.tsv @@ q.sft0 AND (s.tsv @@ q.sft1 OR NOT ((s.tsv @@ q.sfl3 AND s."t_brand" @@ q.sft2))))',
             $this->compiler()->scope(self::parse('wireless (mouse | -brand:logitech)'), new ParameterBag())['predicate'] ?? null,
         );
     }
@@ -410,13 +416,14 @@ final class FuzzyQueryCompilerTest extends TestCase
         $compiler = $this->compiler();
 
         self::assertSame([
-            'predicate' => '((s.tsv @@ q.sft0 AND s."t_brand" @@ q.sft0) OR s.tsv @@ q.sft1)',
+            'predicate' => '((s.tsv @@ q.sfl1 AND s."t_brand" @@ q.sft0) OR s.tsv @@ q.sft2)',
             'columns' => [
                 "to_tsquery('\"public\".\"fuzzphony_english\"'::regconfig, :p0) AS sft0",
-                "to_tsquery('\"public\".\"fuzzphony_english\"'::regconfig, :p1) AS sft1",
+                "to_tsquery('\"public\".\"fuzzphony_english\"'::regconfig, :p1) AS sfl1",
+                "to_tsquery('\"public\".\"fuzzphony_english\"'::regconfig, :p2) AS sft2",
             ],
         ], $compiler->scope(self::parse('brand:sony | mouse'), $params));
-        self::assertSame(['p0' => "'sony':B", 'p1' => "'mouse'"], $params->all());
+        self::assertSame(['p0' => "'sony':B", 'p1' => "'sony'", 'p2' => "'mouse'"], $params->all());
         self::assertNull($compiler->scope(self::parse('brand:the'), new ParameterBag(), ["'the':B"]), 'a stop word leaves nothing to check');
 
         $match = $compiler->compile(self::parse('mouse'), new ParameterBag());
@@ -472,7 +479,7 @@ final class FuzzyQueryCompilerTest extends TestCase
         $match = self::lengthAware()->compile(self::parse('name:mouse'), new ParameterBag());
 
         self::assertNotNull($match);
-        self::assertStringContainsString('"public".word_similarity(q.fn1, s."z_name") >= q.th2', $match->predicate);
+        self::assertStringContainsString('"public".word_similarity(q.fn2, s."z_name") >= q.th3', $match->predicate);
     }
 
     public function testTheRelaxationProbeUsesTheSameSimilarity(): void
@@ -539,12 +546,15 @@ final class FuzzyQueryCompilerTest extends TestCase
     {
         $values = [];
         foreach ($match->columns as $column) {
-            if (preg_match('/:(p\d+)\)? AS (f[tn]\d+)$/', $column, $m) !== 1) {
+            if (preg_match('/:(p\d+)\)? AS (f[tln]\d+)$/', $column, $m) !== 1) {
                 self::fail('Unexpected q column: ' . $column);
             }
             $values['q.' . $m[2]] = '{' . (string) ($params->all()[$m[1]] ?? '?') . '}';
         }
         $sql = strtr($sql, $values);
+        // a phrase is looked up by its words and read from tsv or from the later fields' vectors (see testAPhraseIsLookedUpByItsWords):
+        // the structure here is the leaf's exact condition, as it is for a word
+        $sql = (string) preg_replace('/\(s\.tsv @@ \{[^}]*\} AND \(s\.tsv @@ (\{[^}]*\})(?: OR \([^()]*\) @@ \{[^}]*\})*\)\)/', 's.tsv @@ $1', $sql);
 
         $sql = (string) preg_replace(
             [

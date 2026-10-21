@@ -41,7 +41,8 @@ final class TsQueryCompiler
      * @param bool $positiveOnly every excluded part is left out (as an excluded field-scoped one is): the candidates of a
      *                           restricted viewer's strict branch, where "!'cable'" on the whole tsv would also exclude
      *                           by the hidden fields (SearchSqlBuilder; the allowed-field recheck decides)
-     * @param bool $lookupForm       the form for finding candidates on the whole `tsv` for a restricted viewer: every phrase (and every
+     * @param bool $lookupForm       the form for finding candidates on the whole `tsv` where its positions and weights cannot be relied on
+     *                               (a restricted viewer's search, and an unrestricted viewer's phrase or scoped word): every phrase (and every
      *                               word that splits into several, "usb-c") is an AND of its words, not a sequence, and the weight
      *                               labels are left out. A superset, and one a hidden field cannot change: `tsv` is the fields' vectors
      *                               joined, whose positions are capped at 16 383, so after a long hidden field a phrase there does not

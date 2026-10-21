@@ -64,7 +64,12 @@ use Fuzzphony\Engine\Postgres\TypoTerm;
  *
  * and scores by those columns only. A word scoped to a hidden field, or any word when no field is allowed, is "false";
  * a word is typo-tolerant only when an allowed field is (its own field, for a scoped word); an excluded part is
- * always compiled word by word (excluded()). Null keeps every statement of the unrestricted path as it was.
+ * always compiled word by word (excluded()). Null keeps every statement of the unrestricted path as it was, except for what
+ * tsv cannot hold reliably: it is every field's vector joined, and its positions are capped at 16 383, so after a field of more
+ * than about 16 000 words a lexeme of a later field keeps only the highest weight of its fields and a phrase there does not match.
+ * An unrestricted viewer's phrase, or word scoped to a field, on an index with several fields is therefore looked up by its words
+ * alone (the AND of them, no weight labels: the same GIN lookup) and decided by the fields' own columns (matches()); a word
+ * without a weight and a single field's index keep their statements.
  */
 final class FuzzyQueryCompiler
 {

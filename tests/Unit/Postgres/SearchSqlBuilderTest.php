@@ -150,11 +150,11 @@ final class SearchSqlBuilderTest extends TestCase
         self::assertNotNull($root);
         $statement = (new SearchSqlBuilder(Indexes::products()))->ranked("'razr':B", 'razr', $root, [], new RankingProfile(), new Thresholds(fuzzySimilarity: 0.3), 10, 0, [], $root);
 
-        // q.tsq, q.norm, the recheck (q.sft0), then the fuzzy branch's own values (q.ft0, q.fn1)
-        self::assertSame(['p0' => "'razr':B", 'p1' => 'razr', 'p2' => "'razr':B", 'p3' => "'razr':B", 'p4' => 'razr'], $statement['params']);
-        self::assertStringContainsString('WHERE s.tsv @@ q.tsq AND (s.tsv @@ q.sft0 AND s."t_brand" @@ q.sft0) AND TRUE', $statement['sql']);
-        self::assertStringContainsString('WHERE ((s.tsv @@ q.ft0 AND s."t_brand" @@ q.ft0) OR (q.fn1 OPERATOR("public".<%) s.fz AND q.fn1 OPERATOR("public".<%) s."z_brand")) AND TRUE', $statement['sql']);
-        self::assertStringContainsString("ts_rank_cd('{0.1,0.2,0.4,1}'::real[], s.tsv, q.tsq, 32)", $statement['sql'], 'ranked by the weighted tsv, like an unscoped word');
+        // q.tsq, the lookup without the weight (q.tsp), q.norm, the recheck (q.sft0, q.sfl1), then the fuzzy branch's own values (q.ft0, q.fl1, q.fn2)
+        self::assertSame(['p0' => "'razr':B", 'p1' => "'razr'", 'p2' => 'razr', 'p3' => "'razr':B", 'p4' => "'razr'", 'p5' => "'razr':B", 'p6' => "'razr'", 'p7' => 'razr'], $statement['params']);
+        self::assertStringContainsString('WHERE s.tsv @@ q.tsp AND (s.tsv @@ q.sfl1 AND s."t_brand" @@ q.sft0) AND TRUE', $statement['sql'], 'the lookup has no weight: tsv keeps only the highest one at a clamped position');
+        self::assertStringContainsString('WHERE ((s.tsv @@ q.fl1 AND s."t_brand" @@ q.ft0) OR (q.fn2 OPERATOR("public".<%) s.fz AND q.fn2 OPERATOR("public".<%) s."z_brand")) AND TRUE', $statement['sql']);
+        self::assertStringContainsString("CASE WHEN s.tsv @@ q.tsq THEN ts_rank_cd('{0.1,0.2,0.4,1}'::real[], s.tsv, q.tsq, 32) ELSE GREATEST(", $statement['sql'], 'a document tsv matches keeps its rank on tsv');
     }
 
     public function testWithoutAScopeTheFullTextBranchIsUnchanged(): void
