@@ -63,6 +63,13 @@ final class ShopTest extends KernelTestCase
         $fuzzphony->reindex('categories');
     }
 
+    protected function tearDown(): void
+    {
+        // the tables of this recipe must not outlive it: a trigger on recipe_product would be counted by other suites
+        PostgresTestCase::connect()->execute('DROP TABLE IF EXISTS recipe_product, recipe_category, fuzzphony_products, fuzzphony_products__vocab, fuzzphony_products__next, fuzzphony_products__changes, fuzzphony_categories, fuzzphony_categories__vocab, fuzzphony_categories__next, fuzzphony_categories__changes CASCADE');
+        parent::tearDown();
+    }
+
     private function fuzzphony(): Fuzzphony
     {
         $fuzzphony = self::getContainer()->get(Fuzzphony::class);

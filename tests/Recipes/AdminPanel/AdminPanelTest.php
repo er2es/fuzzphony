@@ -52,6 +52,13 @@ final class AdminPanelTest extends KernelTestCase
         $this->em = $em;
     }
 
+    protected function tearDown(): void
+    {
+        // the tables of this recipe must not outlive it: a trigger on recipe_customer would be counted by other suites
+        PostgresTestCase::connect()->execute('DROP TABLE IF EXISTS recipe_customer, fuzzphony_customers, fuzzphony_customers__vocab, fuzzphony_customers__next, fuzzphony_customers__changes, fuzzphony_customers_live, fuzzphony_customers_live__vocab CASCADE');
+        parent::tearDown();
+    }
+
     /** The first reindex, as the recipe says: schema, then reindex. The rows were there before the index existed. */
     private function firstReindex(): ApplicationTester
     {

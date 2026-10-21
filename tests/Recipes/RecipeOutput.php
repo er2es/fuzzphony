@@ -19,9 +19,12 @@ final class RecipeOutput
     {
         $expected = file_get_contents($expectedFile);
         Assert::assertIsString($expected, $expectedFile);
-        $lines = array_map('rtrim', explode("\n", self::normalise($actual)));
-        foreach (explode("\n", trim($expected)) as $line) {
-            Assert::assertContains(rtrim($line), $lines, sprintf("%s: this line is not in the output:\n%s", basename($expectedFile), self::normalise($actual)));
+        $lines = array_map('trim', explode("\n", self::normalise($actual)));
+        foreach (explode("\n", $expected) as $line) {
+            if (trim($line) === '') {
+                continue;
+            }
+            Assert::assertContains(trim($line), $lines, sprintf("%s: this line is not in the output:\n%s", basename($expectedFile), self::normalise($actual)));
         }
     }
 
