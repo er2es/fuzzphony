@@ -122,8 +122,8 @@ with `Retry-After`) is explained in [Security](security.md).
 ## Who may search, and how often
 
 The tenant scope decides *whose rows* a search sees. Who may search at all, how often, and which text
-fields a viewer may search and see are the guards of [Security](security.md): a rate limit per tenant or
-user, index- and field-level authorization on Symfony's voters.
+fields a viewer may search and see are the guards of [Security](security.md): a rate limit per tenant, user or
+client IP, index- and field-level authorization on Symfony's voters.
 
 ## Did you mean
 

@@ -20,7 +20,7 @@ happens, why, and what to do. The statements here were checked against the code 
   [explain()](#explain-and-its-statement-labels-are-not-a-stable-api), [search log](#the-search-log-is-best-effort)
 - [Security and privacy](#security-and-privacy): [field authorization](#field-authorization-hides-content-not-existence-or-timing),
   [client IP](#the-client-ip-in-the-search-log), [per-person history](#a-persons-search-history-is-personal-data),
-  [rate limit](#the-rate-limit-counts-tenants-and-users-not-addresses), [authorization](#authorization-is-deny-by-default),
+  [rate limit](#the-rate-limit-by-ip-is-loose-by-design-and-only-covers-requests), [authorization](#authorization-is-deny-by-default),
   [tenants](#tenant-isolation-is-enforced-by-the-library-not-the-database)
 
 ## Search quality
@@ -325,13 +325,33 @@ checking that the requester may see it, keep `retention_days` short and run the 
 [Who searched what](analytics.md#who-searched-what) and
 [Privacy](analytics.md#privacy-the-log-is-personal-data).
 
-### The rate limit counts tenants and users, not addresses
+### The rate limit by IP is loose by design and only covers requests
 
-A search without an actor, or with an actor that has no key (`per: user` and no user), is not limited, so an
-anonymous public search box has no limit from Fuzzphony. `explain()` and `suggest()` spend a token too.
+`per: tenant` and `per: user` give an anonymous visitor no key, so they never limit a public search box;
+`per: ip` does (the bundle's Live Component and API Platform filter search as an actor that carries the client
+address). Its limits:
 
-What to do: put a limiter of your own, by IP, in front of the controller. See
-[the rate limit](security.md#the-rate-limit).
+- **A company network or NAT shares one address among many people**, so they share one bucket. The default
+  (a sliding window of 600 searches a minute per address, prepended as `framework.rate_limiter.fuzzphony_ip`)
+  is loose on purpose: it stops a script, not a person.
+- **Without `framework.trusted_proxies` everyone behind a reverse proxy or CDN shares ONE bucket** (the
+  application sees the proxy's address); with it set too broadly, a visitor can name any client. Fuzzphony
+  never reads `X-Forwarded-For` itself, `Request::getClientIp()` decides.
+- **A call without a request is not limited by IP**: a plain PHP call, a console command, a worker, an actor
+  built without `ip:`, and a search made without any `asActor()` (no guard runs then) have no address.
+  Fuzzphony cannot limit what it does not see.
+- **An IPv6 address is limited by its /64**, an IPv4-mapped IPv6 address as the IPv4 address it carries; a
+  visitor with a /64 to himself is one bucket, which is the point.
+- The address is read per request and not stored unless `search_log.ip` says so; the limiter's state lives in
+  its cache pool (a hash of the key, for the window), and the default filesystem pool locks and writes a file
+  on every search.
+- With `authorization` enabled, a request without a Security token is refused before the limit is looked at,
+  so `per: ip` is the setting for a public search box, not for a signed-in-only one.
+- `explain()` and `suggest()` spend a token too.
+
+What to do: set `trusted_proxies` if you run behind one, raise the limit if your visitors sit behind big NATs,
+use APCu or Redis for the limiter's pool, and keep a limiter of your own in front of the endpoint if you need a
+stricter or per-route limit. See [Limiting anonymous visitors by IP](security.md#limiting-anonymous-visitors-by-ip).
 
 ### Authorization is deny-by-default
 

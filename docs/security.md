@@ -40,7 +40,7 @@ In a Symfony application the order is fixed:
    `ActorRequired`, before any guard runs. So an actor with no tenant is `ActorRequired` even if it
    would also lack the permission: the demo's anonymous visitor shows it.
 2. **Authorization** (when `fuzzphony.authorization.enabled`).
-3. **The rate limit** (when `fuzzphony.rate_limit.limiter` is set). It comes last on purpose: a search
+3. **The rate limit** (when `fuzzphony.rate_limit.limiter` is set, or `per: ip`). It comes last on purpose: a search
    that is denied never spends a token.
 
 A refusal is shown by the HTTP integrations as **403** (`ActorRequired`, `AccessDenied`) or **429**
@@ -72,13 +72,14 @@ framework:
 fuzzphony:
   rate_limit:
     limiter: search     # the name of the framework.rate_limiter entry (service limiter.search)
-    per: user           # tenant (default) or user: whose searches share one bucket
+    per: user           # tenant (default), user or ip: whose searches share one bucket
 ```
 
 It needs `symfony/rate-limiter` (a `suggest` dependency: without it the container fails to build with
 the `composer require` line). `limiter` must be the name of a `framework.rate_limiter` entry; an unknown
 name fails the container build with Symfony's own "non-existent service limiter.<name>" message. A
-`compound` limiter works too. The key is the actor's tenant or user, as configured. When it is
+`compound` limiter works too. The key is the actor's tenant, user or client IP, as configured
+([`per: ip`](#limiting-anonymous-visitors-by-ip) is described below). When it is
 exceeded the search throws `RateLimited` (429 with `Retry-After`).
 
 The limiter's state lives in the cache pool of the `framework.rate_limiter` entry (`cache.rate_limiter` unless you set
@@ -88,11 +89,84 @@ or Redis one (`cache_pool: cache.apcu`, or a Redis pool of your own; APCu is per
 `lock_factory`, when several servers must share one limit). See Symfony's
 [rate limiter documentation](https://symfony.com/doc/current/rate_limiter.html).
 
+### Limiting anonymous visitors by IP
+
+The public search box (the Live Component, the API Platform filter) searches as the actor your
+`ActorResolver` returns, and for a visitor who is not signed in that is an anonymous actor: no tenant, no user,
+so `per: tenant` and `per: user` have no key for it and it was never limited. `per: ip` keys the bucket on the
+client address instead:
+
+```yaml
+fuzzphony:
+  rate_limit:
+    per: ip             # no `limiter` needed: see the default below
+```
+
+- **The address** is `Request::getClientIp()` of the main request, read when the actor is resolved, so
+  `framework.trusted_proxies` applies and Fuzzphony never reads `X-Forwarded-For` itself. Every actor that
+  comes out of the bundle's resolver carries it (a signed-in user too, and an actor of your own
+  `fuzzphony.actor.resolver`, unless it set an IP itself), and `per: ip` limits all of them by address.
+  The address is independent of `search_log.ip`, which only decides what the log **stores**: with the
+  default `off` the address is used for the limit and never written down.
+- **The bucket** of an IPv4 address is the address; of an IPv6 address its **/64** (a visitor owns a whole /64
+  and can rotate inside it, so a bucket per address would limit nothing); an IPv4-mapped IPv6 address
+  (`::ffff:203.0.113.45`) is the IPv4 address it carries.
+- **The default limiter.** With `per: ip` and no `limiter`, the bundle prepends this entry to
+  `framework.rate_limiter` and uses it (service `limiter.fuzzphony_ip`):
+
+  ```yaml
+  framework:
+    rate_limiter:
+      fuzzphony_ip: { policy: sliding_window, limit: 600, interval: '1 minute' }
+  ```
+
+  It is deliberately loose: it only stops a script that hammers the endpoint, not a person. To change the
+  numbers, define your own entry and name it (`rate_limit: { limiter: public_search, per: ip }`), or define
+  an entry called `fuzzphony_ip` yourself: the bundle does not prepend one when you did, and it does not
+  override your entry. Naming a `limiter` always wins over the default.
+- **A refusal** is a `RateLimited` like any other: HTTP 429 with `Retry-After`, a `rate_limited` row in the
+  search log, the `fuzzphony.search.rate_limited` counter and the warning log line. None of them carries the
+  address (the row carries one only when `search_log.ip` says so, masked or full, as for every search).
+- **With authorization** (`authorization.enabled`) nothing changes in the order: authorization first, so a
+  denied search spends no token, then the rate limit. Authorization still refuses a request that has no
+  Security token, so with both settings an anonymous visitor is refused (`AccessDenied`) before the limit
+  is looked at: `per: ip` alone is the setting for a public search box. On a tenant-scoped index an anonymous
+  visitor has no tenant and is refused with `ActorRequired` before any guard, as before.
+
+What the limit by IP cannot do, and what to know before you rely on it:
+
+- **A company network or a NAT shares one address among many people.** All of them draw on one bucket, which
+  is why the default is as loose as 600 a minute. If your visitors typically sit behind a few big NATs
+  (an office, a university, a mobile carrier's CGNAT), raise the limit; if you face a single abusive
+  client, lower it. It is a brake against scripts, not a fair share per person.
+- **Without `framework.trusted_proxies`, everyone behind a reverse proxy, CDN or load balancer shares ONE
+  bucket**: the application then sees the proxy's address for every visitor. Check what your application
+  sees (for example `dump($request->getClientIp())` in a controller behind your real proxy, or the
+  `masked` address in `fuzzphony:analytics --recent` with `search_log.ip` on): when it is the proxy's
+  address (often a private `10.x`, `172.16.x`, `192.168.x` one) set `framework.trusted_proxies` to the proxy's
+  address or range and `trusted_headers` to the header it sets. Trust only addresses you control: whoever can
+  reach the application directly from a trusted address can name any client.
+  Without a proxy in front, leave `trusted_proxies` empty: a forged `X-Forwarded-For` is then ignored (tests
+  prove it).
+- **A call with no request cannot be limited by IP.** The library sees no request in a plain PHP call, a
+  console command, a worker or a message handler, so an actor there has no address and `per: ip` does not
+  limit it (it does not throw either). The same holds for an actor you build with `new Actor(...)` without
+  `ip:`; and a search made without any `asActor()` is never guarded (the Live Component and the API Platform
+  filter always name an actor, your own controller must too: `->asActor($actors->resolve())`).
+- **The address is read per request** when the actor is resolved, and is not stored by Fuzzphony unless
+  `search_log.ip` says so. The limiter keeps its own state in the cache pool of its entry for the length of
+  the window: the bundle hands the limiter a SHA-256 hash of the bucket key, never the address, but an IPv4
+  address can be recovered from a hash by trying all of them, so treat that pool as holding personal data for a
+  minute (it expires by itself).
+- **The limiter's state lives in the cache pool of the limiter** (`cache.rate_limiter`, a filesystem pool by
+  default, and a lock per search): on a public endpoint every search then touches a file, so use APCu or
+  Redis as described above (one server: APCu; several: Redis for the pool and for `lock_factory`).
+
 What is and is not limited:
 
 - **A search without an actor, or with an actor that has no key** (`per: user` and an actor without a
-  user) is not limited. An IP limit is Symfony's own business (a limiter of its own in front of the
-  controller).
+  user, `per: ip` and an actor without an address) is not limited. A search made without `asActor()` is not
+  guarded at all.
 - **One token per search.** `explain()` runs the search, so it **charges** a token too.
   `Fuzzphony::suggest()` (the completions) charges one token per call, unless you pass `charge: false`
   (only when the same request already charged a search). The Live Component does: a render is a
