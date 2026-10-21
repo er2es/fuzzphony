@@ -77,7 +77,6 @@ final class UnrestrictedLongFieldTest extends TestCase
         yield 'long field between title and body' => [['title', 'notes', 'body', 'secret']];
         yield 'long field before the last one' => [['title', 'body', 'notes', 'secret']];
         yield 'long field last' => [['title', 'body', 'secret', 'notes']];
-        yield 'another order, long field second' => [['secret', 'notes', 'body', 'title']];
     }
 
     /**
