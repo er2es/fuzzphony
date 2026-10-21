@@ -289,9 +289,11 @@ $result->didYouMean;   // "headphones -cable": the query with the word replaced,
   and words with a digit (`rtx4090`: the nearest code is not what the user meant).
 - Which suggestion: the vocabulary word nearest by edit distance (the trigram index only picks ten
   candidates; a trigram ranking alone suggests `most` for `mose`), then the one in more documents.
-  Nothing farther than a third of the word's length away is suggested, and a candidate has to share
-  enough trigrams with the word (pg_trgm's similarity of 0.3), so a word that is two edits away at the
-  start and the end gets none. The suggested word is the
+  Nothing farther than a third of the word's length away is suggested (at least one edit: a swap of two neighbouring
+  letters is two edits, so a 4 or 5 letter word with a swap, `mosue`, gets no suggestion; the typo-tolerant search finds it
+  anyway, see [Typo tolerance](#typo-tolerance)), and a candidate has to share enough trigrams with the word (pg_trgm's
+  similarity of 0.25; it was 0.3 before 0.9.8, which missed four in ten of the one-letter typos of a 4-letter word), so a
+  word that is two edits away at the start and the end gets none. The suggested word is the
   vocabulary's, so lowercase and without accents.
 - Tenants and filters: the vocabulary is the words of the whole index, whatever a search's filters
   say, so a suggestion could reveal that a word exists in documents the search may not see.

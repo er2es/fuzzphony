@@ -69,6 +69,12 @@ final class PostgresEngine implements Engine, Vocabulary, SynonymStems, Suggesti
     private const string WORD_SIMILARITY = 'pg_trgm.word_similarity_threshold';
     private const string SEARCH_HINT = 'Run "bin/console fuzzphony:doctor" to check the index.';
     private const string FACET_LABEL = 'facet: ';
+    /**
+     * The trigram similarity a vocabulary word needs to be a candidate of the did-you-mean lookup (and the rescue). A letter
+     * replaced in the middle of a 4-letter word leaves 2 of 8 trigrams in common, exactly 0.25 (0.3 missed 40% of the
+     * one-edit typos of 4-letter words); a swap in a 6-letter word leaves 0.27. Lower finds nothing more and reads more.
+     */
+    private const float SUGGEST_SIMILARITY = 0.25;
     /** The label of the statements of the zero-result rescue starts with this (see rescued()). */
     private const string RESCUE_PREFIX = 'rescue: ';
     private const string RESTRICTED_PLAN = 'No plan for a search restricted to some fields: its estimates and row counts are taken over every field.';
@@ -873,9 +879,9 @@ final class PostgresEngine implements Engine, Vocabulary, SynonymStems, Suggesti
         );
         $parameters = ['words' => implode(chr(31), $words)];
         $statement = ['label' => self::SUGGEST_LABEL, 'sql' => $sql, 'params' => $parameters];
-        // the candidates are the words with a trigram similarity of 0.3 or more, whatever the session has set
+        // the candidates are the words with a trigram similarity of SUGGEST_SIMILARITY or more, whatever the session has set
         /** @var \Closure(): list<array<string, mixed>> $lookup */
-        $lookup = fn() => $this->fetchWithSetting($sql, $parameters, 0.3, 'pg_trgm.similarity_threshold');
+        $lookup = fn() => $this->fetchWithSetting($sql, $parameters, self::SUGGEST_SIMILARITY, 'pg_trgm.similarity_threshold');
         try {
             $rows = $this->guard('did_you_mean', $lookup, 'Run "bin/console fuzzphony:schema --apply", then "bin/console fuzzphony:reindex --vocabulary".');
         } catch (FuzzphonyException $e) {
