@@ -16,6 +16,10 @@ and the [CHANGELOG](CHANGELOG.md) has the full list of changes.
    `DoctrineIndexDiscovery`, `EntityLoader` or `OrmSyncListener` is now a duplicate of the bundle's, and an index
    that is both an attribute and in YAML `indexes` is overridden by the YAML as documented.
 
+## From 0.9.6 to 0.9.7
+
+Nothing is required. One thing to know: **a restricted viewer's phrase or field-scoped-word match no longer depends on the length of a hidden field** (a security fix: before, a hidden field of more than about 16 000 words in front of an allowed one could change whether `"word1 word2"` or `secret:word1` matched for a restricted viewer). If you use `restrictedToFields()` or `granted` fields, upgrade; no reindex is needed.
+
 ## From 0.9.5 to 0.9.6
 
 1. **Search log: who searched what, and the optional client IP.** Nothing is required. To keep the client address
