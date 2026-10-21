@@ -56,6 +56,9 @@ with `pdo_pgsql` and `pcov` installed, next to the test database. There is no CI
   mutants it reports as escaped in the same pull request.
 - Add a line to the `## [Unreleased]` section of [CHANGELOG.md](CHANGELOG.md) under Added,
   Changed, Fixed or Breaking.
+- Documentation links are checked in CI (the `docs-links` job: relative links, `#anchors` and absolute links to this
+  repository in every `*.md` file; links to other sites are not). Run `php tools/check-docs-links.php` before you push
+  when you rename or move a file, a page or a heading.
 - Commit messages are short imperative sentences that say why ("Fix the fuzzy branch ignoring
   nested negations"), with detail in the body when it helps.
 

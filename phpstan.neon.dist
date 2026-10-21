@@ -5,4 +5,5 @@ parameters:
     paths:
         - src
         - tests
+        - tools
     treatPhpDocTypesAsCertain: false

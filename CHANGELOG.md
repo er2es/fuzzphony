@@ -54,6 +54,11 @@ changes; they are always listed under **Breaking** and explained in [UPGRADE.md]
 - **A documentation index, [docs/README.md](docs/README.md).** GitHub shows it when the `docs` folder is opened: every page in a reading
   order, grouped (getting started, concepts, guides and recipes, reference, operations), with the question each page answers. The
   README's Documentation section points to it and lists the LIKE guide and the three recipes; the recipes link back to the index.
+- **A link check for the documentation**, `php tools/check-docs-links.php` (no dependencies, no network), and the `docs-links` workflow that runs it
+  on every pull request and on `main`. It checks every relative Markdown link and image, every `#anchor` (GitHub's heading slugs, `-1`
+  for repeated headings, explicit `id` / `name` anchors) and every absolute link to this repository (`.../blob/main/...`, `.../tree/main/...`);
+  links to other sites are not checked, and neither is code (fences, inline code). Its parser and slug rules are unit-tested
+  (`tests/Unit/Docs/DocsLinkCheckerTest.php`); `tools/` is analysed by PHPStan and php-cs-fixer like `src/` and `tests/` and is not part of the package download.
 
 ### Changed
 
