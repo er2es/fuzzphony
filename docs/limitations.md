@@ -34,15 +34,24 @@ typo from a different word that looks alike:
 - `cable` also finds `table` (similarity 0.50, one letter replaced), and `mose` is as close to `monitor` and
   `mower` as to `mouse` (0.40 each): a search for `mose` lists all of them with the same score.
 - The threshold keeps a different word at the worst case of a typo out (`mouse` / `monitor`, 0.33), and that
-  costs some real typos: a letter replaced in the middle of a 5 to 7 letter word, or two letters swapped, may
-  not be tolerated (`mpuse`, `mosue`; the same swap at the end of a word, `torhc`, is). "Did you mean" can
-  still catch some of them (`mpuse` suggests `mouse`).
+  costs some real typos: a letter replaced in the middle of a 5 to 7 letter word is not tolerated in the results
+  (`mpuse`). "Did you mean" can still catch some of them (`mpuse` suggests `mouse`). Two neighbouring letters
+  swapped (`mosue`) are found: the typed word of 4 to 15 letters also matches its swapped variants as whole words
+  on the typo-tolerant branch, ranked below exact hits ([Typo tolerance](searching.md#typo-tolerance)). Not covered:
+  letters swapped that are not neighbours (`moues` is a swap, `muoes` is not), a swap together with another typo in a
+  short word, a swap in a code with digits, and any word of a field that is not typo-tolerant.
 - It reaches only the words of fuzzy fields (`fuzzy: true`): a misspelled word that occurs only in a
   description or another non-fuzzy field finds nothing. Words shorter than `fuzzy_min_length` (3) must match
   exactly.
 - By default (`fuzzy_mode: fallback`) it runs only when exact matching finds fewer than `fallback_below` (5)
   hits, so a typo next to enough exact hits is not corrected. `always` runs it every time, `never` switches
   it off.
+- A letter replaced in the middle of a 5 to 7 letter word (`mpuse`) is **not** added to the results of a search. Only the
+  [zero-result rescue](searching.md#zero-result-rescue) reaches it, and only when the search found nothing at all, the
+  vocabulary has exactly one word one edit away, and the index is not tenant-scoped (no vocabulary there) and the viewer
+  is not restricted: then the corrected search answers, flagged (`SearchResult::$correctedFrom`). A tie between two
+  candidates, a word with two wrong letters, a code with digits, a search-as-you-type text and a search that found
+  something are not rescued; on a tenant-scoped index or for a restricted viewer `mpuse` still finds nothing.
 
 What to do: set `fuzzy_similarity` to a number to use one value for every word. That trades the other way: it
 finds more typos and lists more look-alikes (the measured trade-off is in
@@ -147,7 +156,8 @@ mode can be newer than the index.
 A hit found only through typo tolerance has its mistyped words marked too (`hedphones` marks `Headphones`),
 by a simpler rule than the search's: each word of the field text is compared with the typed word on its own,
 with the similarity the search used, so a match that the search found across two words (`head phones` for
-`headphones`) is not marked, and a hit can have no mark although it was found. Only typo-tolerant fields get
+`headphones`) is not marked, nor is a word found as a swapped-letter variant (`mosue` finds `mouse`, which gets no mark),
+and a hit can have no mark although it was found. Only typo-tolerant fields get
 these marks (a field that is not `fuzzy` shows ts_headline's snippet). The work is bounded: the marks are made
 for the first 200 typo-found hits of a page, of each field only the first 10 000 characters (2000 words) are
 looked at, a page spends a budget of 100 000 word comparisons and 4000 distinct words, and a phrase of more than

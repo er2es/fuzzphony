@@ -16,6 +16,25 @@ and the [CHANGELOG](CHANGELOG.md) has the full list of changes.
    `DoctrineIndexDiscovery`, `EntityLoader` or `OrmSyncListener` is now a duplicate of the bundle's, and an index
    that is both an attribute and in YAML `indexes` is overridden by the YAML as documented.
 
+## From 0.9.7 to 0.9.8
+
+Nothing is required, but **searches that returned nothing may now return results**, in two ways:
+
+1. **Two swapped neighbouring letters are tolerated** (`mosue` finds `mouse`): a typed word of 4 to 15 letters also matches its
+   neighbour-swapped variants as whole words on the typo-tolerant branch (below exact hits, in typo-tolerant fields only; also on
+   tenant-scoped indexes). It only changes a search that already ran the typo-tolerant branch.
+2. **The zero-result rescue** (on by default): a search that found nothing and has a word with exactly one one-edit correction in
+   the did-you-mean vocabulary (`mpuse` -> `mouse`) is run again with it, and the result is flagged:
+   `SearchResult::$correctedFrom` is the text the visitor typed (`null` otherwise), `interpretedAs` is the corrected query and a
+   warning says so. If your page says "No results for ..." when `$result->total` is 0, it now shows results for the corrected text:
+   show `correctedFrom` ("Showing results for mouse, search instead for mpuse") or switch the rescue off with `rescue_empty: false`
+   in the index's `thresholds` (or per query: `->thresholds(['rescue_empty' => false])`). The suggestion `didYouMean` stays as it
+   was for every search that is not rescued. `did_you_mean: false` also turns the rescue off; tenant-scoped indexes, restricted
+   viewers and search-as-you-type are never rescued. The search log records what the visitor typed, with the rescued hits, so
+   the zero-result report no longer lists a search the rescue answered.
+
+If you implement your own `Engine` or build `SearchResult` yourself, the new constructor parameter `correctedFrom` is optional and last.
+
 ## From 0.9.6 to 0.9.7
 
 Nothing is required. One thing to know: **a restricted viewer's phrase or field-scoped-word match no longer depends on the length of a hidden field** (a security fix: before, a hidden field of more than about 16 000 words in front of an allowed one could change whether `"word1 word2"` or `secret:word1` matched for a restricted viewer). If you use `restrictedToFields()` or `granted` fields, upgrade; no reindex is needed.

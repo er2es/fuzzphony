@@ -30,6 +30,8 @@ final class ThresholdsOverridesTest extends TestCase
         yield 'relax_when_empty array' => ['relax_when_empty', [true], '"relax_when_empty" must be a boolean.'];
         yield 'relax_when_empty text' => ['relax_when_empty', 'maybe', '"relax_when_empty" must be a boolean.'];
         yield 'did_you_mean null' => ['did_you_mean', null, '"did_you_mean" must be a boolean.'];
+        yield 'rescue_empty null' => ['rescue_empty', null, '"rescue_empty" must be a boolean.'];
+        yield 'rescue_empty text' => ['rescue_empty', 'maybe', '"rescue_empty" must be a boolean.'];
     }
 
     /** @param non-empty-string $message */

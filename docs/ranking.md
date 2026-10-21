@@ -30,6 +30,16 @@ irrelevant document into the results ([ADR 0004](adr/0004-min-score-on-relevance
 Every hit carries a `ScoreBreakdown`, so "why is this first?" always has an answer.
 `fuzzphony:search` prints it as a table.
 
+### Swapped letters
+
+A typed word of 4 to 15 letters on the typo-tolerant branch also matches its neighbour-swapped variants as whole words
+(`mosue` finds `mouse`; [Typo tolerance](searching.md#typo-tolerance)). Such a hit scores as the **weakest ordinary
+typo hit of that word**: the similarity the word's length needs (0.28 for 4 letters, 0.36 for 5, 0.43 for 6, 0.48 for
+7, 0.23 for 8, and so on, or the fixed `fuzzy_similarity`) instead of the variant's own similarity of 1.0. So it ranks
+below every exact hit (1.0 for the word, plus its text rank and the bonuses) and never above an ordinary typo hit of the
+same word; two swap hits tie and are ordered by the other bonuses and by id. The penalty is the difference between 1.0 and
+that floor (0.64 for five letters). In `ScoreBreakdown` it shows as `fuzzySimilarity` at the floor and `textRank` 0.
+
 ## Profiles
 
 Profiles let one index rank differently per use case:
@@ -69,6 +79,7 @@ $fuzzphony->in('products')->query('mouse')->profile('popular')->ranking(['boost'
 | `candidate_limit` | `2000` | max candidates ranked per branch (the first matches the index returns, not the best ones: [limitation](limitations.md#ranking-is-approximate-beyond-candidate_limit)); `total` becomes a lower bound (`2000+`) |
 | `max_query_length` / `max_terms` | `256` / `16` | input limits |
 | `did_you_mean` | `true` | a search with fewer than `fallback_below` hits, or one that needed typo tolerance, suggests the spelling of a word the index does not know in `SearchResult::$didYouMean`; never on a tenant-scoped index ([details](searching.md#did-you-mean)) |
+| `rescue_empty` | `true` | a search that finds nothing, with a word that has exactly one vocabulary word one edit away (`mpuse` / `mouse`), is searched again with the corrected words and answers with that, flagged in `SearchResult::$correctedFrom` and a warning; never with `did_you_mean: false`, on a tenant-scoped index, for a restricted viewer, or with typo tolerance off ([details](searching.md#zero-result-rescue)) |
 | `relax_when_empty` | `true` | a multi-word query that finds nothing drops the words that match nothing and says so in `warnings` ([details](searching.md#empty-result-relaxation)); independent of `fuzzy_mode` |
 
 Set them per index (YAML `thresholds:`) or per query:

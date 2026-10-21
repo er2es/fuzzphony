@@ -69,6 +69,14 @@ final class PostgresEngine implements Engine, Vocabulary, SynonymStems, Suggesti
     private const string WORD_SIMILARITY = 'pg_trgm.word_similarity_threshold';
     private const string SEARCH_HINT = 'Run "bin/console fuzzphony:doctor" to check the index.';
     private const string FACET_LABEL = 'facet: ';
+    /**
+     * The trigram similarity a vocabulary word needs to be a candidate of the did-you-mean lookup (and the rescue). A letter
+     * replaced in the middle of a 4-letter word leaves 2 of 8 trigrams in common, exactly 0.25 (0.3 missed 40% of the
+     * one-edit typos of 4-letter words); a swap in a 6-letter word leaves 0.27. Lower finds nothing more and reads more.
+     */
+    private const float SUGGEST_SIMILARITY = 0.25;
+    /** The label of the statements of the zero-result rescue starts with this (see rescued()). */
+    private const string RESCUE_PREFIX = 'rescue: ';
     private const string RESTRICTED_PLAN = 'No plan for a search restricted to some fields: its estimates and row counts are taken over every field.';
     private const string REBUILD_HINT = 'Run "fuzzphony:schema --apply" and "fuzzphony:doctor".';
     private const string SEARCH_LOG_HINT = 'Run "fuzzphony:schema --apply" (the log must be enabled) and "fuzzphony:doctor"; the role needs INSERT, SELECT and DELETE on the search log table.';
@@ -184,7 +192,8 @@ final class PostgresEngine implements Engine, Vocabulary, SynonymStems, Suggesti
         // the plan of the last search statement (the relaxation probe and the suggestion lookup are listed but are not the search)
         $last = null;
         foreach ($run['statements'] as $statement) {
-            if (!in_array($statement['label'], [self::PROBE_LABEL, self::SUGGEST_LABEL, self::EXACT_LABEL], true) && !str_starts_with($statement['label'], self::FACET_LABEL)) {
+            $label = str_starts_with($statement['label'], self::RESCUE_PREFIX) ? substr($statement['label'], strlen(self::RESCUE_PREFIX)) : $statement['label'];
+            if (!in_array($label, [self::PROBE_LABEL, self::SUGGEST_LABEL, self::EXACT_LABEL], true) && !str_starts_with($label, self::FACET_LABEL)) {
                 $last = $statement;
             }
         }
@@ -495,6 +504,10 @@ final class PostgresEngine implements Engine, Vocabulary, SynonymStems, Suggesti
     }
 
     /**
+     * One search, with the zero-result rescue: a search that found nothing, and has a word with a unique one-edit spelling
+     * in the vocabulary, is run once more with the corrected words (never again: the second run cannot rescue) and its
+     * result, flagged, is the answer when it found something. See executeOnce() for when a search is rescued.
+     *
      * @return array{
      *     result: SearchResult,
      *     statements: list<array{label: string, sql: string, params: array<string, scalar|null>}>,
@@ -502,6 +515,92 @@ final class PostgresEngine implements Engine, Vocabulary, SynonymStems, Suggesti
      * }
      */
     private function execute(IndexDefinition $index, SearchQuery $query): array
+    {
+        $started = hrtime(true);
+        $run = $this->executeOnce($index, $query, true);
+        $rescue = $run['rescue'];
+        if ($rescue !== null) {
+            $second = $this->executeOnce($index, $query->withText($rescue['to']), false);
+            if ($second['result']->total > 0) {
+                $run = $this->rescued($query, $run, $second, $rescue, $started);
+                $this->metrics->increment('fuzzphony.search.rescued', ['index' => $index->name, 'query' => $query->text]);
+            } else {
+                // nothing either: the answer is the original, empty one; explain() still lists what the attempt ran
+                $run['statements'] = [...$run['statements'], ...self::rescueLabels($second['statements'])];
+                $run['threshold'] = $second['threshold'];
+            }
+        }
+        $result = $run['result'];
+        $this->metrics->observe('fuzzphony.search.took_ms', $result->tookMs, ['index' => $index->name, 'query' => $query->text]);
+        if (array_any($run['statements'], static fn(array $s): bool => str_ends_with($s['label'], 'fallback: full-text + fuzzy'))) {
+            $this->metrics->increment('fuzzphony.search.fallback', ['index' => $index->name, 'query' => $query->text]);
+        }
+
+        return ['result' => $result, 'statements' => $run['statements'], 'threshold' => $run['threshold']];
+    }
+
+    /**
+     * The answer of a rescued search: the corrected search's hits, total and facets, flagged with what the visitor typed, with
+     * the statements of both (the second's labelled "rescue: ...") and a warning that says what happened.
+     *
+     * @param array{result: SearchResult, statements: list<array{label: string, sql: string, params: array<string, scalar|null>}>, threshold: float|null, rescue: array{from: string, to: string}|null} $first
+     * @param array{result: SearchResult, statements: list<array{label: string, sql: string, params: array<string, scalar|null>}>, threshold: float|null, rescue: array{from: string, to: string}|null} $second
+     * @param array{from: string, to: string} $rescue the typed query and the corrected one, both as the parser reads them (bounded, sanitised)
+     *
+     * @return array{result: SearchResult, statements: list<array{label: string, sql: string, params: array<string, scalar|null>}>, threshold: float|null, rescue: array{from: string, to: string}|null}
+     */
+    private function rescued(SearchQuery $query, array $first, array $second, array $rescue, int|float $started): array
+    {
+        $inner = $second['result'];
+
+        return [
+            'result' => new SearchResult(
+                hits: $inner->hits,
+                total: $inner->total,
+                totalIsLowerBound: $inner->totalIsLowerBound,
+                tookMs: round((hrtime(true) - $started) / 1e6, 3),
+                usedFuzzy: $inner->usedFuzzy,
+                warnings: array_values(array_unique([...$first['result']->warnings, ...$inner->warnings, sprintf("No results for '%s'; showing results for '%s'.", $rescue['from'], $rescue['to'])])),
+                limit: $inner->limit,
+                offset: $inner->offset,
+                interpretedAs: $inner->interpretedAs,
+                didYouMean: null,
+                facets: $inner->facets,
+                correctedFrom: $query->text,
+            ),
+            'statements' => [...$first['statements'], ...self::rescueLabels($second['statements'])],
+            'threshold' => $second['threshold'],
+            'rescue' => null,
+        ];
+    }
+
+    /**
+     * @param list<array{label: string, sql: string, params: array<string, scalar|null>}> $statements
+     *
+     * @return list<array{label: string, sql: string, params: array<string, scalar|null>}>
+     */
+    private static function rescueLabels(array $statements): array
+    {
+        return array_map(static fn(array $statement): array => ['label' => self::RESCUE_PREFIX . $statement['label']] + $statement, $statements);
+    }
+
+    /**
+     * One search without a rescue of its own. A search is to be rescued ("rescue" is set) when it found nothing (after the
+     * relaxation and the typo-tolerant branch), $rescue allows it (the second run of a rescue does not), `rescue_empty` and
+     * `did_you_mean` are on, typo tolerance is not switched off (`fuzzy_mode: never`, a profile with `fuzzy` 0), the text is not a search-as-you-type one (the last word is unfinished: nothing is wrong with it),
+     * the viewer is not restricted and the index is not tenant-scoped (the vocabulary is the words of every document,
+     * hidden fields and other tenants' included: suggest() never looks it up for them), and every word that needs a
+     * correction has exactly one vocabulary word one edit away (suggest()). "from" and "to" are the typed and the corrected
+     * query as the parser reads them.
+     *
+     * @return array{
+     *     result: SearchResult,
+     *     statements: list<array{label: string, sql: string, params: array<string, scalar|null>}>,
+     *     threshold: float|null,
+     *     rescue: array{from: string, to: string}|null
+     * }
+     */
+    private function executeOnce(IndexDefinition $index, SearchQuery $query, bool $rescue): array
     {
         $started = hrtime(true);
         if ($index->tenant !== null && $query->tenant === null) {
@@ -531,14 +630,14 @@ final class PostgresEngine implements Engine, Vocabulary, SynonymStems, Suggesti
             $warnings[] = 'The search has no word to look for; use letters or digits.';
             $empty = SearchResult::empty($query->limit, $query->offset, $warnings, round((hrtime(true) - $started) / 1e6, 3));
 
-            return ['result' => $empty, 'statements' => [], 'threshold' => null];
+            return ['result' => $empty, 'statements' => [], 'threshold' => null, 'rescue' => null];
         }
         if ($root !== null && !NodeInspector::hasPositive($root)) {
             // "-cable" alone would mean "everything except ..." which is rarely intended and never cheap.
             $warnings[] = 'The search only excluded words; add at least one word to look for.';
             $empty = SearchResult::empty($query->limit, $query->offset, $warnings, round((hrtime(true) - $started) / 1e6, 3));
 
-            return ['result' => $empty, 'statements' => [], 'threshold' => null];
+            return ['result' => $empty, 'statements' => [], 'threshold' => null, 'rescue' => null];
         }
 
         $typedRoot = $root;
@@ -550,7 +649,7 @@ final class PostgresEngine implements Engine, Vocabulary, SynonymStems, Suggesti
         $run = $this->pipeline($index, $root, $conditions, $profile, $thresholds, $query, '', true);
         // What is left of the search (the typo-tolerant statements, the relaxation, the facets, the suggestion) runs in ONE transaction
         // when typo tolerance is due (see inSearchTransaction()); a search that needs no setting has no transaction at all.
-        $rest = function () use ($index, $query, $conditions, $profile, $thresholds, $typedRoot, $expandedRoot, $root, $warnings, $run): array {
+        $rest = function () use ($index, $query, $conditions, $profile, $thresholds, $typedRoot, $expandedRoot, $root, $warnings, $run, $rescue): array {
             $run = $this->completed($run);
             $statements = $run['statements'];
             array_push($warnings, ...$run['warnings']);
@@ -587,7 +686,7 @@ final class PostgresEngine implements Engine, Vocabulary, SynonymStems, Suggesti
             if ($run['browse']) {
                 $capped = $total >= $thresholds->candidateLimit;
             }
-            $builder = new SearchSqlBuilder($index, $this->names, $run['ranked']['candidates'] ?? [], $query->allowedFields);
+            $builder = new SearchSqlBuilder($index, $this->names, $run['ranked']['candidates'] ?? [], $query->allowedFields, true);
             // exactCounts(): when the candidate limit cut the matches off, count them all
             if ($query->exactCounts && $capped) {
                 $statement = ['label' => self::EXACT_LABEL] + ($run['ranked'] === null
@@ -620,7 +719,7 @@ final class PostgresEngine implements Engine, Vocabulary, SynonymStems, Suggesti
                 if (!isset($facetRows[$name])) {
                     // the conditions differ from the search's: the facet needs its own candidates
                     // the probed candidates passed every condition: a facet that leaves one out keeps the words' trigram condition
-                    $facetBuilder = $others[$name] === $conditions ? $builder : new SearchSqlBuilder($index, $this->names, [], $query->allowedFields);
+                    $facetBuilder = $others[$name] === $conditions ? $builder : new SearchSqlBuilder($index, $this->names, [], $query->allowedFields, true);
                     $statement = ['label' => self::FACET_LABEL . $name] + ($run['ranked'] === null
                         ? $facetBuilder->browseFacet($name, $others[$name], $thresholds, $query->facetValues, $query->exactCounts)
                         : $facetBuilder->facet($name, $run['ranked']['tsquery'], $run['ranked']['plain'], $run['ranked']['fuzzyRoot'], $others[$name], $profile, $thresholds, $query->facetValues, $query->exactCounts, $run['ranked']['emptyQueries'], $run['ranked']['scopedRoot']));
@@ -632,17 +731,23 @@ final class PostgresEngine implements Engine, Vocabulary, SynonymStems, Suggesti
             }
             $rows = self::hitsOnly($rows);
             $suggestion = null;
+            $oneEdit = null;
             // the vocabulary holds the words of every field: a restricted viewer gets no suggestion (nor the lookup's statement)
             $didYouMean = $thresholds->didYouMean && $query->allowedFields === null && $typedRoot !== null && $expandedRoot !== null && !$run['browse'] && $index->hasFuzzy() && ($total < $thresholds->fallbackBelow || $run['usedFuzzy'])
-                ? $this->suggest($index, $typedRoot, $expandedRoot, $thresholds, $suggestion)
+                ? $this->suggest($index, $typedRoot, $expandedRoot, $thresholds, $suggestion, $oneEdit)
                 : null;
             if ($suggestion !== null) {
                 $statements[] = $suggestion;
             }
+            // Only a search that found nothing is rescued, and a search-as-you-type text never (its last word is not finished). It is
+            // a typo correction: a search that switched typo tolerance off (fuzzy_mode never, a profile without fuzzy weight) has none.
+            $rescueWith = $rescue && $total === 0 && $thresholds->rescueEmpty && $thresholds->fuzzyMode !== FuzzyMode::Never && $profile->fuzzy > 0.0 && !$query->asYouType && $typedRoot !== null && $oneEdit !== null
+                ? ['from' => QueryRenderer::render($typedRoot), 'to' => $oneEdit]
+                : null;
 
-            return [$run, $statements, $warnings, $threshold, $root, $rows, $tsquery, $total, $capped, $facets, $didYouMean];
+            return [$run, $statements, $warnings, $threshold, $root, $rows, $tsquery, $total, $capped, $facets, $didYouMean, $rescueWith];
         };
-        [$run, $statements, $warnings, $threshold, $root, $rows, $tsquery, $total, $capped, $facets, $didYouMean] = $run['phase'] !== null ? $this->inSearchTransaction($rest) : $rest();
+        [$run, $statements, $warnings, $threshold, $root, $rows, $tsquery, $total, $capped, $facets, $didYouMean, $rescueWith] = $run['phase'] !== null ? $this->inSearchTransaction($rest) : $rest();
 
         $highlights = [];
         // a field the viewer may not see is dropped from the highlights (not an error: the application asks the same for everyone)
@@ -697,12 +802,8 @@ final class PostgresEngine implements Engine, Vocabulary, SynonymStems, Suggesti
             didYouMean: $didYouMean,
             facets: $facets,
         );
-        $this->metrics->observe('fuzzphony.search.took_ms', $result->tookMs, ['index' => $index->name, 'query' => $query->text]);
-        if (array_any($statements, static fn(array $s): bool => str_ends_with($s['label'], 'fallback: full-text + fuzzy'))) {
-            $this->metrics->increment('fuzzphony.search.fallback', ['index' => $index->name, 'query' => $query->text]);
-        }
 
-        return ['result' => $result, 'statements' => $statements, 'threshold' => $threshold];
+        return ['result' => $result, 'statements' => $statements, 'threshold' => $threshold, 'rescue' => $rescueWith];
     }
 
     /** A facet value as PHP: the type the filter declares. */
@@ -724,9 +825,14 @@ final class PostgresEngine implements Engine, Vocabulary, SynonymStems, Suggesti
      * documents have the word; nothing farther than a third of the word's length away is suggested.
      * Null when no word has a better one. $statement is set to the statement that looked the words up, for explain().
      *
+     * $oneEdit is set, from the same rows, to the query for the zero-result rescue (see executeOnce()): the typed query with every
+     * word that has a vocabulary word exactly one edit away replaced by it, and null unless each of those words has exactly one
+     * such word among the closest candidates (a tie, `mose` for `mouse` or `moose`, means no rescue) and at least one word has one.
+     * Words with no one-edit candidate stay as typed.
+     *
      * @param array{label: string, sql: string, params: array<string, scalar|null>}|null $statement
      */
-    private function suggest(IndexDefinition $index, Node $typed, Node $expanded, Thresholds $thresholds, ?array &$statement = null): ?string
+    private function suggest(IndexDefinition $index, Node $typed, Node $expanded, Thresholds $thresholds, ?array &$statement = null, ?string &$oneEdit = null): ?string
     {
         // the vocabulary is the words of the whole index: on a tenant-scoped one a suggestion (or its absence) would tell
         // one customer which words another customer's documents have
@@ -773,9 +879,9 @@ final class PostgresEngine implements Engine, Vocabulary, SynonymStems, Suggesti
         );
         $parameters = ['words' => implode(chr(31), $words)];
         $statement = ['label' => self::SUGGEST_LABEL, 'sql' => $sql, 'params' => $parameters];
-        // the candidates are the words with a trigram similarity of 0.3 or more, whatever the session has set
+        // the candidates are the words with a trigram similarity of SUGGEST_SIMILARITY or more, whatever the session has set
         /** @var \Closure(): list<array<string, mixed>> $lookup */
-        $lookup = fn() => $this->fetchWithSetting($sql, $parameters, 0.3, 'pg_trgm.similarity_threshold');
+        $lookup = fn() => $this->fetchWithSetting($sql, $parameters, self::SUGGEST_SIMILARITY, 'pg_trgm.similarity_threshold');
         try {
             $rows = $this->guard('did_you_mean', $lookup, 'Run "bin/console fuzzphony:schema --apply", then "bin/console fuzzphony:reindex --vocabulary".');
         } catch (FuzzphonyException $e) {
@@ -787,6 +893,8 @@ final class PostgresEngine implements Engine, Vocabulary, SynonymStems, Suggesti
 
         /** @var array<string, array{int, int, string}> $best typed word => [distance, -documents, vocabulary word] */
         $best = [];
+        /** @var array<string, array<string, true>> $ones typed word => the vocabulary words one edit away */
+        $ones = [];
         foreach ($rows as $row) {
             $word = Coerce::str($row['w']);
             if (in_array($row['known'], [true, 't', 'true', 1, '1'], true)) {
@@ -801,10 +909,16 @@ final class PostgresEngine implements Engine, Vocabulary, SynonymStems, Suggesti
             if ($distance < 1 || $distance > max(1, intdiv(mb_strlen($normalised), 3))) {
                 continue;
             }
+            if ($distance === 1) {
+                $ones[$word][$candidate] = true;
+            }
             $rank = [$distance, -Coerce::int($row['freq']), $candidate];
             if (!isset($best[$word]) || $rank < $best[$word]) {
                 $best[$word] = $rank;
             }
+        }
+        if ($ones !== [] && array_all($ones, static fn(array $candidates): bool => count($candidates) === 1)) {
+            $oneEdit = QueryRenderer::render($typed, array_map(static fn(array $candidates): string => (string) array_key_first($candidates), $ones));
         }
         $replace = array_map(static fn(array $rank): string => $rank[2], $best);
         if ($replace === []) {
@@ -944,14 +1058,14 @@ final class PostgresEngine implements Engine, Vocabulary, SynonymStems, Suggesti
         $plain = implode(' ', TsQueryCompiler::lexemes(implode(' ', NodeInspector::positiveWords($root))));
 
         // Typo tolerance is per word (FuzzyQueryCompiler); it needs at least one positive word long enough for it.
-        $fuzzy = new FuzzyQueryCompiler($index, $thresholds, $this->names, [], $query->allowedFields);
+        $fuzzy = new FuzzyQueryCompiler($index, $thresholds, $this->names, [], $query->allowedFields, true);
         $fuzzyRoot = $root !== null
             && $index->hasFuzzy()
             && $profile->fuzzy > 0.0
             && $thresholds->fuzzyMode !== FuzzyMode::Never
             && $fuzzy->hasFuzzyLeaf($root) ? $root : null;
 
-        $builder = new SearchSqlBuilder($index, $this->names, [], $query->allowedFields);
+        $builder = new SearchSqlBuilder($index, $this->names, [], $query->allowedFields, true);
         /** @var list<array{label: string, sql: string, params: array<string, scalar|null>}> $statements */
         $statements = [];
         $threshold = null;
@@ -966,7 +1080,7 @@ final class PostgresEngine implements Engine, Vocabulary, SynonymStems, Suggesti
             /** @var list<string> $empty */
             $candidates = $this->fuzzyCandidates($fuzzy, $fuzzyRoot, $empty, $thresholds, $conditions);
             $statement = ['label' => $label]
-                + ($candidates === [] ? $builder : new SearchSqlBuilder($index, $this->names, $candidates, $query->allowedFields))->ranked($tsquery, $plain, $fuzzyRoot, $conditions, $profile, $thresholds, $query->limit, $query->offset, $empty, $scopedRoot);
+                + ($candidates === [] ? $builder : new SearchSqlBuilder($index, $this->names, $candidates, $query->allowedFields, true))->ranked($tsquery, $plain, $fuzzyRoot, $conditions, $profile, $thresholds, $query->limit, $query->offset, $empty, $scopedRoot);
             $threshold = $fuzzy->lowestSimilarity($fuzzyRoot, $empty);
 
             return [
@@ -1113,8 +1227,8 @@ final class PostgresEngine implements Engine, Vocabulary, SynonymStems, Suggesti
             return null;
         }
 
-        $statement = ['label' => self::PROBE_LABEL] + (new SearchSqlBuilder($index, $this->names, [], $allowedFields))->probe($probed, $fuzzy, $conditions, $thresholds, $empty);
-        $compiler = new FuzzyQueryCompiler($index, $thresholds, $this->names, [], $allowedFields);
+        $statement = ['label' => self::PROBE_LABEL] + (new SearchSqlBuilder($index, $this->names, [], $allowedFields, true))->probe($probed, $fuzzy, $conditions, $thresholds, $empty);
+        $compiler = new FuzzyQueryCompiler($index, $thresholds, $this->names, [], $allowedFields, true);
         $row = $this->run($statement, $fuzzy ? $compiler->lowestSimilarity(new AllOf($probed), $empty) : null)[0] ?? [];
         $ignored = [];
         foreach ($probed as $i => $leaf) {

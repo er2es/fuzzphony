@@ -101,6 +101,18 @@ fuzzphony:
 Other keys: `sync`, `trigger_level`, `unaccent`, `tenant`, `synonyms`, `id_type`, and `source: { table: … }`
 for a table source.
 
+`thresholds` takes the options of [Ranking and thresholds](ranking.md#thresholds). Two of them are switches for what a
+search that found little or nothing does by itself, both on by default: `did_you_mean` (a suggestion next to the result,
+[Did you mean](searching.md#did-you-mean)) and `rescue_empty` (a search that found nothing and has a word with exactly
+one one-edit correction in the vocabulary is run again with it and says so,
+[Zero-result rescue](searching.md#zero-result-rescue)). `rescue_empty: false` keeps the suggestion and drops the second
+search; `did_you_mean: false` turns both off (the rescue uses the suggestion's vocabulary lookup):
+
+```yaml
+      thresholds:
+        rescue_empty: false     # suggest a correction, but never search it for the visitor
+```
+
 ## Synonyms
 
 Words that mean the same thing, expanded on the query ([how searches use them](searching.md#synonyms)).
