@@ -565,13 +565,21 @@ final class FuzzyQueryCompiler
             $query = $this->column('ft', sprintf('to_tsquery(%s, %s)', $config, $params->add($tsquery)));
             $checks = array_map(fn(FieldDefinition $f): string => sprintf('s.%s @@ %s', $this->names->fieldVector($f->name), $query), $targets);
             $lookup = $query;
-            if ($field === null && count($targets) > 1 && str_contains($tsquery, '<->')) {
-                // A phrase may span two allowed fields, as it does in the whole tsv: it is also read from the allowed fields'
-                // vectors joined in the index's order, as if the hidden fields did not exist (what a hidden field holds, or
-                // lacks, never decides). The candidates then come from the AND of its words, which every allowed match has.
-                $checks[] = sprintf('(%s) @@ %s', implode(' || ', array_map(fn(FieldDefinition $f): string => 's.' . $this->names->fieldVector($f->name), $targets)), $query);
-                $loose = (new TsQueryCompiler($this->index, false, true))->compile($node) ?? $tsquery;
+            // The candidates come from the words alone (phrases ANDed, no weight labels), never from the phrase or the weights on
+            // tsv: its positions are capped (16 383) after the fields joined before it, so a long hidden field in front of an
+            // allowed one would decide whether the phrase is found there, or keep only the highest weight of a lexeme at a clamped
+            // position. Every allowed match has the words; the allowed fields' own columns decide.
+            $loose = (new TsQueryCompiler($this->index, false, true))->compile($node) ?? $tsquery;
+            if ($loose !== $tsquery) {
                 $lookup = $this->column('fl', sprintf('to_tsquery(%s, %s)', $config, $params->add($loose)));
+            }
+            if (str_contains($tsquery, '<->')) {
+                if ($field === null && count($targets) > 1) {
+                    // A phrase may span two allowed fields, as it does in the whole tsv: it is also read from the allowed fields'
+                    // vectors joined in the index's order, as if the hidden fields did not exist (what a hidden field holds, or
+                    // lacks, never decides).
+                    $checks[] = sprintf('(%s) @@ %s', implode(' || ', array_map(fn(FieldDefinition $f): string => 's.' . $this->names->fieldVector($f->name), $targets)), $query);
+                }
             }
 
             return sprintf('(s.tsv @@ %s AND %s)', $lookup, count($checks) === 1 ? $checks[0] : '(' . implode(' OR ', $checks) . ')');

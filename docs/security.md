@@ -231,6 +231,10 @@ a covert-channel proof:
 - **The vocabulary of unrestricted viewers still holds every word.** An unrestricted viewer of an
   index with a hidden field still gets suggestions and "did you mean" built from the words of all its
   fields, which is why a restricted viewer gets none.
+- **What a hidden field holds, or how long it is, never changes what a restricted viewer finds.** The candidates of a
+  phrase or of a field-scoped word are looked up by the words alone, because the positions of the whole-text vector are
+  capped at 16 383 and a long hidden field in front of an allowed one would otherwise decide whether a phrase of the
+  allowed field matches.
 - **A phrase is read from the fields the viewer may see, as if the others did not exist.** Like an
   unrestricted search, a restricted one matches `"ada lovelace"` with `ada` at the end of one allowed field and
   `lovelace` at the start of the next. A hidden field never takes part: a phrase that reaches into one does not

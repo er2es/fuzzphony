@@ -41,14 +41,17 @@ final class TsQueryCompiler
      * @param bool $positiveOnly every excluded part is left out (as an excluded field-scoped one is): the candidates of a
      *                           restricted viewer's strict branch, where "!'cable'" on the whole tsv would also exclude
      *                           by the hidden fields (SearchSqlBuilder; the allowed-field recheck decides)
-     * @param bool $phrasesAsAnd     every phrase (and every word that splits into several, "usb-c") is an AND of its words, not
-     *                               a sequence: a superset, for the candidates of a restricted viewer whose phrase may span two
-     *                               allowed fields (in the whole tsv a hidden field can sit between them)
+     * @param bool $lookupForm       the form for finding candidates on the whole `tsv` for a restricted viewer: every phrase (and every
+     *                               word that splits into several, "usb-c") is an AND of its words, not a sequence, and the weight
+     *                               labels are left out. A superset, and one a hidden field cannot change: `tsv` is the fields' vectors
+     *                               joined, whose positions are capped at 16 383, so after a long hidden field a phrase there does not
+     *                               match and a lexeme at a clamped position keeps only the highest weight of its fields. The allowed
+     *                               fields' own columns decide (FuzzyQueryCompiler::matches(), SearchSqlBuilder)
      */
     public function __construct(
         private readonly IndexDefinition $index,
         private readonly bool $positiveOnly = false,
-        private readonly bool $phrasesAsAnd = false,
+        private readonly bool $lookupForm = false,
     ) {}
 
     public function compile(Node $node): ?string
@@ -129,11 +132,11 @@ final class TsQueryCompiler
         $last = count($lexemes) - 1;
         $parts = [];
         foreach ($lexemes as $i => $lexeme) {
-            $label = ($prefix && $i === $last ? '*' : '') . $weights;
+            $label = ($prefix && $i === $last ? '*' : '') . ($this->lookupForm ? '' : $weights);
             $parts[] = "'" . $lexeme . "'" . ($label !== '' ? ':' . $label : '');
         }
 
-        return count($parts) === 1 ? $parts[0] : '(' . implode($this->phrasesAsAnd ? ' & ' : ' <-> ', $parts) . ')';
+        return count($parts) === 1 ? $parts[0] : '(' . implode($this->lookupForm ? ' & ' : ' <-> ', $parts) . ')';
     }
 
     /** @param list<Node> $nodes */
