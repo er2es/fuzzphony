@@ -87,6 +87,8 @@ final class PostgresEngine implements Engine, Vocabulary, SynonymStems, Suggesti
     private array $emptyAnswers = [];
     /** @var \WeakMap<Synonyms, string>|null the content digest of each Synonyms object (immutable), made once; see expandSynonyms() */
     private ?\WeakMap $synonymDigests = null;
+    /** @var array<string, true> vocabulary tables this engine has seen exist and be readable; only a positive answer is kept (see suggest()) */
+    private array $vocabularyReadable = [];
 
     /**
      * @param string $extensionSchema schema of the pg_trgm and unaccent extensions
@@ -116,12 +118,14 @@ final class PostgresEngine implements Engine, Vocabulary, SynonymStems, Suggesti
      * digests. They hold as long as the text search configuration does not change, which a long-lived process cannot
      * know. A long-lived worker keeps them on purpose (the prepared synonym lookup and the stop-word answers would
      * otherwise be paid again on every request), so nothing calls this by itself: an application that changes the text
-     * search configuration or a dictionary while its process runs calls it, or restarts the process.
+     * search configuration or a dictionary while its process runs calls it, or restarts the process. It also forgets which
+     * vocabulary tables the did-you-mean lookup has found readable, so a table created or dropped since is looked at again.
      *
      * @internal
      */
     public function resetCaches(): void
     {
+        $this->vocabularyReadable = [];
         $this->expanders = [];
         $this->stems = [];
         $this->emptyAnswers = [];
@@ -714,13 +718,19 @@ final class PostgresEngine implements Engine, Vocabulary, SynonymStems, Suggesti
             return null;
         }
         $vocabulary = $this->names->vocabulary($index);
-        // a table the schema has not created yet, or one this role may not read (an upgrade before "fuzzphony:schema --apply"
-        // and the GRANT), is no reason to fail a search, and a failed statement would abort a transaction the caller may have open
-        if ($this->connection->fetchValue("SELECT to_regclass(:a) IS NOT NULL AND has_table_privilege(to_regclass(:b), 'SELECT')", ['a' => $vocabulary, 'b' => $vocabulary]) !== true) {
-            return null;
-        }
         $extension = $this->names->extension();
         $restore = !($this->connection instanceof TransactionAware) || $this->connection->inTransaction();
+        // A table the schema has not created yet, or one this role may not read (an upgrade before "fuzzphony:schema --apply"
+        // and the GRANT), is no reason to fail a search, and a failed statement would abort a transaction the caller may have open.
+        // A positive answer is kept for the life of the engine (resetCaches() forgets it), a negative one never, so the check is one
+        // round trip per process, not per search. It is not trusted when the caller may have a transaction open: a lookup that fails
+        // there (the table dropped or the privilege revoked since) would abort it, so that case asks every time, as it always did.
+        if ($restore || !isset($this->vocabularyReadable[$vocabulary])) {
+            if ($this->connection->fetchValue("SELECT to_regclass(:a) IS NOT NULL AND has_table_privilege(to_regclass(:b), 'SELECT')", ['a' => $vocabulary, 'b' => $vocabulary]) !== true) {
+                return null;
+            }
+            $this->vocabularyReadable[$vocabulary] = true;
+        }
         // known: a stop word, a word of the vocabulary, or any word the index finds (a word of a field that is not typo-tolerant,
         // an inflection, a word added since the last full reindex): the search above found what it could
         $sql = sprintf(
@@ -738,7 +748,14 @@ final class PostgresEngine implements Engine, Vocabulary, SynonymStems, Suggesti
         $lookup = fn() => $this->connection->transactional(
             static fn(Connection $c) => self::withSimilarityThreshold($c, 0.3, $restore, static fn() => $c->fetchAll($sql, $parameters), 'pg_trgm.similarity_threshold'),
         );
-        $rows = $this->guard('did_you_mean', $lookup, 'Run "bin/console fuzzphony:schema --apply", then "bin/console fuzzphony:reindex --vocabulary".');
+        try {
+            $rows = $this->guard('did_you_mean', $lookup, 'Run "bin/console fuzzphony:schema --apply", then "bin/console fuzzphony:reindex --vocabulary".');
+        } catch (FuzzphonyException $e) {
+            // the table may be gone (or unreadable) since it was last seen: the next search asks again
+            unset($this->vocabularyReadable[$vocabulary]);
+
+            throw $e;
+        }
 
         /** @var array<string, array{int, int, string}> $best typed word => [distance, -documents, vocabulary word] */
         $best = [];

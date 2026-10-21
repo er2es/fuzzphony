@@ -7,6 +7,9 @@ changes; they are always listed under **Breaking** and explained in [UPGRADE.md]
 
 ## [Unreleased]
 
+### Changed
+
+- **The did-you-mean lookup no longer asks on every search whether the vocabulary table exists and is readable** (`to_regclass(...) IS NOT NULL AND has_table_privilege(...)`, one round trip per did-you-mean). A positive answer is kept per vocabulary table for the life of the engine (`resetCaches()` forgets it); a negative answer is never kept, so a table created later is found on the next search. Not trusted inside a transaction of the caller's (or on a connection that cannot tell): a lookup that fails there would abort the caller's transaction, so that case asks every time, as before. If the table is dropped or the privilege revoked while a process runs, that process's next did-you-mean lookup fails once with the usual `EngineFailure` and hint (instead of quietly suggesting nothing) and the search after it asks again. Results, order, counts and warnings are unchanged (compared on 894 searches of the 100 000-row benchmark index against the previous code).
 ## [0.9.6] - 2026-10-21
 
 Who searched what (the report, the optional masked client IP, the demo), the documentation round (an index, the "Migrating from `LIKE`" guide, three recipes, a link check in CI) and a reviewed list of known limitations. Nothing breaks. See [UPGRADE.md](UPGRADE.md#from-095-to-096) for the one optional step (`fuzzphony:schema --apply`, only to store the client IP).
