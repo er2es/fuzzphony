@@ -187,9 +187,7 @@ machine: 1 000 entries about 25 ms, 5 000 about 110 ms, 20 000 about 600 ms, on 
 
 With the prepared list a search stems only the words of the query (1 000 entries about 20 ms, 5 000 about
 80 ms, 20 000 about 480 ms in total; the rest is loading the list and building the lookup table, which a
-long-lived process keeps between requests only while nothing resets the engine: the Symfony bundle resets it on
-`kernel.reset` (every request of FrankenPHP or RoadRunner, every Messenger message), so there it is paid as under PHP-FPM, while a
-plain PHP loop that never resets it pays once). An engine that
+long-lived worker such as FrankenPHP or RoadRunner keeps between requests, so there the cost is paid once). An engine that
 cannot prepare synonyms (a custom one) throws `InvalidArgument` from `stemSynonyms()`: skip that step,
 `useSynonyms()` works without it.
 

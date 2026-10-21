@@ -167,11 +167,13 @@ final class FuzzphonyBundleTest extends TestCase
         self::assertTrue($this->buildContainer(withOrm: true, registryCacheInCli: true)->getDefinition('fuzzphony.registry')->getArgument(3), 'the seam of the real-kernel test');
     }
 
-    public function testTheEngineIsResetOnKernelReset(): void
+    public function testTheEngineIsNotResetOnKernelReset(): void
     {
         $engine = $this->buildContainer(withOrm: false)->getDefinition('fuzzphony.engine');
 
-        self::assertSame([['method' => 'resetCaches']], $engine->getTag('kernel.reset'), 'a worker or a long-running server forgets the per-process caches between messages and requests');
+        // a long-lived worker keeps the engine's per-process caches on purpose (the prepared synonym lookup, the stop-word
+        // answers): resetting them on every request would cost them back. PostgresEngine::resetCaches() is a manual hook.
+        self::assertSame([], $engine->getTag('kernel.reset'));
     }
 
     public function testAsyncOrmSyncWiresTheMessengerDispatcher(): void

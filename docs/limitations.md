@@ -210,15 +210,13 @@ schema was applied with. See [Attributes](configuration.md#attributes).
 
 The engine remembers, per process, which words the text search configuration reduces to nothing (stop words),
 the stems of the words of the synonyms and the synonym lookup tables built from them (about 5 000 entries per
-configuration, then it starts over). That is right as long as the configuration and its dictionaries do not
-change while the process runs. In a Symfony application the bundle clears these caches on `kernel.reset`
-(`PostgresEngine::resetCaches()`): between two Messenger messages, and after every request of FrankenPHP or
-RoadRunner. The price is that such a process asks PostgreSQL again for the stop words of each search and
-rebuilds the synonym tables, as PHP-FPM does.
+configuration, then it starts over). They live as long as the process, and a long-lived worker (FrankenPHP,
+RoadRunner, a Messenger consumer) keeps them on purpose: that is what makes its searches cheaper than a PHP-FPM
+request's. It is right as long as the configuration and its dictionaries do not change while the process runs.
 
-What to do: nothing in Symfony. A long-running process of your own without `kernel.reset` (a plain PHP loop)
-keeps the caches for its lifetime: call `resetCaches()` after an `ALTER TEXT SEARCH CONFIGURATION` or a changed
-dictionary, or restart it. A PHP-FPM request starts clean.
+What to do: after an `ALTER TEXT SEARCH CONFIGURATION` or a changed dictionary, restart the long-running
+processes that search, or call `PostgresEngine::resetCaches()` from the application. A PHP-FPM request starts
+clean.
 
 ### `explain()` and its statement labels are not a stable API
 
