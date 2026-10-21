@@ -11,7 +11,7 @@ happens, why, and what to do. The statements here were checked against the code 
   [stop words](#stop-words-are-ignored-and-only-a-query-of-nothing-else-finds-them), [languages](#stemming-covers-regular-forms-one-language-per-index),
   [candidate limit](#ranking-is-approximate-beyond-candidate_limit), [facet counts](#facet-counts-are-over-the-candidates),
   [synonyms](#synonyms-are-expanded-on-the-query-and-stop-there), [highlights](#highlights-run-the-source-query-and-mark-typo-matches-by-word),
-  [scores](#scores-are-not-stable), [query limits](#long-queries-are-cut),
+  [scores](#scores-are-not-stable), [query limits](#long-queries-are-cut), [very long texts](#very-long-texts-limit-where-a-phrase-is-found),
   [did you mean](#did-you-mean-and-completions-come-from-a-vocabulary-that-ages)
 - [Data and sync](#data-and-sync): [partitions](#attaching-or-detaching-a-partition-is-not-followed), [sync modes](#what-each-sync-mode-sees),
   [document ids](#one-id-column-per-document), [full reindex](#a-full-reindex-needs-room-and-a-session-connection)
@@ -153,6 +153,29 @@ for the first 200 typo-found hits of a page, of each field only the first 10 000
 looked at, a page spends a budget of 100 000 word comparisons and 4000 distinct words, and a phrase of more than
 8 words is not marked; a hit past a bound keeps ts_headline's snippet. A hit that the strict full-text query also matches keeps the highlight ts_headline gives
 it, even when a typed word was found in it by typo only. See [Highlighting](searching.md#highlighting).
+
+### Very long texts limit where a phrase is found
+
+PostgreSQL keeps a word's position in a `tsvector` only up to 16 383: a later word gets position 16 383 too. Fuzzphony's
+whole-text vector (`tsv`) is the vectors of all fields joined, so after a field of more than about 16 000 words every word of
+the fields that follow it is at one position there, and where several words share one position only the highest weight of
+them is kept. Phrases and field-scoped words need those positions and weights. Since 0.9.8 that costs a document nothing:
+a phrase (`"usb receiver"`, `name:"usb receiver"`, `usb-c`) and a word scoped to a field (`secret:word`) are looked up by
+their words and decided by each field's own vector, which the cap does not reach (before 0.9.8 an unrestricted search lost
+them after a long field, a restricted one had been fixed in 0.9.7: see the [CHANGELOG](../CHANGELOG.md)).
+
+What still does not work, because the data is not in the index in a usable form:
+
+- a phrase that starts after the 16 383rd word of one field: the field's own vector has capped it. The words are found (a
+  plain or scoped word, and the phrase's words together in an AND query), the phrase is not;
+- a phrase that reaches from the end of a field of that length into the start of the next one;
+- the rank of a document that was found only this way (a phrase or scoped word after a long field): `tsv` has no usable
+  positions for it, so the text rank is the best of the first field's and of the later fields' vectors (a scoped word
+  keeps its rank, an AND of words in different fields can rank 0 and so come last). A document `tsv` matches keeps the rank it always had.
+
+What to do: do not index the whole of a very long text. Put an excerpt (the first few thousand words, a summary) in the
+searched field, or list the long field last (nothing follows it). The limits above hold for a restricted viewer too
+(see [Security](security.md) for what a hidden field never decides).
 
 ### Scores are not stable
 

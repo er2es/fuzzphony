@@ -938,7 +938,8 @@ final class PostgresEngine implements Engine, Vocabulary, SynonymStems, Suggesti
             $warnings = $compiler->warnings();
             // a word scoped to a field the index has is rechecked against that field's own column
             // (a restricted viewer's every word against the allowed fields', see SearchSqlBuilder)
-            $scopedRoot = $compiler->hasFieldScope($root) || $query->allowedFields !== null ? $root : null;
+            // (so is a phrase on an index with several fields: tsv caps its positions, see SearchSqlBuilder)
+            $scopedRoot = $compiler->hasFieldScope($root) || $query->allowedFields !== null || (count($index->fields) > 1 && $compiler->hasSequence($root)) ? $root : null;
         }
         $plain = implode(' ', TsQueryCompiler::lexemes(implode(' ', NodeInspector::positiveWords($root))));
 

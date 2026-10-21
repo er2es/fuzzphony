@@ -64,7 +64,12 @@ use Fuzzphony\Engine\Postgres\TypoTerm;
  *
  * and scores by those columns only. A word scoped to a hidden field, or any word when no field is allowed, is "false";
  * a word is typo-tolerant only when an allowed field is (its own field, for a scoped word); an excluded part is
- * always compiled word by word (excluded()). Null keeps every statement of the unrestricted path as it was.
+ * always compiled word by word (excluded()). Null keeps every statement of the unrestricted path as it was, except for what
+ * tsv cannot hold reliably: it is every field's vector joined, and its positions are capped at 16 383, so after a field of more
+ * than about 16 000 words a lexeme of a later field keeps only the highest weight of its fields and a phrase there does not match.
+ * An unrestricted viewer's phrase, or word scoped to a field, on an index with several fields is therefore looked up by its words
+ * alone (the AND of them, no weight labels: the same GIN lookup) and decided by the fields' own columns (matches()); a word
+ * without a weight and a single field's index keep their statements.
  */
 final class FuzzyQueryCompiler
 {
@@ -612,7 +617,26 @@ final class FuzzyQueryCompiler
 
             return sprintf('(s.tsv @@ %s AND %s)', $lookup, count($checks) === 1 ? $checks[0] : '(' . implode(' OR ', $checks) . ')');
         }
-        $query = $this->column('ft', sprintf('to_tsquery(%s, %s)', $this->names->regconfig($this->index->text), $params->add($tsquery)));
+        $config = $this->names->regconfig($this->index->text);
+        $query = $this->column('ft', sprintf('to_tsquery(%s, %s)', $config, $params->add($tsquery)));
+        if (count($this->index->fields) > 1 && ($field !== null || str_contains($tsquery, '<->'))) {
+            // A word with a weight, or a phrase, on tsv: its positions are capped at 16 383 after the fields joined before the
+            // word's own, so after a field of more than about 16 000 words a lexeme there keeps only the highest weight of its
+            // fields and a phrase does not match. The candidates come from the words alone (phrases ANDed, no weight labels),
+            // which GIN(tsv) serves as it serves the phrase; the field's own column decides a scoped word (positions inside
+            // the field), a phrase is read from tsv or from the fields' vectors that start after the first (Names::laterVectors()).
+            $loose = (new TsQueryCompiler($this->index, false, true))->compile($node) ?? $tsquery;
+            $lookup = $loose !== $tsquery ? $this->column('fl', sprintf('to_tsquery(%s, %s)', $config, $params->add($loose))) : $query;
+            if ($field !== null) {
+                return sprintf('(s.tsv @@ %s AND s.%s @@ %s)', $lookup, $this->names->fieldVector($field->name), $query);
+            }
+            $checks = ['s.tsv @@ ' . $query];
+            foreach ($this->names->laterVectors($this->index) as $vector) {
+                $checks[] = sprintf('(%s) @@ %s', $vector, $query);
+            }
+
+            return sprintf('(s.tsv @@ %s AND (%s))', $lookup, implode(' OR ', $checks));
+        }
 
         return $field === null
             ? 's.tsv @@ ' . $query
