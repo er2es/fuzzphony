@@ -279,13 +279,6 @@ final class FuzzphonyBundleTest extends TestCase
     {
         $template = (new FuzzphonyBundle())->getPath() . '/templates/components/Search.html.twig';
 
-        if (!is_file($template)) {
-            self::markTestIncomplete(sprintf(
-                'KNOWN BUG: FuzzphonyBundle::getPath() is one directory too high, so TwigBundle cannot find the bundle templates (expected %s). See this test\'s docblock.',
-                $template,
-            ));
-        }
-
         self::assertFileExists($template);
     }
 
