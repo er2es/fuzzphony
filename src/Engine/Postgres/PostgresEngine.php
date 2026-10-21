@@ -628,11 +628,24 @@ final class PostgresEngine implements Engine, Vocabulary, SynonymStems, Suggesti
         $highlighted = $query->allowedFields === null ? $query->highlight : array_values(array_intersect($query->highlight, $query->allowedFields));
         if ($highlighted !== [] && $tsquery !== null && $rows !== []) {
             $headline = $tsquery;
+            // a hit without text rank was not found by the strict branch but by typo tolerance: ts_headline marks none of the words that were mistyped
+            $typo = null;
+            if ($run['usedFuzzy'] && $root !== null) {
+                $typoIds = [];
+                foreach ($rows as $r) {
+                    if (Coerce::float($r['r_text']) <= 0.0) {
+                        $typoIds[] = $index->idType->cast(Coerce::str($r['id']));
+                    }
+                }
+                $terms = $typoIds === [] ? [] : (new FuzzyQueryCompiler($index, $thresholds, $this->names, [], $query->allowedFields))->typoTerms($root, $run['emptyQueries'] ?? []);
+                $typo = $terms === [] ? null : new TypoPlan($terms, $typoIds, $thresholds->fuzzySimilarity);
+            }
             $highlights = $this->guard('highlighting', fn(): array => (new Highlighter($this->connection, $this->names))->highlight(
                 $index,
                 $highlighted,
                 $headline,
                 array_map(static fn(array $r): int|string => $index->idType->cast(Coerce::str($r['id'])), $rows),
+                $typo,
             ), 'Run "bin/console fuzzphony:doctor" to check the index.');
         }
 

@@ -18,6 +18,7 @@ use Fuzzphony\Core\Ranking\Thresholds;
 use Fuzzphony\Core\Ranking\TypoCurve;
 use Fuzzphony\Engine\Postgres\Schema\Names;
 use Fuzzphony\Engine\Postgres\Schema\Types;
+use Fuzzphony\Engine\Postgres\TypoTerm;
 
 /**
  * @internal Compiles the AST into the predicate and score of the typo-tolerant (fuzzy) branch.
@@ -131,6 +132,26 @@ final class FuzzyQueryCompiler
         }
 
         return $probes;
+    }
+
+    /**
+     * The words of the positive part of the query that match fuzzily, for the highlighter: one term per leaf, in order
+     * (the same leaves the trigram branch has, so a negated word, a stop word, a word too short for typo tolerance, a
+     * word scoped to a field that is not typo-tolerant, and for a restricted viewer a word with no allowed typo-tolerant
+     * field, are not among them).
+     *
+     * @param list<string> $emptyQueries leaf tsqueries the text configuration reduces to nothing (stop words)
+     *
+     * @return list<TypoTerm>
+     */
+    public function typoTerms(Node $node, array $emptyQueries = []): array
+    {
+        return array_map(function (Node $leaf): TypoTerm {
+            $needle = $this->needle($leaf);
+            assert($needle !== null, 'trigramLeaves() keeps only the leaves that have a needle');
+
+            return new TypoTerm($needle, $this->isPrefix($leaf), $this->scopedField($leaf)?->name);
+        }, $this->trigramLeaves($node, $emptyQueries));
     }
 
     /**
@@ -535,7 +556,7 @@ final class FuzzyQueryCompiler
      * letters without the spaces between its words). A prefix gets the allowance of one letter: its
      * last trigram, padded with a space, can never match inside a longer word.
      */
-    private static function similaritySql(string $norm, bool $prefix): string
+    public static function similaritySql(string $norm, bool $prefix): string
     {
         $length = sprintf("char_length(replace(%s, ' ', ''))%s", $norm, $prefix ? ' - 1' : '');
         $whens = '';
