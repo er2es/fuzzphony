@@ -80,7 +80,8 @@ final class FuzzyQueryCompilerTranspositionsTest extends TestCase
     {
         [$match] = self::compile(self::compiler(), 'name:mosue');
 
-        self::assertStringContainsString('(s.tsv @@ q.tv3 AND s."t_name" @@ q.tv3)', $match->predicate);
+        // the variants' own condition: the column numbers depend on the other conditions of the statement
+        self::assertMatchesRegularExpression('/\(s\.tsv @@ q\.tv\d+ AND s\."t_name" @@ q\.tv\d+\)/', $match->predicate);
         self::assertStringNotContainsString('t_brand', $match->predicate);
     }
 
