@@ -106,15 +106,20 @@ final class UnrestrictedLongFieldTest extends TestCase
             foreach (self::QUERIES as $text) {
                 foreach (['never', 'fallback', 'always'] as $mode) {
                     foreach ([[100, false], [10, true]] as [$limit, $exact]) {
-                        $search = $fuzzphony->in('long_docs')->query($text)->thresholds(['fuzzy_mode' => $mode, 'candidate_limit' => $limit])->facets('cat')->limit(50);
+                        $search = $fuzzphony->in('long_docs')->query($text)->thresholds(['fuzzy_mode' => $mode, 'candidate_limit' => $limit])->facets('cat')->highlight('title', 'body', 'secret')->limit(50);
                         $result = ($exact ? $search->exactCounts() : $search)->get();
                         $ids = array_map(static fn($hit): int|string => $hit->id, $result->hits);
                         sort($ids);
+                        $highlights = [];
+                        foreach ($result->hits as $hit) {
+                            $highlights[$hit->id] = $hit->highlights;
+                        }
+                        ksort($highlights);
                         $facets = array_map(static fn($facet): array => array_map(static fn($v): array => [$v->value, $v->count], $facet), $result->facets);
                         // the candidates of a capped statement are an arbitrary part of the matches: only the exact counts are compared there
                         $outcomes[$variant][$text . ' | ' . $mode . ' | ' . $limit . ($exact ? ' exact' : '')] = $exact
                             ? [$result->total, $facets, $result->warnings]
-                            : [$ids, $result->total, $result->totalIsLowerBound, $facets, $result->warnings];
+                            : [$ids, $result->total, $result->totalIsLowerBound, $facets, $result->warnings, $highlights];
                     }
                 }
             }
