@@ -34,9 +34,12 @@ typo from a different word that looks alike:
 - `cable` also finds `table` (similarity 0.50, one letter replaced), and `mose` is as close to `monitor` and
   `mower` as to `mouse` (0.40 each): a search for `mose` lists all of them with the same score.
 - The threshold keeps a different word at the worst case of a typo out (`mouse` / `monitor`, 0.33), and that
-  costs some real typos: a letter replaced in the middle of a 5 to 7 letter word, or two letters swapped, may
-  not be tolerated (`mpuse`, `mosue`; the same swap at the end of a word, `torhc`, is). "Did you mean" can
-  still catch some of them (`mpuse` suggests `mouse`).
+  costs some real typos: a letter replaced in the middle of a 5 to 7 letter word is not tolerated in the results
+  (`mpuse`). "Did you mean" can still catch some of them (`mpuse` suggests `mouse`). Two neighbouring letters
+  swapped (`mosue`) are found: the typed word of 4 to 15 letters also matches its swapped variants as whole words
+  on the typo-tolerant branch, ranked below exact hits ([Typo tolerance](searching.md#typo-tolerance)). Not covered:
+  letters swapped that are not neighbours (`moues` is a swap, `muoes` is not), a swap together with another typo in a
+  short word, a swap in a code with digits, and any word of a field that is not typo-tolerant.
 - It reaches only the words of fuzzy fields (`fuzzy: true`): a misspelled word that occurs only in a
   description or another non-fuzzy field finds nothing. Words shorter than `fuzzy_min_length` (3) must match
   exactly.

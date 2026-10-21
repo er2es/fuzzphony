@@ -41,6 +41,8 @@ final class SearchSqlBuilder
         /** @var array<string, list<int|string>> the ids the trigram words match, from FuzzyQueryCompiler::probes() */
         private readonly array $candidates = [],
         private readonly ?array $allowedFields = null,
+        /** Whether a typed word also matches with two neighbouring letters swapped (FuzzyQueryCompiler, Transpositions). */
+        private readonly bool $transpositions = false,
     ) {}
 
     /**
@@ -118,7 +120,7 @@ final class SearchSqlBuilder
         $q[] = $plain !== ''
             ? sprintf('%s(%s) AS norm', $this->names->normFunction(), $params->add($plain))
             : "''::text AS norm";
-        $compiler = new FuzzyQueryCompiler($this->index, $thresholds, $this->names, $this->candidates, $this->allowedFields);
+        $compiler = new FuzzyQueryCompiler($this->index, $thresholds, $this->names, $this->candidates, $this->allowedFields, $this->transpositions);
         // A word scoped to a known field is rechecked against the field's own column (q.sft<n>); a restricted viewer's
         // every word against the allowed fields' columns.
         $scope = $scopedRoot === null ? null : $compiler->scope($scopedRoot, $params, $emptyQueries);
@@ -375,7 +377,7 @@ UNION ALL
         $params = new ParameterBag();
         $filters = new FilterCompiler($this->index);
         $table = $this->names->sidecar($this->index);
-        $compiled = (new FuzzyQueryCompiler($this->index, $thresholds, $this->names, [], $this->allowedFields))->leafConditions($leaves, $params, $emptyQueries, $fuzzy);
+        $compiled = (new FuzzyQueryCompiler($this->index, $thresholds, $this->names, [], $this->allowedFields, $this->transpositions))->leafConditions($leaves, $params, $emptyQueries, $fuzzy);
         if (array_filter($compiled['predicates'], static fn(?string $p): bool => $p !== null) === []) {
             throw new \LogicException('A relaxation probe needs at least one leaf that is not a stop word.');
         }

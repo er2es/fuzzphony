@@ -199,15 +199,28 @@ So a typo in one word never lets through documents that lack the other words.
   the long word applies to it too). Each word is therefore asked for its matches alone first, at its
   own similarity, and the search uses those ids: the same documents, much cheaper on a large index.
   A word with more matches than the candidate limit keeps the trigram condition.
-  The slack is also the price: a letter replaced in the middle of a 5 to 7 letter word, or two
-  letters swapped (a swap changes four trigrams), is the worst case and leaves exactly the
-  similarity of a different word, so `mpuse` and `mosue` are not tolerated (a swap at the end of a
-  word costs less: `torhc` still finds `torch`). Measured on
+  The slack is also the price: a letter replaced in the middle of a 5 to 7 letter word is the worst
+  case and leaves exactly the similarity of a different word, so `mpuse` is not tolerated in the
+  results (a replacement at the end of a word costs less; "did you mean" catches `mpuse`, see below).
+  Two letters swapped (a swap changes four trigrams) is handled separately, see the next point. Measured on
   generated typos of 24 common words, a 5 to 7 letter word finds about 70 to 80% of its
   single-letter typos (a flat 0.3: 92 to 100%) while it lists about five times fewer look-alikes.
   Set `fuzzy_similarity` to a number (per index or per query) to use that value for every word,
   for example `0.3` for the pre-0.7 behaviour, or to `null` (`--threshold fuzzy_similarity=null` on
   the command line) to go back to by length.
+- **Two neighbouring letters swapped** (`mosue` for `mouse`, `hedaphones`): a swap shares too few trigrams for a
+  word of 4 to 7 letters, so on the typo-tolerant branch a typed word of 4 to 15 letters also matches each of its
+  neighbour-swapped variants as a whole word (`mosue` looks for `omsue`, `msoue`, `mouse` and `moseu`). The variants
+  are made from the normalised word (case and accents folded; the text search configuration stems them) and are
+  looked up in the typo-tolerant fields only, like every typo-tolerant word. No vocabulary is involved, so it works on
+  tenant-scoped indexes. A hit found only through a swap scores the lowest similarity an ordinary typo of that word
+  may score (see [Ranking](ranking.md#swapped-letters)), so an exact hit always ranks above it. It applies only where
+  typo tolerance already runs (when exact matching finds fewer than `fallback_below` hits, or with `fuzzy_mode: always`);
+  a search with enough exact hits is unchanged. Not swapped: words with a digit (a code such as `rtx4090`), prefixes
+  (`mosu*`), phrases, the alternatives a synonym adds, and words shorter than 4 or longer than 15 letters (a long
+  word keeps most of its trigrams under a swap and is found by similarity anyway). Bounded: at most 14 variants per
+  word and 48 per query (a word whose variants do not fit the budget gets none; a query has to be long for that), and
+  they cost one more index condition per word, not a statement.
 - Words shorter than `fuzzy_min_length` must match exactly.
 - Stop words of the index language ("for", "the") are ignored, as in the full-text query, except in a query of
   nothing else: `the who` is searched as it is, on the typo-tolerant fields (see

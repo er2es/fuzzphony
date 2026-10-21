@@ -30,6 +30,16 @@ irrelevant document into the results ([ADR 0004](adr/0004-min-score-on-relevance
 Every hit carries a `ScoreBreakdown`, so "why is this first?" always has an answer.
 `fuzzphony:search` prints it as a table.
 
+### Swapped letters
+
+A typed word of 4 to 15 letters on the typo-tolerant branch also matches its neighbour-swapped variants as whole words
+(`mosue` finds `mouse`; [Typo tolerance](searching.md#typo-tolerance)). Such a hit scores as the **weakest ordinary
+typo hit of that word**: the similarity the word's length needs (0.28 for 4 letters, 0.36 for 5, 0.43 for 6, 0.48 for
+7, 0.23 for 8, and so on, or the fixed `fuzzy_similarity`) instead of the variant's own similarity of 1.0. So it ranks
+below every exact hit (1.0 for the word, plus its text rank and the bonuses) and never above an ordinary typo hit of the
+same word; two swap hits tie and are ordered by the other bonuses and by id. The penalty is the difference between 1.0 and
+that floor (0.64 for five letters). In `ScoreBreakdown` it shows as `fuzzySimilarity` at the floor and `textRank` 0.
+
 ## Profiles
 
 Profiles let one index rank differently per use case:
