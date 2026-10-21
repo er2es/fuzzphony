@@ -116,4 +116,13 @@ final class TsQueryCompilerTest extends TestCase
             self::assertSame($expected, $compiler->hasFieldScope($root), $query);
         }
     }
+
+    public function testPhrasesAsAndKeepsTheWordsAndDropsTheOrder(): void
+    {
+        $root = (new \Fuzzphony\Core\Query\QueryParser())->parse('"usb receiver" wi-fi mouse*')->root;
+        self::assertNotNull($root);
+
+        self::assertSame("(('usb' & 'receiver') & ('wi' & 'fi') & 'mouse':*)", (new TsQueryCompiler(Indexes::products(), false, true))->compile($root));
+        self::assertSame("(('usb' <-> 'receiver') & ('wi' <-> 'fi') & 'mouse':*)", (new TsQueryCompiler(Indexes::products()))->compile($root));
+    }
 }

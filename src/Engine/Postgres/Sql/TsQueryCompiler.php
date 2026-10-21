@@ -41,10 +41,14 @@ final class TsQueryCompiler
      * @param bool $positiveOnly every excluded part is left out (as an excluded field-scoped one is): the candidates of a
      *                           restricted viewer's strict branch, where "!'cable'" on the whole tsv would also exclude
      *                           by the hidden fields (SearchSqlBuilder; the allowed-field recheck decides)
+     * @param bool $phrasesAsAnd     every phrase (and every word that splits into several, "usb-c") is an AND of its words, not
+     *                               a sequence: a superset, for the candidates of a restricted viewer whose phrase may span two
+     *                               allowed fields (in the whole tsv a hidden field can sit between them)
      */
     public function __construct(
         private readonly IndexDefinition $index,
         private readonly bool $positiveOnly = false,
+        private readonly bool $phrasesAsAnd = false,
     ) {}
 
     public function compile(Node $node): ?string
@@ -129,7 +133,7 @@ final class TsQueryCompiler
             $parts[] = "'" . $lexeme . "'" . ($label !== '' ? ':' . $label : '');
         }
 
-        return count($parts) === 1 ? $parts[0] : '(' . implode(' <-> ', $parts) . ')';
+        return count($parts) === 1 ? $parts[0] : '(' . implode($this->phrasesAsAnd ? ' & ' : ' <-> ', $parts) . ')';
     }
 
     /** @param list<Node> $nodes */

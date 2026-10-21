@@ -221,6 +221,49 @@ final class FuzzyQueryCompilerTest extends TestCase
         self::assertContains("'secret'", $params->all());
     }
 
+    public function testAQueryOfStopWordsKeepsThemAsTrigramLeaves(): void
+    {
+        $compiler = $this->compiler();
+        $stops = ["'the'", "'who'", "'for'"];
+
+        self::assertSame(["'for'"], $compiler->keepingStopWords(self::parse('the who'), $stops), 'the two words are kept, an unrelated stop word of the list stays');
+        self::assertSame([], $compiler->keepingStopWords(self::parse('the'), ["'the'"]));
+        self::assertSame([], $compiler->keepingStopWords(self::parse('the | who'), ["'the'", "'who'"]), 'an OR too');
+        self::assertSame([], $compiler->keepingStopWords(self::parse('"the who"'), ["('the' <-> 'who')"]), 'a phrase is one leaf');
+        self::assertSame(["'who'"], $compiler->keepingStopWords(self::parse('the -who'), ["'the'", "'who'"]), 'a negated stop word stays dropped');
+    }
+
+    public function testAQueryWithARealWordKeepsItsStopWordsDropped(): void
+    {
+        $compiler = $this->compiler();
+
+        self::assertSame($stops = ["'the'", "'who'"], $compiler->keepingStopWords(self::parse('the who rock'), $stops), 'a real word to look for');
+        self::assertSame($stops, $compiler->keepingStopWords(self::parse('the who -rock'), $stops), 'a real word to exclude: the strict branch is a pure exclusion, left as it is');
+        self::assertSame($stops, $compiler->keepingStopWords(self::parse('the who (rock | live)'), $stops));
+        self::assertSame($stops, $compiler->keepingStopWords(self::parse('the who -(rock | the)'), $stops), 'a group to exclude has a real word');
+    }
+
+    public function testStopWordsBelowTheMinimumLengthAreNotKept(): void
+    {
+        $compiler = $this->compiler();
+
+        self::assertSame($stops = ["'to'", "'the'"], $compiler->keepingStopWords(self::parse('to the'), $stops), '"to" must match exactly, which a stop word never does: nothing to run');
+        self::assertSame($stops = ["'the'"], (new FuzzyQueryCompiler(Indexes::products(), new Thresholds(fuzzyMinLength: 6)))->keepingStopWords(self::parse('the'), $stops));
+        self::assertSame([], $compiler->keepingStopWords(self::parse('abc'), ["'abc'"]), 'exactly the minimum length is long enough');
+    }
+
+    public function testAQueryWithoutLeavesChangesNothing(): void
+    {
+        self::assertSame([], $this->compiler()->keepingStopWords(new AllOf([]), []));
+    }
+
+    public function testOnlyAQueryOfTrigramFieldsKeepsStopWords(): void
+    {
+        $noFuzzyFields = IndexDefinition::builder('plain')->fromTable('fz_product')->field('name', 'A')->build();
+
+        self::assertSame($stops = ["'the'"], (new FuzzyQueryCompiler($noFuzzyFields, new Thresholds()))->keepingStopWords(self::parse('the'), $stops));
+    }
+
     public function testHasFuzzyLeaf(): void
     {
         $compiler = $this->compiler();

@@ -194,7 +194,9 @@ So a typo in one word never lets through documents that lack the other words.
   for example `0.3` for the pre-0.7 behaviour, or to `null` (`--threshold fuzzy_similarity=null` on
   the command line) to go back to by length.
 - Words shorter than `fuzzy_min_length` must match exactly.
-- Stop words of the index language ("for", "the") are ignored, as in the full-text query.
+- Stop words of the index language ("for", "the") are ignored, as in the full-text query, except in a query of
+  nothing else: `the who` is searched as it is, on the typo-tolerant fields (see
+  [Known limitations](limitations.md#stop-words-are-ignored-and-only-a-query-of-nothing-else-finds-them)).
 
 ## Synonyms
 

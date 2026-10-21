@@ -219,6 +219,40 @@ final class FuzzyQueryCompiler
     }
 
     /**
+     * The stop-word tsqueries of the typo-tolerant branch for a query of stop words only ("the who"): the strict branch
+     * has nothing to match then (the text search configuration drops the words from the query and from the documents),
+     * but the trigram side works on the normalised text, stop words included, so the positive words stay ordinary leaves
+     * there. Only when every word of the query, excluded ones too, is a stop word (a real word left to exclude makes the
+     * strict branch a pure exclusion, and what it finds stays as it is), and only when every positive word is long
+     * enough for typo tolerance (a shorter one must match exactly, which a stop word never does: the search would find
+     * nothing, so it does not run). Otherwise $emptyQueries come back unchanged; the negated stop words stay dropped.
+     *
+     * @param list<string> $emptyQueries leaf tsqueries the text configuration reduces to nothing (stop words)
+     *
+     * @return list<string>
+     */
+    public function keepingStopWords(Node $root, array $emptyQueries): array
+    {
+        $queries = $this->leafQueries($root);
+        $positive = $this->positiveLeaves($root);
+        if ($queries === [] || array_diff($queries, $emptyQueries) !== [] || array_any($positive, fn(Node $leaf): bool => $this->needle($leaf) === null)) {
+            return $emptyQueries;
+        }
+
+        return array_values(array_diff($emptyQueries, array_map($this->tsquery->compile(...), $positive)));
+    }
+
+    /** @return list<Node> the leaves of the positive part of the query, in order */
+    private function positiveLeaves(Node $node): array
+    {
+        return match (true) {
+            $node instanceof Not => [],
+            $node instanceof AllOf, $node instanceof AnyOf => array_merge(...array_map($this->positiveLeaves(...), $node->nodes)),
+            default => [$node],
+        };
+    }
+
+    /**
      * Registers every user-derived value in $params (the statement's own bag, so placeholder
      * names stay unique). Null when nothing positive is left to match.
      *
@@ -527,10 +561,20 @@ final class FuzzyQueryCompiler
             if ($targets === []) {
                 return 'false'; // nothing the viewer may see can match
             }
-            $query = $this->column('ft', sprintf('to_tsquery(%s, %s)', $this->names->regconfig($this->index->text), $params->add($tsquery)));
+            $config = $this->names->regconfig($this->index->text);
+            $query = $this->column('ft', sprintf('to_tsquery(%s, %s)', $config, $params->add($tsquery)));
             $checks = array_map(fn(FieldDefinition $f): string => sprintf('s.%s @@ %s', $this->names->fieldVector($f->name), $query), $targets);
+            $lookup = $query;
+            if ($field === null && count($targets) > 1 && str_contains($tsquery, '<->')) {
+                // A phrase may span two allowed fields, as it does in the whole tsv: it is also read from the allowed fields'
+                // vectors joined in the index's order, as if the hidden fields did not exist (what a hidden field holds, or
+                // lacks, never decides). The candidates then come from the AND of its words, which every allowed match has.
+                $checks[] = sprintf('(%s) @@ %s', implode(' || ', array_map(fn(FieldDefinition $f): string => 's.' . $this->names->fieldVector($f->name), $targets)), $query);
+                $loose = (new TsQueryCompiler($this->index, false, true))->compile($node) ?? $tsquery;
+                $lookup = $this->column('fl', sprintf('to_tsquery(%s, %s)', $config, $params->add($loose)));
+            }
 
-            return sprintf('(s.tsv @@ %s AND %s)', $query, count($checks) === 1 ? $checks[0] : '(' . implode(' OR ', $checks) . ')');
+            return sprintf('(s.tsv @@ %s AND %s)', $lookup, count($checks) === 1 ? $checks[0] : '(' . implode(' OR ', $checks) . ')');
         }
         $query = $this->column('ft', sprintf('to_tsquery(%s, %s)', $this->names->regconfig($this->index->text), $params->add($tsquery)));
 
