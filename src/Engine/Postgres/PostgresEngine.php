@@ -110,6 +110,24 @@ final class PostgresEngine implements Engine, Vocabulary, SynonymStems, Suggesti
         $this->rebuild = new ShadowRebuild($connection, $this->schema);
     }
 
+    /**
+     * Forgets what this engine remembered for the life of the process: which words the text search configuration reduces
+     * to nothing (stop words), the stems of the words of the synonyms, the expanders built from them and the synonyms'
+     * digests. They hold as long as the text search configuration does not change, which a long-lived process cannot
+     * know. A long-lived worker keeps them on purpose (the prepared synonym lookup and the stop-word answers would
+     * otherwise be paid again on every request), so nothing calls this by itself: an application that changes the text
+     * search configuration or a dictionary while its process runs calls it, or restarts the process.
+     *
+     * @internal
+     */
+    public function resetCaches(): void
+    {
+        $this->expanders = [];
+        $this->stems = [];
+        $this->emptyAnswers = [];
+        $this->synonymDigests = null;
+    }
+
     public function name(): string
     {
         return 'postgresql';

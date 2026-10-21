@@ -31,7 +31,8 @@ final class RegistryCacheKernel extends Kernel
     /** How many times the metadata of all entities was enumerated (by any kernel of this process). */
     public static int $metadataEnumerations = 0;
 
-    public function __construct(private readonly string $cacheDir, bool $debug)
+    /** @param bool $cacheInCli the test seam of RegistryFactory: the registry cache applies to web requests only, and this suite runs in the command line */
+    public function __construct(private readonly string $cacheDir, bool $debug, private readonly bool $cacheInCli = true)
     {
         parent::__construct('prod', $debug);
     }
@@ -74,6 +75,7 @@ final class RegistryCacheKernel extends Kernel
 
     protected function configureContainer(ContainerConfigurator $container): void
     {
+        $container->parameters()->set('fuzzphony.registry_cache_in_cli', $this->cacheInCli);
         $container->extension('framework', [
             'secret' => 'fuzzphony-test',
             'http_method_override' => false,

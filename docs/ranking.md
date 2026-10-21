@@ -66,7 +66,7 @@ $fuzzphony->in('products')->query('mouse')->profile('popular')->ranking(['boost'
 | `fallback_below` | `5` | in fallback mode: fewer exact hits than this triggers typo tolerance |
 | `fuzzy_similarity` | by word length | trigram word similarity each word needs (lower = more tolerant). Unset (`null`): one typo is tolerated from 4 letters and two from 8; the similarity a word needs is that of the worst such typo plus 0.03, `(n + 1 − 3t) / (n + 1 + 3t)` for `n` letters and `t` typos (0.28 for 4 letters, 0.36 for 5, 0.48 for 7, 0.23 for 8, 0.40 for 12), and 0.6 below 4 letters. A number applies to every word; `null` returns to by length. See [Typo tolerance](searching.md#typo-tolerance) |
 | `fuzzy_min_length` | `3` | shorter words must match exactly; a query with no longer word skips typo tolerance |
-| `candidate_limit` | `2000` | max candidates ranked per branch; `total` becomes a lower bound (`2000+`) |
+| `candidate_limit` | `2000` | max candidates ranked per branch (the first matches the index returns, not the best ones: [limitation](limitations.md#ranking-is-approximate-beyond-candidate_limit)); `total` becomes a lower bound (`2000+`) |
 | `max_query_length` / `max_terms` | `256` / `16` | input limits |
 | `did_you_mean` | `true` | a search with fewer than `fallback_below` hits, or one that needed typo tolerance, suggests the spelling of a word the index does not know in `SearchResult::$didYouMean`; never on a tenant-scoped index ([details](searching.md#did-you-mean)) |
 | `relax_when_empty` | `true` | a multi-word query that finds nothing drops the words that match nothing and says so in `warnings` ([details](searching.md#empty-result-relaxation)); independent of `fuzzy_mode` |

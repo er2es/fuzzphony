@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Fuzzphony\Tests\Integration;
 
 use Fuzzphony\Core\Database\Connection;
+use Fuzzphony\Core\Definition\Synonyms;
 use Fuzzphony\Core\Fuzzphony;
 use Fuzzphony\Core\Ranking\Thresholds;
 use Fuzzphony\Core\Registry\IndexRegistry;
@@ -88,6 +89,38 @@ final class EmptyQueriesCacheTest extends TestCase
         $other->in('products')->query('wireles mose')->thresholds(['fuzzy_mode' => 'always'])->get();
 
         self::assertCount(1, $this->spy->statements(self::LOOKUP));
+    }
+
+    public function testAfterResetCachesTheStopWordLookupAsksPostgreSqlAgain(): void
+    {
+        $first = $this->ids('wireless mouse for the offic');
+        self::assertCount(1, $this->spy->statements(self::LOOKUP));
+
+        $this->engine->resetCaches();
+        self::assertSame($first, $this->ids('wireless mouse for the offic'), 'the same answer');
+
+        self::assertCount(2, $this->spy->statements(self::LOOKUP), 'asked again, not answered from the cache');
+    }
+
+    public function testResetCachesForgetsTheSynonymStemsExpandersAndDigests(): void
+    {
+        $index = Indexes::products('manual')->withSynonyms(Synonyms::fromEntries([['tv', 'television']]))->withThresholds(new Thresholds(didYouMean: false));
+        $fuzzphony = new Fuzzphony($this->engine, new IndexRegistry([$index]));
+        $fuzzphony->in('products')->query('tv')->get();
+
+        $properties = ['stems', 'expanders', 'emptyAnswers'];
+        foreach ($properties as $name) {
+            self::assertNotSame([], (new \ReflectionProperty(PostgresEngine::class, $name))->getValue($this->engine), $name . ' was filled by the search');
+        }
+        self::assertNotNull((new \ReflectionProperty(PostgresEngine::class, 'synonymDigests'))->getValue($this->engine));
+
+        $this->engine->resetCaches();
+
+        foreach ($properties as $name) {
+            self::assertSame([], (new \ReflectionProperty(PostgresEngine::class, $name))->getValue($this->engine), $name);
+        }
+        self::assertNull((new \ReflectionProperty(PostgresEngine::class, 'synonymDigests'))->getValue($this->engine));
+        self::assertSame('(tv OR television)', $fuzzphony->in('products')->query('tv')->get()->interpretedAs, 'and it keeps expanding');
     }
 
     public function testTheCacheIsBoundedAndStartsOverWhenFull(): void

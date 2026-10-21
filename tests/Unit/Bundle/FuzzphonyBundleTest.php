@@ -160,6 +160,22 @@ final class FuzzphonyBundleTest extends TestCase
         self::assertNull($noOrm);
     }
 
+    public function testTheRegistryCacheServesTheWebOnlyUnlessTheTestSeamIsSet(): void
+    {
+        self::assertFalse($this->buildContainer(withOrm: true)->getDefinition('fuzzphony.registry')->getArgument(3), 'the default: a command always discovers fresh');
+        self::assertFalse($this->buildContainer(withOrm: true, registryCacheInCli: false)->getDefinition('fuzzphony.registry')->getArgument(3));
+        self::assertTrue($this->buildContainer(withOrm: true, registryCacheInCli: true)->getDefinition('fuzzphony.registry')->getArgument(3), 'the seam of the real-kernel test');
+    }
+
+    public function testTheEngineIsNotResetOnKernelReset(): void
+    {
+        $engine = $this->buildContainer(withOrm: false)->getDefinition('fuzzphony.engine');
+
+        // a long-lived worker keeps the engine's per-process caches on purpose (the prepared synonym lookup, the stop-word
+        // answers): resetting them on every request would cost them back. PostgresEngine::resetCaches() is a manual hook.
+        self::assertSame([], $engine->getTag('kernel.reset'));
+    }
+
     public function testAsyncOrmSyncWiresTheMessengerDispatcher(): void
     {
         $container = $this->buildContainer(withOrm: false, config: ['orm_sync' => ['async' => true]]);
@@ -551,9 +567,12 @@ final class FuzzphonyBundleTest extends TestCase
     }
 
     /** @param array<string, mixed> $config */
-    private function buildContainer(bool $withOrm, array $config = [], bool $direct = false, bool $debug = false): ContainerBuilder
+    private function buildContainer(bool $withOrm, array $config = [], bool $direct = false, bool $debug = false, ?bool $registryCacheInCli = null): ContainerBuilder
     {
         $container = new ContainerBuilder();
+        if ($registryCacheInCli !== null) {
+            $container->setParameter('fuzzphony.registry_cache_in_cli', $registryCacheInCli);
+        }
         // Older AbstractBundle/BundleExtension versions read these while loading; a real kernel always sets them.
         $container->setParameter('kernel.environment', 'test');
         $container->setParameter('kernel.debug', $debug);

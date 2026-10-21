@@ -11,6 +11,7 @@ use Fuzzphony\Core\Query\Ast\Node;
 use Fuzzphony\Core\Query\Ast\Not;
 use Fuzzphony\Core\Query\Ast\Phrase;
 use Fuzzphony\Core\Query\Ast\Term;
+use Fuzzphony\Core\Ranking\Thresholds;
 
 /**
  * @internal Parses end-user search syntax into an AST. It NEVER throws: malformed input degrades
@@ -37,7 +38,7 @@ final class QueryParser
     private array $warnings = [];
 
     public function __construct(
-        private readonly int $maxLength = 256,
+        private readonly int $maxLength = Thresholds::DEFAULT_MAX_QUERY_LENGTH,
         private readonly int $maxTerms = 16,
     ) {}
 
