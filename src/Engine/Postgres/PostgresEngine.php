@@ -682,7 +682,8 @@ final class PostgresEngine implements Engine, Vocabulary, SynonymStems, Suggesti
             $rows = $run['rows'];
             $tsquery = $run['tsquery'];
             $total = self::total($rows);
-            $capped = $rows !== [] && (Coerce::int($rows[0]['fts_n']) >= $thresholds->candidateLimit || Coerce::int($rows[0]['fuzzy_n']) >= $thresholds->candidateLimit);
+            // the strict branch selects `window` candidates (more for a page past the candidate limit), the typo branch the candidate limit
+            $capped = $rows !== [] && (Coerce::int($rows[0]['fts_n']) >= SearchSqlBuilder::window($thresholds, $query->limit, $query->offset) || Coerce::int($rows[0]['fuzzy_n']) >= $thresholds->candidateLimit);
             if ($run['browse']) {
                 $capped = $total >= $thresholds->candidateLimit;
             }
