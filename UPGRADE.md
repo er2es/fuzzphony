@@ -42,7 +42,9 @@ Nothing is required, but **run `fuzzphony:schema --apply` and then `fuzzphony:re
    a typo-tolerant word is still approximate ([limitations](docs/limitations.md#ranking-of-very-common-words)).
 4. **`hasMore()` is false at the last page of the candidates.** `SearchResult::hasMore()` and `FederatedResult::hasMore()` used to be
    true whenever `totalIsLowerBound` was true, so a pager that followed it offered an empty page after the last candidate (page 101 at
-   `candidate_limit: 2000` and 20 per page). Now it is true only while hits follow this page among the ranked candidates (`offset + count($hits) < $total`).
+   `candidate_limit: 2000` and 20 per page). Now it is true only while hits follow this page among the ranked candidates (`offset + count($hits) < $total`), never for an empty page and
+   never from 10 000 hits on (the most a search ranks, also with `exactCounts()`, whose total counts every match: before, a pager that followed
+   `hasMore()` there never stopped), and a federated result is false where the next `limit()` would be refused (1 000 hits of an index).
    A pager built on it stops at `candidate_limit` hits (2000 by default) and does not offer deeper pages; a page asked for directly
    (`page(150)`) is served, exact, up to 10 000 hits, and the lower-bound total grows with it (`2000+`, then `3000+`, ...). If you want deep paging
    in the pager, raise `candidate_limit` or use `totalIsLowerBound` yourself (it did not change). Nothing else to do; no configuration changed.
