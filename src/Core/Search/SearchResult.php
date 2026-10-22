@@ -4,6 +4,8 @@ declare(strict_types=1);
 
 namespace Fuzzphony\Core\Search;
 
+use Fuzzphony\Core\Ranking\Thresholds;
+
 /** @implements \IteratorAggregate<int, Hit> */
 final readonly class SearchResult implements \IteratorAggregate, \Countable
 {
@@ -83,10 +85,13 @@ final readonly class SearchResult implements \IteratorAggregate, \Countable
     /**
      * Whether hits follow this page among the ones the search ranked: false at the last page of the candidates, even when
      * `totalIsLowerBound` says there are more matches than candidates (a page past them is empty, see
-     * Thresholds::$candidateLimit).
+     * Thresholds::$candidateLimit). With exactCounts() the total counts every match, but the hits that can be read end at
+     * Thresholds::MAX_CANDIDATE_LIMIT (10 000): there `hasMore()` is false too, and it is false for an empty page.
      */
     public function hasMore(): bool
     {
-        return $this->offset + count($this->hits) < $this->total;
+        $end = $this->offset + count($this->hits);
+
+        return $this->hits !== [] && $end < $this->total && $end < Thresholds::MAX_CANDIDATE_LIMIT;
     }
 }

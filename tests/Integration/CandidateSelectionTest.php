@@ -274,6 +274,19 @@ final class CandidateSelectionTest extends TestCase
         self::assertSame([], $past->ids(), 'past the hard cap a page is empty');
         self::assertFalse($past->hasMore());
         self::assertStringContainsString('LIMIT 10000', $this->search('bulk', 20, 9990, 10)->explain()->statements[0]['sql']);
+
+        // exact counts: the total is every match, but the hits end at the hard cap, and so does hasMore() (a pager must stop)
+        $exact = static fn(SearchBuilder $b): SearchBuilder => $b->exactCounts();
+        $last = $this->search('bulk', 20, 9980, 10, $exact)->get();
+        self::assertSame(10_501, $last->total);
+        self::assertFalse($last->totalIsLowerBound);
+        self::assertCount(20, $last->hits);
+        self::assertFalse($last->hasMore(), 'the page that ends at the hard cap');
+        self::assertTrue($this->search('bulk', 20, 9960, 10, $exact)->get()->hasMore());
+        $beyond = $this->search('bulk', 20, 10_000, 10, $exact)->get();
+        self::assertSame([], $beyond->ids());
+        self::assertSame(10_501, $beyond->total);
+        self::assertFalse($beyond->hasMore(), 'an empty page past the hard cap');
     }
 
     public function testOnlyTheFirstMatchesOfTheScanBudgetAreRanked(): void
