@@ -434,17 +434,21 @@ for (let attempt = 0; attempt < 6; attempt++) {
 }
 check('rescue: the analytics page lists the rescued typo among the most searched', rescuedTop.includes('mpuse'), rescuedTop.join(', '));
 check('rescue: and not among the searches that found nothing', !rescuedZero.includes('mpuse'), rescuedZero.join(', '));
-check('rescue: but the typed text searched "instead" (exact) is one that found nothing', rescuedZero.includes('kpttle'), rescuedZero.join(', '));
 const rescuedHits = [];
+const insteadHits = [];
 for (const tr of rescuedRows) {
-    if ((await tr.locator('td code').innerText()) === 'mpuse') {
+    const typed = await tr.locator('td code').innerText();
+    if (typed === 'mpuse') {
         rescuedHits.push((await tr.locator('td.num').innerText()).trim());
+    } else if (typed === 'kpttle') {
+        insteadHits.push((await tr.locator('td.num').innerText()).trim());
     }
 }
+check('rescue: but the typed text searched "instead" (exact) is logged as the search that found nothing it is', insteadHits.length > 0 && insteadHits.every((h) => h === '0'), insteadHits.join(', '));
 check('rescue: who searched what lists the typed text with the hits of the rescued search', rescuedHits.length > 0 && rescuedHits.every((h) => h !== '0'), rescuedHits.join(', '));
 await go(page, BASE + '/under-the-hood/observability?q=mpuse');
 check('rescue: the observability page counts a rescued search', /fuzzphony\.search\.rescued/.test(await page.locator('body').innerText()));
-await go(page, BASE + '/relevance?q=mpuse');
+await go(page, BASE + '/relevance?q=kpttle'); // (logged as a search that found nothing: not the typo of the Analytics checks above)
 check('rescue: the Relevance page shows what each rule finds, not a rescue (the price of a letter replaced in the middle)', /\b0 hits/.test(await page.locator('body').innerText()));
 
 await secContext.close();
