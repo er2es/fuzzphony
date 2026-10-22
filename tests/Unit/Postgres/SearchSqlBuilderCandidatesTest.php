@@ -11,6 +11,7 @@ use Fuzzphony\Core\Ranking\RankingProfile;
 use Fuzzphony\Core\Ranking\Thresholds;
 use Fuzzphony\Engine\Postgres\Schema\Names;
 use Fuzzphony\Engine\Postgres\Sql\SearchSqlBuilder;
+use Fuzzphony\Engine\Postgres\Sql\TsQueryCompiler;
 use Fuzzphony\Tests\Fixtures\Indexes;
 use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\TestCase;
@@ -133,9 +134,71 @@ final class SearchSqlBuilderCandidatesTest extends TestCase
 
     public function testTheScanBudgetIsAConstructorSeamOfTheBuilder(): void
     {
-        $sql = (new SearchSqlBuilder(Indexes::products(), new Names(), [], null, false, 250))->ranked("'mouse'", 'mouse', null, [], new RankingProfile(), new Thresholds(), 20, 0)['sql'];
+        $sql = (new SearchSqlBuilder(Indexes::products(), new Names(), [], null, false, 250_000))->ranked("'mouse'", 'mouse', null, [], new RankingProfile(), new Thresholds(), 20, 0)['sql'];
 
-        self::assertStringContainsString("            LIMIT 250\n        ) AS w", $sql);
+        self::assertStringContainsString("            LIMIT 250000\n        ) AS w", $sql);
+    }
+
+    /** @return iterable<string, array{int, int, int, int}> budget, words, window, expected */
+    public static function scans(): iterable
+    {
+        yield 'one word: the whole budget' => [100_000, 1, 2000, 100_000];
+        yield 'four words' => [100_000, 4, 2000, 25_000];
+        yield 'sixteen words' => [100_000, 16, 2000, 6250];
+        yield 'never under the window' => [100_000, 64, 2000, 2000];
+        yield 'a deep window is the floor' => [100_000, 16, 10_000, 10_000];
+        yield 'no word counts as one' => [100_000, 0, 2000, 100_000];
+    }
+
+    #[DataProvider('scans')]
+    public function testTheScanBudgetIsDividedByTheWordsOfTheQueryButNeverUnderTheWindow(int $budget, int $words, int $window, int $expected): void
+    {
+        self::assertSame($expected, SearchSqlBuilder::scanLimit($budget, $words, $window));
+    }
+
+    public function testTheScannedMatchesOfAQueryShrinkWithItsWords(): void
+    {
+        $builder = new SearchSqlBuilder(Indexes::products(), new Names(), [], null, false, 400_000);
+        $statement = static fn(string $tsquery): string => $builder->ranked($tsquery, 'mouse', null, [], new RankingProfile(), new Thresholds(candidateLimit: 100), 20, 0)['sql'];
+
+        self::assertStringContainsString("            LIMIT 400000\n        ) AS w", $statement("'mouse'"));
+        self::assertStringContainsString("            LIMIT 100000\n        ) AS w", $statement("('mouse' | 'cable' | 'usb' | 'hub')"));
+        self::assertStringContainsString("            LIMIT 25000\n        ) AS w", $statement("('mouse' | 'a' | 'b' | 'c' | 'd' | 'e' | 'f' | 'g' | 'h' | 'i' | 'j' | 'k' | 'l' | 'm' | 'n' | 'o')"));
+        // the words that are excluded are not looked up for the rank: they do not count, and the rank reads the query without them
+        $excluded = $statement("('mouse' & !'a' & !'b' & !'c' & !'d' & !'e')");
+        self::assertStringContainsString("            LIMIT 400000\n        ) AS w", $excluded);
+        self::assertStringContainsString('AS tsr', $excluded);
+        self::assertStringContainsString('s.tsv @@ q.tsq', $excluded, 'the match is still the whole query');
+    }
+
+    /** @return iterable<string, array{string, string}> */
+    public static function exclusions(): iterable
+    {
+        yield 'no exclusion: the query itself' => ["('a' & 'b')", "('a' & 'b')"];
+        yield 'an excluded word of an AND' => ["('a' & !'b')", "'a'"];
+        yield 'several' => ["('a' & !'b' & !'c' & !'d')", "'a'"];
+        yield 'an excluded group' => ["('a' & !('b' & 'c'))", "'a'"];
+        yield 'an excluded phrase' => ["('a' & !('b' <-> 'c'))", "'a'"];
+        yield 'a phrase kept' => ["(('a' <-> 'b') & !'c')", "('a' <-> 'b')"];
+        yield 'labels and prefixes kept' => ["('a':A & 'b':* & !'c')", "('a':A & 'b':*)"];
+        yield 'an OR with an excluded part is true: left out of its AND' => ["('a' & ('b' | !'c'))", "'a'"];
+        yield 'an AND with an excluded part inside an OR' => ["(('a' & !'b') | 'c')", "('a' | 'c')"];
+        yield 'an OR that is true as a whole: the query itself' => ["('a' | !'b')", "('a' | !'b')"];
+        yield 'nothing but exclusions: the query itself' => ["(!'a' & !'b')", "(!'a' & !'b')"];
+        yield 'a form it does not know: the query itself' => ["'a' & !'b'", "'a' & !'b'"];
+    }
+
+    #[DataProvider('exclusions')]
+    public function testTheRankQueryLeavesOutTheExclusions(string $tsquery, string $expected): void
+    {
+        self::assertSame($expected, TsQueryCompiler::withoutExclusions($tsquery));
+    }
+
+    public function testTheWordsOfAQueryAreCounted(): void
+    {
+        self::assertSame(1, TsQueryCompiler::operands("'a'"));
+        self::assertSame(3, TsQueryCompiler::operands("(('a' <-> 'b') | 'c':*)"));
+        self::assertSame(1, TsQueryCompiler::operands(''));
     }
 
     public function testADeepPageSelectsTheWholeWindowInBothSelections(): void

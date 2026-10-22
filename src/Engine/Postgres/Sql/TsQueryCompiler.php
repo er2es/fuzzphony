@@ -101,6 +101,87 @@ final class TsQueryCompiler
         };
     }
 
+    /**
+     * The tsquery without its excluded parts, for ranking: an excluded word is not in a document that an AND with it matches, but
+     * ts_rank_cd looks every operand of the query up in every document it ranks, so a query with fifteen exclusions costs sixteen
+     * times as much per row as the word it looks for. An excluded part is true wherever it does not hold, so it is left out of an
+     * AND, and an OR with one is true as a whole and left out of its parent: the extents the rank is made of are the same (checked
+     * on the benchmark catalogue for nested groups, phrases, labels and prefixes). Returns the query itself when it has no exclusion,
+     * when nothing but exclusions is left, and when it is not in the form compile() writes: operands `'word'` with an optional `:`
+     * label, groups in parentheses that join their parts with one of `&`, `|` and `<->`, and `!` before an operand or a group.
+     */
+    public static function withoutExclusions(string $tsquery): string
+    {
+        if (!str_contains($tsquery, '!')) {
+            return $tsquery;
+        }
+        $tokens = preg_match_all("/'[^']*'(?::[*A-D]+)?|<->|[()&|!]/", $tsquery, $m) !== false ? $m[0] : [];
+        if (implode('', $tokens) !== str_replace(' ', '', $tsquery)) {
+            return $tsquery;
+        }
+        $at = 0;
+        $parsed = self::rankItem($tokens, $at);
+
+        return $at === count($tokens) && is_string($parsed) && $parsed !== '' ? $parsed : $tsquery;
+    }
+
+    /**
+     * @param list<string> $tokens
+     *
+     * @return string|false the item without exclusions, '' when it is true whatever the document has, false when the tokens are not in the form
+     */
+    private static function rankItem(array $tokens, int &$at): string|false
+    {
+        $negated = ($tokens[$at] ?? '') === '!';
+        if ($negated) {
+            ++$at;
+        }
+        $token = $tokens[$at] ?? '';
+        if ($token === '') {
+            return false;
+        }
+        if ($token !== '(') {
+            ++$at;
+
+            return str_starts_with($token, "'") ? ($negated ? '' : $token) : false;
+        }
+        ++$at;
+        $parts = [];
+        $glue = null;
+        $true = false;
+        while (true) {
+            $part = self::rankItem($tokens, $at);
+            if ($part === false) {
+                return false;
+            }
+            if ($part === '') {
+                $true = true;
+            } else {
+                $parts[] = $part;
+            }
+            $next = $tokens[$at] ?? '';
+            ++$at;
+            if ($next === ')') {
+                break;
+            }
+            if (!in_array($next, ['&', '|', '<->'], true) || ($glue !== null && $glue !== $next)) {
+                return false;
+            }
+            $glue = $next;
+        }
+        if ($negated || ($true && $glue === '|') || $parts === []) {
+            return '';
+        }
+
+        return count($parts) === 1 ? $parts[0] : '(' . implode(' ' . $glue . ' ', $parts) . ')';
+    }
+
+    /** How many words a tsquery in the form compile() writes looks up. */
+    public static function operands(string $tsquery): int
+    {
+        return max(1, preg_match_all("/'[^']*'/", $tsquery));
+    }
+
     private function knownScope(Node $node): bool
     {
         return $node instanceof FieldScoped && $this->index->field($node->field) !== null;

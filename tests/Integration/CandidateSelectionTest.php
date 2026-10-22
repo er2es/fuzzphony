@@ -299,4 +299,39 @@ final class CandidateSelectionTest extends TestCase
         }
         self::assertSame(10, Coerce::int($small[0]['total']), 'the candidates are the best of the budget, N of them');
     }
+
+    public function testTheScanBudgetOfAQueryWithSeveralWordsIsSmaller(): void
+    {
+        $this->loadCorpus();
+        $run = function (string $tsquery, int $budget): array {
+            $statement = (new SearchSqlBuilder($this->index, new Names(), [], null, false, max(1, $budget)))
+                ->ranked($tsquery, 'common', null, [], new RankingProfile(), new Thresholds(candidateLimit: 10, fuzzyMode: FuzzyMode::Never), 5, 0);
+
+            return array_map(static fn(array $r): int => Coerce::int($r['id']), $this->connection->fetchAll($statement['sql'], $statement['params']));
+        };
+
+        // 406 matches; a budget of 2000 over one word covers them, over four words (500) it still does, over sixteen (125) it ranks the first 125 only
+        self::assertContains(900001, $run("'common'", 2000));
+        self::assertContains(900001, $run("('common' | 'x1' | 'x2' | 'x3')", 2000));
+        $sixteen = $run("('common' | 'x1' | 'x2' | 'x3' | 'x4' | 'x5' | 'x6' | 'x7' | 'x8' | 'x9' | 'x10' | 'x11' | 'x12' | 'x13' | 'x14' | 'x15')", 2000);
+        self::assertNotContains(900001, $sixteen);
+        foreach ($sixteen as $id) {
+            self::assertLessThanOrEqual(400, $id);
+        }
+    }
+
+    public function testExclusionsDoNotChangeWhatTheRankSelectsOrHowItOrders(): void
+    {
+        $this->loadCorpus();
+        $minus = static fn(SearchBuilder $b): SearchBuilder => $b;
+
+        foreach (['common -filler -zz1 -zz2 -zz3', 'common -stuff', 'common (stuff | -thing)', 'common -(filler things)', '"common filler" -zz1'] as $text) {
+            $this->assertLikeTheOracle($text, 20, 0, $minus);
+            $this->assertLikeTheOracle($text, 20, 40, $minus);
+        }
+        $first = $this->search('common -zz1 -zz2 -zz3 -zz4')->get();
+        self::assertContains(900001, $first->ids(), 'the planted documents are found through the rank without the exclusions');
+        $explained = $this->search('common -zz1 -zz2')->explain();
+        self::assertStringContainsString('AS tsr', $explained->statements[0]['sql']);
+    }
 }
