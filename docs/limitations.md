@@ -17,7 +17,7 @@ happens, why, and what to do. The statements here were checked against the code 
   [document ids](#one-id-column-per-document), [full reindex](#a-full-reindex-needs-room-and-a-session-connection)
 - [Operations](#operations): [registry cache](#the-registry-cache-in-production-needs-cacheclear),
   [process caches](#text-search-configuration-caches-assume-the-configuration-does-not-change-in-a-process),
-  [explain()](#explain-and-its-statement-labels-are-not-a-stable-api), [search log](#the-search-log-is-best-effort)
+  [explain()](#explain-and-its-statement-labels-are-not-a-stable-api), [rescued searches in the log](#a-rescued-search-is-not-a-zero-result-search-in-the-log), [search log](#the-search-log-is-best-effort)
 - [Security and privacy](#security-and-privacy): [field authorization](#field-authorization-hides-content-not-existence-or-timing),
   [client IP](#the-client-ip-in-the-search-log), [per-person history](#a-persons-search-history-is-personal-data),
   [rate limit](#the-rate-limit-by-ip-is-loose-by-design-and-only-covers-requests), [authorization](#authorization-is-deny-by-default),
@@ -51,7 +51,9 @@ typo from a different word that looks alike:
   vocabulary has exactly one word one edit away, and the index is not tenant-scoped (no vocabulary there) and the viewer
   is not restricted: then the corrected search answers, flagged (`SearchResult::$correctedFrom`). A tie between two
   candidates, a word with two wrong letters, a code with digits, a search-as-you-type text and a search that found
-  something are not rescued; on a tenant-scoped index or for a restricted viewer `mpuse` still finds nothing.
+  something are not rescued, nor is one whose corrected query finds something only because the relaxation drops a word;
+  on a tenant-scoped index or for a restricted viewer `mpuse` still finds nothing. A rescued search is logged as a search
+  that found hits ([details](#a-rescued-search-is-not-a-zero-result-search-in-the-log)).
 
 What to do: set `fuzzy_similarity` to a number to use one value for every word. That trades the other way: it
 finds more typos and lists more look-alikes (the measured trade-off is in
@@ -288,8 +290,18 @@ clean.
 
 `explain()` and `fuzzphony:search --explain` are for people. The SQL text, the number of statements, their
 labels (`full-text`, `fallback: full-text + fuzzy`, `facet: category_id, in_stock`, `did you mean`,
-`relaxation probe`, `exact total`) and the plan lines change between releases (0.9.5 merged the facet
+`relaxation probe`, `exact total`, and the same labels with the prefix `rescue: `) and the plan lines change between releases (0.9.5 merged the facet
 statements into one). Do not parse them or build a test or an alert on them.
+
+### A rescued search is not a zero-result search in the log
+
+The [zero-result rescue](searching.md#zero-result-rescue) answers a search that found nothing with the results of its
+corrected spelling, and the [search log](analytics.md#what-is-logged) records the text the visitor typed with the hits of
+the answer it got. So a typo such as `mpuse` is no longer in the zero-result report (`SearchAnalytics::zeroResultQueries()`,
+`fuzzphony:analytics --zero`) while the rescue is on: it counts as a search that found hits. The log has no flag or status for a
+rescued search (the schema is unchanged). Typos the rescue cannot answer still appear there. To see every text that found nothing
+on its own, set `rescue_empty: false`; the counter `fuzzphony.search.rescued` ([Observability](observability.md#instrumentation-points))
+counts the rescued searches without their text.
 
 ### The search log is best-effort
 

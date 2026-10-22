@@ -24,6 +24,15 @@ One row per search in `fuzzphony_search_log` (in [Fuzzphony's schema](configurat
 | `used_fuzzy` | whether the typo-tolerant search ran |
 | `status` | `ok`; `denied` (a refusal, for example an actor without a tenant on a tenant-scoped index); `rate_limited` |
 
+A search the [zero-result rescue](searching.md#zero-result-rescue) answered is one row like any other: `query` is what the
+visitor **typed** (`mpuse`), and `hits`, `used_fuzzy` and `took_ms` are those of the **rescued** search (the hits of
+`mouse`, the time of both searches), with status `ok`. The log has no flag for it. So the typo no longer appears in the
+zero-result report below (`zeroResultQueries()`, `--zero`, the demo's "found nothing" list); it appears among the top queries
+with hits. Typos that the rescue could not answer (no unique correction, a tenant-scoped index, a restricted viewer) still show
+as zero-result searches. If you want the typos the catalogue could not answer on its own to stay visible there, set
+`rescue_empty: false` (the visitor then sees "no results" and, when there is one, the did-you-mean suggestion). A way to see the
+rescued searches in the report is open for the API round (a flag or a status in the log).
+
 Indexes on `(index_name, at)` and `(index_name, query_norm)` keep the reports fast. The "who searched what" report
 ([`recentSearches()`](#who-searched-what)) reads the rows of one index in a time window, newest first, and needs no index of
 its own: the window bounds the rows it looks at, and a filter on the user or the tenant is applied to those.
@@ -244,6 +253,7 @@ foreach ($analytics->topQueries('products', $since, limit: 10) as $stat) {
 }
 
 // the texts that found nothing: what the catalogue lacks, or the synonyms to add
+// (a search the zero-result rescue answered is logged with the hits of the rescue, so it is not listed: see "What is logged")
 $analytics->zeroResultQueries('products', $since, limit: 10);
 ```
 

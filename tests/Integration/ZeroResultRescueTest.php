@@ -108,9 +108,11 @@ final class ZeroResultRescueTest extends TestCase
         $search = $this->fuzzphony()->in('products');
 
         $both = $search->query('mpuse pda')->get(); // "pda" is a three-letter word: left as typed, no rescue for it
-        // "pda" has no correction and stays as typed; "mouse pda" finds nothing together, so the relaxation drops it, as for any search
-        self::assertSame([1, 2], $this->sorted($both->ids()));
-        self::assertSame('mpuse pda', $both->correctedFrom);
+        // "pda" has no correction and stays as typed; "mouse pda" finds something only after the relaxation drops "pda", which would be
+        // two guesses in one (a rescue and an ignored word): no rescue, the original empty answer stands
+        self::assertSame([], $both->ids());
+        self::assertNull($both->correctedFrom);
+        self::assertSame([], array_filter($both->warnings, static fn(string $w): bool => str_contains($w, 'showing results for')));
         // the relaxation comes first: "pad" is found, so "mpuse" is ignored and the search had a result (no rescue)
         $relaxedFirst = $search->query('mpuse pad')->get();
         self::assertSame([2], $relaxedFirst->ids());
@@ -122,11 +124,15 @@ final class ZeroResultRescueTest extends TestCase
         self::assertSame('(mouse AND pad)', $ok->interpretedAs);
         // a tie in one word blocks the rescue of the whole query
         self::assertSame([], $search->query('mpuse zxbra')->get()->ids());
-        // a word that has no correction stays as typed; the relaxation then drops it, as for any search
-        $relaxed = $search->query('mpuse zzqqx')->get();
-        self::assertSame([1, 2], $this->sorted($relaxed->ids()));
-        self::assertSame('mpuse zzqqx', $relaxed->correctedFrom);
-        self::assertStringContainsString('zzqqx', implode(' ', $relaxed->warnings));
+        // a word that has no correction stays as typed: when the corrected query then only finds something because the
+        // relaxation drops that word, there is no rescue (the warning would name a query the hits are not for)
+        $before = $this->counted('fuzzphony.search.rescued');
+        foreach (['mpuse zzqqx', 'mp mpuse', 'zz mpuse'] as $text) {
+            $relaxed = $search->query($text)->get();
+            self::assertSame([], $relaxed->ids(), $text);
+            self::assertNull($relaxed->correctedFrom, $text);
+        }
+        self::assertSame($before, $this->counted('fuzzphony.search.rescued'), 'none of them was counted');
     }
 
     public function testOperatorsQuotesAndFieldsStayWhereTheyWere(): void

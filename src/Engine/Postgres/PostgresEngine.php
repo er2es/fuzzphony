@@ -506,7 +506,7 @@ final class PostgresEngine implements Engine, Vocabulary, SynonymStems, Suggesti
     /**
      * One search, with the zero-result rescue: a search that found nothing, and has a word with a unique one-edit spelling
      * in the vocabulary, is run once more with the corrected words (never again: the second run cannot rescue) and its
-     * result, flagged, is the answer when it found something. See executeOnce() for when a search is rescued.
+     * result, flagged, is the answer when it found something without the relaxation dropping a word. See executeOnce() for when a search is rescued.
      *
      * @return array{
      *     result: SearchResult,
@@ -521,7 +521,10 @@ final class PostgresEngine implements Engine, Vocabulary, SynonymStems, Suggesti
         $rescue = $run['rescue'];
         if ($rescue !== null) {
             $second = $this->executeOnce($index, $query->withText($rescue['to']), false);
-            if ($second['result']->total > 0) {
+            // The corrected search must find the whole corrected query: when it only found something after the relaxation dropped
+            // a word ("mp use" -> "mp usb" -> "usb"), the rescue would compound two guesses and say "showing results for
+            // 'mp usb'" about hits that are for "usb" alone, so the original empty answer stands.
+            if ($second['result']->total > 0 && !$second['relaxed']) {
                 $run = $this->rescued($query, $run, $second, $rescue, $started);
                 $this->metrics->increment('fuzzphony.search.rescued', ['index' => $index->name, 'query' => $query->text]);
             } else {
@@ -597,7 +600,8 @@ final class PostgresEngine implements Engine, Vocabulary, SynonymStems, Suggesti
      *     result: SearchResult,
      *     statements: list<array{label: string, sql: string, params: array<string, scalar|null>}>,
      *     threshold: float|null,
-     *     rescue: array{from: string, to: string}|null
+     *     rescue: array{from: string, to: string}|null,
+     *     relaxed: bool
      * }
      */
     private function executeOnce(IndexDefinition $index, SearchQuery $query, bool $rescue): array
@@ -630,14 +634,14 @@ final class PostgresEngine implements Engine, Vocabulary, SynonymStems, Suggesti
             $warnings[] = 'The search has no word to look for; use letters or digits.';
             $empty = SearchResult::empty($query->limit, $query->offset, $warnings, round((hrtime(true) - $started) / 1e6, 3));
 
-            return ['result' => $empty, 'statements' => [], 'threshold' => null, 'rescue' => null];
+            return ['result' => $empty, 'statements' => [], 'threshold' => null, 'rescue' => null, 'relaxed' => false];
         }
         if ($root !== null && !NodeInspector::hasPositive($root)) {
             // "-cable" alone would mean "everything except ..." which is rarely intended and never cheap.
             $warnings[] = 'The search only excluded words; add at least one word to look for.';
             $empty = SearchResult::empty($query->limit, $query->offset, $warnings, round((hrtime(true) - $started) / 1e6, 3));
 
-            return ['result' => $empty, 'statements' => [], 'threshold' => null, 'rescue' => null];
+            return ['result' => $empty, 'statements' => [], 'threshold' => null, 'rescue' => null, 'relaxed' => false];
         }
 
         $typedRoot = $root;
@@ -657,6 +661,7 @@ final class PostgresEngine implements Engine, Vocabulary, SynonymStems, Suggesti
             $threshold = $run['threshold'];
 
             // Empty-result relaxation: drop the words that match nothing on their own, search once more.
+            $relaxedUsed = false;
             if ($root !== null && $thresholds->relaxWhenEmpty && self::total($run['rows']) === 0) {
                 $probe = $this->probe($index, $root, $run['fuzzy'], $run['emptyQueries'], $conditions, $thresholds, $query->allowedFields);
                 if ($probe !== null) {
@@ -671,6 +676,7 @@ final class PostgresEngine implements Engine, Vocabulary, SynonymStems, Suggesti
                         // so the original (empty) answer stands.
                         if (self::total($relaxed['rows']) > 0) {
                             $root = $reduced;
+                            $relaxedUsed = true;
                             $run = $relaxed;
                             array_push($warnings, ...$relaxed['warnings']);
                             $warnings[] = Relaxation::warning($probe['ignored']);
@@ -745,9 +751,9 @@ final class PostgresEngine implements Engine, Vocabulary, SynonymStems, Suggesti
                 ? ['from' => QueryRenderer::render($typedRoot), 'to' => $oneEdit]
                 : null;
 
-            return [$run, $statements, $warnings, $threshold, $root, $rows, $tsquery, $total, $capped, $facets, $didYouMean, $rescueWith];
+            return [$run, $statements, $warnings, $threshold, $root, $rows, $tsquery, $total, $capped, $facets, $didYouMean, $rescueWith, $relaxedUsed];
         };
-        [$run, $statements, $warnings, $threshold, $root, $rows, $tsquery, $total, $capped, $facets, $didYouMean, $rescueWith] = $run['phase'] !== null ? $this->inSearchTransaction($rest) : $rest();
+        [$run, $statements, $warnings, $threshold, $root, $rows, $tsquery, $total, $capped, $facets, $didYouMean, $rescueWith, $relaxedUsed] = $run['phase'] !== null ? $this->inSearchTransaction($rest) : $rest();
 
         $highlights = [];
         // a field the viewer may not see is dropped from the highlights (not an error: the application asks the same for everyone)
@@ -803,7 +809,7 @@ final class PostgresEngine implements Engine, Vocabulary, SynonymStems, Suggesti
             facets: $facets,
         );
 
-        return ['result' => $result, 'statements' => $statements, 'threshold' => $threshold, 'rescue' => $rescueWith];
+        return ['result' => $result, 'statements' => $statements, 'threshold' => $threshold, 'rescue' => $rescueWith, 'relaxed' => $relaxedUsed];
     }
 
     /** A facet value as PHP: the type the filter declares. */

@@ -347,10 +347,12 @@ with `thresholds(['rescue_empty' => false])`). `correctedFrom` is the visitor's 
   one edit away** (one letter replaced, missing or extra) among its ten closest candidates: `mpuse` becomes `mouse` when
   nothing else of the vocabulary is one edit from `mpuse`. A tie (`mpuse` with both `mouse` and `mause` in the index)
   means no rescue at all, and so does a tie in any one word of a longer query. A word with no one-edit candidate is left
-  as typed (the corrected query may then be relaxed as any query, naming the word it ignored). Two edits, such as a
+  as typed. Two edits, such as a
   word typed with two wrong letters, is for the plain did-you-mean suggestion, never for the rescue.
-- **One attempt**: the corrected query is searched once, with the rescue off. When it finds nothing too, the answer is
-  the original, empty one (with its did-you-mean as always); the rescue never loops and never corrects the correction.
+- **One attempt, and the whole corrected query must match**: the corrected query is searched once, with the rescue off. When
+  it finds nothing too, or finds something only after the [empty-result relaxation](#empty-result-relaxation) dropped a word
+  (`mp use` corrected to `mp usb`, relaxed to `usb`: the hits are for another query than the warning would name, and two guesses
+  would be stacked), the answer is the original, empty one (with its did-you-mean as always); the rescue never loops and never corrects the correction.
 - **Everything else is the original search's**: filters, facets (counted over the corrected search), paging,
   highlights (of the corrected words), the tenant, the actor, the guards and a restricted viewer's fields. The
   corrected search is the same `SearchQuery` with other text.
