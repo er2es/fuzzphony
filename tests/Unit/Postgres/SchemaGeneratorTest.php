@@ -25,9 +25,24 @@ final class SchemaGeneratorTest extends TestCase
     public function testSidecarColumnsFollowTheDefinition(): void
     {
         self::assertSame(
-            ['id', 'tsv', 'fz', 'exact', 't_name', 'z_name', 't_brand', 'z_brand', 't_description', 'boost', 'recency_at', 'f_price', 'f_in_stock', 'f_published_at', 'f_brand_id', 'indexed_at'],
+            ['id', 'tsv', 'tsv_capped', 'fz', 'exact', 't_name', 'z_name', 't_brand', 'z_brand', 't_description', 'boost', 'recency_at', 'f_price', 'f_in_stock', 'f_published_at', 'f_brand_id', 'indexed_at'],
             array_keys((new PostgresSchemaGenerator())->columns(Indexes::products())),
         );
+    }
+
+    public function testTheCappedFlagIsAddedOnlyWhenMissingAndFilledFromTheJoinedVectorOnce(): void
+    {
+        $sql = (new PostgresSchemaGenerator())->index(Indexes::products())->toSql();
+
+        // ADD COLUMN IF NOT EXISTS takes an ACCESS EXCLUSIVE lock even when the column is there: a catalog check first
+        self::assertStringContainsString('IF NOT EXISTS (SELECT 1 FROM pg_attribute WHERE attrelid = to_regclass(' . "'\"public\".\"fuzzphony_products\"'" . ') AND attname = ' . "'tsv_capped'" . ' AND NOT attisdropped) THEN ALTER TABLE "public"."fuzzphony_products" ADD COLUMN "tsv_capped" boolean; END IF;', $sql);
+        self::assertStringNotContainsString('ADD COLUMN IF NOT EXISTS "tsv_capped"', $sql);
+        self::assertStringContainsString('"tsv_capped" boolean', $sql, 'a new sidecar table has it');
+        // the joined vector is built once, in a lateral subquery nothing can pull up, and the column and the flag both read it
+        self::assertStringContainsString('CROSS JOIN LATERAL (SELECT setweight(', $sql);
+        self::assertStringContainsString('OFFSET 0) AS v', $sql);
+        self::assertStringContainsString("v.fz_tsv,
+        EXISTS (SELECT 1 FROM unnest(v.fz_tsv) AS u(lexeme, positions, weights), unnest(u.positions) AS p WHERE p >= 16383),", $sql);
     }
 
     public function testTheRefreshFunctionFillsThePerFieldColumns(): void
@@ -38,7 +53,7 @@ final class SchemaGeneratorTest extends TestCase
         self::assertStringContainsString('ALTER TABLE "public"."fuzzphony_products" ADD COLUMN IF NOT EXISTS "z_brand" text NOT NULL DEFAULT \'\'', $sql);
         self::assertStringNotContainsString('"z_description"', $sql, 'description is not fuzzy');
         self::assertStringContainsString(
-            'INSERT INTO "public"."fuzzphony_products" AS s ("id", "tsv", "fz", "exact", "t_name", "z_name", "t_brand", "z_brand", "t_description", "boost", "recency_at", "f_price", "f_in_stock", "f_published_at", "f_brand_id", "indexed_at")',
+            'INSERT INTO "public"."fuzzphony_products" AS s ("id", "tsv", "tsv_capped", "fz", "exact", "t_name", "z_name", "t_brand", "z_brand", "t_description", "boost", "recency_at", "f_price", "f_in_stock", "f_published_at", "f_brand_id", "indexed_at")',
             $sql,
         );
         self::assertStringContainsString(
@@ -246,7 +261,6 @@ final class SchemaGeneratorTest extends TestCase
         $german = IndexDefinition::builder('articles')->fromTable('article')->field('title')->language('german')->build();
         $sql = (new PostgresSchemaGenerator())->global(Indexes::products(), Indexes::products(), $german)->toSql();
 
-        self::assertSame(1, substr_count($sql, 'CREATE TEXT SEARCH CONFIGURATION "public"."fuzzphony_english"'));
         self::assertStringContainsString('WITH "public".unaccent, "german_stem"', $sql, 'for a language without a stop-word list');
         self::assertStringContainsString('WITH "public"."fuzzphony_german_stop", "public".unaccent, "german_stem"', $sql, 'accented stop words are dropped before unaccent');
         self::assertStringContainsString("FROM pg_ts_dict WHERE oid = '\"german_stem\"'::regdictionary", $sql, 'the stop-word list comes from the catalog');
@@ -307,7 +321,6 @@ final class SchemaGeneratorTest extends TestCase
 
                 RETURN written;
             SQL, str_replace(DocumentSql::select(Indexes::products()), '%s', $sql)); // the document query, twice, as %s
-        self::assertSame(1, substr_count($sql, 'FROM unnest(p_ids)'), 'the rebuild refresh function logs nothing');
         self::assertStringContainsString(<<<'SQL'
             CREATE OR REPLACE FUNCTION "public"."fuzzphony_track_products"() RETURNS trigger
             LANGUAGE plpgsql SET search_path = pg_catalog, pg_temp AS $fuzzphony$

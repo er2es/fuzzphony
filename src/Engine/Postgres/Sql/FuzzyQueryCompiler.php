@@ -17,6 +17,7 @@ use Fuzzphony\Core\Query\Filter\Condition;
 use Fuzzphony\Core\Ranking\Thresholds;
 use Fuzzphony\Core\Ranking\TypoCurve;
 use Fuzzphony\Engine\Postgres\Schema\Names;
+use Fuzzphony\Engine\Postgres\Schema\PostgresSchemaGenerator;
 use Fuzzphony\Engine\Postgres\Schema\Types;
 use Fuzzphony\Engine\Postgres\TypoTerm;
 
@@ -94,6 +95,9 @@ final class FuzzyQueryCompiler
      * @param bool              $transpositions a typed word of 4 to 15 letters also matches, as a whole word of a typo-tolerant
      *                                          field, with two neighbouring letters swapped (see Transpositions); off keeps
      *                                          every statement as it was
+     * @param (\Closure(): bool)|null $cappedColumn asked (only when a phrase or a scoped word of an unrestricted viewer on an index with several fields
+     *                                          is compiled) whether the sidecar has the tsv_capped column; null or false: it has not, and
+     *                                          the later fields' vectors are read for every document that `tsv` does not match
      */
     public function __construct(
         private readonly IndexDefinition $index,
@@ -103,6 +107,7 @@ final class FuzzyQueryCompiler
         private readonly array $candidates = [],
         ?array $allowedFields = null,
         private readonly bool $transpositions = false,
+        private readonly ?\Closure $cappedColumn = null,
     ) {
         $this->tsquery = new TsQueryCompiler($index);
         $this->allowed = $allowedFields === null ? null : array_values(array_filter($index->fields, static fn(FieldDefinition $f): bool => in_array($f->name, $allowedFields, true)));
@@ -729,12 +734,25 @@ final class FuzzyQueryCompiler
             if ($field !== null) {
                 return sprintf('(s.tsv @@ %s AND s.%s @@ %s)', $lookup, $this->names->fieldVector($field->name), $query);
             }
-            $checks = ['s.tsv @@ ' . $query];
-            foreach ($this->names->laterVectors($this->index) as $vector) {
-                $checks[] = sprintf('(%s) @@ %s', $vector, $query);
+            $later = array_map(static fn(string $vector): string => sprintf('(%s) @@ %s', $vector, $query), $this->names->laterVectors($this->index));
+            if ($this->cappedColumn !== null && ($this->cappedColumn)()) {
+                // The later fields' vectors are read only for a document whose tsv was capped (or not known to be: NULL), which is
+                // rare: the phrase on tsv, the statement's old cost, decides for every other. They are read by a subquery on the
+                // document's own row, not as columns of the scanned one: PostgreSQL fetches every column an expression names from
+                // the scanned row before it evaluates anything, which for the last fields of a wide index costs more than the phrase.
+                $own = array_map(fn(string $vector): string => sprintf('(%s) @@ %s', $vector, $query), $this->names->laterVectors($this->index, 'c'));
+
+                return sprintf(
+                    '(s.tsv @@ %s AND (s.tsv @@ %s OR (s.%s IS NOT FALSE AND EXISTS (SELECT 1 FROM %s AS c WHERE c.id = s.id AND (%s)))))',
+                    $lookup,
+                    $query,
+                    PostgresSchemaGenerator::CAPPED_COLUMN,
+                    $this->names->sidecar($this->index),
+                    implode(' OR ', $own),
+                );
             }
 
-            return sprintf('(s.tsv @@ %s AND (%s))', $lookup, implode(' OR ', $checks));
+            return sprintf('(s.tsv @@ %s AND (%s))', $lookup, implode(' OR ', ['s.tsv @@ ' . $query, ...$later]));
         }
 
         return $field === null

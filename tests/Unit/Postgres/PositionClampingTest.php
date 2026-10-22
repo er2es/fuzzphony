@@ -61,6 +61,7 @@ final class PositionClampingTest extends TestCase
 
         self::assertSame(['s."t_brand" || s."t_description"', 's."t_description"'], $names->laterVectors(Indexes::products()));
         self::assertSame([], $names->laterVectors(self::singleField()));
+        self::assertSame(['c."t_brand" || c."t_description"', 'c."t_description"'], $names->laterVectors(Indexes::products(), 'c'), 'the alias is the one of the statement');
     }
 
     public function testAPhraseIsLookedUpByItsWordsAndReadFromTsvOrTheLaterFields(): void
@@ -141,6 +142,59 @@ final class PositionClampingTest extends TestCase
         self::assertStringContainsString("WHERE s.tsv @@ q.tsq AND TRUE\n", $plain['sql']);
         self::assertStringContainsString("ts_rank_cd('{0.1,0.2,0.4,1}'::real[], s.tsv, q.tsq, 32)::double precision AS r_text", $plain['sql']);
         self::assertStringNotContainsString('tsp', $plain['sql']);
+    }
+
+    public function testWithTheCappedColumnTheLaterFieldsAreReadOnlyForACappedDocument(): void
+    {
+        $params = new ParameterBag();
+        $match = (new FuzzyQueryCompiler(Indexes::products(), new Thresholds(fuzzySimilarity: 0.3), cappedColumn: static fn(): bool => true))->compile(self::parse('"usb receiver"'), $params);
+
+        self::assertNotNull($match);
+        self::assertSame(
+            '((s.tsv @@ q.fl1 AND (s.tsv @@ q.ft0 OR (s.tsv_capped IS NOT FALSE AND EXISTS (SELECT 1 FROM "public"."fuzzphony_products" AS c WHERE c.id = s.id AND ((c."t_brand" || c."t_description") @@ q.ft0 OR (c."t_description") @@ q.ft0))))) OR q.fn2 OPERATOR("public".<%) s.fz)',
+            $match->predicate,
+            'tsv first (the statement\'s old cost); a capped or not known (NULL) document reads the later fields from its own row, not as columns of the scanned one',
+        );
+        self::assertStringNotContainsString(' s."t_description"', $match->predicate);
+    }
+
+    public function testWithoutTheCappedColumnEveryDocumentTsvDoesNotMatchReadsTheLaterFields(): void
+    {
+        $match = (new FuzzyQueryCompiler(Indexes::products(), new Thresholds(fuzzySimilarity: 0.3), cappedColumn: static fn(): bool => false))->compile(self::parse('"usb receiver"'), new ParameterBag());
+
+        self::assertNotNull($match);
+        self::assertStringContainsString('(s.tsv @@ q.ft0 OR (s."t_brand" || s."t_description") @@ q.ft0 OR (s."t_description") @@ q.ft0)', $match->predicate);
+        self::assertStringNotContainsString('tsv_capped', $match->predicate);
+    }
+
+    public function testTheColumnIsAskedAboutOnlyByAStatementThatNeedsIt(): void
+    {
+        $asked = 0;
+        $ask = static function () use (&$asked): bool {
+            ++$asked;
+
+            return true;
+        };
+        $thresholds = new Thresholds(fuzzySimilarity: 0.3);
+        foreach (['mouse', 'mouse -cable', 'colour:red', 'mous*'] as $text) {
+            (new FuzzyQueryCompiler(Indexes::products(), $thresholds, cappedColumn: $ask))->compile(self::parse($text), new ParameterBag());
+            (new SearchSqlBuilder(Indexes::products(), cappedColumn: $ask))->ranked("'mouse'", 'mouse', null, [], new RankingProfile(), new Thresholds(), 10, 0);
+        }
+        (new FuzzyQueryCompiler(self::singleField(), $thresholds, cappedColumn: $ask))->compile(self::parse('"usb receiver"'), new ParameterBag());
+        (new FuzzyQueryCompiler(Indexes::products(), $thresholds, cappedColumn: $ask))->compile(self::parse('brand:sony'), new ParameterBag());
+        self::assertSame(0, $asked, 'a plain word, an exclusion of a word, a prefix, an unknown field, one field, and a scoped word (the field decides) need no flag');
+
+        (new FuzzyQueryCompiler(Indexes::products(), $thresholds, cappedColumn: $ask))->compile(self::parse('"usb receiver"'), new ParameterBag());
+        self::assertSame(1, $asked);
+    }
+
+    public function testWithTheCappedColumnTheRankReadsTheFieldsOnlyForACappedDocument(): void
+    {
+        $root = self::parse('"usb receiver"');
+        $sql = (new SearchSqlBuilder(Indexes::products(), cappedColumn: static fn(): bool => true))->ranked("('usb' <-> 'receiver')", 'usb receiver', null, [], new RankingProfile(), new Thresholds(), 10, 0, [], $root)['sql'];
+
+        self::assertStringContainsString("CASE WHEN s.tsv_capped IS NOT FALSE AND NOT (s.tsv @@ q.tsq) THEN (SELECT GREATEST(ts_rank_cd('{0.1,0.2,0.4,1}'::real[], c.\"t_name\", q.tsq, 32), ts_rank_cd('{0.1,0.2,0.4,1}'::real[], (c.\"t_brand\" || c.\"t_description\"), q.tsq, 32), ts_rank_cd('{0.1,0.2,0.4,1}'::real[], (c.\"t_description\"), q.tsq, 32)) FROM \"public\".\"fuzzphony_products\" AS c WHERE c.id = s.id) ELSE ts_rank_cd('{0.1,0.2,0.4,1}'::real[], s.tsv, q.tsq, 32) END::double precision AS r_text", $sql);
+        self::assertStringContainsString('WHERE s.tsv @@ q.tsp AND ', $sql);
     }
 
     public function testAnIndexWithOneFieldKeepsTheStrictLookupAndTheRank(): void

@@ -18,7 +18,7 @@ and the [CHANGELOG](CHANGELOG.md) has the full list of changes.
 
 ## From 0.9.7 to 0.9.8
 
-Nothing is required, but **searches that returned nothing may now return results**, in two ways, and **the results of searches with a very common word change** (items 3 and 4):
+Nothing is required, but **run `fuzzphony:schema --apply` and then `fuzzphony:reindex`** (item 5), **searches that returned nothing may now return results**, in two ways, and **the results of searches with a very common word change** (items 3 and 4):
 
 1. **Two swapped neighbouring letters are tolerated** (`mosue` finds `mouse`): a typed word of 4 to 15 letters also matches its
    neighbour-swapped variants as whole words on the typo-tolerant branch (below exact hits, in typo-tolerant fields only; also on
@@ -46,6 +46,16 @@ Nothing is required, but **searches that returned nothing may now return results
    A pager built on it stops at `candidate_limit` hits (2000 by default) and does not offer deeper pages; a page asked for directly
    (`page(150)`) is served, exact, up to 10 000 hits, and the lower-bound total grows with it (`2000+`, then `3000+`, ...). If you want deep paging
    in the pager, raise `candidate_limit` or use `totalIsLowerBound` yourself (it did not change). Nothing else to do; no configuration changed.
+5. **Phrases and field-scoped words after a very long field are found** (a fix, no change for texts under about 16 000 words), and
+   the fast way to find them needs a new sidecar column. `fuzzphony:schema --apply` adds `tsv_capped` (a nullable boolean, only when
+   it is missing, so an apply that finds it takes no lock) and `fuzzphony:reindex` fills it (true when the joined vector reached
+   position 16 383). Until then a phrase (`"usb receiver"`, `usb-c`) on an index with **several fields** is correct but slower: the
+   later fields' vectors are read for every candidate `tsv` does not match as a phrase (about 17 to 22 times slower for a quoted
+   phrase whose words are common on a 12-field index, 1.3 to 1.8 times on 3 fields; measured). A document that is not reindexed
+   yet has no answer (NULL) and is treated as capped: right, slow. An application that has not applied the schema keeps working
+   (the column is looked up in the catalog, once per process: restart long-running workers, or call `PostgresEngine::resetCaches()`,
+   after applying). `fuzzphony:doctor` hints at the missing column as a warning. Single-field indexes, plain words, excluded words,
+   prefixes and typos are not affected. A rebuild with `fuzzphony:reindex` before the schema is applied also fills the column.
 
 If you implement your own `Engine` or build `SearchResult` yourself, the new constructor parameter `correctedFrom` is optional and last.
 
