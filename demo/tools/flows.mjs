@@ -357,6 +357,96 @@ check('who: the chosen filter is marked for assistive technology and a link is r
 await go(page, BASE + '/under-the-hood/observability');
 check('the observability page points to who searched what', (await page.locator('a[href$="/under-the-hood/analytics#who"]').count()) === 1);
 
+// 14. the zero-result rescue: a typo that finds nothing, and has one word of the catalogue exactly one letter away, is answered with the results
+// of that word under a bar that says so ("Showing results for ..."), with a link that searches the typed text as it is (exact=1). The home page
+// searches as you type, which the library never rescues, so the page searches once more as a finished text when that finds nothing.
+// `kpttle` (kettle) and `mpuse` (mouse) are one replaced letter in the middle of a word: typo tolerance does not find them, the rescue does.
+const resultsSettled = async (p, fragment) => {
+    await p.waitForFunction((f) => location.search.includes(f), fragment);
+    await p.waitForSelector('#results:not([aria-busy="true"])');
+};
+await go(page, BASE + '/');
+await page.click('input[type=search]');
+await page.keyboard.type('kpttle', { delay: 50 });
+await resultsSettled(page, 'q=kpttle');
+const bar = page.locator('#results .corrected');
+check('rescue: a typo that finds nothing shows the bar with the corrected query', (await bar.count()) === 1 && /Showing results for\s+\S*kettle/.test(await bar.innerText()), (await bar.allInnerTexts()).join('|'));
+check('rescue: and the results of the corrected query', (await page.locator('#results .hit-row').count()) > 0);
+check('rescue: and no second sentence for the same thing in the warnings', (await page.locator('#results .warnings').count()) === 0);
+check('rescue: and no "did you mean" (the suggestion was taken)', (await page.locator('#results .did-you-mean').count()) === 0);
+const insteadLink = bar.locator('a');
+check('rescue: the link says what it searches, in the typed words', (await insteadLink.innerText()) === 'Search for “kpttle” instead', await insteadLink.innerText());
+check('rescue: and it asks for the exact text', ((await insteadLink.getAttribute('href')) ?? '').includes('exact=1'));
+check('rescue: the notice is part of the live region the results are announced from', await page.evaluate(() => document.querySelector('#results .corrected')?.closest('[aria-live]')?.id === 'results'));
+
+// typing on to a query that finds something removes the bar (it belongs to the fragment the live search replaces)
+await page.fill('input[name=q]', 'kettle');
+await resultsSettled(page, 'q=kettle');
+check('rescue: a following search that needs no rescue removes the bar', (await page.locator('#results .corrected').count()) === 0 && (await page.locator('#results .hit-row').count()) > 0);
+await page.fill('input[name=q]', 'kpttle');
+await resultsSettled(page, 'q=kpttle');
+check('rescue: and typing the typo again brings it back', (await page.locator('#results .corrected').count()) === 1);
+
+// the link, with the keyboard: the focus and Enter
+await page.locator('#results .corrected a').focus();
+check('rescue: the link takes the keyboard focus', await page.evaluate(() => document.activeElement?.closest('.corrected') !== null));
+await Promise.all([page.waitForURL(/exact=1/), page.keyboard.press('Enter')]);
+await page.waitForLoadState('load');
+check('rescue: "search instead" keeps the typed text and adds exact=1', page.url().includes('q=kpttle') && page.url().includes('exact=1'), page.url());
+check('rescue: and shows no bar and no results', (await page.locator('.corrected').count()) === 0 && (await page.locator('#results .hit-row').count()) === 0);
+check('rescue: but says nothing was found for the typed text, with the suggestion', /Nothing found for “kpttle”/.test(await page.locator('#results .empty').innerText()) && (await page.locator('#results .did-you-mean a').count()) === 1);
+check('rescue: the Results and Speed links keep the exact text', ((await page.locator('.segmented a >> text=Speed').getAttribute('href')) ?? '').includes('exact=1'));
+
+// a normal query, a typo that typo tolerance finds, and nonsense: no bar
+for (const [what, q, hits] of [['a normal query', 'mouse', true], ['a typo that typo tolerance finds (it has results and a suggestion)', 'hedphones', true], ['nonsense', `qzxv${suffix}8`, false]]) {
+    await go(page, `${BASE}/?q=${encodeURIComponent(q)}`);
+    check(`rescue: ${what} shows no bar`, (await page.locator('.corrected').count()) === 0 && ((await page.locator('#results .hit-row').count()) > 0) === hits);
+}
+
+// the visitor's own words are escaped, in the bar and in the "nothing found" line: no element comes out of them
+const hostile = 'mpuse<>"\'&';
+await go(page, `${BASE}/?q=${encodeURIComponent(hostile)}`);
+check('rescue: HTML characters in a rescued query are text in the bar', (await page.locator('.corrected a').innerText()) === `Search for “${hostile}” instead` && (await page.locator('.corrected > *').count()) === 2, (await page.locator('.corrected').allInnerTexts()).join('|'));
+const injected = '<img src=x onerror="window.__xss=1"> <script>window.__xss=2</script>';
+for (const q of [injected, `mpuse ${injected}`]) {
+    await go(page, `${BASE}/?q=${encodeURIComponent(q)}`);
+    await page.waitForTimeout(300);
+    check('rescue: HTML in the typed text is not an element and does not run', (await page.locator('#results img, #results script').count()) === 0 && (await page.evaluate(() => window.__xss)) === undefined && (await page.locator('#results').innerHTML()).includes('&lt;img'));
+}
+
+// the log keeps what was typed, with the hits of the rescued search: the typo is among the most searched, not among the searches that found nothing
+for (let i = 0; i < 3; i++) {
+    await go(page, BASE + '/?q=mpuse');
+}
+let rescuedTop = [];
+let rescuedZero = [];
+let rescuedRows = [];
+for (let attempt = 0; attempt < 6; attempt++) {
+    await go(page, BASE + '/under-the-hood/analytics');
+    const tables = page.locator('.table-card');
+    rescuedTop = (await tables.nth(0).locator('td code').allTextContents()).map((t) => t.trim());
+    rescuedZero = (await tables.nth(1).locator('td code').allTextContents()).map((t) => t.trim());
+    rescuedRows = await listSection.locator('tbody tr').all();
+    if (rescuedTop.includes('mpuse')) {
+        break;
+    }
+    await page.waitForTimeout(500);
+}
+check('rescue: the analytics page lists the rescued typo among the most searched', rescuedTop.includes('mpuse'), rescuedTop.join(', '));
+check('rescue: and not among the searches that found nothing', !rescuedZero.includes('mpuse'), rescuedZero.join(', '));
+check('rescue: but the typed text searched "instead" (exact) is one that found nothing', rescuedZero.includes('kpttle'), rescuedZero.join(', '));
+const rescuedHits = [];
+for (const tr of rescuedRows) {
+    if ((await tr.locator('td code').innerText()) === 'mpuse') {
+        rescuedHits.push((await tr.locator('td.num').innerText()).trim());
+    }
+}
+check('rescue: who searched what lists the typed text with the hits of the rescued search', rescuedHits.length > 0 && rescuedHits.every((h) => h !== '0'), rescuedHits.join(', '));
+await go(page, BASE + '/under-the-hood/observability?q=mpuse');
+check('rescue: the observability page counts a rescued search', /fuzzphony\.search\.rescued/.test(await page.locator('body').innerText()));
+await go(page, BASE + '/relevance?q=mpuse');
+check('rescue: the Relevance page shows what each rule finds, not a rescue (the price of a letter replaced in the middle)', /\b0 hits/.test(await page.locator('body').innerText()));
+
 await secContext.close();
 
 await browser.close();
