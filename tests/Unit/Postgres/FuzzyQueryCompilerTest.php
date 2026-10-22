@@ -238,9 +238,21 @@ final class FuzzyQueryCompilerTest extends TestCase
         $compiler = $this->compiler();
 
         self::assertSame($stops = ["'the'", "'who'"], $compiler->keepingStopWords(self::parse('the who rock'), $stops), 'a real word to look for');
-        self::assertSame($stops, $compiler->keepingStopWords(self::parse('the who -rock'), $stops), 'a real word to exclude: the strict branch is a pure exclusion, left as it is');
         self::assertSame($stops, $compiler->keepingStopWords(self::parse('the who (rock | live)'), $stops));
-        self::assertSame($stops, $compiler->keepingStopWords(self::parse('the who -(rock | the)'), $stops), 'a group to exclude has a real word');
+    }
+
+    public function testAnExclusionOfARealWordDoesNotStopTheStopWordsFromBeingKept(): void
+    {
+        $compiler = $this->compiler();
+        $stops = ["'the'", "'who'"];
+
+        self::assertSame([], $compiler->keepingStopWords(self::parse('the who -rock'), $stops), 'what is excluded does not matter, only what is looked for (it used to be a pure exclusion)');
+        self::assertSame([], $compiler->keepingStopWords(self::parse('the who -(rock | the)'), $stops), 'a group to exclude too');
+        self::assertTrue($compiler->mayKeepStopWords(self::parse('the who -rock')));
+        self::assertTrue($compiler->searchesStopWords(self::parse('the who -rock'), $stops));
+        self::assertFalse($compiler->searchesStopWords(self::parse('the who rock -live'), $stops), 'a real word to look for');
+        self::assertFalse($compiler->mayKeepStopWords(self::parse('-rock the who and for')), 'four words');
+        self::assertFalse($compiler->searchesStopWords(self::parse('-rock'), $stops), 'nothing to look for');
     }
 
     public function testStopWordsBelowTheMinimumLengthAreNotKept(): void
