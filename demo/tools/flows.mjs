@@ -444,7 +444,7 @@ for (const tr of rescuedRows) {
         insteadHits.push((await tr.locator('td.num').innerText()).trim());
     }
 }
-check('rescue: but the typed text searched "instead" (exact) is logged as the search that found nothing it is', insteadHits.length > 0 && insteadHits.every((h) => h === '0'), insteadHits.join(', '));
+check('rescue: the same text searched "instead" (exact) is logged as the search that found nothing it is, next to the rescued one', insteadHits.includes('0') && insteadHits.some((h) => h !== '0'), insteadHits.join(', '));
 check('rescue: who searched what lists the typed text with the hits of the rescued search', rescuedHits.length > 0 && rescuedHits.every((h) => h !== '0'), rescuedHits.join(', '));
 await go(page, BASE + '/under-the-hood/observability?q=mpuse');
 check('rescue: the observability page counts a rescued search', /fuzzphony\.search\.rescued/.test(await page.locator('body').innerText()));

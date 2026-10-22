@@ -16,6 +16,8 @@ const ONLY = process.env.ONLY ? process.env.ONLY.split(',') : null;
 const pages = JSON.parse(process.env.PAGES ?? JSON.stringify([
     { name: 'home', path: '/' },
     { name: 'home-query', path: '/?q=mouse' },
+    { name: 'home-rescue', path: '/?q=mpuse' }, // the zero-result rescue bar: "Showing results for (mouse OR mice)" and the link to search the typed text
+    { name: 'home-exact', path: '/?q=mpuse&exact=1' }, // after "Search for mpuse instead": nothing found, and the suggestion
     { name: 'relevance', path: '/relevance?q=tv' },
     { name: 'tune', path: '/tune?query=tv' },
     { name: 'languages', path: '/languages?lang=hu&q=tv' },
