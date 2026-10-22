@@ -7,6 +7,10 @@ changes; they are always listed under **Breaking** and explained in [UPGRADE.md]
 
 ## [Unreleased]
 
+### Added
+
+- **Demo: a "Showing results for ..." bar for the zero-result rescue.** The search page shows a calm notice above the results of a text that found nothing and was answered by the rescue (`mpuse` finds `mouse`): *Showing results for `(mouse OR mice)`* with a link *Search for "mpuse" instead* (`?q=mpuse&exact=1`, searched with `thresholds(['rescue_empty' => false])`). `correctedFrom` and `interpretedAs` are escaped by Twig, the bar is part of the results fragment the live search replaces, and the rescue's warning is not repeated. The page searches as you type, which the library never rescues, so it runs a second, finished-text search when the first finds nothing (the first is a probe, never logged; the log keeps the typed text with the rescued hits, so the Analytics page no longer lists `mpuse` under "Found nothing"). The Relevance and Synonyms pages switch the rescue off (they show what each rule finds), Observability shows the `fuzzphony.search.rescued` counter. `demo/tools/flows.mjs` has 26 more checks (94), `demo/tools/shots.mjs` two more pages (`home-rescue`, `home-exact`), new screenshot in [docs/screenshots.md](docs/screenshots.md). See [demo/README.md](demo/README.md).
+
 ## [0.9.8] - 2026-10-22
 
 The round before the API review: the best match of a very common word is no longer lost above `candidate_limit`, a rate limit for anonymous visitors by IP, typo tolerance for swapped letters and a zero-result rescue, phrases and field-scoped words after a very long field, and fewer surprises for restricted viewers. Searches with a rare word are unchanged; searches with a very common word rank differently (for the better), and searches that found nothing may now find something. Run `fuzzphony:schema --apply` and `fuzzphony:reindex` (see [UPGRADE.md](UPGRADE.md#from-097-to-098)); nothing else is required.

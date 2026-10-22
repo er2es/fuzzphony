@@ -12,6 +12,15 @@ number at the top is how long PostgreSQL took.
 
 ![Search: the typo "hedphones" finds headphones, with "Did you mean", facets and the time taken](image/search-typo.png)
 
+## Search: the zero-result rescue
+
+`mpuse` (a letter replaced in the middle of `mouse`) is not found by typo tolerance, but the vocabulary has exactly one word one edit
+away, so the search is run once more with it and a bar above the results says so: "Showing results for `(mouse OR mice)`"
+(the synonyms of the corrected query show), with a link that searches the typed text as it is (`exact=1`). See
+[Zero-result rescue](searching.md#zero-result-rescue).
+
+![Search: "mpuse" is answered with the results for mouse, under a bar with a link to search for mpuse instead](image/search-rescue.png)
+
 ## Synonyms, and the "Under the hood" menu
 
 `tv` finds the television that is called "Smart Television" and the "TV Wall Bracket": the synonyms of the catalogue are part
