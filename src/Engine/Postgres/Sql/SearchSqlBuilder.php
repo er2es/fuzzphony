@@ -64,6 +64,16 @@ final class SearchSqlBuilder
     private const int SCAN_BUDGET = 100_000;
 
     /**
+     * How many matches the ordered selection scans for a query that looks `$operands` words up: the cost of ranking a document grows
+     * with the words, so the budget of one word is divided by their number (a work budget, not a row budget), but it never drops
+     * under the window (`$window`: the candidates asked for).
+     */
+    public static function scanLimit(int $budget, int $operands, int $window): int
+    {
+        return max($window, intdiv($budget, max(1, $operands)));
+    }
+
+    /**
      * How many full-text candidates a search selects: the candidate limit, or more for a page past it (the first
      * `offset + limit` of the best), at most Thresholds::MAX_CANDIDATE_LIMIT.
      */
@@ -141,8 +151,18 @@ final class SearchSqlBuilder
         // candidates are then looked up in the form a restricted viewer's are, and the recheck decides
         $positional = $this->allowedFields === null && $scopedRoot !== null && count($this->index->fields) > 1
             && (new TsQueryCompiler($this->index))->dependsOnPositions($scopedRoot);
+        // the text rank looks every word of its query up in every document: the query without its exclusions (an excluded word is not in a
+        // document that matches, so the rank is the same), see TsQueryCompiler::withoutExclusions()
+        $rankQuery = 'q.tsq';
+        $operands = 1;
         if ($tsquery !== null) {
             $q[] = sprintf('to_tsquery(%s, %s) AS tsq', $config, $params->add($tsquery));
+            $rankForm = TsQueryCompiler::withoutExclusions($tsquery);
+            if ($rankForm !== $tsquery) {
+                $q[] = sprintf('to_tsquery(%s, %s) AS tsr', $config, $params->add($rankForm));
+                $rankQuery = 'q.tsr';
+            }
+            $operands = TsQueryCompiler::operands($rankForm);
             if ($this->allowedFields !== null || $positional) {
                 // An excluded word would exclude by every field, the hidden ones too: the lookup is the positive part
                 // only (a superset), the recheck below decides; nothing positive to look up leaves the recheck alone.
@@ -195,7 +215,7 @@ final class SearchSqlBuilder
         if ($tsquery !== null) {
             $ordered = $window !== null && !$uncapped;
             $fast = $ordered ? 'fts_fast' : 'fts';
-            $rank = $this->textRank($profile, $positional) . '::double precision';
+            $rank = $this->textRank($profile, $positional, $rankQuery) . '::double precision';
             $where = implode(' AND ', $strict) . ' AND ' . $filters->compile($conditions, $params);
             $ctes[] = sprintf(
                 "%s AS (
@@ -239,7 +259,7 @@ final class SearchSqlBuilder
                     $bonuses[3],
                     $table,
                     $where,
-                    $this->scanBudget,
+                    self::scanLimit($this->scanBudget, $operands, $n),
                     $min,
                     Sql::float($profile->text),
                 );
@@ -546,10 +566,10 @@ SELECT
      * tsv_capped column only a document that is capped (or not known to be: NULL) can be one of those, so every other document
      * is ranked on tsv without even the check.
      */
-    private function textRank(RankingProfile $profile, bool $positional): string
+    private function textRank(RankingProfile $profile, bool $positional, string $rankQuery = 'q.tsq'): string
     {
         $weights = self::tsRankWeights($profile);
-        $rank = static fn(string $vector): string => sprintf("ts_rank_cd('%s'::real[], %s, q.tsq, 32)", $weights, $vector);
+        $rank = static fn(string $vector): string => sprintf("ts_rank_cd('%s'::real[], %s, %s, 32)", $weights, $vector, $rankQuery);
         if (!$positional) {
             return $rank($this->rankVector());
         }

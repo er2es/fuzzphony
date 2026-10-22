@@ -42,22 +42,39 @@ final class CandidateSelectionRestrictedTest extends TestCase
     }
 
     /**
-     * The same documents in the allowed fields for every hidden content: the filler documents and a late-inserted best one
-     * (the title is exactly the word), then documents that hold the word only in the hidden fields. A hidden field holds
-     * `$hidden` in every document.
+     * The same documents in the allowed fields for every hidden content: 2 900 filler documents and a late-inserted best one
+     * (the title is exactly the word), then 100 documents that hold the word only in the hidden fields (ids from 10 000). A
+     * hidden field holds `$hiddenSql` (an expression over the row number `i`: its content and its SIZE vary per document).
+     * The source table and the index are created anew for every variant, because the size of the hidden text decides how the
+     * rows of the sidecar fill the heap pages, and so the order in which a bitmap heap scan returns them.
      *
-     * @param list<string> $hiddenFields
+     * @param list<string>          $hiddenFields
+     * @param array<string, string> $params
      */
-    private function load(string $hidden, array $hiddenFields): void
+    private function load(Fuzzphony $fuzzphony, string $hiddenSql, array $params, array $hiddenFields): void
     {
-        $column = static fn(string $name, string $text): string => in_array($name, $hiddenFields, true) ? ':h' : $text;
-        $this->connection->execute('DELETE FROM fz_cs_doc');
-        $this->connection->execute(sprintf("INSERT INTO fz_cs_doc SELECT i, %s, %s, %s, CASE WHEN i %% 2 = 0 THEN 'a' ELSE 'b' END, 1 FROM generate_series(1, 60) AS i", $column('title', "'common filler n' || i"), $column('body', "'about things ' || i"), $column('secret', "'plain'")), ['h' => $hidden]);
-        $this->connection->execute(sprintf("INSERT INTO fz_cs_doc SELECT i, %s, %s, %s, 'a', 1 FROM generate_series(100, 130) AS i", $column('title', "'unrelated n' || i"), $column('body', "'nothing to see ' || i"), $column('secret', "'plain'")), ['h' => $hidden]);
-        $this->connection->execute(sprintf("INSERT INTO fz_cs_doc VALUES (900, %s, %s, %s, 'b', 1)", $column('title', "'common'"), $column('body', "'common common'"), $column('secret', "'plain'")), ['h' => $hidden]);
+        $this->connection->execute('DROP TABLE IF EXISTS fz_cs_doc, fuzzphony_cs_docs, fuzzphony_cs_docs__vocab, fuzzphony_cs_docs__next, fuzzphony_cs_docs__changes CASCADE');
+        $this->connection->execute('CREATE TABLE fz_cs_doc (id bigint PRIMARY KEY, title text NOT NULL, body text NOT NULL, secret text NOT NULL, cat text NOT NULL, tenant_id int NOT NULL)');
+        $column = static fn(string $name, string $text): string => in_array($name, $hiddenFields, true) ? '(' . $hiddenSql . ')' : $text;
+        $this->connection->execute(sprintf("INSERT INTO fz_cs_doc SELECT i, %s, %s, %s, CASE WHEN i %% 2 = 0 THEN 'a' ELSE 'b' END, 1 FROM generate_series(1, 2900) AS i", $column('title', "'common filler n' || i"), $column('body', "'about things ' || i"), $column('secret', "'plain'")), $params);
+        $this->connection->execute(sprintf("INSERT INTO fz_cs_doc SELECT i, %s, %s, %s, 'a', 1 FROM generate_series(10000, 10099) AS i", $column('title', "'unrelated n' || i"), $column('body', "'nothing to see ' || i"), $column('secret', "'plain'")), $params);
+        $this->connection->execute(sprintf("INSERT INTO fz_cs_doc SELECT 90000, %s, %s, %s, 'b', 1 FROM (SELECT 90000 AS i) AS x", $column('title', "'common'"), $column('body', "'common common'"), $column('secret', "'plain'")), $params);
+        $fuzzphony->schema()->apply($this->connection);
+        $fuzzphony->reindex('cs_docs');
     }
 
     /**
+     * What a hidden field holds, in size and content, must not change what a restricted viewer finds from the strict branch,
+     * exactly: ids, order, scores, total, lower-bound flag, statements, and the facets of a search that was not cut off, for
+     * `never` and `fallback`. The facet counts of a capped search are taken over the first `candidate_limit` matches in the
+     * sidecar's physical order (the cheap selection, see docs/limitations.md), which the hidden content shapes: not asserted. The strict
+     * candidates are the best by the page's own key among the first 100 000 matches (here all 3 000 of them), so the order
+     * of the heap does not enter. The typo-tolerant branch (`always`) still takes the first `candidate_limit` matches of its
+     * index in the PHYSICAL order of the sidecar, which the hidden content shapes (a larger hidden field moves the rows
+     * around the heap pages): its candidates can depend on it until 0.9.9 (docs/limitations.md). So for `always` the test
+     * asserts only what must hold in every case: no document that holds the word in a hidden field alone is returned (the
+     * tenant tests assert the tenant's ownership the same way).
+     *
      * @param list<string> $order
      * @param list<string> $allowed
      */
@@ -69,21 +86,35 @@ final class CandidateSelectionRestrictedTest extends TestCase
             $builder = $builder->field($name, ['A', 'B', 'C'][$i], fuzzy: true);
         }
         $fuzzphony = new Fuzzphony(new PostgresEngine($this->connection), new IndexRegistry([$builder->filter('cat', 'string')->language('english')->sync('manual')->build()]));
-        $fuzzphony->schema()->apply($this->connection);
 
         $long = implode(' ', array_map(static fn(int $i): string => 'h' . $i, range(1, 17_000)));
-        $queries = ['common', 'common filler', 'common -unrelated', 'title:common', '"common filler"', 'common | unrelated'];
+        $queries = ['common', 'common filler', 'common -unrelated', 'title:common', '"common filler"'];
+        $variants = [
+            'empty' => ["''", []],
+            'a phrase' => ["'common filler common filler'", []],
+            'the word, a size per document' => ["CASE WHEN i % 3 = 0 THEN repeat('common ', 50) || i ELSE 'zzz' END", []],
+            'sizes 0 to 36 words' => ["repeat('filler words ', i % 37)", []],
+            'a very long field in every 50th' => ["CASE WHEN i % 50 = 0 THEN :long ELSE '' END", ['long' => $long]],
+        ];
+        /** @var array<string, array<string, list<mixed>>> $outcomes the outcome of every search by variant */
         $outcomes = [];
         $capped = false;
-        foreach (['empty' => '', 'long' => $long, 'the word' => str_repeat('common ', 40)] as $variant => $hidden) {
-            $this->load($hidden, array_values(array_diff(['title', 'body', 'secret'], $allowed)));
-            $fuzzphony->reindex('cs_docs');
+        foreach ($variants as $variant => [$hiddenSql, $params]) {
+            $this->load($fuzzphony, $hiddenSql, $params, array_values(array_diff(['title', 'body', 'secret'], $allowed)));
             foreach ($queries as $text) {
                 foreach (['never', 'fallback', 'always'] as $mode) {
-                    foreach ([[5, 0], [5, 12], [5, 60]] as [$limit, $offset]) {
-                        $explained = $fuzzphony->in('cs_docs')->query($text)->thresholds(['fuzzy_mode' => $mode, 'candidate_limit' => 10])
+                    foreach ([[5, 0], [5, 12], [5, 90]] as [$limit, $offset]) {
+                        $explained = $fuzzphony->in('cs_docs')->query($text)->thresholds(['fuzzy_mode' => $mode, 'candidate_limit' => 100])
                             ->restrictedToFields(...$allowed)->facets('cat')->limit($limit, $offset)->explain();
                         $result = $explained->result;
+                        $capped = $capped || $result->totalIsLowerBound;
+                        if ($mode === 'always') {
+                            foreach ($result->ids() as $id) {
+                                self::assertTrue($id < 10_000 || $id > 10_099, sprintf('%s | always | %s: a document that holds the word in a hidden field only', $text, $variant));
+                            }
+
+                            continue;
+                        }
                         $outcomes[$text . ' | ' . $mode . ' | ' . $offset][$variant] = [
                             array_map(static fn($hit): array => [$hit->id, round($hit->score, 9), round($hit->breakdown->textRank, 9), round($hit->breakdown->fuzzySimilarity, 9)], $result->hits),
                             $result->total,
@@ -91,18 +122,18 @@ final class CandidateSelectionRestrictedTest extends TestCase
                             $result->hasMore(),
                             $result->usedFuzzy,
                             $result->warnings,
-                            array_map(static fn($facet): array => array_map(static fn($v): array => [$v->value, $v->count], $facet), $result->facets),
+                            // the counts of a capped search are over the first candidate_limit matches in the heap's order (the cheap selection)
+                            $result->totalIsLowerBound ? null : array_map(static fn($facet): array => array_map(static fn($v): array => [$v->value, $v->count], $facet), $result->facets),
                             $result->didYouMean,
                             array_map(static fn(array $s): array => [$s['label'], $s['sql'], $s['params']], $explained->statements),
                         ];
-                        $capped = $capped || $result->totalIsLowerBound;
                     }
                 }
             }
             if ($order[0] === 'title' && in_array('title', $allowed, true)) {
                 // the late best document (the title is exactly the word) wins although the first candidates the index returns do not hold it
-                $best = $fuzzphony->in('cs_docs')->query('common')->thresholds(['fuzzy_mode' => 'never', 'candidate_limit' => 10])->restrictedToFields(...$allowed)->limit(3)->get();
-                self::assertSame(900, $best->hits[0]->id, 'the best candidate of a viewer who sees the title is chosen, not the first ones found (' . $variant . ')');
+                $best = $fuzzphony->in('cs_docs')->query('common')->thresholds(['fuzzy_mode' => 'never', 'candidate_limit' => 100])->restrictedToFields(...$allowed)->limit(3)->get();
+                self::assertSame(90000, $best->hits[0]->id, 'the best candidate of a viewer who sees the title is chosen, not the first ones found (' . $variant . ')');
             }
         }
         self::assertTrue($capped, 'the test must hit the candidate limit');

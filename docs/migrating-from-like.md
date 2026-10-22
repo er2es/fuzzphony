@@ -232,7 +232,8 @@ both. PostgreSQL has no `FIELD()`, so there is nothing to translate `ORDER BY FI
 are ranked (2000 by default, at most 10 000), so for a very common word the total is a **lower bound** ("2000+").
 `hasMore()` is true while hits follow the page among the candidates and **false at the last page of the candidates**: a pager
 that follows it stops at 2000 hits. A page asked for directly past them is still served and exact (the best `offset + limit`
-hits, up to 10 000 hits, with a lower-bound total that grows with the page); beyond 10 000 a page is empty.
+hits, up to 10 000 hits, with a lower-bound total that grows with the page); beyond 10 000 a page is empty and `hasMore()` is false
+(also with `exactCounts()`, whose total can be larger).
 
 <!-- tested: pagination -->
 ```php
