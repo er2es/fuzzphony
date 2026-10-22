@@ -85,7 +85,9 @@ services:
 - `fuzzphony.search.denied` also counts a search refused by the authorization guard (`reason=authorization`,
   and a refused `suggest()`), and `fuzzphony.search.rate_limited` (a counter, label `index`) a search over the
   rate limit; both write a warning log line and a `denied` / `rate_limited` row in the search log. See
-  [Security](security.md#refusals-in-metrics-logs-and-the-search-log).
+  [Security](security.md#refusals-in-metrics-logs-and-the-search-log). `fuzzphony.search.rate_limit_unkeyed`
+  (a counter without labels, once per process) says a `per: ip` actor carried an address that is no IP address and
+  was not limited; see [Limiting anonymous visitors by IP](security.md#limiting-anonymous-visitors-by-ip).
 - The search log (opt-in): `fuzzphony.search_log.failed` (a counter) counts the records that could not be
   recorded or written (labeled `index` when one search failed to record, and by the size of the batch when a write
   failed, without a label); the search itself is never affected. `fuzzphony.search_log.ip_dropped` counts the client
