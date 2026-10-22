@@ -109,8 +109,20 @@ fuzzphony:
   The address is independent of `search_log.ip`, which only decides what the log **stores**: with the
   default `off` the address is used for the limit and never written down.
 - **The bucket** of an IPv4 address is the address; of an IPv6 address its **/64** (a visitor owns a whole /64
-  and can rotate inside it, so a bucket per address would limit nothing); an IPv4-mapped IPv6 address
-  (`::ffff:203.0.113.45`) is the IPv4 address it carries.
+  and can rotate inside it, so a bucket per address would limit nothing). An IPv6 address that **embeds an
+  IPv4 address** is that IPv4 address, in whatever spelling: IPv4-mapped (`::ffff:203.0.113.45`),
+  IPv4-compatible (`::203.0.113.45`, `::/96`), NAT64 (`64:ff9b::203.0.113.45`, `64:ff9b::/96`: behind a NAT64
+  gateway one /64 carries every IPv4 visitor, which a /64 bucket would turn into ONE bucket for all of them)
+  and 6to4 (`2002:cb00:712d::1`, `2002::/16`: the IPv4 address is bits 16 to 48, and the visitor owns the
+  whole /48 behind it, 65 536 /64s). So the same IPv4 client is one bucket however it reaches you. Ordinary
+  IPv6 stays a /64.
+- **An address that is not exactly an IP address** (only an `ActorResolver` of your own can produce one:
+  `getClientIp()` never does) is normalised when that is safe: surrounding whitespace, a port after an IPv4
+  address (`1.2.3.4:80`), brackets and a port around an IPv6 address (`[2001:db8::1]:443`) and a zone id
+  (`fe80::1%eth0`). What is still no IP address (`unknown`, a list such as `1.2.3.4, 5.6.7.8`) gets no bucket and
+  is **not limited** (fail open, a refused visitor is worse than an unlimited one), but it is reported: the
+  counter `fuzzphony.search.rate_limit_unkeyed` (no labels) and a warning log line, **once per process**,
+  never with the value. If you see it, fix your resolver.
 - **The default limiter.** With `per: ip` and no `limiter`, the bundle prepends this entry to
   `framework.rate_limiter` and uses it (service `limiter.fuzzphony_ip`):
 
@@ -122,7 +134,8 @@ fuzzphony:
 
   It is deliberately loose: it only stops a script that hammers the endpoint, not a person. To change the
   numbers, define your own entry and name it (`rate_limit: { limiter: public_search, per: ip }`), or define
-  an entry called `fuzzphony_ip` yourself: the bundle does not prepend one when you did, and it does not
+  an entry called `fuzzphony_ip` yourself (directly under `rate_limiter`, or under its `limiters` / `limiter`
+  key): the bundle does not prepend one when you did, and it does not
   override your entry. Naming a `limiter` always wins over the default.
 - **A refusal** is a `RateLimited` like any other: HTTP 429 with `Retry-After`, a `rate_limited` row in the
   search log, the `fuzzphony.search.rate_limited` counter and the warning log line. None of them carries the
@@ -155,9 +168,14 @@ What the limit by IP cannot do, and what to know before you rely on it:
   filter always name an actor, your own controller must too: `->asActor($actors->resolve())`).
 - **The address is read per request** when the actor is resolved, and is not stored by Fuzzphony unless
   `search_log.ip` says so. The limiter keeps its own state in the cache pool of its entry for the length of
-  the window: the bundle hands the limiter a SHA-256 hash of the bucket key, never the address, but an IPv4
-  address can be recovered from a hash by trying all of them, so treat that pool as holding personal data for a
-  minute (it expires by itself).
+  the window: the bundle hands the limiter an HMAC-SHA-256 of the bucket key, keyed with your `kernel.secret`,
+  never the address, so whoever can read the pool (a shared cache server, a backup) cannot recover the
+  addresses by trying all of them without the secret. The key is stable across requests and across servers
+  that share the secret (so a Redis pool shared by several servers works), and **rotating `kernel.secret`
+  resets every bucket** (each visitor starts a fresh window, once). Without the bundle, `RateLimitGuard` takes
+  the secret as its third constructor argument and falls back to a fixed public default, which keeps the
+  address out of the pool in clear but is no protection against enumeration. Even so, treat the pool as
+  holding personal data for a minute (it expires by itself).
 - **The limiter's state lives in the cache pool of the limiter** (`cache.rate_limiter`, a filesystem pool by
   default, and a lock per search): on a public endpoint every search then touches a file, so use APCu or
   Redis as described above (one server: APCu; several: Redis for the pool and for `lock_factory`).

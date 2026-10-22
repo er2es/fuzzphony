@@ -373,10 +373,14 @@ address). Its limits:
 - **A call without a request is not limited by IP**: a plain PHP call, a console command, a worker, an actor
   built without `ip:`, and a search made without any `asActor()` (no guard runs then) have no address.
   Fuzzphony cannot limit what it does not see.
-- **An IPv6 address is limited by its /64**, an IPv4-mapped IPv6 address as the IPv4 address it carries; a
-  visitor with a /64 to himself is one bucket, which is the point.
+- **An IPv6 address is limited by its /64**; an address that embeds an IPv4 address (IPv4-mapped,
+  IPv4-compatible, NAT64 `64:ff9b::/96`, 6to4 `2002::/16`) as that IPv4 address. A visitor with a /64 to
+  himself is one bucket, which is the point.
+- **An address that is no IP address is not limited** (fail open) after the safe normalisations (whitespace,
+  a port, brackets, a zone id); only an `ActorResolver` of your own can produce one. It is reported once per
+  process (`fuzzphony.search.rate_limit_unkeyed`), never with the value.
 - The address is read per request and not stored unless `search_log.ip` says so; the limiter's state lives in
-  its cache pool (a hash of the key, for the window), and the default filesystem pool locks and writes a file
+  its cache pool (an HMAC of the key keyed with `kernel.secret`, for the window; rotating the secret resets the buckets), and the default filesystem pool locks and writes a file
   on every search.
 - With `authorization` enabled, a request without a Security token is refused before the limit is looked at,
   so `per: ip` is the setting for a public search box, not for a signed-in-only one.

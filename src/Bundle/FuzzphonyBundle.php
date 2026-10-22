@@ -238,8 +238,11 @@ final class FuzzphonyBundle extends AbstractBundle
         }
         foreach ($builder->getExtensionConfig('framework') as $framework) {
             $limiters = is_array($framework['rate_limiter'] ?? null) ? $framework['rate_limiter'] : [];
-            if (array_key_exists(self::DEFAULT_IP_LIMITER, $limiters)) {
-                return;
+            // the entries are keyed by name directly, and the `limiters` / `limiter` wrappers are accepted too
+            foreach ([$limiters, $limiters['limiters'] ?? null, $limiters['limiter'] ?? null] as $named) {
+                if (is_array($named) && array_key_exists(self::DEFAULT_IP_LIMITER, $named)) {
+                    return;
+                }
             }
         }
         $builder->prependExtensionConfig('framework', ['rate_limiter' => [self::DEFAULT_IP_LIMITER => ['policy' => 'sliding_window', 'limit' => 600, 'interval' => '1 minute']]]);
@@ -380,7 +383,7 @@ final class FuzzphonyBundle extends AbstractBundle
         if ($limiterName !== '') {
             self::assertRateLimiterPackage(class_exists(RateLimiterFactory::class));
             $services->set('fuzzphony.guard.rate_limit', RateLimitGuard::class)
-                ->args([service('limiter.' . $limiterName), $per]);
+                ->args([service('limiter.' . $limiterName), $per, '%kernel.secret%', service('fuzzphony.metrics'), service('logger')]);
             $guards[] = service('fuzzphony.guard.rate_limit');
         }
         $gateArguments = static fn(array $guards): array => [
