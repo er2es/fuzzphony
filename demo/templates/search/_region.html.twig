@@ -44,7 +44,7 @@
             {% if result.correctedFrom is not null %}
                 {# The zero-result rescue: the typed text found nothing and was searched again with its unique one-edit correction. Both texts are
                    the visitor's own words: Twig escapes them. The warning that says the same is left out below; the link searches the typed text as it is. #}
-                <p class="corrected">Showing results for <strong><code>{{ result.interpretedAs }}</code></strong>.
+                <p class="corrected">Showing results for <strong><code>{{ result.interpretedAs }}</code></strong>
                     <a href="{{ u.url(q, view, category, stock, {exact: 1}) }}">Search for “{{ result.correctedFrom }}” instead</a></p>
             {% endif %}
             {% set notes = result.correctedFrom is not null ? result.warnings|filter(w => not (w starts with 'No results for ')) : result.warnings %}
