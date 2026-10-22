@@ -190,7 +190,7 @@ final class ShopTest extends KernelTestCase
         self::assertSame('(laptop OR notebook OR portable)', $laptop->interpretedAs);
 
         $typo = $this->fuzzphony()->in('products')->query('hedphones')->get();
-        self::assertSame('headphones', $typo->didYouMean);                     // a suggestion to show as a link: it is never searched by itself
+        self::assertSame('headphones', $typo->didYouMean);                     // a suggestion to show as a link: it is not searched for the visitor unless a search finds nothing
         // endregion
 
         self::assertNull($this->fuzzphony()->in('products')->query('headphones')->get()->didYouMean, 'a word the index knows is never "corrected"');

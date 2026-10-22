@@ -9,18 +9,18 @@ happens, why, and what to do. The statements here were checked against the code 
 
 - [Search quality](#search-quality): [typo tolerance](#typo-tolerance-is-trigram-based), [whole words](#a-word-is-matched-as-a-whole-word),
   [stop words](#stop-words-are-ignored-and-only-a-query-of-nothing-else-finds-them), [languages](#stemming-covers-regular-forms-one-language-per-index),
-  [candidate limit](#ranking-is-approximate-beyond-candidate_limit), [facet counts](#facet-counts-are-over-the-candidates),
+  [very common words](#ranking-of-very-common-words), [facet counts](#facet-counts-are-over-the-candidates),
   [synonyms](#synonyms-are-expanded-on-the-query-and-stop-there), [highlights](#highlights-run-the-source-query-and-mark-typo-matches-by-word),
-  [scores](#scores-are-not-stable), [query limits](#long-queries-are-cut),
+  [scores](#scores-are-not-stable), [query limits](#long-queries-are-cut), [very long texts](#very-long-texts-limit-where-a-phrase-is-found),
   [did you mean](#did-you-mean-and-completions-come-from-a-vocabulary-that-ages)
 - [Data and sync](#data-and-sync): [partitions](#attaching-or-detaching-a-partition-is-not-followed), [sync modes](#what-each-sync-mode-sees),
   [document ids](#one-id-column-per-document), [full reindex](#a-full-reindex-needs-room-and-a-session-connection)
 - [Operations](#operations): [registry cache](#the-registry-cache-in-production-needs-cacheclear),
   [process caches](#text-search-configuration-caches-assume-the-configuration-does-not-change-in-a-process),
-  [explain()](#explain-and-its-statement-labels-are-not-a-stable-api), [search log](#the-search-log-is-best-effort)
+  [explain()](#explain-and-its-statement-labels-are-not-a-stable-api), [rescued searches in the log](#a-rescued-search-is-not-a-zero-result-search-in-the-log), [search log](#the-search-log-is-best-effort)
 - [Security and privacy](#security-and-privacy): [field authorization](#field-authorization-hides-content-not-existence-or-timing),
   [client IP](#the-client-ip-in-the-search-log), [per-person history](#a-persons-search-history-is-personal-data),
-  [rate limit](#the-rate-limit-counts-tenants-and-users-not-addresses), [authorization](#authorization-is-deny-by-default),
+  [rate limit](#the-rate-limit-by-ip-is-loose-by-design-and-only-covers-requests), [authorization](#authorization-is-deny-by-default),
   [tenants](#tenant-isolation-is-enforced-by-the-library-not-the-database)
 
 ## Search quality
@@ -34,15 +34,26 @@ typo from a different word that looks alike:
 - `cable` also finds `table` (similarity 0.50, one letter replaced), and `mose` is as close to `monitor` and
   `mower` as to `mouse` (0.40 each): a search for `mose` lists all of them with the same score.
 - The threshold keeps a different word at the worst case of a typo out (`mouse` / `monitor`, 0.33), and that
-  costs some real typos: a letter replaced in the middle of a 5 to 7 letter word, or two letters swapped, may
-  not be tolerated (`mpuse`, `mosue`; the same swap at the end of a word, `torhc`, is). "Did you mean" can
-  still catch some of them (`mpuse` suggests `mouse`).
+  costs some real typos: a letter replaced in the middle of a 5 to 7 letter word is not tolerated in the results
+  (`mpuse`). "Did you mean" can still catch some of them (`mpuse` suggests `mouse`). Two neighbouring letters
+  swapped (`mosue`) are found: the typed word of 4 to 15 letters also matches its swapped variants as whole words
+  on the typo-tolerant branch, ranked below exact hits ([Typo tolerance](searching.md#typo-tolerance)). Not covered:
+  letters swapped that are not neighbours (`moues` is a swap, `muoes` is not), a swap together with another typo in a
+  short word, a swap in a code with digits, and any word of a field that is not typo-tolerant.
 - It reaches only the words of fuzzy fields (`fuzzy: true`): a misspelled word that occurs only in a
   description or another non-fuzzy field finds nothing. Words shorter than `fuzzy_min_length` (3) must match
   exactly.
 - By default (`fuzzy_mode: fallback`) it runs only when exact matching finds fewer than `fallback_below` (5)
   hits, so a typo next to enough exact hits is not corrected. `always` runs it every time, `never` switches
   it off.
+- A letter replaced in the middle of a 5 to 7 letter word (`mpuse`) is **not** added to the results of a search. Only the
+  [zero-result rescue](searching.md#zero-result-rescue) reaches it, and only when the search found nothing at all, the
+  vocabulary has exactly one word one edit away, and the index is not tenant-scoped (no vocabulary there) and the viewer
+  is not restricted: then the corrected search answers, flagged (`SearchResult::$correctedFrom`). A tie between two
+  candidates, a word with two wrong letters, a code with digits, a search-as-you-type text and a search that found
+  something are not rescued, nor is one whose corrected query finds something only because the relaxation drops a word;
+  on a tenant-scoped index or for a restricted viewer `mpuse` still finds nothing. A rescued search is logged as a search
+  that found hits ([details](#a-rescued-search-is-not-a-zero-result-search-in-the-log)).
 
 What to do: set `fuzzy_similarity` to a number to use one value for every word. That trades the other way: it
 finds more typos and lists more look-alikes (the measured trade-off is in
@@ -98,22 +109,70 @@ Stemmers reduce regular endings only: `mice` does not find `mouse`, `went` does 
 analyses its text in one language; a multilingual catalogue is one index per language, searched by the user's
 locale. See [Languages](languages.md#limits).
 
-### Ranking is approximate beyond `candidate_limit`
+### Ranking of very common words
 
-Each branch of a search (full text, typo-tolerant) collects at most `candidate_limit` candidates (2000 by
-default, at most 10 000) and ranks only those. When a word matches more documents than that, the candidates
-are the first matches PostgreSQL's index returns, **not the best ones**, so the document that would rank first
-can be missing from the results altogether, not only ranked lower. Measured: among 3 000 documents with the
-word `common`, one titled exactly `common` (which earns the exact-title bonus) added last is not in the results
-at the default limit. In the typo-tolerant branch 3 000 weaker look-alikes crowd out the closest spelling the
-same way. On a catalogue of 200 000 products a plain word such as `wireless` already hits the limit (see
-[Benchmarks](benchmarks.md)).
+A search collects at most `candidate_limit` candidates per branch (2000 by default, at most 10 000) and ranks
+only those, so `total` is a lower bound when a word matches more documents (`totalIsLowerBound`, shown as
+`2000+`; so is the `hits` of the [search log](analytics.md) row). What the candidates are depends on the branch.
 
-`total` is then a lower bound (`totalIsLowerBound`, shown as `2000+`), and so is the `hits` of the
-[search log](analytics.md) row. `exactCounts()` counts everything the query matches, for the total and the
-facets, but the page of hits is still the ranked candidates.
+**Full-text branch (the words as they are): the best candidates, exact up to a scan budget.** When a word
+matches more documents than the limit, the candidates are the best matches by the page's own sort key (text
+rank, exact-title and prefix bonuses, boost, recency, then the id), not the first ones the index returns: among
+3 000 documents with the word `common`, the one titled exactly `common` comes first at any limit, and on 200 000
+products `Wireless`, `wireless` and `Wireless wireless wireless` come before `Wireless keyboard 1010`. Filters,
+tenant and field restrictions apply to the selection; a restricted viewer's selection is ordered by the fields
+the viewer may see only, so a hidden field never decides which documents are candidates or in which order
+([Security](security.md)). A search whose word has fewer matches than the limit is not affected at all: it runs
+the same cheap selection as before and returns the same hits.
 
-Why: it keeps the latency of a search independent of how common its words are
+- **A page past the candidates is exact too.** The search selects the best `offset + limit` candidates when that
+  is more than `candidate_limit`, up to 10 000 hits: page 3 of 20 at `candidate_limit: 10` works, and page 400
+  of 20 is the last one that does. The total of such a page is `offset + limit` (`+`), so it grows with the page.
+  `hasMore()` is **false at the last page of the candidates** (`offset + limit` reaches the candidate window):
+  a pager that follows `hasMore()` stops at `candidate_limit` hits (2000 by default); a page asked for directly
+  still works. `candidate_limit` is a lower bound of the window, not an upper one: a page of 20 with
+  `candidate_limit: 10` selects 20.
+- **The scan budget: 100 000 matches for a one-word query** (a constant of the library, not a setting: it bounds
+  the cost of a search, and every setting would be one more way to switch it off). The ranking is exact among the
+  first 100 000 matches in index order; a word with more matches than that is ranked among those only, so the
+  document that would rank first can still be missing when the word is that common (`wireless` has 100 005
+  matches on the 1 000 000-row benchmark catalogue and the five documents beyond the budget are not found;
+  `ideal` is in every document). The cost of ranking a document grows with the words the query looks up, so the
+  budget counts work, not rows: it is divided by the number of words of the query (a query of 16 words scans the
+  first 6 250 matches, never fewer than the candidates asked for), and the words the query excludes are not looked up
+  for the rank at all (`ideal -a -b ... -o` ranks like `ideal`). The rank of a document is the same either way.
+  Measured on 200 000 products, a one-word query costs 0.7 to 1 microseconds per scanned match, 170 to 330 ms in the
+  worst case at 1 000 000 rows; the hostile ones (16 words, 15 exclusions, 15 prefixes) cost 170 to 340 ms at 200 000
+  rows and 0.4 to 1 s at 1 000 000, about twice the time of the same query before 0.9.8 (the index scan that finds
+  the matches is most of it), where an earlier build of 0.9.8 took 2 to 3 s
+  ([Benchmarks](benchmarks.md#common-words)).
+- **A word under the limit costs what it did** (a rare word: 0.15 ms more to plan, never executed); a word
+  over it costs one more pass over its matches: 10 to 38 ms for `wireless` (20 000 matches) on 200 000 products,
+  up to 105 ms for the most common word there.
+- `min_score` keeps the documents under it out of the candidate slots (the strict branch), so a query that
+  needs it still finds its best documents; `total` stays flagged as a lower bound.
+
+**Typo-tolerant branch: still approximate.** The typo branch (a word that is misspelled, `fuzzy_mode: always`,
+or a search that found too little) still collects the first `candidate_limit` matches of its trigram index, **not
+the best ones**: with a very common typo-tolerant word the closest spelling can be missing, because 3 000 weaker
+look-alikes crowd it out. It is planned for 0.9.9. In `fuzzy_mode: always` the typo candidates are added to
+the strict ones, so a very common word there keeps its approximate part.
+
+**"First" is the physical order of the sidecar table.** The typo branch's first candidates, the first 100 000 matches
+beyond the scan budget, and the first `candidate_limit` matches the facets count are the ones a bitmap heap scan returns,
+in the order of the rows in the table. That order depends on how the rows were written (a reindex fills free space in
+earlier pages), and so on the size of every row, **hidden fields included**. For a restricted viewer this means: the strict
+candidates up to the scan budget, their order, the total and the hits are exact and independent of a hidden field (tests
+compare corpora that differ only in a hidden field's content and size); the typo branch's candidates, the strict ones
+beyond the budget, and the facet counts of a capped search (`totalIsLowerBound`) can differ between two corpora that
+differ only in a hidden field. Nothing a hidden field holds is shown by that (a document that holds a word only in a hidden
+field is never returned), but the difference is not zero. A deterministic order for the typo branch is planned for
+0.9.9.
+
+`exactCounts()` counts everything the query matches, for the total and the facets, but the page of hits is
+still the ranked candidates ([Facets](searching.md#facets)).
+
+Why: it keeps the latency of a search bounded however common its words are
 ([ADR 0005](adr/0005-candidate-limit.md)).
 
 What to do: make the query more specific (more words, a filter, a field scope), or raise `candidate_limit`
@@ -122,10 +181,23 @@ it to request input): it reads every match and can take seconds on a large index
 
 ### Facet counts are over the candidates
 
-The counts of `facets()` are taken over the same candidates as `total`: when the search hit its candidate
-limit they are lower bounds ("120+"; the Live Component prints the `+`). With `exactCounts()` every match is
-counted: in the example above, a limit of 10 gave 4, 3 and 3 for three categories, and the exact counts were
-1 001, 1 000 and 1 000. See [Facets](searching.md#facets).
+The counts of `facets()` are taken over the first `candidate_limit` matches the index returns (the cheap
+selection, not the best ones), while `total` and the hits come from the best candidates: when a word is more
+common than the limit the two are different sets, and the counts are lower bounds ("120+"; the Live Component
+prints the `+`). With `exactCounts()` every match is counted: in the example above, a limit of 10 gave 4, 3
+and 3 for three categories, and the exact counts were 1 001, 1 000 and 1 000. A page past the limit selects more
+hits but not more facet candidates. See [Facets](searching.md#facets).
+
+### A restricted viewer's very common word in a hidden typo-tolerant field is slow
+
+A viewer who may not see a typo-tolerant field is still searched through that field's trigram index and the
+rows are rejected afterwards, so a word that is in most documents' hidden field makes the probe of a typo-tolerant
+search read every row: on 200 000 products with five ordinary words in a hidden field, one such word takes 1.7 s
+and five of them 19 s (the same search for a viewer who sees the field takes 0.1 to 0.4 s). Nothing leaks (the
+result is the same as for any other hidden content; only the time depends on it, see
+[Security](security.md#the-limits-stated-honestly)); it is not a regression of 0.9.8. Planned: a trigram
+index on the allowed field's own column, or a work cap on the probe. Until then keep a field that is in most
+documents and that some viewers may not see out of `fuzzy: true`.
 
 ### Synonyms are expanded on the query, and stop there
 
@@ -147,12 +219,46 @@ mode can be newer than the index.
 A hit found only through typo tolerance has its mistyped words marked too (`hedphones` marks `Headphones`),
 by a simpler rule than the search's: each word of the field text is compared with the typed word on its own,
 with the similarity the search used, so a match that the search found across two words (`head phones` for
-`headphones`) is not marked, and a hit can have no mark although it was found. Only typo-tolerant fields get
+`headphones`) is not marked, nor is a word found as a swapped-letter variant (`mosue` finds `mouse`, which gets no mark),
+and a hit can have no mark although it was found. Only typo-tolerant fields get
 these marks (a field that is not `fuzzy` shows ts_headline's snippet). The work is bounded: the marks are made
 for the first 200 typo-found hits of a page, of each field only the first 10 000 characters (2000 words) are
 looked at, a page spends a budget of 100 000 word comparisons and 4000 distinct words, and a phrase of more than
 8 words is not marked; a hit past a bound keeps ts_headline's snippet. A hit that the strict full-text query also matches keeps the highlight ts_headline gives
 it, even when a typed word was found in it by typo only. See [Highlighting](searching.md#highlighting).
+
+### Very long texts limit where a phrase is found
+
+PostgreSQL keeps a word's position in a `tsvector` only up to 16 383: a later word gets position 16 383 too. Fuzzphony's
+whole-text vector (`tsv`) is the vectors of all fields joined, so after a field of more than about 16 000 words every word of
+the fields that follow it is at one position there, and where several words share one position only the highest weight of
+them is kept. Phrases and field-scoped words need those positions and weights. Since 0.9.8 that costs a document nothing:
+a phrase (`"usb receiver"`, `name:"usb receiver"`, `usb-c`) and a word scoped to a field (`secret:word`) are looked up by
+their words and decided by each field's own vector, which the cap does not reach (before 0.9.8 an unrestricted search lost
+them after a long field, a restricted one had been fixed in 0.9.7: see the [CHANGELOG](../CHANGELOG.md)).
+
+What still does not work, because the data is not in the index in a usable form:
+
+- a phrase that starts after the 16 383rd word of one field: the field's own vector has capped it. The words are found (a
+  plain or scoped word, and the phrase's words together in an AND query), the phrase is not;
+- a phrase that reaches from the end of a field of that length into the start of the next one;
+- the rank of a document that was found only this way (a phrase or scoped word after a long field): `tsv` has no usable
+  positions for it, so the text rank is the best of the first field's and of the later fields' vectors (a scoped word
+  keeps its rank, an AND of words in different fields can rank 0 and so come last). A document `tsv` matches keeps the rank it always had.
+
+A phrase or scoped word is looked up by the words alone and then read from `tsv`, and, only for a document whose `tsv` was
+capped, from the vectors of the later fields: the sidecar column `tsv_capped` (filled by `fuzzphony:reindex`, added by
+`fuzzphony:schema --apply`) says which. Without the column, or for a document written before it (NULL, "not known"), the
+later fields are read for every candidate that `tsv` does not match as a phrase: the same results, slower on an index with many
+fields (see [UPGRADE](../UPGRADE.md#from-097-to-098)). The flag is true when a position reached 16 383, and also when a lexeme
+has 256 or more positions (PostgreSQL keeps at most 256 per lexeme and drops the later field's positions of one that has them:
+without this sign a phrase after a field that repeats one of its words would be lost). The doctor warns while the flag is NULL;
+after a downgrade to a release without the column and back, reindex (an old refresh function does not touch the flag); the engine
+looks the column up once per process, so restart long-running workers after adding or dropping it.
+
+What to do: do not index the whole of a very long text. Put an excerpt (the first few thousand words, a summary) in the
+searched field, or list the long field last (nothing follows it). The limits above hold for a restricted viewer too
+(see [Security](security.md) for what a hidden field never decides).
 
 ### Scores are not stable
 
@@ -255,8 +361,18 @@ clean.
 
 `explain()` and `fuzzphony:search --explain` are for people. The SQL text, the number of statements, their
 labels (`full-text`, `fallback: full-text + fuzzy`, `facet: category_id, in_stock`, `did you mean`,
-`relaxation probe`, `exact total`) and the plan lines change between releases (0.9.5 merged the facet
+`relaxation probe`, `exact total`, and the same labels with the prefix `rescue: `) and the plan lines change between releases (0.9.5 merged the facet
 statements into one). Do not parse them or build a test or an alert on them.
+
+### A rescued search is not a zero-result search in the log
+
+The [zero-result rescue](searching.md#zero-result-rescue) answers a search that found nothing with the results of its
+corrected spelling, and the [search log](analytics.md#what-is-logged) records the text the visitor typed with the hits of
+the answer it got. So a typo such as `mpuse` is no longer in the zero-result report (`SearchAnalytics::zeroResultQueries()`,
+`fuzzphony:analytics --zero`) while the rescue is on: it counts as a search that found hits. The log has no flag or status for a
+rescued search (the schema is unchanged). Typos the rescue cannot answer still appear there. To see every text that found nothing
+on its own, set `rescue_empty: false`; the counter `fuzzphony.search.rescued` ([Observability](observability.md#instrumentation-points))
+counts the rescued searches without their text.
 
 ### The search log is best-effort
 
@@ -265,7 +381,7 @@ response; a write that fails (the table is missing, the database is down) is cou
 `fuzzphony.search_log.failed`, logged and dropped, never retried. A long-running worker writes its buffer every
 1000 records and on every container reset (between two messages or requests), but a process killed with
 `SIGKILL` loses the (at most 1000) records it still holds. The `hits` of a search that hit `candidate_limit` is a
-lower bound (see [above](#ranking-is-approximate-beyond-candidate_limit)). Redaction removes what a regular
+lower bound (see [above](#ranking-of-very-common-words)). Redaction removes what a regular
 expression can describe, nothing more, and the live search of the Live Component is not logged unless you ask
 for it. The user and the IP of a row exist only for searches made with an actor (`asActor()`; the integrations
 do). A log you must not lose is a custom `SearchLog` that writes somewhere durable, which the built-in reports
@@ -325,13 +441,37 @@ checking that the requester may see it, keep `retention_days` short and run the 
 [Who searched what](analytics.md#who-searched-what) and
 [Privacy](analytics.md#privacy-the-log-is-personal-data).
 
-### The rate limit counts tenants and users, not addresses
+### The rate limit by IP is loose by design and only covers requests
 
-A search without an actor, or with an actor that has no key (`per: user` and no user), is not limited, so an
-anonymous public search box has no limit from Fuzzphony. `explain()` and `suggest()` spend a token too.
+`per: tenant` and `per: user` give an anonymous visitor no key, so they never limit a public search box;
+`per: ip` does (the bundle's Live Component and API Platform filter search as an actor that carries the client
+address). Its limits:
 
-What to do: put a limiter of your own, by IP, in front of the controller. See
-[the rate limit](security.md#the-rate-limit).
+- **A company network or NAT shares one address among many people**, so they share one bucket. The default
+  (a sliding window of 600 searches a minute per address, prepended as `framework.rate_limiter.fuzzphony_ip`)
+  is loose on purpose: it stops a script, not a person.
+- **Without `framework.trusted_proxies` everyone behind a reverse proxy or CDN shares ONE bucket** (the
+  application sees the proxy's address); with it set too broadly, a visitor can name any client. Fuzzphony
+  never reads `X-Forwarded-For` itself, `Request::getClientIp()` decides.
+- **A call without a request is not limited by IP**: a plain PHP call, a console command, a worker, an actor
+  built without `ip:`, and a search made without any `asActor()` (no guard runs then) have no address.
+  Fuzzphony cannot limit what it does not see.
+- **An IPv6 address is limited by its /64**; an address that embeds an IPv4 address (IPv4-mapped,
+  IPv4-compatible, NAT64 `64:ff9b::/96`, 6to4 `2002::/16`) as that IPv4 address. A visitor with a /64 to
+  himself is one bucket, which is the point.
+- **An address that is no IP address is not limited** (fail open) after the safe normalisations (whitespace,
+  a port, brackets, a zone id); only an `ActorResolver` of your own can produce one. It is reported once per
+  process (`fuzzphony.search.rate_limit_unkeyed`), never with the value.
+- The address is read per request and not stored unless `search_log.ip` says so; the limiter's state lives in
+  its cache pool (an HMAC of the key keyed with `kernel.secret`, for the window; rotating the secret resets the buckets), and the default filesystem pool locks and writes a file
+  on every search.
+- With `authorization` enabled, a request without a Security token is refused before the limit is looked at,
+  so `per: ip` is the setting for a public search box, not for a signed-in-only one.
+- `explain()` and `suggest()` spend a token too.
+
+What to do: set `trusted_proxies` if you run behind one, raise the limit if your visitors sit behind big NATs,
+use APCu or Redis for the limiter's pool, and keep a limiter of your own in front of the endpoint if you need a
+stricter or per-route limit. See [Limiting anonymous visitors by IP](security.md#limiting-anonymous-visitors-by-ip).
 
 ### Authorization is deny-by-default
 

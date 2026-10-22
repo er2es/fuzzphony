@@ -60,7 +60,7 @@ final class SearchSqlBuilderRestrictedTest extends TestCase
     {
         $sql = self::ranked(['name'], 'mouse | -cable');
 
-        self::assertStringContainsString("fts AS (\n    SELECT s.id, ts_rank_cd('{0.1,0.2,0.4,1}'::real[], s.\"t_name\", q.tsq, 32)::double precision AS r_text\n    FROM \"public\".\"fuzzphony_products\" AS s CROSS JOIN q\n    WHERE ((s.tsv @@ q.sft0 AND s.\"t_name\" @@ q.sft0) OR NOT ((s.tsv @@ q.sft1 AND s.\"t_name\" @@ q.sft1))) AND TRUE", $sql);
+        self::assertStringContainsString("fts_fast AS (\n    SELECT s.id, ts_rank_cd('{0.1,0.2,0.4,1}'::real[], s.\"t_name\", q.tsq, 32)::double precision AS r_text\n    FROM \"public\".\"fuzzphony_products\" AS s CROSS JOIN q\n    WHERE ((s.tsv @@ q.sft0 AND s.\"t_name\" @@ q.sft0) OR NOT ((s.tsv @@ q.sft1 AND s.\"t_name\" @@ q.sft1))) AND TRUE", $sql);
     }
 
     public function testARestrictedStrictBranchWithoutTheQueryFailsClosed(): void

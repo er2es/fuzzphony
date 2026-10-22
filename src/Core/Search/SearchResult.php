@@ -4,6 +4,8 @@ declare(strict_types=1);
 
 namespace Fuzzphony\Core\Search;
 
+use Fuzzphony\Core\Ranking\Thresholds;
+
 /** @implements \IteratorAggregate<int, Hit> */
 final readonly class SearchResult implements \IteratorAggregate, \Countable
 {
@@ -37,12 +39,19 @@ final readonly class SearchResult implements \IteratorAggregate, \Countable
          * the conditions on its own filter, so it shows what choosing another value would find.
          */
         public array $facets = [],
+        /**
+         * The search text as the visitor wrote it, when the search found nothing and this result is the one of the
+         * corrected query instead (`mpuse` found nothing, `mouse` did): `interpretedAs` then shows the corrected query and a
+         * warning says so. Null when nothing was corrected. Plain text, not HTML: it is the visitor's own text, so
+         * escape it when you render it. See Thresholds::$rescueEmpty.
+         */
+        public ?string $correctedFrom = null,
     ) {}
 
     /** The same result with another "did you mean" text. */
     public function withDidYouMean(?string $didYouMean): self
     {
-        return new self($this->hits, $this->total, $this->totalIsLowerBound, $this->tookMs, $this->usedFuzzy, $this->warnings, $this->limit, $this->offset, $this->interpretedAs, $didYouMean, $this->facets);
+        return new self($this->hits, $this->total, $this->totalIsLowerBound, $this->tookMs, $this->usedFuzzy, $this->warnings, $this->limit, $this->offset, $this->interpretedAs, $didYouMean, $this->facets, $this->correctedFrom);
     }
 
     /** @param list<string> $warnings */
@@ -73,8 +82,16 @@ final readonly class SearchResult implements \IteratorAggregate, \Countable
         return intdiv($this->offset, $this->limit) + 1;
     }
 
+    /**
+     * Whether hits follow this page among the ones the search ranked: false at the last page of the candidates, even when
+     * `totalIsLowerBound` says there are more matches than candidates (a page past them is empty, see
+     * Thresholds::$candidateLimit). With exactCounts() the total counts every match, but the hits that can be read end at
+     * Thresholds::MAX_CANDIDATE_LIMIT (10 000): there `hasMore()` is false too, and it is false for an empty page.
+     */
     public function hasMore(): bool
     {
-        return $this->totalIsLowerBound || $this->offset + count($this->hits) < $this->total;
+        $end = $this->offset + count($this->hits);
+
+        return $this->hits !== [] && $end < $this->total && $end < Thresholds::MAX_CANDIDATE_LIMIT;
     }
 }

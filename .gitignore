@@ -11,6 +11,9 @@ demo/assets/vendor/
 
 /.superpowers/
 
+# a copy of the assistant memory, kept for the owner only
+/docs/superpowers/memory/
+
 # the screenshot harness installs Playwright next to its script (demo/tools/shots.mjs)
 /demo/tools/node_modules/
 /demo/tools/package*.json

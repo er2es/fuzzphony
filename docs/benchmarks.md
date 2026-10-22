@@ -76,6 +76,59 @@ one search, and read the server log: each logged line is one `BEGIN`, `COMMIT`, 
 `execute <unnamed>` / `execute pdo_stmt_...` (the last form is a prepared statement, and its Parse is not logged, so
 it is one more round trip). Reset with `ALTER SYSTEM SET log_statement = 'none'`.
 
+## Common words
+
+A word that matches more documents than `candidate_limit` (2000) costs one more pass: the full-text branch scores the
+matches and keeps the best ones by the key the page is ordered by (see [Ranking](ranking.md#which-candidates-are-ranked)),
+over at most 100 000 matches (the scan budget). A word under the limit costs what it always did (planning takes about 0.15 ms
+more). Median of 9 to 15 runs of the warm statement through `PostgresEngine`, 20 hits, one laptop, PostgreSQL 17 in a
+container with the default `shared_buffers`; the catalogue is the benchmark's, with ten planted documents (`Wireless`,
+`wireless`, `Wireless wireless wireless`, ...) that are the best matches and sit at the end of the table:
+
+| case | 200 000 rows before / after | 1 000 000 rows before / after |
+|---|---:|---:|
+| rare word (`1234`) | 1.2 / 1.4 ms | 1.4 / 1.8 ms |
+| medium (`wireless noise`) | 11 / 20 ms | 17 / 64 ms |
+| common (`wireless`: 20 005 / 100 005 matches) | 10 / 38 ms | 23 / 290 ms |
+| very common (`ideal`: every document) | 15 / 104 ms | 50 / 170 ms |
+| two common words (`ideal gaming`) | 14 / 97 ms | 33 / 178 ms |
+| common word and `in_stock` filter | 10 / 37 ms | 23 / 237 ms |
+| common word with two facets | 20 / 50 ms | 46 / 275 ms |
+| page 5 (offset 80) | 10 / 37 ms | 21 / 239 ms |
+| page 101 (offset 2000, now exact) | 10 / 38 ms | 21 / 242 ms |
+| restricted viewer (name, brand), `wireless` | 12 / 46 ms | 26 / 279 ms |
+| typo-tolerant (`wireles`) | 47 / 49 ms | 87 / 91 ms |
+
+**Queries that look up many words.** The cost of ranking a document grows with the words of the query, so the scan budget is
+divided by their number (see [Known limitations](limitations.md#ranking-of-very-common-words)) and the excluded words are not
+looked up for the rank. Median of 3 runs, `fuzzy_mode: never`; the columns are 0.9.7, the first 0.9.8 build (a budget of rows, not of work)
+and this one:
+
+| query (200 000 / 1 000 000 rows) | 0.9.7 | first 0.9.8 build | now |
+|---|---:|---:|---:|
+| `ideal` | 15 / 56 ms | 108 / 161 ms | 105 / 178 ms |
+| `ideal` and 15 exclusions | 118 / 275 ms | 3 270 / 3 350 ms | 172 / 502 ms |
+| 16 common words OR | 69 / 178 ms | 1 600 / 1 630 ms | 197 / 400 ms |
+| the same, restricted viewer | 88 / 258 ms | 1 780 / 1 870 ms | 241 / 583 ms |
+| `ideal` written 16 times | 118 / 370 ms | 2 060 / 2 300 ms | 291 / 813 ms |
+| `ideal` and 15 prefixes OR | 127 / 443 ms | 2 160 / 2 590 ms | 343 / 960 ms |
+| 4 common words OR | 15 / 48 ms | 112 / 165 ms | 48 / 110 ms |
+
+What is left is mostly the index scan that finds the matches (a bitmap of every document that has one of the words), which the
+budget does not shorten, plus the ranking of up to 6 250 to 100 000 matches.
+
+The scan budget is what bounds the 1 000 000-row column: without it `ideal` costs 160 ms at 200 000 rows and about
+950 ms at 1 000 000, and `ideal gaming` 510 ms. The cost is about 1 microsecond per scanned match for one word, so the
+budget is a trade between the worst case and the share of matches that are ranked: at 1 000 000 rows a budget of 10 000
+costs 60 to 115 ms, 50 000 about 160 to 240 ms, 100 000 (the one used) 170 to 330 ms, 200 000 300 to 630 ms (these four were measured while other jobs ran on the machine: indicative). With the
+planted documents at the end of the table, 100 000 misses the five that sit beyond the 100 000 matches of `wireless`
+and 200 000 finds them. A restricted viewer's search of a word that is common in a field the viewer cannot see is slow for a
+different reason that this does not change (see [Known limitations](limitations.md#a-restricted-viewers-very-common-word-in-a-hidden-typo-tolerant-field-is-slow)).
+
+The first run after a restart reads the table from disk and is much slower (seconds at 1 000 000 rows for a word that is
+spread over every page); the figures are warm. Both columns were measured on the same machine in the same session, but
+single-digit milliseconds on a shared laptop are noise.
+
 ## Reading the numbers
 
 The two columns do different work. `ILIKE … LIMIT 20` returns the first 20 rows the scan reaches,

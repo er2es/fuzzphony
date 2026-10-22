@@ -119,12 +119,16 @@ final class FacetsTest extends TestCase
             $products[] = [$i, 'Mouse model ' . $i, 'A mouse', 1 + $i % 2, 1_000 + $i, true, 1.0, 'now'];
         }
         $fuzzphony = $this->fuzzphony(['brands' => [[1, 'Acme'], [2, 'Globex']], 'products' => $products]);
-        $search = $fuzzphony->in('products')->query('mouse')->thresholds(['candidate_limit' => 10, 'fuzzy_mode' => 'never'])->facets('brand_id');
+        $search = $fuzzphony->in('products')->query('mouse')->thresholds(['candidate_limit' => 10, 'fuzzy_mode' => 'never'])->facets('brand_id')->limit(10);
 
         $approximate = $search->get();
         self::assertTrue($approximate->totalIsLowerBound);
         self::assertSame(10, $approximate->total);
         self::assertSame(10, array_sum(self::counts($approximate->facets['brand_id'])), 'the candidates only');
+        // a page of 20 selects the best 20 candidates for the hits; the counts keep the fast selection of the candidate limit
+        $wider = $search->limit(20)->get();
+        self::assertSame(20, $wider->total);
+        self::assertSame(10, array_sum(self::counts($wider->facets['brand_id'])));
 
         $exact = $search->exactCounts()->get();
         self::assertFalse($exact->totalIsLowerBound);

@@ -52,6 +52,14 @@ final class ExportersTest extends TestCase
         self::assertFalse((new ArrayDefinitionLoader())->load('products', (new ArrayExporter())->export($off))->thresholds->didYouMean);
     }
 
+    public function testRescueEmptyIsExportedOnlyWhenSwitchedOff(): void
+    {
+        $off = Indexes::products()->withThresholds((new Thresholds())->with(['rescue_empty' => false]));
+
+        self::assertSame(['rescue_empty' => false], (new ArrayExporter())->export($off)['thresholds'] ?? null);
+        self::assertFalse((new ArrayDefinitionLoader())->load('products', (new ArrayExporter())->export($off))->thresholds->rescueEmpty);
+    }
+
     public function testFuzzySimilarityIsExportedOnlyWhenExplicit(): void
     {
         self::assertArrayNotHasKey('thresholds', (new ArrayExporter())->export(Indexes::products()), 'the default is by word length');

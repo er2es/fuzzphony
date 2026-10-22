@@ -179,6 +179,19 @@ final class ThresholdsTest extends TestCase
         (new Thresholds())->with(['fuzzy_min_length' => 'three']);
     }
 
+    public function testRescueEmptyIsOnByDefaultAndCanBeSwitchedOff(): void
+    {
+        $default = new Thresholds();
+        self::assertTrue($default->rescueEmpty);
+        self::assertFalse($default->with(['rescue_empty' => false])->rescueEmpty);
+        self::assertFalse($default->with(['rescue_empty' => 'no'])->rescueEmpty, 'command-line strings count');
+        self::assertTrue($default->with(['rescue_empty' => false])->with(['rescue_empty' => 1])->rescueEmpty);
+        self::assertTrue($default->with(['rescue_empty' => false])->didYouMean, 'independent of did_you_mean');
+        self::assertFalse($default->with(['did_you_mean' => false])->with(['relax_when_empty' => false])->relaxWhenEmpty);
+        self::assertTrue($default->with(['did_you_mean' => false])->rescueEmpty);
+        self::assertFalse($default->with(['rescue_empty' => false])->with(['did_you_mean' => true])->rescueEmpty, 'other overrides keep it');
+    }
+
     public function testDidYouMeanIsOnByDefaultAndCanBeSwitchedOff(): void
     {
         $default = new Thresholds();

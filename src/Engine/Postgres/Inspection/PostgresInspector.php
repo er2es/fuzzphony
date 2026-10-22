@@ -466,9 +466,22 @@ final class PostgresInspector
         $extra = array_diff($actual, $expected);
 
         $checks = [];
+        // the capped flag is optional: without it phrases and field-scoped words work, a little slower on a multi-field index
+        $flagMissing = in_array(PostgresSchemaGenerator::CAPPED_COLUMN, $missing, true);
+        $missing = array_diff($missing, [PostgresSchemaGenerator::CAPPED_COLUMN]);
         $checks[] = $missing === []
-            ? Check::ok('Sidecar columns', sprintf('%d column(s) match the definition', count($expected)))
+            ? Check::ok('Sidecar columns', sprintf('%d column(s) match the definition', count($expected) - ($flagMissing ? 1 : 0)))
             : Check::error('Sidecar columns', sprintf('Schema drift, missing: %s.', implode(', ', $missing)), self::APPLY);
+        if ($flagMissing) {
+            $checks[] = Check::warning(
+                'Sidecar columns',
+                sprintf('Column %s is missing: phrases and field-scoped words are looked up the slower way on an index with several fields. Apply the schema, then reindex (the column is filled by the reindex).', PostgresSchemaGenerator::CAPPED_COLUMN),
+                self::APPLY,
+            );
+        }
+        if (!$flagMissing && count($index->fields) > 1) {
+            array_push($checks, ...$this->unfilledCappedFlags($index));
+        }
         if ($extra !== []) {
             $sidecar = $this->names->sidecar($index);
             $checks[] = Check::warning(
@@ -479,6 +492,29 @@ final class PostgresInspector
         }
 
         return $checks;
+    }
+
+    /**
+     * Documents written before the capped flag existed (or by an older refresh function) have NULL in it: "not known", treated as
+     * capped, so a phrase or scoped word is looked up the slow way for them. The existence check stops at the first such row; the
+     * count is only for the message.
+     *
+     * @return list<Check>
+     */
+    private function unfilledCappedFlags(IndexDefinition $index): array
+    {
+        $table = $this->names->sidecar($index);
+        $column = Sql::ident(PostgresSchemaGenerator::CAPPED_COLUMN);
+        if ($this->connection->fetchValue(sprintf('SELECT EXISTS (SELECT 1 FROM %s WHERE %s IS NULL)', $table, $column)) !== true) {
+            return [];
+        }
+        $count = Coerce::int($this->connection->fetchValue(sprintf('SELECT count(*) FROM %s WHERE %s IS NULL', $table, $column)));
+
+        return [Check::warning(
+            'Sidecar columns',
+            sprintf('%s is not filled for %d document(s): phrases and field-scoped words are looked up the slower way for them (right, but many times slower on a wide index). Reindex to fill it.', PostgresSchemaGenerator::CAPPED_COLUMN, $count),
+            'bin/console fuzzphony:reindex',
+        )];
     }
 
     /** @return list<Check> */

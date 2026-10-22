@@ -19,7 +19,9 @@ indexes defined only in YAML), or the fluent builder.
 Fuzzphony stores each index in a sidecar table, `fuzzphony_<index>` in Fuzzphony's schema (see
 [Fuzzphony's schema](#fuzzphonys-schema)). It holds a weighted
 `tsvector`, a normalised text for trigram matching, the same two per field (for field-scoped words:
-one `tsvector` per field, one text per fuzzy field), typed filter columns and the ranking inputs,
+one `tsvector` per field, one text per fuzzy field), a flag that says whether the joined vector ran past the
+position limit of a `tsvector` (`tsv_capped`, see [limitations](limitations.md#very-long-texts-limit-where-a-phrase-is-found)),
+typed filter columns and the ranking inputs,
 each with the right index (GIN, GIN trigram, btree). Your schema is untouched. Dropping the index
 is one command.
 
@@ -100,6 +102,18 @@ fuzzphony:
 
 Other keys: `sync`, `trigger_level`, `unaccent`, `tenant`, `synonyms`, `id_type`, and `source: { table: … }`
 for a table source.
+
+`thresholds` takes the options of [Ranking and thresholds](ranking.md#thresholds). Two of them are switches for what a
+search that found little or nothing does by itself, both on by default: `did_you_mean` (a suggestion next to the result,
+[Did you mean](searching.md#did-you-mean)) and `rescue_empty` (a search that found nothing and has a word with exactly
+one one-edit correction in the vocabulary is run again with it and says so,
+[Zero-result rescue](searching.md#zero-result-rescue)). `rescue_empty: false` keeps the suggestion and drops the second
+search; `did_you_mean: false` turns both off (the rescue uses the suggestion's vocabulary lookup):
+
+```yaml
+      thresholds:
+        rescue_empty: false     # suggest a correction, but never search it for the visitor
+```
 
 ## Synonyms
 
@@ -285,7 +299,7 @@ fuzzphony:
   orm_sync: { async: false, chunk_size: 500 }
   actor: { }                   # who searches, see below
   search_log: { enabled: false, retention_days: 90, redact: [], ip: off }  # opt-in, see below
-  rate_limit: { limiter: ~, per: tenant }                          # opt-in, see below
+  rate_limit: { limiter: ~, per: tenant }                          # opt-in (tenant, user or ip), see below
   authorization: { enabled: false, index_attribute: FUZZPHONY_SEARCH }  # opt-in, see below
   indexes: { }                 # YAML indexes and overrides, see above
 ```
@@ -342,13 +356,23 @@ and the privacy notes are in [The client IP](analytics.md#the-client-ip).
 ```yaml
 fuzzphony:
   rate_limit:
-    limiter: search     # a framework.rate_limiter entry (service limiter.search); empty (default) = no rate limit
-    per: user           # tenant (default) or user: whose searches share one bucket
+    limiter: search     # a framework.rate_limiter entry (service limiter.search); empty (default) = no rate limit, except per: ip
+    per: user           # tenant (default), user or ip: whose searches share one bucket
 ```
+
+`per: ip` limits the anonymous visitors of a public search box by client address and needs no `limiter`: without
+one the bundle prepends `framework.rate_limiter.fuzzphony_ip` (a sliding window of 600 searches a minute per
+address) and uses it; name your own entry in `limiter` to change the numbers (an application that defines an
+entry called `fuzzphony_ip` keeps it too). The key is `Request::getClientIp()` (so `framework.trusted_proxies`
+applies; without it everyone behind a proxy shares one bucket), an IPv6 address by its /64; an actor without an
+address (a console command, a worker, a plain PHP call) is not limited by it. The address is used for the limit
+whatever `search_log.ip` says; the log stores it only when `search_log.ip` is `masked` or `full`. A company
+network or NAT shares one address among many people, hence the loose default. All of it, with the caveats, in
+[Limiting anonymous visitors by IP](security.md#limiting-anonymous-visitors-by-ip).
 
 Needs `symfony/rate-limiter` (suggested, not required: without it the container fails to build, with the
 `composer require` line). `limiter` must name a `framework.rate_limiter` entry (a `compound` one works too);
-an unknown name fails the build with Symfony's own "non-existent service `limiter.<name>`" message. One token per search of an actor that has the key; over the limit the search
+an unknown name fails the build with Symfony's own "non-existent service `limiter.<name>`" message. One token per search of an actor that has the key (the tenant, the user, or a client address); over the limit the search
 throws `RateLimited` (HTTP 429 with `Retry-After`). See [Security](security.md#the-rate-limit) for what is
 and is not limited.
 

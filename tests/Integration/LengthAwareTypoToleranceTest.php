@@ -139,7 +139,8 @@ final class LengthAwareTypoToleranceTest extends TestCase
         $search = $this->fuzzphony()->in('products');
 
         // a letter replaced in the middle of a five-letter word leaves 0.33, as close as "monitor" is to "mouse", so it cannot be told from a different word; documented
-        self::assertSame([], self::ids($search->query('mpuse')->get()));
+        self::assertSame([], self::ids($search->query('mpuse')->thresholds(['rescue_empty' => false])->get()));
+        self::assertSame([1, 2], self::ids($search->query('mpuse')->get()), 'only the zero-result rescue (one edit from "mouse") finds it');
         self::assertSame([1, 2], self::ids($search->query('mpuse')->thresholds(['fuzzy_similarity' => 0.3])->get()), 'a flat 0.3 tolerates it');
     }
 }

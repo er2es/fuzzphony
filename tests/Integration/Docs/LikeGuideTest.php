@@ -734,13 +734,16 @@ final class LikeGuideTest extends TestCase
 
     public function testPaginationAndTheLowerBound(): void
     {
-        $this->boot(thresholds: new Thresholds(candidateLimit: 10), cables: 30);
+        $this->boot(thresholds: new Thresholds(candidateLimit: 30), cables: 60);
 
         $out = self::runSnippet('pagination', ['fuzzphony' => $this->fuzzphony, 'text' => 'cable', 'page' => 1]);
-        self::assertSame('1-10 of 10+', $out['label'], 'candidate_limit reached: the total is a lower bound, and only the candidates can be paged');
+        self::assertSame('1-20 of 30+', $out['label'], 'candidate_limit reached: the total is a lower bound');
         self::assertTrue($out['hasNextPage']);
-        $beyond = $this->fuzzphony->in('products')->query('cable')->page(3, perPage: 5)->get();
-        self::assertSame([], $beyond->ids(), 'a page past the candidates is empty, although the total says "more"');
+        $out = self::runSnippet('pagination', ['fuzzphony' => $this->fuzzphony, 'text' => 'cable', 'page' => 2]);
+        self::assertSame('21-40 of 40+', $out['label'], 'a page past the candidates selects more of them: the best offset + limit');
+        self::assertFalse($out['hasNextPage'], 'hasMore() is false at the last page of the candidates');
+        $beyond = $this->fuzzphony->in('products')->query('cable')->page(3, perPage: 20)->get();
+        self::assertCount(20, $beyond, 'a page asked for directly past the candidates is still served (up to 10 000 hits)');
 
         $out = self::runSnippet('pagination', ['fuzzphony' => $this->fuzzphony, 'text' => 'mouse', 'page' => 1]);
         self::assertSame('1-5 of 5', $out['label']);

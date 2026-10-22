@@ -41,7 +41,8 @@ final class TsQueryCompiler
      * @param bool $positiveOnly every excluded part is left out (as an excluded field-scoped one is): the candidates of a
      *                           restricted viewer's strict branch, where "!'cable'" on the whole tsv would also exclude
      *                           by the hidden fields (SearchSqlBuilder; the allowed-field recheck decides)
-     * @param bool $lookupForm       the form for finding candidates on the whole `tsv` for a restricted viewer: every phrase (and every
+     * @param bool $lookupForm       the form for finding candidates on the whole `tsv` where its positions and weights cannot be relied on
+     *                               (a restricted viewer's search, and an unrestricted viewer's phrase or scoped word): every phrase (and every
      *                               word that splits into several, "usb-c") is an AND of its words, not a sequence, and the weight
      *                               labels are left out. A superset, and one a hidden field cannot change: `tsv` is the fields' vectors
      *                               joined, whose positions are capped at 16 383, so after a long hidden field a phrase there does not
@@ -77,6 +78,108 @@ final class TsQueryCompiler
             $node instanceof Not => $this->hasFieldScope($node->node),
             default => false,
         };
+    }
+
+    /** True when a position or a weight on `tsv` decides something: a word scoped to a known field, or a phrase. */
+    public function dependsOnPositions(Node $node): bool
+    {
+        return $this->hasFieldScope($node) || $this->hasSequence($node);
+    }
+
+    /**
+     * True when the query has a phrase, or a word that splits into several ("usb-c"), anywhere (excluded ones too): it is a
+     * sequence on `tsv`, whose positions are capped (see $lookupForm).
+     */
+    public function hasSequence(Node $node): bool
+    {
+        return match (true) {
+            $node instanceof Term => count(self::lexemes($node->text)) > 1,
+            $node instanceof Phrase => count(array_merge(...array_map(self::lexemes(...), $node->words))) > 1,
+            $node instanceof FieldScoped, $node instanceof Not => $this->hasSequence($node->node),
+            $node instanceof AllOf, $node instanceof AnyOf => array_any($node->nodes, $this->hasSequence(...)),
+            default => false,
+        };
+    }
+
+    /**
+     * The tsquery without its excluded parts, for ranking: an excluded word is not in a document that an AND with it matches, but
+     * ts_rank_cd looks every operand of the query up in every document it ranks, so a query with fifteen exclusions costs sixteen
+     * times as much per row as the word it looks for. An excluded part is true wherever it does not hold, so it is left out of an
+     * AND, and an OR with one is true as a whole and left out of its parent: the extents the rank is made of are the same (checked
+     * on the benchmark catalogue for nested groups, phrases, labels and prefixes). Returns the query itself when it has no exclusion,
+     * when nothing but exclusions is left, and when it is not in the form compile() writes: operands `'word'` with an optional `:`
+     * label, groups in parentheses that join their parts with one of `&`, `|` and `<->`, and `!` before an operand or a group.
+     */
+    public static function withoutExclusions(string $tsquery): string
+    {
+        if (!str_contains($tsquery, '!')) {
+            return $tsquery;
+        }
+        $tokens = preg_match_all("/'[^']*'(?::[*A-D]+)?|<->|[()&|!]/", $tsquery, $m) !== false ? $m[0] : [];
+        if (implode('', $tokens) !== str_replace(' ', '', $tsquery)) {
+            return $tsquery;
+        }
+        $at = 0;
+        $parsed = self::rankItem($tokens, $at);
+
+        return $at === count($tokens) && is_string($parsed) && $parsed !== '' ? $parsed : $tsquery;
+    }
+
+    /**
+     * @param list<string> $tokens
+     *
+     * @return string|false the item without exclusions, '' when it is true whatever the document has, false when the tokens are not in the form
+     */
+    private static function rankItem(array $tokens, int &$at): string|false
+    {
+        $negated = ($tokens[$at] ?? '') === '!';
+        if ($negated) {
+            ++$at;
+        }
+        $token = $tokens[$at] ?? '';
+        if ($token === '') {
+            return false;
+        }
+        if ($token !== '(') {
+            ++$at;
+
+            return str_starts_with($token, "'") ? ($negated ? '' : $token) : false;
+        }
+        ++$at;
+        $parts = [];
+        $glue = null;
+        $true = false;
+        while (true) {
+            $part = self::rankItem($tokens, $at);
+            if ($part === false) {
+                return false;
+            }
+            if ($part === '') {
+                $true = true;
+            } else {
+                $parts[] = $part;
+            }
+            $next = $tokens[$at] ?? '';
+            ++$at;
+            if ($next === ')') {
+                break;
+            }
+            if (!in_array($next, ['&', '|', '<->'], true) || ($glue !== null && $glue !== $next)) {
+                return false;
+            }
+            $glue = $next;
+        }
+        if ($negated || ($true && $glue === '|') || $parts === []) {
+            return '';
+        }
+
+        return count($parts) === 1 ? $parts[0] : '(' . implode(' ' . $glue . ' ', $parts) . ')';
+    }
+
+    /** How many words a tsquery in the form compile() writes looks up. */
+    public static function operands(string $tsquery): int
+    {
+        return max(1, preg_match_all("/'[^']*'/", $tsquery));
     }
 
     private function knownScope(Node $node): bool

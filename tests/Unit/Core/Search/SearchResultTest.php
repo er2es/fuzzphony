@@ -16,6 +16,21 @@ final class SearchResultTest extends TestCase
         return new Hit($id, 1.0, new ScoreBreakdown());
     }
 
+    public function testItIsNotCorrectedUnlessTold(): void
+    {
+        self::assertNull((new SearchResult([], 0, false, 1.2, false, [], 20, 0))->correctedFrom);
+    }
+
+    public function testAnotherDidYouMeanKeepsEverythingElseOfTheResult(): void
+    {
+        $result = new SearchResult([$this->hit(1)], 1, true, 1.5, true, ['w'], 10, 20, 'mouse', 'mose', ['f' => []], 'mpuse');
+        $again = $result->withDidYouMean('mouse pad');
+
+        self::assertSame('mouse pad', $again->didYouMean);
+        self::assertSame('mpuse', $again->correctedFrom);
+        self::assertSame([[1], 1, true, 1.5, true, ['w'], 10, 20, 'mouse', ['f' => []]], [$again->ids(), $again->total, $again->totalIsLowerBound, $again->tookMs, $again->usedFuzzy, $again->warnings, $again->limit, $again->offset, $again->interpretedAs, $again->facets]);
+    }
+
     public function testIterationYieldsTheHits(): void
     {
         $result = new SearchResult([$this->hit(1), $this->hit(2)], 2, false, 1.2, false, [], 20, 0);
@@ -40,9 +55,16 @@ final class SearchResultTest extends TestCase
         self::assertSame(3, $result->page());
     }
 
-    public function testHasMoreWhenTotalIsALowerBound(): void
+    public function testHasNoMoreAtTheLastPageOfTheCandidatesEvenWhenTheTotalIsALowerBound(): void
     {
         $result = new SearchResult([$this->hit(1)], 1, true, 1.2, false, [], 20, 0);
+
+        self::assertFalse($result->hasMore());
+    }
+
+    public function testHasMoreWhenTheTotalIsALowerBoundAndCandidatesRemain(): void
+    {
+        $result = new SearchResult([$this->hit(1)], 2000, true, 1.2, false, [], 1, 0);
 
         self::assertTrue($result->hasMore());
     }

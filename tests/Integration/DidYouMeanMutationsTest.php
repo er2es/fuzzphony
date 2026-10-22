@@ -19,7 +19,7 @@ final class DidYouMeanMutationsTest extends TestCase
     {
         $connection = PostgresTestCase::connect();
         PostgresTestCase::createFixtures($connection, EngineConformanceTestCase::fixtureRows());
-        $fuzzphony = new Fuzzphony(new PostgresEngine($connection), new IndexRegistry([Indexes::products('manual')->withThresholds(new Thresholds(relaxWhenEmpty: false))]));
+        $fuzzphony = new Fuzzphony(new PostgresEngine($connection), new IndexRegistry([Indexes::products('manual')->withThresholds(new Thresholds(relaxWhenEmpty: false, rescueEmpty: false))]));
         $fuzzphony->schema()->apply($connection);
         $fuzzphony->reindex('products');
 

@@ -17,6 +17,7 @@ use Fuzzphony\Core\Query\Filter\Condition;
 use Fuzzphony\Core\Ranking\Thresholds;
 use Fuzzphony\Core\Ranking\TypoCurve;
 use Fuzzphony\Engine\Postgres\Schema\Names;
+use Fuzzphony\Engine\Postgres\Schema\PostgresSchemaGenerator;
 use Fuzzphony\Engine\Postgres\Schema\Types;
 use Fuzzphony\Engine\Postgres\TypoTerm;
 
@@ -64,7 +65,12 @@ use Fuzzphony\Engine\Postgres\TypoTerm;
  *
  * and scores by those columns only. A word scoped to a hidden field, or any word when no field is allowed, is "false";
  * a word is typo-tolerant only when an allowed field is (its own field, for a scoped word); an excluded part is
- * always compiled word by word (excluded()). Null keeps every statement of the unrestricted path as it was.
+ * always compiled word by word (excluded()). Null keeps every statement of the unrestricted path as it was, except for what
+ * tsv cannot hold reliably: it is every field's vector joined, and its positions are capped at 16 383, so after a field of more
+ * than about 16 000 words a lexeme of a later field keeps only the highest weight of its fields and a phrase there does not match.
+ * An unrestricted viewer's phrase, or word scoped to a field, on an index with several fields is therefore looked up by its words
+ * alone (the AND of them, no weight labels: the same GIN lookup) and decided by the fields' own columns (matches()); a word
+ * without a weight and a single field's index keep their statements.
  */
 final class FuzzyQueryCompiler
 {
@@ -80,10 +86,18 @@ final class FuzzyQueryCompiler
     private string $prefix = '';
     /** @var list<FieldDefinition>|null the fields a restricted viewer may match against; null = every field (the unrestricted path) */
     private readonly ?array $allowed;
+    /** @var array<string, list<string>> the swapped-letter variants of each word (by candidateKey()), set for the statement by allocateVariants() */
+    private array $variants = [];
 
     /**
      * @param list<string>|null $allowedFields the fields a restricted viewer may see (SearchQuery::$allowedFields): every
      *                                         word is then rechecked against their own columns, see the class comment
+     * @param bool              $transpositions a typed word of 4 to 15 letters also matches, as a whole word of a typo-tolerant
+     *                                          field, with two neighbouring letters swapped (see Transpositions); off keeps
+     *                                          every statement as it was
+     * @param (\Closure(): bool)|null $cappedColumn asked (only when a phrase or a scoped word of an unrestricted viewer on an index with several fields
+     *                                          is compiled) whether the sidecar has the tsv_capped column; null or false: it has not, and
+     *                                          the later fields' vectors are read for every document that `tsv` does not match
      */
     public function __construct(
         private readonly IndexDefinition $index,
@@ -92,6 +106,8 @@ final class FuzzyQueryCompiler
         /** @var array<string, list<int|string>> the ids each trigram word matches, by candidateKey() (see probes()) */
         private readonly array $candidates = [],
         ?array $allowedFields = null,
+        private readonly bool $transpositions = false,
+        private readonly ?\Closure $cappedColumn = null,
     ) {
         $this->tsquery = new TsQueryCompiler($index);
         $this->allowed = $allowedFields === null ? null : array_values(array_filter($index->fields, static fn(FieldDefinition $f): bool => in_array($f->name, $allowedFields, true)));
@@ -113,7 +129,9 @@ final class FuzzyQueryCompiler
     public function probes(Node $node, int $cap, array $emptyQueries = [], array $conditions = []): array
     {
         $probes = [];
-        foreach ($this->trigramLeaves($node, $emptyQueries) as $leaf) {
+        $leaves = $this->trigramLeaves($node, $emptyQueries);
+        $this->allocateVariants($leaves);
+        foreach ($leaves as $leaf) {
             $needle = $this->needle($leaf);
             assert($needle !== null, 'trigramLeaves() keeps only the leaves that have a needle');
             $key = $this->candidateKey($leaf);
@@ -124,6 +142,11 @@ final class FuzzyQueryCompiler
             $norm = sprintf('%s(%s)', $this->names->normFunction(), $params->add($needle));
             $threshold = $this->thresholds->fuzzySimilarity === null ? self::similaritySql($norm, $this->isPrefix($leaf)) : null;
             $where = $this->trigram($leaf, $norm, $threshold)['condition'];
+            if (($this->variants[$key] ?? []) !== []) {
+                // the swapped-letter variants are found in the same probe: one more way for a document to be a candidate of this word
+                $variants = $this->variantsTsquery($this->variants[$key]);
+                $where = sprintf('(%s OR %s)', $where, $this->variantMatch($leaf, fn(): string => $this->variantQuery($params->add($variants))));
+            }
             if ($conditions !== []) {
                 $where .= ' AND ' . (new FilterCompiler($this->index))->compile($conditions, $params);
             }
@@ -176,7 +199,7 @@ final class FuzzyQueryCompiler
     /** What a word's trigram condition depends on: the same key, the same matching documents. */
     private function candidateKey(Node $leaf): string
     {
-        return implode("\0", [$this->needle($leaf), $this->scopedField($leaf)->name ?? '', $this->isPrefix($leaf) ? 'prefix' : '']);
+        return implode("\0", [$this->needle($leaf), $this->scopedField($leaf)->name ?? '', $this->isPrefix($leaf) ? 'prefix' : '', ...($this->transposable($leaf) ? ['swap'] : [])]);
     }
 
     private function isPrefix(Node $leaf): bool
@@ -289,6 +312,7 @@ final class FuzzyQueryCompiler
     public function compile(Node $node, ParameterBag $params, array $emptyQueries = []): ?FuzzyMatch
     {
         $this->columns = [];
+        $this->allocateVariants($this->trigramLeaves($node, $emptyQueries));
         $compiled = $this->node($node, $params, $emptyQueries);
 
         return $compiled === null || $compiled['score'] === null ? null : new FuzzyMatch($compiled['predicate'], $compiled['score'], $this->columns);
@@ -331,6 +355,7 @@ final class FuzzyQueryCompiler
     public function leafConditions(array $leaves, ParameterBag $params, array $emptyQueries, bool $fuzzy): array
     {
         $this->columns = [];
+        $this->allocateVariants($fuzzy ? array_merge([], ...array_map(fn(Node $leaf): array => $this->trigramLeaves($leaf, $emptyQueries), $leaves)) : []);
         $predicates = [];
         foreach ($leaves as $leaf) {
             if ($leaf instanceof AnyOf) {
@@ -427,16 +452,100 @@ final class FuzzyQueryCompiler
             : null;
         $trigram = $this->trigram($node, $norm, $threshold);
         $score = $threshold === null ? $trigram['similarity'] : sprintf('CASE WHEN %1$s >= %2$s THEN %1$s ELSE 0.0 END', $trigram['similarity'], $threshold);
-        $ids = $this->candidates[$this->candidateKey($node)] ?? null;
+        $key = $this->candidateKey($node);
+        $ids = $this->candidates[$key] ?? null;
         $condition = $ids === null
             ? $trigram['condition']
             : sprintf('s.id = ANY(%s)', $this->column('id', sprintf('CAST(%s AS %s[])', $params->add(Sql::arrayLiteral($ids)), Types::id($this->index->idType))));
+        $predicates = [$exact, $condition];
+        $scores = [$score, $exactScore];
+        if (($this->variants[$key] ?? []) !== []) {
+            // A swapped-letter variant of the word, found as a whole word. It scores the least a typo of this word may score
+            // (the word's own similarity threshold, or the fixed one), so it ranks below an exact match and never above any
+            // ordinary typo match of the word; a candidate id list (probes()) already holds the documents it finds.
+            $variants = $this->column('tv', $this->variantQuery($params->add($this->variantsTsquery($this->variants[$key]))));
+            $match = $this->variantMatch($node, static fn(): string => $variants);
+            $scores[] = sprintf('CASE WHEN %s THEN %s ELSE 0.0 END', $match, $threshold ?? Sql::float((float) $this->thresholds->fuzzySimilarity));
+            if ($ids === null) {
+                $predicates[] = $match;
+            }
+        }
 
         return [
-            'predicate' => sprintf('(%s OR %s)', $exact, $condition),
-            'score' => sprintf('GREATEST(%s, %s)', $score, $exactScore),
+            'predicate' => '(' . implode(' OR ', $predicates) . ')',
+            'score' => sprintf('GREATEST(%s)', implode(', ', $scores)),
             'partial' => false,
         ];
+    }
+
+    /**
+     * Sets the swapped-letter variants of the words of one statement, by candidateKey(): the words in order, each once, as
+     * long as the query's budget lasts (Transpositions::MAX_PER_QUERY; a word whose variants do not fit gets none). Done by
+     * every entry point that compiles words (probes(), compile(), leafConditions()) over the same leaves, so the probe of a
+     * word and the statement that uses its candidates agree.
+     *
+     * @param list<Node> $leaves the leaves that match fuzzily (trigramLeaves())
+     */
+    private function allocateVariants(array $leaves): void
+    {
+        $this->variants = [];
+        if (!$this->transpositions) {
+            return;
+        }
+        $budget = Transpositions::MAX_PER_QUERY;
+        foreach ($leaves as $leaf) {
+            $key = $this->candidateKey($leaf);
+            if (isset($this->variants[$key])) {
+                continue;
+            }
+            $this->variants[$key] = [];
+            $needle = $this->transposable($leaf) ? $this->needle($leaf) : null;
+            $found = $needle === null ? [] : Transpositions::of($needle);
+            if ($found !== [] && count($found) <= $budget) {
+                $this->variants[$key] = $found;
+                $budget -= count($found);
+            }
+        }
+    }
+
+    /** A word the user typed (not a prefix, a phrase, nor an alternative a synonym added) may be matched with two letters swapped. */
+    private function transposable(Node $leaf): bool
+    {
+        $inner = $leaf instanceof FieldScoped ? $leaf->node : $leaf;
+
+        return $this->transpositions && $inner instanceof Term && !$inner->prefix && !$inner->synonym;
+    }
+
+    /** @param list<string> $variants */
+    private function variantsTsquery(array $variants): string
+    {
+        return implode(' | ', array_map(static fn(string $variant): string => "'" . $variant . "'", $variants));
+    }
+
+    private function variantQuery(string $placeholder): string
+    {
+        return sprintf('to_tsquery(%s, %s)', $this->names->regconfig($this->index->text), $placeholder);
+    }
+
+    /**
+     * Whether a document has one of the variants as a word of a typo-tolerant field, like typo tolerance itself reaches only
+     * those: GIN(tsv) finds the candidates, and the words must be in a fuzzy field's own column (the allowed ones for a
+     * restricted viewer, the field of a scoped word). Without a restriction and when every field is typo-tolerant, tsv alone says it.
+     *
+     * @param \Closure(): string $query the tsquery of the variants; called once per use (a probe binds each use as its own parameter)
+     */
+    private function variantMatch(Node $leaf, \Closure $query): string
+    {
+        $field = $this->scopedField($leaf);
+        $targets = $this->allowed !== null
+            ? $this->fuzzyAllowed($field)
+            : array_values(array_filter($field === null ? $this->index->fields : [$field], static fn(FieldDefinition $f): bool => $f->fuzzy));
+        if ($this->allowed === null && $field === null && count($targets) === count($this->index->fields)) {
+            return 's.tsv @@ ' . $query();
+        }
+        $checks = array_map(fn(FieldDefinition $f): string => sprintf('s.%s @@ %s', $this->names->fieldVector($f->name), $query()), $targets);
+
+        return sprintf('(s.tsv @@ %s AND %s)', $query(), count($checks) === 1 ? $checks[0] : '(' . implode(' OR ', $checks) . ')');
     }
 
     /**
@@ -612,7 +721,39 @@ final class FuzzyQueryCompiler
 
             return sprintf('(s.tsv @@ %s AND %s)', $lookup, count($checks) === 1 ? $checks[0] : '(' . implode(' OR ', $checks) . ')');
         }
-        $query = $this->column('ft', sprintf('to_tsquery(%s, %s)', $this->names->regconfig($this->index->text), $params->add($tsquery)));
+        $config = $this->names->regconfig($this->index->text);
+        $query = $this->column('ft', sprintf('to_tsquery(%s, %s)', $config, $params->add($tsquery)));
+        if (count($this->index->fields) > 1 && ($field !== null || str_contains($tsquery, '<->'))) {
+            // A word with a weight, or a phrase, on tsv: its positions are capped at 16 383 after the fields joined before the
+            // word's own, so after a field of more than about 16 000 words a lexeme there keeps only the highest weight of its
+            // fields and a phrase does not match. The candidates come from the words alone (phrases ANDed, no weight labels),
+            // which GIN(tsv) serves as it serves the phrase; the field's own column decides a scoped word (positions inside
+            // the field), a phrase is read from tsv or from the fields' vectors that start after the first (Names::laterVectors()).
+            $loose = (new TsQueryCompiler($this->index, false, true))->compile($node) ?? $tsquery;
+            $lookup = $loose !== $tsquery ? $this->column('fl', sprintf('to_tsquery(%s, %s)', $config, $params->add($loose))) : $query;
+            if ($field !== null) {
+                return sprintf('(s.tsv @@ %s AND s.%s @@ %s)', $lookup, $this->names->fieldVector($field->name), $query);
+            }
+            $later = array_map(static fn(string $vector): string => sprintf('(%s) @@ %s', $vector, $query), $this->names->laterVectors($this->index));
+            if ($this->cappedColumn !== null && ($this->cappedColumn)()) {
+                // The later fields' vectors are read only for a document whose tsv was capped (or not known to be: NULL), which is
+                // rare: the phrase on tsv, the statement's old cost, decides for every other. They are read by a subquery on the
+                // document's own row, not as columns of the scanned one: PostgreSQL fetches every column an expression names from
+                // the scanned row before it evaluates anything, which for the last fields of a wide index costs more than the phrase.
+                $own = array_map(fn(string $vector): string => sprintf('(%s) @@ %s', $vector, $query), $this->names->laterVectors($this->index, 'c'));
+
+                return sprintf(
+                    '(s.tsv @@ %s AND (s.tsv @@ %s OR (s.%s IS NOT FALSE AND EXISTS (SELECT 1 FROM %s AS c WHERE c.id = s.id AND (%s)))))',
+                    $lookup,
+                    $query,
+                    PostgresSchemaGenerator::CAPPED_COLUMN,
+                    $this->names->sidecar($this->index),
+                    implode(' OR ', $own),
+                );
+            }
+
+            return sprintf('(s.tsv @@ %s AND (%s))', $lookup, implode(' OR ', ['s.tsv @@ ' . $query, ...$later]));
+        }
 
         return $field === null
             ? 's.tsv @@ ' . $query
