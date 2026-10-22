@@ -42,7 +42,7 @@ final class SchemaGeneratorTest extends TestCase
         self::assertStringContainsString('CROSS JOIN LATERAL (SELECT setweight(', $sql);
         self::assertStringContainsString('OFFSET 0) AS v', $sql);
         self::assertStringContainsString("v.fz_tsv,
-        EXISTS (SELECT 1 FROM unnest(v.fz_tsv) AS u(lexeme, positions, weights), unnest(u.positions) AS p WHERE p >= 16383),", $sql);
+        EXISTS (SELECT 1 FROM unnest(v.fz_tsv) AS u(lexeme, positions, weights) WHERE cardinality(u.positions) >= 256 OR EXISTS (SELECT 1 FROM unnest(u.positions) AS p WHERE p >= 16383)),", $sql);
     }
 
     public function testTheRefreshFunctionFillsThePerFieldColumns(): void
