@@ -132,16 +132,23 @@ the same cheap selection as before and returns the same hits.
   a pager that follows `hasMore()` stops at `candidate_limit` hits (2000 by default); a page asked for directly
   still works. `candidate_limit` is a lower bound of the window, not an upper one: a page of 20 with
   `candidate_limit: 10` selects 20.
-- **The scan budget: 100 000 matches** (a constant of the library, not a setting: it bounds the cost of a
-  search, and every setting would be one more way to switch it off). The ranking is exact among the first
-  100 000 matches in index order; a word with more matches than that is ranked among those only, so the
+- **The scan budget: 100 000 matches for a one-word query** (a constant of the library, not a setting: it bounds
+  the cost of a search, and every setting would be one more way to switch it off). The ranking is exact among the
+  first 100 000 matches in index order; a word with more matches than that is ranked among those only, so the
   document that would rank first can still be missing when the word is that common (`wireless` has 100 005
   matches on the 1 000 000-row benchmark catalogue and the five documents beyond the budget are not found;
-  `ideal` is in every document). It is the worst case of one search: about 1 to 3 microseconds per scanned match,
-  170 to 330 ms at 1 000 000 rows ([Benchmarks](benchmarks.md#common-words)).
+  `ideal` is in every document). The cost of ranking a document grows with the words the query looks up, so the
+  budget counts work, not rows: it is divided by the number of words of the query (a query of 16 words scans the
+  first 6 250 matches, never fewer than the candidates asked for), and the words the query excludes are not looked up
+  for the rank at all (`ideal -a -b ... -o` ranks like `ideal`). The rank of a document is the same either way.
+  Measured on 200 000 products, a one-word query costs 0.7 to 1 microseconds per scanned match, 170 to 330 ms in the
+  worst case at 1 000 000 rows; the hostile ones (16 words, 15 exclusions, 15 prefixes) cost 170 to 340 ms at 200 000
+  rows and 0.4 to 1 s at 1 000 000, about twice the time of the same query before 0.9.8 (the index scan that finds
+  the matches is most of it), where an earlier build of 0.9.8 took 2 to 3 s
+  ([Benchmarks](benchmarks.md#common-words)).
 - **A word under the limit costs what it did** (a rare word: 0.15 ms more to plan, never executed); a word
-  over it costs one more pass over its matches: 10 to 35 ms for `wireless` (20 000 matches) on 200 000 products,
-  up to 90 ms for the most common word there.
+  over it costs one more pass over its matches: 10 to 38 ms for `wireless` (20 000 matches) on 200 000 products,
+  up to 105 ms for the most common word there.
 - `min_score` keeps the documents under it out of the candidate slots (the strict branch), so a query that
   needs it still finds its best documents; `total` stays flagged as a lower bound.
 
@@ -150,6 +157,17 @@ or a search that found too little) still collects the first `candidate_limit` ma
 the best ones**: with a very common typo-tolerant word the closest spelling can be missing, because 3 000 weaker
 look-alikes crowd it out. It is planned for 0.9.9. In `fuzzy_mode: always` the typo candidates are added to
 the strict ones, so a very common word there keeps its approximate part.
+
+**"First" is the physical order of the sidecar table.** The typo branch's first candidates, the first 100 000 matches
+beyond the scan budget, and the first `candidate_limit` matches the facets count are the ones a bitmap heap scan returns,
+in the order of the rows in the table. That order depends on how the rows were written (a reindex fills free space in
+earlier pages), and so on the size of every row, **hidden fields included**. For a restricted viewer this means: the strict
+candidates up to the scan budget, their order, the total and the hits are exact and independent of a hidden field (tests
+compare corpora that differ only in a hidden field's content and size); the typo branch's candidates, the strict ones
+beyond the budget, and the facet counts of a capped search (`totalIsLowerBound`) can differ between two corpora that
+differ only in a hidden field. Nothing a hidden field holds is shown by that (a document that holds a word only in a hidden
+field is never returned), but the difference is not zero. A deterministic order for the typo branch is planned for
+0.9.9.
 
 `exactCounts()` counts everything the query matches, for the total and the facets, but the page of hits is
 still the ranked candidates ([Facets](searching.md#facets)).

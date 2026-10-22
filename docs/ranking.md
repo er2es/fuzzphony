@@ -109,7 +109,7 @@ depend on how common its words are. A word with fewer matches than that costs wh
 - **Full-text branch:** the candidates are the best matches by the same key the page is ordered by: the text rank
   (of the fields the viewer may see), the exact-title and prefix bonuses, the boost and recency bonuses, then the
   id. One cheap selection runs first; only when it hits the limit a second one scores the matches (the first
-  100 000 of them in index order: the scan budget, an internal constant) and keeps the best `candidate_limit`. The
+  100 000 of them in index order, fewer for a query of several words: the scan budget, an internal constant) and keeps the best `candidate_limit`. The
   second selection has the same lookup, filter, tenant and field-recheck conditions and, with `min_score`, leaves the
   documents under it out. So `Wireless` (an exact title) comes before 20 000 other `wireless` documents.
 - **A page past the candidates** selects the best `offset + limit` instead (at most 10 000), so deep pages are exact;

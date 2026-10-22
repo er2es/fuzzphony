@@ -325,16 +325,24 @@ a covert-channel proof:
 - **The vocabulary of unrestricted viewers still holds every word.** An unrestricted viewer of an
   index with a hidden field still gets suggestions, "did you mean" and the zero-result rescue built from the words of
   all its fields, which is why a restricted viewer gets none.
-- **What a hidden field holds, or how long it is, never changes what a restricted viewer finds.** The candidates of a
-  phrase or of a field-scoped word are looked up by the words alone, because the positions of the whole-text vector are
-  capped at 16 383 and a long hidden field in front of an allowed one would otherwise decide whether a phrase of the
-  allowed field matches.
+- **What a hidden field holds, or how long it is, never changes whether a restricted viewer's phrase or field-scoped word
+  matches, nor which strict candidates it gets (up to the scan budget).** The candidates of a phrase or of a field-scoped
+  word are looked up by the words alone, because the positions of the whole-text vector are capped at 16 383 and a long
+  hidden field in front of an allowed one would otherwise decide whether a phrase of the allowed field matches. The
+  exception is a selection that depends on the PHYSICAL order of the index's rows, which the size of a hidden field shapes
+  (a reindex fills free space in earlier pages): the typo-tolerant branch's first `candidate_limit` candidates, the strict
+  ones beyond the scan budget (100 000 matches) and the facet counts of a search that hit its candidate limit. What a hidden
+  field holds is not revealed by it (no document is returned for a word that only a hidden field has), but a search of a very
+  common word can return slightly different hits or counts for two corpora that differ in a hidden field only. A
+  deterministic order for the typo branch is planned for 0.9.9
+  ([limitations](limitations.md#ranking-of-very-common-words)).
 - **The candidates of a very common word are chosen by the fields the viewer may see only.** When a word matches more
   documents than `candidate_limit`, the best candidates are selected by the page's own sort key; for a restricted
   viewer that key is the text rank of the allowed fields' vectors and the exact and prefix bonuses only when the primary
   field is allowed, with the same lookup, recheck, tenant and filter conditions as the cheap selection, so neither which
   documents are candidates nor their order depends on a hidden field (the tests compare corpora that differ only in a
-  hidden field, even a very long one, for all three fuzzy modes). The selection scores at most 100 000 matches that pass
+  hidden field, even a very long one, for the strict modes `never` and `fallback`; `always` is asserted for ownership only, see
+  the next entry). The selection scores at most 100 000 matches that pass
   the recheck; the scan that finds them can still be long when the word is common in a hidden typo-tolerant field (see the
   timing entry above and [limitations](limitations.md#a-restricted-viewers-very-common-word-in-a-hidden-typo-tolerant-field-is-slow)).
 - **A phrase is read from the fields the viewer may see, as if the others did not exist.** Like an
