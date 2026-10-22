@@ -736,9 +736,20 @@ final class FuzzyQueryCompiler
             }
             $later = array_map(static fn(string $vector): string => sprintf('(%s) @@ %s', $vector, $query), $this->names->laterVectors($this->index));
             if ($this->cappedColumn !== null && ($this->cappedColumn)()) {
-                // the later fields' vectors are read only for a document whose tsv was capped (or not known to be: NULL), which is
-                // rare: the phrase on tsv, the statement's old cost, decides for every other
-                return sprintf('(s.tsv @@ %s AND (s.tsv @@ %s OR (s.%s IS NOT FALSE AND (%s))))', $lookup, $query, PostgresSchemaGenerator::CAPPED_COLUMN, implode(' OR ', $later));
+                // The later fields' vectors are read only for a document whose tsv was capped (or not known to be: NULL), which is
+                // rare: the phrase on tsv, the statement's old cost, decides for every other. They are read by a subquery on the
+                // document's own row, not as columns of the scanned one: PostgreSQL fetches every column an expression names from
+                // the scanned row before it evaluates anything, which for the last fields of a wide index costs more than the phrase.
+                $own = array_map(fn(string $vector): string => sprintf('(%s) @@ %s', $vector, $query), $this->names->laterVectors($this->index, 'c'));
+
+                return sprintf(
+                    '(s.tsv @@ %s AND (s.tsv @@ %s OR (s.%s IS NOT FALSE AND EXISTS (SELECT 1 FROM %s AS c WHERE c.id = s.id AND (%s)))))',
+                    $lookup,
+                    $query,
+                    PostgresSchemaGenerator::CAPPED_COLUMN,
+                    $this->names->sidecar($this->index),
+                    implode(' OR ', $own),
+                );
             }
 
             return sprintf('(s.tsv @@ %s AND (%s))', $lookup, implode(' OR ', ['s.tsv @@ ' . $query, ...$later]));

@@ -465,7 +465,16 @@ SELECT
         $vectors = ['s.' . $this->names->fieldVector($this->index->fieldNames()[0]), ...array_map(static fn(string $v): string => '(' . $v . ')', $this->names->laterVectors($this->index))];
 
         if ($this->cappedColumn !== null && ($this->cappedColumn)()) {
-            return sprintf('CASE WHEN s.%s IS NOT FALSE AND NOT (s.tsv @@ q.tsq) THEN GREATEST(%s) ELSE %s END', PostgresSchemaGenerator::CAPPED_COLUMN, implode(', ', array_map($rank, $vectors)), $rank('s.tsv'));
+            // the fields' vectors come from a subquery on the document's own row (see FuzzyQueryCompiler::matches()): the other rows pay nothing
+            $own = ['c.' . $this->names->fieldVector($this->index->fieldNames()[0]), ...array_map(static fn(string $v): string => '(' . $v . ')', $this->names->laterVectors($this->index, 'c'))];
+
+            return sprintf(
+                'CASE WHEN s.%s IS NOT FALSE AND NOT (s.tsv @@ q.tsq) THEN (SELECT GREATEST(%s) FROM %s AS c WHERE c.id = s.id) ELSE %s END',
+                PostgresSchemaGenerator::CAPPED_COLUMN,
+                implode(', ', array_map($rank, $own)),
+                $this->names->sidecar($this->index),
+                $rank('s.tsv'),
+            );
         }
 
         return sprintf('CASE WHEN s.tsv @@ q.tsq THEN %s ELSE GREATEST(%s) END', $rank('s.tsv'), implode(', ', array_map($rank, $vectors)));
