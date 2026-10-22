@@ -45,7 +45,7 @@ final class FuzzphonyBundleGuardsTest extends TestCase
         self::assertEquals([new Reference('fuzzphony.guard.rate_limit')], $guards);
         $guard = $container->getDefinition('fuzzphony.guard.rate_limit');
         self::assertSame(RateLimitGuard::class, $guard->getClass());
-        self::assertEquals([new Reference('limiter.search'), 'tenant'], $guard->getArguments());
+        self::assertEquals([new Reference('limiter.search'), 'tenant', '%kernel.secret%', new Reference('fuzzphony.metrics'), new Reference('logger')], $guard->getArguments());
     }
 
     public function testThePerSettingIsPassedOn(): void

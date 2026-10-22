@@ -34,7 +34,7 @@ final class FuzzphonyBundleIpLimitTest extends TestCase
         $container = $this->loaded(['rate_limit' => ['per' => 'ip']]);
         $guard = $container->getDefinition('fuzzphony.guard.rate_limit');
         self::assertSame(RateLimitGuard::class, $guard->getClass());
-        self::assertEquals([new Reference('limiter.fuzzphony_ip'), 'ip'], $guard->getArguments());
+        self::assertEquals([new Reference('limiter.fuzzphony_ip'), 'ip', '%kernel.secret%', new Reference('fuzzphony.metrics'), new Reference('logger')], $guard->getArguments());
         self::assertEquals([new Reference('fuzzphony.guard.rate_limit')], $container->getDefinition('fuzzphony.search_gate')->getArgument(4));
     }
 
@@ -47,6 +47,35 @@ final class FuzzphonyBundleIpLimitTest extends TestCase
         self::assertSame([$own], $container->getExtensionConfig('framework'), 'nothing prepended');
     }
 
+    /** @return iterable<string, array{array<string, mixed>}> */
+    public static function entryShapes(): iterable
+    {
+        $entry = ['policy' => 'fixed_window', 'limit' => 5, 'interval' => '1 hour'];
+        yield 'keyed by name directly' => [['fuzzphony_ip' => $entry]];
+        yield 'under `limiters`' => [['limiters' => ['fuzzphony_ip' => $entry]]];
+        yield 'under `limiter`' => [['limiter' => ['fuzzphony_ip' => $entry]]];
+    }
+
+    /** @param array<string, mixed> $rateLimiter */
+    #[DataProvider('entryShapes')]
+    public function testAnEntryOfThatNameIsRecognisedInEveryShape(array $rateLimiter): void
+    {
+        $own = ['rate_limiter' => $rateLimiter];
+
+        $container = $this->prepended(['rate_limit' => ['per' => 'ip']], [$own]);
+
+        self::assertSame([$own], $container->getExtensionConfig('framework'), 'nothing prepended');
+    }
+
+    public function testEntriesOfOtherNamesInEveryShapeDoNotStopThePrepend(): void
+    {
+        foreach ([['other' => ['limit' => 1]], ['limiters' => ['other' => ['limit' => 1]]], ['limiter' => ['other' => ['limit' => 1]]], ['limiters' => 'x']] as $rateLimiter) {
+            $container = $this->prepended(['rate_limit' => ['per' => 'ip']], [['rate_limiter' => $rateLimiter]]);
+
+            self::assertSame(self::DEFAULT_ENTRY, $container->getExtensionConfig('framework')[0]);
+        }
+    }
+
     public function testANamedLimiterOfTheApplicationIsUsedAndNothingIsPrepended(): void
     {
         $framework = [['rate_limiter' => ['public_search' => ['policy' => 'fixed_window', 'limit' => 30, 'interval' => '1 minute']]]];
@@ -55,7 +84,7 @@ final class FuzzphonyBundleIpLimitTest extends TestCase
 
         self::assertSame($framework, $container->getExtensionConfig('framework'));
         $guard = $this->loaded(['rate_limit' => ['per' => 'ip', 'limiter' => 'public_search']])->getDefinition('fuzzphony.guard.rate_limit');
-        self::assertEquals([new Reference('limiter.public_search'), 'ip'], $guard->getArguments());
+        self::assertEquals([new Reference('limiter.public_search'), 'ip', '%kernel.secret%', new Reference('fuzzphony.metrics'), new Reference('logger')], $guard->getArguments());
     }
 
     /** @return iterable<string, array{list<array<string, mixed>>}> */
