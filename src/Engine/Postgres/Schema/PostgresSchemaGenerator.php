@@ -32,19 +32,23 @@ final class PostgresSchemaGenerator
     public const int LAYOUT_VERSION = 2;
 
     /**
-     * The sidecar column that says whether the joined vector `tsv` reached position 16 383 (PostgreSQL caps the positions of a
-     * tsvector there: after a field of more than about 16 000 words a phrase, and a weighted word of a later field, cannot be
-     * found on `tsv`). It is optional: a searcher that does not find it, and a document with NULL in it, take the slow way.
+     * The sidecar column that says whether the joined vector `tsv` cannot be relied on for a phrase or a weighted word of a later
+     * field. `tsv` is the fields' vectors joined with `||`, and the join loses information in two ways: positions are capped at
+     * 16 383 (after a field of more than about 16 000 words every later word sits at one position, and only the highest weight of
+     * the lexemes there is kept), and a lexeme keeps at most 256 positions (the later vector's positions of a lexeme that has them
+     * already are dropped, with no position anywhere near 16 383). It is optional: a searcher that does not find it, and a document
+     * with NULL in it (written before the column, or by an older refresh function: reindex fills it), take the slow way.
      */
     public const string CAPPED_COLUMN = 'tsv_capped';
 
     /**
-     * SQL: true when some position of the vector is 16 383 or more. A vector without such a position was never capped (a capped
-     * position is stored as 16 383), so false is exact; true may also mean "exactly 16 383", never a lost position.
+     * SQL: true when a position of the vector is 16 383 or more, or a lexeme has 256 or more positions. A single to_tsvector() holds
+     * at most 255 positions of a lexeme, so 256 can only come from a join that dropped the rest, and a vector without either sign
+     * lost nothing: false is exact, true may also mean "reached the limit exactly", never a lost position.
      */
     public static function cappedExpression(string $vector): string
     {
-        return sprintf('EXISTS (SELECT 1 FROM unnest(%s) AS u(lexeme, positions, weights), unnest(u.positions) AS p WHERE p >= 16383)', $vector);
+        return sprintf('EXISTS (SELECT 1 FROM unnest(%s) AS u(lexeme, positions, weights) WHERE cardinality(u.positions) >= 256 OR EXISTS (SELECT 1 FROM unnest(u.positions) AS p WHERE p >= 16383))', $vector);
     }
 
     /** Every generated function body / DO block is quoted with this tag; the validator keeps it out of embedded SQL. */

@@ -161,4 +161,111 @@ final class CappedFlagTest extends TestCase
         // the scanned row's later fields are never named outside the subquery: PostgreSQL would fetch them for every row
         self::assertStringNotContainsString(' s."t_secret"', $sql);
     }
+
+    /** @param list<array{int, string, string}> $rows id, notes, title */
+    private function load(array $rows): void
+    {
+        $this->connection->execute('DELETE FROM fz_cap_doc');
+        foreach ($rows as [$id, $notes, $title]) {
+            $this->connection->execute('INSERT INTO fz_cap_doc VALUES (:id, :notes, :title, :body, :secret)', ['id' => $id, 'notes' => $notes, 'title' => $title, 'body' => 'plain', 'secret' => 'plain']);
+        }
+        $this->fuzzphony->reindex('cap_docs');
+    }
+
+    /** @return list<int|string> */
+    private function ids(Fuzzphony $fuzzphony, string $text, string $mode = 'never'): array
+    {
+        $ids = array_map(static fn($hit): int|string => $hit->id, $fuzzphony->in('cap_docs')->query($text)->thresholds(['fuzzy_mode' => $mode])->get()->hits);
+        sort($ids);
+
+        return $ids;
+    }
+
+    public function testALexemeWithTheMostPositionsLosesTheLaterFieldsPositionsWithoutReachingThePositionLimit(): void
+    {
+        // PostgreSQL keeps at most 256 positions per lexeme; `||` drops the later vector's once the lexeme has them, so a phrase in the
+        // title is not on tsv although no position reached 16 383: the flag must be true (the review's case)
+        $this->load([[1, str_repeat('foo ', 300), 'foo baz foo bar'], [2, 'x', 'foo bar']]);
+
+        self::assertSame([1 => true, 2 => false], $this->flags());
+        foreach (['never', 'fallback', 'always'] as $mode) {
+            self::assertSame([1, 2], $this->ids($this->fuzzphony, '"foo bar"', $mode), $mode);
+            self::assertSame([1, 2], $this->ids($this->fuzzphony, 'title:"foo bar"', $mode), $mode);
+        }
+        $this->connection->execute('ALTER TABLE fuzzphony_cap_docs DROP COLUMN tsv_capped');
+        self::assertSame([1, 2], $this->ids($this->engine(), '"foo bar"'), 'the same as without the column');
+    }
+
+    public function testALexemeJustUnderTheLimitIsNotCapped(): void
+    {
+        // 253 + 2 = 255 positions of "foo" on tsv: nothing was dropped
+        $this->load([[1, str_repeat('foo ', 253), 'foo baz foo bar'], [2, 'x', 'foo bar']]);
+
+        self::assertSame([1 => false, 2 => false], $this->flags());
+        self::assertSame([1, 2], $this->ids($this->fuzzphony, '"foo bar"'));
+    }
+
+    public function testALexemeRepeatedInTheFirstFieldOnlyIsNotCapped(): void
+    {
+        $this->load([[1, str_repeat('foo ', 400), 'bar baz'], [2, 'x', 'bar baz']]);
+
+        self::assertSame([1 => false, 2 => false], $this->flags(), 'one vector holds at most 255 positions of a lexeme and nothing is dropped');
+        self::assertSame([1, 2], $this->ids($this->fuzzphony, '"bar baz"'));
+        self::assertSame([1, 2], $this->ids($this->fuzzphony, 'title:"bar baz"'));
+    }
+
+    public function testTheRankOfADocumentTsvDoesNotMatchIsTakenFromTheFields(): void
+    {
+        $this->load([[1, str_repeat('foo ', 300), 'foo baz foo bar'], [2, 'x', 'foo baz foo bar']]);
+        $rank = [];
+        foreach ($this->fuzzphony->in('cap_docs')->query('title:"foo bar"')->thresholds(['fuzzy_mode' => 'never'])->get()->hits as $hit) {
+            $rank[$hit->id] = round($hit->breakdown->textRank, 6);
+        }
+        ksort($rank);
+
+        self::assertSame([1, 2], array_keys($rank));
+        self::assertGreaterThan(0.0, $rank[1], 'ranked on the title vector: the joined one lost the later positions of the title');
+        self::assertSame($rank[2], $rank[1]);
+    }
+
+    /** @return list<string> the messages of the doctor's warnings on the sidecar columns */
+    private function columnWarnings(): array
+    {
+        $messages = [];
+        foreach ($this->engine()->inspect('cap_docs')->checks as $check) {
+            if ($check->name === 'Sidecar columns' && $check->status === CheckStatus::Warning) {
+                $messages[] = $check->message;
+            }
+        }
+
+        return $messages;
+    }
+
+    public function testTheDoctorWarnsWhileTheFlagIsNotFilled(): void
+    {
+        $quiet = $this->columnWarnings();
+        self::assertSame([], $quiet, 'a reindexed index has nothing to say');
+
+        $this->connection->execute('UPDATE fuzzphony_cap_docs SET tsv_capped = NULL WHERE id IN (1, 3)');
+        $warnings = $this->columnWarnings();
+        self::assertCount(1, $warnings);
+        self::assertStringContainsString('tsv_capped is not filled for 2 document(s)', $warnings[0]);
+
+        $this->fuzzphony->reindex('cap_docs');
+        $after = $this->columnWarnings();
+        self::assertSame([], $after);
+    }
+
+    public function testTheDoctorStaysQuietForAnIndexWithOneField(): void
+    {
+        $this->connection->execute('DROP TABLE IF EXISTS fz_cap_one, fuzzphony_cap_one, fuzzphony_cap_one__vocab, fuzzphony_cap_one__next, fuzzphony_cap_one__changes CASCADE');
+        $this->connection->execute("CREATE TABLE fz_cap_one (id bigint PRIMARY KEY, body text NOT NULL)");
+        $this->connection->execute("INSERT INTO fz_cap_one VALUES (1, 'a b')");
+        $fuzzphony = new Fuzzphony(new PostgresEngine($this->connection), new IndexRegistry([IndexDefinition::builder('cap_one')->fromQuery('SELECT id, body FROM fz_cap_one')->field('body', 'A')->sync('manual')->build()]));
+        $fuzzphony->schema()->apply($this->connection);
+        $fuzzphony->reindex('cap_one');
+        $this->connection->execute('UPDATE fuzzphony_cap_one SET tsv_capped = NULL');
+
+        self::assertSame([], array_filter($fuzzphony->inspect('cap_one')->checks, static fn($check): bool => $check->status === CheckStatus::Warning && $check->name === 'Sidecar columns'), 'the flag is never read for one field');
+    }
 }

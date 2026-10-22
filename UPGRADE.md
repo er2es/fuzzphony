@@ -49,12 +49,15 @@ Nothing is required, but **run `fuzzphony:schema --apply` and then `fuzzphony:re
 5. **Phrases and field-scoped words after a very long field are found** (a fix, no change for texts under about 16 000 words), and
    the fast way to find them needs a new sidecar column. `fuzzphony:schema --apply` adds `tsv_capped` (a nullable boolean, only when
    it is missing, so an apply that finds it takes no lock) and `fuzzphony:reindex` fills it (true when the joined vector reached
-   position 16 383). Until then a phrase (`"usb receiver"`, `usb-c`) on an index with **several fields** is correct but slower: the
+   position 16 383 or a lexeme has 256 or more positions, where PostgreSQL drops the rest: documents written before this release
+   or by an older refresh function need the reindex). Until then a phrase (`"usb receiver"`, `usb-c`) on an index with **several fields** is correct but slower: the
    later fields' vectors are read for every candidate `tsv` does not match as a phrase (about 17 to 22 times slower for a quoted
    phrase whose words are common on a 12-field index, 1.3 to 1.8 times on 3 fields; measured). A document that is not reindexed
    yet has no answer (NULL) and is treated as capped: right, slow. An application that has not applied the schema keeps working
    (the column is looked up in the catalog, once per process: restart long-running workers, or call `PostgresEngine::resetCaches()`,
-   after applying). `fuzzphony:doctor` hints at the missing column as a warning. Single-field indexes, plain words, excluded words,
+   after applying, and after dropping the column too). `fuzzphony:doctor` warns about the missing column, and about a column that
+   is not filled yet (NULL rows: "run fuzzphony:reindex"). Going back to a release without the column and forward again leaves the
+   flags the old refresh function did not touch as they were, so a document changed meanwhile can have a stale `false`: reindex. Single-field indexes, plain words, excluded words,
    prefixes and typos are not affected. A rebuild with `fuzzphony:reindex` before the schema is applied also fills the column.
 
 If you implement your own `Engine` or build `SearchResult` yourself, the new constructor parameter `correctedFrom` is optional and last.
