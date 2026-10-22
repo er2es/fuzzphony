@@ -283,10 +283,10 @@ Details in [docs/limitations.md](https://github.com/er2es/fuzzphony/blob/main/do
   tolerated; the similarity a word needs is proportional to its length, or flat if you set it.
 - [Attaching or detaching a partition is not followed](https://github.com/er2es/fuzzphony/blob/main/docs/limitations.md#attaching-or-detaching-a-partition-is-not-followed):
   PostgreSQL fires no trigger for it; run `fuzzphony:reindex` afterwards.
-- [Ranking is approximate beyond `candidate_limit`](https://github.com/er2es/fuzzphony/blob/main/docs/limitations.md#ranking-is-approximate-beyond-candidate_limit):
-  a very common word is ranked over the first `candidate_limit` matches the index returns, not the
-  best ones (a better match can be missing), and `total` is then a lower bound; `exactCounts()` makes
-  the total and the facet counts exact.
+- [Ranking of very common words](https://github.com/er2es/fuzzphony/blob/main/docs/limitations.md#ranking-of-very-common-words):
+  a word with more matches than `candidate_limit` is ranked over its best matches (exact up to 100 000 matches,
+  and for pages up to 10 000 hits; the typo-tolerant branch still takes the first ones the index returns), and `total` is then a
+  lower bound; `exactCounts()` makes the total and the facet counts exact.
 
 ## Roadmap
 
