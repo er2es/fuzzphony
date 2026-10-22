@@ -35,7 +35,11 @@ final readonly class Thresholds
         public FuzzyMode $fuzzyMode = FuzzyMode::Fallback,
         /** In fallback mode fuzzy matching kicks in when exact matching found fewer hits than this. */
         public int $fallbackBelow = 5,
-        /** Upper bound of candidates ranked per branch; protects against "match half the table" queries. At most MAX_CANDIDATE_LIMIT. */
+        /**
+         * Candidates ranked per branch; protects against "match half the table" queries. At most MAX_CANDIDATE_LIMIT. A word with
+         * more matches than this is ranked over its best matches (the full-text branch; the typo-tolerant branch takes the first ones
+         * the index returns), and a page past it selects `offset + limit` candidates, up to MAX_CANDIDATE_LIMIT.
+         */
         public int $candidateLimit = 2000,
         /** Longer search text is truncated (with a warning). At most MAX_QUERY_LENGTH. */
         public int $maxQueryLength = self::DEFAULT_MAX_QUERY_LENGTH,
@@ -51,6 +55,12 @@ final readonly class Thresholds
          * the index does not know, suggests the spelling it probably meant (SearchResult::$didYouMean).
          */
         public bool $didYouMean = true,
+        /**
+         * A search that found nothing, and has a word with a unique one-edit spelling in the did-you-mean vocabulary
+         * (`mpuse` -> `mouse`), runs once more with the corrected words and returns that result, flagged
+         * (SearchResult::$correctedFrom). It uses the did-you-mean lookup, so it needs didYouMean too.
+         */
+        public bool $rescueEmpty = true,
     ) {
         $violations = [];
         if ($minScore < 0.0) {
@@ -99,6 +109,7 @@ final readonly class Thresholds
             'max_terms' => 'maxTerms',
             'relax_when_empty' => 'relaxWhenEmpty',
             'did_you_mean' => 'didYouMean',
+            'rescue_empty' => 'rescueEmpty',
         ];
         $unknown = array_diff(array_keys($overrides), array_keys($map));
         if ($unknown !== []) {
@@ -115,6 +126,7 @@ final readonly class Thresholds
         $maxTerms = $this->maxTerms;
         $relaxWhenEmpty = $this->relaxWhenEmpty;
         $didYouMean = $this->didYouMean;
+        $rescueEmpty = $this->rescueEmpty;
 
         foreach ($overrides as $key => $value) {
             $property = $map[$key];
@@ -128,6 +140,7 @@ final readonly class Thresholds
                 'maxQueryLength' => $maxQueryLength = is_int($value) ? $value : throw new InvalidDefinition('thresholds', [sprintf('"%s" must be an integer.', $key)]),
                 'relaxWhenEmpty' => $relaxWhenEmpty = self::bool($value) ?? throw new InvalidDefinition('thresholds', [sprintf('"%s" must be a boolean.', $key)]),
                 'didYouMean' => $didYouMean = self::bool($value) ?? throw new InvalidDefinition('thresholds', [sprintf('"%s" must be a boolean.', $key)]),
+                'rescueEmpty' => $rescueEmpty = self::bool($value) ?? throw new InvalidDefinition('thresholds', [sprintf('"%s" must be a boolean.', $key)]),
                 default => $maxTerms = is_int($value) ? $value : throw new InvalidDefinition('thresholds', [sprintf('"%s" must be an integer.', $key)]),
             };
         }
@@ -143,6 +156,7 @@ final readonly class Thresholds
             maxTerms: $maxTerms,
             relaxWhenEmpty: $relaxWhenEmpty,
             didYouMean: $didYouMean,
+            rescueEmpty: $rescueEmpty,
         );
     }
 

@@ -11,12 +11,14 @@ use Fuzzphony\Core\Query\Filter\Condition;
 use Fuzzphony\Core\Ranking\RankingProfile;
 use Fuzzphony\Core\Ranking\Thresholds;
 use Fuzzphony\Engine\Postgres\Schema\Names;
+use Fuzzphony\Engine\Postgres\Schema\PostgresSchemaGenerator;
 
 /**
  * @internal Builds the ranked search statement:
  *
  *   q      -> the compiled query (bound parameters, evaluated once)
- *   fts    -> full-text candidates via the GIN(tsv) index, capped by candidateLimit
+ *   fts    -> full-text candidates via the GIN(tsv) index, capped by candidateLimit; when the cap is hit, the best of them by
+ *             the page's own sort key (see scored())
  *   fuzzy  -> per-term candidates: each word via GIN(tsv) OR GIN(fz gin_trgm_ops), capped by candidateLimit
  *   cand   -> union of both branches, one row per document
  *   scored -> relevance + bonuses per candidate
@@ -41,7 +43,44 @@ final class SearchSqlBuilder
         /** @var array<string, list<int|string>> the ids the trigram words match, from FuzzyQueryCompiler::probes() */
         private readonly array $candidates = [],
         private readonly ?array $allowedFields = null,
+        /** Whether a typed word also matches with two neighbouring letters swapped (FuzzyQueryCompiler, Transpositions). */
+        private readonly bool $transpositions = false,
+        /**
+         * @internal How many matches the ordered selection scores (see scored()); only a test makes it smaller.
+         *
+         * @var positive-int
+         */
+        private readonly int $scanBudget = self::SCAN_BUDGET,
+        /** @var (\Closure(): bool)|null whether the sidecar has the tsv_capped column (FuzzyQueryCompiler), asked when a phrase or a scoped word needs it */
+        private readonly ?\Closure $cappedColumn = null,
     ) {}
+
+    /**
+     * The most matches the ordered selection of a capped full-text branch scores: the full relevance is computed for the first
+     * this many matches in index order and the best of those are the candidates, so the work of one search stays bounded
+     * however many documents a word matches. Exact up to this many matches, approximate beyond (docs/limitations.md). Not
+     * configurable: it is a cost bound, and every setting would be one more way to slow a search down.
+     */
+    private const int SCAN_BUDGET = 100_000;
+
+    /**
+     * How many matches the ordered selection scans for a query that looks `$operands` words up: the cost of ranking a document grows
+     * with the words, so the budget of one word is divided by their number (a work budget, not a row budget), but it never drops
+     * under the window (`$window`: the candidates asked for).
+     */
+    public static function scanLimit(int $budget, int $operands, int $window): int
+    {
+        return max($window, intdiv($budget, max(1, $operands)));
+    }
+
+    /**
+     * How many full-text candidates a search selects: the candidate limit, or more for a page past it (the first
+     * `offset + limit` of the best), at most Thresholds::MAX_CANDIDATE_LIMIT.
+     */
+    public static function window(Thresholds $thresholds, int $limit, int $offset): int
+    {
+        return min(Thresholds::MAX_CANDIDATE_LIMIT, max($thresholds->candidateLimit, $offset + $limit));
+    }
 
     /**
      * @param string          $plain        positive words, for the exact / prefix bonuses (q.norm)
@@ -54,10 +93,11 @@ final class SearchSqlBuilder
      */
     public function ranked(?string $tsquery, string $plain, ?Node $fuzzyRoot, array $conditions, RankingProfile $profile, Thresholds $thresholds, int $limit, int $offset, array $emptyQueries = [], ?Node $scopedRoot = null): array
     {
-        ['ctes' => $ctes, 'params' => $params, 'fuzzy' => $fuzzy] = $this->scored($tsquery, $plain, $fuzzyRoot, $conditions, $profile, $thresholds, $emptyQueries, $scopedRoot, false);
+        ['ctes' => $ctes, 'params' => $params, 'fuzzy' => $fuzzy, 'fast' => $fast] = $this->scored($tsquery, $plain, $fuzzyRoot, $conditions, $profile, $thresholds, $emptyQueries, $scopedRoot, false, self::window($thresholds, $limit, $offset));
 
         $counts = [];
-        $counts[] = $tsquery !== null ? '(SELECT count(*) FROM fts) AS fts_n' : '0 AS fts_n';
+        // what the fast selection found: it hit its limit exactly when the matches were cut off, whatever the ordered one kept
+        $counts[] = $tsquery !== null ? sprintf('(SELECT count(*) FROM %s) AS fts_n', $fast) : '0 AS fts_n';
         $counts[] = $fuzzy !== null ? '(SELECT count(*) FROM fuzzy) AS fuzzy_n' : '0 AS fuzzy_n';
         $minScore = Sql::float($thresholds->minScore);
         $ctes[] = sprintf(
@@ -81,12 +121,20 @@ final class SearchSqlBuilder
     /**
      * The CTEs up to `scored` (see the class comment); `$uncapped` drops the candidate limit, for exact counts.
      *
+     * `$window` (the ranked search only; facets and exact counts keep the fast selection) selects the full-text candidates by
+     * quality when the matches are more than the window: `fts_fast` is the first `$window` matches the index returns (the
+     * cheap selection), and `fts` is that when they are fewer, else the best `$window` by the page's own sort key, scored over
+     * the first SCAN_BUDGET matches. A search with fewer matches never runs the second select (its guard is false: "never
+     * executed" in EXPLAIN ANALYZE). The second has the same lookup, recheck, tenant and filter conditions, the text rank of
+     * the viewer's own vectors and the same bonus expressions as `scored`, so a viewer who may not see a field is ordered
+     * as if it did not exist.
+     *
      * @param list<Condition> $conditions
      * @param list<string>    $emptyQueries
      *
-     * @return array{ctes: list<string>, params: ParameterBag, fuzzy: ?FuzzyMatch}
+     * @return array{ctes: list<string>, params: ParameterBag, fuzzy: ?FuzzyMatch, fast: string}
      */
-    private function scored(?string $tsquery, string $plain, ?Node $fuzzyRoot, array $conditions, RankingProfile $profile, Thresholds $thresholds, array $emptyQueries, ?Node $scopedRoot, bool $uncapped): array
+    private function scored(?string $tsquery, string $plain, ?Node $fuzzyRoot, array $conditions, RankingProfile $profile, Thresholds $thresholds, array $emptyQueries, ?Node $scopedRoot, bool $uncapped, ?int $window = null): array
     {
         $params = new ParameterBag();
         $filters = new FilterCompiler($this->index);
@@ -98,9 +146,24 @@ final class SearchSqlBuilder
         $q = [];
         // the full-text branch finds its candidates through GIN(tsv): "s.tsv @@ <lookup>"
         $lookup = 's.tsv @@ q.tsq';
+        // A phrase or a scoped word of an unrestricted viewer on an index with several fields: tsv reads them in one vector whose
+        // positions are capped at 16 383, so after a long field they and their weights are unreliable (see TsQueryCompiler); the
+        // candidates are then looked up in the form a restricted viewer's are, and the recheck decides
+        $positional = $this->allowedFields === null && $scopedRoot !== null && count($this->index->fields) > 1
+            && (new TsQueryCompiler($this->index))->dependsOnPositions($scopedRoot);
+        // the text rank looks every word of its query up in every document: the query without its exclusions (an excluded word is not in a
+        // document that matches, so the rank is the same), see TsQueryCompiler::withoutExclusions()
+        $rankQuery = 'q.tsq';
+        $operands = 1;
         if ($tsquery !== null) {
             $q[] = sprintf('to_tsquery(%s, %s) AS tsq', $config, $params->add($tsquery));
-            if ($this->allowedFields !== null) {
+            $rankForm = TsQueryCompiler::withoutExclusions($tsquery);
+            if ($rankForm !== $tsquery) {
+                $q[] = sprintf('to_tsquery(%s, %s) AS tsr', $config, $params->add($rankForm));
+                $rankQuery = 'q.tsr';
+            }
+            $operands = TsQueryCompiler::operands($rankForm);
+            if ($this->allowedFields !== null || $positional) {
                 // An excluded word would exclude by every field, the hidden ones too: the lookup is the positive part
                 // only (a superset), the recheck below decides; nothing positive to look up leaves the recheck alone.
                 // The lookup is in the form a hidden field cannot change: phrases as the AND of their words, no weight labels (the
@@ -118,7 +181,7 @@ final class SearchSqlBuilder
         $q[] = $plain !== ''
             ? sprintf('%s(%s) AS norm', $this->names->normFunction(), $params->add($plain))
             : "''::text AS norm";
-        $compiler = new FuzzyQueryCompiler($this->index, $thresholds, $this->names, $this->candidates, $this->allowedFields);
+        $compiler = new FuzzyQueryCompiler($this->index, $thresholds, $this->names, $this->candidates, $this->allowedFields, $this->transpositions, $this->cappedColumn);
         // A word scoped to a known field is rechecked against the field's own column (q.sft<n>); a restricted viewer's
         // every word against the allowed fields' columns.
         $scope = $scopedRoot === null ? null : $compiler->scope($scopedRoot, $params, $emptyQueries);
@@ -140,16 +203,67 @@ final class SearchSqlBuilder
         $ctes = ['q AS MATERIALIZED (SELECT ' . implode(', ', $q) . ')'];
 
         $branches = [];
+        // the exact column is the primary field's text: a viewer who may not see it gets no bonus from it
+        $primaryAllowed = $this->allowedFields === null || in_array($this->index->primaryField()->name, $this->allowedFields, true);
+        $bonuses = [
+            $primaryAllowed ? sprintf("CASE WHEN q.norm <> '' AND s.exact = q.norm THEN %s ELSE 0 END::double precision", Sql::float($profile->exactBonus)) : '0::double precision',
+            $primaryAllowed ? sprintf("CASE WHEN q.norm <> '' AND s.exact <> q.norm AND left(s.exact, length(q.norm)) = q.norm THEN %s ELSE 0 END::double precision", Sql::float($profile->prefixBonus)) : '0::double precision',
+            $this->boostExpression($profile),
+            $this->recencyExpression($profile),
+        ];
+        $fast = 'fts';
         if ($tsquery !== null) {
+            $ordered = $window !== null && !$uncapped;
+            $fast = $ordered ? 'fts_fast' : 'fts';
+            $rank = $this->textRank($profile, $positional, $rankQuery) . '::double precision';
+            $where = implode(' AND ', $strict) . ' AND ' . $filters->compile($conditions, $params);
             $ctes[] = sprintf(
-                "fts AS (\n    SELECT s.id, ts_rank_cd('%s'::real[], %s, q.tsq, 32)::double precision AS r_text\n    FROM %s AS s CROSS JOIN q\n    WHERE %s AND %s%s\n)",
-                self::tsRankWeights($profile),
-                $this->rankVector(),
+                "%s AS (
+    SELECT s.id, %s AS r_text
+    FROM %s AS s CROSS JOIN q
+    WHERE %s%s
+)",
+                $fast,
+                $rank,
                 $table,
-                implode(' AND ', $strict),
-                $filters->compile($conditions, $params),
-                $cap,
+                $where,
+                $ordered ? "
+    LIMIT " . $window : $cap,
             );
+            if ($ordered) {
+                $n = (int) $window;
+                // a minimum relevance keeps the documents under it out of the slots; with typo tolerance in the same statement a
+                // document may pass on its typo similarity, so the fast selection's rule (no cut here) stands
+                $min = $fuzzy === null && $thresholds->minScore > 0.0 ? sprintf(' AND %s * w.r_text >= %s', Sql::float($profile->text), Sql::float($thresholds->minScore)) : '';
+                $ctes[] = sprintf(
+                    "fts AS (
+    SELECT id, r_text FROM fts_fast WHERE (SELECT count(*) FROM fts_fast) < %1\$d
+    UNION ALL
+    SELECT id, r_text FROM (
+        SELECT w.id, w.r_text FROM (
+            SELECT s.id, %2\$s AS r_text, %3\$s AS exact_bonus, %4\$s AS prefix_bonus, %5\$s AS boost_bonus, %6\$s AS recency_bonus
+            FROM %7\$s AS s CROSS JOIN q
+            WHERE %8\$s
+            LIMIT %9\$d
+        ) AS w
+        WHERE (SELECT count(*) FROM fts_fast) >= %1\$d%10\$s
+        ORDER BY %11\$s * w.r_text + w.exact_bonus + w.prefix_bonus + w.boost_bonus + w.recency_bonus DESC, w.id
+        LIMIT %1\$d
+    ) AS o
+)",
+                    $n,
+                    $rank,
+                    $bonuses[0],
+                    $bonuses[1],
+                    $bonuses[2],
+                    $bonuses[3],
+                    $table,
+                    $where,
+                    self::scanLimit($this->scanBudget, $operands, $n),
+                    $min,
+                    Sql::float($profile->text),
+                );
+            }
             $branches[] = 'SELECT id, r_text, 0::double precision AS r_fuzzy FROM fts';
         }
         if ($fuzzy !== null) {
@@ -170,20 +284,26 @@ final class SearchSqlBuilder
             "cand AS (\n    SELECT id, max(r_text) AS r_text, max(r_fuzzy) AS r_fuzzy\n    FROM (%s) AS u\n    GROUP BY id\n)",
             implode(' UNION ALL ', $branches),
         );
-        // the exact column is the primary field's text: a viewer who may not see it gets no bonus from it
-        $primaryAllowed = $this->allowedFields === null || in_array($this->index->primaryField()->name, $this->allowedFields, true);
         $ctes[] = sprintf(
-            "scored AS (\n    SELECT c.id, c.r_text, c.r_fuzzy,\n        %s * c.r_text + %s * c.r_fuzzy AS relevance,\n        %s AS exact_bonus,\n        %s AS prefix_bonus,\n        %s AS boost_bonus,\n        %s AS recency_bonus\n    FROM cand AS c JOIN %s AS s ON s.id = c.id CROSS JOIN q\n)",
+            "scored AS (
+    SELECT c.id, c.r_text, c.r_fuzzy,
+        %s * c.r_text + %s * c.r_fuzzy AS relevance,
+        %s AS exact_bonus,
+        %s AS prefix_bonus,
+        %s AS boost_bonus,
+        %s AS recency_bonus
+    FROM cand AS c JOIN %s AS s ON s.id = c.id CROSS JOIN q
+)",
             Sql::float($profile->text),
             Sql::float($profile->fuzzy),
-            $primaryAllowed ? sprintf("CASE WHEN q.norm <> '' AND s.exact = q.norm THEN %s ELSE 0 END::double precision", Sql::float($profile->exactBonus)) : '0::double precision',
-            $primaryAllowed ? sprintf("CASE WHEN q.norm <> '' AND s.exact <> q.norm AND left(s.exact, length(q.norm)) = q.norm THEN %s ELSE 0 END::double precision", Sql::float($profile->prefixBonus)) : '0::double precision',
-            $this->boostExpression($profile),
-            $this->recencyExpression($profile),
+            $bonuses[0],
+            $bonuses[1],
+            $bonuses[2],
+            $bonuses[3],
             $table,
         );
 
-        return ['ctes' => $ctes, 'params' => $params, 'fuzzy' => $fuzzy];
+        return ['ctes' => $ctes, 'params' => $params, 'fuzzy' => $fuzzy, 'fast' => $fast];
     }
 
     /**
@@ -375,7 +495,7 @@ UNION ALL
         $params = new ParameterBag();
         $filters = new FilterCompiler($this->index);
         $table = $this->names->sidecar($this->index);
-        $compiled = (new FuzzyQueryCompiler($this->index, $thresholds, $this->names, [], $this->allowedFields))->leafConditions($leaves, $params, $emptyQueries, $fuzzy);
+        $compiled = (new FuzzyQueryCompiler($this->index, $thresholds, $this->names, [], $this->allowedFields, $this->transpositions, $this->cappedColumn))->leafConditions($leaves, $params, $emptyQueries, $fuzzy);
         if (array_filter($compiled['predicates'], static fn(?string $p): bool => $p !== null) === []) {
             throw new \LogicException('A relaxation probe needs at least one leaf that is not a stop word.');
         }
@@ -436,6 +556,39 @@ SELECT
         );
 
         return ['sql' => $sql, 'params' => $params->all()];
+    }
+
+    /**
+     * The text rank of a full-text candidate: ts_rank_cd of the vector the viewer reads (rankVector()). A document that `tsv`
+     * does not match but the search found anyway (a phrase or a scoped word after a long field, see TsQueryCompiler) has no
+     * usable rank on tsv, whose positions and weights were capped: it is ranked on the fields' own vectors (the best of the
+     * first field's and of every run of later fields, Names::laterVectors()). A document tsv matches keeps its rank. With the
+     * tsv_capped column only a document that is capped (or not known to be: NULL) can be one of those, so every other document
+     * is ranked on tsv without even the check.
+     */
+    private function textRank(RankingProfile $profile, bool $positional, string $rankQuery = 'q.tsq'): string
+    {
+        $weights = self::tsRankWeights($profile);
+        $rank = static fn(string $vector): string => sprintf("ts_rank_cd('%s'::real[], %s, %s, 32)", $weights, $vector, $rankQuery);
+        if (!$positional) {
+            return $rank($this->rankVector());
+        }
+        $vectors = ['s.' . $this->names->fieldVector($this->index->fieldNames()[0]), ...array_map(static fn(string $v): string => '(' . $v . ')', $this->names->laterVectors($this->index))];
+
+        if ($this->cappedColumn !== null && ($this->cappedColumn)()) {
+            // the fields' vectors come from a subquery on the document's own row (see FuzzyQueryCompiler::matches()): the other rows pay nothing
+            $own = ['c.' . $this->names->fieldVector($this->index->fieldNames()[0]), ...array_map(static fn(string $v): string => '(' . $v . ')', $this->names->laterVectors($this->index, 'c'))];
+
+            return sprintf(
+                'CASE WHEN s.%s IS NOT FALSE AND NOT (s.tsv @@ q.tsq) THEN (SELECT GREATEST(%s) FROM %s AS c WHERE c.id = s.id) ELSE %s END',
+                PostgresSchemaGenerator::CAPPED_COLUMN,
+                implode(', ', array_map($rank, $own)),
+                $this->names->sidecar($this->index),
+                $rank('s.tsv'),
+            );
+        }
+
+        return sprintf('CASE WHEN s.tsv @@ q.tsq THEN %s ELSE GREATEST(%s) END', $rank('s.tsv'), implode(', ', array_map($rank, $vectors)));
     }
 
     /** The vector the text rank reads: the whole tsv, or only the fields a restricted viewer may see. */

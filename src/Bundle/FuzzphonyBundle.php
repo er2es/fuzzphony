@@ -84,7 +84,7 @@ use function Symfony\Component\DependencyInjection\Loader\Configurator\service_c
  *       ip: off                    # off | masked | full: keep the client IP of the searcher (personal data; masked is recommended)
  *     rate_limit:                  # opt-in: limit how often a tenant or user may search
  *       limiter: search            # a framework.rate_limiter entry (service limiter.search); needs symfony/rate-limiter
- *       per: tenant                # tenant or user
+ *       per: tenant                # tenant, user or ip (ip without a limiter: 600 searches a minute per client IP, a limiter of the bundle)
  *     authorization:               # opt-in: who may search which index and which fields
  *       enabled: false             # asks isGranted(index_attribute, indexName) and isGranted(field role, indexName)
  *       index_attribute: FUZZPHONY_SEARCH  # write a voter for it, or name an existing attribute such as ROLE_USER
@@ -98,6 +98,9 @@ final class FuzzphonyBundle extends AbstractBundle
     protected string $extensionAlias = 'fuzzphony';
 
     private const string DOCTRINE_PARAMETER = 'fuzzphony.doctrine_orm';
+
+    /** The framework.rate_limiter entry the bundle prepends for `per: ip` without a `limiter` (service limiter.fuzzphony_ip). */
+    private const string DEFAULT_IP_LIMITER = 'fuzzphony_ip';
 
     /** AbstractBundle assumes the class lives one level below the package root; here it IS the root. */
     public function getPath(): string
@@ -151,8 +154,8 @@ final class FuzzphonyBundle extends AbstractBundle
                 ->arrayNode('rate_limit')
                     ->addDefaultsIfNotSet()
                     ->children()
-                        ->scalarNode('limiter')->defaultNull()->info('Name of a framework.rate_limiter entry (service limiter.<name>); empty = no rate limit')->end()
-                        ->enumNode('per')->values(['tenant', 'user'])->defaultValue('tenant')->info('Whose searches share one bucket; an actor without that key is not limited')->end()
+                        ->scalarNode('limiter')->defaultNull()->info('Name of a framework.rate_limiter entry (service limiter.<name>); empty = no rate limit, except per: ip, which then prepends a default entry (600 a minute, sliding window)')->end()
+                        ->enumNode('per')->values(['tenant', 'user', 'ip'])->defaultValue('tenant')->info('Whose searches share one bucket: a tenant, a user or a client IP (Request::getClientIp(), so framework.trusted_proxies applies; an IPv6 address by its /64); an actor without that key is not limited')->end()
                     ->end()
                 ->end()
                 ->arrayNode('authorization')
@@ -182,6 +185,7 @@ final class FuzzphonyBundle extends AbstractBundle
      */
     public function prependExtension(ContainerConfigurator $container, ContainerBuilder $builder): void
     {
+        $this->prependIpLimiter($builder);
         if (!$builder->hasExtension('doctrine')) {
             return;
         }
@@ -211,6 +215,37 @@ final class FuzzphonyBundle extends AbstractBundle
             return;
         }
         $builder->prependExtensionConfig('doctrine', ['dbal' => ['connections' => [$connection => ['schema_filter' => SchemaAssetFilter::regex($schema)]]]]);
+    }
+
+    /**
+     * `rate_limit.per: ip` without a `limiter` limits every client IP to 600 searches a minute (a sliding window): a
+     * permissive floor that only stops abuse, as a framework.rate_limiter entry of our own. It is prepended, so it is
+     * the lowest priority, and it is not prepended at all when the application defines an entry of that name or names a
+     * limiter of its own in rate_limit.limiter. The application changes the numbers by defining its own entry and naming it.
+     */
+    private function prependIpLimiter(ContainerBuilder $builder): void
+    {
+        $per = null;
+        $limiter = null;
+        foreach ($builder->getExtensionConfig('fuzzphony') as $config) {
+            $rateLimit = is_array($config['rate_limit'] ?? null) ? $config['rate_limit'] : [];
+            $per = array_key_exists('per', $rateLimit) ? $rateLimit['per'] : $per;
+            $limiter = array_key_exists('limiter', $rateLimit) ? $rateLimit['limiter'] : $limiter;
+        }
+        // without the component (or FrameworkBundle) nothing is prepended: loadExtension() reports the missing package
+        if ($per !== 'ip' || ($limiter !== null && $limiter !== '') || !class_exists(RateLimiterFactory::class) || !$builder->hasExtension('framework')) {
+            return;
+        }
+        foreach ($builder->getExtensionConfig('framework') as $framework) {
+            $limiters = is_array($framework['rate_limiter'] ?? null) ? $framework['rate_limiter'] : [];
+            // the entries are keyed by name directly, and the `limiters` / `limiter` wrappers are accepted too
+            foreach ([$limiters, $limiters['limiters'] ?? null, $limiters['limiter'] ?? null] as $named) {
+                if (is_array($named) && array_key_exists(self::DEFAULT_IP_LIMITER, $named)) {
+                    return;
+                }
+            }
+        }
+        $builder->prependExtensionConfig('framework', ['rate_limiter' => [self::DEFAULT_IP_LIMITER => ['policy' => 'sliding_window', 'limit' => 600, 'interval' => '1 minute']]]);
     }
 
     /** @internal */
@@ -302,8 +337,17 @@ final class FuzzphonyBundle extends AbstractBundle
         $actorResolver = is_string($actor['resolver'] ?? null) ? $actor['resolver'] : null;
         $tenantPath = is_string($actor['tenant'] ?? null) ? $actor['tenant'] : null;
         $userPath = is_string($actor['user'] ?? null) ? $actor['user'] : null;
-        // with the client IP on, the configured resolver is wrapped: it adds the address of the request to an actor that has none
-        $resolverId = $ipMode !== IpMode::Off ? 'fuzzphony.actor_resolver.inner' : 'fuzzphony.actor_resolver';
+        $rateLimit = is_array($config['rate_limit'] ?? null) ? $config['rate_limit'] : [];
+        $per = Coerce::str($rateLimit['per'] ?? null);
+        $per = $per !== '' ? $per : 'tenant';
+        $limiterName = Coerce::str($rateLimit['limiter'] ?? null);
+        if ($limiterName === '' && $per === 'ip') {
+            $limiterName = self::DEFAULT_IP_LIMITER;
+        }
+        // with the client IP in use (stored by the log, or the rate-limit key) the configured resolver is wrapped: it adds
+        // the address of the request to an actor that has none. What is STORED is decided by the gate (IpMode) alone.
+        $wrapsResolver = $ipMode !== IpMode::Off || $per === 'ip';
+        $resolverId = $wrapsResolver ? 'fuzzphony.actor_resolver.inner' : 'fuzzphony.actor_resolver';
         if ($actorResolver !== null) {
             $services->alias($resolverId, $actorResolver)->public();
         } elseif ($tenantPath !== null || $userPath !== null) {
@@ -314,7 +358,7 @@ final class FuzzphonyBundle extends AbstractBundle
         } else {
             $services->set($resolverId, NullActorResolver::class)->public();
         }
-        if ($ipMode !== IpMode::Off) {
+        if ($wrapsResolver) {
             $services->set('fuzzphony.actor_resolver', RequestIpActorResolver::class)
                 ->args([service($resolverId), service('request_stack')])
                 ->public();
@@ -326,8 +370,6 @@ final class FuzzphonyBundle extends AbstractBundle
                 ->factory([PatternQueryRedactor::class, 'fromSettings'])
                 ->args([$redact]);
         }
-        $rateLimit = is_array($config['rate_limit'] ?? null) ? $config['rate_limit'] : [];
-        $limiterName = Coerce::str($rateLimit['limiter'] ?? null);
         $authorization = is_array($config['authorization'] ?? null) ? $config['authorization'] : [];
         // Authorization first: a search that is denied must not spend a rate-limit token.
         $guards = [];
@@ -340,9 +382,8 @@ final class FuzzphonyBundle extends AbstractBundle
         }
         if ($limiterName !== '') {
             self::assertRateLimiterPackage(class_exists(RateLimiterFactory::class));
-            $per = Coerce::str($rateLimit['per'] ?? null);
             $services->set('fuzzphony.guard.rate_limit', RateLimitGuard::class)
-                ->args([service('limiter.' . $limiterName), $per !== '' ? $per : 'tenant']);
+                ->args([service('limiter.' . $limiterName), $per, '%kernel.secret%', service('fuzzphony.metrics'), service('logger')]);
             $guards[] = service('fuzzphony.guard.rate_limit');
         }
         $gateArguments = static fn(array $guards): array => [

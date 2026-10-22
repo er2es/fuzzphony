@@ -31,6 +31,26 @@ final class PostgresSchemaGenerator
      */
     public const int LAYOUT_VERSION = 2;
 
+    /**
+     * The sidecar column that says whether the joined vector `tsv` cannot be relied on for a phrase or a weighted word of a later
+     * field. `tsv` is the fields' vectors joined with `||`, and the join loses information in two ways: positions are capped at
+     * 16 383 (after a field of more than about 16 000 words every later word sits at one position, and only the highest weight of
+     * the lexemes there is kept), and a lexeme keeps at most 256 positions (the later vector's positions of a lexeme that has them
+     * already are dropped, with no position anywhere near 16 383). It is optional: a searcher that does not find it, and a document
+     * with NULL in it (written before the column, or by an older refresh function: reindex fills it), take the slow way.
+     */
+    public const string CAPPED_COLUMN = 'tsv_capped';
+
+    /**
+     * SQL: true when a position of the vector is 16 383 or more, or a lexeme has 256 or more positions. A single to_tsvector() holds
+     * at most 255 positions of a lexeme, so 256 can only come from a join that dropped the rest, and a vector without either sign
+     * lost nothing: false is exact, true may also mean "reached the limit exactly", never a lost position.
+     */
+    public static function cappedExpression(string $vector): string
+    {
+        return sprintf('EXISTS (SELECT 1 FROM unnest(%s) AS u(lexeme, positions, weights) WHERE cardinality(u.positions) >= 256 OR EXISTS (SELECT 1 FROM unnest(u.positions) AS p WHERE p >= 16383))', $vector);
+    }
+
     /** Every generated function body / DO block is quoted with this tag; the validator keeps it out of embedded SQL. */
     private const string TAG = DefinitionValidator::DOLLAR_QUOTE_TAG;
 
@@ -141,6 +161,22 @@ final class PostgresSchemaGenerator
             new Statement(sprintf("CREATE TABLE IF NOT EXISTS %s (\n%s\n)", $table, implode(",\n", $definitions)), sprintf('Sidecar index table of "%s"', $index->name)),
         ];
         foreach (array_slice($columns, 1, null, true) as $name => $type) {
+            if ($name === self::CAPPED_COLUMN) {
+                // only when the column is missing: ADD COLUMN IF NOT EXISTS takes an ACCESS EXCLUSIVE lock even when it exists
+                $statements[] = new Statement(
+                    sprintf(
+                        'DO ' . self::TAG . ' BEGIN IF NOT EXISTS (SELECT 1 FROM pg_attribute WHERE attrelid = to_regclass(%s) AND attname = %s AND NOT attisdropped) THEN ALTER TABLE %s ADD COLUMN %s %s; END IF; END ' . self::TAG,
+                        Sql::string($table),
+                        Sql::string($name),
+                        $table,
+                        Sql::ident($name),
+                        $type,
+                    ),
+                    sprintf('Keep column "%s" in sync with the definition (phrases and scoped words of a document that is not capped need no extra check; reindex fills it)', $name),
+                );
+
+                continue;
+            }
             $statements[] = new Statement(
                 sprintf('ALTER TABLE %s ADD COLUMN IF NOT EXISTS %s %s', $table, Sql::ident($name), $type),
                 sprintf('Keep column "%s" in sync with the definition', $name),
@@ -332,6 +368,8 @@ ON CONFLICT (index_name) DO UPDATE SET layout_version = EXCLUDED.layout_version,
         $columns = [
             'id' => Types::id($index->idType) . ' PRIMARY KEY',
             'tsv' => 'tsvector NOT NULL',
+            // NULL = not known (a document written before the column existed): treated as capped, see cappedExpression()
+            self::CAPPED_COLUMN => 'boolean',
             'fz' => "text NOT NULL DEFAULT ''",
             'exact' => "text NOT NULL DEFAULT ''",
         ];
@@ -530,8 +568,9 @@ ON CONFLICT (index_name) DO UPDATE SET layout_version = EXCLUDED.layout_version,
     private function refreshFunction(IndexDefinition $index, bool $shadow = false): string
     {
         $table = $shadow ? $this->names->shadow($index) : $this->names->sidecar($index);
-        $columns = ['id', 'tsv', 'fz', 'exact'];
-        $values = ['doc.fz_id', $this->tsvectorExpression($index), $this->fuzzyExpression($index), $this->exactExpression($index)];
+        $columns = ['id', 'tsv', self::CAPPED_COLUMN, 'fz', 'exact'];
+        // the joined vector is computed once (the lateral subquery below) and read twice: it is the column, and the flag is made from it
+        $values = ['doc.fz_id', 'v.fz_tsv', self::cappedExpression('v.fz_tsv'), $this->fuzzyExpression($index), $this->exactExpression($index)];
         foreach ($index->fields as $field) {
             $columns[] = $this->names->fieldVectorName($field->name);
             $values[] = $this->fieldVectorExpression($index, $field);
@@ -576,6 +615,7 @@ ON CONFLICT (index_name) DO UPDATE SET layout_version = EXCLUDED.layout_version,
                     SELECT DISTINCT ON (doc.fz_id)
                         %5$s
                     FROM (%6$s) AS doc
+                    CROSS JOIN LATERAL (SELECT %10$s AS fz_tsv OFFSET 0) AS v
                     WHERE doc.fz_id = ANY(p_ids)
                     ORDER BY doc.fz_id
                     ON CONFLICT (id) DO UPDATE SET
@@ -607,6 +647,7 @@ ON CONFLICT (index_name) DO UPDATE SET layout_version = EXCLUDED.layout_version,
                 Sql::string($this->names->changes($index)),
                 $this->names->changes($index),
             ),
+            $this->tsvectorExpression($index),
         );
     }
 

@@ -229,8 +229,11 @@ both. PostgreSQL has no `FIELD()`, so there is nothing to translate `ORDER BY FI
 ### 5. Pagination and the total
 
 `page($n, perPage: 20)` (or `limit($limit, $offset)`) replaces `LIMIT`/`OFFSET`. Only the best `candidate_limit` matches
-are ranked (2000 by default, at most 10 000), so for a very common word the total is a **lower bound** ("2000+") and
-you can page through the candidates only: past them a page is empty, although `hasMore()` is still true on the last.
+are ranked (2000 by default, at most 10 000), so for a very common word the total is a **lower bound** ("2000+").
+`hasMore()` is true while hits follow the page among the candidates and **false at the last page of the candidates**: a pager
+that follows it stops at 2000 hits. A page asked for directly past them is still served and exact (the best `offset + limit`
+hits, up to 10 000 hits, with a lower-bound total that grows with the page); beyond 10 000 a page is empty and `hasMore()` is false
+(also with `exactCounts()`, whose total can be larger).
 
 <!-- tested: pagination -->
 ```php
@@ -324,8 +327,8 @@ To search a joined value, put it in the index (the YAML with a `SELECT`; a one-t
 column, because a document is one row), and conditions can only use declared filters. The rest of the row you load by
 id, as in step 4.
 
-**The total can be a lower bound**, and ranking past `candidate_limit` is approximate
-([limitations](limitations.md#ranking-is-approximate-beyond-candidate_limit)).
+**The total can be a lower bound**, and the ranking of a word with more matches than `candidate_limit` has limits
+([limitations](limitations.md#ranking-of-very-common-words)).
 
 **The index is a sidecar table** in Fuzzphony's schema (`public` by default, [or its own](configuration.md#fuzzphonys-schema)).
 It costs disk (a second copy of the searchable text and its indexes: look at your own data) and a little on every
@@ -428,6 +431,6 @@ It drops the sidecar table, its triggers, functions and queued rows; your tables
 
 ## Known limits
 
-Read [Known limitations](limitations.md) before you commit: typo tolerance is trigram-based, ranking is approximate past
-`candidate_limit`, and the search log is best effort. Also: no suffix or infix search, no sort by an arbitrary column,
+Read [Known limitations](limitations.md) before you commit: typo tolerance is trigram-based, the ranking of very common words has
+limits, and the search log is best effort. Also: no suffix or infix search, no sort by an arbitrary column,
 one language per index, and PostgreSQL 15+ is the only engine.

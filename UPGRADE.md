@@ -16,6 +16,54 @@ and the [CHANGELOG](CHANGELOG.md) has the full list of changes.
    `DoctrineIndexDiscovery`, `EntityLoader` or `OrmSyncListener` is now a duplicate of the bundle's, and an index
    that is both an attribute and in YAML `indexes` is overridden by the YAML as documented.
 
+## From 0.9.7 to 0.9.8
+
+Nothing is required, but **run `fuzzphony:schema --apply` and then `fuzzphony:reindex`** (item 5), **searches that returned nothing may now return results**, in two ways, and **the results of searches with a very common word change** (items 3 and 4):
+
+1. **Two swapped neighbouring letters are tolerated** (`mosue` finds `mouse`): a typed word of 4 to 15 letters also matches its
+   neighbour-swapped variants as whole words on the typo-tolerant branch (below exact hits, in typo-tolerant fields only; also on
+   tenant-scoped indexes). It only changes a search that already ran the typo-tolerant branch.
+2. **The zero-result rescue** (on by default): a search that found nothing and has a word with exactly one one-edit correction in
+   the did-you-mean vocabulary (`mpuse` -> `mouse`) is run again with it, and the result is flagged:
+   `SearchResult::$correctedFrom` is the text the visitor typed (`null` otherwise), `interpretedAs` is the corrected query and a
+   warning says so. If your page says "No results for ..." when `$result->total` is 0, it now shows results for the corrected text:
+   show `correctedFrom` ("Showing results for mouse, search instead for mpuse") or switch the rescue off with `rescue_empty: false`
+   in the index's `thresholds` (or per query: `->thresholds(['rescue_empty' => false])`). The suggestion `didYouMean` stays as it
+   was for every search that is not rescued. `did_you_mean: false` also turns the rescue off; tenant-scoped indexes, restricted
+   viewers and search-as-you-type are never rescued. The search log records what the visitor typed, with the rescued hits, so
+   the zero-result report no longer lists a search the rescue answered.
+
+3. **Searches with a very common word rank differently (for the better).** When a word matches more documents than `candidate_limit`
+   (`totalIsLowerBound` is true), the full-text candidates are now the best matches by the page's own sort key instead of the first ones
+   the index returned: the exact title and the word repeated come first, equal scores come in id order, and a page past the candidates
+   (`offset + limit` up to 10 000) is exact. Searches with fewer matches than the limit return exactly what they did. If you
+   snapshot or assert the hits of a common-word search, expect other documents; `explain()` shows a `fts_fast` and an `fts` CTE in the
+   statement. A search of a word with more than 100 000 matches ranks among the first 100 000 only (a cost bound, not a setting), and
+   a typo-tolerant word is still approximate ([limitations](docs/limitations.md#ranking-of-very-common-words)).
+4. **`hasMore()` is false at the last page of the candidates.** `SearchResult::hasMore()` and `FederatedResult::hasMore()` used to be
+   true whenever `totalIsLowerBound` was true, so a pager that followed it offered an empty page after the last candidate (page 101 at
+   `candidate_limit: 2000` and 20 per page). Now it is true only while hits follow this page among the ranked candidates (`offset + count($hits) < $total`), never for an empty page and
+   never from 10 000 hits on (the most a search ranks, also with `exactCounts()`, whose total counts every match: before, a pager that followed
+   `hasMore()` there never stopped), and a federated result is false where the next `limit()` would be refused (1 000 hits of an index).
+   A pager built on it stops at `candidate_limit` hits (2000 by default) and does not offer deeper pages; a page asked for directly
+   (`page(150)`) is served, exact, up to 10 000 hits, and the lower-bound total grows with it (`2000+`, then `3000+`, ...). If you want deep paging
+   in the pager, raise `candidate_limit` or use `totalIsLowerBound` yourself (it did not change). Nothing else to do; no configuration changed.
+5. **Phrases and field-scoped words after a very long field are found** (a fix, no change for texts under about 16 000 words), and
+   the fast way to find them needs a new sidecar column. `fuzzphony:schema --apply` adds `tsv_capped` (a nullable boolean, only when
+   it is missing, so an apply that finds it takes no lock) and `fuzzphony:reindex` fills it (true when the joined vector reached
+   position 16 383 or a lexeme has 256 or more positions, where PostgreSQL drops the rest: documents written before this release
+   or by an older refresh function need the reindex). Until then a phrase (`"usb receiver"`, `usb-c`) on an index with **several fields** is correct but slower: the
+   later fields' vectors are read for every candidate `tsv` does not match as a phrase (about 17 to 22 times slower for a quoted
+   phrase whose words are common on a 12-field index, 1.3 to 1.8 times on 3 fields; measured). A document that is not reindexed
+   yet has no answer (NULL) and is treated as capped: right, slow. An application that has not applied the schema keeps working
+   (the column is looked up in the catalog, once per process: restart long-running workers, or call `PostgresEngine::resetCaches()`,
+   after applying, and after dropping the column too). `fuzzphony:doctor` warns about the missing column, and about a column that
+   is not filled yet (NULL rows: "run fuzzphony:reindex"). Going back to a release without the column and forward again leaves the
+   flags the old refresh function did not touch as they were, so a document changed meanwhile can have a stale `false`: reindex. Single-field indexes, plain words, excluded words,
+   prefixes and typos are not affected. A rebuild with `fuzzphony:reindex` before the schema is applied also fills the column.
+
+If you implement your own `Engine` or build `SearchResult` yourself, the new constructor parameter `correctedFrom` is optional and last.
+
 ## From 0.9.6 to 0.9.7
 
 Nothing is required. One thing to know: **a restricted viewer's phrase or field-scoped-word match no longer depends on the length of a hidden field** (a security fix: before, a hidden field of more than about 16 000 words in front of an allowed one could change whether `"word1 word2"` or `secret:word1` matched for a restricted viewer). If you use `restrictedToFields()` or `granted` fields, upgrade; no reindex is needed.

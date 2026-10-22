@@ -126,7 +126,7 @@ A good fit when:
 - You want to know what people search for and what they do not find: an opt-in search log (redacted, with a
   retention) and reports of the most searched and the zero-result texts, and of who searched what (per user, with an
   optional masked client IP), without a separate analytics service.
-- You need to protect the search: a rate limit per tenant or user (429), index-level authorization on Symfony's
+- You need to protect the search: a rate limit per tenant, user or client IP (429), index-level authorization on Symfony's
   voters (403), and fields only some viewers may search (`granted: ROLE_HR`): a hidden field is not matched,
   ranked, highlighted or suggested for the others.
 - Your content is multilingual: stemming for 28 languages, and accent folding that finds
@@ -283,10 +283,10 @@ Details in [docs/limitations.md](https://github.com/er2es/fuzzphony/blob/main/do
   tolerated; the similarity a word needs is proportional to its length, or flat if you set it.
 - [Attaching or detaching a partition is not followed](https://github.com/er2es/fuzzphony/blob/main/docs/limitations.md#attaching-or-detaching-a-partition-is-not-followed):
   PostgreSQL fires no trigger for it; run `fuzzphony:reindex` afterwards.
-- [Ranking is approximate beyond `candidate_limit`](https://github.com/er2es/fuzzphony/blob/main/docs/limitations.md#ranking-is-approximate-beyond-candidate_limit):
-  a very common word is ranked over the first `candidate_limit` matches the index returns, not the
-  best ones (a better match can be missing), and `total` is then a lower bound; `exactCounts()` makes
-  the total and the facet counts exact.
+- [Ranking of very common words](https://github.com/er2es/fuzzphony/blob/main/docs/limitations.md#ranking-of-very-common-words):
+  a word with more matches than `candidate_limit` is ranked over its best matches (exact up to 100 000 matches,
+  and for pages up to 10 000 hits; the typo-tolerant branch still takes the first ones the index returns), and `total` is then a
+  lower bound; `exactCounts()` makes the total and the facet counts exact.
 
 ## Roadmap
 

@@ -237,6 +237,26 @@ final readonly class Names
         return Sql::ident($this->fieldVectorName($field));
     }
 
+    /**
+     * The fields' own vectors joined from each field after the first to the last, in the index's order (`s.t_b || s.t_c`,
+     * `s.t_c`): `tsv` is all of them joined and its positions are capped at 16 383, so after a field of more than about 16 000
+     * words every later field is at one position there; each of these starts at a field that follows it and is unaffected.
+     * Every run of fields that `tsv` reads in order is one of these, or `tsv` itself (from the first field). $alias is the
+     * sidecar table's alias in the statement.
+     *
+     * @return list<string>
+     */
+    public function laterVectors(IndexDefinition $index, string $alias = 's'): array
+    {
+        $vectors = array_map(fn(string $name): string => $alias . '.' . $this->fieldVector($name), $index->fieldNames());
+        $joined = [];
+        for ($i = 1, $n = count($vectors); $i < $n; ++$i) {
+            $joined[] = implode(' || ', array_slice($vectors, $i));
+        }
+
+        return $joined;
+    }
+
     /** The sidecar column with one fuzzy field's normalised text (layout 2): a field-scoped typo is checked against it. */
     public function fieldFuzzyName(string $field): string
     {

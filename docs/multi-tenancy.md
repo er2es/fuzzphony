@@ -122,14 +122,16 @@ with `Retry-After`) is explained in [Security](security.md).
 ## Who may search, and how often
 
 The tenant scope decides *whose rows* a search sees. Who may search at all, how often, and which text
-fields a viewer may search and see are the guards of [Security](security.md): a rate limit per tenant or
-user, index- and field-level authorization on Symfony's voters.
+fields a viewer may search and see are the guards of [Security](security.md): a rate limit per tenant, user or
+client IP, index- and field-level authorization on Symfony's voters.
 
 ## Did you mean
 
 A tenant-scoped index never suggests a spelling: its vocabulary is the words of every tenant, and a
 suggestion (or the lack of one) would tell one customer which words another customer's documents
-have. `SearchResult::$didYouMean` stays `null` there.
+have. `SearchResult::$didYouMean` stays `null` there, and so does `SearchResult::$correctedFrom`: the
+[zero-result rescue](searching.md#zero-result-rescue) uses the same vocabulary and never runs on a tenant-scoped index.
+(The transposition tolerance of `mosue` needs no vocabulary and works there, inside the tenant's own rows.)
 
 ## What it guarantees
 

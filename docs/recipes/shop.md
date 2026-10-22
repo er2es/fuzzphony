@@ -100,8 +100,8 @@ self::assertSame(['category_id' => ['1' => 2, '2' => 1], 'in_stock' => ['true' =
 That is the *disjunctive* behaviour of a shop sidebar, and it is the default: **a facet does not count the
 conditions on its own filter**. The values are ids; showing "Audio (2)" is your template's job (the facet gives
 `value` and `count`). An empty text is a browse (`listing('')` lists the shop and counts every category), so one
-endpoint serves the first page and the search results. The page's counts are over the search's candidates (2000
-by default): `totalIsLowerBound` says when to print "120+", and `exactCounts()` counts everything, slowly: never
+endpoint serves the first page and the search results. The page's counts are over the search's first candidates (2000
+by default, the cheap selection: the hits themselves are the best ones): `totalIsLowerBound` says when to print "120+", and `exactCounts()` counts everything, slowly: never
 wire that to request input.
 
 ### What it costs
@@ -194,11 +194,13 @@ self::assertSame([7], $laptop->ids());                                 // a one-
 self::assertSame('(laptop OR notebook OR portable)', $laptop->interpretedAs);
 
 $typo = $this->fuzzphony()->in('products')->query('hedphones')->get();
-self::assertSame('headphones', $typo->didYouMean);                     // a suggestion to show as a link: it is never searched by itself
+self::assertSame('headphones', $typo->didYouMean);                     // a suggestion to show as a link: it is not searched for the visitor unless a search finds nothing
 ```
 
 Synonyms are expanded on the query, so changing the list needs neither `schema --apply` nor a reindex, and typo
-tolerance applies to a synonym too ([Synonyms](../searching.md#synonyms)). Escape `didYouMean` when you render it.
+tolerance applies to a synonym too ([Synonyms](../searching.md#synonyms)). Escape `didYouMean` when you render it. A search that finds nothing at all and has a word with exactly one
+one-edit correction (`mpuse` for `mouse`) is searched again with it, and `$result->correctedFrom` and a warning say so
+([zero-result rescue](../searching.md#zero-result-rescue)): show a "Showing results for ..." line when `correctedFrom` is set.
 
 <!-- tested: tests/Recipes/Shop/ShopTest.php#ranking -->
 ```php

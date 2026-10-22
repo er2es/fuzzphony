@@ -128,7 +128,8 @@ final class FuzzyQueryCompilerRestrictedTest extends TestCase
         // tsv keeps only the highest weight of a lexeme at a clamped position (after a long hidden field), so its lookup has none
         self::assertSame('((s.tsv @@ q.fl1 AND s."t_brand" @@ q.ft0) OR (q.fn2 OPERATOR("public".<%) s.fz AND q.fn2 OPERATOR("public".<%) s."z_brand"))', $restricted->predicate);
         self::assertSame(["'razr':B", "'razr'", 'razr'], array_values($a->all()));
-        self::assertSame('((s.tsv @@ q.ft0 AND s."t_brand" @@ q.ft0) OR (q.fn1 OPERATOR("public".<%) s.fz AND q.fn1 OPERATOR("public".<%) s."z_brand"))', $unrestricted->predicate, 'the unrestricted path is as it was');
+        // the same lookup for the unrestricted viewer: a long field in front of the word's own caps the positions of tsv for it too
+        self::assertSame('((s.tsv @@ q.fl1 AND s."t_brand" @@ q.ft0) OR (q.fn2 OPERATOR("public".<%) s.fz AND q.fn2 OPERATOR("public".<%) s."z_brand"))', $unrestricted->predicate);
     }
 
     public function testTheStrictBranchRechecksEveryWordAgainstTheAllowedFields(): void

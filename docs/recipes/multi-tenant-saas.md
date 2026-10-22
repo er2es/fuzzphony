@@ -231,8 +231,10 @@ for ($i = 0; $i < 8; ++$i) {
 ```
 
 One token per search; `per: tenant` (the default) shares one bucket per customer instead. A search with no key
-(no actor, or `per: user` without a user) is not limited, and an IP limit is Symfony's own business. The Live
-Component spends one token per render, one per pause in typing. [What is and is not limited](../security.md#the-rate-limit).
+(no actor, or `per: user` without a user) is not limited. This recipe has no anonymous visitors (authorization refuses
+them); a public search box would use [`per: ip`](../security.md#limiting-anonymous-visitors-by-ip) instead, which limits
+by client address. The Live Component spends one token per render, one per pause in typing.
+[What is and is not limited](../security.md#the-rate-limit).
 
 ## The search log
 

@@ -95,7 +95,7 @@ final class PostgresInspectorChecksTest extends TestCase
                 ['Filter brand_id', CheckStatus::Ok, 'brand_id (bigint)', null],
                 ['Boost column', CheckStatus::Ok, 'popularity (real)', null],
                 ['Recency column', CheckStatus::Ok, 'published_at (timestamp with time zone)', null],
-                ['Sidecar columns', CheckStatus::Ok, '16 column(s) match the definition', null],
+                ['Sidecar columns', CheckStatus::Ok, '17 column(s) match the definition', null],
                 ['Index fuzzphony_products_tsv', CheckStatus::Ok, 'valid', null],
                 ['Index fuzzphony_products_fz', CheckStatus::Ok, 'valid', null],
                 ['Index fuzzphony_products_f_price', CheckStatus::Ok, 'valid', null],
