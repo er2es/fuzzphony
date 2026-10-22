@@ -28,8 +28,11 @@ final class SearchResultPagingMutationsTest extends TestCase
         yield 'a later page that ends exactly at the total' => [20, 1, 21, false, false];
         yield 'a later page with one more to come' => [20, 1, 22, false, true];
         yield 'a later page, total below the window end is not more' => [20, 1, 20, false, false];
-        yield 'a lower-bound total always has more' => [0, 1, 1, true, true];
-        yield 'a lower-bound total on a later page has more' => [20, 1, 21, true, true];
+        yield 'the last page of the candidates has no more, although the total is a lower bound' => [0, 1, 1, true, false];
+        yield 'a lower-bound total on a later page that ends at the candidates has no more' => [20, 1, 21, true, false];
+        yield 'a lower-bound total with candidates to come has more' => [0, 20, 2000, true, true];
+        yield 'a lower-bound total, the page before the last candidates, has more' => [1960, 20, 2000, true, true];
+        yield 'a lower-bound total, the last page of the candidates, has none' => [1980, 20, 2000, true, false];
     }
 
     #[DataProvider('pages')]

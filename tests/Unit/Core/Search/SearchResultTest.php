@@ -55,9 +55,16 @@ final class SearchResultTest extends TestCase
         self::assertSame(3, $result->page());
     }
 
-    public function testHasMoreWhenTotalIsALowerBound(): void
+    public function testHasNoMoreAtTheLastPageOfTheCandidatesEvenWhenTheTotalIsALowerBound(): void
     {
         $result = new SearchResult([$this->hit(1)], 1, true, 1.2, false, [], 20, 0);
+
+        self::assertFalse($result->hasMore());
+    }
+
+    public function testHasMoreWhenTheTotalIsALowerBoundAndCandidatesRemain(): void
+    {
+        $result = new SearchResult([$this->hit(1)], 2000, true, 1.2, false, [], 1, 0);
 
         self::assertTrue($result->hasMore());
     }

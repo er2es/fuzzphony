@@ -80,8 +80,13 @@ final readonly class SearchResult implements \IteratorAggregate, \Countable
         return intdiv($this->offset, $this->limit) + 1;
     }
 
+    /**
+     * Whether hits follow this page among the ones the search ranked: false at the last page of the candidates, even when
+     * `totalIsLowerBound` says there are more matches than candidates (a page past them is empty, see
+     * Thresholds::$candidateLimit).
+     */
     public function hasMore(): bool
     {
-        return $this->totalIsLowerBound || $this->offset + count($this->hits) < $this->total;
+        return $this->offset + count($this->hits) < $this->total;
     }
 }
