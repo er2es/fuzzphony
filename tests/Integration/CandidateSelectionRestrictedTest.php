@@ -64,16 +64,12 @@ final class CandidateSelectionRestrictedTest extends TestCase
     }
 
     /**
-     * What a hidden field holds, in size and content, must not change what a restricted viewer finds from the strict branch,
-     * exactly: ids, order, scores, total, lower-bound flag, statements, and the facets of a search that was not cut off, for
-     * `never` and `fallback`. The facet counts of a capped search are taken over the first `candidate_limit` matches in the
-     * sidecar's physical order (the cheap selection, see docs/limitations.md), which the hidden content shapes: not asserted. The strict
-     * candidates are the best by the page's own key among the first 100 000 matches (here all 3 000 of them), so the order
-     * of the heap does not enter. The typo-tolerant branch (`always`) still takes the first `candidate_limit` matches of its
-     * index in the PHYSICAL order of the sidecar, which the hidden content shapes (a larger hidden field moves the rows
-     * around the heap pages): its candidates can depend on it until 0.9.9 (docs/limitations.md). So for `always` the test
-     * asserts only what must hold in every case: no document that holds the word in a hidden field alone is returned (the
-     * tenant tests assert the tenant's ownership the same way).
+     * What a hidden field holds, in size and content, must not change what a restricted viewer finds, exactly: ids, order, scores,
+     * total, lower-bound flag, statements and facets (the counts of a capped search too), for `never`, `fallback` and `always`,
+     * with words as they are and with typos (`comon` matches 2 900 titles, more than the candidate limit). The strict candidates are
+     * the best by the page's own key among the first 100 000 matches (here all 3 000 of them) and the typo-tolerant ones the best by
+     * the same key among the matches of the typo branch (here all of them), so the order of the heap, which the size of a hidden
+     * field shapes, does not enter.
      *
      * @param list<string> $order
      * @param list<string> $allowed
@@ -88,7 +84,7 @@ final class CandidateSelectionRestrictedTest extends TestCase
         $fuzzphony = new Fuzzphony(new PostgresEngine($this->connection), new IndexRegistry([$builder->filter('cat', 'string')->language('english')->sync('manual')->build()]));
 
         $long = implode(' ', array_map(static fn(int $i): string => 'h' . $i, range(1, 17_000)));
-        $queries = ['common', 'common filler', 'common -unrelated', 'title:common', '"common filler"'];
+        $queries = ['common', 'common filler', 'common -unrelated', 'title:common', '"common filler"', 'comon', 'comon filler', 'common fillr', 'title:comon'];
         $variants = [
             'empty' => ["''", []],
             'a phrase' => ["'common filler common filler'", []],
@@ -108,12 +104,8 @@ final class CandidateSelectionRestrictedTest extends TestCase
                             ->restrictedToFields(...$allowed)->facets('cat')->limit($limit, $offset)->explain();
                         $result = $explained->result;
                         $capped = $capped || $result->totalIsLowerBound;
-                        if ($mode === 'always') {
-                            foreach ($result->ids() as $id) {
-                                self::assertTrue($id < 10_000 || $id > 10_099, sprintf('%s | always | %s: a document that holds the word in a hidden field only', $text, $variant));
-                            }
-
-                            continue;
+                        foreach ($result->ids() as $id) {
+                            self::assertTrue($id < 10_000 || $id > 10_099, sprintf('%s | %s | %s: a document that holds the word in a hidden field only', $text, $mode, $variant));
                         }
                         $outcomes[$text . ' | ' . $mode . ' | ' . $offset][$variant] = [
                             array_map(static fn($hit): array => [$hit->id, round($hit->score, 9), round($hit->breakdown->textRank, 9), round($hit->breakdown->fuzzySimilarity, 9)], $result->hits),
@@ -122,8 +114,7 @@ final class CandidateSelectionRestrictedTest extends TestCase
                             $result->hasMore(),
                             $result->usedFuzzy,
                             $result->warnings,
-                            // the counts of a capped search are over the first candidate_limit matches in the heap's order (the cheap selection)
-                            $result->totalIsLowerBound ? null : array_map(static fn($facet): array => array_map(static fn($v): array => [$v->value, $v->count], $facet), $result->facets),
+                            array_map(static fn($facet): array => array_map(static fn($v): array => [$v->value, $v->count], $facet), $result->facets),
                             $result->didYouMean,
                             array_map(static fn(array $s): array => [$s['label'], $s['sql'], $s['params']], $explained->statements),
                         ];
@@ -182,10 +173,6 @@ final class CandidateSelectionRestrictedTest extends TestCase
                     self::assertTrue($own, sprintf('tenant %d got the document %s of another tenant (offset %d)', $tenant, $id, $offset));
                 }
                 self::assertLessThanOrEqual($matches, $result->total);
-            }
-            if ($mode === 'always') {
-                // the typo branch still selects its candidates unordered (0.9.9): the documents it finds outrank the strict branch's best
-                continue;
             }
             $first = $fuzzphony->in('cs_docs')->forTenant($tenant)->query('common')->thresholds(['fuzzy_mode' => $mode, 'candidate_limit' => 10])->limit(3)->get();
             self::assertSame($best, $first->hits[0]->id, sprintf('tenant %d: its own best document is found first', $tenant));
