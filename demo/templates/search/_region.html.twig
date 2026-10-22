@@ -116,7 +116,7 @@
 
             <details class="disclosure">
                 <summary>How this was searched<svg class="icon" aria-hidden="true"><use href="#i-chevron"/></svg></summary>
-                <p class="muted">The last word was matched as itself and as the beginning of a longer word, so the query was understood as <code>{{ result.interpretedAs }}</code>. {% if result.usedFuzzy %}Typo tolerance was needed to find enough products. {% endif %}Every number above comes from one search with its facets. <a href="{{ path('tune', {query: q}) }}">Open it in Tune</a> to see the ranking and the SQL.</p>
+                <p class="muted">{% if result.correctedFrom is not null %}Nothing matched the text as typed, even as the beginning of a word, so the page searched it once more as a finished text: a word of the catalogue was exactly one letter away (the zero-result rescue, <code>SearchResult::$correctedFrom</code>; <a href="{{ path('observability', {q: q}) }}">Observability</a> shows its metric), and the query was understood as <code>{{ result.interpretedAs }}</code>. {% else %}The last word was matched as itself and as the beginning of a longer word, so the query was understood as <code>{{ result.interpretedAs }}</code>. {% endif %}{% if result.usedFuzzy %}Typo tolerance was needed to find enough products. {% endif %}Every number above comes from one search with its facets. <a href="{{ path('tune', {query: q}) }}">Open it in Tune</a> to see the ranking and the SQL{% if result.correctedFrom is not null %} (Tune searches as you type, which is never rescued: it shows the search that found nothing){% endif %}.</p>
             </details>
         {% endif %}
     </section>

@@ -148,6 +148,8 @@ final class PagesController extends AbstractController
             'took_ms' => $explanation->result->tookMs,
             'total' => $explanation->result->total,
             'fallback' => $fallback,
+            'rescued' => $explanation->result->correctedFrom !== null,
+            'interpreted' => $explanation->result->interpretedAs,
             'statements' => count($explanation->statements),
             'queue' => $queueCheck,
         ]);
