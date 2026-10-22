@@ -114,21 +114,35 @@ final class SearchSqlBuilderCandidatesTest extends TestCase
         self::assertStringNotContainsString('w.r_text >= ', $fuzzy);
     }
 
-    public function testFacetsExactCountsAndTheBrowseKeepTheFastSelection(): void
+    public function testFacetsSelectTheBestCandidatesAndExactCountsAndTheBrowseKeepTheFastSelection(): void
     {
         $builder = new SearchSqlBuilder(Indexes::products());
         $thresholds = new Thresholds();
+        $profile = new RankingProfile();
+
+        // the facets count the best `candidate_limit` matches, whatever the order of the heap: the ordered selection of the hits
+        foreach ([
+            $builder->facet('in_stock', "'mouse'", 'mouse', null, [], $profile, $thresholds, 10, false)['sql'],
+            $builder->facets(['in_stock', 'brand_id'], "'mouse'", 'mouse', null, [], $profile, $thresholds, 10, false)['sql'],
+        ] as $sql) {
+            self::assertStringContainsString('fts_fast AS (', $sql);
+            self::assertStringContainsString('ORDER BY 1 * w.r_text', $sql);
+            self::assertStringContainsString('LIMIT 100000', $sql);
+        }
+        // a deep page does not make the facets count more candidates: their window is the candidate limit
+        self::assertStringContainsString('count(*) FROM fts_fast) < 2000', $builder->facet('in_stock', "'mouse'", 'mouse', null, [], $profile, $thresholds, 10, false)['sql']);
+
         $statements = [
-            $builder->facet('in_stock', "'mouse'", 'mouse', null, [], new RankingProfile(), $thresholds, 10, false)['sql'],
-            $builder->facets(['in_stock', 'brand_id'], "'mouse'", 'mouse', null, [], new RankingProfile(), $thresholds, 10, false)['sql'],
-            $builder->exactTotal("'mouse'", 'mouse', null, [], new RankingProfile(), $thresholds)['sql'],
-            $builder->browse([], new RankingProfile(), $thresholds, 20, 0)['sql'],
+            $builder->facet('in_stock', "'mouse'", 'mouse', null, [], $profile, $thresholds, 10, true)['sql'],
+            $builder->facets(['in_stock', 'brand_id'], "'mouse'", 'mouse', null, [], $profile, $thresholds, 10, true)['sql'],
+            $builder->exactTotal("'mouse'", 'mouse', null, [], $profile, $thresholds)['sql'],
+            $builder->browse([], $profile, $thresholds, 20, 0)['sql'],
         ];
         foreach ($statements as $sql) {
             self::assertStringNotContainsString('fts_fast', $sql);
             self::assertStringNotContainsString('count(*) FROM fts)', $sql);
         }
-        self::assertStringContainsString("fts AS (\n    SELECT s.id, ts_rank_cd('{0.1,0.2,0.4,1}'::real[], s.tsv, q.tsq, 32)::double precision AS r_text\n    FROM \"public\".\"fuzzphony_products\" AS s CROSS JOIN q\n    WHERE s.tsv @@ q.tsq AND TRUE\n    LIMIT 2000\n)", $statements[0], 'facets: the candidate limit, no ordering');
+        self::assertStringNotContainsString('LIMIT 2000', $statements[0], 'the exact counts have no limit at all');
         self::assertStringNotContainsString('LIMIT 2000', $statements[2], 'the exact count has no limit at all');
     }
 

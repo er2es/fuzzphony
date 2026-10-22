@@ -12,6 +12,7 @@ use Fuzzphony\Core\Ranking\RankingProfile;
 use Fuzzphony\Core\Ranking\Thresholds;
 use Fuzzphony\Engine\Postgres\Schema\Names;
 use Fuzzphony\Engine\Postgres\Schema\PostgresSchemaGenerator;
+use Fuzzphony\Engine\Postgres\Schema\Types;
 
 /**
  * @internal Builds the ranked search statement:
@@ -53,6 +54,11 @@ final class SearchSqlBuilder
         private readonly int $scanBudget = self::SCAN_BUDGET,
         /** @var (\Closure(): bool)|null whether the sidecar has the tsv_capped column (FuzzyQueryCompiler), asked when a phrase or a scoped word needs it */
         private readonly ?\Closure $cappedColumn = null,
+        /**
+         * @var list<int|string> the ids of the closest spellings of the words that match more documents than the candidate limit, from
+         *                       PostgresEngine::fuzzyCandidates(): always among the typo-tolerant candidates (see scored())
+         */
+        private readonly array $sure = [],
     ) {}
 
     /**
@@ -62,6 +68,15 @@ final class SearchSqlBuilder
      * configurable: it is a cost bound, and every setting would be one more way to slow a search down.
      */
     private const int SCAN_BUDGET = 100_000;
+
+    /**
+     * The most matches the ordered selection of a capped typo-tolerant branch scores (divided by the number of words, like the
+     * strict one): a document of this branch costs about seven times what a full-text match does, because every trigram match is
+     * rechecked on the text of the typo-tolerant fields (about 8 microseconds on 200 000 short names), so the budget is smaller.
+     * Beyond it the closest spellings are still candidates (the `$sure` ids) and the rest is chosen among the first matches in
+     * index order. Not configurable, for the reason SCAN_BUDGET is not.
+     */
+    private const int TYPO_SCAN_BUDGET = 30_000;
 
     /**
      * How many matches the ordered selection scans for a query that looks `$operands` words up: the cost of ranking a document grows
@@ -89,17 +104,23 @@ final class SearchSqlBuilder
      * @param list<string>    $emptyQueries leaf tsqueries the text configuration reduces to nothing (stop words)
      * @param Node|null       $scopedRoot   the parsed query when it has a word scoped to a known field (rechecked in the full-text branch), else null
      *
+     * @param bool            $withCandidates also return the ids of every candidate that passes the minimum score, as JSON in the meta row's
+     *                                        `cand_ids`: the facets of the search count exactly these documents (facetsOf())
+     *
      * @return array{sql: string, params: array<string, scalar|null>}
      */
-    public function ranked(?string $tsquery, string $plain, ?Node $fuzzyRoot, array $conditions, RankingProfile $profile, Thresholds $thresholds, int $limit, int $offset, array $emptyQueries = [], ?Node $scopedRoot = null): array
+    public function ranked(?string $tsquery, string $plain, ?Node $fuzzyRoot, array $conditions, RankingProfile $profile, Thresholds $thresholds, int $limit, int $offset, array $emptyQueries = [], ?Node $scopedRoot = null, bool $withCandidates = false): array
     {
-        ['ctes' => $ctes, 'params' => $params, 'fuzzy' => $fuzzy, 'fast' => $fast] = $this->scored($tsquery, $plain, $fuzzyRoot, $conditions, $profile, $thresholds, $emptyQueries, $scopedRoot, false, self::window($thresholds, $limit, $offset));
+        ['ctes' => $ctes, 'params' => $params, 'fuzzy' => $fuzzy, 'fast' => $fast, 'fuzzyFast' => $fuzzyFast] = $this->scored($tsquery, $plain, $fuzzyRoot, $conditions, $profile, $thresholds, $emptyQueries, $scopedRoot, false, self::window($thresholds, $limit, $offset));
 
         $counts = [];
         // what the fast selection found: it hit its limit exactly when the matches were cut off, whatever the ordered one kept
         $counts[] = $tsquery !== null ? sprintf('(SELECT count(*) FROM %s) AS fts_n', $fast) : '0 AS fts_n';
-        $counts[] = $fuzzy !== null ? '(SELECT count(*) FROM fuzzy) AS fuzzy_n' : '0 AS fuzzy_n';
+        $counts[] = $fuzzy !== null ? sprintf('(SELECT count(*) FROM %s) AS fuzzy_n', $fuzzyFast) : '0 AS fuzzy_n';
         $minScore = Sql::float($thresholds->minScore);
+        if ($withCandidates) {
+            $counts[] = sprintf('(SELECT json_agg(id) FROM scored WHERE relevance >= %s) AS cand_ids', $minScore);
+        }
         $ctes[] = sprintf(
             "page AS (\n    SELECT id, r_text, r_fuzzy, relevance, exact_bonus, prefix_bonus, boost_bonus, recency_bonus,\n        relevance + exact_bonus + prefix_bonus + boost_bonus + recency_bonus AS score\n    FROM scored\n    WHERE relevance >= %s\n    ORDER BY score DESC, id\n    LIMIT %d OFFSET %d\n)",
             $minScore,
@@ -121,18 +142,19 @@ final class SearchSqlBuilder
     /**
      * The CTEs up to `scored` (see the class comment); `$uncapped` drops the candidate limit, for exact counts.
      *
-     * `$window` (the ranked search only; facets and exact counts keep the fast selection) selects the full-text candidates by
-     * quality when the matches are more than the window: `fts_fast` is the first `$window` matches the index returns (the
-     * cheap selection), and `fts` is that when they are fewer, else the best `$window` by the page's own sort key, scored over
-     * the first SCAN_BUDGET matches. A search with fewer matches never runs the second select (its guard is false: "never
-     * executed" in EXPLAIN ANALYZE). The second has the same lookup, recheck, tenant and filter conditions, the text rank of
-     * the viewer's own vectors and the same bonus expressions as `scored`, so a viewer who may not see a field is ordered
-     * as if it did not exist.
+     * `$window` (the ranked search and the facets; an exact count keeps the fast selection) selects the candidates by quality when
+     * the matches are more than the window: `fts_fast` is the first `$window` matches the index returns (the cheap selection), and
+     * `fts` is that when they are fewer, else the best `$window` by the page's own sort key, scored over the first SCAN_BUDGET
+     * matches. The typo-tolerant branch does the same (`fuzzy_fast`, `fuzzy`) with the candidate limit as its window and the
+     * sort key of a document found by typo tolerance alone. A search with fewer matches never runs the second select (its guard
+     * is false: "never executed" in EXPLAIN ANALYZE). The second has the same lookup, recheck, tenant and filter conditions, the
+     * text rank of the viewer's own vectors and the same bonus expressions as `scored`, so a viewer who may not see a field is
+     * ordered as if it did not exist.
      *
      * @param list<Condition> $conditions
      * @param list<string>    $emptyQueries
      *
-     * @return array{ctes: list<string>, params: ParameterBag, fuzzy: ?FuzzyMatch, fast: string}
+     * @return array{ctes: list<string>, params: ParameterBag, fuzzy: ?FuzzyMatch, fast: string, fuzzyFast: string}
      */
     private function scored(?string $tsquery, string $plain, ?Node $fuzzyRoot, array $conditions, RankingProfile $profile, Thresholds $thresholds, array $emptyQueries, ?Node $scopedRoot, bool $uncapped, ?int $window = null): array
     {
@@ -198,6 +220,9 @@ final class SearchSqlBuilder
         $fuzzy = $fuzzyRoot === null ? null : $compiler->compile($fuzzyRoot, $params, $emptyQueries);
         if ($fuzzy !== null) {
             array_push($q, ...$fuzzy->columns);
+            if ($window !== null && !$uncapped && $this->sure !== []) {
+                $q[] = sprintf('CAST(%s AS %s[]) AS sure', $params->add(Sql::arrayLiteral($this->sure)), Types::id($this->index->idType));
+            }
         }
         // MATERIALIZED: one row computed once, and the planner must not see the per-word values (see FuzzyQueryCompiler)
         $ctes = ['q AS MATERIALIZED (SELECT ' . implode(', ', $q) . ')'];
@@ -211,12 +236,13 @@ final class SearchSqlBuilder
             $this->boostExpression($profile),
             $this->recencyExpression($profile),
         ];
+        $ordered = $window !== null && !$uncapped;
+        $filterSql = $filters->compile($conditions, $params);
         $fast = 'fts';
         if ($tsquery !== null) {
-            $ordered = $window !== null && !$uncapped;
             $fast = $ordered ? 'fts_fast' : 'fts';
             $rank = $this->textRank($profile, $positional, $rankQuery) . '::double precision';
-            $where = implode(' AND ', $strict) . ' AND ' . $filters->compile($conditions, $params);
+            $where = implode(' AND ', $strict) . ' AND ' . $filterSql;
             $ctes[] = sprintf(
                 "%s AS (
     SELECT s.id, %s AS r_text
@@ -266,15 +292,64 @@ final class SearchSqlBuilder
             }
             $branches[] = 'SELECT id, r_text, 0::double precision AS r_fuzzy FROM fts';
         }
+        $fuzzyFast = 'fuzzy';
         if ($fuzzy !== null) {
+            $fuzzyFast = $ordered ? 'fuzzy_fast' : 'fuzzy';
             $ctes[] = sprintf(
-                "fuzzy AS (\n    SELECT s.id, (%s)::double precision AS r_fuzzy\n    FROM %s AS s CROSS JOIN q\n    WHERE %s AND %s%s\n)",
+                "%s AS (
+    SELECT s.id, (%s)::double precision AS r_fuzzy
+    FROM %s AS s CROSS JOIN q
+    WHERE %s AND %s%s
+)",
+                $fuzzyFast,
                 $fuzzy->score,
                 $table,
                 $fuzzy->predicate,
-                $filters->compile($conditions, $params),
+                $filterSql,
                 $cap,
             );
+            if ($ordered) {
+                $limit = $thresholds->candidateLimit;
+                // the closest spellings are scored first and whatever the budget cuts off, the others are the first matches in index order
+                $select = sprintf(
+                    "SELECT s.id, (%1\$s)::double precision AS r_fuzzy, %2\$s AS exact_bonus, %3\$s AS prefix_bonus, %4\$s AS boost_bonus, %5\$s AS recency_bonus
+            FROM %6\$s AS s CROSS JOIN q
+            WHERE %7\$s AND %8\$s",
+                    $fuzzy->score,
+                    $bonuses[0],
+                    $bonuses[1],
+                    $bonuses[2],
+                    $bonuses[3],
+                    $table,
+                    $fuzzy->predicate,
+                    $filterSql,
+                );
+                $scan = self::scanLimit(min($this->scanBudget, self::TYPO_SCAN_BUDGET), $fuzzy->words, $limit);
+                $inner = $this->sure === []
+                    ? sprintf("%s
+            LIMIT %d", $select, $scan)
+                    : sprintf("(%s AND s.id = ANY(q.sure))
+            UNION
+            (%s
+            LIMIT %d)", $select, $select, $scan);
+                $ctes[] = sprintf(
+                    "fuzzy AS (
+    SELECT id, r_fuzzy FROM fuzzy_fast WHERE (SELECT count(*) FROM fuzzy_fast) < %1\$d
+    UNION ALL
+    SELECT id, r_fuzzy FROM (
+        SELECT w.id, w.r_fuzzy FROM (
+            %2\$s
+        ) AS w
+        WHERE (SELECT count(*) FROM fuzzy_fast) >= %1\$d
+        ORDER BY %3\$s * w.r_fuzzy + w.exact_bonus + w.prefix_bonus + w.boost_bonus + w.recency_bonus DESC, w.id
+        LIMIT %1\$d
+    ) AS o
+)",
+                    $limit,
+                    $inner,
+                    Sql::float($profile->fuzzy),
+                );
+            }
             $branches[] = 'SELECT id, 0::double precision AS r_text, r_fuzzy FROM fuzzy';
         }
         if ($branches === []) {
@@ -303,7 +378,7 @@ final class SearchSqlBuilder
             $table,
         );
 
-        return ['ctes' => $ctes, 'params' => $params, 'fuzzy' => $fuzzy, 'fast' => $fast];
+        return ['ctes' => $ctes, 'params' => $params, 'fuzzy' => $fuzzy, 'fast' => $fast, 'fuzzyFast' => $fuzzyFast];
     }
 
     /**
@@ -318,7 +393,7 @@ final class SearchSqlBuilder
      */
     public function facet(string $filter, ?string $tsquery, string $plain, ?Node $fuzzyRoot, array $conditions, RankingProfile $profile, Thresholds $thresholds, int $values, bool $exact, array $emptyQueries = [], ?Node $scopedRoot = null): array
     {
-        ['ctes' => $ctes, 'params' => $params] = $this->scored($tsquery, $plain, $fuzzyRoot, $conditions, $profile, $thresholds, $emptyQueries, $scopedRoot, $exact);
+        ['ctes' => $ctes, 'params' => $params] = $this->scored($tsquery, $plain, $fuzzyRoot, $conditions, $profile, $thresholds, $emptyQueries, $scopedRoot, $exact, $thresholds->candidateLimit);
         $column = 's.' . FilterCompiler::column($filter);
         $sql = sprintf(
             "WITH %s\nSELECT %s AS value, count(*) AS n\nFROM scored AS sc JOIN %s AS s ON s.id = sc.id\nWHERE sc.relevance >= %s\nGROUP BY %s\nORDER BY n DESC, value NULLS LAST\nLIMIT %d",
@@ -347,7 +422,7 @@ final class SearchSqlBuilder
      */
     public function facets(array $filters, ?string $tsquery, string $plain, ?Node $fuzzyRoot, array $conditions, RankingProfile $profile, Thresholds $thresholds, int $values, bool $exact, array $emptyQueries = [], ?Node $scopedRoot = null): array
     {
-        ['ctes' => $ctes, 'params' => $params] = $this->scored($tsquery, $plain, $fuzzyRoot, $conditions, $profile, $thresholds, $emptyQueries, $scopedRoot, $exact);
+        ['ctes' => $ctes, 'params' => $params] = $this->scored($tsquery, $plain, $fuzzyRoot, $conditions, $profile, $thresholds, $emptyQueries, $scopedRoot, $exact, $thresholds->candidateLimit);
         $ctes[] = sprintf(
             "fc AS (
     SELECT %s
@@ -358,6 +433,33 @@ final class SearchSqlBuilder
             $this->names->sidecar($this->index),
             Sql::float($thresholds->minScore),
         );
+
+        return ['sql' => $this->facetBranches($ctes, $filters, $values), 'params' => $params->all()];
+    }
+
+    /**
+     * The facets over the very documents a ranked search selected (its `cand_ids`, see ranked()): the same candidates as the hits, found
+     * once, and no second selection that could differ. One statement for any number of facets, in the form of facets().
+     *
+     * @param list<int|string>       $ids
+     * @param non-empty-list<string> $filters
+     *
+     * @return array{sql: string, params: array<string, scalar|null>}
+     */
+    public function facetsOf(array $ids, array $filters, int $values): array
+    {
+        $params = new ParameterBag();
+        $ctes = [sprintf(
+            "fc AS (
+    SELECT %s
+    FROM %s AS s
+    WHERE s.id = ANY(CAST(%s AS %s[]))
+)",
+            self::facetColumns($filters),
+            $this->names->sidecar($this->index),
+            $params->add(Sql::arrayLiteral($ids)),
+            Types::id($this->index->idType),
+        )];
 
         return ['sql' => $this->facetBranches($ctes, $filters, $values), 'params' => $params->all()];
     }

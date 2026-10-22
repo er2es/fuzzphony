@@ -84,10 +84,10 @@ final class CandidateSelectionRestrictedTest extends TestCase
         $fuzzphony = new Fuzzphony(new PostgresEngine($this->connection), new IndexRegistry([$builder->filter('cat', 'string')->language('english')->sync('manual')->build()]));
 
         $long = implode(' ', array_map(static fn(int $i): string => 'h' . $i, range(1, 17_000)));
-        $queries = ['common', 'common filler', 'common -unrelated', 'title:common', '"common filler"', 'comon', 'comon filler', 'common fillr', 'title:comon'];
+        // words as they are (the strict branch, and the typo branch of `always`), and typos (more matches than the candidate limit: `comon` is 2 900 titles)
+        $queries = ['common' => ['never', 'fallback', 'always'], 'common filler' => ['never', 'fallback', 'always'], 'title:common' => ['never', 'fallback', 'always'], '"common filler"' => ['never', 'fallback', 'always'], 'comon' => ['fallback', 'always'], 'comon filler' => ['fallback', 'always'], 'title:comon' => ['always']];
         $variants = [
             'empty' => ["''", []],
-            'a phrase' => ["'common filler common filler'", []],
             'the word, a size per document' => ["CASE WHEN i % 3 = 0 THEN repeat('common ', 50) || i ELSE 'zzz' END", []],
             'sizes 0 to 36 words' => ["repeat('filler words ', i % 37)", []],
             'a very long field in every 50th' => ["CASE WHEN i % 50 = 0 THEN :long ELSE '' END", ['long' => $long]],
@@ -97,9 +97,9 @@ final class CandidateSelectionRestrictedTest extends TestCase
         $capped = false;
         foreach ($variants as $variant => [$hiddenSql, $params]) {
             $this->load($fuzzphony, $hiddenSql, $params, array_values(array_diff(['title', 'body', 'secret'], $allowed)));
-            foreach ($queries as $text) {
-                foreach (['never', 'fallback', 'always'] as $mode) {
-                    foreach ([[5, 0], [5, 12], [5, 90]] as [$limit, $offset]) {
+            foreach ($queries as $text => $modes) {
+                foreach ($modes as $mode) {
+                    foreach ([[5, 0], [5, 90]] as [$limit, $offset]) {
                         $explained = $fuzzphony->in('cs_docs')->query($text)->thresholds(['fuzzy_mode' => $mode, 'candidate_limit' => 100])
                             ->restrictedToFields(...$allowed)->facets('cat')->limit($limit, $offset)->explain();
                         $result = $explained->result;

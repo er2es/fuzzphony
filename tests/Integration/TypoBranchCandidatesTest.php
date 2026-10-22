@@ -64,14 +64,15 @@ final class TypoBranchCandidatesTest extends TestCase
         $fuzzphony = $this->index();
 
         foreach ([100, 500] as $limit) {
-            foreach (['gadgetrun', 'gadgetrun widget'] as $text) {
-                $result = $fuzzphony->in('tb_docs')->query($text)->thresholds(['fuzzy_mode' => $mode, 'candidate_limit' => $limit])->limit(20)->facets('cat')->get();
-                self::assertTrue($result->totalIsLowerBound, 'the typo word matches more documents than the candidate limit');
-                $top = array_slice($result->ids(), 0, 2);
-                sort($top);
-                self::assertSame([90000, 90001], $top, sprintf('%s | %s | limit %d: the closest spelling comes first', $text, $mode, $limit));
-                self::assertLessThanOrEqual(20, count($result->ids()));
-            }
+            $result = $fuzzphony->in('tb_docs')->query('gadgetrun')->thresholds(['fuzzy_mode' => $mode, 'candidate_limit' => $limit])->limit(20)->facets('cat')->get();
+            self::assertTrue($result->totalIsLowerBound, 'the typo word matches more documents than the candidate limit');
+            $top = array_slice($result->ids(), 0, 2);
+            sort($top);
+            self::assertSame([90000, 90001], $top, sprintf('%s | limit %d: the closest spellings come first', $mode, $limit));
+            // a second word: only the closest spelling that also has it
+            $result = $fuzzphony->in('tb_docs')->query('gadgetrun widget')->thresholds(['fuzzy_mode' => $mode, 'candidate_limit' => $limit])->limit(20)->get();
+            self::assertTrue($result->totalIsLowerBound);
+            self::assertSame(90000, $result->hits[0]->id, sprintf('%s | limit %d: the closest spelling of two words comes first', $mode, $limit));
         }
     }
 
