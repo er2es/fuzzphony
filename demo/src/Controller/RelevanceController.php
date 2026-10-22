@@ -53,7 +53,7 @@ final class RelevanceController extends AbstractController
         $byLength = $flat = null;
         if ($q !== '') {
             // always: typo tolerance runs even when exact matching finds plenty, so the two columns differ only by the similarity rule
-            $search = $fuzzphony->in('catalog')->query($q)->highlight('name')->limit(8)->thresholds(['fuzzy_mode' => 'always']);
+            $search = $fuzzphony->in('catalog')->query($q)->highlight('name')->limit(8)->thresholds(['fuzzy_mode' => 'always', 'rescue_empty' => false]); // no zero-result rescue: this page shows what each rule finds, `mpuse` included
             $byLength = $search->get();
             $flat = $search->unlogged()->thresholds(['fuzzy_similarity' => 0.3])->get(); // only the main search is logged: the two columns and the suggestion are one visit
         }
@@ -75,6 +75,6 @@ final class RelevanceController extends AbstractController
     /** The suggestion of the search as an application would run it (typo tolerance in its default mode). */
     private function suggestion(Fuzzphony $fuzzphony, string $q): ?SearchResult
     {
-        return $q === '' ? null : $fuzzphony->in('catalog')->query($q)->limit(1)->unlogged()->get();
+        return $q === '' ? null : $fuzzphony->in('catalog')->query($q)->limit(1)->unlogged()->thresholds(['rescue_empty' => false])->get(); // a rescued search would have no suggestion to show
     }
 }

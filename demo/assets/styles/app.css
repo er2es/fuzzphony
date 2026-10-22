@@ -349,6 +349,8 @@
     .facet a[aria-current] span:last-child { color: inherit; }
     .hit-row .row-title mark { color: var(--accent); }
     .did-you-mean { padding: .75rem 1rem; border-radius: var(--r-group); background: color-mix(in srgb, var(--accent) 9%, var(--surface)); }
+    .corrected { margin: 0; padding: .75rem 1rem; border-radius: var(--r-group); background: color-mix(in srgb, var(--accent) 9%, var(--surface)); }
+    .corrected a { margin-left: .35rem; text-decoration: underline; } /* a link inside a sentence must not rely on its colour alone */
     .warnings { display: grid; gap: .25rem; color: var(--warn); font-size: .875rem; }
     .speed-bars { display: grid; gap: .6rem; padding: 1rem 1.1rem; background: var(--surface); border-radius: var(--r-group); box-shadow: 0 0 0 .5px var(--hairline); }
     .speed-row { display: grid; grid-template-columns: 7rem 1fr 6rem; align-items: center; gap: .9rem; }

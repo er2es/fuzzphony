@@ -1,6 +1,7 @@
 {# The results region of the home page: swapped in place while the visitor types (live_search_controller.js). #}
 {% macro url(q, view, category, stock, extra = {}) %}{{ path('search', {q: q, view: view == 'speed' ? 'speed' : null, cat: category ?: null, stock: stock is null ? null : (stock ? 1 : 0)}|merge(extra)) }}{% endmacro %}
 {% import _self as u %}
+{% set keep = exact ? {exact: 1} : {} %}
 {% macro price(value) %}{{ value|number_format(0, '.', ' ') }} Ft{% endmacro %}
 
 {% if q != '' %}
@@ -19,18 +20,18 @@
                 <div></div>
             {% endif %}
             <nav class="segmented" aria-label="View">
-                <a href="{{ u.url(q, 'results', category, stock) }}"{% if view == 'results' %} aria-current="true"{% endif %}>Results</a>
-                <a href="{{ u.url(q, 'speed', category, stock) }}"{% if view == 'speed' %} aria-current="true"{% endif %}>Speed</a>
+                <a href="{{ u.url(q, 'results', category, stock, keep) }}"{% if view == 'results' %} aria-current="true"{% endif %}>Results</a>
+                <a href="{{ u.url(q, 'speed', category, stock, keep) }}"{% if view == 'speed' %} aria-current="true"{% endif %}>Speed</a>
             </nav>
         </div>
 
         {% if category != '' or stock is not null %}
             <div class="chips" aria-label="Chosen filters">
                 {% if category != '' %}
-                    <a class="token" href="{{ u.url(q, view, '', stock) }}" aria-label="Remove the category {{ category }}">{{ category }}<svg class="icon" aria-hidden="true"><use href="#i-clear"/></svg></a>
+                    <a class="token" href="{{ u.url(q, view, '', stock, keep) }}" aria-label="Remove the category {{ category }}">{{ category }}<svg class="icon" aria-hidden="true"><use href="#i-clear"/></svg></a>
                 {% endif %}
                 {% if stock is not null %}
-                    <a class="token" href="{{ u.url(q, view, category, null) }}" aria-label="Remove the stock filter">{{ stock ? 'In stock' : 'Out of stock' }}<svg class="icon" aria-hidden="true"><use href="#i-clear"/></svg></a>
+                    <a class="token" href="{{ u.url(q, view, category, null, keep) }}" aria-label="Remove the stock filter">{{ stock ? 'In stock' : 'Out of stock' }}<svg class="icon" aria-hidden="true"><use href="#i-clear"/></svg></a>
                 {% endif %}
             </div>
         {% endif %}
@@ -40,8 +41,15 @@
         {% elseif view == 'speed' %}
             {{ include('search/_speed.html.twig') }}
         {% elseif result %}
-            {% if result.warnings %}
-                <div class="warnings">{% for warning in result.warnings %}<p>{{ warning }}</p>{% endfor %}</div>
+            {% if result.correctedFrom is not null %}
+                {# The zero-result rescue: the typed text found nothing and was searched again with its unique one-edit correction. Both texts are
+                   the visitor's own words: Twig escapes them. The warning that says the same is left out below; the link searches the typed text as it is. #}
+                <p class="corrected">Showing results for <strong><code>{{ result.interpretedAs }}</code></strong>.
+                    <a href="{{ u.url(q, view, category, stock, {exact: 1}) }}">Search for “{{ result.correctedFrom }}” instead</a></p>
+            {% endif %}
+            {% set notes = result.correctedFrom is not null ? result.warnings|filter(w => not (w starts with 'No results for ')) : result.warnings %}
+            {% if notes %}
+                <div class="warnings">{% for warning in notes %}<p>{{ warning }}</p>{% endfor %}</div>
             {% endif %}
             {% if result.didYouMean %}
                 <p class="did-you-mean">Did you mean <a href="{{ u.url(result.didYouMean, view, category, stock) }}"><strong>{{ result.didYouMean }}</strong></a>?</p>

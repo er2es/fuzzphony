@@ -9,6 +9,7 @@ use App\Service\Facets;
 use App\Service\Measure;
 use Fuzzphony\Core\Exception\FuzzphonyException;
 use Fuzzphony\Core\Fuzzphony;
+use Fuzzphony\Core\Search\SearchBuilder;
 use Symfony\Bundle\FrameworkBundle\Controller\AbstractController;
 use Symfony\Component\HttpFoundation\Request;
 use Symfony\Component\HttpFoundation\Response;
@@ -61,6 +62,22 @@ final class SearchController extends AbstractController
         $live = $request->headers->get('X-Requested-With') === 'fetch';
         $logged = !$live || $request->headers->get('X-Settled') === '1';
 
+        // "Search for <what I typed> instead" (the link of the bar): the text is searched as typed, without the zero-result rescue
+        $exact = $request->query->getBoolean('exact');
+
+        // The field searches as you type (the last word also matches as a beginning), and the library never rescues such a search:
+        // the last word is not finished. So the demo searches in two steps: as you type; and only when that finds nothing, the text
+        // once more as a finished one, where a typo with a unique one-edit correction (`mpuse` -> `mouse`) is rescued
+        // (SearchResult::$correctedFrom). The first step is a probe and never logged; the search that answers is logged (once, when the
+        // request counts), so the Analytics page sees `mpuse` with the rescued hits, not as a search that found nothing.
+        $build = static function (bool $asYouType, bool $log) use ($fuzzphony, $facets, $q, $category, $stock, $exact): SearchBuilder {
+            $search = $fuzzphony->in('catalog')->query($q)->highlight('name')->limit(20);
+            $search = $facets->narrow($asYouType ? $search->asYouType() : $search, $category, $stock);
+            $search = $log ? $search : $search->unlogged();
+
+            return $exact ? $search->thresholds(['rescue_empty' => false]) : $search;
+        };
+
         $result = null;
         $rows = [];
         $categories = $stockValues = [];
@@ -68,15 +85,20 @@ final class SearchController extends AbstractController
         $speed = null;
         if ($q !== '') {
             try {
-                $search = $fuzzphony->in('catalog')->query($q)->asYouType()->highlight('name')->limit(20);
-                $search = $facets->narrow($logged ? $search : $search->unlogged(), $category, $stock);
-                $result = $search->facets('category_id', 'in_stock')->get();
+                $asYouType = true;
+                $result = $build(true, false)->facets('category_id', 'in_stock')->get();
+                if ($result->total === 0 && !$exact) {
+                    $asYouType = false;
+                    $result = $build(false, $logged)->facets('category_id', 'in_stock')->get();
+                } elseif ($logged) {
+                    $result = $build(true, true)->facets('category_id', 'in_stock')->get();
+                }
                 $rows = $catalog->rows($result->ids());
                 $categories = $facets->categories($result->facets['category_id'] ?? []);
                 $stockValues = $result->facets['in_stock'] ?? [];
                 if ($view === 'speed') {
-                    // the measured search is the plain one (no facets): what a search box waits for
-                    $speed = Measure::median(static fn () => $facets->narrow($fuzzphony->in('catalog')->query($q)->asYouType()->limit(20)->unlogged(), $category, $stock)->get());
+                    // the measured search is the one that answered, without facets: what a search box waits for
+                    $speed = Measure::median(static fn () => $facets->narrow($fuzzphony->in('catalog')->query($q)->asYouType($asYouType)->limit(20)->unlogged(), $category, $stock)->get());
                 }
             } catch (FuzzphonyException $e) {
                 $error = $e->getMessage();
@@ -92,6 +114,7 @@ final class SearchController extends AbstractController
             'stock_values' => $stockValues,
             'category' => $category,
             'stock' => $stock,
+            'exact' => $exact,
             'error' => $error,
             'speed' => $speed,
             'warmRuns' => Measure::WARM_RUNS,
