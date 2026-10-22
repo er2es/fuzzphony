@@ -18,7 +18,8 @@ and the [CHANGELOG](CHANGELOG.md) has the full list of changes.
 
 ## From 0.9.7 to 0.9.8
 
-Nothing is required, but **searches that returned nothing may now return results**, in two ways:
+Nothing is required, but **run `fuzzphony:schema --apply` and then `fuzzphony:reindex`** (see 3 below), and **searches that
+returned nothing may now return results**, in two ways:
 
 1. **Two swapped neighbouring letters are tolerated** (`mosue` finds `mouse`): a typed word of 4 to 15 letters also matches its
    neighbour-swapped variants as whole words on the typo-tolerant branch (below exact hits, in typo-tolerant fields only; also on
@@ -32,6 +33,17 @@ Nothing is required, but **searches that returned nothing may now return results
    was for every search that is not rescued. `did_you_mean: false` also turns the rescue off; tenant-scoped indexes, restricted
    viewers and search-as-you-type are never rescued. The search log records what the visitor typed, with the rescued hits, so
    the zero-result report no longer lists a search the rescue answered.
+
+3. **Phrases and field-scoped words after a very long field are found** (a fix, no change for texts under about 16 000 words), and
+   the fast way to find them needs a new sidecar column. `fuzzphony:schema --apply` adds `tsv_capped` (a nullable boolean, only when
+   it is missing, so an apply that finds it takes no lock) and `fuzzphony:reindex` fills it (true when the joined vector reached
+   position 16 383). Until then a phrase (`"usb receiver"`, `usb-c`) on an index with **several fields** is correct but slower: the
+   later fields' vectors are read for every candidate `tsv` does not match as a phrase (about 17 to 22 times slower for a quoted
+   phrase whose words are common on a 12-field index, 1.3 to 1.8 times on 3 fields; measured). A document that is not reindexed
+   yet has no answer (NULL) and is treated as capped: right, slow. An application that has not applied the schema keeps working
+   (the column is looked up in the catalog, once per process: restart long-running workers, or call `PostgresEngine::resetCaches()`,
+   after applying). `fuzzphony:doctor` hints at the missing column as a warning. Single-field indexes, plain words, excluded words,
+   prefixes and typos are not affected. A rebuild with `fuzzphony:reindex` before the schema is applied also fills the column.
 
 If you implement your own `Engine` or build `SearchResult` yourself, the new constructor parameter `correctedFrom` is optional and last.
 

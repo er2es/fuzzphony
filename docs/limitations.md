@@ -183,6 +183,12 @@ What still does not work, because the data is not in the index in a usable form:
   positions for it, so the text rank is the best of the first field's and of the later fields' vectors (a scoped word
   keeps its rank, an AND of words in different fields can rank 0 and so come last). A document `tsv` matches keeps the rank it always had.
 
+A phrase or scoped word is looked up by the words alone and then read from `tsv`, and, only for a document whose `tsv` was
+capped, from the vectors of the later fields: the sidecar column `tsv_capped` (filled by `fuzzphony:reindex`, added by
+`fuzzphony:schema --apply`) says which. Without the column, or for a document written before it (NULL, "not known"), the
+later fields are read for every candidate that `tsv` does not match as a phrase: the same results, slower on an index with many
+fields (see [UPGRADE](../UPGRADE.md#from-097-to-098)).
+
 What to do: do not index the whole of a very long text. Put an excerpt (the first few thousand words, a summary) in the
 searched field, or list the long field last (nothing follows it). The limits above hold for a restricted viewer too
 (see [Security](security.md) for what a hidden field never decides).

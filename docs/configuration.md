@@ -19,7 +19,9 @@ indexes defined only in YAML), or the fluent builder.
 Fuzzphony stores each index in a sidecar table, `fuzzphony_<index>` in Fuzzphony's schema (see
 [Fuzzphony's schema](#fuzzphonys-schema)). It holds a weighted
 `tsvector`, a normalised text for trigram matching, the same two per field (for field-scoped words:
-one `tsvector` per field, one text per fuzzy field), typed filter columns and the ranking inputs,
+one `tsvector` per field, one text per fuzzy field), a flag that says whether the joined vector ran past the
+position limit of a `tsvector` (`tsv_capped`, see [limitations](limitations.md#very-long-texts-limit-where-a-phrase-is-found)),
+typed filter columns and the ranking inputs,
 each with the right index (GIN, GIN trigram, btree). Your schema is untouched. Dropping the index
 is one command.
 
