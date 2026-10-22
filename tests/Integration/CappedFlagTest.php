@@ -227,4 +227,45 @@ final class CappedFlagTest extends TestCase
         self::assertGreaterThan(0.0, $rank[1], 'ranked on the title vector: the joined one lost the later positions of the title');
         self::assertSame($rank[2], $rank[1]);
     }
+
+    /** @return list<string> the messages of the doctor's warnings on the sidecar columns */
+    private function columnWarnings(): array
+    {
+        $messages = [];
+        foreach ($this->engine()->inspect('cap_docs')->checks as $check) {
+            if ($check->name === 'Sidecar columns' && $check->status === CheckStatus::Warning) {
+                $messages[] = $check->message;
+            }
+        }
+
+        return $messages;
+    }
+
+    public function testTheDoctorWarnsWhileTheFlagIsNotFilled(): void
+    {
+        $quiet = $this->columnWarnings();
+        self::assertSame([], $quiet, 'a reindexed index has nothing to say');
+
+        $this->connection->execute('UPDATE fuzzphony_cap_docs SET tsv_capped = NULL WHERE id IN (1, 3)');
+        $warnings = $this->columnWarnings();
+        self::assertCount(1, $warnings);
+        self::assertStringContainsString('tsv_capped is not filled for 2 document(s)', $warnings[0]);
+
+        $this->fuzzphony->reindex('cap_docs');
+        $after = $this->columnWarnings();
+        self::assertSame([], $after);
+    }
+
+    public function testTheDoctorStaysQuietForAnIndexWithOneField(): void
+    {
+        $this->connection->execute('DROP TABLE IF EXISTS fz_cap_one, fuzzphony_cap_one, fuzzphony_cap_one__vocab, fuzzphony_cap_one__next, fuzzphony_cap_one__changes CASCADE');
+        $this->connection->execute("CREATE TABLE fz_cap_one (id bigint PRIMARY KEY, body text NOT NULL)");
+        $this->connection->execute("INSERT INTO fz_cap_one VALUES (1, 'a b')");
+        $fuzzphony = new Fuzzphony(new PostgresEngine($this->connection), new IndexRegistry([IndexDefinition::builder('cap_one')->fromQuery('SELECT id, body FROM fz_cap_one')->field('body', 'A')->sync('manual')->build()]));
+        $fuzzphony->schema()->apply($this->connection);
+        $fuzzphony->reindex('cap_one');
+        $this->connection->execute('UPDATE fuzzphony_cap_one SET tsv_capped = NULL');
+
+        self::assertSame([], array_filter($fuzzphony->inspect('cap_one')->checks, static fn($check): bool => $check->status === CheckStatus::Warning && $check->name === 'Sidecar columns'), 'the flag is never read for one field');
+    }
 }

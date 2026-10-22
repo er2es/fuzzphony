@@ -232,7 +232,11 @@ A phrase or scoped word is looked up by the words alone and then read from `tsv`
 capped, from the vectors of the later fields: the sidecar column `tsv_capped` (filled by `fuzzphony:reindex`, added by
 `fuzzphony:schema --apply`) says which. Without the column, or for a document written before it (NULL, "not known"), the
 later fields are read for every candidate that `tsv` does not match as a phrase: the same results, slower on an index with many
-fields (see [UPGRADE](../UPGRADE.md#from-097-to-098)).
+fields (see [UPGRADE](../UPGRADE.md#from-097-to-098)). The flag is true when a position reached 16 383, and also when a lexeme
+has 256 or more positions (PostgreSQL keeps at most 256 per lexeme and drops the later field's positions of one that has them:
+without this sign a phrase after a field that repeats one of its words would be lost). The doctor warns while the flag is NULL;
+after a downgrade to a release without the column and back, reindex (an old refresh function does not touch the flag); the engine
+looks the column up once per process, so restart long-running workers after adding or dropping it.
 
 What to do: do not index the whole of a very long text. Put an excerpt (the first few thousand words, a summary) in the
 searched field, or list the long field last (nothing follows it). The limits above hold for a restricted viewer too
