@@ -80,9 +80,12 @@ it works on the normalised text of the typo-tolerant fields, stop words included
 `title:who` and the quoted phrase `"to be or not to be"` find "The Who" and "To be or not to be". It has its
 limits:
 
-- Only a query whose every word is a stop word. One real word and the stop words around it are ignored as
-  before, and so is a query that excludes a real word (`the who -rock`: its full-text branch is "everything
-  but rock", which is left as it is).
+- Only a query whose positive words are all stop words. One real word and the stop words around it are ignored as
+  before. Exclusions do not matter: `the who -rock` searches `the who` and leaves out the documents that have `rock`
+  (before 0.9.9 its full-text branch was "everything but rock", and that is what came back). An excluded stop word
+  (`the who -the`, `the -who`) is dropped, it excludes nothing. Where the stop-word search does not apply (no
+  typo-tolerant search, more than three words, a word shorter than `fuzzy_min_length`) such a query is as it always was:
+  `the who -rock` with `fuzzy_mode: never` is still "everything but rock".
 - Only with typo tolerance: the index has a typo-tolerant field and `fuzzy_mode` is not `never` (the ranking
   profile's `fuzzy` weight is not 0). Without it nothing changes and the query finds nothing.
 - Only in the typo-tolerant fields, and as a look-alike, like every typo-tolerant word: `who` ranks "Who" and
@@ -98,7 +101,7 @@ limits:
   catalogue); with `the` in half of the names of 100 000 products, `the` takes 43 ms and three stop words that no
   document has together 80 ms, the empty-result relaxation included. `candidate_limit` applies as always (the total is
   a lower bound).
-- An excluded stop word (`the -who`) is still dropped. The empty-result relaxation works as for any words.
+- The empty-result relaxation works as for any words.
 
 What to do: for names, titles or codes use `language: simple` (no stemming and no stop words), in an index of
 their own. See [Languages](languages.md#what-the-language-decides).

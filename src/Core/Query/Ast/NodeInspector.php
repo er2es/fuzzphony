@@ -60,4 +60,30 @@ final class NodeInspector
             default => [],
         };
     }
+
+    /**
+     * The query without its exclusions (the same instance when it has none); null when nothing positive is left.
+     * A group that loses a child is rebuilt without it (an expansion of synonyms stays one), a group left with one child
+     * is that child.
+     */
+    public static function withoutExclusions(Node $node): ?Node
+    {
+        if ($node instanceof Not) {
+            return null;
+        }
+        if (!$node instanceof AllOf && !$node instanceof AnyOf) {
+            return $node;
+        }
+        $kept = array_values(array_filter(array_map(self::withoutExclusions(...), $node->nodes)));
+        if ($kept === $node->nodes) {
+            return $node;
+        }
+
+        return match (true) {
+            $kept === [] => null,
+            count($kept) === 1 => $kept[0],
+            $node instanceof AllOf => new AllOf($kept),
+            default => new AnyOf($kept, $node->expansion),
+        };
+    }
 }

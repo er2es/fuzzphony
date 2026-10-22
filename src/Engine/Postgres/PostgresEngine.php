@@ -1095,6 +1095,13 @@ final class PostgresEngine implements Engine, Vocabulary, SynonymStems, Suggesti
             && $thresholds->fuzzyMode !== FuzzyMode::Never
             && $fuzzy->hasFuzzyLeaf($root) ? $root : null;
 
+        // "the who -rock": PostgreSQL reduces 'the' & 'who' & !'rock' to !'rock', "everything but rock", so the strict branch
+        // gets the stop words alone (as for "the who": nothing matches) and the typo-tolerant branch searches them, rock excluded
+        if ($fuzzyRoot !== null && $tsquery !== null && $fuzzy->mayKeepStopWords($fuzzyRoot) && ($positive = NodeInspector::withoutExclusions($fuzzyRoot)) !== $fuzzyRoot && $positive !== null
+            && $fuzzy->searchesStopWords($fuzzyRoot, $this->emptyQueries($index, $fuzzy->leafQueries($fuzzyRoot)))) {
+            $tsquery = (new TsQueryCompiler($index))->compile($positive);
+        }
+
         $builder = new SearchSqlBuilder($index, $this->names, [], $query->allowedFields, true, cappedColumn: $this->cappedColumn($index));
         /** @var list<array{label: string, sql: string, params: array<string, scalar|null>}> $statements */
         $statements = [];

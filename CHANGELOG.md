@@ -7,6 +7,10 @@ changes; they are always listed under **Breaking** and explained in [UPGRADE.md]
 
 ## [Unreleased]
 
+### Fixed
+
+- **`the who -rock` searches `the who` and excludes `rock`, instead of returning "everything but rock".** A query whose positive words are all stop words (at most three, each at least `fuzzy_min_length` letters, on an index with typo tolerance and not `fuzzy_mode: never`) is searched on the typo-tolerant branch since 0.9.7, but only when it had no exclusion: with one, PostgreSQL dropped the stop words from the full-text query and what was left was a pure exclusion, so every document without `rock` came back. The rule now looks at the positive words only; the exclusion applies as for any query, an excluded stop word excludes nothing, and a restricted viewer or tenant is bound as before (tests: the hidden fields change nothing). Queries with at least one real word, queries without an exclusion, `fuzzy_mode: never` and indexes without a typo-tolerant field are unchanged, byte for byte.
+
 ## [0.9.8] - 2026-10-22
 
 The round before the API review: the best match of a very common word is no longer lost above `candidate_limit`, a rate limit for anonymous visitors by IP, typo tolerance for swapped letters and a zero-result rescue, phrases and field-scoped words after a very long field, and fewer surprises for restricted viewers. Searches with a rare word are unchanged; searches with a very common word rank differently (for the better), and searches that found nothing may now find something. Run `fuzzphony:schema --apply` and `fuzzphony:reindex` (see [UPGRADE.md](UPGRADE.md#from-097-to-098)); nothing else is required.
