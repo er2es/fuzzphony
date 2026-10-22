@@ -716,7 +716,7 @@ final class PostgresEngine implements Engine, Vocabulary, SynonymStems, Suggesti
             if ($run['browse']) {
                 $capped = $total >= $thresholds->candidateLimit;
             }
-            $builder = new SearchSqlBuilder($index, $this->names, $run['ranked']['candidates'] ?? [], $query->allowedFields, true, $this->cappedColumn($index));
+            $builder = new SearchSqlBuilder($index, $this->names, $run['ranked']['candidates'] ?? [], $query->allowedFields, true, cappedColumn: $this->cappedColumn($index));
             // exactCounts(): when the candidate limit cut the matches off, count them all
             if ($query->exactCounts && $capped) {
                 $statement = ['label' => self::EXACT_LABEL] + ($run['ranked'] === null
@@ -749,7 +749,7 @@ final class PostgresEngine implements Engine, Vocabulary, SynonymStems, Suggesti
                 if (!isset($facetRows[$name])) {
                     // the conditions differ from the search's: the facet needs its own candidates
                     // the probed candidates passed every condition: a facet that leaves one out keeps the words' trigram condition
-                    $facetBuilder = $others[$name] === $conditions ? $builder : new SearchSqlBuilder($index, $this->names, [], $query->allowedFields, true, $this->cappedColumn($index));
+                    $facetBuilder = $others[$name] === $conditions ? $builder : new SearchSqlBuilder($index, $this->names, [], $query->allowedFields, true, cappedColumn: $this->cappedColumn($index));
                     $statement = ['label' => self::FACET_LABEL . $name] + ($run['ranked'] === null
                         ? $facetBuilder->browseFacet($name, $others[$name], $thresholds, $query->facetValues, $query->exactCounts)
                         : $facetBuilder->facet($name, $run['ranked']['tsquery'], $run['ranked']['plain'], $run['ranked']['fuzzyRoot'], $others[$name], $profile, $thresholds, $query->facetValues, $query->exactCounts, $run['ranked']['emptyQueries'], $run['ranked']['scopedRoot']));
@@ -1088,14 +1088,14 @@ final class PostgresEngine implements Engine, Vocabulary, SynonymStems, Suggesti
         $plain = implode(' ', TsQueryCompiler::lexemes(implode(' ', NodeInspector::positiveWords($root))));
 
         // Typo tolerance is per word (FuzzyQueryCompiler); it needs at least one positive word long enough for it.
-        $fuzzy = new FuzzyQueryCompiler($index, $thresholds, $this->names, [], $query->allowedFields, true, $this->cappedColumn($index));
+        $fuzzy = new FuzzyQueryCompiler($index, $thresholds, $this->names, [], $query->allowedFields, true, cappedColumn: $this->cappedColumn($index));
         $fuzzyRoot = $root !== null
             && $index->hasFuzzy()
             && $profile->fuzzy > 0.0
             && $thresholds->fuzzyMode !== FuzzyMode::Never
             && $fuzzy->hasFuzzyLeaf($root) ? $root : null;
 
-        $builder = new SearchSqlBuilder($index, $this->names, [], $query->allowedFields, true, $this->cappedColumn($index));
+        $builder = new SearchSqlBuilder($index, $this->names, [], $query->allowedFields, true, cappedColumn: $this->cappedColumn($index));
         /** @var list<array{label: string, sql: string, params: array<string, scalar|null>}> $statements */
         $statements = [];
         $threshold = null;
@@ -1110,7 +1110,7 @@ final class PostgresEngine implements Engine, Vocabulary, SynonymStems, Suggesti
             /** @var list<string> $empty */
             $candidates = $this->fuzzyCandidates($fuzzy, $fuzzyRoot, $empty, $thresholds, $conditions);
             $statement = ['label' => $label]
-                + ($candidates === [] ? $builder : new SearchSqlBuilder($index, $this->names, $candidates, $query->allowedFields, true, $this->cappedColumn($index)))->ranked($tsquery, $plain, $fuzzyRoot, $conditions, $profile, $thresholds, $query->limit, $query->offset, $empty, $scopedRoot);
+                + ($candidates === [] ? $builder : new SearchSqlBuilder($index, $this->names, $candidates, $query->allowedFields, true, cappedColumn: $this->cappedColumn($index)))->ranked($tsquery, $plain, $fuzzyRoot, $conditions, $profile, $thresholds, $query->limit, $query->offset, $empty, $scopedRoot);
             $threshold = $fuzzy->lowestSimilarity($fuzzyRoot, $empty);
 
             return [
@@ -1257,8 +1257,8 @@ final class PostgresEngine implements Engine, Vocabulary, SynonymStems, Suggesti
             return null;
         }
 
-        $statement = ['label' => self::PROBE_LABEL] + (new SearchSqlBuilder($index, $this->names, [], $allowedFields, true, $this->cappedColumn($index)))->probe($probed, $fuzzy, $conditions, $thresholds, $empty);
-        $compiler = new FuzzyQueryCompiler($index, $thresholds, $this->names, [], $allowedFields, true, $this->cappedColumn($index));
+        $statement = ['label' => self::PROBE_LABEL] + (new SearchSqlBuilder($index, $this->names, [], $allowedFields, true, cappedColumn: $this->cappedColumn($index)))->probe($probed, $fuzzy, $conditions, $thresholds, $empty);
+        $compiler = new FuzzyQueryCompiler($index, $thresholds, $this->names, [], $allowedFields, true, cappedColumn: $this->cappedColumn($index));
         $row = $this->run($statement, $fuzzy ? $compiler->lowestSimilarity(new AllOf($probed), $empty) : null)[0] ?? [];
         $ignored = [];
         foreach ($probed as $i => $leaf) {
