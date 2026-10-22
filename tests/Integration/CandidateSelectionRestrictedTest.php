@@ -96,6 +96,7 @@ final class CandidateSelectionRestrictedTest extends TestCase
             'sizes 0 to 36 words' => ["repeat('filler words ', i % 37)", []],
             'a very long field in every 50th' => ["CASE WHEN i % 50 = 0 THEN :long ELSE '' END", ['long' => $long]],
         ];
+        /** @var array<string, array<string, list<mixed>>> $outcomes the outcome of every search by variant */
         $outcomes = [];
         $capped = false;
         foreach ($variants as $variant => [$hiddenSql, $params]) {
