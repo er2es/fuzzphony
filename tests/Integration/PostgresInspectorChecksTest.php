@@ -620,7 +620,7 @@ final class PostgresInspectorChecksTest extends TestCase
 
         self::assertEquals($ok, self::named($ipOff, 'products', 'Search log'), 'nobody wants the column');
         self::assertEquals(
-            [Check::error('Search log', 'search_log.ip is on, but table "public"."fuzzphony_search_log" has no actor_ip column: the addresses are dropped (the rows are kept).', 'bin/console fuzzphony:schema --apply')],
+            [Check::error('Search log', 'search_log.ip is on, but table "public"."fuzzphony_search_log" has no actor_ip column: the addresses are dropped (the rows are kept). After applying the schema restart long-running workers (they look the column up once per process).', 'bin/console fuzzphony:schema --apply')],
             self::named($ipOn, 'products', 'Search log'),
         );
     }

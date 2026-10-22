@@ -18,7 +18,7 @@ and the [CHANGELOG](CHANGELOG.md) has the full list of changes.
 
 ## From 0.9.8 to 0.9.9
 
-Nothing is required. One visible change: a query of stop words only with an exclusion (`the who -rock`) used to return every document without `rock` (a bug); it now searches `the who` and leaves out the documents that have `rock`, so such a query returns far fewer results. If you showed a page for "everything except X" through it, use a filter instead.
+Nothing is required. One visible change: a query of stop words only with an exclusion (`the who -rock`) used to return every document without `rock` (a bug); it now searches `the who` and leaves out the documents that have `rock`, so such a query returns far fewer results. If you showed a page for "everything except X" through it, use a filter instead. After `fuzzphony:schema --apply` added a column to an existing table, restart long-running workers (Messenger, RoadRunner, FrankenPHP); the command says so.
 
 ## From 0.9.7 to 0.9.8
 
