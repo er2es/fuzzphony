@@ -77,7 +77,7 @@ final class SearchSqlBuilderCandidatesTest extends TestCase
         // the filters are compiled twice: in the fast CTE and in the ordered select
         self::assertSame(2, substr_count($statement['sql'], 's."f_price" < :p2'));
         self::assertSame(2, substr_count($statement['sql'], 's."f_in_stock" = :p3'));
-        preg_match('/fts AS \(.*?\n\)/s', $statement['sql'], $ordered);
+        $ordered = [self::orderedSelect($statement['sql'])];
         self::assertStringContainsString('s.tsv @@ q.tsq', $ordered[0]);
         self::assertStringContainsString('s."f_price" < :p2 AND s."f_in_stock" = :p3', $ordered[0]);
     }
@@ -85,7 +85,7 @@ final class SearchSqlBuilderCandidatesTest extends TestCase
     public function testARestrictedViewersOrderedSelectReadsTheAllowedFieldsOnly(): void
     {
         $hidden = self::statement(new Thresholds(), 20, 0, new RankingProfile(boost: 0.3), ['brand', 'description']);
-        preg_match('/fts AS \(.*?\n\)/s', $hidden, $ordered);
+        $ordered = [self::orderedSelect($hidden)];
         self::assertStringContainsString('s."t_brand"', $ordered[0]);
         self::assertStringNotContainsString('s.tsv, q.tsq', $ordered[0]);
         self::assertStringNotContainsString('t_name', $ordered[0], 'the hidden field is not read');
@@ -95,7 +95,7 @@ final class SearchSqlBuilderCandidatesTest extends TestCase
         self::assertStringContainsString('q.sft0', $ordered[0], 'the recheck against the allowed fields');
 
         $allowed = self::statement(new Thresholds(), 20, 0, new RankingProfile(), ['name']);
-        preg_match('/fts AS \(.*?\n\)/s', $allowed, $ordered);
+        $ordered = [self::orderedSelect($allowed)];
         self::assertStringContainsString('s.exact = q.norm', $ordered[0]);
         self::assertStringNotContainsString('t_brand', $ordered[0]);
     }
@@ -146,6 +146,14 @@ final class SearchSqlBuilderCandidatesTest extends TestCase
         self::assertStringContainsString('(SELECT count(*) FROM fts_fast) >= 400', $sql);
         self::assertStringContainsString("        LIMIT 400\n    ) AS o", $sql);
         self::assertStringContainsString('LIMIT 20 OFFSET 380', $sql);
+    }
+
+    /** The `fts` CTE: the guarded fast rows and the ordered select. */
+    private static function orderedSelect(string $sql): string
+    {
+        self::assertSame(1, preg_match('/fts AS \(.*?\n\)/s', $sql, $match));
+
+        return $match[0] ?? '';
     }
 
     /** @param list<string>|null $allowed */
