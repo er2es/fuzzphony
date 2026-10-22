@@ -11,6 +11,7 @@ use Fuzzphony\Core\Query\Filter\Condition;
 use Fuzzphony\Core\Ranking\RankingProfile;
 use Fuzzphony\Core\Ranking\Thresholds;
 use Fuzzphony\Engine\Postgres\Schema\Names;
+use Fuzzphony\Engine\Postgres\Schema\PostgresSchemaGenerator;
 
 /**
  * @internal Builds the ranked search statement:
@@ -43,6 +44,8 @@ final class SearchSqlBuilder
         private readonly ?array $allowedFields = null,
         /** Whether a typed word also matches with two neighbouring letters swapped (FuzzyQueryCompiler, Transpositions). */
         private readonly bool $transpositions = false,
+        /** @var (\Closure(): bool)|null whether the sidecar has the tsv_capped column (FuzzyQueryCompiler), asked when a phrase or a scoped word needs it */
+        private readonly ?\Closure $cappedColumn = null,
     ) {}
 
     /**
@@ -125,7 +128,7 @@ final class SearchSqlBuilder
         $q[] = $plain !== ''
             ? sprintf('%s(%s) AS norm', $this->names->normFunction(), $params->add($plain))
             : "''::text AS norm";
-        $compiler = new FuzzyQueryCompiler($this->index, $thresholds, $this->names, $this->candidates, $this->allowedFields, $this->transpositions);
+        $compiler = new FuzzyQueryCompiler($this->index, $thresholds, $this->names, $this->candidates, $this->allowedFields, $this->transpositions, $this->cappedColumn);
         // A word scoped to a known field is rechecked against the field's own column (q.sft<n>); a restricted viewer's
         // every word against the allowed fields' columns.
         $scope = $scopedRoot === null ? null : $compiler->scope($scopedRoot, $params, $emptyQueries);
@@ -381,7 +384,7 @@ UNION ALL
         $params = new ParameterBag();
         $filters = new FilterCompiler($this->index);
         $table = $this->names->sidecar($this->index);
-        $compiled = (new FuzzyQueryCompiler($this->index, $thresholds, $this->names, [], $this->allowedFields, $this->transpositions))->leafConditions($leaves, $params, $emptyQueries, $fuzzy);
+        $compiled = (new FuzzyQueryCompiler($this->index, $thresholds, $this->names, [], $this->allowedFields, $this->transpositions, $this->cappedColumn))->leafConditions($leaves, $params, $emptyQueries, $fuzzy);
         if (array_filter($compiled['predicates'], static fn(?string $p): bool => $p !== null) === []) {
             throw new \LogicException('A relaxation probe needs at least one leaf that is not a stop word.');
         }
@@ -448,7 +451,9 @@ SELECT
      * The text rank of a full-text candidate: ts_rank_cd of the vector the viewer reads (rankVector()). A document that `tsv`
      * does not match but the search found anyway (a phrase or a scoped word after a long field, see TsQueryCompiler) has no
      * usable rank on tsv, whose positions and weights were capped: it is ranked on the fields' own vectors (the best of the
-     * first field's and of every run of later fields, Names::laterVectors()). A document tsv matches keeps its rank.
+     * first field's and of every run of later fields, Names::laterVectors()). A document tsv matches keeps its rank. With the
+     * tsv_capped column only a document that is capped (or not known to be: NULL) can be one of those, so every other document
+     * is ranked on tsv without even the check.
      */
     private function textRank(RankingProfile $profile, bool $positional): string
     {
@@ -458,6 +463,10 @@ SELECT
             return $rank($this->rankVector());
         }
         $vectors = ['s.' . $this->names->fieldVector($this->index->fieldNames()[0]), ...array_map(static fn(string $v): string => '(' . $v . ')', $this->names->laterVectors($this->index))];
+
+        if ($this->cappedColumn !== null && ($this->cappedColumn)()) {
+            return sprintf('CASE WHEN s.%s IS NOT FALSE AND NOT (s.tsv @@ q.tsq) THEN GREATEST(%s) ELSE %s END', PostgresSchemaGenerator::CAPPED_COLUMN, implode(', ', array_map($rank, $vectors)), $rank('s.tsv'));
+        }
 
         return sprintf('CASE WHEN s.tsv @@ q.tsq THEN %s ELSE GREATEST(%s) END', $rank('s.tsv'), implode(', ', array_map($rank, $vectors)));
     }

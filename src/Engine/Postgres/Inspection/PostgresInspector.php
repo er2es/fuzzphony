@@ -466,9 +466,19 @@ final class PostgresInspector
         $extra = array_diff($actual, $expected);
 
         $checks = [];
+        // the capped flag is optional: without it phrases and field-scoped words work, a little slower on a multi-field index
+        $flagMissing = in_array(PostgresSchemaGenerator::CAPPED_COLUMN, $missing, true);
+        $missing = array_diff($missing, [PostgresSchemaGenerator::CAPPED_COLUMN]);
         $checks[] = $missing === []
-            ? Check::ok('Sidecar columns', sprintf('%d column(s) match the definition', count($expected)))
+            ? Check::ok('Sidecar columns', sprintf('%d column(s) match the definition', count($expected) - ($flagMissing ? 1 : 0)))
             : Check::error('Sidecar columns', sprintf('Schema drift, missing: %s.', implode(', ', $missing)), self::APPLY);
+        if ($flagMissing) {
+            $checks[] = Check::warning(
+                'Sidecar columns',
+                sprintf('Column %s is missing: phrases and field-scoped words are looked up the slower way on an index with several fields. Apply the schema, then reindex (the column is filled by the reindex).', PostgresSchemaGenerator::CAPPED_COLUMN),
+                self::APPLY,
+            );
+        }
         if ($extra !== []) {
             $sidecar = $this->names->sidecar($index);
             $checks[] = Check::warning(
