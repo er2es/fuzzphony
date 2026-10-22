@@ -100,8 +100,8 @@ self::assertSame(['category_id' => ['1' => 2, '2' => 1], 'in_stock' => ['true' =
 That is the *disjunctive* behaviour of a shop sidebar, and it is the default: **a facet does not count the
 conditions on its own filter**. The values are ids; showing "Audio (2)" is your template's job (the facet gives
 `value` and `count`). An empty text is a browse (`listing('')` lists the shop and counts every category), so one
-endpoint serves the first page and the search results. The page's counts are over the search's candidates (2000
-by default): `totalIsLowerBound` says when to print "120+", and `exactCounts()` counts everything, slowly: never
+endpoint serves the first page and the search results. The page's counts are over the search's first candidates (2000
+by default, the cheap selection: the hits themselves are the best ones): `totalIsLowerBound` says when to print "120+", and `exactCounts()` counts everything, slowly: never
 wire that to request input.
 
 ### What it costs

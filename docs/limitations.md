@@ -9,7 +9,7 @@ happens, why, and what to do. The statements here were checked against the code 
 
 - [Search quality](#search-quality): [typo tolerance](#typo-tolerance-is-trigram-based), [whole words](#a-word-is-matched-as-a-whole-word),
   [stop words](#stop-words-are-ignored-and-only-a-query-of-nothing-else-finds-them), [languages](#stemming-covers-regular-forms-one-language-per-index),
-  [candidate limit](#ranking-is-approximate-beyond-candidate_limit), [facet counts](#facet-counts-are-over-the-candidates),
+  [very common words](#ranking-of-very-common-words), [facet counts](#facet-counts-are-over-the-candidates),
   [synonyms](#synonyms-are-expanded-on-the-query-and-stop-there), [highlights](#highlights-run-the-source-query-and-mark-typo-matches-by-word),
   [scores](#scores-are-not-stable), [query limits](#long-queries-are-cut), [very long texts](#very-long-texts-limit-where-a-phrase-is-found),
   [did you mean](#did-you-mean-and-completions-come-from-a-vocabulary-that-ages)
@@ -107,22 +107,52 @@ Stemmers reduce regular endings only: `mice` does not find `mouse`, `went` does 
 analyses its text in one language; a multilingual catalogue is one index per language, searched by the user's
 locale. See [Languages](languages.md#limits).
 
-### Ranking is approximate beyond `candidate_limit`
+### Ranking of very common words
 
-Each branch of a search (full text, typo-tolerant) collects at most `candidate_limit` candidates (2000 by
-default, at most 10 000) and ranks only those. When a word matches more documents than that, the candidates
-are the first matches PostgreSQL's index returns, **not the best ones**, so the document that would rank first
-can be missing from the results altogether, not only ranked lower. Measured: among 3 000 documents with the
-word `common`, one titled exactly `common` (which earns the exact-title bonus) added last is not in the results
-at the default limit. In the typo-tolerant branch 3 000 weaker look-alikes crowd out the closest spelling the
-same way. On a catalogue of 200 000 products a plain word such as `wireless` already hits the limit (see
-[Benchmarks](benchmarks.md)).
+A search collects at most `candidate_limit` candidates per branch (2000 by default, at most 10 000) and ranks
+only those, so `total` is a lower bound when a word matches more documents (`totalIsLowerBound`, shown as
+`2000+`; so is the `hits` of the [search log](analytics.md) row). What the candidates are depends on the branch.
 
-`total` is then a lower bound (`totalIsLowerBound`, shown as `2000+`), and so is the `hits` of the
-[search log](analytics.md) row. `exactCounts()` counts everything the query matches, for the total and the
-facets, but the page of hits is still the ranked candidates.
+**Full-text branch (the words as they are): the best candidates, exact up to a scan budget.** When a word
+matches more documents than the limit, the candidates are the best matches by the page's own sort key (text
+rank, exact-title and prefix bonuses, boost, recency, then the id), not the first ones the index returns: among
+3 000 documents with the word `common`, the one titled exactly `common` comes first at any limit, and on 200 000
+products `Wireless`, `wireless` and `Wireless wireless wireless` come before `Wireless keyboard 1010`. Filters,
+tenant and field restrictions apply to the selection; a restricted viewer's selection is ordered by the fields
+the viewer may see only, so a hidden field never decides which documents are candidates or in which order
+([Security](security.md)). A search whose word has fewer matches than the limit is not affected at all: it runs
+the same cheap selection as before and returns the same hits.
 
-Why: it keeps the latency of a search independent of how common its words are
+- **A page past the candidates is exact too.** The search selects the best `offset + limit` candidates when that
+  is more than `candidate_limit`, up to 10 000 hits: page 3 of 20 at `candidate_limit: 10` works, and page 400
+  of 20 is the last one that does. The total of such a page is `offset + limit` (`+`), so it grows with the page.
+  `hasMore()` is **false at the last page of the candidates** (`offset + limit` reaches the candidate window):
+  a pager that follows `hasMore()` stops at `candidate_limit` hits (2000 by default); a page asked for directly
+  still works. `candidate_limit` is a lower bound of the window, not an upper one: a page of 20 with
+  `candidate_limit: 10` selects 20.
+- **The scan budget: 100 000 matches** (a constant of the library, not a setting: it bounds the cost of a
+  search, and every setting would be one more way to switch it off). The ranking is exact among the first
+  100 000 matches in index order; a word with more matches than that is ranked among those only, so the
+  document that would rank first can still be missing when the word is that common (`wireless` has 100 005
+  matches on the 1 000 000-row benchmark catalogue and the five documents beyond the budget are not found;
+  `ideal` is in every document). It is the worst case of one search: about 1 to 3 microseconds per scanned match,
+  170 to 330 ms at 1 000 000 rows ([Benchmarks](benchmarks.md#common-words)).
+- **A word under the limit costs what it did** (a rare word: 0.15 ms more to plan, never executed); a word
+  over it costs one more pass over its matches: 10 to 35 ms for `wireless` (20 000 matches) on 200 000 products,
+  up to 90 ms for the most common word there.
+- `min_score` keeps the documents under it out of the candidate slots (the strict branch), so a query that
+  needs it still finds its best documents; `total` stays flagged as a lower bound.
+
+**Typo-tolerant branch: still approximate.** The typo branch (a word that is misspelled, `fuzzy_mode: always`,
+or a search that found too little) still collects the first `candidate_limit` matches of its trigram index, **not
+the best ones**: with a very common typo-tolerant word the closest spelling can be missing, because 3 000 weaker
+look-alikes crowd it out. It is planned for 0.9.9. In `fuzzy_mode: always` the typo candidates are added to
+the strict ones, so a very common word there keeps its approximate part.
+
+`exactCounts()` counts everything the query matches, for the total and the facets, but the page of hits is
+still the ranked candidates ([Facets](searching.md#facets)).
+
+Why: it keeps the latency of a search bounded however common its words are
 ([ADR 0005](adr/0005-candidate-limit.md)).
 
 What to do: make the query more specific (more words, a filter, a field scope), or raise `candidate_limit`
@@ -131,10 +161,23 @@ it to request input): it reads every match and can take seconds on a large index
 
 ### Facet counts are over the candidates
 
-The counts of `facets()` are taken over the same candidates as `total`: when the search hit its candidate
-limit they are lower bounds ("120+"; the Live Component prints the `+`). With `exactCounts()` every match is
-counted: in the example above, a limit of 10 gave 4, 3 and 3 for three categories, and the exact counts were
-1 001, 1 000 and 1 000. See [Facets](searching.md#facets).
+The counts of `facets()` are taken over the first `candidate_limit` matches the index returns (the cheap
+selection, not the best ones), while `total` and the hits come from the best candidates: when a word is more
+common than the limit the two are different sets, and the counts are lower bounds ("120+"; the Live Component
+prints the `+`). With `exactCounts()` every match is counted: in the example above, a limit of 10 gave 4, 3
+and 3 for three categories, and the exact counts were 1 001, 1 000 and 1 000. A page past the limit selects more
+hits but not more facet candidates. See [Facets](searching.md#facets).
+
+### A restricted viewer's very common word in a hidden typo-tolerant field is slow
+
+A viewer who may not see a typo-tolerant field is still searched through that field's trigram index and the
+rows are rejected afterwards, so a word that is in most documents' hidden field makes the probe of a typo-tolerant
+search read every row: on 200 000 products with five ordinary words in a hidden field, one such word takes 1.7 s
+and five of them 19 s (the same search for a viewer who sees the field takes 0.1 to 0.4 s). Nothing leaks (the
+result is the same as for any other hidden content; only the time depends on it, see
+[Security](security.md#the-limits-stated-honestly)); it is not a regression of 0.9.8. Planned: a trigram
+index on the allowed field's own column, or a work cap on the probe. Until then keep a field that is in most
+documents and that some viewers may not see out of `fuzzy: true`.
 
 ### Synonyms are expanded on the query, and stop there
 
@@ -298,7 +341,7 @@ response; a write that fails (the table is missing, the database is down) is cou
 `fuzzphony.search_log.failed`, logged and dropped, never retried. A long-running worker writes its buffer every
 1000 records and on every container reset (between two messages or requests), but a process killed with
 `SIGKILL` loses the (at most 1000) records it still holds. The `hits` of a search that hit `candidate_limit` is a
-lower bound (see [above](#ranking-is-approximate-beyond-candidate_limit)). Redaction removes what a regular
+lower bound (see [above](#ranking-of-very-common-words)). Redaction removes what a regular
 expression can describe, nothing more, and the live search of the Live Component is not logged unless you ask
 for it. The user and the IP of a row exist only for searches made with an actor (`asActor()`; the integrations
 do). A log you must not lose is a custom `SearchLog` that writes somewhere durable, which the built-in reports

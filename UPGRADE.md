@@ -18,7 +18,7 @@ and the [CHANGELOG](CHANGELOG.md) has the full list of changes.
 
 ## From 0.9.7 to 0.9.8
 
-Nothing is required, but **searches that returned nothing may now return results**, in two ways:
+Nothing is required, but **searches that returned nothing may now return results**, in two ways, and **the results of searches with a very common word change** (items 3 and 4):
 
 1. **Two swapped neighbouring letters are tolerated** (`mosue` finds `mouse`): a typed word of 4 to 15 letters also matches its
    neighbour-swapped variants as whole words on the typo-tolerant branch (below exact hits, in typo-tolerant fields only; also on
@@ -32,6 +32,20 @@ Nothing is required, but **searches that returned nothing may now return results
    was for every search that is not rescued. `did_you_mean: false` also turns the rescue off; tenant-scoped indexes, restricted
    viewers and search-as-you-type are never rescued. The search log records what the visitor typed, with the rescued hits, so
    the zero-result report no longer lists a search the rescue answered.
+
+3. **Searches with a very common word rank differently (for the better).** When a word matches more documents than `candidate_limit`
+   (`totalIsLowerBound` is true), the full-text candidates are now the best matches by the page's own sort key instead of the first ones
+   the index returned: the exact title and the word repeated come first, equal scores come in id order, and a page past the candidates
+   (`offset + limit` up to 10 000) is exact. Searches with fewer matches than the limit return exactly what they did. If you
+   snapshot or assert the hits of a common-word search, expect other documents; `explain()` shows a `fts_fast` and an `fts` CTE in the
+   statement. A search of a word with more than 100 000 matches ranks among the first 100 000 only (a cost bound, not a setting), and
+   a typo-tolerant word is still approximate ([limitations](docs/limitations.md#ranking-of-very-common-words)).
+4. **`hasMore()` is false at the last page of the candidates.** `SearchResult::hasMore()` and `FederatedResult::hasMore()` used to be
+   true whenever `totalIsLowerBound` was true, so a pager that followed it offered an empty page after the last candidate (page 101 at
+   `candidate_limit: 2000` and 20 per page). Now it is true only while hits follow this page among the ranked candidates (`offset + count($hits) < $total`).
+   A pager built on it stops at `candidate_limit` hits (2000 by default) and does not offer deeper pages; a page asked for directly
+   (`page(150)`) is served, exact, up to 10 000 hits, and the lower-bound total grows with it (`2000+`, then `3000+`, ...). If you want deep paging
+   in the pager, raise `candidate_limit` or use `totalIsLowerBound` yourself (it did not change). Nothing else to do; no configuration changed.
 
 If you implement your own `Engine` or build `SearchResult` yourself, the new constructor parameter `correctedFrom` is optional and last.
 

@@ -311,6 +311,14 @@ a covert-channel proof:
   phrase or of a field-scoped word are looked up by the words alone, because the positions of the whole-text vector are
   capped at 16 383 and a long hidden field in front of an allowed one would otherwise decide whether a phrase of the
   allowed field matches.
+- **The candidates of a very common word are chosen by the fields the viewer may see only.** When a word matches more
+  documents than `candidate_limit`, the best candidates are selected by the page's own sort key; for a restricted
+  viewer that key is the text rank of the allowed fields' vectors and the exact and prefix bonuses only when the primary
+  field is allowed, with the same lookup, recheck, tenant and filter conditions as the cheap selection, so neither which
+  documents are candidates nor their order depends on a hidden field (the tests compare corpora that differ only in a
+  hidden field, even a very long one, for all three fuzzy modes). The selection scores at most 100 000 matches that pass
+  the recheck; the scan that finds them can still be long when the word is common in a hidden typo-tolerant field (see the
+  timing entry above and [limitations](limitations.md#a-restricted-viewers-very-common-word-in-a-hidden-typo-tolerant-field-is-slow)).
 - **A phrase is read from the fields the viewer may see, as if the others did not exist.** Like an
   unrestricted search, a restricted one matches `"ada lovelace"` with `ada` at the end of one allowed field and
   `lovelace` at the start of the next. A hidden field never takes part: a phrase that reaches into one does not
