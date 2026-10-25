@@ -740,7 +740,7 @@ final class PostgresEngine implements Engine, Vocabulary, SynonymStems, Suggesti
             $common = array_values(array_unique(array_filter($query->facets, static fn(string $name): bool => $others[$name] === $conditions)));
             $facetRows = [];
             $ids = $run['ranked'] !== null && $common !== [] ? self::candidateIds($rows) : null;
-            if ($ids !== null) {
+            if ($ids !== null && count($common) > 1) {
                 $statement = ['label' => self::FACET_LABEL . implode(', ', $common)] + $builder->facetsOf($ids, $common, $query->facetValues);
                 $facetRows = array_fill_keys($common, []);
                 foreach ($this->run($statement, null) as $row) { // ids: it reads no similarity setting
@@ -758,7 +758,12 @@ final class PostgresEngine implements Engine, Vocabulary, SynonymStems, Suggesti
                 $statements[] = $statement;
             }
             foreach ($query->facets as $name) {
-                if (!isset($facetRows[$name])) {
+                if (!isset($facetRows[$name]) && $ids !== null && $others[$name] === $conditions) {
+                    // the facet counts the very candidates of the page
+                    $statement = ['label' => self::FACET_LABEL . $name] + $builder->facetsOf($ids, [$name], $query->facetValues);
+                    $facetRows[$name] = $this->run($statement, null);
+                    $statements[] = $statement;
+                } elseif (!isset($facetRows[$name])) {
                     // the conditions differ from the search's: the facet needs its own candidates
                     // the probed candidates passed every condition: a facet that leaves one out keeps the words' trigram condition
                     $facetBuilder = $others[$name] === $conditions ? $builder : new SearchSqlBuilder($index, $this->names, [], $query->allowedFields, true, cappedColumn: $this->cappedColumn($index), pool: ($run['ranked']['pool'] ?? []) === [] || $run['ranked']['fuzzyRoot'] === null
@@ -1460,7 +1465,10 @@ final class PostgresEngine implements Engine, Vocabulary, SynonymStems, Suggesti
      */
     private function probeIds(array $probe): array
     {
-        return array_map(static fn(array $row): int|string => is_int($row['id']) ? $row['id'] : Coerce::str($row['id']), $this->run(['sql' => $probe['sql'], 'params' => $probe['params']], $probe['similarity']));
+        $ids = array_map(static fn(array $row): int|string => is_int($row['id']) ? $row['id'] : Coerce::str($row['id']), $this->run(['sql' => $probe['sql'], 'params' => $probe['params']], $probe['similarity']));
+        sort($ids); // the probe has no order: the ids are bound into statements (explain() shows them), which must not follow the heap
+
+        return $ids;
     }
 
     /**

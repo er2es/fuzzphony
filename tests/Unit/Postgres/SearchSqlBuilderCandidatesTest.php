@@ -233,7 +233,6 @@ final class SearchSqlBuilderCandidatesTest extends TestCase
         return $match[0] ?? '';
     }
 
-    /** @param list<string>|null $allowed */
     public function testTheTypoBranchIsTheCheapSelectionAndAGuardedOrderedOne(): void
     {
         $root = self::parse('mouse');
@@ -280,7 +279,7 @@ final class SearchSqlBuilderCandidatesTest extends TestCase
     {
         $builder = new SearchSqlBuilder(Indexes::products());
         $ranked = $builder->ranked("'mouse'", 'mouse', null, [], new RankingProfile(), new Thresholds(), 20, 0, [], null, true);
-        self::assertStringContainsString('(SELECT json_agg(id) FROM scored WHERE relevance >= 0) AS cand_ids', $ranked['sql']);
+        self::assertStringContainsString('(SELECT json_agg(id ORDER BY id) FROM scored WHERE relevance >= 0) AS cand_ids', $ranked['sql']);
         self::assertStringContainsString('m.cand_ids', $ranked['sql']);
         self::assertStringNotContainsString('cand_ids', $builder->ranked("'mouse'", 'mouse', null, [], new RankingProfile(), new Thresholds(), 20, 0)['sql']);
 
@@ -302,6 +301,7 @@ final class SearchSqlBuilderCandidatesTest extends TestCase
         self::assertStringNotContainsString('LIMIT 300', $builder->browseFacet('in_stock', [], $thresholds, 10, true)['sql']);
     }
 
+    /** @param list<string>|null $allowed */
     private static function statement(Thresholds $thresholds, int $limit, int $offset, RankingProfile $profile = new RankingProfile(), ?array $allowed = null): string
     {
         if ($allowed === null) {

@@ -128,7 +128,7 @@ final class SearchSqlBuilder
         $counts[] = $fuzzy !== null ? sprintf('(SELECT count(*) FROM %s) AS fuzzy_n', $fuzzyFast) : '0 AS fuzzy_n';
         $minScore = Sql::float($thresholds->minScore);
         if ($withCandidates) {
-            $counts[] = sprintf('(SELECT json_agg(id) FROM scored WHERE relevance >= %s) AS cand_ids', $minScore);
+            $counts[] = sprintf('(SELECT json_agg(id ORDER BY id) FROM scored WHERE relevance >= %s) AS cand_ids', $minScore);
         }
         $ctes[] = sprintf(
             "page AS (\n    SELECT id, r_text, r_fuzzy, relevance, exact_bonus, prefix_bonus, boost_bonus, recency_bonus,\n        relevance + exact_bonus + prefix_bonus + boost_bonus + recency_bonus AS score\n    FROM scored\n    WHERE relevance >= %s\n    ORDER BY score DESC, id\n    LIMIT %d OFFSET %d\n)",
