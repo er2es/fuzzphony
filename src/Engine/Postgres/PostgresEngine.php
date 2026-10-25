@@ -1125,7 +1125,7 @@ final class PostgresEngine implements Engine, Vocabulary, SynonymStems, Suggesti
         // the recheck drops stop words as the strict tsquery does, so it needs them up front
         $emptyQueries = $scopedRoot === null ? null : $this->fuzzyStopWords($index, $fuzzy, $scopedRoot, $fuzzyRoot);
         // the typo-tolerant statements: the candidates of each word probed on its own, then the ranked statement over them
-        $typoPhase = fn(Node $fuzzyRoot, string $label, array $empty): \Closure => fn(): array => $this->inSearchTransaction(function () use ($index, $fuzzy, $builder, $fuzzyRoot, $label, $empty, $conditions, $profile, $thresholds, $query, $tsquery, $plain, $scopedRoot, $withIds): array {
+        $typoPhase = fn(Node $fuzzyRoot, string $label, array $empty): \Closure => fn(): array => $this->inSearchTransaction(function () use ($index, $fuzzy, $fuzzyRoot, $label, $empty, $conditions, $profile, $thresholds, $query, $tsquery, $plain, $scopedRoot, $withIds): array {
             /** @var list<string> $empty */
             ['candidates' => $candidates, 'overflowing' => $overflowing] = $this->fuzzyCandidates($fuzzy, $fuzzyRoot, $empty, $thresholds, $conditions);
             $pool = [];
@@ -1374,7 +1374,7 @@ final class PostgresEngine implements Engine, Vocabulary, SynonymStems, Suggesti
      * @param list<string>    $emptyQueries
      * @param list<Condition> $conditions
      *
-     * @return array{candidates: array<string, list<int|string>>, pool: array<string, list<int|string>>, ordered: bool}
+     * @return array{candidates: array<string, list<int|string>>, overflowing: array<string, float>}
      */
     private function fuzzyCandidates(FuzzyQueryCompiler $fuzzy, Node $root, array $emptyQueries, Thresholds $thresholds, array $conditions): array
     {

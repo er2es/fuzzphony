@@ -148,8 +148,8 @@ final class TypoBranchCandidatesTest extends TestCase
                     array_map(static fn($facet): array => array_map(static fn($v): array => [$v->value, $v->count], $facet), $result->facets),
                 ];
             }
-            self::assertSame(90000, $outcomes[1][$variant][0][0][0], 'the tenant\'s closest spelling comes first');
         }
+        self::assertSame(90000, $outcomes[1]['empty'][0][0][0] ?? null, 'the tenant closest spelling comes first');
         foreach ($outcomes as $tenant => $byVariant) {
             foreach ($byVariant as $variant => $outcome) {
                 self::assertSame($byVariant['empty'], $outcome, sprintf('tenant %d: the other tenant\'s documents changed the outcome (%s)', $tenant, $variant));
