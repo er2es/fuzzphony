@@ -134,22 +134,21 @@ single-digit milliseconds on a shared laptop are noise.
 The typo branch used to take the first `candidate_limit` matches of its trigram index (cheap, but not the best, and in the order of the
 table); a typo word that matches more documents than that (`mouss` is 20 000 look-alikes on 200 000 products) now gets the best
 candidates by the page's sort key, inside a pool of its closest spellings and among the first 30 000 matches
-([Known limitations](limitations.md#ranking-of-very-common-words)). The facets of a capped search count the candidates the hits come
-from. Median of 7 runs, warm, `candidate_limit` 2000, 200 000 / 1 000 000 products (the second figure of a pair was measured on a build
-of the same database with the same planted documents), 0.9.8 -> 0.9.9:
+([Known limitations](limitations.md#ranking-of-very-common-words)). The facets of a capped search count the ids the statement of the hits returns. Median of 7 runs, warm, `candidate_limit` 2000, 200 000 / 1 000 000 products (the second figure of a pair is the 1 000 000-row database with the same planted documents; a cold cache makes the 1 000 000 figures of the
+strict common-word rows jump by seconds, so they were repeated warm), 0.9.8 -> 0.9.9:
 
 | search | 0.9.8 | 0.9.9 |
 |---|---:|---:|
-| `mouss`, fallback / always | 41 / 41 ms; 64 / 63 ms | 317 / 313 ms; 415 / 420 ms |
-| `wireles`, fallback / always | 52 / 50 ms; 93 / 92 ms | 353 / 345 ms; 609 / 649 ms |
-| `hedphones`, fallback | 46 ms; 64 ms | 366 ms; 634 ms |
-| `wireles mose` (two typo words) | 89 ms; 130 ms | 376 ms; 971 ms |
-| `mouss`, restricted viewer | 48 ms; 65 ms | 315 ms; 420 ms |
-| `mouss` with two facets / and an active filter | 68 / 93 ms; 100 / 133 ms | 489 / 717 ms; 689 / 1 148 ms |
+| `mouss`, fallback / always | 41 / 41 ms; 64 / 63 ms | 301 / 298 ms; 457 / 439 ms |
+| `wireles`, fallback / always | 52 / 50 ms; 93 / 92 ms | 331 / 337 ms; 662 / 675 ms |
+| `hedphones`, fallback | 46 ms; 64 ms | 344 ms; 667 ms |
+| `wireles mose` (two typo words) | 89 ms; 130 ms | 367 ms; 1 106 ms |
+| `mouss`, restricted viewer | 48 ms; 65 ms | 304 ms; 442 ms |
+| `mouss` with two facets / and an active filter | 68 / 93 ms; 100 / 133 ms | 316 / 554 ms; 457 / 870 ms |
 | `screwdrivr 1234` (two words, under the limit) | 40 ms; 83 ms | 40 ms; 89 ms |
-| `wireless`, `fuzzy_mode: always` | 77 ms; 322 ms | 255 ms; 834 ms |
-| `ideal`, `fuzzy_mode: always` | 140 ms; 256 ms | 327 ms; 587 ms |
-| `wireless` with two facets / and an active filter (strict) | 50 / 58 ms; 271 / 281 ms | 79 / 116 ms; 505 / 734 ms |
+| `wireless`, `fuzzy_mode: always` | 77 ms; 322 ms | 244 ms; 833 ms |
+| `ideal`, `fuzzy_mode: always` | 140 ms; 256 ms | 324 ms; 629 ms |
+| `wireless` with two facets / and an active filter (strict) | 50 / 58 ms; 271 / 281 ms | 45 / 76 ms; 257 / 507 ms |
 | a filter-only listing with a facet | 2.2 ms; 1.8 ms | 2.2 ms; 2.1 ms |
 
 The cost is the second selection, about 8 microseconds per scored match (every trigram match is rechecked on the text of the
