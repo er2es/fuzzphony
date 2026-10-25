@@ -31,6 +31,7 @@ use Fuzzphony\Core\Query\Ast\AnyOf;
 use Fuzzphony\Core\Query\Ast\FieldScoped;
 use Fuzzphony\Core\Query\Ast\Node;
 use Fuzzphony\Core\Query\Ast\NodeInspector;
+use Fuzzphony\Core\Query\Ast\Not;
 use Fuzzphony\Core\Query\Ast\Phrase;
 use Fuzzphony\Core\Query\Ast\Term;
 use Fuzzphony\Core\Query\Filter\Condition;
@@ -1094,6 +1095,13 @@ final class PostgresEngine implements Engine, Vocabulary, SynonymStems, Suggesti
             && $profile->fuzzy > 0.0
             && $thresholds->fuzzyMode !== FuzzyMode::Never
             && $fuzzy->hasFuzzyLeaf($root) ? $root : null;
+
+        // "the who -rock": PostgreSQL reduces 'the' & 'who' & !'rock' to !'rock', "everything but rock", so the strict branch
+        // gets the stop words alone (as for "the who": nothing matches) and the typo-tolerant branch searches them, rock excluded
+        if ($fuzzyRoot instanceof AllOf && $tsquery !== null && array_any($fuzzyRoot->nodes, static fn(Node $n): bool => $n instanceof Not)
+            && ($stopWords = $fuzzy->exclusionStopWords($fuzzyRoot, $this->emptyQueries($index, $fuzzy->leafQueries($fuzzyRoot)))) !== null) {
+            $tsquery = (new TsQueryCompiler($index))->compile($stopWords);
+        }
 
         $builder = new SearchSqlBuilder($index, $this->names, [], $query->allowedFields, true, cappedColumn: $this->cappedColumn($index));
         /** @var list<array{label: string, sql: string, params: array<string, scalar|null>}> $statements */

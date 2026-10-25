@@ -16,6 +16,10 @@ and the [CHANGELOG](CHANGELOG.md) has the full list of changes.
    `DoctrineIndexDiscovery`, `EntityLoader` or `OrmSyncListener` is now a duplicate of the bundle's, and an index
    that is both an attribute and in YAML `indexes` is overridden by the YAML as documented.
 
+## From 0.9.8 to 0.9.9
+
+Nothing is required. One visible change: a top-level AND of stop words with exclusions (`the who -rock`) used to return every document without `rock` (a bug); it now searches `the who` and leaves out the documents that have `rock`, so such a query returns far fewer results. If you showed a page for "everything except X" through it, use a filter instead. After `fuzzphony:schema --apply` added a column to an existing table, restart long-running workers (Messenger, RoadRunner, FrankenPHP); the command says so.
+
 ## From 0.9.7 to 0.9.8
 
 Nothing is required, but **run `fuzzphony:schema --apply` and then `fuzzphony:reindex`** (item 5), **searches that returned nothing may now return results**, in two ways, and **the results of searches with a very common word change** (items 3 and 4):

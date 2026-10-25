@@ -238,9 +238,38 @@ final class FuzzyQueryCompilerTest extends TestCase
         $compiler = $this->compiler();
 
         self::assertSame($stops = ["'the'", "'who'"], $compiler->keepingStopWords(self::parse('the who rock'), $stops), 'a real word to look for');
-        self::assertSame($stops, $compiler->keepingStopWords(self::parse('the who -rock'), $stops), 'a real word to exclude: the strict branch is a pure exclusion, left as it is');
         self::assertSame($stops, $compiler->keepingStopWords(self::parse('the who (rock | live)'), $stops));
-        self::assertSame($stops, $compiler->keepingStopWords(self::parse('the who -(rock | the)'), $stops), 'a group to exclude has a real word');
+    }
+
+    public function testATopLevelAndOfStopWordsWithExclusionsKeepsThem(): void
+    {
+        $compiler = $this->compiler();
+        $stops = ["'the'", "'who'"];
+
+        self::assertSame([], $compiler->keepingStopWords(self::parse('the who -rock'), $stops), 'what is excluded does not matter, only what is looked for (it used to be a pure exclusion)');
+        self::assertSame([], $compiler->keepingStopWords(self::parse('the who -(rock | the)'), $stops), 'a group to exclude too');
+        self::assertSame([], $compiler->keepingStopWords(self::parse('"the who" -rock'), ["('the' <-> 'who')"]));
+        self::assertEquals(new AllOf([new Term('the'), new Term('who')]), $compiler->exclusionStopWords(self::parse('the who -rock'), $stops));
+        self::assertEquals(new Term('the'), $compiler->exclusionStopWords(self::parse('the -rock'), ["'the'"]));
+        self::assertEquals(new Term('the'), $compiler->exclusionStopWords(self::parse('the -(rock | roll)'), ["'the'"]));
+    }
+
+    public function testAnythingElseKeepsItsOldRule(): void
+    {
+        $compiler = $this->compiler();
+        $stops = ["'the'", "'who'"];
+
+        foreach (['the who rock -live', '(the -rock) | who', '(the -rock) OR who', 'the | -rock', '(the who) | rock', '(the | who) -rock', '-rock', 'the who', 'the -who'] as $text) {
+            self::assertNull($compiler->exclusionStopWords(self::parse($text), $stops), $text);
+        }
+        // the old rule is untouched: all words stop words keeps them, whatever the shape
+        self::assertSame(["'who'"], $compiler->keepingStopWords(self::parse('the -who'), $stops));
+        self::assertSame($stops, $compiler->keepingStopWords(self::parse('(the -rock) | who'), $stops), 'an OR with an exclusion inside: as it was');
+        self::assertSame($stops, $compiler->keepingStopWords(self::parse('(the who) | rock'), $stops));
+        self::assertSame($stops, $compiler->keepingStopWords(self::parse('the | -rock'), $stops));
+        self::assertSame([...$stops, "'and'", "'for'"], $compiler->keepingStopWords(self::parse('-rock the who and for'), [...$stops, "'and'", "'for'"]), 'four words');
+        self::assertNull($compiler->exclusionStopWords(self::parse('-rock the who and for'), [...$stops, "'and'", "'for'"]));
+        self::assertNull($compiler->exclusionStopWords(self::parse('the who rock -live'), $stops), 'a real word to look for');
     }
 
     public function testStopWordsBelowTheMinimumLengthAreNotKept(): void

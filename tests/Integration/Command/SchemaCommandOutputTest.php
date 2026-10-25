@@ -40,6 +40,22 @@ final class SchemaCommandOutputTest extends TestCase
         self::assertMatchesRegularExpression(sprintf('/ %1$d\/%1$d \[[^\]]+\] 100%%/', $count), $display, 'the bar ends complete');
     }
 
+    public function testAddingAColumnToATableThatWasThereAsksForARestartOfTheLongRunningProcesses(): void
+    {
+        $this->tester->execute(['--apply' => true], ['interactive' => false]);
+        self::assertStringNotContainsString('restart', $this->tester->getDisplay(true), 'a fresh install has no process that knows the tables');
+
+        $this->tester->execute(['--apply' => true], ['interactive' => false]);
+        self::assertStringNotContainsString('restart', $this->tester->getDisplay(true), 'nothing was added');
+
+        $this->context->connection->execute('ALTER TABLE fuzzphony_products DROP COLUMN tsv_capped');
+        $status = $this->tester->execute(['--apply' => true], ['interactive' => false]);
+        $display = preg_replace('/\s+/', ' ', $this->tester->getDisplay(true)) ?? '';
+        self::assertSame(Command::SUCCESS, $status, $display);
+        self::assertStringContainsString('restart long-running processes (Messenger workers, RoadRunner, FrankenPHP)', $display);
+        self::assertStringContainsString('resetCaches()', $display);
+    }
+
     public function testDumpMigrationNamesTheFileAndTheClassAfterTheTimeAndSaysWhereItWentWithoutPrintingTheSql(): void
     {
         $status = $this->tester->execute(['--dump-migration' => $this->directory, '--namespace' => 'App\\Migrations'], ['interactive' => false]);

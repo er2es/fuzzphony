@@ -40,7 +40,7 @@ final readonly class FederatedResult implements \IteratorAggregate, \Countable
 
     /**
      * Whether hits follow this page among the ones the search ranked: false at the last page of the candidates, even when
-     * `totalIsLowerBound` says there are more matches than candidates (a page past them is empty, see
+     * `totalIsLowerBound` says there are more matches than candidates (a page asked for directly past them is served by a wider selection, see
      * Thresholds::$candidateLimit). The hits that can be read end at 10 000 of an index (Thresholds::MAX_CANDIDATE_LIMIT, also with
      * exactCounts(), whose total counts every match), and a federated search reads at most FederatedSearch::MAX_READ hits of every
      * index, so there is no next page past those (limit() would refuse it); an empty page has no more either.

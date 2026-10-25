@@ -121,7 +121,7 @@ final class PostgresInspector
             );
         }
         if ($this->searchLogIp && !$this->hasColumn($table, 'actor_ip')) {
-            return Check::error('Search log', sprintf('search_log.ip is on, but table %s has no actor_ip column: the addresses are dropped (the rows are kept).', $table), self::APPLY);
+            return Check::error('Search log', sprintf('search_log.ip is on, but table %s has no actor_ip column: the addresses are dropped (the rows are kept). After applying the schema restart long-running workers (they look the column up once per process).', $table), self::APPLY);
         }
         $stale = $this->connection->fetchValue(
             sprintf('SELECT EXISTS (SELECT 1 FROM %s WHERE at < now() - make_interval(days => :days))', $table),
@@ -475,7 +475,7 @@ final class PostgresInspector
         if ($flagMissing) {
             $checks[] = Check::warning(
                 'Sidecar columns',
-                sprintf('Column %s is missing: phrases and field-scoped words are looked up the slower way on an index with several fields. Apply the schema, then reindex (the column is filled by the reindex).', PostgresSchemaGenerator::CAPPED_COLUMN),
+                sprintf('Column %s is missing: phrases and field-scoped words are looked up the slower way on an index with several fields. Apply the schema, then reindex (the column is filled by the reindex) and restart long-running workers (they look the column up once per process).', PostgresSchemaGenerator::CAPPED_COLUMN),
                 self::APPLY,
             );
         }

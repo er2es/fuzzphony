@@ -269,14 +269,15 @@ final class FuzzyQueryCompiler
      * The stop-word tsqueries of the typo-tolerant branch for a query of stop words only ("the who"): the strict branch
      * has nothing to match then (the text search configuration drops the words from the query and from the documents),
      * but the trigram side works on the normalised text, stop words included, so the positive words stay ordinary leaves
-     * there. Only when every word of the query, excluded ones too, is a stop word (a real word left to exclude makes the
-     * strict branch a pure exclusion, and what it finds stays as it is), and only when every positive word is long
+     * there. Two shapes: every word of the query, excluded ones too, is a stop word; or the query is a top-level AND of
+     * stop words with top-level exclusions of anything ("the who -rock", see exclusionStopWords()). A real word to look
+     * for makes the strict branch find what it finds, the stop words around it ignored. Only when every positive word is long
      * enough for typo tolerance (a shorter one must match exactly, which a stop word never does: the search would find
      * nothing, so it does not run), and only for at most MAX_STOP_WORDS words: every kept word is a trigram condition
      * that, for a word in most documents, keeps all of its matches (it is over the candidate limit), and several of them
      * in one statement cost seconds on a large index (measured: five common stop words took 15 s for a restricted viewer
      * on 100 000 rows, under 1 s for an unrestricted one; three take under half a second for both). Otherwise $emptyQueries
-     * come back unchanged; the negated stop words stay dropped.
+     * come back unchanged; the negated stop words stay dropped (excluding one excludes nothing).
      *
      * @param list<string> $emptyQueries leaf tsqueries the text configuration reduces to nothing (stop words)
      *
@@ -286,11 +287,51 @@ final class FuzzyQueryCompiler
     {
         $queries = $this->leafQueries($root);
         $positive = $this->positiveLeaves($root);
-        if ($queries === [] || count($positive) > self::MAX_STOP_WORDS || array_diff($queries, $emptyQueries) !== [] || array_any($positive, fn(Node $leaf): bool => $this->needle($leaf) === null)) {
+        if ($queries === [] || count($positive) > self::MAX_STOP_WORDS || array_any($positive, fn(Node $leaf): bool => $this->needle($leaf) === null)) {
+            return $emptyQueries;
+        }
+        if (array_diff($queries, $emptyQueries) !== [] && $this->exclusionStopWords($root, $emptyQueries) === null) {
             return $emptyQueries;
         }
 
         return array_values(array_diff($emptyQueries, array_map($this->tsquery->compile(...), $positive)));
+    }
+
+    /**
+     * "the who -rock": a top-level AND whose positive parts are plain words (a word, a phrase, a field-scoped one: no group, no
+     * OR, no synonym expansion) and that has at least one top-level exclusion, of anything. PostgreSQL drops the stop words
+     * from the strict tsquery and what is left is a pure exclusion, "everything but rock". When every positive word is a
+     * stop word (and the shape of keepingStopWords() allows them) this returns the query without its exclusions, the strict
+     * branch's tsquery for it (nothing matches, as for "the who"); the typo-tolerant branch searches the stop words with the
+     * exclusion applied. Null otherwise, also when the query is the other shape (every word a stop word: it is as it was)
+     * and for any query with an OR at the top level or an OR or an exclusion inside a positive group: those are as they were.
+     *
+     * @param list<string> $emptyQueries leaf tsqueries the text configuration reduces to nothing (stop words)
+     */
+    public function exclusionStopWords(Node $root, array $emptyQueries): ?Node
+    {
+        if (!$root instanceof AllOf) {
+            return null;
+        }
+        $positive = array_values(array_filter($root->nodes, static fn(Node $n): bool => !$n instanceof Not));
+        if (
+            count($positive) === count($root->nodes) || $positive === [] || count($positive) > self::MAX_STOP_WORDS
+            || array_any($positive, fn(Node $n): bool => !$this->plainWord($n) || $this->needle($n) === null)
+            || array_diff($this->leafQueries($root), $emptyQueries) === []
+        ) {
+            return null;
+        }
+        $tsqueries = array_map($this->tsquery->compile(...), $positive);
+        if (array_any($tsqueries, static fn(?string $query): bool => $query === null || !in_array($query, $emptyQueries, true))) {
+            return null;
+        }
+
+        return count($positive) === 1 ? $positive[0] : new AllOf($positive);
+    }
+
+    private function plainWord(Node $node): bool
+    {
+        return $node instanceof Term || $node instanceof Phrase || $node instanceof FieldScoped;
     }
 
     /** @return list<Node> the leaves of the positive part of the query, in order */

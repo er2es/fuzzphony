@@ -7,6 +7,14 @@ changes; they are always listed under **Breaking** and explained in [UPGRADE.md]
 
 ## [Unreleased]
 
+### Fixed
+
+- **`the who -rock` searches `the who` and excludes `rock`, instead of returning "everything but rock".** A query of stop words only (at most three, each at least `fuzzy_min_length` letters, on an index with typo tolerance and not `fuzzy_mode: never`) is searched on the typo-tolerant branch since 0.9.7, but a top-level AND of stop words with exclusions (`the who -rock`, `the who -(rock OR roll)`) was not: PostgreSQL dropped the stop words from the full-text query and what was left was a pure exclusion, so every document without `rock` came back. Now the exclusions apply as for any query (an excluded stop word still excludes nothing; restricted viewers and tenants are bound as before). Every other query is unchanged, byte for byte: one with a real word, one with an OR at the top level or an OR or an exclusion inside a positive group (`the OR -rock`, `(the -rock) OR who`), `fuzzy_mode: never`, an index without a typo-tolerant field.
+
+### Changed
+
+- **`fuzzphony:schema --apply` reminds you to restart long-running processes when it added a `tsv_capped` or `actor_ip` column to an existing table** (the engine looks those columns up once per process), and the doctor's warnings about the missing columns say the same.
+
 ## [0.9.8] - 2026-10-22
 
 The round before the API review: the best match of a very common word is no longer lost above `candidate_limit`, a rate limit for anonymous visitors by IP, typo tolerance for swapped letters and a zero-result rescue, phrases and field-scoped words after a very long field, and fewer surprises for restricted viewers. Searches with a rare word are unchanged; searches with a very common word rank differently (for the better), and searches that found nothing may now find something. Run `fuzzphony:schema --apply` and `fuzzphony:reindex` (see [UPGRADE.md](UPGRADE.md#from-097-to-098)); nothing else is required.

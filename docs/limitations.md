@@ -80,9 +80,14 @@ it works on the normalised text of the typo-tolerant fields, stop words included
 `title:who` and the quoted phrase `"to be or not to be"` find "The Who" and "To be or not to be". It has its
 limits:
 
-- Only a query whose every word is a stop word. One real word and the stop words around it are ignored as
-  before, and so is a query that excludes a real word (`the who -rock`: its full-text branch is "everything
-  but rock", which is left as it is).
+- Only a query whose every word is a stop word, or a top-level AND of stop words with exclusions. One real word and
+  the stop words around it are ignored as before. `the who -rock` and `the who -(rock OR roll)` search `the who` and
+  leave out the documents that have `rock` (before 0.9.9 their full-text branch was "everything but rock", and that is
+  what came back). A query with an OR at the top level, or an OR or an exclusion inside a positive group (`the OR -rock`,
+  `(the -rock) OR who`, `(the OR who) -rock`), is as it always was. An excluded stop word (`the who -the`, `the -who`)
+  is dropped, it excludes nothing. Where the stop-word search does not apply (no typo-tolerant search, more than three
+  words, a word shorter than `fuzzy_min_length`) such a query is as it always was: `the who -rock` with
+  `fuzzy_mode: never` is still "everything but rock".
 - Only with typo tolerance: the index has a typo-tolerant field and `fuzzy_mode` is not `never` (the ranking
   profile's `fuzzy` weight is not 0). Without it nothing changes and the query finds nothing.
 - Only in the typo-tolerant fields, and as a look-alike, like every typo-tolerant word: `who` ranks "Who" and
@@ -98,7 +103,7 @@ limits:
   catalogue); with `the` in half of the names of 100 000 products, `the` takes 43 ms and three stop words that no
   document has together 80 ms, the empty-result relaxation included. `candidate_limit` applies as always (the total is
   a lower bound).
-- An excluded stop word (`the -who`) is still dropped. The empty-result relaxation works as for any words.
+- The empty-result relaxation works as for any words.
 
 What to do: for names, titles or codes use `language: simple` (no stemming and no stop words), in an index of
 their own. See [Languages](languages.md#what-the-language-decides).
@@ -254,7 +259,8 @@ fields (see [UPGRADE](../UPGRADE.md#from-097-to-098)). The flag is true when a p
 has 256 or more positions (PostgreSQL keeps at most 256 per lexeme and drops the later field's positions of one that has them:
 without this sign a phrase after a field that repeats one of its words would be lost). The doctor warns while the flag is NULL;
 after a downgrade to a release without the column and back, reindex (an old refresh function does not touch the flag); the engine
-looks the column up once per process, so restart long-running workers after adding or dropping it.
+looks the column up once per process, so restart long-running workers after adding or dropping it
+(`fuzzphony:schema --apply` says so when it added the column to an existing table).
 
 What to do: do not index the whole of a very long text. Put an excerpt (the first few thousand words, a summary) in the
 searched field, or list the long field last (nothing follows it). The limits above hold for a restricted viewer too

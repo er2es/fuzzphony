@@ -94,12 +94,17 @@ final class SchemaCommand extends Command
             return Command::FAILURE;
         }
 
+        $tablesBefore = $this->tables();
+        $columnsBefore = $this->cachedColumns();
         $io->progressStart(count($plan->statements));
         $plan->apply($this->connection, static function (Statement $statement) use ($io): void {
             $io->progressAdvance();
         });
         $io->progressFinish();
         $io->success(sprintf('%d statement(s) applied. Next: fuzzphony:reindex, then fuzzphony:doctor.', count($plan->statements)));
+        if (array_any(array_diff($this->cachedColumns(), $columnsBefore), static fn(string $column): bool => isset($tablesBefore[explode('.', $column)[0]]))) {
+            $io->warning('A column was added that the engine looks up once per process: restart long-running processes (Messenger workers, RoadRunner, FrankenPHP) so that they see it, or call PostgresEngine::resetCaches().');
+        }
 
         return Command::SUCCESS;
     }
@@ -109,6 +114,23 @@ final class SchemaCommand extends Command
         if ($input->mustSuggestArgumentValuesFor('index')) {
             $suggestions->suggestValues(IndexArgument::names($this->fuzzphony));
         }
+    }
+
+    /** @return array<string, true> the oids of the tables there are now */
+    private function tables(): array
+    {
+        return array_fill_keys(array_map(Coerce::str(...), array_column($this->connection->fetchAll("SELECT oid::text AS oid FROM pg_class WHERE relkind IN ('r', 'p')"), 'oid')), true);
+    }
+
+    /**
+     * The columns the engine looks up once per process (tsv_capped, actor_ip), as "table oid.name": a column that appears in a
+     * table that was there before the apply is the one a long-running process does not know about (a fresh install has no such process).
+     *
+     * @return list<string>
+     */
+    private function cachedColumns(): array
+    {
+        return array_map(Coerce::str(...), array_column($this->connection->fetchAll("SELECT attrelid::text || '.' || attname AS col FROM pg_attribute WHERE attname IN ('tsv_capped', 'actor_ip') AND NOT attisdropped AND attnum > 0"), 'col'));
     }
 
     /** @param list<IndexDefinition> $indexes */
