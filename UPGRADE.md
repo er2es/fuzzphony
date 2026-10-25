@@ -16,6 +16,14 @@ and the [CHANGELOG](CHANGELOG.md) has the full list of changes.
    `DoctrineIndexDiscovery`, `EntityLoader` or `OrmSyncListener` is now a duplicate of the bundle's, and an index
    that is both an attribute and in YAML `indexes` is overridden by the YAML as documented.
 
+## From 0.9.8 to 0.9.9
+
+Nothing to do. **The results of capped typo-tolerant searches may differ, for the better:** a typo word that matches more documents than
+`candidate_limit` (`mouss`, `wireles` on a large catalogue) now ranks its closest spellings instead of the first matches the index returned, and
+the facet counts of a capped search count the candidates the hits come from. `total` of a capped `fuzzy_mode: always` search is a smaller
+lower bound (`2000+`). A search whose typo word matches fewer documents than the limit returns exactly what it returned. A capped typo search is
+slower (0.3 to 1 s where it was 40 to 130 ms on 200 000 to 1 000 000 products); no new setting, no schema change, no API change.
+
 ## From 0.9.7 to 0.9.8
 
 Nothing is required, but **run `fuzzphony:schema --apply` and then `fuzzphony:reindex`** (item 5), **searches that returned nothing may now return results**, in two ways, and **the results of searches with a very common word change** (items 3 and 4):
