@@ -8,6 +8,8 @@ import { Controller } from '@hotwired/stimulus';
  * The live requests are unlogged (the half-typed words would fill the search log), except where the visitor means the search: a click
  * on an example is logged on its own request, and typed text is logged once it settles (1.5 s without typing, or at once when the
  * page is left earlier) by one more silent request.
+ * Only a search the visitor means is rescued when it finds nothing ("Showing results for ..."): not the live requests while typing, but the
+ * settled one: its answer is swapped in when it carries the rescue bar (and is still the newest), and nothing else of the page is touched.
  */
 
 /** How long the text stands before the search counts as settled (and is logged). */
@@ -43,8 +45,9 @@ export default class extends Controller {
     }
 
     /**
-     * The settled text is requested once more, marked `X-Settled`, so the server logs that one search. Nothing of the page is
-     * touched (no swap, no history, no aria-busy: the busy bar and pill stay quiet) and the answer is ignored.
+     * The settled text is requested once more, marked `X-Settled`, so the server logs that one search (and rescues it when it found
+     * nothing). Nothing of the page is touched (no history, no aria-busy: the busy bar and pill stay quiet), and the answer is ignored
+     * unless it is a rescued one, which replaces the empty results (see flushSettle()).
      */
     settle(url, text) {
         this.cancelSettle();
@@ -52,6 +55,7 @@ export default class extends Controller {
             return;
         }
         this.pending = url;
+        this.settleSeq = this.seq;
         this.settleTimer = setTimeout(() => this.flushSettle(), SETTLE_MS);
     }
 
@@ -64,7 +68,16 @@ export default class extends Controller {
             return;
         }
         this.settleAbort = new AbortController();
-        fetch(url, { signal: this.settleAbort.signal, keepalive: true, headers: { 'X-Requested-With': 'fetch', 'X-Settled': '1' } }).catch(() => {});
+        const seq = this.settleSeq;
+        fetch(url, { signal: this.settleAbort.signal, keepalive: true, headers: { 'X-Requested-With': 'fetch', 'X-Settled': '1' } })
+            .then((response) => (response.ok ? response.text() : ''))
+            .then((html) => {
+                // the zero-result rescue: the typed text found nothing, and the settled search found its correction. Nothing newer was asked.
+                if (seq === this.seq && html.includes('class="corrected"') && this.hasRegionTarget) {
+                    this.regionTarget.innerHTML = html;
+                }
+            })
+            .catch(() => {});
     }
 
     /** The form's own fields (and the hidden filters next to the text) are the request. */

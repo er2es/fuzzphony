@@ -18,6 +18,7 @@
                 <tbody>
                     <tr><td><code>fuzzphony.search.took_ms</code></td><td>histogram</td><td>{{ took_ms }} ms</td></tr>
                     <tr><td><code>fuzzphony.search.fallback</code></td><td>counter</td><td>{{ fallback ? '+1 (typo tolerance ran)' : 'not incremented (exact match was enough)' }}</td></tr>
+                    {% if rescued %}<tr><td><code>fuzzphony.search.rescued</code></td><td>counter</td><td>+1 (the zero-result rescue ran: nothing contained <code>{{ query }}</code>, the answer is the search for <code>{{ interpreted }}</code>)</td></tr>{% endif %}
                     <tr><td>SQL statements</td><td>&mdash;</td><td>{{ statements }}</td></tr>
                     {% if queue %}<tr><td><code>fuzzphony.queue.depth</code></td><td>gauge</td><td>{{ queue.message }}</td></tr>{% endif %}
                 </tbody>
@@ -35,7 +36,9 @@
         <p class="muted">This demo uses the logging collector (it has neither <code>promphp/prometheus_client_php</code> nor <code>apcu</code>) and writes the lines to the php container's log: <code>docker compose logs -f php</code>. The values are this run's.</p>
         <pre tabindex="0"><code>fuzzphony.metric {"event":"fuzzphony.search.took_ms","value":{{ took_ms }},"index":"catalog"}{% if fallback %}
 
-fuzzphony.metric {"event":"fuzzphony.search.fallback","by":1,"index":"catalog"}{% endif %}</code></pre>
+fuzzphony.metric {"event":"fuzzphony.search.fallback","by":1,"index":"catalog"}{% endif %}{% if rescued %}
+
+fuzzphony.metric {"event":"fuzzphony.search.rescued","by":1,"index":"catalog"}{% endif %}</code></pre>
         <p class="muted">The query text is left out of the line unless you opt in (<code>logQueryText</code>), and is never a Prometheus label (one time series per distinct query would never stop growing).</p>
     </details>
 
@@ -47,6 +50,7 @@ fuzzphony.metric {"event":"fuzzphony.search.fallback","by":1,"index":"catalog"}{
                 <tbody>
                     <tr><td><code>fuzzphony.search.took_ms</code></td><td>histogram</td><td>every search</td></tr>
                     <tr><td><code>fuzzphony.search.fallback</code></td><td>counter</td><td>searches that needed typo tolerance</td></tr>
+                    <tr><td><code>fuzzphony.search.rescued</code></td><td>counter</td><td>searches that found nothing and were answered by the zero-result rescue</td></tr>
                     <tr><td><code>fuzzphony.&lt;operation&gt;.duration_ms</code> / <code>.errors</code></td><td>histogram / counter</td><td>every engine operation (rebuild, refresh, queue, pruning&hellip;)</td></tr>
                     <tr><td><code>fuzzphony.queue.depth</code></td><td>gauge</td><td>the sync worker, once per cycle</td></tr>
                     <tr><td><code>fuzzphony.queue.processed</code></td><td>counter</td><td>the sync worker</td></tr>
