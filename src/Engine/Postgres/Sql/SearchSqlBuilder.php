@@ -139,8 +139,9 @@ final class SearchSqlBuilder
 
         // The meta row always exists, so totals are known even for pages past the end.
         $sql = sprintf(
-            "WITH %s\nSELECT m.total, m.fts_n, m.fuzzy_n, page.*\nFROM (SELECT (SELECT count(*) FROM scored WHERE relevance >= %s) AS total, %s) AS m\nLEFT JOIN page ON TRUE\nORDER BY page.score DESC NULLS LAST, page.id",
+            "WITH %s\nSELECT m.total, m.fts_n, m.fuzzy_n%s, page.*\nFROM (SELECT (SELECT count(*) FROM scored WHERE relevance >= %s) AS total, %s) AS m\nLEFT JOIN page ON TRUE\nORDER BY page.score DESC NULLS LAST, page.id",
             implode(",\n", $ctes),
+            $withCandidates ? ', m.cand_ids' : '',
             $minScore,
             implode(', ', $counts),
         );
