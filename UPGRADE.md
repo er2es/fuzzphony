@@ -20,6 +20,12 @@ and the [CHANGELOG](CHANGELOG.md) has the full list of changes.
 
 Nothing is required. One visible change: a top-level AND of stop words with exclusions (`the who -rock`) used to return every document without `rock` (a bug); it now searches `the who` and leaves out the documents that have `rock`, so such a query returns far fewer results. If you showed a page for "everything except X" through it, use a filter instead. After `fuzzphony:schema --apply` added a column to an existing table, restart long-running workers (Messenger, RoadRunner, FrankenPHP); the command says so.
 
+And: **The results of capped typo-tolerant searches may differ, for the better:** a typo word that matches more documents than
+`candidate_limit` (`mouss`, `wireles` on a large catalogue) now ranks its closest spellings instead of the first matches the index returned, and
+the facet counts of a capped search count the candidates the hits come from. `total` of a capped `fuzzy_mode: always` search is a smaller
+lower bound (`2000+`). A search whose typo word matches fewer documents than the limit returns exactly what it returned. A capped typo search is
+slower (0.3 to 1 s where it was 40 to 130 ms on 200 000 to 1 000 000 products); no new setting, no schema change, no API change.
+
 ## From 0.9.7 to 0.9.8
 
 Nothing is required, but **run `fuzzphony:schema --apply` and then `fuzzphony:reindex`** (item 5), **searches that returned nothing may now return results**, in two ways, and **the results of searches with a very common word change** (items 3 and 4):

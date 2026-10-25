@@ -285,8 +285,8 @@ Details in [docs/limitations.md](https://github.com/er2es/fuzzphony/blob/main/do
   PostgreSQL fires no trigger for it; run `fuzzphony:reindex` afterwards.
 - [Ranking of very common words](https://github.com/er2es/fuzzphony/blob/main/docs/limitations.md#ranking-of-very-common-words):
   a word with more matches than `candidate_limit` is ranked over its best matches (exact up to 100 000 matches,
-  and for pages up to 10 000 hits; the typo-tolerant branch still takes the first ones the index returns), and `total` is then a
-  lower bound; `exactCounts()` makes the total and the facet counts exact.
+  and for pages up to 10 000 hits; the typo-tolerant branch does the same within a budget of 30 000 matches, and the facets of a capped
+  search count the same candidates), and `total` is then a lower bound; `exactCounts()` makes the total and the facet counts exact.
 
 ## Roadmap
 

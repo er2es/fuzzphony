@@ -18,13 +18,15 @@ best match could be missing. The full-text branch now runs the cheap selection f
 second one that scores the matches and keeps the best by the key the page is ordered by (one statement, the second
 select behind a guard that is false for every word under the limit). The scores are computed for the first 100 000
 matches only (an internal scan budget, not a setting), so the cost of a search stays bounded however common a word is.
-The window grows with the page: `max(candidate_limit, offset + limit)`, at most 10 000. Facets, exact counts and the
-typo-tolerant branch keep the cheap selection (the latter until 0.9.9).
+The window grows with the page: `max(candidate_limit, offset + limit)`, at most 10 000. Exact counts keep the cheap selection. The typo-tolerant branch (0.9.9) runs
+the cheap selection first and, when it hit the limit, a second one over a pool of the closest spellings (bounded by raising the
+similarity a very common word needs) and, within a smaller scan budget, the first matches; the facets of a capped search count the
+candidates the page was chosen from.
 
 ## Consequences
 + Predictable latency for every query: a word under the limit costs what it always did, a word over it one more pass
   over at most 100 000 matches.
 + The best match of a common word is found; pages past the first candidates are exact up to 10 000 hits.
-− The ranking is exact only up to 100 000 matches (and in the typo-tolerant branch not yet); raise the limit per query
+− The ranking is exact only up to 100 000 matches (30 000 in the typo-tolerant branch); raise the limit per query
   (up to the cap) or make the query more specific when needed.
-− `total` and the facet counts of a very common word come from different candidate sets.
+− A capped typo search costs 0.3 to 1 s where it cost 40 to 130 ms (about 8 microseconds per scored match).

@@ -121,12 +121,17 @@ final class FuzzyQueryCompiler
      * Each applies the search's own conditions (the tenant and the filters), so it probes, counts and returns only
      * documents the search could find: an id of another tenant never reaches a statement (explain() shows them bound).
      *
-     * @param list<string>    $emptyQueries leaf tsqueries the text configuration reduces to nothing (stop words)
-     * @param list<Condition> $conditions   the search's conditions, tenant included; none: no extra predicate
+     * `$levels` (candidateKey() => similarity) probes only those words, each at the given similarity instead of its own and
+     * without the swapped-letter variants (which score the least a typo may): the documents at least that close. The engine
+     * uses it to find the closest spellings of a word that matches more documents than the limit (see PostgresEngine).
+     *
+     * @param list<string>         $emptyQueries leaf tsqueries the text configuration reduces to nothing (stop words)
+     * @param list<Condition>      $conditions   the search's conditions, tenant included; none: no extra predicate
+     * @param array<string, float> $levels
      *
      * @return array<string, array{sql: string, params: array<string, scalar|null>, similarity: float}> by candidateKey()
      */
-    public function probes(Node $node, int $cap, array $emptyQueries = [], array $conditions = []): array
+    public function probes(Node $node, int $cap, array $emptyQueries = [], array $conditions = [], array $levels = []): array
     {
         $probes = [];
         $leaves = $this->trigramLeaves($node, $emptyQueries);
@@ -135,14 +140,15 @@ final class FuzzyQueryCompiler
             $needle = $this->needle($leaf);
             assert($needle !== null, 'trigramLeaves() keeps only the leaves that have a needle');
             $key = $this->candidateKey($leaf);
-            if (isset($probes[$key])) {
+            if (isset($probes[$key]) || ($levels !== [] && !isset($levels[$key]))) {
                 continue;
             }
             $params = new ParameterBag();
             $norm = sprintf('%s(%s)', $this->names->normFunction(), $params->add($needle));
-            $threshold = $this->thresholds->fuzzySimilarity === null ? self::similaritySql($norm, $this->isPrefix($leaf)) : null;
+            $level = $levels[$key] ?? null;
+            $threshold = $level !== null ? Sql::float($level) : ($this->thresholds->fuzzySimilarity === null ? self::similaritySql($norm, $this->isPrefix($leaf)) : null);
             $where = $this->trigram($leaf, $norm, $threshold)['condition'];
-            if (($this->variants[$key] ?? []) !== []) {
+            if ($level === null && ($this->variants[$key] ?? []) !== []) {
                 // the swapped-letter variants are found in the same probe: one more way for a document to be a candidate of this word
                 $variants = $this->variantsTsquery($this->variants[$key]);
                 $where = sprintf('(%s OR %s)', $where, $this->variantMatch($leaf, fn(): string => $this->variantQuery($params->add($variants))));
@@ -153,7 +159,7 @@ final class FuzzyQueryCompiler
             $probes[$key] = [
                 'sql' => sprintf("SELECT s.id\nFROM %s AS s\nWHERE %s\nLIMIT %d", $this->names->sidecar($this->index), $where, $cap + 1),
                 'params' => $params->all(),
-                'similarity' => $this->thresholds->fuzzySimilarity ?? TypoCurve::lowest(self::length($needle), preg_match('/^[ -~]*$/', $needle) === 1),
+                'similarity' => $level ?? $this->thresholds->fuzzySimilarity ?? TypoCurve::lowest(self::length($needle), preg_match('/^[ -~]*$/', $needle) === 1),
             ];
         }
 
@@ -346,17 +352,20 @@ final class FuzzyQueryCompiler
 
     /**
      * Registers every user-derived value in $params (the statement's own bag, so placeholder
-     * names stay unique). Null when nothing positive is left to match.
+     * names stay unique). Null when nothing positive is left to match. `$prefix` names the q columns apart
+     * when the statement holds a second compilation of the same query (a different candidate list).
      *
      * @param list<string> $emptyQueries leaf tsqueries the text configuration reduces to nothing (stop words)
      */
-    public function compile(Node $node, ParameterBag $params, array $emptyQueries = []): ?FuzzyMatch
+    public function compile(Node $node, ParameterBag $params, array $emptyQueries = [], string $prefix = ''): ?FuzzyMatch
     {
         $this->columns = [];
+        $this->prefix = $prefix;
         $this->allocateVariants($this->trigramLeaves($node, $emptyQueries));
         $compiled = $this->node($node, $params, $emptyQueries);
+        $this->prefix = '';
 
-        return $compiled === null || $compiled['score'] === null ? null : new FuzzyMatch($compiled['predicate'], $compiled['score'], $this->columns);
+        return $compiled === null || $compiled['score'] === null ? null : new FuzzyMatch($compiled['predicate'], $compiled['score'], $this->columns, max(1, count($this->positiveLeaves($node))));
     }
 
     /**

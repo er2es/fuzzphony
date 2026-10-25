@@ -76,6 +76,10 @@ final class PostgresEngine implements Engine, Vocabulary, SynonymStems, Suggesti
      * one-edit typos of 4-letter words); a swap in a 6-letter word leaves 0.27. Lower finds nothing more and reads more.
      */
     private const float SUGGEST_SIMILARITY = 0.25;
+    /** How many times pools() halves the interval of similarity to bound the pool of a very common typo-tolerant word. */
+    private const int POOL_STEPS = 4;
+    /** The pool of a very common typo-tolerant word holds at most this many times the candidate limit (see fuzzyCandidates()). */
+    private const int POOL_FACTOR = 3;
     /** The label of the statements of the zero-result rescue starts with this (see rescued()). */
     private const string RESCUE_PREFIX = 'rescue: ';
     private const string RESTRICTED_PLAN = 'No plan for a search restricted to some fields: its estimates and row counts are taken over every field.';
@@ -717,7 +721,7 @@ final class PostgresEngine implements Engine, Vocabulary, SynonymStems, Suggesti
             if ($run['browse']) {
                 $capped = $total >= $thresholds->candidateLimit;
             }
-            $builder = new SearchSqlBuilder($index, $this->names, $run['ranked']['candidates'] ?? [], $query->allowedFields, true, cappedColumn: $this->cappedColumn($index));
+            $builder = new SearchSqlBuilder($index, $this->names, $run['ranked']['candidates'] ?? [], $query->allowedFields, true, cappedColumn: $this->cappedColumn($index), pool: $run['ranked']['pool'] ?? [], orderedTypo: $run['ranked']['ordered'] ?? true);
             // exactCounts(): when the candidate limit cut the matches off, count them all
             if ($query->exactCounts && $capped) {
                 $statement = ['label' => self::EXACT_LABEL] + ($run['ranked'] === null
@@ -736,7 +740,15 @@ final class PostgresEngine implements Engine, Vocabulary, SynonymStems, Suggesti
             // the facets that keep every condition count the very candidates of the search: two or more of them share one statement
             $common = array_values(array_unique(array_filter($query->facets, static fn(string $name): bool => $others[$name] === $conditions)));
             $facetRows = [];
-            if (count($common) > 1) {
+            $ids = $run['ranked'] !== null && $common !== [] ? self::candidateIds($rows) : null;
+            if ($ids !== null && count($common) > 1) {
+                $statement = ['label' => self::FACET_LABEL . implode(', ', $common)] + $builder->facetsOf($ids, $common, $query->facetValues);
+                $facetRows = array_fill_keys($common, []);
+                foreach ($this->run($statement, null) as $row) { // ids: it reads no similarity setting
+                    $facetRows[$common[Coerce::int($row['f'])]][] = $row;
+                }
+                $statements[] = $statement;
+            } elseif (count($common) > 1) {
                 $statement = ['label' => self::FACET_LABEL . implode(', ', $common)] + ($run['ranked'] === null
                     ? $builder->browseFacets($common, $conditions, $thresholds, $query->facetValues, $query->exactCounts)
                     : $builder->facets($common, $run['ranked']['tsquery'], $run['ranked']['plain'], $run['ranked']['fuzzyRoot'], $conditions, $profile, $thresholds, $query->facetValues, $query->exactCounts, $run['ranked']['emptyQueries'], $run['ranked']['scopedRoot']));
@@ -747,10 +759,18 @@ final class PostgresEngine implements Engine, Vocabulary, SynonymStems, Suggesti
                 $statements[] = $statement;
             }
             foreach ($query->facets as $name) {
-                if (!isset($facetRows[$name])) {
+                if (!isset($facetRows[$name]) && $ids !== null && $others[$name] === $conditions) {
+                    // the facet counts the very candidates of the page
+                    $statement = ['label' => self::FACET_LABEL . $name] + $builder->facetsOf($ids, [$name], $query->facetValues);
+                    $facetRows[$name] = $this->run($statement, null);
+                    $statements[] = $statement;
+                } elseif (!isset($facetRows[$name])) {
                     // the conditions differ from the search's: the facet needs its own candidates
                     // the probed candidates passed every condition: a facet that leaves one out keeps the words' trigram condition
-                    $facetBuilder = $others[$name] === $conditions ? $builder : new SearchSqlBuilder($index, $this->names, [], $query->allowedFields, true, cappedColumn: $this->cappedColumn($index));
+                    $facetBuilder = $others[$name] === $conditions ? $builder : new SearchSqlBuilder($index, $this->names, [], $query->allowedFields, true, cappedColumn: $this->cappedColumn($index), pool: ($run['ranked']['pool'] ?? []) === [] || $run['ranked']['fuzzyRoot'] === null
+                        ? []
+                        // a very common typo-tolerant word: its pool for the facet's own conditions (a condition left out makes it larger)
+                        : $this->pool($facetFuzzy = new FuzzyQueryCompiler($index, $thresholds, $this->names, [], $query->allowedFields, true, cappedColumn: $this->cappedColumn($index)), $run['ranked']['fuzzyRoot'], $run['ranked']['emptyQueries'], $others[$name], $thresholds->candidateLimit, $this->fuzzyCandidates($facetFuzzy, $run['ranked']['fuzzyRoot'], $run['ranked']['emptyQueries'], $thresholds, $others[$name])['overflowing']), orderedTypo: $run['ranked']['ordered'] ?? true);
                     $statement = ['label' => self::FACET_LABEL . $name] + ($run['ranked'] === null
                         ? $facetBuilder->browseFacet($name, $others[$name], $thresholds, $query->facetValues, $query->exactCounts)
                         : $facetBuilder->facet($name, $run['ranked']['tsquery'], $run['ranked']['plain'], $run['ranked']['fuzzyRoot'], $others[$name], $profile, $thresholds, $query->facetValues, $query->exactCounts, $run['ranked']['emptyQueries'], $run['ranked']['scopedRoot']));
@@ -1068,8 +1088,8 @@ final class PostgresEngine implements Engine, Vocabulary, SynonymStems, Suggesti
      *     emptyQueries: list<string>|null,
      *     browse: bool,
      *     warnings: list<string>,
-     *     ranked: array{tsquery: string|null, plain: string, fuzzyRoot: Node|null, emptyQueries: list<string>, scopedRoot: Node|null, candidates: array<string, list<int|string>>}|null,
-     *     phase: (\Closure(): array{rows: list<array<string, mixed>>, statements: list<array{label: string, sql: string, params: array<string, scalar|null>}>, threshold: float|null, ranked: array{tsquery: string|null, plain: string, fuzzyRoot: Node|null, emptyQueries: list<string>, scopedRoot: Node|null, candidates: array<string, list<int|string>>}})|null
+     *     ranked: array{tsquery: string|null, plain: string, fuzzyRoot: Node|null, emptyQueries: list<string>, scopedRoot: Node|null, candidates: array<string, list<int|string>>, pool: array<string, list<int|string>>, ordered: bool}|null,
+     *     phase: (\Closure(): array{rows: list<array<string, mixed>>, statements: list<array{label: string, sql: string, params: array<string, scalar|null>}>, threshold: float|null, ranked: array{tsquery: string|null, plain: string, fuzzyRoot: Node|null, emptyQueries: list<string>, scopedRoot: Node|null, candidates: array<string, list<int|string>>, pool: array<string, list<int|string>>, ordered: bool}})|null
      * }
      */
     private function pipeline(IndexDefinition $index, ?Node $root, array $conditions, RankingProfile $profile, Thresholds $thresholds, SearchQuery $query, string $labelPrefix, bool $defer = false): array
@@ -1104,6 +1124,10 @@ final class PostgresEngine implements Engine, Vocabulary, SynonymStems, Suggesti
         }
 
         $builder = new SearchSqlBuilder($index, $this->names, [], $query->allowedFields, true, cappedColumn: $this->cappedColumn($index));
+        // the facets that keep every condition count the very candidates of the page's own selection (see SearchSqlBuilder::facetsOf()), unless
+        // the page is past the candidate limit (its selection is larger, and the facets of a search must not change with the page) or the
+        // counts are exact (they read every match)
+        $withIds = $query->facets !== [] && !$query->exactCounts && SearchSqlBuilder::window($thresholds, $query->limit, $query->offset) === $thresholds->candidateLimit;
         /** @var list<array{label: string, sql: string, params: array<string, scalar|null>}> $statements */
         $statements = [];
         $threshold = null;
@@ -1114,18 +1138,33 @@ final class PostgresEngine implements Engine, Vocabulary, SynonymStems, Suggesti
         // the recheck drops stop words as the strict tsquery does, so it needs them up front
         $emptyQueries = $scopedRoot === null ? null : $this->fuzzyStopWords($index, $fuzzy, $scopedRoot, $fuzzyRoot);
         // the typo-tolerant statements: the candidates of each word probed on its own, then the ranked statement over them
-        $typoPhase = fn(Node $fuzzyRoot, string $label, array $empty): \Closure => fn(): array => $this->inSearchTransaction(function () use ($index, $fuzzy, $builder, $fuzzyRoot, $label, $empty, $conditions, $profile, $thresholds, $query, $tsquery, $plain, $scopedRoot): array {
+        $typoPhase = fn(Node $fuzzyRoot, string $label, array $empty): \Closure => fn(): array => $this->inSearchTransaction(function () use ($index, $fuzzy, $fuzzyRoot, $label, $empty, $conditions, $profile, $thresholds, $query, $tsquery, $plain, $scopedRoot, $withIds): array {
             /** @var list<string> $empty */
-            $candidates = $this->fuzzyCandidates($fuzzy, $fuzzyRoot, $empty, $thresholds, $conditions);
+            ['candidates' => $candidates, 'overflowing' => $overflowing] = $this->fuzzyCandidates($fuzzy, $fuzzyRoot, $empty, $thresholds, $conditions);
+            $pool = [];
+            $ordered = false;
+            // the cheap selection first (the first matches the trigram index returns): a search whose typo branch is under the candidate limit is
+            // done with it, as it always was
             $statement = ['label' => $label]
-                + ($candidates === [] ? $builder : new SearchSqlBuilder($index, $this->names, $candidates, $query->allowedFields, true, cappedColumn: $this->cappedColumn($index)))->ranked($tsquery, $plain, $fuzzyRoot, $conditions, $profile, $thresholds, $query->limit, $query->offset, $empty, $scopedRoot);
+                + (new SearchSqlBuilder($index, $this->names, $candidates, $query->allowedFields, true, cappedColumn: $this->cappedColumn($index), orderedTypo: false))->ranked($tsquery, $plain, $fuzzyRoot, $conditions, $profile, $thresholds, $query->limit, $query->offset, $empty, $scopedRoot, $withIds);
             $threshold = $fuzzy->lowestSimilarity($fuzzyRoot, $empty);
+            $rows = $this->run($statement, $threshold);
+            $statements = [$statement];
+            if ($rows !== [] && Coerce::int($rows[0]['fuzzy_n']) >= $thresholds->candidateLimit) {
+                // capped: the best candidates by the page's sort key, over the pool of the very common words (see fuzzyCandidates())
+                $pool = $this->pool($fuzzy, $fuzzyRoot, $empty, $conditions, $thresholds->candidateLimit, $overflowing);
+                $ordered = true;
+                $statement = ['label' => $label]
+                    + (new SearchSqlBuilder($index, $this->names, $candidates, $query->allowedFields, true, cappedColumn: $this->cappedColumn($index), pool: $pool))->ranked($tsquery, $plain, $fuzzyRoot, $conditions, $profile, $thresholds, $query->limit, $query->offset, $empty, $scopedRoot, $withIds);
+                $rows = $this->run($statement, $threshold);
+                $statements = [$statement]; // the cheap one is not what the search used
+            }
 
             return [
-                'rows' => $this->run($statement, $threshold),
-                'statements' => [$statement],
+                'rows' => $rows,
+                'statements' => $statements,
                 'threshold' => $threshold,
-                'ranked' => ['tsquery' => $tsquery, 'plain' => $plain, 'fuzzyRoot' => $fuzzyRoot, 'emptyQueries' => $empty, 'scopedRoot' => $scopedRoot, 'candidates' => $candidates],
+                'ranked' => ['tsquery' => $tsquery, 'plain' => $plain, 'fuzzyRoot' => $fuzzyRoot, 'emptyQueries' => $empty, 'scopedRoot' => $scopedRoot, 'candidates' => $candidates, 'pool' => $pool, 'ordered' => $ordered],
             ];
         });
 
@@ -1141,10 +1180,10 @@ final class PostgresEngine implements Engine, Vocabulary, SynonymStems, Suggesti
             if ($alwaysFuzzy && $fuzzyRoot !== null) {
                 $phase = $typoPhase($fuzzyRoot, $labelPrefix . 'full-text + fuzzy', $emptyQueries ?? []);
             } else {
-                $statement = ['label' => $labelPrefix . 'full-text'] + $builder->ranked($tsquery, $plain, null, $conditions, $profile, $thresholds, $query->limit, $query->offset, $emptyQueries ?? [], $scopedRoot);
+                $statement = ['label' => $labelPrefix . 'full-text'] + $builder->ranked($tsquery, $plain, null, $conditions, $profile, $thresholds, $query->limit, $query->offset, $emptyQueries ?? [], $scopedRoot, $withIds);
                 $rows = $this->run($statement, null);
                 $statements[] = $statement;
-                $ranked = ['tsquery' => $tsquery, 'plain' => $plain, 'fuzzyRoot' => null, 'emptyQueries' => $emptyQueries ?? [], 'scopedRoot' => $scopedRoot, 'candidates' => []];
+                $ranked = ['tsquery' => $tsquery, 'plain' => $plain, 'fuzzyRoot' => null, 'emptyQueries' => $emptyQueries ?? [], 'scopedRoot' => $scopedRoot, 'candidates' => [], 'pool' => [], 'ordered' => true];
 
                 if (
                     $fuzzyRoot !== null
@@ -1188,8 +1227,8 @@ final class PostgresEngine implements Engine, Vocabulary, SynonymStems, Suggesti
      *     emptyQueries: list<string>|null,
      *     browse: bool,
      *     warnings: list<string>,
-     *     ranked: array{tsquery: string|null, plain: string, fuzzyRoot: Node|null, emptyQueries: list<string>, scopedRoot: Node|null, candidates: array<string, list<int|string>>}|null,
-     *     phase: (\Closure(): array{rows: list<array<string, mixed>>, statements: list<array{label: string, sql: string, params: array<string, scalar|null>}>, threshold: float|null, ranked: array{tsquery: string|null, plain: string, fuzzyRoot: Node|null, emptyQueries: list<string>, scopedRoot: Node|null, candidates: array<string, list<int|string>>}})|null
+     *     ranked: array{tsquery: string|null, plain: string, fuzzyRoot: Node|null, emptyQueries: list<string>, scopedRoot: Node|null, candidates: array<string, list<int|string>>, pool: array<string, list<int|string>>, ordered: bool}|null,
+     *     phase: (\Closure(): array{rows: list<array<string, mixed>>, statements: list<array{label: string, sql: string, params: array<string, scalar|null>}>, threshold: float|null, ranked: array{tsquery: string|null, plain: string, fuzzyRoot: Node|null, emptyQueries: list<string>, scopedRoot: Node|null, candidates: array<string, list<int|string>>, pool: array<string, list<int|string>>, ordered: bool}})|null
      * } $run
      *
      * @return array{
@@ -1202,8 +1241,8 @@ final class PostgresEngine implements Engine, Vocabulary, SynonymStems, Suggesti
      *     emptyQueries: list<string>|null,
      *     browse: bool,
      *     warnings: list<string>,
-     *     ranked: array{tsquery: string|null, plain: string, fuzzyRoot: Node|null, emptyQueries: list<string>, scopedRoot: Node|null, candidates: array<string, list<int|string>>}|null,
-     *     phase: (\Closure(): array{rows: list<array<string, mixed>>, statements: list<array{label: string, sql: string, params: array<string, scalar|null>}>, threshold: float|null, ranked: array{tsquery: string|null, plain: string, fuzzyRoot: Node|null, emptyQueries: list<string>, scopedRoot: Node|null, candidates: array<string, list<int|string>>}})|null
+     *     ranked: array{tsquery: string|null, plain: string, fuzzyRoot: Node|null, emptyQueries: list<string>, scopedRoot: Node|null, candidates: array<string, list<int|string>>, pool: array<string, list<int|string>>, ordered: bool}|null,
+     *     phase: (\Closure(): array{rows: list<array<string, mixed>>, statements: list<array{label: string, sql: string, params: array<string, scalar|null>}>, threshold: float|null, ranked: array{tsquery: string|null, plain: string, fuzzyRoot: Node|null, emptyQueries: list<string>, scopedRoot: Node|null, candidates: array<string, list<int|string>>, pool: array<string, list<int|string>>, ordered: bool}})|null
      * }
      */
     private function completed(array $run): array
@@ -1333,26 +1372,111 @@ final class PostgresEngine implements Engine, Vocabulary, SynonymStems, Suggesti
      * The documents each typo-tolerant word matches on its own, asked word by word at the word's own similarity:
      * with the session's threshold set for the lowest word of the whole statement, the trigram index would return
      * (and PostgreSQL read) every row that merely starts alike for a word that needs more (see FuzzyQueryCompiler).
-     * A word with more matches than the candidate limit is left out and keeps its trigram condition.
+     * A word with more matches than the candidate limit is left out of `candidates` and keeps its trigram condition (`overflowing`,
+     * with the similarity it needs).
+     *
+     * pools(): when the search is capped, such a word gets a pool: the documents at least as close as a similarity found by halving the
+     * interval between the word's own and 1 (at most POOL_STEPS probes, each stopping at POOL_FACTOR times the limit), until a level whose pool holds
+     * between the limit and that many documents. The pool depends on the content of the fields the viewer reads only, never on the order of
+     * the rows in the table, and bounds the work of the ordered selection (see SearchSqlBuilder); the documents of the pool are
+     * the closest spellings of the word. A word with more than POOL_FACTOR times the limit documents that are as close as can
+     * be (the word itself, very common) has none.
      *
      * Each probe applies the search's conditions (tenant and filters): only documents the search could return are probed.
      *
      * @param list<string>    $emptyQueries
      * @param list<Condition> $conditions
      *
-     * @return array<string, list<int|string>>
+     * @return array{candidates: array<string, list<int|string>>, overflowing: array<string, float>}
      */
     private function fuzzyCandidates(FuzzyQueryCompiler $fuzzy, Node $root, array $emptyQueries, Thresholds $thresholds, array $conditions): array
     {
+        $cap = $thresholds->candidateLimit;
         $candidates = [];
-        foreach ($fuzzy->probes($root, $thresholds->candidateLimit, $emptyQueries, $conditions) as $key => $probe) {
-            $ids = array_map(static fn(array $row): int|string => is_int($row['id']) ? $row['id'] : Coerce::str($row['id']), $this->run(['sql' => $probe['sql'], 'params' => $probe['params']], $probe['similarity']));
-            if (count($ids) <= $thresholds->candidateLimit) {
+        $overflowing = [];
+        foreach ($fuzzy->probes($root, $cap, $emptyQueries, $conditions) as $key => $probe) {
+            $ids = $this->probeIds($probe);
+            if (count($ids) <= $cap) {
                 $candidates[$key] = $ids;
+            } else {
+                $overflowing[$key] = $probe['similarity'];
             }
         }
 
-        return $candidates;
+        return ['candidates' => $candidates, 'overflowing' => $overflowing];
+    }
+
+    /**
+     * The pool of every very common word (see pools()), or none when one of them has none: that word keeps its unbounded trigram
+     * condition, which a pool of the others cannot make deterministic.
+     *
+     * @param list<string>         $emptyQueries
+     * @param list<Condition>      $conditions
+     * @param array<string, float> $overflowing
+     *
+     * @return array<string, list<int|string>>
+     */
+    private function pool(FuzzyQueryCompiler $fuzzy, Node $root, array $emptyQueries, array $conditions, int $cap, array $overflowing): array
+    {
+        if ($overflowing === []) {
+            return [];
+        }
+        $pool = $this->pools($fuzzy, $root, $emptyQueries, $conditions, $cap, $overflowing);
+
+        return count($pool) === count($overflowing) ? $pool : [];
+    }
+
+    /**
+     * @param list<string>         $emptyQueries
+     * @param list<Condition>      $conditions
+     * @param array<string, float> $own          the similarity each word needs by itself
+     *
+     * @return array<string, list<int|string>>
+     */
+    private function pools(FuzzyQueryCompiler $fuzzy, Node $root, array $emptyQueries, array $conditions, int $cap, array $own): array
+    {
+        $limit = self::POOL_FACTOR * $cap;
+        $pools = [];
+        $high = array_fill_keys(array_keys($own), 1.0);
+        $low = $own;
+        $active = array_keys($own);
+        for ($step = 0; $step <= self::POOL_STEPS && $active !== []; ++$step) {
+            $levels = [];
+            foreach ($active as $key) {
+                $levels[$key] = $step === 0 ? 1.0 : ($low[$key] + $high[$key]) / 2;
+            }
+            $next = [];
+            foreach ($fuzzy->probes($root, $limit, $emptyQueries, $conditions, $levels) as $key => $probe) {
+                $ids = $this->probeIds($probe);
+                if (count($ids) <= $limit) {
+                    $pools[$key] = $ids;
+                    $high[$key] = $levels[$key];
+                    if (count($ids) < $cap) {
+                        $next[] = $key; // too few to fill the candidates: lower
+                    }
+                } elseif ($step > 0) {
+                    $low[$key] = $levels[$key];
+                    $next[] = $key;
+                }
+                // at the top similarity already too many documents: no pool for this word
+            }
+            $active = $next;
+        }
+
+        return $pools;
+    }
+
+    /**
+     * @param array{sql: string, params: array<string, scalar|null>, similarity: float} $probe
+     *
+     * @return list<int|string>
+     */
+    private function probeIds(array $probe): array
+    {
+        $ids = array_map(static fn(array $row): int|string => is_int($row['id']) ? $row['id'] : Coerce::str($row['id']), $this->run(['sql' => $probe['sql'], 'params' => $probe['params']], $probe['similarity']));
+        sort($ids); // the probe has no order: the ids are bound into statements (explain() shows them), which must not follow the heap
+
+        return $ids;
     }
 
     /**
@@ -1513,6 +1637,28 @@ final class PostgresEngine implements Engine, Vocabulary, SynonymStems, Suggesti
         }
 
         return $result;
+    }
+
+    /**
+     * The ids of the candidates a ranked statement returned (its `cand_ids`, when it was asked for them), else null.
+     *
+     * @param list<array<string, mixed>> $rows
+     *
+     * @return list<int|string>|null
+     */
+    private static function candidateIds(array $rows): ?array
+    {
+        if ($rows === [] || !array_key_exists('cand_ids', $rows[0])) {
+            return null;
+        }
+        $json = $rows[0]['cand_ids'];
+        if ($json === null) {
+            return []; // no candidate passed the minimum score
+        }
+        $ids = json_decode(Coerce::str($json), true, 4, JSON_THROW_ON_ERROR);
+        assert(is_array($ids));
+
+        return array_values(array_map(static fn(mixed $id): int|string => is_int($id) ? $id : Coerce::str($id), $ids));
     }
 
     /** @param list<array<string, mixed>> $rows */

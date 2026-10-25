@@ -474,8 +474,7 @@ foreach ($result->facets['category_id'] as $facet) {   // FacetValue: ->value, -
   would find (the usual shop behaviour): after `where('category_id', 3)` the category facet still lists
   the other categories, with the counts they would have; the other conditions, and the tenant, count.
 - **Counts are over the candidates**: when the search hit its candidate limit
-  (`$result->totalIsLowerBound`), the counts are lower bounds ("120+"), taken over the first `candidate_limit` matches the index
-  returns (the cheap selection), while `total` and the hits come from the best candidates ([limitation](limitations.md#facet-counts-are-over-the-candidates)). `exactCounts()` counts every
+  (`$result->totalIsLowerBound`), the counts are lower bounds ("120+"), taken over the very candidates the hits come from (the best `candidate_limit` documents, whatever the order of the table; [limitation](limitations.md#facet-counts-are-over-the-candidates)). `exactCounts()` counts every
   match instead, for the total and for the facets:
 
   ```php

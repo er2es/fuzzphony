@@ -37,8 +37,7 @@ final readonly class Thresholds
         public int $fallbackBelow = 5,
         /**
          * Candidates ranked per branch; protects against "match half the table" queries. At most MAX_CANDIDATE_LIMIT. A word with
-         * more matches than this is ranked over its best matches (the full-text branch; the typo-tolerant branch takes the first ones
-         * the index returns), and a page past it selects `offset + limit` candidates, up to MAX_CANDIDATE_LIMIT.
+         * more matches than this is ranked over its best matches (both branches; the typo-tolerant one within a smaller scan budget), and a page past it selects `offset + limit` candidates, up to MAX_CANDIDATE_LIMIT.
          */
         public int $candidateLimit = 2000,
         /** Longer search text is truncated (with a warning). At most MAX_QUERY_LENGTH. */

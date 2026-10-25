@@ -129,6 +129,35 @@ The first run after a restart reads the table from disk and is much slower (seco
 spread over every page); the figures are warm. Both columns were measured on the same machine in the same session, but
 single-digit milliseconds on a shared laptop are noise.
 
+### Typo words and facets of a capped search (0.9.9)
+
+The typo branch used to take the first `candidate_limit` matches of its trigram index (cheap, but not the best, and in the order of the
+table); a typo word that matches more documents than that (`mouss` is 20 000 look-alikes on 200 000 products) now gets the best
+candidates by the page's sort key, inside a pool of its closest spellings and among the first 30 000 matches
+([Known limitations](limitations.md#ranking-of-very-common-words)). The facets of a capped search count the ids the statement of the hits returns. Median of 7 runs, warm, `candidate_limit` 2000, 200 000 / 1 000 000 products (the second figure of a pair is the 1 000 000-row database with the same planted documents; a cold cache makes the 1 000 000 figures of the
+strict common-word rows jump by seconds, so they were repeated warm), 0.9.8 -> 0.9.9:
+
+| search | 0.9.8 | 0.9.9 |
+|---|---:|---:|
+| `mouss`, fallback / always | 41 / 41 ms; 64 / 63 ms | 301 / 298 ms; 457 / 439 ms |
+| `wireles`, fallback / always | 52 / 50 ms; 93 / 92 ms | 331 / 337 ms; 662 / 675 ms |
+| `hedphones`, fallback | 46 ms; 64 ms | 344 ms; 667 ms |
+| `wireles mose` (two typo words) | 89 ms; 130 ms | 367 ms; 1 106 ms |
+| `mouss`, restricted viewer | 48 ms; 65 ms | 304 ms; 442 ms |
+| `mouss` with two facets / and an active filter | 68 / 93 ms; 100 / 133 ms | 316 / 554 ms; 457 / 870 ms |
+| `screwdrivr 1234` (two words, under the limit) | 40 ms; 83 ms | 40 ms; 89 ms |
+| `wireless`, `fuzzy_mode: always` | 77 ms; 322 ms | 244 ms; 833 ms |
+| `ideal`, `fuzzy_mode: always` | 140 ms; 256 ms | 324 ms; 629 ms |
+| `wireless` with two facets / and an active filter (strict) | 50 / 58 ms; 271 / 281 ms | 45 / 76 ms; 257 / 507 ms |
+| a filter-only listing with a facet | 2.2 ms; 1.8 ms | 2.2 ms; 2.1 ms |
+
+The cost is the second selection, about 8 microseconds per scored match (every trigram match is rechecked on the text of the
+typo-tolerant fields, ten times a full-text match) over at most 30 000 matches, plus four probes of the pool (20 to 30 ms each at both
+sizes: the bitmap of the whole trigram posting list is built before a probe stops). A typo search that stays under the limit runs the cheap
+selection only and costs what it did. Where the look-alikes are one group of equal similarity (`wireles` is `0.875` to every `wireless`
+document) the group is scored whole up to the budget; the planted `Wireles`, `Mousse`/`Mousss` and `Hedphones` documents come first at
+both sizes, where the first 2 000 matches of the index missed the `Mousss` ones before.
+
 ## Reading the numbers
 
 The two columns do different work. `ILIKE … LIMIT 20` returns the first 20 rows the scan reaches,

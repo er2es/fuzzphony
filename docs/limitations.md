@@ -157,22 +157,38 @@ the same cheap selection as before and returns the same hits.
 - `min_score` keeps the documents under it out of the candidate slots (the strict branch), so a query that
   needs it still finds its best documents; `total` stays flagged as a lower bound.
 
-**Typo-tolerant branch: still approximate.** The typo branch (a word that is misspelled, `fuzzy_mode: always`,
-or a search that found too little) still collects the first `candidate_limit` matches of its trigram index, **not
-the best ones**: with a very common typo-tolerant word the closest spelling can be missing, because 3 000 weaker
-look-alikes crowd it out. It is planned for 0.9.9. In `fuzzy_mode: always` the typo candidates are added to
-the strict ones, so a very common word there keeps its approximate part.
+**Typo-tolerant branch: the best candidates too, exact up to a smaller budget.** The typo branch (a word that is misspelled,
+`fuzzy_mode: always`, or a search that found too little) first takes the cheap selection, the first `candidate_limit` matches
+of its trigram index. When a typo-tolerant word matches more documents than that, the candidates are the best by the same sort
+key as the strict branch (similarity, bonuses, boost, recency, then the id), not the first ones: among 20 000 documents that
+look like `mouss`, the planted `Mousss` documents are candidates and come first. A typo search whose candidates stay under the
+limit is not affected at all: it runs the cheap selection only and returns what it returned before.
 
-**"First" is the physical order of the sidecar table.** The typo branch's first candidates, the first 100 000 matches
-beyond the scan budget, and the first `candidate_limit` matches the facets count are the ones a bitmap heap scan returns,
-in the order of the rows in the table. That order depends on how the rows were written (a reindex fills free space in
-earlier pages), and so on the size of every row, **hidden fields included**. For a restricted viewer this means: the strict
-candidates up to the scan budget, their order, the total and the hits are exact and independent of a hidden field (tests
-compare corpora that differ only in a hidden field's content and size); the typo branch's candidates, the strict ones
-beyond the budget, and the facet counts of a capped search (`totalIsLowerBound`) can differ between two corpora that
-differ only in a hidden field. Nothing a hidden field holds is shown by that (a document that holds a word only in a hidden
-field is never returned), but the difference is not zero. A deterministic order for the typo branch is planned for
-0.9.9.
+- **The pool.** For a typo word with more matches than the limit the search first asks the trigram index, word by word, for the
+  documents at least as close as a raised similarity (at most four probes of up to three times the limit each, halving the interval between the
+  word's own similarity and 1) and uses a level whose pool holds between the limit and three times the limit. That pool is a
+  set of document ids that depends on the content of the fields the viewer may read and nothing else, and the best candidates are chosen inside
+  it: exact, deterministic and independent of the order of the rows. The words of a two-word query each get their own pool.
+- **When no such level exists** (the look-alikes are one big group of equal similarity: `wireles` is `0.875` to every one of the 20 000 `wireless`
+  documents, and the word itself, with its exact matches in `fuzzy_mode: always`, is such a group) the pool holds the closest documents only
+  and the rest of the candidates are chosen among the first matches of the trigram index, scored with the same key. That selection is
+  exact when the matches are at most the typo scan budget, **30 000 matches divided by the number of words of the query** (an internal
+  constant: a document of this branch costs about 8 microseconds, ten times what a full-text match does, because every trigram match is
+  rechecked on the text of the typo-tolerant fields), and beyond it the document that would rank first can be missing, as with the strict
+  branch beyond 100 000. A typo word is that common in 15 % of the rows of a 200 000-row catalogue and 3 % of a 1 000 000-row one.
+- **Cost.** About 8 milliseconds per thousand scored matches, plus four probes: a capped typo search costs 0.3 to 0.4 s on 200 000 products (40 to 90 ms before)
+  and 0.4 to 1 s on 1 000 000 (60 to 130 ms before), more with facets
+  ([Benchmarks](benchmarks.md#common-words)); a typo search under the limit costs what it did. In `fuzzy_mode: always` the strict
+  and the typo branch now choose the same best documents, so the candidate set (and `total`, a lower bound) is smaller than before, where the
+  first 2 000 of each branch were different documents.
+
+**What decides which documents are candidates, on every branch.** The text rank, the bonuses and the similarity of the fields the viewer
+may read, the id, and the filters. Not the physical order of the sidecar table (which the size of every row, hidden fields included,
+shapes): the strict candidates up to 100 000 matches, the typo candidates up to the typo scan budget (or the pool), and the facet
+counts of a capped search depend on content only, and tests compare corpora that differ only in a hidden field. Beyond those budgets
+the first matches of the index are taken, in the table's physical order: for a restricted viewer that is the one remaining difference between two
+corpora that differ in a hidden field only. Nothing a hidden field holds is shown by it (a document that holds a word only in a hidden
+field is never returned), but the difference is not zero ([Security](security.md#the-limits-stated-honestly)).
 
 `exactCounts()` counts everything the query matches, for the total and the facets, but the page of hits is
 still the ranked candidates ([Facets](searching.md#facets)).
@@ -186,12 +202,14 @@ it to request input): it reads every match and can take seconds on a large index
 
 ### Facet counts are over the candidates
 
-The counts of `facets()` are taken over the first `candidate_limit` matches the index returns (the cheap
-selection, not the best ones), while `total` and the hits come from the best candidates: when a word is more
-common than the limit the two are different sets, and the counts are lower bounds ("120+"; the Live Component
-prints the `+`). With `exactCounts()` every match is counted: in the example above, a limit of 10 gave 4, 3
-and 3 for three categories, and the exact counts were 1 001, 1 000 and 1 000. A page past the limit selects more
-hits but not more facet candidates. See [Facets](searching.md#facets).
+When the search hit its candidate limit the counts of `facets()` are taken over the very candidates the hits come from (the best
+`candidate_limit` documents of the strict branch and, with typo tolerance, of the typo branch; the statement that finds the hits
+returns their ids and the facets count them), so a facet shows the documents the page was chosen from, and does not depend on the
+order of the table. They are still lower bounds ("120+"; the Live Component prints the `+`) while `total` is a lower bound too, and a
+page past the limit (which selects more hits) does not count more facet candidates. A facet that leaves a condition out
+(the disjunctive facet of an active filter) selects its own candidates, by the same rule. A filter-only listing with no text counts the
+first `candidate_limit` documents by id. With `exactCounts()` every match is counted: in the example above, a limit of 10 gave
+4, 3 and 3 for three categories, and the exact counts were 1 001, 1 000 and 1 000. See [Facets](searching.md#facets).
 
 ### A restricted viewer's very common word in a hidden typo-tolerant field is slow
 
