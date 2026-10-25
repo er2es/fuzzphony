@@ -80,12 +80,14 @@ it works on the normalised text of the typo-tolerant fields, stop words included
 `title:who` and the quoted phrase `"to be or not to be"` find "The Who" and "To be or not to be". It has its
 limits:
 
-- Only a query whose positive words are all stop words. One real word and the stop words around it are ignored as
-  before. Exclusions do not matter: `the who -rock` searches `the who` and leaves out the documents that have `rock`
-  (before 0.9.9 its full-text branch was "everything but rock", and that is what came back). An excluded stop word
-  (`the who -the`, `the -who`) is dropped, it excludes nothing. Where the stop-word search does not apply (no
-  typo-tolerant search, more than three words, a word shorter than `fuzzy_min_length`) such a query is as it always was:
-  `the who -rock` with `fuzzy_mode: never` is still "everything but rock".
+- Only a query whose every word is a stop word, or a top-level AND of stop words with exclusions. One real word and
+  the stop words around it are ignored as before. `the who -rock` and `the who -(rock OR roll)` search `the who` and
+  leave out the documents that have `rock` (before 0.9.9 their full-text branch was "everything but rock", and that is
+  what came back). A query with an OR at the top level, or an OR or an exclusion inside a positive group (`the OR -rock`,
+  `(the -rock) OR who`, `(the OR who) -rock`), is as it always was. An excluded stop word (`the who -the`, `the -who`)
+  is dropped, it excludes nothing. Where the stop-word search does not apply (no typo-tolerant search, more than three
+  words, a word shorter than `fuzzy_min_length`) such a query is as it always was: `the who -rock` with
+  `fuzzy_mode: never` is still "everything but rock".
 - Only with typo tolerance: the index has a typo-tolerant field and `fuzzy_mode` is not `never` (the ranking
   profile's `fuzzy` weight is not 0). Without it nothing changes and the query finds nothing.
 - Only in the typo-tolerant fields, and as a look-alike, like every typo-tolerant word: `who` ranks "Who" and

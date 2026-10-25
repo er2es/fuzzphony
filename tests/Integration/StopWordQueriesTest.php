@@ -176,6 +176,7 @@ final class StopWordQueriesTest extends TestCase
         self::assertSame([3, 6], self::sorted($this->search('the who -band', $mode)->get()->ids()));
         self::assertSame([1, 5, 6], self::sorted($this->search('the who -(rock opera)', $mode)->get()->ids()), 'a group excludes the documents that have both: 3 has, 1 has no "opera"');
         self::assertSame([6], $this->search('the who -rock -band', $mode)->get()->ids());
+        self::assertSame([5, 6], self::sorted($this->search('the who -(rock OR opera)', $mode)->get()->ids()), 'an OR inside the exclusion is still a top-level exclusion');
         self::assertSame([], $this->search('the who -rock -zebra -band', $mode)->get()->ids(), 'every candidate is excluded: nothing, not "everything else"');
         self::assertSame([1, 3, 5, 6], self::sorted($this->search('the who -zzzzzz', $mode)->get()->ids()), 'an exclusion that matches nothing');
         self::assertSame([5, 6], self::sorted($this->search('-rock the who', $mode)->get()->ids()), 'the order does not matter');
@@ -219,11 +220,23 @@ final class StopWordQueriesTest extends TestCase
         $this->fuzzphony->reindex('stop_docs');
         self::assertContains(7, $this->search('the who and for -rock')->get()->ids(), 'four stop words and an exclusion: not searched');
         self::assertSame([30], $this->search('the who and -rock')->get()->ids(), 'three words are');
-        // an exclusion inside an OR is searched (the typo-tolerant branch has the whole expression): it is not "everything but rock" either
-        $either = $this->search('(the -rock) OR who')->get();
-        self::assertTrue($either->usedFuzzy);
-        self::assertNotContains(7, $either->ids());
-        self::assertContains(5, $either->ids());
+        // an OR at the top level, or an OR or an exclusion inside a positive group, keeps the old rule and the old statements:
+        // "everything but rock" for the strict branch (the typo-tolerant branch does not run with that many hits)
+        foreach (['the OR -rock', '(the -rock) OR who', '(the who) OR rock', '(the OR who) -rock'] as $text) {
+            $either = $this->search($text)->get();
+            self::assertSame($this->mainResult($text), self::sorted($either->ids()), $text);
+        }
+        self::assertContains(7, $this->search('(the -rock) OR who')->get()->ids());
+    }
+
+    /**
+     * What the strict branch alone finds, the old behaviour of a query the rule does not touch: its fuzzy_mode never result.
+     *
+     * @return list<int|string>
+     */
+    private function mainResult(string $text): array
+    {
+        return self::sorted($this->search($text, 'never')->get()->ids());
     }
 
     public function testTheFiltersAndTheTenantStillApply(): void

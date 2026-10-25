@@ -51,7 +51,7 @@ final class StopWordExclusionIndependenceTest extends TestCase
             'sizes' => "repeat('filler rock text ', 1 + (i * 37) % 30)",
             'long' => "CASE WHEN i % 400 = 0 THEN repeat('zz the who rock ', 5000) ELSE 'zz rock' END",
         ];
-        $queries = ['the who -rock', 'the who -band', 'who the -rock -band', 'the who -secret', 'the -rock', '"the who" -rock', 'title:who the -rock', 'the who -rock -the'];
+        $queries = ['the who -rock', 'the who -band', 'who the -rock -band', 'the who -secret', 'the -rock', '"the who" -rock', 'title:who the -rock', 'the who -rock -the', '(the -rock) OR who', 'the who -(rock OR band)'];
         // below the candidate limit: with a cap the typo-tolerant branch keeps the candidates in the physical order of the sidecar (a known limit, see limitations.md)
         $outcomes = [];
         foreach ($variants as $variant => $hidden) {
