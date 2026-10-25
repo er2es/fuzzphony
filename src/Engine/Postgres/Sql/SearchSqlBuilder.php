@@ -55,10 +55,12 @@ final class SearchSqlBuilder
         /** @var (\Closure(): bool)|null whether the sidecar has the tsv_capped column (FuzzyQueryCompiler), asked when a phrase or a scoped word needs it */
         private readonly ?\Closure $cappedColumn = null,
         /**
-         * @var list<int|string> the ids of the closest spellings of the words that match more documents than the candidate limit, from
-         *                       PostgresEngine::fuzzyCandidates(): always among the typo-tolerant candidates (see scored())
+         * @var array<string, list<int|string>> for a typo-tolerant word with more matches than the candidate limit: the ids of the documents
+         *                                      at least as close as a raised similarity (FuzzyQueryCompiler::probes() with levels, by
+         *                                      candidateKey()), at most a few times the limit; the ordered selection of the typo branch
+         *                                      reads the word from them, so its pool does not depend on the order of the heap
          */
-        private readonly array $sure = [],
+        private readonly array $pool = [],
     ) {}
 
     /**
@@ -73,8 +75,9 @@ final class SearchSqlBuilder
      * The most matches the ordered selection of a capped typo-tolerant branch scores (divided by the number of words, like the
      * strict one): a document of this branch costs about seven times what a full-text match does, because every trigram match is
      * rechecked on the text of the typo-tolerant fields (about 8 microseconds on 200 000 short names), so the budget is smaller.
-     * Beyond it the closest spellings are still candidates (the `$sure` ids) and the rest is chosen among the first matches in
-     * index order. Not configurable, for the reason SCAN_BUDGET is not.
+     * A word with a pool (see $pool) has at most a few times the candidate limit of documents, far under it; the budget bounds the
+     * cost of a word that is itself very common (its exact matches), beyond it the matches are taken in index order. Not
+     * configurable, for the reason SCAN_BUDGET is not.
      */
     private const int TYPO_SCAN_BUDGET = 30_000;
 
@@ -217,11 +220,17 @@ final class SearchSqlBuilder
         ], static fn(?string $part): bool => $part !== null));
         // Per-term fuzzy branch: every word is satisfied exactly or fuzzily, through the query's
         // own AND / OR / NOT. Its per-word values are extra q columns.
+        $ordered = $window !== null && !$uncapped;
+        $poolFuzzy = null;
         $fuzzy = $fuzzyRoot === null ? null : $compiler->compile($fuzzyRoot, $params, $emptyQueries);
         if ($fuzzy !== null) {
             array_push($q, ...$fuzzy->columns);
-            if ($window !== null && !$uncapped && $this->sure !== []) {
-                $q[] = sprintf('CAST(%s AS %s[]) AS sure', $params->add(Sql::arrayLiteral($this->sure)), Types::id($this->index->idType));
+            if ($ordered && $this->pool !== []) {
+                // the ordered selection reads the words that have a pool from their ids: the same words, compiled once more
+                $poolFuzzy = (new FuzzyQueryCompiler($this->index, $thresholds, $this->names, $this->candidates + $this->pool, $this->allowedFields, $this->transpositions, $this->cappedColumn))->compile($fuzzyRoot ?? throw new \LogicException('A pool needs the parsed query.'), $params, $emptyQueries, 'p');
+                if ($poolFuzzy !== null) {
+                    array_push($q, ...$poolFuzzy->columns);
+                }
             }
         }
         // MATERIALIZED: one row computed once, and the planner must not see the per-word values (see FuzzyQueryCompiler)
@@ -236,7 +245,6 @@ final class SearchSqlBuilder
             $this->boostExpression($profile),
             $this->recencyExpression($profile),
         ];
-        $ordered = $window !== null && !$uncapped;
         $filterSql = $filters->compile($conditions, $params);
         $fast = 'fts';
         if ($tsquery !== null) {
@@ -310,28 +318,37 @@ final class SearchSqlBuilder
             );
             if ($ordered) {
                 $limit = $thresholds->candidateLimit;
-                // the closest spellings are scored first and whatever the budget cuts off, the others are the first matches in index order
-                $select = sprintf(
-                    "SELECT s.id, (%1\$s)::double precision AS r_fuzzy, %2\$s AS exact_bonus, %3\$s AS prefix_bonus, %4\$s AS boost_bonus, %5\$s AS recency_bonus
+                $columns = static fn(FuzzyMatch $by): string => sprintf('%s AS r_fuzzy', '(' . $by->score . ')::double precision');
+                $select = fn(FuzzyMatch $by, string $guard): string => sprintf(
+                    "SELECT s.id, %1\$s, %2\$s AS exact_bonus, %3\$s AS prefix_bonus, %4\$s AS boost_bonus, %5\$s AS recency_bonus
             FROM %6\$s AS s CROSS JOIN q
-            WHERE %7\$s AND %8\$s",
-                    $fuzzy->score,
+            WHERE %7\$s AND %8\$s%9\$s",
+                    $columns($by),
                     $bonuses[0],
                     $bonuses[1],
                     $bonuses[2],
                     $bonuses[3],
                     $table,
-                    $fuzzy->predicate,
+                    $by->predicate,
                     $filterSql,
+                    $guard,
                 );
                 $scan = self::scanLimit(min($this->scanBudget, self::TYPO_SCAN_BUDGET), $fuzzy->words, $limit);
-                $inner = $this->sure === []
-                    ? sprintf("%s
-            LIMIT %d", $select, $scan)
-                    : sprintf("(%s AND s.id = ANY(q.sure))
+                if ($poolFuzzy === null) {
+                    $inner = $select($fuzzy, '') . "
+            LIMIT " . $scan;
+                } else {
+                    // The pool: the documents at least as close as the pool level of every very common word (their ids). When it holds
+                    // enough, it IS the selection (nothing depends on the order of the heap any more); when it holds fewer, the first
+                    // matches of the scan fill the slots, and the pool is still in.
+                    $ctes[] = sprintf("fuzzy_pool AS (
+    %s
+)", $select($poolFuzzy, sprintf(' AND (SELECT count(*) FROM fuzzy_fast) >= %d', $limit)));
+                    $inner = sprintf("SELECT * FROM fuzzy_pool
             UNION
             (%s
-            LIMIT %d)", $select, $select, $scan);
+            LIMIT %d)", $select($fuzzy, sprintf(' AND (SELECT count(*) FROM fuzzy_pool) < %d', $limit)), $scan);
+                }
                 $ctes[] = sprintf(
                     "fuzzy AS (
     SELECT id, r_fuzzy FROM fuzzy_fast WHERE (SELECT count(*) FROM fuzzy_fast) < %1\$d
@@ -482,11 +499,21 @@ final class SearchSqlBuilder
             self::facetColumns($filters),
             $this->names->sidecar($this->index),
             (new FilterCompiler($this->index))->compile($conditions, $params),
-            $exact ? '' : "
-    LIMIT " . $thresholds->candidateLimit,
+            $exact ? '' : self::firstById($thresholds->candidateLimit),
         )];
 
         return ['sql' => $this->facetBranches($ctes, $filters, $values), 'params' => $params->all()];
+    }
+
+    /**
+     * The documents a capped count over a search without text reads: the first `$limit` by id, whatever the order of the heap
+     * (which the size of every field, a hidden one included, shapes). Lower bounds, like every capped count.
+     */
+    private static function firstById(int $limit): string
+    {
+        return "
+    ORDER BY s.id
+    LIMIT " . $limit;
     }
 
     /**
@@ -557,7 +584,7 @@ UNION ALL
             $column,
             $this->names->sidecar($this->index),
             (new FilterCompiler($this->index))->compile($conditions, $params),
-            $exact ? '' : "\n    LIMIT " . $thresholds->candidateLimit,
+            $exact ? '' : self::firstById($thresholds->candidateLimit),
             $values,
         );
 

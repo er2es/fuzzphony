@@ -311,15 +311,18 @@ final class FuzzyQueryCompiler
 
     /**
      * Registers every user-derived value in $params (the statement's own bag, so placeholder
-     * names stay unique). Null when nothing positive is left to match.
+     * names stay unique). Null when nothing positive is left to match. `$prefix` names the q columns apart
+     * when the statement holds a second compilation of the same query (a different candidate list).
      *
      * @param list<string> $emptyQueries leaf tsqueries the text configuration reduces to nothing (stop words)
      */
-    public function compile(Node $node, ParameterBag $params, array $emptyQueries = []): ?FuzzyMatch
+    public function compile(Node $node, ParameterBag $params, array $emptyQueries = [], string $prefix = ''): ?FuzzyMatch
     {
         $this->columns = [];
+        $this->prefix = $prefix;
         $this->allocateVariants($this->trigramLeaves($node, $emptyQueries));
         $compiled = $this->node($node, $params, $emptyQueries);
+        $this->prefix = '';
 
         return $compiled === null || $compiled['score'] === null ? null : new FuzzyMatch($compiled['predicate'], $compiled['score'], $this->columns, max(1, count($this->positiveLeaves($node))));
     }
