@@ -15,7 +15,7 @@ number at the top is how long PostgreSQL took.
 ## Search: the zero-result rescue
 
 `mpuse` (a letter replaced in the middle of `mouse`) is not found by typo tolerance, but the vocabulary has exactly one word one edit
-away, so the search is run once more with it and a bar above the results says so: "Showing results for `(mouse OR mice)`"
+away, so (once the typing has settled, or on Enter) the search is run once more with it and a bar above the results says so: "Showing results for `(mouse OR mice)`"
 (the synonyms of the corrected query show), with a link that searches the typed text as it is (`exact=1`). See
 [Zero-result rescue](searching.md#zero-result-rescue).
 

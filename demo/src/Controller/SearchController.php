@@ -66,10 +66,12 @@ final class SearchController extends AbstractController
         $exact = $request->query->getBoolean('exact');
 
         // The field searches as you type (the last word also matches as a beginning), and the library never rescues such a search:
-        // the last word is not finished. So the demo searches in two steps: as you type; and only when that finds nothing, the text
-        // once more as a finished one, where a typo with a unique one-edit correction (`mpuse` -> `mouse`) is rescued
-        // (SearchResult::$correctedFrom). The first step is a probe and never logged; the search that answers is logged (once, when the
-        // request counts), so the Analytics page sees `mpuse` with the rescued hits, not as a search that found nothing.
+        // the last word is not finished. The rescue is for a search the visitor means: a request that counts ($logged: a page load, a
+        // chip, Enter, or typing that has SETTLED, see live_search_controller.js) searches in two steps: as you type; and only when that
+        // finds nothing, the text once more as a finished one, where a typo with a unique one-edit correction (`mpuse` -> `mouse`) is
+        // rescued (SearchResult::$correctedFrom). While the visitor is still typing (an unlogged live request) there is only the plain
+        // as-you-type search and no bar. The first step is a probe and never logged; the search that answers is logged (once), so the
+        // Analytics page sees `mpuse` with the rescued hits, not as a search that found nothing.
         $build = static function (bool $asYouType, bool $log) use ($fuzzphony, $facets, $q, $category, $stock, $exact): SearchBuilder {
             $search = $fuzzphony->in('catalog')->query($q)->highlight('name')->limit(20);
             $search = $facets->narrow($asYouType ? $search->asYouType() : $search, $category, $stock);
@@ -87,7 +89,7 @@ final class SearchController extends AbstractController
             try {
                 $asYouType = true;
                 $result = $build(true, false)->facets('category_id', 'in_stock')->get();
-                if ($result->total === 0 && !$exact) {
+                if ($result->total === 0 && !$exact && $logged) {
                     $asYouType = false;
                     $result = $build(false, $logged)->facets('category_id', 'in_stock')->get();
                 } elseif ($logged) {

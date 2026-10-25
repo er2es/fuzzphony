@@ -359,7 +359,8 @@ check('the observability page points to who searched what', (await page.locator(
 
 // 14. the zero-result rescue: a typo that finds nothing, and has one word of the catalogue exactly one letter away, is answered with the results
 // of that word under a bar that says so ("Showing results for ..."), with a link that searches the typed text as it is (exact=1). The home page
-// searches as you type, which the library never rescues, so the page searches once more as a finished text when that finds nothing.
+// searches as you type, which the library never rescues, so the page searches once more as a finished text when that finds nothing, but
+// only for a search the visitor means (Enter, a chip, a link, a page load, or typing that has settled: 1.5 s), never while the text is typed.
 // `kpttle` (kettle) and `mpuse` (mouse) are one replaced letter in the middle of a word: typo tolerance does not find them, the rescue does.
 const resultsSettled = async (p, fragment) => {
     await p.waitForFunction((f) => location.search.includes(f), fragment);
@@ -370,7 +371,9 @@ await page.click('input[type=search]');
 await page.keyboard.type('kpttle', { delay: 50 });
 await resultsSettled(page, 'q=kpttle');
 const bar = page.locator('#results .corrected');
-check('rescue: a typo that finds nothing shows the bar with the corrected query', (await bar.count()) === 1 && /Showing results for\s+\S*kettle/.test(await bar.innerText()), (await bar.allInnerTexts()).join('|'));
+check('rescue: while the text is still being typed there is no bar, only the plain as-you-type answer', (await bar.count()) === 0 && (await page.locator('#results .hit-row').count()) === 0 && /Nothing found/.test(await page.locator('#results .empty').innerText()));
+await page.waitForSelector('#results .corrected', { timeout: 6000 }); // the settled text (1.5 s) is searched once more, and rescued
+check('rescue: once the typing has settled a typo that finds nothing shows the bar with the corrected query', (await bar.count()) === 1 && /Showing results for\s+\S*kettle/.test(await bar.innerText()), (await bar.allInnerTexts()).join('|'));
 check('rescue: and the results of the corrected query', (await page.locator('#results .hit-row').count()) > 0);
 check('rescue: and no second sentence for the same thing in the warnings', (await page.locator('#results .warnings').count()) === 0);
 check('rescue: and no "did you mean" (the suggestion was taken)', (await page.locator('#results .did-you-mean').count()) === 0);
@@ -385,7 +388,18 @@ await resultsSettled(page, 'q=kettle');
 check('rescue: a following search that needs no rescue removes the bar', (await page.locator('#results .corrected').count()) === 0 && (await page.locator('#results .hit-row').count()) > 0);
 await page.fill('input[name=q]', 'kpttle');
 await resultsSettled(page, 'q=kpttle');
-check('rescue: and typing the typo again brings it back', (await page.locator('#results .corrected').count()) === 1);
+check('rescue: typing the typo again shows no bar at first', (await page.locator('#results .corrected').count()) === 0);
+await page.waitForSelector('#results .corrected', { timeout: 6000 });
+check('rescue: and the settled text brings it back', (await page.locator('#results .corrected').count()) === 1 && (await page.locator('#results .hit-row').count()) > 0);
+await page.fill('input[name=q]', 'kettle');
+await page.waitForSelector('#results .hit-row');
+await page.waitForFunction(() => document.querySelectorAll('#results .corrected').length === 0);
+check('rescue: and a search that needs no rescue takes it away again', (await page.locator('#results .corrected').count()) === 0);
+// Enter is a search the visitor means: a page load, rescued at once
+await page.fill('input[name=q]', 'kpttle');
+await Promise.all([page.waitForURL(/q=kpttle/), page.keyboard.press('Enter')]);
+await page.waitForLoadState('load');
+check('rescue: Enter shows the bar at once, with the results', (await page.locator('#results .corrected').count()) === 1 && (await page.locator('#results .hit-row').count()) > 0);
 
 // the link, with the keyboard: the focus and Enter
 await page.locator('#results .corrected a').focus();
