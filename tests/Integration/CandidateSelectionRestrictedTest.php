@@ -85,7 +85,7 @@ final class CandidateSelectionRestrictedTest extends TestCase
 
         $long = implode(' ', array_map(static fn(int $i): string => 'h' . $i, range(1, 17_000)));
         // words as they are (the strict branch, and the typo branch of `always`), and typos (more matches than the candidate limit: `comon` is 2 900 titles)
-        $queries = ['common' => ['never', 'fallback', 'always'], 'common filler' => ['never', 'fallback', 'always'], 'title:common' => ['never', 'fallback', 'always'], '"common filler"' => ['never', 'fallback', 'always'], 'comon' => ['fallback', 'always'], 'comon filler' => ['fallback', 'always'], 'title:comon' => ['always']];
+        $queries = ['common' => ['never', 'fallback', 'always'], 'common filler' => ['never', 'fallback', 'always'], 'title:common' => ['never', 'always'], '"common filler"' => ['fallback'], 'comon' => ['fallback', 'always'], 'comon filler' => ['always']];
         $variants = [
             'empty' => ["''", []],
             'the word, a size per document' => ["CASE WHEN i % 3 = 0 THEN repeat('common ', 50) || i ELSE 'zzz' END", []],

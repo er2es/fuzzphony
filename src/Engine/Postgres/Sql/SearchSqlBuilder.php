@@ -61,6 +61,12 @@ final class SearchSqlBuilder
          *                                      reads the word from them, so its pool does not depend on the order of the heap
          */
         private readonly array $pool = [],
+        /**
+         * Whether a capped typo-tolerant branch selects its best candidates (see scored()). Off, it is the cheap selection of the
+         * first matches only, which the engine runs first and keeps when the branch was not capped (so such a search costs and reads
+         * what it always did); on, it is the statement the engine runs when the cheap one hit the limit.
+         */
+        private readonly bool $orderedTypo = true,
     ) {}
 
     /**
@@ -221,11 +227,12 @@ final class SearchSqlBuilder
         // Per-term fuzzy branch: every word is satisfied exactly or fuzzily, through the query's
         // own AND / OR / NOT. Its per-word values are extra q columns.
         $ordered = $window !== null && !$uncapped;
+        $orderedFuzzy = $ordered && $this->orderedTypo;
         $poolFuzzy = null;
         $fuzzy = $fuzzyRoot === null ? null : $compiler->compile($fuzzyRoot, $params, $emptyQueries);
         if ($fuzzy !== null) {
             array_push($q, ...$fuzzy->columns);
-            if ($ordered && $this->pool !== []) {
+            if ($orderedFuzzy && $this->pool !== []) {
                 // the ordered selection reads the words that have a pool from their ids: the same words, compiled once more
                 $poolFuzzy = (new FuzzyQueryCompiler($this->index, $thresholds, $this->names, $this->candidates + $this->pool, $this->allowedFields, $this->transpositions, $this->cappedColumn))->compile($fuzzyRoot ?? throw new \LogicException('A pool needs the parsed query.'), $params, $emptyQueries, 'p');
                 if ($poolFuzzy !== null) {
@@ -302,7 +309,7 @@ final class SearchSqlBuilder
         }
         $fuzzyFast = 'fuzzy';
         if ($fuzzy !== null) {
-            $fuzzyFast = $ordered ? 'fuzzy_fast' : 'fuzzy';
+            $fuzzyFast = $orderedFuzzy ? 'fuzzy_fast' : 'fuzzy';
             $ctes[] = sprintf(
                 "%s AS (
     SELECT s.id, (%s)::double precision AS r_fuzzy
@@ -316,7 +323,7 @@ final class SearchSqlBuilder
                 $filterSql,
                 $cap,
             );
-            if ($ordered) {
+            if ($orderedFuzzy) {
                 $limit = $thresholds->candidateLimit;
                 $columns = static fn(FuzzyMatch $by): string => sprintf('%s AS r_fuzzy', '(' . $by->score . ')::double precision');
                 $select = fn(FuzzyMatch $by, string $guard): string => sprintf(
