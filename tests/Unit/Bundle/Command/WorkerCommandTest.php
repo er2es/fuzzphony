@@ -150,6 +150,7 @@ final class WorkerCommandTest extends TestCase
         $engine = self::createStub(Engine::class);
         $engine->method('processQueue')->willReturnCallback(static function () use (&$command, &$calls): int {
             if (++$calls === 2) {
+                self::assertInstanceOf(WorkerCommand::class, $command);
                 $command->handleSignal(15);
             }
             if ($calls > 100) {

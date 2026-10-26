@@ -85,12 +85,14 @@ final class Worker
             $this->metrics->gauge('fuzzphony.queue.depth', (float) $this->engine->queueSize($index), ['index' => $index->name]);
             $drained[$index->name] = 0;
             $busy[$index->name] = $index;
-            $total += $this->turn($index, $batchSize, $deadline, $busy, $drained, $halt);
+            [$done, $halt] = $this->turn($index, $batchSize, $deadline, $busy, $drained);
+            $total += $done;
         }
         while ($untilEmpty && $busy !== [] && !$halt && $this->keepRunning()) {
             foreach ($busy as $index) {
-                $total += $this->turn($index, $batchSize, $deadline, $busy, $drained, $halt);
-                if ($halt || !$this->keepRunning()) {
+                [$done, $halt] = $this->turn($index, $batchSize, $deadline, $busy, $drained);
+                $total += $done;
+                if ($halt) {
                     break;
                 }
             }
@@ -107,12 +109,14 @@ final class Worker
     /**
      * Up to MAX_BATCHES_PER_TURN batches of one index; an index whose queue turned out empty leaves $busy.
      * Stop and the deadline are checked after a batch that did work (so every run makes progress,
-     * even with a time limit of 0): they set $halt.
+     * even with a time limit of 0); the second value is true when they say stop.
      *
      * @param array<string, IndexDefinition> $busy
      * @param array<string, int>             $drained
+     *
+     * @return array{int, bool} the items processed and whether the drain must end
      */
-    private function turn(IndexDefinition $index, int $batchSize, ?float $deadline, array &$busy, array &$drained, bool &$halt): int
+    private function turn(IndexDefinition $index, int $batchSize, ?float $deadline, array &$busy, array &$drained): array
     {
         $turn = 0;
         for ($batches = 0; $batches < self::MAX_BATCHES_PER_TURN; ++$batches) {
@@ -125,13 +129,11 @@ final class Worker
             $turn += $processed;
             $drained[$index->name] += $processed;
             if (!$this->mayContinue($deadline)) {
-                $halt = true;
-
-                break;
+                return [$turn, true];
             }
         }
 
-        return $turn;
+        return [$turn, false];
     }
 
     private function mayContinue(?float $deadline): bool

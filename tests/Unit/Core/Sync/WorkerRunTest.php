@@ -128,6 +128,7 @@ final class WorkerRunTest extends TestCase
         $engine->method('processQueue')->willReturnCallback(static function () use (&$worker, &$calls): int {
             ++$calls;
             if ($calls === 3) {
+                self::assertInstanceOf(Worker::class, $worker);
                 $worker->stop(); // SIGTERM arrives while the third batch runs
             }
             if ($calls > 50) {
@@ -181,9 +182,8 @@ final class WorkerRunTest extends TestCase
             return $index->name === 'b' ? 0 : 5; // "products" always has work, "b" has none
         });
         $worker = new Worker($engine);
-        $cycle = 0;
 
-        $worker->run([$a, $b], 10, 0.0, null, static function () use (&$cycle, $worker): void {
+        $worker->run([$a, $b], 10, 0.0, null, static function () use ($worker): void {
             $worker->stop();
         });
 

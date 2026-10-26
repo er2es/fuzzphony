@@ -283,6 +283,7 @@ final class WorkerTest extends TestCase
         $engine = self::createStub(Engine::class);
         $engine->method('processQueue')->willReturnCallback(static function () use (&$worker, &$calls): int {
             if (++$calls === 2) {
+                self::assertInstanceOf(Worker::class, $worker);
                 $worker->stop();
             }
             if ($calls > 100) {
