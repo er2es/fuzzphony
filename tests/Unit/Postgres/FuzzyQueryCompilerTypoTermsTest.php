@@ -86,6 +86,31 @@ final class FuzzyQueryCompilerTypoTermsTest extends TestCase
         self::assertSame([], (new FuzzyQueryCompiler(Indexes::products(), new Thresholds(), allowedFields: []))->typoTerms($root));
     }
 
+    public function testATermCarriesTheSwappedLetterVariantsTheSearchMatches(): void
+    {
+        $compiler = new FuzzyQueryCompiler(Indexes::products(), new Thresholds(), transpositions: true);
+
+        $terms = $compiler->typoTerms(self::parse('mosue name:kettel hed*'));
+
+        self::assertContains('mouse', $terms[0]->variants);
+        self::assertNotContains('mosue', $terms[0]->variants, 'never the word itself');
+        self::assertContains('kettle', $terms[1]->variants);
+        self::assertSame([], $terms[2]->variants, 'a prefix gets none');
+        self::assertSame([], self::terms('mosue')[0]->variants, 'without transpositions there are none');
+    }
+
+    public function testTheVariantsOfAQueryHaveTheSearchsBudget(): void
+    {
+        $compiler = new FuzzyQueryCompiler(Indexes::products(), new Thresholds(), transpositions: true);
+
+        // 15 letters = 14 variants a word: the fourth word does not fit the budget of 48 and gets none, as in the search
+        $terms = $compiler->typoTerms(self::parse('abcdefghijklmno bcdefghijklmnop cdefghijklmnopq defghijklmnopqr'));
+
+        self::assertCount(14, $terms[0]->variants);
+        self::assertCount(14, $terms[2]->variants);
+        self::assertSame([], $terms[3]->variants);
+    }
+
     /** @return list<TypoTerm> */
     private static function terms(string $query): array
     {

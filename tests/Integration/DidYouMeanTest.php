@@ -254,7 +254,8 @@ final class DidYouMeanTest extends TestCase
         $lookup = array_last($explanation->statements);
         self::assertNotNull($lookup);
         self::assertStringContainsString('fuzzphony_products__vocab', $lookup['sql']);
-        self::assertSame(['words' => 'hedphones'], $lookup['params'], 'the word is bound, never inlined');
+        self::assertSame('hedphones', $lookup['params']['words'], 'the word is bound, never inlined');
+        self::assertStringContainsString('ehdphones', $lookup['params']['variants'], 'so are its swapped-letter variants');
         self::assertStringNotContainsString('hedphones', $lookup['sql']);
         self::assertNotEmpty($explanation->plan);
         self::assertStringNotContainsString('fuzzphony_products__vocab', implode(' ', $explanation->plan), 'the plan is that of the search statement');

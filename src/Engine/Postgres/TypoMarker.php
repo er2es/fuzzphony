@@ -14,7 +14,8 @@ namespace Fuzzphony\Engine\Postgres;
  * A word is a run of letters, digits and combining marks (the search's normaliser turns every other character into a
  * space), so an apostrophe or a hyphen separates words, as it does in the search. A term of one word is compared with
  * every word of the text; a term of n words (a phrase) with every run of n consecutive words, and where such runs
- * overlap the most similar one wins. Marked output uses the Highlighter's private-use markers, never HTML.
+ * overlap the most similar one wins. A swapped-letter variant of a typed word (TypoTerm::$variants), as a whole word, is a match
+ * too: the search found it without trigram similarity. Marked output uses the Highlighter's private-use markers, never HTML.
  */
 final class TypoMarker
 {
@@ -141,6 +142,15 @@ final class TypoMarker
                 $similarity = $similarities[$key][$i] ?? null;
                 if ($similarity !== null) {
                     $found[] = [$start, $similarity];
+                }
+            }
+            $variants = $length === 1 ? array_flip($this->terms[$i]->variants) : [];
+            if ($variants !== []) {
+                // a swapped-letter variant of the typed word, as a whole word: the search found it without trigram similarity (Transpositions)
+                foreach (self::runs($tokens, $text, 1) as [$start, $key]) {
+                    if (isset($variants[$key])) {
+                        $found[] = [$start, 1.0];
+                    }
                 }
             }
             if ($length > 1) {

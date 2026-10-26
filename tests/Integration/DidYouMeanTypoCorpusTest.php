@@ -14,15 +14,13 @@ use PHPUnit\Framework\TestCase;
  * Which typos of 4 to 10 letter words get a "did you mean": a letter replaced, missing or extra in the middle, and two
  * neighbouring letters swapped. The candidates are the vocabulary words with a trigram similarity of 0.25 or more (it was 0.3,
  * which a letter replaced in the middle of a 4-letter word, 0.25, and a swap in the middle of a 6-letter word, 0.27, did not
- * reach); the edit distance rule (a third of the word's length, at least one) is as it was, so a swap in a 4 or 5 letter word
- * (two edits) gets no suggestion: the typo-tolerant search finds it instead (see TranspositionTest).
+ * reach) and, whatever their similarity, the words a typed word becomes with two neighbouring letters swapped (a swap in a short
+ * word leaves a few of its trigrams: `mosue` shares two of ten with `mouse`). The edit distance rule (a third of the word's
+ * length, at least one) counts a swap as one edit (optimal string alignment), as the search itself does (see TranspositionTest).
  */
 final class DidYouMeanTypoCorpusTest extends TestCase
 {
     private const array WORDS = ['lamp', 'desk', 'sofa', 'mouse', 'chair', 'table', 'plant', 'kettle', 'blender', 'monitor', 'speaker', 'printer', 'toaster', 'charger', 'keyboard', 'notebook', 'backpack', 'umbrella', 'headphones', 'microwave', 'projector', 'flashlight'];
-
-    /** The typos that have no suggestion: two edits (a swap) in a word of fewer than 6 letters. */
-    private const array NO_SUGGESTION = ['lapm', 'deks', 'soaf', 'mosue', 'chiar', 'talbe', 'plnat'];
 
     /** The typos that have one since the candidate similarity went from 0.3 to 0.25. */
     private const array NEW_SUGGESTION = ['laxp', 'lap', 'dexk', 'dek', 'soxa', 'soa', 'ketlte'];
@@ -75,12 +73,8 @@ final class DidYouMeanTypoCorpusTest extends TestCase
             $got[$typo] = $result->didYouMean === null ? null : $word === $result->didYouMean;
         }
 
-        // the three kinds of one-edit typo of every word, and the swaps of 6 letters and more, all give the right word
-        $none = array_keys(array_filter($got, static fn(?bool $right): bool => $right === null));
-        sort($none);
-        $expected = self::NO_SUGGESTION;
-        sort($expected);
-        self::assertSame($expected, $none, 'which typos get no suggestion');
+        // the four kinds of one-edit typo of every word, the swaps of 4 and 5 letter words included, all give the right word
+        self::assertSame([], array_keys(array_filter($got, static fn(?bool $right): bool => $right === null)), 'which typos get no suggestion');
         self::assertSame([], array_keys(array_filter($got, static fn(?bool $right): bool => $right === false)), 'a wrong suggestion');
         foreach (self::NEW_SUGGESTION as $typo) {
             self::assertTrue($got[$typo], $typo . ' gets a suggestion since the candidates start at 0.25');

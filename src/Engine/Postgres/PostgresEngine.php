@@ -60,6 +60,7 @@ use Fuzzphony\Engine\Postgres\Sql\FilterCompiler;
 use Fuzzphony\Engine\Postgres\Sql\FuzzyQueryCompiler;
 use Fuzzphony\Engine\Postgres\Sql\SearchSqlBuilder;
 use Fuzzphony\Engine\Postgres\Sql\Sql;
+use Fuzzphony\Engine\Postgres\Sql\Transpositions;
 use Fuzzphony\Engine\Postgres\Sql\TsQueryCompiler;
 
 final class PostgresEngine implements Engine, Vocabulary, SynonymStems, Suggestions, SearchLogStore, RecentSearchStore
@@ -808,7 +809,7 @@ final class PostgresEngine implements Engine, Vocabulary, SynonymStems, Suggesti
                         $typoIds[] = $index->idType->cast(Coerce::str($r['id']));
                     }
                 }
-                $terms = $typoIds === [] ? [] : (new FuzzyQueryCompiler($index, $thresholds, $this->names, [], $query->allowedFields))->typoTerms($root, $run['emptyQueries'] ?? []);
+                $terms = $typoIds === [] ? [] : (new FuzzyQueryCompiler($index, $thresholds, $this->names, [], $query->allowedFields, true))->typoTerms($root, $run['emptyQueries'] ?? []);
                 $typo = $terms === [] ? null : new TypoPlan($terms, $typoIds, $thresholds->fuzzySimilarity, $query->allowedFields);
             }
             $highlights = $this->guard('highlighting', fn(): array => (new Highlighter($this->connection, $this->names))->highlight(
@@ -914,15 +915,20 @@ final class PostgresEngine implements Engine, Vocabulary, SynonymStems, Suggesti
         }
         // known: a stop word, a word of the vocabulary, or any word the index finds (a word of a field that is not typo-tolerant,
         // an inflection, a word added since the last full reindex): the search above found what it could
+        // The candidates of a word: the ten closest vocabulary words by trigram similarity and, whatever their similarity, the vocabulary
+        // words it becomes with two neighbouring letters swapped (a swap in a short word leaves few trigrams: `mosue` shares two of ten with `mouse`)
         $sql = sprintf(
-            "SELECT q.w, q.n, (to_tsvector(%2\$s, q.w) = ''::tsvector OR EXISTS (SELECT 1 FROM %1\$s AS v WHERE v.word = q.n) OR EXISTS (SELECT 1 FROM %5\$s AS s WHERE s.tsv @@ plainto_tsquery(%2\$s, q.w))) AS known, c.word, c.freq FROM (SELECT w, %3\$s(w) AS n FROM unnest(string_to_array(:words, chr(31))) AS w) AS q LEFT JOIN LATERAL (SELECT v.word, v.freq FROM %1\$s AS v WHERE v.word OPERATOR(%4\$s.%%) q.n ORDER BY %4\$s.similarity(v.word, q.n) DESC, v.freq DESC LIMIT 10) AS c ON true",
+            "SELECT q.w, q.n, (to_tsvector(%2\$s, q.w) = ''::tsvector OR EXISTS (SELECT 1 FROM %1\$s AS v WHERE v.word = q.n) OR EXISTS (SELECT 1 FROM %5\$s AS s WHERE s.tsv @@ plainto_tsquery(%2\$s, q.w))) AS known, c.word, c.freq FROM (SELECT t.w, %3\$s(t.w) AS n, t.v FROM unnest(string_to_array(:words, chr(31)), string_to_array(:variants, chr(29))) AS t(w, v)) AS q LEFT JOIN LATERAL ((SELECT v.word, v.freq FROM %1\$s AS v WHERE v.word OPERATOR(%4\$s.%%) q.n ORDER BY %4\$s.similarity(v.word, q.n) DESC, v.freq DESC LIMIT 10) UNION (SELECT v.word, v.freq FROM %1\$s AS v WHERE v.word = ANY(string_to_array(q.v, chr(30))))) AS c ON true",
             $vocabulary,
             $this->names->regconfig($index->text),
             $this->names->normFunction(),
             $extension,
             $this->names->sidecar($index),
         );
-        $parameters = ['words' => implode(chr(31), $words)];
+        $parameters = [
+            'words' => implode(chr(31), $words),
+            'variants' => implode(chr(29), array_map(static fn(string $word): string => implode(chr(30), Transpositions::of($word)), $words)),
+        ];
         $statement = ['label' => self::SUGGEST_LABEL, 'sql' => $sql, 'params' => $parameters];
         // the candidates are the words with a trigram similarity of SUGGEST_SIMILARITY or more, whatever the session has set
         /** @var \Closure(): list<array<string, mixed>> $lookup */
@@ -973,21 +979,31 @@ final class PostgresEngine implements Engine, Vocabulary, SynonymStems, Suggesti
         return QueryRenderer::render($typed, $replace);
     }
 
-    /** The edit distance of two words by their characters (PHP's levenshtein() counts bytes). */
+    /**
+     * The edit distance of two words by their characters (PHP's levenshtein() counts bytes), counting two neighbouring letters
+     * swapped as one edit (optimal string alignment: a typo the search itself finds, `mosue` for `mouse`).
+     */
     private static function distance(string $a, string $b): int
     {
-        $map = [];
-        $encode = static function (string $word) use (&$map): string {
-            $out = '';
-            foreach (mb_str_split($word) as $char) {
-                $map[$char] ??= chr(1 + count($map) % 254);
-                $out .= $map[$char];
+        $x = mb_str_split($a);
+        $y = mb_str_split($b);
+        $n = count($x);
+        $m = count($y);
+        $previous = [];
+        $row = range(0, $m);
+        for ($i = 1; $i <= $n; ++$i) {
+            $next = [$i];
+            for ($j = 1; $j <= $m; ++$j) {
+                $next[$j] = min($row[$j] + 1, $next[$j - 1] + 1, $row[$j - 1] + ($x[$i - 1] === $y[$j - 1] ? 0 : 1));
+                if ($i > 1 && $j > 1 && $x[$i - 1] === $y[$j - 2] && $x[$i - 2] === $y[$j - 1]) {
+                    $next[$j] = min($next[$j], $previous[$j - 2] + 1);
+                }
             }
+            $previous = $row;
+            $row = $next;
+        }
 
-            return $out;
-        };
-
-        return levenshtein($encode($a), $encode($b));
+        return $row[$m];
     }
 
     /** @param list<string> $words lowercase words to stem for $config; the stems land in the per-configuration cache */

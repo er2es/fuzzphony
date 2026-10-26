@@ -74,6 +74,18 @@ final class TypoHighlightTest extends TestCase
         self::assertSame(0.0, $hit->breakdown->textRank, 'found by typo tolerance only');
     }
 
+    /** Swapped letters are found by the search (whole-word variants); the highlight marks them as well, though trigram similarity does not reach them. */
+    public function testASwappedWordIsMarkedLikeAnyOtherTypo(): void
+    {
+        $result = $this->search('mosue', ['title', 'body'])->get();
+
+        self::assertContains(3, $result->ids());
+        $hit = $this->hitIn($result, 3);
+        self::assertSame(0.0, $hit->breakdown->textRank, 'found by typo tolerance only');
+        self::assertSame('Wireless <mark>mouse</mark>', $hit->highlights['title']);
+        self::assertSame('Silent <mark>mouse</mark>', $hit->highlights['body']);
+    }
+
     public function testEveryHitOfATypoSearchIsMarkedNotOnlyTheFirst(): void
     {
         $result = $this->search('hedphones', ['title'])->get();

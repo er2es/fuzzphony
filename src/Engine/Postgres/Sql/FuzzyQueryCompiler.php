@@ -164,7 +164,7 @@ final class FuzzyQueryCompiler
      * The words of the positive part of the query that match fuzzily, for the highlighter: one term per leaf, in order
      * (the same leaves the trigram branch has, so a negated word, a stop word, a word too short for typo tolerance, a
      * word scoped to a field that is not typo-tolerant, and for a restricted viewer a word with no allowed typo-tolerant
-     * field, are not among them).
+     * field, are not among them). A term carries the swapped-letter variants the search matched for its word.
      *
      * @param list<string> $emptyQueries leaf tsqueries the text configuration reduces to nothing (stop words)
      *
@@ -172,12 +172,15 @@ final class FuzzyQueryCompiler
      */
     public function typoTerms(Node $node, array $emptyQueries = []): array
     {
+        $leaves = $this->trigramLeaves($node, $emptyQueries);
+        $this->allocateVariants($leaves);
+
         return array_map(function (Node $leaf): TypoTerm {
             $needle = $this->needle($leaf);
             assert($needle !== null, 'trigramLeaves() keeps only the leaves that have a needle');
 
-            return new TypoTerm($needle, $this->isPrefix($leaf), $this->scopedField($leaf)?->name);
-        }, $this->trigramLeaves($node, $emptyQueries));
+            return new TypoTerm($needle, $this->isPrefix($leaf), $this->scopedField($leaf)?->name, $this->variants[$this->candidateKey($leaf)] ?? []);
+        }, $leaves);
     }
 
     /**
