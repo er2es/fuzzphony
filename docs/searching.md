@@ -137,7 +137,7 @@ public function __invoke(Request $request, Fuzzphony $fuzzphony): JsonResponse
 ## Highlighting
 
 `highlight('name', 'description')` puts an HTML snippet in `$hit->highlights['name']`: the matching words wrapped in
-`<mark>`, the rest escaped (nothing else is ever a tag), as a short text or up to two fragments joined by ` … `.
+`<mark>`, the rest escaped (nothing else is ever a tag), a text of up to about 200 characters whole, a longer one as up to two fragments joined by ` … `.
 
 A hit found only through typo tolerance has no word that matches the query exactly, so Fuzzphony marks the words
 of the text that are the typo-tolerant match: a search for `hedphones` shows `Wireless <mark>Headphones</mark>`.
@@ -287,13 +287,12 @@ $result->didYouMean;   // "headphones -cable": the query with the word replaced,
   word added since the last full reindex is never "corrected"). Not corrected either: prefixes
   (`keyb*`), excluded words (`-cabel`), words a synonym expands (the index knows them by definition)
   and words with a digit (`rtx4090`: the nearest code is not what the user meant).
-- Which suggestion: the vocabulary word nearest by edit distance (the trigram index only picks ten
-  candidates; a trigram ranking alone suggests `most` for `mose`), then the one in more documents.
-  Nothing farther than a third of the word's length away is suggested (at least one edit: a swap of two neighbouring
-  letters is two edits, so a 4 or 5 letter word with a swap, `mosue`, gets no suggestion; the typo-tolerant search finds it
-  anyway, see [Typo tolerance](#typo-tolerance)), and a candidate has to share enough trigrams with the word (pg_trgm's
-  similarity of 0.25; it was 0.3 before 0.9.8, which missed four in ten of the one-letter typos of a 4-letter word), so a
-  word that is two edits away at the start and the end gets none. The suggested word is the
+- Which suggestion: the vocabulary word nearest by edit distance (the trigram index picks ten
+  candidates, and the words two neighbouring letters swapped make are candidates whatever their similarity; a trigram ranking alone suggests `most`
+  for `mose`), then the one in more documents. A swap of two neighbouring letters is one edit (`mosue` suggests `mouse`).
+  Nothing farther than a third of the word's length away is suggested (at least one edit), and a candidate has to share enough trigrams
+  with the word (pg_trgm's similarity of 0.25; it was 0.3 before 0.9.8, which missed four in ten of the one-letter typos of a 4-letter
+  word), unless it is a swapped-letter variant, so a word that is two edits away at the start and the end gets none. The suggested word is the
   vocabulary's, so lowercase and without accents.
 - Tenants and filters: the vocabulary is the words of the whole index, whatever a search's filters
   say, so a suggestion could reveal that a word exists in documents the search may not see.
@@ -345,7 +344,7 @@ with `thresholds(['rescue_empty' => false])`). `correctedFrom` is the visitor's 
 - **Which words**: the words did-you-mean may correct (whole words that the index does not know; not prefixes,
   excluded words, synonyms or words with a digit). A word is corrected only when the vocabulary has **exactly one word
   one edit away** (one letter replaced, missing or extra) among its ten closest candidates: `mpuse` becomes `mouse` when
-  nothing else of the vocabulary is one edit from `mpuse`. A tie (`mpuse` with both `mouse` and `mause` in the index)
+  nothing else of the vocabulary is one edit from `mpuse` (a swap of two neighbouring letters is one edit). A tie (`mpuse` with both `mouse` and `mause` in the index)
   means no rescue at all, and so does a tie in any one word of a longer query. A word with no one-edit candidate is left
   as typed. Two edits, such as a
   word typed with two wrong letters, is for the plain did-you-mean suggestion, never for the rescue.
