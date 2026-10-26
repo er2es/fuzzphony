@@ -256,6 +256,23 @@ final class TypoHighlightTest extends TestCase
         self::assertSame('<mark>Logitech</mark> wireles mouse', $seen['always|logitek | salary'][0][0][2]['title'] ?? self::fail('no hit'), 'and the typo word is marked');
     }
 
+    /** A short text is shown whole, found strictly or by typo tolerance alike; only a long text is cut into fragments. */
+    public function testAShortTextIsHighlightedWholeAndALongOneAsFragments(): void
+    {
+        $this->connection->execute("INSERT INTO fz_typo_doc VALUES (20, 'Ergonomic mouse 1001', 'plain', 'plain', 'plain')");
+        $this->fuzzphony->reindex('typo_docs');
+
+        $strict = $this->hitIn($this->search('mouse', ['title'], 'never')->get(), 20)->highlights['title'];
+        $typo = $this->hitIn($this->search('mose', ['title'], 'always')->get(), 20)->highlights['title'];
+        self::assertSame('Ergonomic <mark>mouse</mark> 1001', $strict, 'the model number stays');
+        self::assertSame($strict, $typo, 'strict and typo-found hits look alike');
+
+        // the long body (30 words and more) is still cut: ts_headline's fragments around the word
+        $body = $this->hitIn($this->search('headphones', ['body'], 'never')->get(), 5)->highlights['body'];
+        self::assertStringContainsString('<mark>headphones</mark>', $body);
+        self::assertStringContainsString(' … ', $body);
+    }
+
     public function testATextThatHoldsOurMarkersCannotDrawAMark(): void
     {
         $this->connection->execute('DELETE FROM fz_typo_doc');
@@ -270,7 +287,7 @@ final class TypoHighlightTest extends TestCase
         $this->fuzzphony->reindex('typo_docs');
 
         $strict = $this->search('wireless', ['title'], 'never')->get();
-        self::assertSame('<mark>wireless</mark>', $this->hitIn($strict, 1)->highlights['title'], 'a strict hit: ts_headline cuts the short words and the tag, and the planted markers are gone');
+        self::assertSame('x <mark>wireless</mark>  ', $this->hitIn($strict, 1)->highlights['title'], 'a strict hit: ts_headline drops the tag, and the planted markers are gone');
         self::assertSame('lone  <mark>wireless</mark>', $this->hitIn($strict, 2)->highlights['title']);
         foreach (['wireless', 'wireles'] as $query) {
             foreach ($this->search($query, ['title'], 'always')->get()->hits as $hit) {

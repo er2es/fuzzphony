@@ -189,7 +189,7 @@ final class ZeroResultRescueTest extends TestCase
     {
         $result = $this->fuzzphony()->in('products')->query('mpuse -wireless')->highlight('name')->get();
 
-        self::assertSame(['name' => '<mark>Mouse</mark>'], $result->hits[0]->highlights);
+        self::assertSame(['name' => '<mark>Mouse</mark> pad'], $result->hits[0]->highlights, 'a short text is shown whole');
     }
 
     public function testItIsSwitchedOffByRescueEmptyAndDependsOnDidYouMean(): void
