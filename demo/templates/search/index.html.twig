@@ -38,6 +38,7 @@
        ~11 000 characters announced on every keystroke is noise). It is here, not in the swapped fragment, because a live region that is
        replaced is not reliably announced. #}
     <p class="sr-only" role="status" aria-live="polite" data-live-search-target="status"></p>
+    <p class="muted s-error live-error" role="status" data-live-search-target="notice" hidden>Could not update the results; the list below may be out of date. Try again.</p>
     <div id="results" class="busy-region" data-live-search-target="region">
         {{ include('search/_region.html.twig') }}
     </div>

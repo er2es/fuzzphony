@@ -4,7 +4,7 @@ import { Controller } from '@hotwired/stimulus';
  * Results while you type, in place: the page's own results region is fetched again (the server answers a request marked
  * `X-Requested-With: fetch` with just that region) and swapped in, the address bar follows with replaceState, and nothing
  * navigates, so the field keeps its focus and the page does not flash. Without JavaScript the form submits as always.
- * A response that arrives late is dropped (the newest request wins); a failed one leaves the old results in place.
+ * A response that arrives late is dropped (the newest request wins); a failed one leaves the old results in place and says so in one quiet line.
  * The live requests are unlogged (the half-typed words would fill the search log), except where the visitor means the search: a click
  * on an example is logged on its own request, and typed text is logged once it settles (1.5 s without typing, or at once when the
  * page is left earlier) by one more silent request whose answer is ignored.
@@ -17,7 +17,7 @@ import { Controller } from '@hotwired/stimulus';
 const SETTLE_MS = 1500;
 
 export default class extends Controller {
-    static targets = ['input', 'form', 'region', 'status'];
+    static targets = ['input', 'form', 'region', 'status', 'notice'];
     static values = { delay: { type: Number, default: 160 } };
 
     connect() {
@@ -91,7 +91,12 @@ export default class extends Controller {
         this.regionTarget.setAttribute('aria-busy', 'true');
         try {
             const html = await this.fetchRegion(url, headers, logged);
-            if (html === null || mine !== this.seq) {
+            if (mine !== this.seq) {
+                return;
+            }
+            if (html === null) {
+                this.failed();
+
                 return;
             }
             this.show(html);
@@ -99,13 +104,13 @@ export default class extends Controller {
             if (html.includes('data-rescue-pending')) {
                 // nothing matched while typing: the rescue is asked for at once (the busy state stays until it is answered)
                 const rescued = await this.fetchRegion(url, { ...headers, 'X-Rescue': '1' }, false);
-                if (rescued !== null && mine === this.seq) {
-                    this.show(rescued);
+                if (mine === this.seq) {
+                    rescued === null ? this.failed() : this.show(rescued);
                 }
             }
         } catch (error) {
-            if (error.name !== 'AbortError') {
-                // keep the old results: a failed update is no reason to blank the page
+            if (error.name !== 'AbortError' && mine === this.seq) {
+                this.failed();
             }
         } finally {
             if (mine === this.seq) {
@@ -114,9 +119,19 @@ export default class extends Controller {
         }
     }
 
+    /** The old results stay (a failed update is no reason to blank the page); a quiet line says they may be out of date. */
+    failed() {
+        if (this.hasNoticeTarget) {
+            this.noticeTarget.hidden = false;
+        }
+    }
+
     /** Swaps the fragment in and announces its one short sentence (the region itself is not a live region). */
     show(html) {
         this.regionTarget.innerHTML = html;
+        if (this.hasNoticeTarget) {
+            this.noticeTarget.hidden = true;
+        }
         if (this.hasStatusTarget) {
             this.statusTarget.textContent = this.regionTarget.querySelector('[data-status]')?.textContent.trim() ?? '';
         }

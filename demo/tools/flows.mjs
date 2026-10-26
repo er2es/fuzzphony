@@ -250,6 +250,21 @@ await page.click('.facets .chip >> text=out of stock');
 await page.waitForSelector('.facets .chip[aria-pressed=true]');
 check('the out of stock chip is a button that narrows the search', (await page.locator('.facets .chip[aria-pressed=true]').innerText()).startsWith('out of stock') && before > 0);
 
+// a failing live search keeps the old results and says so in one quiet line, which goes away with the next answer
+await go(page, BASE + '/?q=mouse');
+await page.route('**/*', (route) => (route.request().headers()['x-requested-with'] === 'fetch' && !route.request().headers()['x-settled'] ? route.fulfill({ status: 500, body: 'boom' }) : route.continue()));
+await page.fill('input[name=q]', 'mouse pad');
+await page.waitForSelector('.live-error:not([hidden])');
+check('a failed live search keeps the old results and shows a quiet notice', (await page.locator('#results .hit-row').count()) > 0 && /Could not update the results/.test(await page.locator('.live-error').innerText()));
+await page.unrouteAll({ behavior: 'ignoreErrors' });
+await page.fill('input[name=q]', 'mouse');
+await page.waitForSelector('.live-error', { state: 'hidden' });
+check('and the notice goes away with the next answer', (await page.locator('#results .hit-row').count()) > 0);
+
+// the error pages are the demo's own: the shell, the navigation and a way back, with the right status
+const missing = await page.goto(`${BASE}/no-such-page`, { waitUntil: 'load' });
+check('a missing page is a branded 404 with the navigation and a way back', missing?.status() === 404 && (await page.locator('main h1').innerText()) === 'Page not found' && (await page.locator('nav.nav').count()) === 1 && (await page.locator('main a[href="/"]').count()) > 0);
+
 // 10. a phone: the tab bar is at the bottom of the screen
 const phone = await browser.newContext({ viewport: { width: 390, height: 844 }, reducedMotion: 'reduce' });
 const p2 = await phone.newPage();
