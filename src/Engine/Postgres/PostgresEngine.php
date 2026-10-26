@@ -613,7 +613,7 @@ final class PostgresEngine implements Engine, Vocabulary, SynonymStems, Suggesti
     }
 
     /**
-     * One search without a rescue of its own. A search is to be rescued ("rescue" is set) when it found nothing (after the
+     * One search without a rescue of its own (`$rescue` false, the run of a rescue, also has no relaxation and no suggestion: see above). A search is to be rescued ("rescue" is set) when it found nothing (after the
      * relaxation and the typo-tolerant branch), $rescue allows it (the second run of a rescue does not), `rescue_empty` and
      * `did_you_mean` are on, typo tolerance is not switched off (`fuzzy_mode: never`, a profile with `fuzzy` 0), the text is not a search-as-you-type one (the last word is unfinished: nothing is wrong with it),
      * the viewer is not restricted and the index is not tenant-scoped (the vocabulary is the words of every document,
@@ -643,6 +643,10 @@ final class PostgresEngine implements Engine, Vocabulary, SynonymStems, Suggesti
             : $query->conditions;
 
         $thresholds = $index->thresholds->with($query->thresholdOverrides);
+        if (!$rescue) {
+            // the run of a rescue answers with its hits and total only: the relaxation, the suggestion and a second rescue are work it would throw away
+            $thresholds = $thresholds->with(['relax_when_empty' => false, 'did_you_mean' => false]);
+        }
         $profile = $query->rankingOverrides === [] ? $index->profile($query->profile) : $index->profile($query->profile)->with($query->rankingOverrides);
         (new FilterCompiler($index))->validate(...$conditions);
         foreach ($query->facets as $facet) {
