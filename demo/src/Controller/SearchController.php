@@ -45,6 +45,9 @@ final class SearchController extends AbstractController
     /** Like the Languages page: the ILIKE fragment is a public endpoint that scans the whole table. */
     private const int MAX_QUERY = 100;
 
+    /** A live answer for fewer letters is "Nothing found" at once: one letter always finds something, and the settle (live_search_controller.js) starts at two. */
+    private const int RESCUE_MIN = 2;
+
     #[Route('/', name: 'search')]
     public function __invoke(Request $request, Fuzzphony $fuzzphony, Catalog $catalog, Facets $facets): Response
     {
@@ -61,17 +64,20 @@ final class SearchController extends AbstractController
         // the settled query is: a full page load, or the live search's one silent repeat after the text has stood for a moment
         $live = $request->headers->get('X-Requested-With') === 'fetch';
         $logged = !$live || $request->headers->get('X-Settled') === '1';
+        // a live answer that found nothing is followed at once by one more request marked X-Rescue (unlogged), which may rescue it
+        $rescuing = $live && $request->headers->get('X-Rescue') === '1';
 
         // "Search for <what I typed> instead" (the link of the bar): the text is searched as typed, without the zero-result rescue
         $exact = $request->query->getBoolean('exact');
 
         // The field searches as you type (the last word also matches as a beginning), and the library never rescues such a search:
-        // the last word is not finished. The rescue is for a search the visitor means: a request that counts ($logged: a page load, a
-        // chip, Enter, or typing that has SETTLED, see live_search_controller.js) searches in two steps: as you type; and only when that
-        // finds nothing, the text once more as a finished one, where a typo with a unique one-edit correction (`mpuse` -> `mouse`) is
-        // rescued (SearchResult::$correctedFrom). While the visitor is still typing (an unlogged live request) there is only the plain
-        // as-you-type search and no bar. The first step is a probe and never logged; the search that answers is logged (once), so the
-        // Analytics page sees `mpuse` with the rescued hits, not as a search that found nothing.
+        // the last word is not finished. The rescue is for a text that found nothing even so: the text once more as a finished one, where
+        // a typo with a unique one-edit correction (`mpuse` -> `mouse`) is rescued (SearchResult::$correctedFrom). A search the visitor
+        // means ($logged: a page load, a chip, Enter, or typing that has SETTLED, see live_search_controller.js) does both steps in this
+        // request. While the visitor is still typing, an empty answer is not shown as "Nothing found": the page says it is looking for a
+        // correction ($pending) and the browser asks at once for the rescue (X-Rescue); a word that finds results is never rescued, so
+        // the bar cannot appear under a word that is still being typed. The first step is a probe and never logged; the search that
+        // answers is logged (once), so the Analytics page sees `mpuse` with the rescued hits, not as a search that found nothing.
         $build = static function (bool $asYouType, bool $log) use ($fuzzphony, $facets, $q, $category, $stock, $exact): SearchBuilder {
             $search = $fuzzphony->in('catalog')->query($q)->highlight('name')->limit(20);
             $search = $facets->narrow($asYouType ? $search->asYouType() : $search, $category, $stock);
@@ -85,20 +91,23 @@ final class SearchController extends AbstractController
         $categories = $stockValues = [];
         $error = null;
         $speed = null;
+        $pending = false;
         if ($q !== '') {
             try {
                 $asYouType = true;
                 $result = $build(true, false)->facets('category_id', 'in_stock')->get();
-                if ($result->total === 0 && !$exact && $logged) {
+                if ($result->total === 0 && !$exact && ($logged || $rescuing)) {
                     $asYouType = false;
                     $result = $build(false, $logged)->facets('category_id', 'in_stock')->get();
+                } elseif ($result->total === 0 && !$exact && $live && mb_strlen($q) >= self::RESCUE_MIN) {
+                    $pending = true;
                 } elseif ($logged) {
                     $result = $build(true, true)->facets('category_id', 'in_stock')->get();
                 }
                 $rows = $catalog->rows($result->ids());
                 $categories = $facets->categories($result->facets['category_id'] ?? []);
                 $stockValues = $result->facets['in_stock'] ?? [];
-                if ($view === 'speed') {
+                if ($view === 'speed' && !$pending) {
                     // the measured search is the one that answered, without facets: what a search box waits for
                     $speed = Measure::median(static fn () => $facets->narrow($fuzzphony->in('catalog')->query($q)->asYouType($asYouType)->limit(20)->unlogged(), $category, $stock)->get());
                 }
@@ -122,6 +131,7 @@ final class SearchController extends AbstractController
             'warmRuns' => Measure::WARM_RUNS,
             'rowEstimate' => $catalog->estimatedProductCount(),
             'examples' => self::TRY,
+            'pending' => $pending,
         ];
 
         // the live search asks for the region only

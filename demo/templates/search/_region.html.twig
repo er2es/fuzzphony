@@ -7,7 +7,7 @@
 {% if q != '' %}
     <section class="results" aria-label="Results">
         <div class="results-head">
-            {% if result %}
+            {% if result and not pending %}
                 {% set took = view == 'speed' and speed ? speed.warm : result.tookMs %}
                 <div class="stat">
                     <span class="stat-value">{{ took < 10 ? took|number_format(1) : took|number_format(0) }}</span><span class="stat-unit">ms</span>
@@ -38,6 +38,9 @@
 
         {% if error %}
             <div class="empty"><strong>That search could not run</strong>{{ error }}</div>
+        {% elseif pending %}
+            {# Nothing matched while typing: the page asks at once for the rescue (live_search_controller.js), so this is not "Nothing found". #}
+            <div class="empty" data-rescue-pending><strong>Searching for a correction…</strong>Nothing matches “{{ q }}” as typed.</div>
         {% elseif view == 'speed' %}
             {{ include('search/_speed.html.twig') }}
         {% elseif result %}

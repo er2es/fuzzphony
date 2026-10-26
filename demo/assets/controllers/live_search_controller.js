@@ -7,9 +7,10 @@ import { Controller } from '@hotwired/stimulus';
  * A response that arrives late is dropped (the newest request wins); a failed one leaves the old results in place.
  * The live requests are unlogged (the half-typed words would fill the search log), except where the visitor means the search: a click
  * on an example is logged on its own request, and typed text is logged once it settles (1.5 s without typing, or at once when the
- * page is left earlier) by one more silent request.
- * Only a search the visitor means is rescued when it finds nothing ("Showing results for ..."): not the live requests while typing, but the
- * settled one: its answer is swapped in when it carries the rescue bar (and is still the newest), and nothing else of the page is touched.
+ * page is left earlier) by one more silent request whose answer is ignored.
+ * A text that finds nothing, even as the beginning of a word, is answered with "Searching for a correction..." (the server marks it
+ * `data-rescue-pending`) and this asks at once for the rescue ("Showing results for ..."): there is nothing to wait for, and nothing
+ * on the page that could jump. A word that finds results is never rescued while it is typed.
  */
 
 /** How long the text stands before the search counts as settled (and is logged). */
@@ -45,9 +46,9 @@ export default class extends Controller {
     }
 
     /**
-     * The settled text is requested once more, marked `X-Settled`, so the server logs that one search (and rescues it when it found
-     * nothing). Nothing of the page is touched (no history, no aria-busy: the busy bar and pill stay quiet), and the answer is ignored
-     * unless it is a rescued one, which replaces the empty results (see flushSettle()).
+     * The settled text is requested once more, marked `X-Settled`, so the server logs that one search. Nothing of the page is touched (no
+     * history, no aria-busy: the busy bar and pill stay quiet) and the answer is ignored: whatever the visitor needed (the results, the
+     * rescue) has been shown by the live request.
      */
     settle(url, text) {
         this.cancelSettle();
@@ -55,7 +56,6 @@ export default class extends Controller {
             return;
         }
         this.pending = url;
-        this.settleSeq = this.seq;
         this.settleTimer = setTimeout(() => this.flushSettle(), SETTLE_MS);
     }
 
@@ -68,16 +68,7 @@ export default class extends Controller {
             return;
         }
         this.settleAbort = new AbortController();
-        const seq = this.settleSeq;
-        fetch(url, { signal: this.settleAbort.signal, keepalive: true, headers: { 'X-Requested-With': 'fetch', 'X-Settled': '1' } })
-            .then((response) => (response.ok ? response.text() : ''))
-            .then((html) => {
-                // the zero-result rescue: the typed text found nothing, and the settled search found its correction. Nothing newer was asked.
-                if (seq === this.seq && html.includes('class="corrected"') && this.hasRegionTarget) {
-                    this.regionTarget.innerHTML = html;
-                }
-            })
-            .catch(() => {});
+        fetch(url, { signal: this.settleAbort.signal, keepalive: true, headers: { 'X-Requested-With': 'fetch', 'X-Settled': '1' } }).catch(() => {});
     }
 
     /** The form's own fields (and the hidden filters next to the text) are the request. */
@@ -99,12 +90,19 @@ export default class extends Controller {
         this.regionTarget.dataset.loadingMessage = text === '' ? 'Loading…' : `Searching for ${text}…`;
         this.regionTarget.setAttribute('aria-busy', 'true');
         try {
-            const response = await fetch(url, { signal: this.abort?.signal, keepalive: logged, headers });
-            if (!response.ok || mine !== this.seq) {
+            const html = await this.fetchRegion(url, headers, logged);
+            if (html === null || mine !== this.seq) {
                 return;
             }
-            this.regionTarget.innerHTML = await response.text();
+            this.regionTarget.innerHTML = html;
             history.replaceState(null, '', text === '' ? location.pathname : url);
+            if (html.includes('data-rescue-pending')) {
+                // nothing matched while typing: the rescue is asked for at once (the busy state stays until it is answered)
+                const rescued = await this.fetchRegion(url, { ...headers, 'X-Rescue': '1' }, false);
+                if (rescued !== null && mine === this.seq) {
+                    this.regionTarget.innerHTML = rescued;
+                }
+            }
         } catch (error) {
             if (error.name !== 'AbortError') {
                 // keep the old results: a failed update is no reason to blank the page
@@ -114,6 +112,13 @@ export default class extends Controller {
                 this.regionTarget.removeAttribute('aria-busy');
             }
         }
+    }
+
+    /** The region's HTML for the url, or null when the server did not answer well. */
+    async fetchRegion(url, headers, keepalive) {
+        const response = await fetch(url, { signal: this.abort?.signal, keepalive, headers });
+
+        return response.ok ? response.text() : null;
     }
 
     /** An example token fills the field and searches it in place. */

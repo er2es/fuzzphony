@@ -359,42 +359,66 @@ check('the observability page points to who searched what', (await page.locator(
 
 // 14. the zero-result rescue: a typo that finds nothing, and has one word of the catalogue exactly one letter away, is answered with the results
 // of that word under a bar that says so ("Showing results for ..."), with a link that searches the typed text as it is (exact=1). The home page
-// searches as you type, which the library never rescues, so the page searches once more as a finished text when that finds nothing, but
-// only for a search the visitor means (Enter, a chip, a link, a page load, or typing that has settled: 1.5 s), never while the text is typed.
-// `kpttle` (kettle) and `mpuse` (mouse) are one replaced letter in the middle of a word: typo tolerance does not find them, the rescue does.
+// searches as you type, which the library never rescues, so a text that finds nothing is answered with "Searching for a correction..." and the
+// browser asks at once for the rescue (no waiting for the typing to settle, no "Nothing found" in between); a word that finds results is never
+// rescued while it is typed. `kpttle` (kettle) and `mpuse` (mouse) are one replaced letter in the middle of a word: typo tolerance does not find
+// them, the rescue does.
 const resultsSettled = async (p, fragment) => {
     await p.waitForFunction((f) => location.search.includes(f), fragment);
     await p.waitForSelector('#results:not([aria-busy="true"])');
 };
 await go(page, BASE + '/');
 await page.click('input[type=search]');
+// what the results region said, whenever it changed: "Nothing found for kpttle" must never be among it
+await page.evaluate(() => {
+    window.__said = [];
+    new MutationObserver(() => window.__said.push(document.querySelector('#results .empty')?.innerText ?? '')).observe(document.querySelector('#results'), { childList: true, subtree: true });
+});
+// the settle request (the one that logs the search, 1.5 s after the last key) is held back for 8 s: the bar must not depend on it
+let settleHeld = false;
+await page.route('**/*', async (route) => {
+    if (route.request().headers()['x-settled'] === '1' && route.request().url().includes('q=kpttle')) {
+        settleHeld = true;
+        await new Promise((resolve) => setTimeout(resolve, 8000));
+        settleHeld = false;
+    }
+    await route.continue().catch(() => {});
+});
 await page.keyboard.type('kpttle', { delay: 50 });
-await resultsSettled(page, 'q=kpttle');
 const bar = page.locator('#results .corrected');
-check('rescue: while the text is still being typed there is no bar, only the plain as-you-type answer', (await bar.count()) === 0 && (await page.locator('#results .hit-row').count()) === 0 && /Nothing found/.test(await page.locator('#results .empty').innerText()));
-await page.waitForSelector('#results .corrected', { timeout: 6000 }); // the settled text (1.5 s) is searched once more, and rescued
-check('rescue: once the typing has settled a typo that finds nothing shows the bar with the corrected query', (await bar.count()) === 1 && /Showing results for\s+\S*kettle/.test(await bar.innerText()), (await bar.allInnerTexts()).join('|'));
+await page.waitForSelector('#results .corrected', { timeout: 6000 });
+check('rescue: a typo that finds nothing shows the bar with the corrected query at once, not after the typing has settled', (await bar.count()) === 1 && /Showing results for\s+\S*kettle/.test(await bar.innerText()), (await bar.allInnerTexts()).join('|'));
+await page.waitForTimeout(1800);
+check('rescue: (the settle request that logs it was held back meanwhile, so the bar did not wait for it)', settleHeld === true);
+await page.unrouteAll({ behavior: 'ignoreErrors' });
+check('rescue: and the page never said "Nothing found" for it on the way (it said it was looking for a correction)', !(await page.evaluate(() => window.__said)).some((t) => /Nothing found for “kpttle”/.test(t)) && (await page.evaluate(() => window.__said)).some((t) => /Searching for a correction/.test(t)), (await page.evaluate(() => window.__said)).join(' | '));
 check('rescue: and the results of the corrected query', (await page.locator('#results .hit-row').count()) > 0);
 check('rescue: and no second sentence for the same thing in the warnings', (await page.locator('#results .warnings').count()) === 0);
 check('rescue: and no "did you mean" (the suggestion was taken)', (await page.locator('#results .did-you-mean').count()) === 0);
 const insteadLink = bar.locator('a');
 check('rescue: the link says what it searches, in the typed words', (await insteadLink.innerText()) === 'Search for “kpttle” instead', await insteadLink.innerText());
 check('rescue: and it asks for the exact text', ((await insteadLink.getAttribute('href')) ?? '').includes('exact=1'));
-check('rescue: the notice is part of the live region the results are announced from', await page.evaluate(() => document.querySelector('#results .corrected')?.closest('[aria-live]')?.id === 'results'));
 
 // typing on to a query that finds something removes the bar (it belongs to the fragment the live search replaces)
 await page.fill('input[name=q]', 'kettle');
 await resultsSettled(page, 'q=kettle');
 check('rescue: a following search that needs no rescue removes the bar', (await page.locator('#results .corrected').count()) === 0 && (await page.locator('#results .hit-row').count()) > 0);
 await page.fill('input[name=q]', 'kpttle');
-await resultsSettled(page, 'q=kpttle');
-check('rescue: typing the typo again shows no bar at first', (await page.locator('#results .corrected').count()) === 0);
 await page.waitForSelector('#results .corrected', { timeout: 6000 });
-check('rescue: and the settled text brings it back', (await page.locator('#results .corrected').count()) === 1 && (await page.locator('#results .hit-row').count()) > 0);
+check('rescue: typing the typo again brings it back', (await page.locator('#results .corrected').count()) === 1 && (await page.locator('#results .hit-row').count()) > 0);
 await page.fill('input[name=q]', 'kettle');
 await page.waitForSelector('#results .hit-row');
 await page.waitForFunction(() => document.querySelectorAll('#results .corrected').length === 0);
 check('rescue: and a search that needs no rescue takes it away again', (await page.locator('#results .corrected').count()) === 0);
+// the owner's rule: a word that finds results is never rescued while it is typed, whatever the next letter will make of it
+await page.fill('input[name=q]', '');
+await page.keyboard.type('wireles mou', { delay: 50 });
+await resultsSettled(page, 'q=wireles');
+check('rescue: a text that finds results (typo tolerance, a half-typed word) shows no bar while it is typed', (await page.locator('#results .corrected').count()) === 0 && (await page.locator('#results .hit-row').count()) > 0);
+// the rescue is not for a text with nothing close: after the request for it, the answer is "Nothing found"
+await page.fill('input[name=q]', `qzxv${suffix}7`);
+await page.waitForFunction(() => /Nothing found/.test(document.querySelector('#results .empty')?.innerText ?? ''));
+check('rescue: a text nothing can rescue ends in "Nothing found", not in "Searching for a correction"', !/Searching for a correction/.test(await page.locator('#results').innerText()));
 // Enter is a search the visitor means: a page load, rescued at once
 await page.fill('input[name=q]', 'kpttle');
 await Promise.all([page.waitForURL(/q=kpttle/), page.keyboard.press('Enter')]);
