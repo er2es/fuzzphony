@@ -9,6 +9,7 @@ changes; they are always listed under **Breaking** and explained in [UPGRADE.md]
 
 ### Fixed
 
+- **The search text is no longer passed to the metrics collector.** The engine put the visitor's raw text as a `query` label on `fuzzphony.search.took_ms`, `.fallback` and `.rescued`, past `search_log.redact`; only the bundled collectors dropped it. Metrics now carry `index` only, and `LoggingMetricsCollector`'s `logQueryText` option is gone.
 - **Errors name the right thing.** A typo in a per-query `->thresholds()` / `->ranking()` (and so in `fuzzphony:search --threshold min_scor=1`, `--rank-profile`, `--facet`) is an `InvalidQuery` naming the index, and the command prints it instead of a stack trace; thresholds and ranking-profile errors in YAML name the real index (not `thresholds` / `ranking`). The 403 response no longer repeats the index name.
 - **`SearchRefused` is the common interface of `AccessDenied`, `ActorRequired` and `RateLimited`** (each keeps its parent, so `catch (InvalidQuery)` still catches `ActorRequired`); `RebuildAlreadyRunning` is now a `\RuntimeException` (was `\InvalidArgumentException`).
 - **A per-query `->ranking(['label_weights' => ['C' => 0.5]])` keeps the profile's other label weights** (it replaced the map and refilled the rest with the library defaults, so a profile with its own `A`/`B` lost them). Searches that name label weights per query may rank differently; no other search changes.

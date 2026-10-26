@@ -32,6 +32,8 @@ slower (0.3 to 1 s where it was 40 to 130 ms on 200 000 to 1 000 000 products); 
 
 **Exceptions.** `RebuildAlreadyRunning` now extends `\RuntimeException` (it was an `\InvalidArgumentException`): a `catch (\InvalidArgumentException)` around a reindex no longer catches it, catch `RebuildAlreadyRunning` itself. A bad per-query `->thresholds([...])` / `->ranking([...])` throws `InvalidQuery` (was `InvalidDefinition`). The 403 body of a refused search is the fixed text "Searching is not allowed for this caller." (the exception in `previous` has the details). New interface `SearchRefused`, implemented by `AccessDenied`, `ActorRequired` and `RateLimited`; nothing else about them changes.
 
+**Metrics no longer carry the search text.** `fuzzphony.search.took_ms`, `.fallback` and `.rescued` have the single label `index`. A `MetricsCollector` of your own no longer receives a `query` label (it was the raw text, before `search_log.redact`); drop any code that read it. The `LoggingMetricsCollector` constructor lost its `logQueryText` argument: remove the named argument if you pass it.
+
 ## From 0.9.7 to 0.9.8
 
 Nothing is required, but **run `fuzzphony:schema --apply` and then `fuzzphony:reindex`** (item 5), **searches that returned nothing may now return results**, in two ways, and **the results of searches with a very common word change** (items 3 and 4):
