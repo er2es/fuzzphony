@@ -588,6 +588,17 @@ await go(page, `${BASE}/under-the-hood/analytics`);
 const analyticsText = await page.locator('main').innerText();
 check('analytics: a capped total is shown as 2,000+', /2,000\+/.test(analyticsText) && !/2,000\.0|2,000(?!\+)/.test(analyticsText), (analyticsText.match(/.{20}2,000.{10}/g) ?? []).join(' / '));
 
+// small things the accessibility check found
+await go(page, `${BASE}/relevance?q=tv`);
+const h2s = (await page.locator('main h2').allTextContents()).map((t) => t.trim());
+check('relevance: no two headings of level 2 have the same text', new Set(h2s).size === h2s.length, h2s.join(' | '));
+await go(page, `${BASE}/tune?query=mouse`);
+check('tune: the sliders are 24 px tall at least and the view switch has no frame of its own', (await page.locator('input[type=range]').evaluateAll((els) => els.every((e) => e.getBoundingClientRect().height >= 24))) && (await page.locator('fieldset.segmented').evaluate((f) => getComputedStyle(f).borderTopWidth)) === '0px');
+await go(page, `${BASE}/under-the-hood/doctor`);
+check('doctor: a skipped check does not wear the disclosure chevron', (await page.locator('.status-dot use[href="#i-chevron"]').count()) === 0);
+await go(p2, `${BASE}/under-the-hood/analytics`);
+check('analytics on a phone: a table that scrolls sideways can be reached with the keyboard and has a name', await p2.locator('.table-card').evaluateAll((els) => els.every((e) => e.scrollWidth <= e.clientWidth || (e.tabIndex === 0 && e.getAttribute('role') === 'region' && e.hasAttribute('aria-label')))));
+
 await secContext.close();
 
 await browser.close();

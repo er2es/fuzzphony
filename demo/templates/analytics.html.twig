@@ -3,7 +3,7 @@
 {# A search counts at most `cap` matches (the candidate limit, 2000): a total at the cap is "2,000+", never "2,000.0" #}
 {% macro count(value, cap, decimals = 0) %}{{ value|number_format(decimals) }}{{ value >= cap ? '+' }}{% endmacro %}
 {% macro stats(rows, caption, cap) %}
-    <div class="table-card">
+    <div class="table-card" tabindex="0" role="region" aria-label="{{ caption }}">
         <table>
             <caption class="sr-only">{{ caption }}</caption>
             <thead><tr><th>Query</th><th class="num">Searches</th><th class="num">Average hits</th><th class="num">Last seen</th></tr></thead>
@@ -73,7 +73,7 @@
                 {% if recent is empty %}
                     <p class="muted" role="status">No search matches these filters in the last seven days.</p>
                 {% else %}
-                    <div class="table-card">
+                    <div class="table-card" tabindex="0" role="region" aria-label="The latest searches">
                         <table>
                             <caption class="sr-only">The latest searches of the last seven days, newest first</caption>
                             <thead><tr><th>When</th><th>Who</th><th>Tenant</th><th>Index</th><th>Query</th><th class="num">Hits</th><th>Status</th><th>Client IP</th></tr></thead>

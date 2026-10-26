@@ -12,7 +12,7 @@
 
     <section aria-labelledby="reported">
         <h2 id="reported" class="list-title">What this search reported · <code>{{ query }}</code> · {{ total }} hits</h2>
-        <div class="table-card">
+        <div class="table-card" tabindex="0" role="region" aria-label="Metrics this search reported">
             <table>
                 <thead><tr><th>Metric</th><th>Kind</th><th>This run</th></tr></thead>
                 <tbody>
@@ -44,7 +44,7 @@ fuzzphony.metric {"event":"fuzzphony.search.rescued","by":1,"index":"catalog"}{%
 
     <details class="disclosure">
         <summary>Everything Fuzzphony can report<svg class="icon" aria-hidden="true"><use href="#i-chevron"/></svg></summary>
-        <div class="table-card">
+        <div class="table-card" tabindex="0" role="region" aria-label="Every metric Fuzzphony can report">
             <table>
                 <thead><tr><th>Metric</th><th>Kind</th><th>From</th></tr></thead>
                 <tbody>

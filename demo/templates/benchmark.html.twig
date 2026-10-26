@@ -15,7 +15,7 @@
             <span data-sequence-target="label" role="status">Starting…</span>
             <a class="button" href="{{ path('benchmark') }}" data-sequence-target="done" hidden>Run again</a>
         </div>
-        <div class="table-card">
+        <div class="table-card" tabindex="0" role="region" aria-label="Benchmark results">
             <table>
                 <thead><tr><th>Query</th><th class="num">ILIKE cold</th><th class="num">ILIKE warm</th><th class="num">hits</th><th class="num">Fuzzphony cold</th><th class="num">Fuzzphony warm</th><th class="num">hits</th></tr></thead>
                 <tbody>
