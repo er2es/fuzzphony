@@ -247,7 +247,7 @@ final class PostgresEngineBehaviourTest extends TestCase
         (new Fuzzphony(new PostgresEngine($this->connection), new IndexRegistry([$this->index])))->reindex('products');
         $spy = $this->spy(fetchAll: static fn(string $sql): ?array => str_starts_with($sql, 'SELECT count(*) AS total FROM') ? [] : null);
 
-        $result = $this->fuzzphony($spy)->in('products')->query('')->thresholds(['candidate_limit' => 10])->exactCounts()->get();
+        $result = $this->fuzzphony($spy)->in('products')->query('')->thresholds(['candidate_limit' => 10])->limit(10)->exactCounts()->get();
 
         self::assertSame(0, $result->total, 'no row: no documents');
         self::assertFalse($result->totalIsLowerBound);
