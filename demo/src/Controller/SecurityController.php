@@ -120,7 +120,7 @@ final class SecurityController extends AbstractController
         }
 
         return $this->render('security.html.twig', [
-            'viewers' => ['anonymous' => 'Anonymous'] + array_map(static fn(DemoUser $u) => $u->name, DemoUser::all()),
+            'viewers' => array_map(static fn(DemoUser $u) => $u->name, DemoUser::all()) + [DemoUser::ANONYMOUS => 'Anonymous'], // nobody last: the page opens on Ada
             'viewer' => $viewer,
             'viewerId' => $viewer?->getUserIdentifier() ?? DemoUser::ANONYMOUS,
             'q' => $q,

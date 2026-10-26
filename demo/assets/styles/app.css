@@ -396,6 +396,10 @@
     .editor-bar { display: flex; align-items: center; justify-content: space-between; gap: 1rem; padding: .6rem 1rem; border-top: .5px solid var(--hairline); }
     @media (max-width: 40rem) { .editor-bar { flex-direction: column; align-items: stretch; } }
 
+    /* the Security page's viewer: five labels in a row on a wide screen, a select on a phone */
+    .viewer-select { display: none; justify-self: center; gap: .3rem; width: min(100%, 20rem); }
+    @media (max-width: 40rem) { .viewer-links { display: none; } .viewer-select { display: grid; } }
+
     /* Languages */
     .results-layout.wide-side { grid-template-columns: minmax(0, 1fr) 22rem; }
     @media (max-width: 64rem) { .results-layout.wide-side { grid-template-columns: 1fr; } }

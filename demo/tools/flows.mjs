@@ -279,6 +279,12 @@ const p2 = await phone.newPage();
 await go(p2, BASE + '/');
 const box = await p2.locator('nav.nav').boundingBox();
 check('on a phone the navigation is a tab bar at the bottom', box !== null && box.y > 700, JSON.stringify(box));
+const secPhone = await phone.newPage();
+await go(secPhone, BASE + '/under-the-hood/security?as=hana&q=menu');
+check('security on a phone: a select instead of the row of five buttons', (await secPhone.locator('.viewer-select select').isVisible()) && !(await secPhone.locator('.viewer-links').isVisible()) && (await secPhone.locator('.viewer-select select').inputValue()) === 'hana');
+await Promise.all([secPhone.waitForURL(/as=eve/), secPhone.selectOption('.viewer-select select', 'eve')]);
+check('and choosing a viewer in it changes the viewer and keeps the search', /q=menu/.test(secPhone.url()) && (await secPhone.locator('.callout.is-bad').count()) === 1);
+await secPhone.close();
 await p2.click('.nav .menu summary');
 check('the menu opens upwards from the tab bar', (await p2.locator('.menu-panel a').first().boundingBox())?.y < box.y);
 const menuLink = await p2.locator('.menu-panel a').first().evaluate((a) => ({ size: parseFloat(getComputedStyle(a).fontSize), dir: getComputedStyle(a).flexDirection, panel: getComputedStyle(a.parentElement).backgroundColor, height: a.getBoundingClientRect().height }));
@@ -294,6 +300,14 @@ const sec = await secContext.newPage();
 sec.setDefaultTimeout(8000);
 const viewing = (q, as, extra = '') => `${BASE}/under-the-hood/security?as=${as}&q=${q}${extra}`;
 const sqlOf = async (p) => (await p.locator('.disclosure pre').allTextContents()).join(' ');
+
+// a first visit opens on Ada and an answer, not on a refusal; Anonymous is the last choice; there is one reset button at a time
+const fresh = await (await browser.newContext({ viewport: { width: 1280, height: 800 }, reducedMotion: 'reduce' })).newPage();
+await go(fresh, `${BASE}/under-the-hood/security?q=menu`);
+check('security: a first visit is Ada, with an answer and no refusal', (await fresh.locator('.viewer-links [aria-current]').innerText()) === 'Ada' && (await fresh.locator('.callout.is-bad').count()) === 0 && (await fresh.locator('.hit-row').count()) > 0);
+check('security: Anonymous is the last choice', (await fresh.locator('.viewer-links a').last().innerText()) === 'Anonymous');
+check('security: the reset button is shown once on the page', (await fresh.locator('a.button', { hasText: 'Reset the count' }).count()) === 1);
+await fresh.context().close();
 
 await go(sec, viewing('salary', 'hana', '&reset=1'));
 check('security: HR finds notes by a word that is only in the hidden field', (await sec.locator('.hit-row').count()) > 0);
