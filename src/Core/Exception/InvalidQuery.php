@@ -6,6 +6,8 @@ declare(strict_types=1);
 
 namespace Fuzzphony\Core\Exception;
 
+use Fuzzphony\Core\Support\Closest;
+
 /**
  * Thrown for developer-side misuse of the query API (unknown filter, wrong value type, ...).
  * Not final on purpose: ActorRequired extends it, so callers catching InvalidQuery also catch a refused actor.
@@ -15,7 +17,7 @@ class InvalidQuery extends \InvalidArgumentException implements FuzzphonyExcepti
     /** @param list<string> $known */
     public static function unknownFilter(string $index, string $filter, array $known): self
     {
-        $hint = self::closest($filter, $known);
+        $hint = Closest::of($filter, $known);
 
         return new self(sprintf(
             'Index "%s" has no filter "%s".%s Known filters: %s.',
@@ -45,21 +47,5 @@ class InvalidQuery extends \InvalidArgumentException implements FuzzphonyExcepti
             $profile,
             implode(', ', $known),
         ));
-    }
-
-    /** @param list<string> $candidates */
-    private static function closest(string $needle, array $candidates): ?string
-    {
-        $best = null;
-        $bestDistance = PHP_INT_MAX;
-        foreach ($candidates as $candidate) {
-            $distance = levenshtein(strtolower($needle), strtolower($candidate));
-            if ($distance < $bestDistance) {
-                $best = $candidate;
-                $bestDistance = $distance;
-            }
-        }
-
-        return $bestDistance <= 3 ? $best : null;
     }
 }

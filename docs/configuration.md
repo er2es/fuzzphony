@@ -103,6 +103,14 @@ fuzzphony:
 Other keys: `sync`, `trigger_level`, `unaccent`, `tenant`, `synonyms`, `id_type`, and `source: { table: … }`
 for a table source.
 
+The configuration is checked as a whole before anything is built, and every problem is listed at once: an unknown key
+at any level (a field, filter, source or watch option, with a "did you mean": `wieght` for `weight`), a list where a map
+belongs (`fields: [name, body]`), a string where a boolean belongs (`fuzzy: "false"` is refused, not read as true; use
+`true` or `false`), a `class` that does not exist. An override of an attribute-defined index may set `sync`,
+`trigger_level`, `language`, `unaccent`, `boost`, `recency`, `tenant`, `synonyms`, `log`, `profiles`, `thresholds` and
+`watch`; `fields`, `filters`, `source`, `id_type` and `class` describe the index itself and are refused with a message
+that names the index (change the attributes).
+
 `thresholds` takes the options of [Ranking and thresholds](ranking.md#thresholds). Two of them are switches for what a
 search that found little or nothing does by itself, both on by default: `did_you_mean` (a suggestion next to the result,
 [Did you mean](searching.md#did-you-mean)) and `rescue_empty` (a search that found nothing and has a word with exactly

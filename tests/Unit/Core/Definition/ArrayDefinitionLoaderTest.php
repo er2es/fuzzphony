@@ -192,15 +192,16 @@ final class ArrayDefinitionLoaderTest extends TestCase
         self::assertSame(\Fuzzphony\Core\Definition\TriggerLevel::Row, $definition->triggerLevel);
     }
 
-    public function testANonArrayOptionalSectionIsIgnored(): void
+    public function testANonArrayOptionalSectionIsRefused(): void
     {
-        $definition = (new ArrayDefinitionLoader())->load('products', [
+        $this->expectException(InvalidDefinition::class);
+        $this->expectExceptionMessageMatches('/"filters" must be a map of filter name/');
+
+        (new ArrayDefinitionLoader())->load('products', [
             'source' => ['table' => 'product'],
             'fields' => ['name' => 'A'],
-            'filters' => 'not-a-map', // ignored: map() falls back to []
+            'filters' => 'not-a-map',
         ]);
-
-        self::assertSame([], $definition->filters);
     }
 
     public function testYamlOverrideCanChangeTriggerLevelLanguageBoostRecencyAndWatches(): void
