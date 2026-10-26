@@ -396,6 +396,7 @@ check('rescue: and the results of the corrected query', (await page.locator('#re
 check('rescue: and no second sentence for the same thing in the warnings', (await page.locator('#results .warnings').count()) === 0);
 check('rescue: and no "did you mean" (the suggestion was taken)', (await page.locator('#results .did-you-mean').count()) === 0);
 const insteadLink = bar.locator('a');
+check('rescue: the bar names the corrected word, not the expanded query', (await bar.locator('strong').innerText()) === 'kettle', await bar.locator('strong').innerText());
 check('rescue: the link says what it searches, in the typed words', (await insteadLink.innerText()) === 'Search for “kpttle” instead', await insteadLink.innerText());
 check('rescue: and it asks for the exact text', ((await insteadLink.getAttribute('href')) ?? '').includes('exact=1'));
 
@@ -440,6 +441,11 @@ for (const [what, q, hits] of [['a normal query', 'mouse', true], ['a typo that 
     await go(page, `${BASE}/?q=${encodeURIComponent(q)}`);
     check(`rescue: ${what} shows no bar`, (await page.locator('.corrected').count()) === 0 && ((await page.locator('#results .hit-row').count()) > 0) === hits);
 }
+
+// a typo that typo tolerance already found says "Including results for ...", not "Did you mean": the results are the suggestion's
+await go(page, `${BASE}/?q=hedphones`);
+check('a typo that typo tolerance finds says "Including results for headphones", with no question', /^Including results for\s+headphones$/.test((await page.locator('#results .did-you-mean').innerText()).trim()) && (await page.locator('#results .did-you-mean a').count()) === 0);
+check('the headline no longer carries the expanded query; the disclosure does', !(await page.locator('#results .stat-caption').innerText()).includes('understood as') && /understood as/.test(await page.locator('#results .disclosure').textContent()));
 
 // the visitor's own words are escaped, in the bar and in the "nothing found" line: no element comes out of them
 const hostile = 'mpuse<>"\'&';

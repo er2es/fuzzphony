@@ -13,7 +13,6 @@
                     <span class="stat-value">{{ took < 10 ? took|number_format(1) : took|number_format(0) }}</span><span class="stat-unit">ms</span>
                     <span class="stat-caption">{% if view == 'speed' and speed %}warm median · {% endif %}
                         {{ result.total|number_format }}{{ result.totalIsLowerBound ? '+' }} {{ result.total == 1 ? 'product' : 'products' }}{% if result.usedFuzzy %} · typo tolerant{% endif %}
-                        · understood as <code>{{ result.interpretedAs }}</code>
                     </span>
                 </div>
             {% else %}
@@ -46,8 +45,9 @@
         {% elseif result %}
             {% if result.correctedFrom is not null %}
                 {# The zero-result rescue: the typed text found nothing and was searched again with its unique one-edit correction. Both texts are
-                   the visitor's own words: Twig escapes them. The warning that says the same is left out below; the link searches the typed text as it is. #}
-                <p class="corrected">Showing results for <strong><code>{{ result.interpretedAs }}</code></strong>
+                   the visitor's own words: Twig escapes them. The bar names the corrected text (the expanded query is in "How this was searched");
+                   the warning that says the same is left out below; the link searches the typed text as it is. #}
+                <p class="corrected">Showing results for <strong>{{ correctedTo ?? result.interpretedAs }}</strong>
                     <a href="{{ u.url(q, view, category, stock, {exact: 1}) }}">Search for “{{ result.correctedFrom }}” instead</a></p>
             {% endif %}
             {% set notes = result.correctedFrom is not null ? result.warnings|filter(w => not (w starts with 'No results for ')) : result.warnings %}
@@ -55,7 +55,12 @@
                 <div class="warnings">{% for warning in notes %}<p>{{ warning }}</p>{% endfor %}</div>
             {% endif %}
             {% if result.didYouMean %}
-                <p class="did-you-mean">Did you mean <a href="{{ u.url(result.didYouMean, view, category, stock) }}"><strong>{{ result.didYouMean }}</strong></a>?</p>
+                {% if result.total > 0 and result.usedFuzzy %}
+                    {# typo tolerance already found it: the results are the suggestion's, so nothing is asked #}
+                    <p class="did-you-mean">Including results for <strong>{{ result.didYouMean }}</strong></p>
+                {% else %}
+                    <p class="did-you-mean">Did you mean <a href="{{ u.url(result.didYouMean, view, category, stock) }}"><strong>{{ result.didYouMean }}</strong></a>?</p>
+                {% endif %}
             {% endif %}
 
             <div class="results-layout">

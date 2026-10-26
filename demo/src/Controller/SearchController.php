@@ -10,6 +10,7 @@ use App\Service\Measure;
 use Fuzzphony\Core\Exception\FuzzphonyException;
 use Fuzzphony\Core\Fuzzphony;
 use Fuzzphony\Core\Search\SearchBuilder;
+use Fuzzphony\Core\Search\SearchResult;
 use Symfony\Bundle\FrameworkBundle\Controller\AbstractController;
 use Symfony\Component\HttpFoundation\Request;
 use Symfony\Component\HttpFoundation\Response;
@@ -142,6 +143,7 @@ final class SearchController extends AbstractController
             'rowEstimate' => $catalog->estimatedProductCount(),
             'examples' => self::TRY,
             'pending' => $pending,
+            'correctedTo' => $result === null ? null : self::correctedTo($result),
         ];
 
         // the live search asks for the region only
@@ -170,6 +172,25 @@ final class SearchController extends AbstractController
     public static function benchmarkQueries(): array
     {
         return self::EXAMPLES + ['plain word' => 'wireless', 'two words' => 'wireless mouse'];
+    }
+
+    /**
+     * The text the rescued search was made with (`mouse` for `mpuse`). The library names it only in the warning of the rescue
+     * ("No results for 'mpuse'; showing results for 'mouse'."), not in a property: SearchResult::$interpretedAs is the expanded query
+     * ("(mouse OR mice)"). Null when the search was not rescued or the sentence is not that one: the page then shows the expanded query.
+     */
+    private static function correctedTo(SearchResult $result): ?string
+    {
+        if ($result->correctedFrom === null) {
+            return null;
+        }
+        foreach ($result->warnings as $warning) {
+            if (preg_match("/^No results for '.*'; showing results for '(.+)'\.$/su", $warning, $m) === 1) {
+                return $m[1];
+            }
+        }
+
+        return null;
     }
 
     private static function normalizeQuery(Request $request): string
