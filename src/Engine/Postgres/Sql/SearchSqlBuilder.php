@@ -666,7 +666,8 @@ SELECT
     }
 
     /**
-     * No search text: filter-only browsing, ordered by boost / recency, then id.
+     * No search text: filter-only browsing, ordered by boost / recency, then id, over the first `window` documents of that order
+     * (the candidate limit, or more for a page past it).
      *
      * @param list<Condition> $conditions
      *
@@ -686,7 +687,7 @@ SELECT
             $score,
             $table,
             $where,
-            $thresholds->candidateLimit,
+            self::window($thresholds, $limit, $offset),
             $limit,
             $offset,
         );

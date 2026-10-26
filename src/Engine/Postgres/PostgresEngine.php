@@ -716,7 +716,7 @@ final class PostgresEngine implements Engine, Vocabulary, SynonymStems, Suggesti
             $window = SearchSqlBuilder::window($thresholds, $query->limit, $query->offset);
             $capped = $rows !== [] && (Coerce::int($rows[0]['fts_n']) >= $window || Coerce::int($rows[0]['fuzzy_n']) >= $window);
             if ($run['browse']) {
-                $capped = $total >= $thresholds->candidateLimit;
+                $capped = $total >= $window;
             }
             $builder = new SearchSqlBuilder($index, $this->names, $run['ranked']['candidates'] ?? [], $query->allowedFields, true, cappedColumn: $this->cappedColumn($index));
             // exactCounts(): when the candidate limit cut the matches off, count them all

@@ -289,6 +289,42 @@ final class CandidateSelectionTest extends TestCase
         self::assertFalse($beyond->hasMore(), 'an empty page past the hard cap');
     }
 
+    /** A page past the candidate limit is served by every branch alike: the strict one, the typo one and filter-only browsing. */
+    public function testADeepPageOfATypoSearchAndOfBrowsingIsServedLikeAStrictOne(): void
+    {
+        $this->connection->execute("INSERT INTO fz_cand SELECT i, 'gadgetron n' || i, 'plain', CASE WHEN i % 2 = 0 THEN 'a' ELSE 'b' END, true, 0 FROM generate_series(1, 300) AS i");
+        $this->fuzzphony->reindex('cand');
+        $page = static fn(SearchBuilder $b): SearchBuilder => $b->thresholds(['fuzzy_mode' => 'always']);
+
+        // 50 candidates, a page at 100..120: the window is offset + limit, not the candidate limit
+        $strict = $this->search('gadgetron', 20, 100)->get();
+        self::assertCount(20, $strict->hits);
+        $typo = $this->search('gadgetrun', 20, 100, 50, $page)->get();
+        self::assertTrue($typo->usedFuzzy);
+        self::assertCount(20, $typo->hits, 'the typo branch selects the window too');
+        self::assertSame(120, $typo->total);
+        self::assertTrue($typo->totalIsLowerBound);
+        self::assertSame($strict->total, $typo->total);
+        self::assertCount(20, array_unique($typo->ids()));
+        $first = $this->search('gadgetrun', 20, 0, 50, $page)->get();
+        self::assertSame([], array_intersect($first->ids(), $typo->ids()), 'the pages do not overlap');
+        self::assertSame(range(1, 20), $first->ids(), 'equal scores: the lowest ids first');
+        self::assertSame(range(101, 120), $typo->ids());
+
+        // a typo search of a restricted viewer is the ordered selection with the same window
+        $restricted = $this->search('gadgetrun', 20, 100, 50, static fn(SearchBuilder $b): SearchBuilder => $b->thresholds(['fuzzy_mode' => 'always'])->restrictedToFields('title'))->get();
+        self::assertSame(range(101, 120), $restricted->ids());
+
+        // browsing: filter only (150 documents have cat a)
+        $browse = fn(int $offset): SearchBuilder => $this->fuzzphony->in('cand')->query('')->where('cat', 'a')->thresholds(['candidate_limit' => 50])->limit(20, $offset);
+        $deep = $browse(100)->get();
+        self::assertCount(20, $deep->hits, 'browsing selects the window too');
+        self::assertSame(120, $deep->total);
+        self::assertTrue($deep->totalIsLowerBound);
+        self::assertSame([], array_intersect($browse(0)->get()->ids(), $deep->ids()), 'the pages do not overlap');
+        self::assertSame([], $browse(150)->get()->ids(), 'past the last document a page is empty');
+    }
+
     public function testOnlyTheFirstMatchesOfTheScanBudgetAreRanked(): void
     {
         $this->loadCorpus();
