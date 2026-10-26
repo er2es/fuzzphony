@@ -20,9 +20,7 @@ final class ExportersOutputTest extends TestCase
     /** The expected text is a heredoc: normalise it when the checkout converted line endings. */
     private static function lf(string $text): string
     {
-        return str_replace("
-", "
-", $text);
+        return str_replace("\r\n", "\n", $text);
     }
 
     private static function rich(): IndexDefinition
