@@ -84,7 +84,7 @@ final class WizardCommandTest extends TestCase
         self::assertSame(Command::SUCCESS, $status);
         $display = $tester->getDisplay(true);
         // SymfonyStyle::warning() word-wraps its block, so check the fragments rather than one long string.
-        self::assertStringContainsString('Joined sources cannot be expressed with attributes; showing YAML', $display);
+        self::assertStringContainsString('Joined sources, extra watches, ranking profiles and thresholds cannot be', $display);
         self::assertStringContainsString('instead.', $display);
         self::assertStringContainsString('config/packages/fuzzphony.yaml', $display);
     }

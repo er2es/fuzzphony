@@ -105,7 +105,7 @@ statistics and suggests a complete definition, explaining every decision:
  published_at   recency                             newest first in the "popular" ranking profile
 ```
 
-Output it as YAML, builder code or attributes (`--format`), write it to a file (`--write`), or
+Output it as YAML, builder code or attributes (`--format`; attributes cannot hold joined sources, extra watches, ranking profiles or thresholds, so the command shows YAML instead then), write it to a file (`--write`), or
 `--try` it on the spot: schema, reindex, doctor and interactive searches.
 
 Boost weights are scaled from the column's statistics, so the most popular document gets a bonus

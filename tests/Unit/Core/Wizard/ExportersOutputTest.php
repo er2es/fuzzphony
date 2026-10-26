@@ -6,6 +6,7 @@ namespace Fuzzphony\Tests\Unit\Core\Wizard;
 
 use Fuzzphony\Core\Definition\ArrayDefinitionLoader;
 use Fuzzphony\Core\Definition\IndexDefinition;
+use Fuzzphony\Core\Ranking\FuzzyMode;
 use Fuzzphony\Core\Ranking\RankingProfile;
 use Fuzzphony\Core\Ranking\Thresholds;
 use Fuzzphony\Core\Wizard\Export\ArrayExporter;
@@ -85,6 +86,36 @@ final class ExportersOutputTest extends TestCase
             PHP;
 
         self::assertSame(self::lf($expected), (new BuilderExporter())->export($index));
+    }
+
+    public function testBuilderCodeKeepsThresholdsAndLabelWeights(): void
+    {
+        $index = IndexDefinition::builder('products')->fromTable('product')->field('name', 'B')
+            ->profile('default', new RankingProfile(labelWeights: ['B' => 0.9]))
+            ->profile('loose', new RankingProfile(fuzzy: 0.9, labelWeights: ['C' => 0.5, 'D' => 0.3]))
+            ->thresholds(new Thresholds(minScore: 0.2, fuzzyMode: FuzzyMode::Always, rescueEmpty: false))
+            ->build();
+
+        $code = (new BuilderExporter())->export($index);
+
+        self::assertStringStartsWith("use Fuzzphony\\Core\\Definition\\IndexDefinition;\nuse Fuzzphony\\Core\\Ranking\\FuzzyMode;\nuse Fuzzphony\\Core\\Ranking\\RankingProfile;\nuse Fuzzphony\\Core\\Ranking\\Thresholds;\n\n", $code);
+        self::assertStringContainsString("    ->profile('default', new RankingProfile(labelWeights: ['B' => 0.9]))\n", $code);
+        self::assertStringContainsString("    ->profile('loose', new RankingProfile(fuzzy: 0.9, labelWeights: ['C' => 0.5, 'D' => 0.3]))\n", $code);
+        self::assertStringContainsString("    ->thresholds(new Thresholds(minScore: 0.2, fuzzyMode: FuzzyMode::Always, rescueEmpty: false))\n    ->build();", $code);
+
+        // the code, run, builds the same definition
+        $rebuilt = eval('namespace Fuzzphony\\Tests\\Unit\\Core\\Wizard\\Evaluated; ' . $code . ' return $products;');
+        self::assertInstanceOf(IndexDefinition::class, $rebuilt);
+        self::assertEquals($index->thresholds, $rebuilt->thresholds);
+        self::assertEquals($index->profiles, $rebuilt->profiles);
+    }
+
+    public function testBuilderCodeNeedsNoThresholdsImportForTheDefaultThresholds(): void
+    {
+        $code = (new BuilderExporter())->export(IndexDefinition::builder('products')->fromTable('product')->field('name', 'B')->build());
+
+        self::assertStringNotContainsString('Thresholds', $code);
+        self::assertStringNotContainsString('FuzzyMode', $code);
     }
 
     public function testADefaultProfileThatWasChangedIsExported(): void

@@ -7,7 +7,9 @@ namespace Fuzzphony\Core\Wizard\Export;
 use Fuzzphony\Core\Definition\IndexDefinition;
 use Fuzzphony\Core\Definition\SyncMode;
 use Fuzzphony\Core\Definition\TriggerLevel;
+use Fuzzphony\Core\Ranking\FuzzyMode;
 use Fuzzphony\Core\Ranking\RankingProfile;
+use Fuzzphony\Core\Ranking\Thresholds;
 
 /** Emits the equivalent fluent builder code (plain PHP projects, tests). */
 final class BuilderExporter
@@ -77,20 +79,54 @@ final class BuilderExporter
             $lines[] = sprintf('    ->synonyms(%s)', $e($index->synonyms->toEntries()));
         }
         $defaults = (new RankingProfile())->toArray();
+        $defaultLabels = (new RankingProfile())->labelWeights;
         foreach ($index->profiles as $name => $profile) {
             $changed = array_filter($profile->toArray(), static fn(mixed $v, string $k): bool => $k !== 'label_weights' && $v !== $defaults[$k], ARRAY_FILTER_USE_BOTH);
-            if ($name === 'default' && $changed === []) {
+            $labels = array_filter($profile->labelWeights, static fn(float $weight, string $label): bool => $weight !== $defaultLabels[$label], ARRAY_FILTER_USE_BOTH);
+            if ($name === 'default' && $changed === [] && $labels === []) {
                 continue;
             }
             $args = [];
             foreach ($changed as $key => $value) {
                 $args[] = sprintf('%s: %s', lcfirst(str_replace('_', '', ucwords($key, '_'))), $e($value));
             }
+            if ($labels !== []) {
+                $args[] = 'labelWeights: [' . implode(', ', array_map(static fn(float $weight, string $label): string => sprintf("'%s' => %s", $label, $e($weight)), $labels, array_keys($labels))) . ']';
+            }
             $lines[] = sprintf('    ->profile(%s, new RankingProfile(%s))', $e($name), implode(', ', $args));
+        }
+        $thresholds = $this->thresholds($index->thresholds);
+        if ($thresholds !== []) {
+            $lines[] = sprintf('    ->thresholds(new Thresholds(%s))', implode(', ', $thresholds));
         }
         $lines[] = '    ->build();';
 
-        return "use Fuzzphony\\Core\\Definition\\IndexDefinition;\nuse Fuzzphony\\Core\\Ranking\\RankingProfile;\n\n" . implode("\n", $lines) . "\n";
+        $uses = ['Definition\\IndexDefinition'];
+        if ($index->thresholds->fuzzyMode !== (new Thresholds())->fuzzyMode) {
+            $uses[] = 'Ranking\\FuzzyMode';
+        }
+        $uses[] = 'Ranking\\RankingProfile';
+        if ($thresholds !== []) {
+            $uses[] = 'Ranking\\Thresholds';
+        }
+
+        return implode('', array_map(static fn(string $use): string => sprintf("use Fuzzphony\\Core\\%s;\n", $use), $uses)) . "\n" . implode("\n", $lines) . "\n";
+    }
+
+    /** @return list<string> the named constructor arguments of the thresholds that differ from the default */
+    private function thresholds(Thresholds $t): array
+    {
+        $d = new Thresholds();
+        $args = [];
+        foreach (['minScore', 'fuzzySimilarity', 'fuzzyMinLength', 'fuzzyMode', 'fallbackBelow', 'candidateLimit', 'maxQueryLength', 'maxTerms', 'relaxWhenEmpty', 'didYouMean', 'rescueEmpty'] as $property) {
+            if ($t->{$property} === $d->{$property}) {
+                continue;
+            }
+            $value = $t->{$property};
+            $args[] = sprintf('%s: %s', $property, $value instanceof FuzzyMode ? 'FuzzyMode::' . $value->name : var_export($value, true));
+        }
+
+        return $args;
     }
 
     private function variable(string $name): string

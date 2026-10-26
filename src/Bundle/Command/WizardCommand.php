@@ -94,7 +94,7 @@ final class WizardCommand extends Command
         $format = Coerce::str($input->getOption('format'));
         $attributes = new AttributeExporter();
         if ($format === 'attributes' && !$attributes->supports($index)) {
-            $io->warning('Joined sources cannot be expressed with attributes; showing YAML instead.');
+            $io->warning('Joined sources, extra watches, ranking profiles and thresholds cannot be expressed with attributes; showing YAML instead.');
             $format = 'yaml';
         }
         $code = match ($format) {
