@@ -1,6 +1,8 @@
 {% extends 'base.html.twig' %}
 {% block title %}Analytics · Fuzzphony{% endblock %}
-{% macro stats(rows, caption) %}
+{# A search counts at most `cap` matches (the candidate limit, 2000): a total at the cap is "2,000+", never "2,000.0" #}
+{% macro count(value, cap, decimals = 0) %}{{ value|number_format(decimals) }}{{ value >= cap ? '+' }}{% endmacro %}
+{% macro stats(rows, caption, cap) %}
     <div class="table-card">
         <table>
             <caption class="sr-only">{{ caption }}</caption>
@@ -10,7 +12,7 @@
                 <tr>
                     <td><code>{{ r.query }}</code></td>
                     <td class="num">{{ r.searches|number_format }}</td>
-                    <td class="num">{{ r.averageHits|number_format(1) }}</td>
+                    <td class="num">{{ r.averageHits >= cap ? cap|number_format ~ '+' : r.averageHits|number_format(1) }}</td>
                     <td class="num">{{ r.lastSeen|date('Y-m-d H:i') }}</td>
                 </tr>
             {% endfor %}
@@ -33,7 +35,7 @@
     {% else %}
         <section aria-labelledby="top">
             <h2 id="top" class="list-title">Most searched</h2>
-            {{ _self.stats(top, 'The most searched texts of the last seven days') }}
+            {{ _self.stats(top, 'The most searched texts of the last seven days', cap) }}
         </section>
 
         <section aria-labelledby="zero">
@@ -41,7 +43,7 @@
             {% if zero is empty %}
                 <p class="muted">Every search found something.</p>
             {% else %}
-                {{ _self.stats(zero, 'The texts of the last seven days that found nothing') }}
+                {{ _self.stats(zero, 'The texts of the last seven days that found nothing', cap) }}
             {% endif %}
         </section>
     {% endif %}
@@ -83,8 +85,8 @@
                                     <td>{% if s.tenant is null %}<span class="muted">&ndash;</span>{% else %}{{ companies[s.tenant] ?? s.tenant }}{% endif %}</td>
                                     <td>{{ s.index }}</td>
                                     <td><code>{{ s.query }}</code></td>
-                                    <td class="num">{{ s.hits|number_format }}</td>
-                                    <td>{% if s.status.value == 'ok' %}<span class="flag is-ok">answered</span>{% elseif s.status.value == 'denied' %}<span class="flag is-bad">denied</span>{% else %}<span class="flag is-limit">rate limited</span>{% endif %}</td>
+                                    <td class="num">{{ _self.count(s.hits, cap) }}</td>
+                                    <td>{% if s.status.value == 'ok' and s.hits == 0 %}<span class="flag is-limit">found nothing</span>{% elseif s.status.value == 'ok' %}<span class="flag is-ok">answered</span>{% elseif s.status.value == 'denied' %}<span class="flag is-bad">denied</span>{% else %}<span class="flag is-limit">rate limited</span>{% endif %}</td>
                                     <td>{% if s.ip is null %}<span class="muted">&ndash;</span>{% else %}<span class="ip">{{ s.ip }}</span>{% endif %}</td>
                                 </tr>
                             {% endfor %}

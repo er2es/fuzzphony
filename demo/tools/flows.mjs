@@ -355,7 +355,7 @@ for (let attempt = 0; attempt < 8; attempt++) {
 const adaRow = rowOf(allRows, adaWord)[0] ?? [];
 const anonRow = rowOf(allRows, anonWord)[0] ?? [];
 const eveRow = rowOf(allRows, eveWord)[0] ?? [];
-check('who: a search of the Security page as Ada is listed with her name, her company, the intranet and "answered"', adaRow[1] === 'Ada' && adaRow[2] === 'Acme' && adaRow[3] === 'intranet' && adaRow[6] === 'answered', adaRow.join(' | '));
+check('who: a search of the Security page as Ada is listed with her name, her company, the intranet and "found nothing" (it answered, with no hit)', adaRow[1] === 'Ada' && adaRow[2] === 'Acme' && adaRow[3] === 'intranet' && adaRow[6] === 'found nothing', adaRow.join(' | '));
 check('who: the anonymous refusal is a denied row without a user', anonRow[1] === 'anonymous' && anonRow[6] === 'denied', anonRow.join(' | '));
 check('who: the refusal of Eve is a denied row with her name', eveRow[1] === 'Eve (guest)' && eveRow[6] === 'denied', eveRow.join(' | '));
 check('who: the typed text of an answered search is listed once, not twice', rowOf(allRows, adaWord).length === 1, String(rowOf(allRows, adaWord).length));
@@ -512,8 +512,17 @@ check('rescue: the same text searched "instead" (exact) is logged as the search 
 check('rescue: who searched what lists the typed text with the hits of the rescued search', rescuedHits.length > 0 && rescuedHits.every((h) => h !== '0'), rescuedHits.join(', '));
 await go(page, BASE + '/under-the-hood/observability?q=mpuse');
 check('rescue: the observability page counts a rescued search', /fuzzphony\.search\.rescued/.test(await page.locator('body').innerText()));
-await go(page, BASE + '/relevance?q=kpttle'); // (logged as a search that found nothing: not the typo of the Analytics checks above)
+await go(page, BASE + '/relevance?q=kpttle'); // (not logged: the page runs searches of its own)
 check('rescue: the Relevance page shows what each rule finds, not a rescue (the price of a letter replaced in the middle)', /\b0 hits/.test(await page.locator('body').innerText()));
+// the Relevance and Synonyms pages run searches of their own (forced typo tolerance, a flat similarity, a suggestion): none is logged
+const relWord = `relw${suffix}`;
+for (const path of ['/relevance?q=', '/under-the-hood/synonyms?q=']) {
+    for (let i = 0; i < 3; i++) {
+        await go(page, BASE + path + relWord);
+    }
+}
+await page.waitForTimeout(1500);
+check('the Relevance and Synonyms pages log nothing', !(await listRows('')).some((r) => r[4] === relWord));
 
 // a search the visitor means is logged once, with the hits it found: the probe that decided what to answer is not a row of its own, and the
 // run that logs a found search happens after the response (kernel.terminate), so the row may come a moment later
@@ -527,6 +536,13 @@ for (let attempt = 0; attempt < 8 && onceRows.length === 0; attempt++) {
 await page.waitForTimeout(1500);
 onceRows = rowOf(await listRows(''), onceWord);
 check('a search that found something is logged once, with its hits', onceRows.length === 1 && onceRows[0][5] !== '0', onceRows.map((r) => r.join(' | ')).join(' / '));
+
+// a total at the candidate cap is "2,000+", not "2,000.0" (the table of the most searched) or a bare 2,000 (the list)
+await go(page, `${BASE}/?q=wireless`);
+await page.waitForTimeout(2000);
+await go(page, `${BASE}/under-the-hood/analytics`);
+const analyticsText = await page.locator('main').innerText();
+check('analytics: a capped total is shown as 2,000+', /2,000\+/.test(analyticsText) && !/2,000\.0|2,000(?!\+)/.test(analyticsText), (analyticsText.match(/.{20}2,000.{10}/g) ?? []).join(' / '));
 
 await secContext.close();
 

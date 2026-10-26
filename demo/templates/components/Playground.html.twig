@@ -81,7 +81,7 @@
                 <div class="stat summary" aria-live="polite">
                     <span class="stat-value">{{ result.tookMs < 10 ? result.tookMs|number_format(1) : result.tookMs|number_format(0) }}</span><span class="stat-unit">ms</span>
                     <span class="stat-caption">
-                        {{ result.total }}{{ result.totalIsLowerBound ? '+' }} hits{% if result.usedFuzzy %} · typo tolerant{% endif %}
+                        {{ result.total|number_format }}{{ result.totalIsLowerBound ? '+' }} hits{% if result.usedFuzzy %} · typo tolerant{% endif %}
                         {% if result.interpretedAs %}· understood as <code>{{ result.interpretedAs }}</code>{% endif %}
                     </span>
                 </div>
@@ -93,13 +93,13 @@
                 {% if categories or stock %}
                     <div class="facets" aria-label="Facets">
                         {% for c in categories %}
-                            <button type="button" class="chip" aria-pressed="{{ c.name == category ? 'true' : 'false' }}" data-action="live#action" data-live-action-param="pickCategory" data-live-name-param="{{ c.name }}">{{ c.name }} <span class="muted">{{ c.count }}{{ result.totalIsLowerBound and not exactCounts ? '+' }}</span></button>
+                            <button type="button" class="chip" aria-pressed="{{ c.name == category ? 'true' : 'false' }}" data-action="live#action" data-live-action-param="pickCategory" data-live-name-param="{{ c.name }}">{{ c.name }} <span class="muted">{{ c.count|number_format }}{{ result.totalIsLowerBound and not exactCounts ? '+' }}</span></button>
                         {% endfor %}
                         {% for s in stock %}
                             {% if s.value %}
-                                <button type="button" class="chip" aria-pressed="{{ inStockOnly ? 'true' : 'false' }}" data-action="live#action" data-live-action-param="toggleInStock">in stock <span class="muted">{{ s.count }}{{ result.totalIsLowerBound and not exactCounts ? '+' }}</span></button>
+                                <button type="button" class="chip" aria-pressed="{{ inStockOnly ? 'true' : 'false' }}" data-action="live#action" data-live-action-param="toggleInStock">in stock <span class="muted">{{ s.count|number_format }}{{ result.totalIsLowerBound and not exactCounts ? '+' }}</span></button>
                             {% else %}
-                                <button type="button" class="chip" aria-pressed="{{ outOfStockOnly and not inStockOnly ? 'true' : 'false' }}" data-action="live#action" data-live-action-param="toggleOutOfStock">out of stock <span class="muted">{{ s.count }}{{ result.totalIsLowerBound and not exactCounts ? '+' }}</span></button>
+                                <button type="button" class="chip" aria-pressed="{{ outOfStockOnly and not inStockOnly ? 'true' : 'false' }}" data-action="live#action" data-live-action-param="toggleOutOfStock">out of stock <span class="muted">{{ s.count|number_format }}{{ result.totalIsLowerBound and not exactCounts ? '+' }}</span></button>
                             {% endif %}
                         {% endfor %}
                     </div>

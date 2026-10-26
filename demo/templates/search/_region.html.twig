@@ -74,7 +74,7 @@
                                 <div class="facet">
                                     {% for c in categories %}
                                         {% set chosen = c.name == category %}
-                                        <a href="{{ u.url(q, view, chosen ? '' : c.name, stock) }}"{% if chosen %} aria-current="true"{% endif %}><span>{{ c.name }}</span><span>{{ c.count }}{{ result.totalIsLowerBound ? '+' }}</span></a>
+                                        <a href="{{ u.url(q, view, chosen ? '' : c.name, stock) }}"{% if chosen %} aria-current="true"{% endif %}><span>{{ c.name }}</span><span>{{ c.count|number_format }}{{ result.totalIsLowerBound ? '+' }}</span></a>
                                     {% endfor %}
                                 </div>
                             </div>
@@ -85,7 +85,7 @@
                                 <div class="facet">
                                     {% for s in stock_values %}
                                         {% set chosen = stock is not null and stock == s.value %}
-                                        <a href="{{ u.url(q, view, category, chosen ? null : (s.value ? true : false)) }}"{% if chosen %} aria-current="true"{% endif %}><span>{{ s.value ? 'In stock' : 'Out of stock' }}</span><span>{{ s.count }}{{ result.totalIsLowerBound ? '+' }}</span></a>
+                                        <a href="{{ u.url(q, view, category, chosen ? null : (s.value ? true : false)) }}"{% if chosen %} aria-current="true"{% endif %}><span>{{ s.value ? 'In stock' : 'Out of stock' }}</span><span>{{ s.count|number_format }}{{ result.totalIsLowerBound ? '+' }}</span></a>
                                     {% endfor %}
                                 </div>
                             </div>

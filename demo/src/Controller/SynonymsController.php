@@ -61,7 +61,7 @@ final class SynonymsController extends AbstractController
         $names = [];
         if ($q !== '') {
             try {
-                $result = $fuzzphony->in($index)->query($q)->limit(10)->thresholds(['rescue_empty' => false])->get(); // the page tries a word against the synonym list: a typo is not silently corrected
+                $result = $fuzzphony->in($index)->query($q)->limit(10)->unlogged()->thresholds(['rescue_empty' => false])->get(); // the page tries a word against the synonym list: a typo is not silently corrected, and trying is not a search to log
             } catch (FuzzphonyException $e) {
                 $error = $e->getMessage();
             }
