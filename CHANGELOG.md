@@ -9,6 +9,7 @@ changes; they are always listed under **Breaking** and explained in [UPGRADE.md]
 
 ### Fixed
 
+- **`fuzzphony:search` no longer writes to the search log by default; `--log` opts in.** With `--user alice --tenant 7` an operator's test search was logged as if Alice had searched, which polluted the zero-result report and the audit trail.
 - **The search text is no longer passed to the metrics collector.** The engine put the visitor's raw text as a `query` label on `fuzzphony.search.took_ms`, `.fallback` and `.rescued`, past `search_log.redact`; only the bundled collectors dropped it. Metrics now carry `index` only, and `LoggingMetricsCollector`'s `logQueryText` option is gone.
 - **Errors name the right thing.** A typo in a per-query `->thresholds()` / `->ranking()` (and so in `fuzzphony:search --threshold min_scor=1`, `--rank-profile`, `--facet`) is an `InvalidQuery` naming the index, and the command prints it instead of a stack trace; thresholds and ranking-profile errors in YAML name the real index (not `thresholds` / `ranking`). The 403 response no longer repeats the index name.
 - **`SearchRefused` is the common interface of `AccessDenied`, `ActorRequired` and `RateLimited`** (each keeps its parent, so `catch (InvalidQuery)` still catches `ActorRequired`); `RebuildAlreadyRunning` is now a `\RuntimeException` (was `\InvalidArgumentException`).

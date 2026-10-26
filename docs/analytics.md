@@ -170,7 +170,7 @@ configured resolver returns (an anonymous visitor, a user read from the Security
 actor your resolver built with an `ip` of its own keeps it). `getClientIp()` follows `framework.trusted_proxies`: behind a
 reverse proxy or a load balancer, **set `trusted_proxies` and `trusted_headers`**, or every search is logged with the
 proxy's address; the bundle never reads `X-Forwarded-For` itself, so a visitor cannot make up an address by sending the
-header. The console command `fuzzphony:search` builds its own actor and stores no address.
+header. The console command `fuzzphony:search` builds its own actor, stores no address and writes no row unless you pass `--log`.
 
 A visitor without a user (`actor_user` null) is anonymous: the report shows `user` as null. The log makes **no
 attempt** to tell anonymous visitors apart except through this address.

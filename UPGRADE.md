@@ -34,6 +34,8 @@ slower (0.3 to 1 s where it was 40 to 130 ms on 200 000 to 1 000 000 products); 
 
 **Metrics no longer carry the search text.** `fuzzphony.search.took_ms`, `.fallback` and `.rescued` have the single label `index`. A `MetricsCollector` of your own no longer receives a `query` label (it was the raw text, before `search_log.redact`); drop any code that read it. The `LoggingMetricsCollector` constructor lost its `logQueryText` argument: remove the named argument if you pass it.
 
+**`fuzzphony:search` is unlogged by default.** It wrote a row to the search log (with the `--user` / `--tenant` you gave it) for every run; now it writes none unless you pass the new `--log` option. Scripts that relied on the rows (rare) add `--log`.
+
 ## From 0.9.7 to 0.9.8
 
 Nothing is required, but **run `fuzzphony:schema --apply` and then `fuzzphony:reindex`** (item 5), **searches that returned nothing may now return results**, in two ways, and **the results of searches with a very common word change** (items 3 and 4):

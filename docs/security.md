@@ -305,8 +305,8 @@ intersected.
 `fuzzphony:search` is an operator tool: it needs database access anyway, so it runs no guard, with or
 without `--tenant` and `--user` (a console has no Security token, so an authorization guard could only
 deny it). The bundle gives the command its own `Fuzzphony` over a gate without guards; every other
-service keeps the guarded one. Its searches are still counted in the metrics and, with the
-[search log](analytics.md) on, logged with the `--user` you gave. See [Console commands](commands.md).
+service keeps the guarded one. Its searches are counted in the metrics but not written to the
+[search log](analytics.md) unless you pass `--log` (then with the `--user` you gave). See [Console commands](commands.md).
 
 ## The limits, stated honestly
 
