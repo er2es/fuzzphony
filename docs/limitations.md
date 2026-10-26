@@ -182,7 +182,7 @@ word, the documents the trigram index returns, at most `candidate_limit` (the wi
 - **A page past the candidates** selects the window `offset + limit` in this branch too (up to 10 000), like the strict one.
 - **Cost.** A typo search costs what the trigram index and the recheck of up to `candidate_limit` matches cost: 25 to 75 ms on
   200 000 products for a typo word that matches 15 000 of them, whatever the limit does to the other branch. A restricted viewer pays
-  one more selection (about 0.15 s for `hedphones` restricted to two fields, `batery` on a 12-field index 0.4 s)
+  one more selection (about 0.15 s for `hedphones` restricted to two fields, `batery` on a 12-field index 0.5 s)
   ([Benchmarks](benchmarks.md#typo-words-and-facets-of-a-capped-search)).
 
 **What decides which documents are candidates.** On the full-text branch and for a restricted viewer's typo branch: the text rank,

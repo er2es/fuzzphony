@@ -8,6 +8,7 @@ use Fuzzphony\Core\Database\Connection;
 use Fuzzphony\Core\Definition\IndexDefinition;
 use Fuzzphony\Core\Fuzzphony;
 use Fuzzphony\Core\Registry\IndexRegistry;
+use Fuzzphony\Core\Support\Coerce;
 use Fuzzphony\Engine\Postgres\PostgresEngine;
 use PHPUnit\Framework\TestCase;
 
@@ -52,9 +53,9 @@ final class TypoWorkBudgetTest extends TestCase
         // the scan limit is an expression of the first matches' stored size: evaluate it over the same CTEs
         self::assertSame(1, preg_match('/LIMIT (greatest\(.*?::bigint\)\))\n/', $statement['sql'], $limit));
         $head = substr($statement['sql'], 0, (int) strpos($statement['sql'], "fuzzy AS (\n"));
-        $rows = $this->connection->fetchAll(rtrim($head, ",\n") . "\nSELECT " . $limit[1] . ' AS n', $statement['params']);
+        $rows = $this->connection->fetchAll(rtrim($head, ",\n") . "\nSELECT " . ($limit[1] ?? self::fail('no scan limit')) . ' AS n', $statement['params']);
 
-        return [$fuzzphony, (int) $rows[0]['n']];
+        return [$fuzzphony, Coerce::int($rows[0]['n'] ?? null)];
     }
 
     public function testShortTextsKeepTheRowBudget(): void
