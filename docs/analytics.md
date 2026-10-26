@@ -131,8 +131,10 @@ A different redactor is any class implementing `Fuzzphony\Core\Analytics\QueryRe
 this" and for spotting abuse, and drops the host part. It is **not anonymous**, and IPv6 is the weaker case: a `/24` of IPv4
 is shared by up to 254 other addresses, but a `/48` of IPv6 is what an internet provider usually hands to **one customer
 site**, so a masked IPv6 address often still points at one household or office. Treat masked IPv6 as less private than
-masked IPv4 (the `/48` rule is fixed; use `off` if that matters to you). In **both** modes anything that is not a valid IP address
-(a host name, `unknown`, an address with a port, a zone id such as `fe80::1%eth0`, an address list) is **not stored**
+masked IPv4 (the `/48` rule is fixed; use `off` if that matters to you). An address is first cleaned the way the
+[rate limit](security.md#limiting-anonymous-visitors-by-ip) cleans it (surrounding whitespace, a port, brackets and a zone id go:
+`203.0.113.45:8080` and `[2001:db8::1]:443` are the addresses they carry). In **both** modes anything that is still not a valid IP address
+(a host name, `unknown`, an address list) is **not stored**
 (null): the column never holds free text. The masking is a pure function (`Fuzzphony\Core\Analytics\IpMode::apply()`),
 applied by the `SearchGate` **before** anything is stored, like the redactor: the full address is not kept in the
 buffer, the table or a report in `masked` mode.

@@ -9,6 +9,7 @@ changes; they are always listed under **Breaking** and explained in [UPGRADE.md]
 
 ### Fixed
 
+- **The search log and the rate limit read a client address the same way.** `1.2.3.4:80`, `[2001:db8::1]:443`, ` 1.2.3.4` and `fe80::1%eth0` were limited as the address they carry but stored as nothing; the log now stores that address too (masked or full as configured). Nothing else that is stored changes.
 - **Long synonym lists cost less.** A member of plain words with spaces (`solid state drive`) no longer goes through the query parser (the table of a 20 000-entry list with phrases: 600 -> 190 ms), the check of a `Synonyms` object runs once per object (the builder and the registry both ask: registry with a 20 000-line file 210 -> 130 ms), and the list prepared by `stemSynonyms()` carries its lookup table, so a cached prepared list needs no table build per request (330 -> about 10 ms). The words and the results are unchanged.
 - **`fuzzphony:search` no longer writes to the search log by default; `--log` opts in.** With `--user alice --tenant 7` an operator's test search was logged as if Alice had searched, which polluted the zero-result report and the audit trail.
 - **The search text is no longer passed to the metrics collector.** The engine put the visitor's raw text as a `query` label on `fuzzphony.search.took_ms`, `.fallback` and `.rescued`, past `search_log.redact`; only the bundled collectors dropped it. Metrics now carry `index` only, and `LoggingMetricsCollector`'s `logQueryText` option is gone.
