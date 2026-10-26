@@ -78,7 +78,7 @@
                     <aside class="facets-side" aria-label="Narrow the results">
                         {% if categories %}
                             <div>
-                                <h2 class="facet-title">Category{% if result.totalIsLowerBound %} · of the candidates{% endif %}</h2>
+                                <h2 class="facet-title">Category{% if result.totalIsLowerBound %} · first {{ cap|number_format }} matches{% endif %}</h2>
                                 <div class="facet">
                                     {% for c in categories %}
                                         {% set chosen = c.name == category %}

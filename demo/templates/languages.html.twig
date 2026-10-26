@@ -108,7 +108,7 @@
                                             A filler word: it neither has to match nor counts.
                                         {% else %}
                                             {% if folded %}Accents removed first. {% endif %}{{ w.lexeme == w.folded|lower ? 'The stem is unchanged.' : 'Cut to its stem.' }}
-                                            {% if w.docs > 0 %}In {{ w.docs }} product{{ w.docs == 1 ? '' : 's' }} exactly.{% else %}In no product exactly{% if result and result.usedFuzzy %}{{ result.total > 0 ? ': only typo tolerance can find it' : ', and typo tolerance found nothing close either' }}{% endif %}.{% endif %}
+                                            {% if w.docs > 0 %}In {{ w.docs }} product{{ w.docs == 1 ? '' : 's' }} exactly.{% else %}In no product exactly{% if result and result.usedFuzzy %}{{ result.total > 0 ? ': only typo tolerance can find it' : ', and typo tolerance found nothing close either' }}{% elseif result and result.total > 0 %}: products are found through its synonyms (or the other words){% endif %}.{% endif %}
                                         {% endif %}
                                     </div>
                                 </div>
@@ -130,7 +130,7 @@
                         <li class="row no-lead">
                             <span class="flag lang-flag">{{ h.index|replace({'lang_': ''}) }}</span>
                             <div class="row-body"><div class="row-title" lang="{{ h.index|replace({'lang_': ''}) }}">{{ federatedNames[h.index][h.hit.id] ?? h.hit.id }}</div></div>
-                            <div class="row-trailing muted">{{ (h.score * 100)|number_format(2) }}</div>
+                            <div class="row-trailing muted" title="Rank in the merged list">#{{ loop.index }}</div>
                         </li>
                     {% else %}
                         <li class="row no-lead"><span class="muted">Nothing found in any language.</span></li>

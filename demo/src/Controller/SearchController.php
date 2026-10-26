@@ -51,6 +51,9 @@ final class SearchController extends AbstractController
     /** A live answer for fewer letters is "Nothing found" at once: one letter always finds something, and the settle (live_search_controller.js) starts at two. */
     private const int RESCUE_MIN = 2;
 
+    /** What a total or a facet counts at most: the default `candidate_limit`, which the page names where it shows a count as "2,000+". */
+    private const int CANDIDATE_CAP = 2000;
+
     #[Route('/', name: 'search')]
     public function __invoke(Request $request, Fuzzphony $fuzzphony, Catalog $catalog, Facets $facets, EventDispatcherInterface $dispatcher): Response
     {
@@ -138,6 +141,7 @@ final class SearchController extends AbstractController
             'rowEstimate' => $catalog->estimatedProductCount(),
             'examples' => self::TRY,
             'pending' => $pending,
+            'cap' => self::CANDIDATE_CAP,
             'correctedTo' => $result === null ? null : self::correctedTo($result),
         ];
 

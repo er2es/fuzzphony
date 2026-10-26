@@ -9,6 +9,8 @@
     <section class="hero" aria-labelledby="title">
         <h1 id="title">Search {{ rowEstimate > 0 ? rowEstimate|number_format : 'the' }} products</h1>
         <p class="lede">It finds what you meant: typos, accents, half-typed words and synonyms included.</p>
+        <p class="about muted">This is the demo of <strong>Fuzzphony</strong>, a search library for PHP that runs inside the PostgreSQL you already have (no search server to add):
+            <a href="https://github.com/er2es/fuzzphony">GitHub</a> · <a href="https://github.com/er2es/fuzzphony/tree/main/docs">documentation</a>.</p>
 
         <form method="get" action="{{ path('search') }}" role="search" class="field-wrap" data-live-search-target="form">
             <div class="search-field">

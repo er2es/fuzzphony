@@ -599,6 +599,15 @@ check('doctor: a skipped check does not wear the disclosure chevron', (await pag
 await go(p2, `${BASE}/under-the-hood/analytics`);
 check('analytics on a phone: a table that scrolls sideways can be reached with the keyboard and has a name', await p2.locator('.table-card').evaluateAll((els) => els.every((e) => e.scrollWidth <= e.clientWidth || (e.tabIndex === 0 && e.getAttribute('role') === 'region' && e.hasAttribute('aria-label')))));
 
+// microcopy
+await go(page, BASE + '/');
+check('home: one line says what Fuzzphony is, with links to the repository and the documentation', (await page.locator('.hero .about a[href*="github.com/er2es/fuzzphony"]').count()) === 2 && /PostgreSQL/.test(await page.locator('.hero .about').innerText()));
+await go(page, `${BASE}/under-the-hood/observability`);
+const observed = await page.locator('main').innerText();
+check('observability: milliseconds with one decimal and counts in plain words', /[\d,]+\.\d ms/.test(observed) && !/\d\.\d{3} ms/.test(observed) && !/item\(s\)/.test(observed), observed.slice(0, 400));
+await go(page, `${BASE}/languages?lang=en&q=telly`);
+check('languages: the merged list shows ranks, not scores of different indexes', (await page.locator('section[aria-labelledby=all] .row-trailing').first().innerText()).trim() === '#1' && /found through its synonyms/.test(await page.locator('aside[aria-labelledby=analysis]').innerText()));
+
 await secContext.close();
 
 await browser.close();
