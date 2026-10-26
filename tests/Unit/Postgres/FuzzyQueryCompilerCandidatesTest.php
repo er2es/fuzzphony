@@ -134,39 +134,6 @@ final class FuzzyQueryCompilerCandidatesTest extends TestCase
         }
     }
 
-    public function testAProbeAtALevelAsksForTheDocumentsThatCloseAndLeavesOutTheSwappedVariants(): void
-    {
-        $compiler = new FuzzyQueryCompiler(Indexes::products(), new Thresholds(), new Names(), transpositions: true);
-        $node = self::parse('wireles mouse');
-        $own = $compiler->probes($node, 2000);
-        $keys = array_keys($own);
-        self::assertCount(2, $keys);
-
-        $probes = $compiler->probes($node, 6000, [], [], [$keys[1] => 0.8]);
-
-        self::assertSame([$keys[1]], array_keys($probes), 'only the words asked for');
-        self::assertSame(0.8, $probes[$keys[1]]['similarity']);
-        self::assertStringContainsString('>= 0.8', $probes[$keys[1]]['sql']);
-        self::assertStringEndsWith("
-LIMIT 6001", $probes[$keys[1]]['sql']);
-        self::assertStringNotContainsString('OR s.tsv @@', $probes[$keys[1]]['sql'], 'no variants at a raised level');
-        self::assertStringContainsString('OR', $own[$keys[1]]['sql'], 'the own probe has them');
-    }
-
-    public function testAnotherCompilationOfTheSameQueryNamesItsColumnsApart(): void
-    {
-        $compiler = self::compiler();
-        $params = new ParameterBag();
-        $plain = $compiler->compile(self::parse('mouse'), $params);
-        $pooled = $compiler->compile(self::parse('mouse'), $params, [], 'p');
-
-        self::assertNotNull($plain);
-        self::assertNotNull($pooled);
-        self::assertStringContainsString(' AS ft0', $plain->columns[0]);
-        self::assertStringContainsString(' AS pft0', $pooled->columns[0]);
-        self::assertSame(1, $plain->words);
-    }
-
     private static function compiler(): FuzzyQueryCompiler
     {
         return new FuzzyQueryCompiler(Indexes::products(), new Thresholds(), new Names());

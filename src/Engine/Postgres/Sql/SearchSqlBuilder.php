@@ -73,6 +73,18 @@ final class SearchSqlBuilder
     private const int TYPO_SCAN_BUDGET = 30_000;
 
     /**
+     * The work the ordered selection of the typo branch may spend, in bytes of typo-tolerant text with TYPO_ROW_BYTES counted for every
+     * row: the recheck of a match grows with the text it reads (measured: 8 microseconds for a 21 byte name, 30 for 80 bytes over
+     * several fields, 33 milliseconds for a document of 17 000 words), so the rows it scans are this divided by what a row weighs, the
+     * average of the first matches (the window the cheap selection reads anyway), at most TYPO_SCAN_BUDGET and never fewer than the
+     * window. Short texts keep the row budget; documents that are long cannot make one search cost seconds.
+     */
+    private const int TYPO_WORK_BUDGET = 1_500_000;
+
+    /** What a row weighs in the work budget before its text is counted (a trigram lookup and a recheck cost something for an empty text). */
+    private const int TYPO_ROW_BYTES = 100;
+
+    /**
      * How many matches the ordered selection scans for a query that looks `$operands` words up: the cost of ranking a document grows
      * with the words, so the budget of one word is divided by their number (a work budget, not a row budget), but it never drops
      * under the window (`$window`: the candidates asked for).
@@ -293,12 +305,13 @@ final class SearchSqlBuilder
             $fuzzyFast = $orderedFuzzy ? 'fuzzy_fast' : 'fuzzy';
             $ctes[] = sprintf(
                 "%s AS (
-    SELECT s.id, (%s)::double precision AS r_fuzzy
+    SELECT s.id, (%s)::double precision AS r_fuzzy%s
     FROM %s AS s CROSS JOIN q
     WHERE %s AND %s%s
 )",
                 $fuzzyFast,
                 $fuzzy->score,
+                $orderedFuzzy ? ', pg_column_size(s.fz)::bigint AS w' : '',
                 $table,
                 $fuzzy->predicate,
                 $filterSql,
@@ -309,7 +322,7 @@ final class SearchSqlBuilder
                     "SELECT s.id, (%1\$s)::double precision AS r_fuzzy, %2\$s AS exact_bonus, %3\$s AS prefix_bonus, %4\$s AS boost_bonus, %5\$s AS recency_bonus
             FROM %6\$s AS s CROSS JOIN q
             WHERE %7\$s AND %8\$s
-            LIMIT %9\$d",
+            LIMIT %9\$s",
                     $fuzzy->score,
                     $bonuses[0],
                     $bonuses[1],
@@ -318,7 +331,15 @@ final class SearchSqlBuilder
                     $table,
                     $fuzzy->predicate,
                     $filterSql,
-                    self::scanLimit(min($this->scanBudget, self::TYPO_SCAN_BUDGET), $fuzzy->words, $limit),
+                    // the rows the work budget allows, by what the first matches weigh (the stored size of their typo-tolerant text)
+                    sprintf(
+                        'greatest(%d, least(%d, (%d / (%d + coalesce((SELECT avg(w) FROM fuzzy_fast), 0)) / %d)::bigint))',
+                        $limit,
+                        self::scanLimit(min($this->scanBudget, self::TYPO_SCAN_BUDGET), $fuzzy->words, $limit),
+                        self::TYPO_WORK_BUDGET,
+                        self::TYPO_ROW_BYTES,
+                        $fuzzy->words,
+                    ),
                 );
                 $ctes[] = sprintf(
                     "fuzzy AS (

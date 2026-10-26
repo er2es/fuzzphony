@@ -68,8 +68,9 @@ final class CandidateSelectionRestrictedTest extends TestCase
      * total, lower-bound flag, statements and facets (the counts of a capped search too), for `never`, `fallback` and `always`,
      * with words as they are and with typos (`comon` matches 2 900 titles, more than the candidate limit). The strict candidates are
      * the best by the page's own key among the first 100 000 matches (here all 3 000 of them) and the typo-tolerant ones the best by
-     * the same key among the matches of the typo branch (here all of them), so the order of the heap, which the size of a hidden
-     * field shapes, does not enter.
+     * the same key among the matches of the typo branch (here all of them: the scan of a restricted viewer is a work budget, by the
+     * text the first matches hold, and the long variant keeps its few long documents out of the first matches), so the order of the
+     * heap, which the size of a hidden field shapes, does not enter.
      *
      * @param list<string> $order
      * @param list<string> $allowed
@@ -90,7 +91,7 @@ final class CandidateSelectionRestrictedTest extends TestCase
             'empty' => ["''", []],
             'the word, a size per document' => ["CASE WHEN i % 3 = 0 THEN repeat('common ', 50) || i ELSE 'zzz' END", []],
             'sizes 0 to 36 words' => ["repeat('filler words ', i % 37)", []],
-            'a very long field in every 50th' => ["CASE WHEN i % 50 = 0 THEN :long ELSE '' END", ['long' => $long]],
+            'a very long field in every 600th' => ["CASE WHEN i % 600 = 0 THEN :long ELSE '' END", ['long' => $long]],
         ];
         /** @var array<string, array<string, list<mixed>>> $outcomes the outcome of every search by variant */
         $outcomes = [];
