@@ -47,7 +47,9 @@ A refusal is shown by the HTTP integrations as **403** (`ActorRequired`, `Access
 with a `Retry-After` header (`RateLimited`), as the original exception's `previous`. (`fuzzphony:search`
 runs no guard, so the only refusal it can show is `ActorRequired`, as its error message.) Your own controllers catch the exceptions
 (`Fuzzphony\Core\Exception\AccessDenied`, `RateLimited` with `$retryAfter` in seconds; all are
-`FuzzphonyException`s) or let the bundle's listener map them.
+`FuzzphonyException`s, and the three refusals `AccessDenied`, `ActorRequired` and `RateLimited` share the interface
+`Fuzzphony\Core\Exception\SearchRefused`) or let the bundle's listener map them. The 403 response says only
+"Searching is not allowed for this caller." (no index or tenant rule); the original exception, with the index name, is its `previous` and is logged.
 
 Without Symfony, pass your own guards to the gate:
 

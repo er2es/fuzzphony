@@ -15,6 +15,7 @@ use Fuzzphony\Core\Engine\Engine;
 use Fuzzphony\Core\Exception\AccessDenied;
 use Fuzzphony\Core\Exception\ActorRequired;
 use Fuzzphony\Core\Exception\RateLimited;
+use Fuzzphony\Core\Exception\SearchRefused;
 use Fuzzphony\Core\Observability\MetricsCollector;
 use Fuzzphony\Core\Observability\NullMetricsCollector;
 use Fuzzphony\Core\Query\SearchQuery;
@@ -141,7 +142,7 @@ final readonly class SearchGate
                     $query = $query->restrictedTo($allowed);
                 }
             }
-        } catch (ActorRequired|AccessDenied|RateLimited $e) {
+        } catch (SearchRefused $e) {
             $this->refused($index, $asked, $e, $typed);
 
             throw $e;

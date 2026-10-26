@@ -30,6 +30,8 @@ slower (0.3 to 1 s where it was 40 to 130 ms on 200 000 to 1 000 000 products); 
 
 **`RankingProfile::with()` / `->ranking()` merges `label_weights`.** A per-query override that names some labels keeps the profile's own weights for the others (before, the others fell back to the library defaults 1.0 / 0.4 / 0.2 / 0.1). Only code that passes `label_weights` per query on a profile with non-default labels sees other scores.
 
+**Exceptions.** `RebuildAlreadyRunning` now extends `\RuntimeException` (it was an `\InvalidArgumentException`): a `catch (\InvalidArgumentException)` around a reindex no longer catches it, catch `RebuildAlreadyRunning` itself. A bad per-query `->thresholds([...])` / `->ranking([...])` throws `InvalidQuery` (was `InvalidDefinition`). The 403 body of a refused search is the fixed text "Searching is not allowed for this caller." (the exception in `previous` has the details). New interface `SearchRefused`, implemented by `AccessDenied`, `ActorRequired` and `RateLimited`; nothing else about them changes.
+
 ## From 0.9.7 to 0.9.8
 
 Nothing is required, but **run `fuzzphony:schema --apply` and then `fuzzphony:reindex`** (item 5), **searches that returned nothing may now return results**, in two ways, and **the results of searches with a very common word change** (items 3 and 4):

@@ -9,7 +9,7 @@ use Fuzzphony\Core\Definition\FilterType;
 use Fuzzphony\Core\Definition\IndexDefinition;
 use Fuzzphony\Core\Engine\Engine;
 use Fuzzphony\Core\Engine\Suggestions;
-use Fuzzphony\Core\Exception\InvalidDefinition;
+use Fuzzphony\Core\Exception\AccessDenied;
 use Fuzzphony\Core\Exception\InvalidQuery;
 use Fuzzphony\Core\Fuzzphony;
 use Fuzzphony\Core\Query\Filter\Operator;
@@ -197,10 +197,40 @@ final class SearchCommandOptionsTest extends TestCase
     {
         $tester = $this->tester();
 
-        $this->expectException(InvalidDefinition::class);
-        $this->expectExceptionMessage($message);
+        $status = $tester->execute(['index' => 'products', 'query' => 'mouse', '--threshold' => [$threshold]], ['interactive' => false]);
 
-        $tester->execute(['index' => 'products', 'query' => 'mouse', '--threshold' => [$threshold]], ['interactive' => false]);
+        self::assertSame(1, $status);
+        self::assertStringContainsString($message, $tester->getDisplay(true));
+    }
+
+    public function testAThresholdTypoIsAnErrorMessageNotAStackTrace(): void
+    {
+        $tester = $this->tester();
+
+        $status = $tester->execute(['index' => 'products', 'query' => 'mouse', '--threshold' => ['min_scor=1']], ['interactive' => false]);
+
+        self::assertSame(1, $status);
+        $display = $tester->getDisplay(true);
+        self::assertStringContainsString('Index "products": invalid thresholds for this query: Unknown threshold option(s): min_scor.', $display);
+        self::assertNull($this->query, 'nothing was searched');
+    }
+
+    public function testAnUnknownRankProfileAndFilterAreErrorMessages(): void
+    {
+        $tester = $this->tester();
+
+        self::assertSame(1, $tester->execute(['index' => 'products', 'query' => 'mouse', '--rank-profile' => 'nope'], ['interactive' => false]));
+        self::assertStringContainsString('has no ranking profile "nope"', $tester->getDisplay(true));
+        self::assertSame(1, $tester->execute(['index' => 'products', 'query' => 'mouse', '--facet' => ['pricee']], ['interactive' => false]));
+        self::assertStringContainsString('has no filter "pricee"', $tester->getDisplay(true));
+    }
+
+    public function testARefusedSearchIsAnErrorMessage(): void
+    {
+        $tester = $this->tester(throws: AccessDenied::forIndex('products'));
+
+        self::assertSame(1, $tester->execute(['index' => 'products', 'query' => 'mouse'], ['interactive' => false]));
+        self::assertStringContainsString('is not granted to this actor', $tester->getDisplay(true));
     }
 
     public function testOptionsAreHandedToTheEngine(): void
