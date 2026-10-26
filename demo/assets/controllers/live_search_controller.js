@@ -17,7 +17,7 @@ import { Controller } from '@hotwired/stimulus';
 const SETTLE_MS = 1500;
 
 export default class extends Controller {
-    static targets = ['input', 'form', 'region'];
+    static targets = ['input', 'form', 'region', 'status'];
     static values = { delay: { type: Number, default: 160 } };
 
     connect() {
@@ -94,13 +94,13 @@ export default class extends Controller {
             if (html === null || mine !== this.seq) {
                 return;
             }
-            this.regionTarget.innerHTML = html;
+            this.show(html);
             history.replaceState(null, '', text === '' ? location.pathname : url);
             if (html.includes('data-rescue-pending')) {
                 // nothing matched while typing: the rescue is asked for at once (the busy state stays until it is answered)
                 const rescued = await this.fetchRegion(url, { ...headers, 'X-Rescue': '1' }, false);
                 if (rescued !== null && mine === this.seq) {
-                    this.regionTarget.innerHTML = rescued;
+                    this.show(rescued);
                 }
             }
         } catch (error) {
@@ -111,6 +111,14 @@ export default class extends Controller {
             if (mine === this.seq) {
                 this.regionTarget.removeAttribute('aria-busy');
             }
+        }
+    }
+
+    /** Swaps the fragment in and announces its one short sentence (the region itself is not a live region). */
+    show(html) {
+        this.regionTarget.innerHTML = html;
+        if (this.hasStatusTarget) {
+            this.statusTarget.textContent = this.regionTarget.querySelector('[data-status]')?.textContent.trim() ?? '';
         }
     }
 

@@ -5,6 +5,8 @@
 {% macro price(value) %}{{ value|number_format(0, '.', ' ') }} Ft{% endmacro %}
 
 {% if q != '' %}
+    {# what a screen reader hears when this fragment replaces the last one (live_search_controller.js copies it into the status line) #}
+    <p hidden data-status>{% if error %}That search could not run.{% elseif pending %}Searching for a correction…{% elseif result and result.correctedFrom is not null %}Showing results for {{ correctedTo ?? result.interpretedAs }}: {{ result.total|number_format }}{{ result.totalIsLowerBound ? '+' }} products.{% elseif result %}{{ result.total|number_format }}{{ result.totalIsLowerBound ? '+' }} {{ result.total == 1 ? 'product' : 'products' }} for {{ q }}.{% endif %}</p>
     <section class="results" aria-label="Results">
         <div class="results-head">
             {% if result and not pending %}

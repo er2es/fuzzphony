@@ -50,10 +50,26 @@ await page.keyboard.type('wireless mou', { delay: 50 });
 await page.waitForSelector('.suggest-panel:not([hidden]) .suggest-item');
 const items = await page.locator('.suggest-panel .suggest-item').count();
 check('the panel offers completions', items > 0, String(items));
+check('combobox: the field names its popup (aria-controls) and the options have ids', await page.evaluate(() => {
+    const input = document.querySelector('input[type=search]');
+    const panel = document.getElementById(input.getAttribute('aria-controls'));
+    return panel !== null && panel.getAttribute('role') === 'listbox' && [...panel.querySelectorAll('[role=option]')].every((o) => o.id !== '');
+}));
+check('combobox: the headings are groups named by their heading, inside the listbox', await page.evaluate(() => {
+    const groups = [...document.querySelectorAll('.suggest-panel [role=group]')];
+    return groups.length > 0 && groups.every((g) => document.getElementById(g.getAttribute('aria-labelledby'))?.textContent !== '' && g.querySelector('[role=option]') !== null);
+}));
+check('combobox: the home page offers the completions only (the categories are the facets next to the results)', await page.evaluate(() => [...document.querySelectorAll('.suggest-panel .suggest-heading')].map((h) => h.textContent).join() === 'Searches'));
+check('combobox: the panel is opaque', await page.evaluate(() => /^rgb\(/.test(getComputedStyle(document.querySelector('.suggest-panel')).backgroundColor)));
 await page.keyboard.press('ArrowDown');
 check('ArrowDown marks the first item', await page.evaluate(() => document.querySelector('.suggest-item.is-active') !== null));
+check('combobox: and the field points at it (aria-activedescendant)', await page.evaluate(() => document.querySelector('input[type=search]').getAttribute('aria-activedescendant') === document.querySelector('.suggest-item.is-active')?.id));
+const typedText = await page.inputValue('input[type=search]');
 await page.keyboard.press('Escape');
 check('Escape closes the panel', await page.evaluate(() => document.querySelector('.suggest-panel')?.hidden === true));
+check('combobox: and leaves the text in the field (it does not empty it, which would leave the results of a gone text)', (await page.inputValue('input[type=search]')) === typedText && (await page.evaluate(() => !document.querySelector('input[type=search]').hasAttribute('aria-activedescendant'))));
+await page.keyboard.press('Escape');
+check('combobox: Escape with the panel closed does not empty the field either', (await page.inputValue('input[type=search]')) === typedText);
 
 // 5. a facet narrows the search
 await page.fill('input[type=search]', 'mouse');
@@ -242,6 +258,9 @@ const box = await p2.locator('nav.nav').boundingBox();
 check('on a phone the navigation is a tab bar at the bottom', box !== null && box.y > 700, JSON.stringify(box));
 await p2.click('.nav .menu summary');
 check('the menu opens upwards from the tab bar', (await p2.locator('.menu-panel a').first().boundingBox())?.y < box.y);
+const menuLink = await p2.locator('.menu-panel a').first().evaluate((a) => ({ size: parseFloat(getComputedStyle(a).fontSize), dir: getComputedStyle(a).flexDirection, panel: getComputedStyle(a.parentElement).backgroundColor, height: a.getBoundingClientRect().height }));
+check('on a phone the links of the menu are rows of normal size, not tab-bar captions', menuLink.size >= 15 && menuLink.dir === 'row' && menuLink.height >= 44, JSON.stringify(menuLink));
+check('and the panel is opaque', /^rgb\(/.test(menuLink.panel), menuLink.panel);
 
 // 11. the Security page (docs/security.md): who searches decides what a search may see. A fresh browser context, so the viewer chosen on the
 // page (kept in the session) is its own. The limit is 5 searches in 10 seconds; reset=1 forgets the viewer's searches of the window
@@ -397,6 +416,7 @@ check('rescue: and no second sentence for the same thing in the warnings', (awai
 check('rescue: and no "did you mean" (the suggestion was taken)', (await page.locator('#results .did-you-mean').count()) === 0);
 const insteadLink = bar.locator('a');
 check('rescue: the bar names the corrected word, not the expanded query', (await bar.locator('strong').innerText()) === 'kettle', await bar.locator('strong').innerText());
+check('a11y: the results region is not a live region; a short status line announces the result instead', (await page.locator('#results[aria-live]').count()) === 0 && (await page.locator('#results').evaluate((el) => el.closest('[aria-live]') === null)) && /kettle/.test(await page.locator('[role=status][data-live-search-target=status]').innerText()) && (await page.locator('[role=status][data-live-search-target=status]').innerText()).length < 120, await page.locator('[role=status][data-live-search-target=status]').textContent());
 check('rescue: the link says what it searches, in the typed words', (await insteadLink.innerText()) === 'Search for “kpttle” instead', await insteadLink.innerText());
 check('rescue: and it asks for the exact text', ((await insteadLink.getAttribute('href')) ?? '').includes('exact=1'));
 

@@ -2,9 +2,10 @@
 {% block title %}{{ q != '' ? q ~ ' · ' }}Fuzzphony{% endblock %}
 
 {% block body %}
+{# The field offers the completions of the word only: the results appear below as you type, and the categories are the facets next to them. #}
 <div class="page" data-controller="suggest live-search"
      data-suggest-url-value="{{ path('suggest') }}" data-suggest-index-value="catalog" data-suggest-page-value="{{ path('search') }}"
-     data-suggest-categories-value="true" data-suggest-products-value="false">
+     data-suggest-categories-value="false" data-suggest-products-value="false">
     <section class="hero" aria-labelledby="title">
         <h1 id="title">Search {{ rowEstimate > 0 ? rowEstimate|number_format : 'the' }} products</h1>
         <p class="lede">It finds what you meant: typos, accents, half-typed words and synonyms included.</p>
@@ -33,7 +34,11 @@
         </div>
     </section>
 
-    <div id="results" class="busy-region" data-live-search-target="region" aria-live="polite">
+    {# The one live region of the results: a short sentence set by live_search_controller.js from the fragment's [data-status] (a region of
+       ~11 000 characters announced on every keystroke is noise). It is here, not in the swapped fragment, because a live region that is
+       replaced is not reliably announced. #}
+    <p class="sr-only" role="status" aria-live="polite" data-live-search-target="status"></p>
+    <div id="results" class="busy-region" data-live-search-target="region">
         {{ include('search/_region.html.twig') }}
     </div>
 </div>
