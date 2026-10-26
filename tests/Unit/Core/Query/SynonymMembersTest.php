@@ -18,7 +18,7 @@ final class SynonymMembersTest extends TestCase
     /** @return list<string> */
     private static function viaFastPath(string $member): array
     {
-        return array_values(array_map(strval(...), (array) (new \ReflectionMethod(SynonymExpander::class, 'words'))->invoke(null, $member)));
+        return array_values(array_map(static fn(mixed $word): string => is_string($word) ? $word : '', (array) (new \ReflectionMethod(SynonymExpander::class, 'words'))->invoke(null, $member)));
     }
 
     /** @return list<string> */
