@@ -27,6 +27,8 @@ use Fuzzphony\Core\Ranking\Thresholds;
  */
 final class QueryParser
 {
+    public const int DEFAULT_MAX_TERMS = 16;
+
     private const int MAX_DEPTH = 8;
 
     /** @var list<array{0: string, 1: string}> */
@@ -39,7 +41,7 @@ final class QueryParser
 
     public function __construct(
         private readonly int $maxLength = Thresholds::DEFAULT_MAX_QUERY_LENGTH,
-        private readonly int $maxTerms = 16,
+        private readonly int $maxTerms = self::DEFAULT_MAX_TERMS,
     ) {}
 
     public function parse(string $input): ParsedQuery

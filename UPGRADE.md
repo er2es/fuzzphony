@@ -36,6 +36,8 @@ slower (0.3 to 1 s where it was 40 to 130 ms on 200 000 to 1 000 000 products); 
 
 **`fuzzphony:search` is unlogged by default.** It wrote a row to the search log (with the `--user` / `--tenant` you gave it) for every run; now it writes none unless you pass the new `--log` option. Scripts that relied on the rows (rare) add `--log`.
 
+**Prepared synonym lists.** `Synonyms` has a new last constructor parameter `$table` (internal: the lookup table `Fuzzphony::stemSynonyms()` now builds). A list prepared and cached by an older version still works (it has no table and builds it as before); prepare it again to get the saving. The cached object is about 2.5 times larger.
+
 ## From 0.9.7 to 0.9.8
 
 Nothing is required, but **run `fuzzphony:schema --apply` and then `fuzzphony:reindex`** (item 5), **searches that returned nothing may now return results**, in two ways, and **the results of searches with a very common word change** (items 3 and 4):

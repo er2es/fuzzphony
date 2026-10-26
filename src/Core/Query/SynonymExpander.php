@@ -34,8 +34,26 @@ final readonly class SynonymExpander
     /** @var array<string, list<non-empty-list<string>>> key of a word => the words of each alternative */
     private array $table;
 
-    /** @param array<string, string> $memberStems lowercase word of the synonyms => stem; a word that is missing stems to itself */
+    /**
+     * @param array<string, string> $memberStems lowercase word of the synonyms => stem; a word that is missing stems to itself
+     *
+     * A prepared Synonyms (Fuzzphony::stemSynonyms()) carries its table: it is used as it is when these are its stems.
+     */
     public function __construct(Synonyms $synonyms, private array $memberStems)
+    {
+        $this->table = $synonyms->table !== [] && $synonyms->stemConfig !== null && $memberStems === $synonyms->stems
+            ? $synonyms->table
+            : self::tableOf($synonyms, $memberStems);
+    }
+
+    /**
+     * The lookup table of the synonyms for these member stems.
+     *
+     * @param array<string, string> $memberStems
+     *
+     * @return array<string, list<non-empty-list<string>>>
+     */
+    public static function tableOf(Synonyms $synonyms, array $memberStems): array
     {
         // each member is split and keyed once; the group's alternatives are then added by key
         /** @var array<string, array{words: list<string>, key: string}> $known */
@@ -56,22 +74,27 @@ final readonly class SynonymExpander
             }
         }
         foreach ($pairs as [$source, $alternative]) {
-            $from = $known[$source] ??= $this->keyed($source);
-            $to = $known[$alternative] ??= $this->keyed($alternative);
+            $from = $known[$source] ??= self::keyed($source, $memberStems);
+            $to = $known[$alternative] ??= self::keyed($alternative, $memberStems);
             $words = $to['words'];
             if ($from['key'] !== '' && $words !== [] && $to['key'] !== $from['key']) {
                 $table[$from['key']][$to['key']] = $words;
             }
         }
-        $this->table = array_map(array_values(...), $table);
+
+        return array_map(array_values(...), $table);
     }
 
-    /** @return array{words: list<string>, key: string} */
-    private function keyed(string $text): array
+    /**
+     * @param array<string, string> $memberStems
+     *
+     * @return array{words: list<string>, key: string}
+     */
+    private static function keyed(string $text, array $memberStems): array
     {
         $words = self::words($text);
 
-        return ['words' => $words, 'key' => $this->key($words, [])];
+        return ['words' => $words, 'key' => self::keyOf($words, [], $memberStems)];
     }
 
     /**
@@ -201,7 +224,17 @@ final readonly class SynonymExpander
      */
     private function key(array $words, array $stems): string
     {
-        return implode(' ', array_map(fn(string $word): string => $stems[$word] ?? $this->memberStems[$word] ?? $word, $words));
+        return self::keyOf($words, $stems, $this->memberStems);
+    }
+
+    /**
+     * @param list<string>         $words
+     * @param array<string, string> $stems
+     * @param array<string, string> $memberStems
+     */
+    private static function keyOf(array $words, array $stems, array $memberStems): string
+    {
+        return implode(' ', array_map(static fn(string $word): string => $stems[$word] ?? $memberStems[$word] ?? $word, $words));
     }
 
     /**
@@ -211,14 +244,23 @@ final readonly class SynonymExpander
      */
     private static function words(string $text): array
     {
-        // the common member, one plain word, needs no parser (a long list has thousands of them); it is cut
-        // at the parser's default length, in characters, so both paths give the same words
-        if (preg_match('/^[\p{L}\p{N}]+$/u', $text) === 1 && !in_array($text, ['AND', 'OR', 'NOT'], true)) {
+        // the common member, plain words (letters and digits) separated by single spaces, needs no parser (a long
+        // list has thousands of them). It gives the parser's words exactly: cut at the default length in characters,
+        // an exact AND / OR / NOT is an operator (so the text goes to the parser), at most the default number of terms
+        if (preg_match('/^[\p{L}\p{N}]+(?: [\p{L}\p{N}]+)*\z/u', $text) === 1) {
             if (strlen($text) > Thresholds::DEFAULT_MAX_QUERY_LENGTH && mb_strlen($text) > Thresholds::DEFAULT_MAX_QUERY_LENGTH) {
-                $text = mb_substr($text, 0, Thresholds::DEFAULT_MAX_QUERY_LENGTH);
+                $text = rtrim(mb_substr($text, 0, Thresholds::DEFAULT_MAX_QUERY_LENGTH));
             }
-
-            return [mb_strtolower($text)];
+            if (!str_contains($text, ' ')) {
+                if ($text !== 'AND' && $text !== 'OR' && $text !== 'NOT') {
+                    return [mb_strtolower($text)];
+                }
+            } else {
+                $words = explode(' ', $text);
+                if (array_intersect($words, ['AND', 'OR', 'NOT']) === []) {
+                    return array_map(mb_strtolower(...), array_slice($words, 0, QueryParser::DEFAULT_MAX_TERMS));
+                }
+            }
         }
 
         return array_map(mb_strtolower(...), NodeInspector::positiveWords((new QueryParser())->parse($text)->root));

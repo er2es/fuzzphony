@@ -34,10 +34,29 @@ final readonly class Synonyms
          * @var array<string, string>
          */
         public array $stems = [],
+        /**
+         * The lookup table the query-side expansion works from, built with the stems above (by Fuzzphony::stemSynonyms()),
+         * so the prepared object an application caches holds everything and a search builds nothing. Empty until prepared.
+         *
+         * @internal the shape belongs to the expander
+         *
+         * @var array<string, list<non-empty-list<string>>>
+         */
+        public array $table = [],
     ) {}
 
     /**
-     * The same synonyms with the stems an engine prepared for them.
+     * The same prepared synonyms with the expansion table built for their stems.
+     *
+     * @param array<string, list<non-empty-list<string>>> $table
+     */
+    public function withTable(array $table): self
+    {
+        return new self($this->groups, $this->rules, $this->stemConfig, $this->stems, $table);
+    }
+
+    /**
+     * The same synonyms with the stems an engine prepared for them (the table is built from them: withTable()).
      *
      * @param array<string, string> $stems
      */
@@ -148,11 +167,26 @@ final readonly class Synonyms
     }
 
     /**
-     * What is wrong with these synonyms, all of it.
+     * What is wrong with these synonyms, all of it. Worked out once per object (the object is immutable): the
+     * builder and the registry both ask, and a long list takes tens of milliseconds to check.
      *
      * @return list<string>
      */
     public function violations(): array
+    {
+        static $checked = null;
+        /** @var \WeakMap<self, list<string>> $checked */
+        $checked ??= new \WeakMap();
+        $known = $checked[$this] ?? null;
+        if ($known === null) {
+            $known = $checked[$this] = $this->check();
+        }
+
+        return $known;
+    }
+
+    /** @return list<string> */
+    private function check(): array
     {
         $v = [];
         $word = static fn(string $text): bool => preg_match('/[\p{L}\p{N}]/u', $text) === 1;

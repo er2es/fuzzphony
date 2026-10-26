@@ -207,9 +207,12 @@ machine: 1 000 entries about 25 ms, 5 000 about 110 ms, 20 000 about 600 ms, on 
    $fuzzphony->useSynonyms('products', unserialize($cache->get("synonyms.products.$version")));
    ```
 
-With the prepared list a search stems only the words of the query (1 000 entries about 20 ms, 5 000 about
-80 ms, 20 000 about 480 ms in total; the rest is loading the list and building the lookup table, which a
-long-lived worker such as FrankenPHP or RoadRunner keeps between requests, so there the cost is paid once). An engine that
+With the prepared list a search stems only the words of the query. The prepared list also carries the lookup table
+the expansion works from, so a request builds nothing: for 20 000 entries, unserialising the list takes about 45 ms
+(8 MB serialized) and the table about 0 to 10 ms, where an unprepared list needs about 330 ms to build the table and
+about 450 ms to stem (the figures depend on the machine). A long-lived worker such as FrankenPHP or RoadRunner keeps the
+expander between requests, so there the cost is paid once. A list prepared by an older version has no table
+and builds it as before; prepare it again to get one. An engine that
 cannot prepare synonyms (a custom one) throws `InvalidArgument` from `stemSynonyms()`: skip that step,
 `useSynonyms()` works without it.
 
