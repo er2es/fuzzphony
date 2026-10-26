@@ -84,6 +84,14 @@ await go(page, BASE + '/?q=mouse');
 await page.click('.segmented a >> text=Speed');
 await page.waitForSelector('.speed-bars');
 check('Speed shows the bars', (await page.locator('.speed-row').count()) >= 2);
+// the page does not wait for the measuring: this search's own time is there at once while the comparison is still being measured
+const measuring = await context.newPage();
+await measuring.route('**/speed/ilike*', async (route) => { await new Promise((resolve) => setTimeout(resolve, 3000)); await route.continue(); });
+await measuring.goto(BASE + '/?q=mouse&view=speed', { waitUntil: 'load', timeout: 20000 });
+check('speed: the page shows the time of this search at once, while the comparison is still being measured', (await measuring.locator('.speed-bars [aria-busy=true] .speed-row .speed-value').first().innerText()).includes(' ms') && (await measuring.locator('.speed-factor').count()) === 0);
+await measuring.waitForSelector('.speed-factor', { timeout: 20000 });
+check('speed: and then the bars hold the measured medians and the factor', (await measuring.locator('.speed-bars .speed-row').count()) === 2);
+await measuring.close();
 
 // 7. waiting on the server looks the same everywhere: the field shows a spinner and the region dims (aria-busy is the signal)
 const slow = await browser.newContext({ viewport: { width: 1280, height: 800 }, reducedMotion: 'reduce' });
@@ -476,6 +484,13 @@ for (const [what, q, hits] of [['a normal query', 'mouse', true], ['a typo that 
     await go(page, `${BASE}/?q=${encodeURIComponent(q)}`);
     check(`rescue: ${what} shows no bar`, (await page.locator('.corrected').count()) === 0 && ((await page.locator('#results .hit-row').count()) > 0) === hits);
 }
+
+// nothing found: one block across the whole results area (not in the narrow facet column), no repeated examples, no "0 products" headline
+await go(page, `${BASE}/?q=qzxv${suffix}6`);
+const emptyBox = await page.locator('#results .empty').boundingBox();
+const resultsBox = await page.locator('#results .results').boundingBox();
+check('nothing found: the message spans the results area', emptyBox !== null && resultsBox !== null && emptyBox.width > resultsBox.width * 0.9, JSON.stringify([emptyBox, resultsBox]));
+check('nothing found: no copy of the example chips and no "0 products" headline', (await page.locator('#results .empty .chip').count()) === 0 && (await page.locator('#results .stat').count()) === 0);
 
 // a typo that typo tolerance already found says "Including results for ...", not "Did you mean": the results are the suggestion's
 await go(page, `${BASE}/?q=hedphones`);

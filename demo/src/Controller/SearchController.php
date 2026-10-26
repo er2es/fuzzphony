@@ -93,11 +93,10 @@ final class SearchController extends AbstractController
         $rows = [];
         $categories = $stockValues = [];
         $error = null;
-        $speed = null;
         $pending = false;
+        $asYouType = true;
         if ($q !== '') {
             try {
-                $asYouType = true;
                 $result = $build(true, false)->facets('category_id', 'in_stock')->get();
                 if ($result->total === 0 && !$exact && ($logged || $rescuing)) {
                     $asYouType = false;
@@ -118,10 +117,6 @@ final class SearchController extends AbstractController
                 $rows = $catalog->rows($result->ids());
                 $categories = $facets->categories($result->facets['category_id'] ?? []);
                 $stockValues = $result->facets['in_stock'] ?? [];
-                if ($view === 'speed' && !$pending) {
-                    // the measured search is the one that answered, without facets: what a search box waits for
-                    $speed = Measure::median(static fn () => $facets->narrow($fuzzphony->in('catalog')->query($q)->asYouType($asYouType)->limit(20)->unlogged(), $category, $stock)->get());
-                }
             } catch (FuzzphonyException $e) {
                 $error = $e->getMessage();
             }
@@ -138,7 +133,7 @@ final class SearchController extends AbstractController
             'stock' => $stock,
             'exact' => $exact,
             'error' => $error,
-            'speed' => $speed,
+            'asYouType' => $asYouType,
             'warmRuns' => Measure::WARM_RUNS,
             'rowEstimate' => $catalog->estimatedProductCount(),
             'examples' => self::TRY,
@@ -154,18 +149,33 @@ final class SearchController extends AbstractController
         return $this->render('search/index.html.twig', $data);
     }
 
-    /** The comparison bars of the Speed view: the ILIKE side is measured here, fetched after the page has rendered (ilike_controller.js). */
+    /**
+     * The comparison bars of the Speed view, measured after the page has rendered (ilike_controller.js): the page itself shows the search's own
+     * time at once. Both sides are measured here the same way (one cold run, then the warm median), for the search that answered
+     * (`ay`: as you type or the finished text), without its facets: what a search box waits for.
+     */
     #[Route('/speed/ilike', name: 'search_ilike')]
-    public function ilike(Request $request, Catalog $catalog): Response
+    public function ilike(Request $request, Fuzzphony $fuzzphony, Catalog $catalog, Facets $facets): Response
     {
         $q = self::normalizeQuery($request);
-        $without = $q !== '' ? Measure::median(static fn (): array => $catalog->ilike($q)) : null;
+        $category = mb_substr(trim((string) $request->query->get('cat', '')), 0, 40);
+        $stock = match ((string) $request->query->get('stock', '')) {
+            '1' => true,
+            '0' => false,
+            default => null,
+        };
+        $asYouType = $request->query->get('ay', '1') !== '0';
+        $without = $with = null;
+        if ($q !== '') {
+            try {
+                $with = Measure::median(static fn () => $facets->narrow($fuzzphony->in('catalog')->query($q)->asYouType($asYouType)->limit(20)->unlogged(), $category, $stock)->get());
+                $without = Measure::median(static fn (): array => $catalog->ilike($q));
+            } catch (FuzzphonyException) {
+                // the page above has shown the error; the bars stay empty
+            }
+        }
 
-        return $this->render('search/_bars.html.twig', [
-            'without' => $without,
-            'fuzzphony_ms' => max(0.01, (float) $request->query->get('fz', '0')),
-            'q' => $q,
-        ]);
+        return $this->render('search/_bars.html.twig', ['without' => $without, 'with' => $with, 'q' => $q]);
     }
 
     /** @return array<string, string> label => query, the nine queries of the benchmark */

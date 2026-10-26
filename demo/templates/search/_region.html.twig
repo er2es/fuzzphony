@@ -9,11 +9,11 @@
     <p hidden data-status>{% if error %}That search could not run.{% elseif pending %}Searching for a correction…{% elseif result and result.correctedFrom is not null %}Showing results for {{ correctedTo ?? result.interpretedAs }}: {{ result.total|number_format }}{{ result.totalIsLowerBound ? '+' }} products.{% elseif result %}{{ result.total|number_format }}{{ result.totalIsLowerBound ? '+' }} {{ result.total == 1 ? 'product' : 'products' }} for {{ q }}.{% endif %}</p>
     <section class="results" aria-label="Results">
         <div class="results-head">
-            {% if result and not pending %}
-                {% set took = view == 'speed' and speed ? speed.warm : result.tookMs %}
+            {% if result and result.hits and not pending %}
+                {% set took = result.tookMs %}
                 <div class="stat">
                     <span class="stat-value">{{ took < 10 ? took|number_format(1) : took|number_format(0) }}</span><span class="stat-unit">ms</span>
-                    <span class="stat-caption">{% if view == 'speed' and speed %}warm median · {% endif %}
+                    <span class="stat-caption">
                         {{ result.total|number_format }}{{ result.totalIsLowerBound ? '+' }} {{ result.total == 1 ? 'product' : 'products' }}{% if result.usedFuzzy %} · typo tolerant{% endif %}
                     </span>
                 </div>
@@ -65,6 +65,14 @@
                 {% endif %}
             {% endif %}
 
+            {% if not result.hits %}
+                {# Nothing found: one calm block across the page (the examples are in the row above the results, not repeated here). Advice that
+                   needs the suggestion to be absent is left out when there is one: "Did you mean" is above. #}
+                <div class="empty">
+                    <strong>Nothing found for “{{ q }}”</strong>
+                    {% if not result.didYouMean %}Check the spelling, try fewer words{% if category != '' or stock is not null %}, or lift a filter{% endif %}.{% elseif category != '' or stock is not null %}A filter may be hiding it: lift it to see more.{% endif %}
+                </div>
+            {% else %}
             <div class="results-layout">
                 {% if categories or stock_values %}
                     <aside class="facets-side" aria-label="Narrow the results">
@@ -94,7 +102,6 @@
                 {% endif %}
 
                 <div>
-                    {% if result.hits %}
                         <ul class="list" aria-label="Products">
                             {% for hit in result.hits %}
                                 {% set row = rows[hit.id] ?? null %}
@@ -110,19 +117,9 @@
                                 </li>
                             {% endfor %}
                         </ul>
-                    {% else %}
-                        <div class="empty">
-                            <strong>Nothing found for “{{ q }}”</strong>
-                            Check the spelling, try fewer words{% if category != '' or stock is not null %}, or lift a filter{% endif %}.
-                            <div class="chips">
-                                {% for label, example in examples %}
-                                    <a class="chip" href="{{ u.url(example, 'results', '', null) }}"><code>{{ example }}</code> <small>{{ label }}</small></a>
-                                {% endfor %}
-                            </div>
-                        </div>
-                    {% endif %}
                 </div>
             </div>
+            {% endif %}
 
             <details class="disclosure">
                 <summary>How this was searched<svg class="icon" aria-hidden="true"><use href="#i-chevron"/></svg></summary>
