@@ -9,6 +9,7 @@ changes; they are always listed under **Breaking** and explained in [UPGRADE.md]
 
 ### Fixed
 
+- **A per-query `->ranking(['label_weights' => ['C' => 0.5]])` keeps the profile's other label weights** (it replaced the map and refilled the rest with the library defaults, so a profile with its own `A`/`B` lost them). Searches that name label weights per query may rank differently; no other search changes.
 - **The wizard's builder export keeps the thresholds and the `label_weights` of a profile; `--format=attributes` falls back to YAML for an index with profiles or thresholds.** Attributes have no place for them, so the attribute exporter now says so (`supports()` is false) instead of dropping them silently.
 - **YAML (and array) index definitions are validated strictly.** Unknown keys at every level (field, filter, source, watch, with a "did you mean"), `fuzzy: "false"` (a string where a boolean belongs), `fields: [a, b]`, an unknown `class` and, in an override of an attribute index, `fields`/`filters`/`source`/`id_type`/`class` now fail with an `InvalidDefinition` that lists every problem; thresholds and profile errors name the real index.
 - **`fuzzphony:worker` honours SIGTERM and `--time-limit` while a queue never runs dry, and a busy index no longer starves the others.** The drain loop now checks both after every batch and each index takes turns of at most 10 batches.

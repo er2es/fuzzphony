@@ -89,11 +89,16 @@ final readonly class RankingProfile
 
     /**
      * Returns a copy with some weights replaced; used for per-query tuning (playground, A/B tests).
+     * `label_weights` is merged into the profile's own: naming one label keeps the others as they are.
      *
      * @param array<string, mixed> $overrides snake_case keys, same as fromArray()
      */
     public function with(array $overrides): self
     {
+        if (isset($overrides['label_weights']) && is_array($overrides['label_weights'])) {
+            $overrides['label_weights'] = [...$this->labelWeights, ...$overrides['label_weights']];
+        }
+
         return self::fromArray([...$this->toArray(), ...$overrides]);
     }
 

@@ -28,6 +28,8 @@ slower (0.3 to 1 s where it was 40 to 130 ms on 200 000 to 1 000 000 products); 
 
 **YAML that worked by accident now fails with a message.** The index configuration (`fuzzphony.indexes`, `ArrayDefinitionLoader`) is checked as a whole: an unknown key at any level (`wieght`, `fuzy`, `tabel`, `colums`), a string where a boolean belongs (`fuzzy: "false"` used to switch typo tolerance ON; use `true`/`false`), `fields: [name, body]` or `profiles: popular` (a list or a string where a map belongs) and an unknown `class` throw an `InvalidDefinition` that names the place and suggests the closest key. An override of an attribute-defined index may no longer carry `fields`, `filters`, `source`, `id_type` or `class` (they were silently dropped); change the attributes instead. Fix the key the message names; correct configurations are unaffected.
 
+**`RankingProfile::with()` / `->ranking()` merges `label_weights`.** A per-query override that names some labels keeps the profile's own weights for the others (before, the others fell back to the library defaults 1.0 / 0.4 / 0.2 / 0.1). Only code that passes `label_weights` per query on a profile with non-default labels sees other scores.
+
 ## From 0.9.7 to 0.9.8
 
 Nothing is required, but **run `fuzzphony:schema --apply` and then `fuzzphony:reindex`** (item 5), **searches that returned nothing may now return results**, in two ways, and **the results of searches with a very common word change** (items 3 and 4):
