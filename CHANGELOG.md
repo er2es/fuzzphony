@@ -9,6 +9,7 @@ changes; they are always listed under **Breaking** and explained in [UPGRADE.md]
 
 ### Fixed
 
+- **`fuzzphony:worker` honours SIGTERM and `--time-limit` while a queue never runs dry, and a busy index no longer starves the others.** The drain loop now checks both after every batch and each index takes turns of at most 10 batches.
 - **`the who -rock` searches `the who` and excludes `rock`, instead of returning "everything but rock".** A query of stop words only (at most three, each at least `fuzzy_min_length` letters, on an index with typo tolerance and not `fuzzy_mode: never`) is searched on the typo-tolerant branch since 0.9.7, but a top-level AND of stop words with exclusions (`the who -rock`, `the who -(rock OR roll)`) was not: PostgreSQL dropped the stop words from the full-text query and what was left was a pure exclusion, so every document without `rock` came back. Now the exclusions apply as for any query (an excluded stop word still excludes nothing; restricted viewers and tenants are bound as before). Every other query is unchanged, byte for byte: one with a real word, one with an OR at the top level or an OR or an exclusion inside a positive group (`the OR -rock`, `(the -rock) OR who`), `fuzzy_mode: never`, an index without a typo-tolerant field.
 
 ### Changed

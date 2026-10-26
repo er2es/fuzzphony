@@ -119,4 +119,102 @@ final class WorkerRunTest extends TestCase
 
         self::assertSame(3, $cycles);
     }
+
+    public function testStopInsideTheDrainEndsItAfterTheBatchInProgress(): void
+    {
+        $worker = null;
+        $calls = 0;
+        $engine = self::createStub(Engine::class);
+        $engine->method('processQueue')->willReturnCallback(static function () use (&$worker, &$calls): int {
+            ++$calls;
+            if ($calls === 3) {
+                $worker->stop(); // SIGTERM arrives while the third batch runs
+            }
+            if ($calls > 50) {
+                throw new \LogicException('The drain did not stop.');
+            }
+
+            return 5; // always more work
+        });
+        $worker = new Worker($engine);
+
+        $total = $worker->run([Indexes::products()], 10, 0.0);
+
+        self::assertSame(3, $calls);
+        self::assertSame(15, $total);
+    }
+
+    public function testTheTimeLimitEndsTheDrainOfAnAlwaysBusyIndex(): void
+    {
+        $now = 0.0;
+        $calls = 0;
+        $engine = self::createStub(Engine::class);
+        $engine->method('processQueue')->willReturnCallback(static function () use (&$now, &$calls): int {
+            $now += 0.4; // every batch takes 0.4 s
+            if (++$calls > 50) {
+                throw new \LogicException('The drain ignored the time limit.');
+            }
+
+            return 5;
+        });
+
+        $total = (new Worker($engine, static function () use (&$now): float {
+            return $now;
+        }))->run([Indexes::products()], 10, 0.0, 1);
+
+        self::assertSame(3, $calls, '0.4 + 0.4 + 0.4 reaches the 1 s limit');
+        self::assertSame(15, $total);
+    }
+
+    public function testABusyIndexDoesNotStarveTheNext(): void
+    {
+        $a = Indexes::products();
+        $b = $a->withName('b');
+        $order = [];
+        $engine = self::createStub(Engine::class);
+        $engine->method('processQueue')->willReturnCallback(static function (IndexDefinition $index) use (&$order): int {
+            $order[] = $index->name;
+            if (count($order) > 40) {
+                throw new \LogicException('Nobody was served in turn.');
+            }
+
+            return $index->name === 'b' ? 0 : 5; // "products" always has work, "b" has none
+        });
+        $worker = new Worker($engine);
+        $cycle = 0;
+
+        $worker->run([$a, $b], 10, 0.0, null, static function () use (&$cycle, $worker): void {
+            $worker->stop();
+        });
+
+        self::assertContains('b', $order, 'b is served although products is never empty');
+        $firstB = array_search('b', $order, true);
+        self::assertLessThanOrEqual(10, $firstB, 'after at most one turn of products');
+    }
+
+    public function testTheIndexesTakeTurnsInRoundRobin(): void
+    {
+        $a = Indexes::products();
+        $b = $a->withName('b');
+        $order = [];
+        $left = ['products' => 25, 'b' => 25];
+        $engine = self::createStub(Engine::class);
+        $engine->method('processQueue')->willReturnCallback(static function (IndexDefinition $index) use (&$order, &$left): int {
+            $order[] = $index->name;
+            if ($left[$index->name] <= 0) {
+                return 0;
+            }
+            $left[$index->name] -= 1;
+
+            return 1;
+        });
+
+        $total = (new Worker($engine))->runOnce([$a, $b]);
+
+        self::assertSame(50, $total, 'everything is drained in the end');
+        self::assertSame(['products', 'b'], array_slice(array_values(array_unique($order)), 0, 2));
+        self::assertSame(array_fill(0, 10, 'products'), array_slice($order, 0, 10), 'a turn is ten batches');
+        self::assertSame(array_fill(0, 10, 'b'), array_slice($order, 10, 10));
+        self::assertSame(array_fill(0, 10, 'products'), array_slice($order, 20, 10), 'then products again');
+    }
 }

@@ -20,6 +20,9 @@ final class Worker
     private const int BACKOFF = 60;
     private const int BACKOFF_MAX = 3_600;
 
+    /** Batches one index may take in a row before the next index has its turn. */
+    private const int MAX_BATCHES_PER_TURN = 10;
+
     private bool $stop = false;
     private readonly Reindexer $reindexer;
 
@@ -46,7 +49,9 @@ final class Worker
      * Processes every index until all queues are empty. A full rebuild a TRUNCATE requested runs
      * first and counts as one item. A rebuild that fails never stops the worker: the job stays
      * queued, the failure is recorded for the doctor and listed by rebuildFailures(), and the
-     * index's queued ids and the other indexes are processed as usual.
+     * index's queued ids and the other indexes are processed as usual. The indexes take turns of
+     * at most MAX_BATCHES_PER_TURN batches, so a busy index never starves the others, and stop()
+     * ends the drain after the batch in progress.
      *
      * @param list<IndexDefinition> $indexes
      *
@@ -54,22 +59,84 @@ final class Worker
      */
     public function runOnce(array $indexes, int $batchSize = 500): int
     {
+        return $this->drain($indexes, $batchSize, null, true);
+    }
+
+    /**
+     * @param list<IndexDefinition> $indexes
+     * @param float|null            $deadline   when ($this->clock)() reaches it, the drain ends after the batch in progress
+     * @param bool                  $untilEmpty false: one turn per index (a run() cycle), so a busy index cannot keep the cycle from
+     *                                          looking for requested rebuilds and reporting; true: until every queue is empty
+     */
+    private function drain(array $indexes, int $batchSize, ?float $deadline, bool $untilEmpty): int
+    {
         $this->failures = [];
         $total = 0;
+        /** @var array<string, IndexDefinition> $busy the indexes whose turn ended with work possibly left */
+        $busy = [];
+        /** @var array<string, int> $drained */
+        $drained = [];
+        $halt = false;
         foreach ($indexes as $index) {
+            if ($halt || !$this->keepRunning()) {
+                break;
+            }
             $total += $this->rebuildIfRequested($index);
             $this->metrics->gauge('fuzzphony.queue.depth', (float) $this->engine->queueSize($index), ['index' => $index->name]);
-            $drained = 0;
-            while (($processed = $this->engine->processQueue($index, $batchSize)) > 0) {
-                $drained += $processed;
+            $drained[$index->name] = 0;
+            $busy[$index->name] = $index;
+            $total += $this->turn($index, $batchSize, $deadline, $busy, $drained, $halt);
+        }
+        while ($untilEmpty && $busy !== [] && !$halt && $this->keepRunning()) {
+            foreach ($busy as $index) {
+                $total += $this->turn($index, $batchSize, $deadline, $busy, $drained, $halt);
+                if ($halt || !$this->keepRunning()) {
+                    break;
+                }
             }
-            if ($drained > 0) {
-                $this->metrics->increment('fuzzphony.queue.processed', ['index' => $index->name], $drained);
+        }
+        foreach ($drained as $name => $count) {
+            if ($count > 0) {
+                $this->metrics->increment('fuzzphony.queue.processed', ['index' => $name], $count);
             }
-            $total += $drained;
         }
 
         return $total;
+    }
+
+    /**
+     * Up to MAX_BATCHES_PER_TURN batches of one index; an index whose queue turned out empty leaves $busy.
+     * Stop and the deadline are checked after a batch that did work (so every run makes progress,
+     * even with a time limit of 0): they set $halt.
+     *
+     * @param array<string, IndexDefinition> $busy
+     * @param array<string, int>             $drained
+     */
+    private function turn(IndexDefinition $index, int $batchSize, ?float $deadline, array &$busy, array &$drained, bool &$halt): int
+    {
+        $turn = 0;
+        for ($batches = 0; $batches < self::MAX_BATCHES_PER_TURN; ++$batches) {
+            $processed = $this->engine->processQueue($index, $batchSize);
+            if ($processed <= 0) {
+                unset($busy[$index->name]);
+
+                break;
+            }
+            $turn += $processed;
+            $drained[$index->name] += $processed;
+            if (!$this->mayContinue($deadline)) {
+                $halt = true;
+
+                break;
+            }
+        }
+
+        return $turn;
+    }
+
+    private function mayContinue(?float $deadline): bool
+    {
+        return $this->keepRunning() && ($deadline === null || ($this->clock)() < $deadline);
     }
 
     /**
@@ -128,16 +195,16 @@ final class Worker
      */
     public function run(array $indexes, int $batchSize = 500, float $idleSleepSeconds = 1.0, ?int $timeLimitSeconds = null, ?callable $onCycle = null): int
     {
-        $started = microtime(true);
+        $deadline = $timeLimitSeconds === null ? null : ($this->clock)() + $timeLimitSeconds;
         $total = 0;
         $this->stop = false;
         while ($this->keepRunning()) {
-            $processed = $this->runOnce($indexes, $batchSize);
+            $processed = $this->drain($indexes, $batchSize, $deadline, false);
             $total += $processed;
             if ($onCycle !== null) {
                 $onCycle($processed);
             }
-            if ($timeLimitSeconds !== null && microtime(true) - $started >= $timeLimitSeconds) {
+            if ($deadline !== null && ($this->clock)() >= $deadline) {
                 break;
             }
             if ($processed === 0) {
