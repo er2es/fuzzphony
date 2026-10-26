@@ -13,7 +13,9 @@ use Fuzzphony\Core\Search\SearchBuilder;
 use Symfony\Bundle\FrameworkBundle\Controller\AbstractController;
 use Symfony\Component\HttpFoundation\Request;
 use Symfony\Component\HttpFoundation\Response;
+use Symfony\Component\HttpKernel\KernelEvents;
 use Symfony\Component\Routing\Attribute\Route;
+use Symfony\Contracts\EventDispatcher\EventDispatcherInterface;
 
 /**
  * The home page: one search field over the catalogue. The results appear in place while you type (the page answers a
@@ -49,7 +51,7 @@ final class SearchController extends AbstractController
     private const int RESCUE_MIN = 2;
 
     #[Route('/', name: 'search')]
-    public function __invoke(Request $request, Fuzzphony $fuzzphony, Catalog $catalog, Facets $facets): Response
+    public function __invoke(Request $request, Fuzzphony $fuzzphony, Catalog $catalog, Facets $facets, EventDispatcherInterface $dispatcher): Response
     {
         $q = self::normalizeQuery($request);
         $view = (string) $request->query->get('view') === 'speed' ? 'speed' : 'results';
@@ -102,7 +104,15 @@ final class SearchController extends AbstractController
                 } elseif ($result->total === 0 && !$exact && $live && mb_strlen($q) >= self::RESCUE_MIN) {
                     $pending = true;
                 } elseif ($logged) {
-                    $result = $build(true, true)->facets('category_id', 'in_stock')->get();
+                    // the probe found hits and the search is meant: the library logs a search only by running it, so the logged run
+                    // is the one that answers nothing and waits for nothing: it runs after the response has been sent (kernel.terminate)
+                    $dispatcher->addListener(KernelEvents::TERMINATE, static function () use ($build): void {
+                        try {
+                            $build(true, true)->facets('category_id', 'in_stock')->get();
+                        } catch (FuzzphonyException) {
+                            // the answer has gone out already; a log row that cannot be written is the library's to count
+                        }
+                    }, 10); // before the library writes the buffered log rows (its kernel.terminate listener has priority 0)
                 }
                 $rows = $catalog->rows($result->ids());
                 $categories = $facets->categories($result->facets['category_id'] ?? []);

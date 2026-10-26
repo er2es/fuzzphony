@@ -489,6 +489,19 @@ check('rescue: the observability page counts a rescued search', /fuzzphony\.sear
 await go(page, BASE + '/relevance?q=kpttle'); // (logged as a search that found nothing: not the typo of the Analytics checks above)
 check('rescue: the Relevance page shows what each rule finds, not a rescue (the price of a letter replaced in the middle)', /\b0 hits/.test(await page.locator('body').innerText()));
 
+// a search the visitor means is logged once, with the hits it found: the probe that decided what to answer is not a row of its own, and the
+// run that logs a found search happens after the response (kernel.terminate), so the row may come a moment later
+const onceWord = `mouse${[...suffix].reverse().join('')}`;
+await go(page, `${BASE}/?q=${onceWord}`);
+let onceRows = [];
+for (let attempt = 0; attempt < 8 && onceRows.length === 0; attempt++) {
+    await page.waitForTimeout(500);
+    onceRows = rowOf(await listRows(''), onceWord);
+}
+await page.waitForTimeout(1500);
+onceRows = rowOf(await listRows(''), onceWord);
+check('a search that found something is logged once, with its hits', onceRows.length === 1 && onceRows[0][5] !== '0', onceRows.map((r) => r.join(' | ')).join(' / '));
+
 await secContext.close();
 
 await browser.close();
