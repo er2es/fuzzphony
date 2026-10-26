@@ -54,19 +54,6 @@ final class SearchSqlBuilder
         private readonly int $scanBudget = self::SCAN_BUDGET,
         /** @var (\Closure(): bool)|null whether the sidecar has the tsv_capped column (FuzzyQueryCompiler), asked when a phrase or a scoped word needs it */
         private readonly ?\Closure $cappedColumn = null,
-        /**
-         * @var array<string, list<int|string>> for a typo-tolerant word with more matches than the candidate limit: the ids of the documents
-         *                                      at least as close as a raised similarity (FuzzyQueryCompiler::probes() with levels, by
-         *                                      candidateKey()), at most a few times the limit; the ordered selection of the typo branch
-         *                                      reads the word from them, so its pool does not depend on the order of the heap
-         */
-        private readonly array $pool = [],
-        /**
-         * Whether a capped typo-tolerant branch selects its best candidates (see scored()). Off, it is the cheap selection of the
-         * first matches only, which the engine runs first and keeps when the branch was not capped (so such a search costs and reads
-         * what it always did); on, it is the statement the engine runs when the cheap one hit the limit.
-         */
-        private readonly bool $orderedTypo = true,
     ) {}
 
     /**
@@ -79,11 +66,9 @@ final class SearchSqlBuilder
 
     /**
      * The most matches the ordered selection of a capped typo-tolerant branch scores (divided by the number of words, like the
-     * strict one): a document of this branch costs about seven times what a full-text match does, because every trigram match is
-     * rechecked on the text of the typo-tolerant fields (about 8 microseconds on 200 000 short names), so the budget is smaller.
-     * A word with a pool (see $pool) has at most a few times the candidate limit of documents, far under it; the budget bounds the
-     * cost of a word that is itself very common (its exact matches), beyond it the matches are taken in index order. Not
-     * configurable, for the reason SCAN_BUDGET is not.
+     * strict one). Only a restricted viewer has it (see scored()). A document of this branch costs about seven times what a
+     * full-text match does, because every trigram match is rechecked on the text of the typo-tolerant fields (about 8 microseconds
+     * on 200 000 short names), so the budget is smaller. Not configurable, for the reason SCAN_BUDGET is not.
      */
     private const int TYPO_SCAN_BUDGET = 30_000;
 
@@ -172,8 +157,9 @@ final class SearchSqlBuilder
         $filters = new FilterCompiler($this->index);
         $table = $this->names->sidecar($this->index);
         $config = $this->names->regconfig($this->index->text);
-        // an exact count reads every match; a search and its approximate counts stop at the candidate limit
-        $cap = $uncapped ? '' : "\n    LIMIT " . $thresholds->candidateLimit;
+        // an exact count reads every match; a search and its approximate counts stop at the window (the candidate limit, or more for a page past it)
+        $limit = $window ?? $thresholds->candidateLimit;
+        $cap = $uncapped ? '' : "\n    LIMIT " . $limit;
 
         $q = [];
         // the full-text branch finds its candidates through GIN(tsv): "s.tsv @@ <lookup>"
@@ -228,18 +214,13 @@ final class SearchSqlBuilder
         // Per-term fuzzy branch: every word is satisfied exactly or fuzzily, through the query's
         // own AND / OR / NOT. Its per-word values are extra q columns.
         $ordered = $window !== null && !$uncapped;
-        $orderedFuzzy = $ordered && $this->orderedTypo;
-        $poolFuzzy = null;
+        // The typo branch selects its best candidates only for a restricted viewer: the first matches the trigram index returns are the
+        // first in the physical order of the table, which the size of every field, a hidden one included, shapes. For everyone else that
+        // order reveals nothing and the cheap selection (the first matches) stands; a strict match outside it keeps its typo score (below)
+        $orderedFuzzy = $ordered && $this->allowedFields !== null;
         $fuzzy = $fuzzyRoot === null ? null : $compiler->compile($fuzzyRoot, $params, $emptyQueries);
         if ($fuzzy !== null) {
             array_push($q, ...$fuzzy->columns);
-            if ($orderedFuzzy && $this->pool !== []) {
-                // the ordered selection reads the words that have a pool from their ids: the same words, compiled once more
-                $poolFuzzy = (new FuzzyQueryCompiler($this->index, $thresholds, $this->names, $this->candidates + $this->pool, $this->allowedFields, $this->transpositions, $this->cappedColumn))->compile($fuzzyRoot ?? throw new \LogicException('A pool needs the parsed query.'), $params, $emptyQueries, 'p');
-                if ($poolFuzzy !== null) {
-                    array_push($q, ...$poolFuzzy->columns);
-                }
-            }
         }
         // MATERIALIZED: one row computed once, and the planner must not see the per-word values (see FuzzyQueryCompiler)
         $ctes = ['q AS MATERIALIZED (SELECT ' . implode(', ', $q) . ')'];
@@ -306,7 +287,6 @@ final class SearchSqlBuilder
                     Sql::float($profile->text),
                 );
             }
-            $branches[] = 'SELECT id, r_text, 0::double precision AS r_fuzzy FROM fts';
         }
         $fuzzyFast = 'fuzzy';
         if ($fuzzy !== null) {
@@ -325,38 +305,21 @@ final class SearchSqlBuilder
                 $cap,
             );
             if ($orderedFuzzy) {
-                $limit = $thresholds->candidateLimit;
-                $columns = static fn(FuzzyMatch $by): string => sprintf('%s AS r_fuzzy', '(' . $by->score . ')::double precision');
-                $select = fn(FuzzyMatch $by, string $guard): string => sprintf(
-                    "SELECT s.id, %1\$s, %2\$s AS exact_bonus, %3\$s AS prefix_bonus, %4\$s AS boost_bonus, %5\$s AS recency_bonus
+                $select = sprintf(
+                    "SELECT s.id, (%1\$s)::double precision AS r_fuzzy, %2\$s AS exact_bonus, %3\$s AS prefix_bonus, %4\$s AS boost_bonus, %5\$s AS recency_bonus
             FROM %6\$s AS s CROSS JOIN q
-            WHERE %7\$s AND %8\$s%9\$s",
-                    $columns($by),
+            WHERE %7\$s AND %8\$s
+            LIMIT %9\$d",
+                    $fuzzy->score,
                     $bonuses[0],
                     $bonuses[1],
                     $bonuses[2],
                     $bonuses[3],
                     $table,
-                    $by->predicate,
+                    $fuzzy->predicate,
                     $filterSql,
-                    $guard,
+                    self::scanLimit(min($this->scanBudget, self::TYPO_SCAN_BUDGET), $fuzzy->words, $limit),
                 );
-                $scan = self::scanLimit(min($this->scanBudget, self::TYPO_SCAN_BUDGET), $fuzzy->words, $limit);
-                if ($poolFuzzy === null) {
-                    $inner = $select($fuzzy, '') . "
-            LIMIT " . $scan;
-                } else {
-                    // The pool: the documents at least as close as the pool level of every very common word (their ids). When it holds
-                    // enough, it IS the selection (nothing depends on the order of the heap any more); when it holds fewer, the first
-                    // matches of the scan fill the slots, and the pool is still in.
-                    $ctes[] = sprintf("fuzzy_pool AS (
-    %s
-)", $select($poolFuzzy, sprintf(' AND (SELECT count(*) FROM fuzzy_fast) >= %d', $limit)));
-                    $inner = sprintf("SELECT * FROM fuzzy_pool
-            UNION
-            (%s
-            LIMIT %d)", $select($fuzzy, sprintf(' AND (SELECT count(*) FROM fuzzy_pool) < %d', $limit)), $scan);
-                }
                 $ctes[] = sprintf(
                     "fuzzy AS (
     SELECT id, r_fuzzy FROM fuzzy_fast WHERE (SELECT count(*) FROM fuzzy_fast) < %1\$d
@@ -371,11 +334,26 @@ final class SearchSqlBuilder
     ) AS o
 )",
                     $limit,
-                    $inner,
+                    $select,
                     Sql::float($profile->fuzzy),
                 );
             }
             $branches[] = 'SELECT id, 0::double precision AS r_text, r_fuzzy FROM fuzzy';
+        }
+        if ($tsquery !== null) {
+            // A full-text match keeps its typo score when the typo branch cut its candidates off (it holds as many as it may): the
+            // match can be outside them, and then it would rank below every typo match inside, an exact word below its look-alikes.
+            // The score is the one the typo branch gives it, so a search whose typo branch is not capped is as it was.
+            $rescored = $fuzzy !== null && !$uncapped;
+            $branches[] = $rescored
+                ? sprintf(
+                    "SELECT t.id, t.r_text, CASE WHEN (SELECT count(*) FROM %s) >= %d THEN (%s)::double precision ELSE 0::double precision END AS r_fuzzy FROM fts AS t JOIN %s AS s ON s.id = t.id CROSS JOIN q",
+                    $fuzzyFast,
+                    $limit,
+                    $fuzzy->score,
+                    $table,
+                )
+                : 'SELECT id, r_text, 0::double precision AS r_fuzzy FROM fts';
         }
         if ($branches === []) {
             throw new \LogicException('A ranked search needs a full-text query or a fuzzy branch.');
