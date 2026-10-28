@@ -438,6 +438,10 @@ ON CONFLICT (index_name) DO UPDATE SET layout_version = EXCLUDED.layout_version,
         if ($index->hasFuzzy()) {
             $indexes[$this->names->indexName($index, 'fz')] = sprintf('USING gin (fz %s.gin_trgm_ops)', $this->names->extension());
         }
+        // an index with a granted field: two more over the open fields, for the viewer who holds none of the granted ones (OpenClass)
+        foreach (OpenClass::indexes($index, $this->names) as $suffix => $definition) {
+            $indexes[$this->names->indexName($index, $suffix)] = $definition;
+        }
         foreach ($index->filters as $filter) {
             $indexes[$this->names->indexName($index, 'f_' . $filter->name)] = sprintf('(%s)', FilterCompiler::column($filter->name));
         }

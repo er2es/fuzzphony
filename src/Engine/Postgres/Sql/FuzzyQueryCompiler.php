@@ -17,6 +17,7 @@ use Fuzzphony\Core\Query\Filter\Condition;
 use Fuzzphony\Core\Ranking\Thresholds;
 use Fuzzphony\Core\Ranking\TypoCurve;
 use Fuzzphony\Engine\Postgres\Schema\Names;
+use Fuzzphony\Engine\Postgres\Schema\OpenClass;
 use Fuzzphony\Engine\Postgres\Schema\PostgresSchemaGenerator;
 use Fuzzphony\Engine\Postgres\Schema\Types;
 use Fuzzphony\Engine\Postgres\TypoTerm;
@@ -90,6 +91,8 @@ final class FuzzyQueryCompiler
     private array $variants = [];
     /** @var bool whether a condition compiled since the last compile()/leafConditions() holds `<%` (a word without a candidate list) */
     private bool $readsWordThreshold = false;
+    /** @var bool|null whether the lookups go through the open-class indexes (open()), asked once */
+    private ?bool $open = null;
 
     /**
      * @param list<string>|null $allowedFields the fields a restricted viewer may see (SearchQuery::$allowedFields): every
@@ -100,6 +103,9 @@ final class FuzzyQueryCompiler
      * @param (\Closure(): bool)|null $cappedColumn asked (only when a phrase or a scoped word of an unrestricted viewer on an index with several fields
      *                                          is compiled) whether the sidecar has the tsv_capped column; null or false: it has not, and
      *                                          the later fields' vectors are read for every document that `tsv` does not match
+     * @param (\Closure(): bool)|null $openClass asked (only for a restricted viewer who holds none of the index's granted fields) whether the
+     *                                          open-class indexes exist, are valid and are smaller than `fz`; null or false: the lookups
+     *                                          stay on `fz` and `tsv`
      */
     public function __construct(
         private readonly IndexDefinition $index,
@@ -110,6 +116,8 @@ final class FuzzyQueryCompiler
         ?array $allowedFields = null,
         private readonly bool $transpositions = false,
         private readonly ?\Closure $cappedColumn = null,
+        /** @var (\Closure(): bool)|null whether the open-class indexes may serve a restricted viewer's lookups (TextConfigCache::openClass()); null: they may not */
+        private readonly ?\Closure $openClass = null,
     ) {
         $this->tsquery = new TsQueryCompiler($index);
         $this->allowed = $allowedFields === null ? null : array_values(array_filter($index->fields, static fn(FieldDefinition $f): bool => in_array($f->name, $allowedFields, true)));
@@ -604,7 +612,7 @@ final class FuzzyQueryCompiler
         }
         $checks = array_map(fn(FieldDefinition $f): string => sprintf('s.%s @@ %s', $this->names->fieldVector($f->name), $query()), $targets);
 
-        return sprintf('(s.tsv @@ %s AND %s)', $query(), count($checks) === 1 ? $checks[0] : '(' . implode(' OR ', $checks) . ')');
+        return sprintf('(%s AND %s)', $this->vectorLookup($query()), count($checks) === 1 ? $checks[0] : '(' . implode(' OR ', $checks) . ')');
     }
 
     /**
@@ -628,7 +636,7 @@ final class FuzzyQueryCompiler
             $similarity = count($similarities) === 1 ? $similarities[0] : 'GREATEST(' . implode(', ', $similarities) . ')';
 
             return [
-                'condition' => sprintf('(%s OPERATOR(%s.<%%) s.fz AND %s >= %s)', $norm, $schema, $similarity, $threshold ?? Sql::float((float) $this->thresholds->fuzzySimilarity)),
+                'condition' => sprintf('(%s OPERATOR(%s.<%%) %s AND %s >= %s)', $norm, $schema, $this->trigramColumn(), $similarity, $threshold ?? Sql::float((float) $this->thresholds->fuzzySimilarity)),
                 'similarity' => $similarity,
             ];
         }
@@ -636,9 +644,10 @@ final class FuzzyQueryCompiler
         $column = $field === null ? 's.fz' : 's.' . $this->names->fieldFuzzy($field->name);
         $similarity = sprintf('%s.word_similarity(%s, %s)', $schema, $norm, $column);
         $recheck = $threshold === null ? '' : sprintf(' AND %s >= %s', $similarity, $threshold);
+        $lookup = $this->trigramColumn();
         $trigram = $field === null
-            ? sprintf('%s OPERATOR(%s.<%%) s.fz', $norm, $schema)
-            : sprintf('%1$s OPERATOR(%2$s.<%%) s.fz AND %1$s OPERATOR(%2$s.<%%) %3$s', $norm, $schema, $column);
+            ? sprintf('%s OPERATOR(%s.<%%) %s', $norm, $schema, $lookup)
+            : sprintf('%1$s OPERATOR(%2$s.<%%) %4$s AND %1$s OPERATOR(%2$s.<%%) %3$s', $norm, $schema, $column, $lookup);
 
         return [
             'condition' => $field === null && $recheck === '' ? $trigram : '(' . $trigram . $recheck . ')',
@@ -778,7 +787,7 @@ final class FuzzyQueryCompiler
                 }
             }
 
-            return sprintf('(s.tsv @@ %s AND %s)', $lookup, count($checks) === 1 ? $checks[0] : '(' . implode(' OR ', $checks) . ')');
+            return sprintf('(%s AND %s)', $this->vectorLookup($lookup), count($checks) === 1 ? $checks[0] : '(' . implode(' OR ', $checks) . ')');
         }
         $config = $this->names->regconfig($this->index->text);
         $query = $this->column('ft', sprintf('to_tsquery(%s, %s)', $config, $params->add($tsquery)));
@@ -817,6 +826,37 @@ final class FuzzyQueryCompiler
         return $field === null
             ? 's.tsv @@ ' . $query
             : sprintf('(s.tsv @@ %1$s AND s.%2$s @@ %1$s)', $query, $this->names->fieldVector($field->name));
+    }
+
+    /**
+     * Whether this viewer's lookups go through the open-class indexes (OpenClass): the index has a granted field, the viewer holds
+     * none of them and at least one open field, and the indexes may be used (the gate). The lookup is then a superset of what the
+     * allowed fields match, as with `fz` / `tsv`, so the recheck against their own columns decides the same documents. A viewer who
+     * holds a granted field stays on `fz` / `tsv`: one term would not hold its words (a word in an open field and another in a
+     * granted one, ANDed), and no term for the combination is built.
+     */
+    private function open(): bool
+    {
+        return $this->open ??= $this->allowed !== null && $this->allowed !== [] && $this->openClass !== null
+            && OpenClass::fields($this->index) !== []
+            && array_all($this->allowed, static fn(FieldDefinition $f): bool => $f->granted === null)
+            && ($this->openClass)();
+    }
+
+    /** `s.tsv @@ <query>`, or the same on the open fields' vectors joined when this viewer's lookups go through the open-class indexes. */
+    public function vectorLookup(string $query): string
+    {
+        $vector = $this->open() ? OpenClass::vector($this->index, $this->names, 's.') : null;
+
+        return $vector === null ? 's.tsv @@ ' . $query : sprintf('%s @@ %s', str_contains($vector, ' || ') ? '(' . $vector . ')' : $vector, $query);
+    }
+
+    /** The column the trigram lookup `<%` is served by: `s.fz`, or the open fuzzy fields' columns joined for an open-class viewer. */
+    private function trigramColumn(): string
+    {
+        $joined = $this->open() ? OpenClass::trigram($this->index, $this->names, 's.') : null;
+
+        return $joined === null ? 's.fz' : (str_contains($joined, ' || ') ? '(' . $joined . ')' : $joined);
     }
 
     /** Adds a q column (ft<n> = tsquery, fn<n> = needle; scope(): sft<n>) and returns the reference to it. */

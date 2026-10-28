@@ -217,7 +217,7 @@ final readonly class SearchRunner
         }
         $expandedRoot = $root;
 
-        $context = new SearchContext($index, $query, $conditions, $profile, $thresholds, $this->names, $this->caches->cappedColumn($index));
+        $context = new SearchContext($index, $query, $conditions, $profile, $thresholds, $this->names, $this->caches->cappedColumn($index), $this->caches->openClass($index));
         $run = $this->pipeline($context, $root, '', true);
         // What is left of the search (the typo-tolerant statements, the relaxation, the facets, the suggestion) runs in ONE transaction
         // when typo tolerance is due (see SearchSession::inTransaction()); a search that needs no setting has no transaction at all.

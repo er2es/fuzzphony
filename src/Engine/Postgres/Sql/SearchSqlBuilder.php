@@ -55,6 +55,8 @@ final class SearchSqlBuilder
         private readonly int $scanBudget = self::SCAN_BUDGET,
         /** @var (\Closure(): bool)|null whether the sidecar has the tsv_capped column (FuzzyQueryCompiler), asked when a phrase or a scoped word needs it */
         private readonly ?\Closure $cappedColumn = null,
+        /** @var (\Closure(): bool)|null whether the open-class indexes may serve a restricted viewer's lookups (FuzzyQueryCompiler, OpenClass) */
+        private readonly ?\Closure $openClass = null,
     ) {}
 
     /**
@@ -185,7 +187,8 @@ final class SearchSqlBuilder
 
         $q = [];
         // the full-text branch finds its candidates through GIN(tsv): "s.tsv @@ <lookup>"
-        $lookup = 's.tsv @@ q.tsq';
+        $lookupQuery = 'q.tsq';
+        $lookup = 's.tsv @@ ' . $lookupQuery;
         // A phrase or a scoped word of an unrestricted viewer on an index with several fields: tsv reads them in one vector whose
         // positions are capped at 16 383, so after a long field they and their weights are unreliable (see TsQueryCompiler); the
         // candidates are then looked up in the form a restricted viewer's are, and the recheck decides
@@ -214,14 +217,19 @@ final class SearchSqlBuilder
                     $lookup = null;
                 } elseif ($positive !== $tsquery) {
                     $q[] = sprintf('to_tsquery(%s, %s) AS tsp', $config, $params->add($positive));
-                    $lookup = 's.tsv @@ q.tsp';
+                    $lookupQuery = 'q.tsp';
+                    $lookup = 's.tsv @@ ' . $lookupQuery;
                 }
             }
         }
         $q[] = $plain !== ''
             ? sprintf('%s(%s) AS norm', $this->names->normFunction(), $params->add($plain))
             : "''::text AS norm";
-        $compiler = new FuzzyQueryCompiler($this->index, $thresholds, $this->names, $this->candidates, $this->allowedFields, $this->transpositions, $this->cappedColumn);
+        $compiler = new FuzzyQueryCompiler($this->index, $thresholds, $this->names, $this->candidates, $this->allowedFields, $this->transpositions, $this->cappedColumn, $this->openClass);
+        if ($lookup !== null && $this->allowedFields !== null) {
+            // a viewer who holds none of the granted fields looks its words up in the open fields' vectors alone (OpenClass)
+            $lookup = $compiler->vectorLookup($lookupQuery);
+        }
         // A word scoped to a known field is rechecked against the field's own column (q.sft<n>); a restricted viewer's
         // every word against the allowed fields' columns.
         $scope = $scopedRoot === null ? null : $compiler->scope($scopedRoot, $params, $emptyQueries);
@@ -718,7 +726,7 @@ UNION ALL
         $params = new ParameterBag();
         $filters = new FilterCompiler($this->index);
         $table = $this->names->sidecar($this->index);
-        $compiler = new FuzzyQueryCompiler($this->index, $thresholds, $this->names, [], $this->allowedFields, $this->transpositions, $this->cappedColumn);
+        $compiler = new FuzzyQueryCompiler($this->index, $thresholds, $this->names, [], $this->allowedFields, $this->transpositions, $this->cappedColumn, $this->openClass);
         $compiled = $compiler->leafConditions($leaves, $params, $emptyQueries, $fuzzy);
         if (array_filter($compiled['predicates'], static fn(?string $p): bool => $p !== null) === []) {
             throw new \LogicException('A relaxation probe needs at least one leaf that is not a stop word.');

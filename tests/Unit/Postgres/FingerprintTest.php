@@ -43,7 +43,8 @@ final class FingerprintTest extends TestCase
         yield 'thresholds' => [static fn(IndexDefinition $d): IndexDefinition => $d->withThresholds(new Thresholds(minScore: 0.3)), false, false];
         yield 'synonyms' => [static fn(IndexDefinition $d): IndexDefinition => $d->withSynonyms(Synonyms::fromEntries([['tv', 'television']])), false, false];
         yield 'log flag' => [static fn(IndexDefinition $d): IndexDefinition => $d->withLog(false), false, false];
-        yield 'granted role' => [static fn(IndexDefinition $d): IndexDefinition => $d->withFields([new FieldDefinition('name', Weight::A, fuzzy: true, granted: 'ROLE_HR'), ...array_slice($d->fields, 1)]), false, false];
+        // a field becoming granted adds the open-class indexes (OpenClass): the DDL changes; which role it names does not
+        yield 'field becomes granted' => [static fn(IndexDefinition $d): IndexDefinition => $d->withFields([new FieldDefinition('name', Weight::A, fuzzy: true, granted: 'ROLE_HR'), ...array_slice($d->fields, 1)]), true, false];
         yield 'profiles' => [static fn(IndexDefinition $d): IndexDefinition => $d->withProfiles(['default' => new RankingProfile(text: 0.5)]), false, false];
         yield 'highlight flag' => [static fn(IndexDefinition $d): IndexDefinition => $d->withFields([new FieldDefinition('name', Weight::A, fuzzy: true, highlight: false), ...array_slice($d->fields, 1)]), false, false];
     }
@@ -59,6 +60,14 @@ final class FingerprintTest extends TestCase
         self::assertSame(Fingerprint::definition($original), Fingerprint::definition(Indexes::products()), 'stable');
         self::assertSame($ddl, Fingerprint::definition($changed) !== Fingerprint::definition($original));
         self::assertSame($documents, Fingerprint::documents($changed) !== Fingerprint::documents($original));
+    }
+
+    public function testTheRoleAGrantedFieldNamesDoesNotShapeTheDdl(): void
+    {
+        $grant = static fn(string $role): IndexDefinition => ($base = Indexes::products())->withFields([new FieldDefinition('name', Weight::A, fuzzy: true, granted: $role), ...array_slice($base->fields, 1)]);
+
+        self::assertSame(Fingerprint::definition($grant('ROLE_HR')), Fingerprint::definition($grant('ROLE_ADMIN')));
+        self::assertSame(Fingerprint::documents($grant('ROLE_HR')), Fingerprint::documents(Indexes::products()));
     }
 
     public function testTheSharedHashFollowsTheSchemas(): void
