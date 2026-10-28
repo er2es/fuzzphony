@@ -5,7 +5,7 @@
 #
 # On Linux set DEMO_UID / DEMO_GID to your own (id -u / id -g) so files written to the mount belong to you.
 x-dev-php: &dev-php
-  image: fuzzphony-demo/php:dev
+  image: ${COMPOSE_PROJECT_NAME:-fuzzphony-demo}/php:dev
   build:
     target: dev
   read_only: false
