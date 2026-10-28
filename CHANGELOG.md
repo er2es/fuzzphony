@@ -11,8 +11,15 @@ and a link. Measurements, proofs and test names belong to the pull request, [doc
 
 ## [Unreleased]
 
+### Added
+
+- **A restricted viewer's search is fast when the fields it cannot see are full of the words searched.** An index with a `granted` field gets two indexes over its open
+  fields (`fuzzphony:schema --apply`, concurrent; the doctor reports them); a viewer who holds none of the granted fields looks its words up there. Results unchanged;
+  run the schema command and restart workers ([UPGRADE](UPGRADE.md), [limitations](docs/limitations.md#a-restricted-viewers-very-common-word-in-a-hidden-typo-tolerant-field)).
+
 ### Fixed
 
+- **A restricted viewer's prefix typo search (`mouse*`) no longer depends on the text of the fields it cannot see.** Its candidates were looked up at a stricter similarity than the recheck used for a prefix, so a document of an allowed field was found only when a hidden field also matched. Other searches are unchanged.
 - **The doctor's `Sync queue` check says "1 item" / "N items"** (it wrote "item(s)").
 - **A failed flush no longer leaks its ids into the next one (`sync: orm`).** `OrmSyncListener` kept what a failed flush had collected (Doctrine closes that manager and never calls `postFlush`) and refreshed it with the next successful flush; ids collected by a closed manager are now dropped.
 - **A refused `suggest()` is recorded in the search log like a refused search, and `suggest()` cuts the text at `max_query_length`** (256 by default; it cut at a fixed 100 characters). A completion of a text between 101 and 256 characters now uses all of it.

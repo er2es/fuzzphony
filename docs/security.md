@@ -323,7 +323,11 @@ a covert-channel proof:
   accepted and shows nothing.
 - **Timing is not hidden.** The text index still visits the candidates of a hidden match before the
   per-field recheck drops them, so how long a search takes can depend on how often a word occurs in a
-  hidden field.
+  hidden field. For a viewer who holds none of an index's granted fields the open-class indexes (see
+  [limitations](limitations.md#a-restricted-viewers-very-common-word-in-a-hidden-typo-tolerant-field)) do not hold the
+  hidden text at all, so for that viewer the time no longer follows a hidden word; for a viewer who holds some of the granted
+  fields, and for a field the viewer can see, it still follows the word. Which statement a search uses (the open-class indexes or
+  `fz` / `tsv`) depends on the size of the indexes, never on what a hidden field holds.
 - **Filters and facets are not restricted.** Their values are attributes of the document, searchable
   and countable by anyone who may search the index.
 - **The vocabulary of unrestricted viewers still holds every word.** An unrestricted viewer of an
@@ -348,7 +352,7 @@ a covert-channel proof:
   documents are candidates nor their order depends on a hidden field (the tests compare corpora that differ only in a
   hidden field, even a very long one, for the three modes). The selection scores at most 100 000 matches that pass
   the recheck; the scan that finds them can still be long when the word is common in a hidden typo-tolerant field (see the
-  timing entry above and [limitations](limitations.md#a-restricted-viewers-very-common-word-in-a-hidden-typo-tolerant-field-is-slow)).
+  timing entry above and [limitations](limitations.md#a-restricted-viewers-very-common-word-in-a-hidden-typo-tolerant-field)).
 - **A phrase is read from the fields the viewer may see, as if the others did not exist.** Like an
   unrestricted search, a restricted one matches `"ada lovelace"` with `ada` at the end of one allowed field and
   `lovelace` at the start of the next. A hidden field never takes part: a phrase that reaches into one does not

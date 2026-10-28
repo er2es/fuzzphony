@@ -140,7 +140,7 @@ budget is a trade between the worst case and the share of matches that are ranke
 costs 60 to 115 ms, 50 000 about 160 to 240 ms, 100 000 (the one used) 170 to 330 ms, 200 000 300 to 630 ms (these four were measured while other jobs ran on the machine: indicative). With the
 planted documents at the end of the table, 100 000 misses the five that sit beyond the 100 000 matches of `wireless`
 and 200 000 finds them. A restricted viewer's search of a word that is common in a field the viewer cannot see is slow for a
-different reason that this does not change (see [Known limitations](limitations.md#a-restricted-viewers-very-common-word-in-a-hidden-typo-tolerant-field-is-slow)).
+different reason that this does not change (see [Known limitations](limitations.md#a-restricted-viewers-very-common-word-in-a-hidden-typo-tolerant-field)).
 
 The first run after a restart reads the table from disk and is much slower (seconds at 1 000 000 rows for a word that is
 spread over every page); the figures are warm. Both columns were measured on the same machine in the same session, but
@@ -175,6 +175,44 @@ capped, about 10 microseconds each); the restricted viewer pays for the ordered 
 short name and more for a long text (the work budget in the known limitations). The typo statement of a word under the limit is the one
 it always was.
 
+## A restricted viewer whose hidden fields are full of the words searched
+
+An index with four typo-tolerant fields: `name` and `category` open, `brand` and `description` granted (`benchmarks/run.php`, the
+`bench_granted` index; the description is full of very common words). A viewer who holds neither granted field looks its words up in
+the two open-class indexes instead of `fz` / `tsv` (see [Known limitations](limitations.md#a-restricted-viewers-very-common-word-in-a-hidden-typo-tolerant-field)).
+Median of five runs after one warm-up in `fuzzy_mode: always` (one run when it takes longer than 8 s), PostgreSQL in a container on a
+shared development machine with the default 128 MB of shared buffers, `synchronize_seqscans` off; indicative, not a benchmark of the hardware.
+
+| viewer and search | 200 000 before | 200 000 after | 1 000 000 before | 1 000 000 after |
+|---|---:|---:|---:|---:|
+| name + category, `battery` (hidden) | 2 192 ms | 4.6 ms | 13 632 ms | 5.5 ms |
+| the same, 3 hidden words | 10 207 ms | 172 ms | 49 125 ms | 387 ms |
+| the same, 5 hidden words | 16 006 ms | 186 ms | 88 015 ms | 394 ms |
+| the same, phrase `"battery life"` | 2 230 ms | 4.6 ms | 13 539 ms | 5.5 ms |
+| the same, rare word `lenvo` | 1 972 ms | 4.4 ms | 8 731 ms | 5.5 ms |
+| the same, typo + hidden word | 7 696 ms | 7.3 ms | 40 317 ms | 8.6 ms |
+| the same, a common word the viewer sees (`kitchen`) | 973 ms | 193 ms | 1 043 ms | 477 ms |
+| the same, 3 words the viewer sees | 749 ms | 91 ms | 1 594 ms | 542 ms |
+| + brand (some granted fields), 3 words | 11 280 ms | 10 943 ms | 65 035 ms | 95 814 ms (same statement, noise) |
+| + brand, phrase / `kitchen` | 2 307 / 1 033 ms | 2 259 / 971 ms | 16 262 / 1 322 ms | 12 845 / 1 167 ms |
+| name + category + description (brand hidden): `keyb*` | 1 460 ms | 1 072 ms | 971 ms | 463 ms |
+| the same, phrase / typo | 1 452 / 775 ms | 1 427 / 757 ms | 1 543 / 1 610 ms | 1 462 / 1 623 ms |
+| unrestricted, typo / 3 common words | 1 162 / 640 ms | 1 174 / 638 ms | 1 527 / 1 940 ms | 1 453 / 955 ms |
+
+A viewer who holds a granted field has the statements it always had (byte for byte); the differences in those rows are the
+machine's, and the run-to-run spread on a shared machine is large for the slow ones. The viewer who holds the big granted field and
+hides a small one (the guard case) is not slower.
+
+Size and build time (`fuzzphony:schema --apply`, `CREATE INDEX CONCURRENTLY`, both indexes):
+
+| | 200 000 | 1 000 000 |
+|---|---:|---:|
+| existing indexes (pkey, filters, `fz`, `tsv`) | 55 MB | 180 MB |
+| open-class trigram index / full-text index | 11 MB / 2.7 MB | 52 MB / 10 MB |
+| growth | +25 % | +34 % |
+| build time | 2 s | 12.5 s |
+
+The indexes are used only when both exist, are valid and are smaller together than `fz`; an index with no granted field has none.
 ## Reading the numbers
 
 The two columns do different work. `ILIKE … LIMIT 20` returns the first 20 rows the scan reaches,

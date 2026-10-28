@@ -5,6 +5,12 @@ and the [CHANGELOG](CHANGELOG.md) has the full list of changes.
 
 ## From 0.9.8 to 0.9.9
 
+**If an index has a `granted` field, run `fuzzphony:schema --apply`** (nothing is required otherwise). It builds two indexes over the
+fields that are not granted, with `CREATE INDEX CONCURRENTLY` (the table stays writable); until then the doctor reports them missing and
+the definition as changed, and searches run as before. A restricted viewer who holds none of the granted fields is then much faster when a
+hidden field is full of the words searched. Restart long-running workers afterwards (the engine looks the indexes up once per process; the
+command says so). Indexes without a `granted` field change nothing.
+
 Nothing is required. One visible change: a top-level AND of stop words with exclusions (`the who -rock`) used to return every document without `rock` (a bug); it now searches `the who` and leaves out the documents that have `rock`, so such a query returns far fewer results. If you showed a page for "everything except X" through it, use a filter instead. After `fuzzphony:schema --apply` added a column to an existing table, restart long-running workers (Messenger, RoadRunner, FrankenPHP); the command says so.
 
 **A few results change, for the better.** An exact word is no longer ranked below its look-alikes in a capped typo search (a full-text match

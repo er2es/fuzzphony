@@ -22,6 +22,7 @@ final readonly class SearchContext
     /**
      * @param list<Condition>        $conditions
      * @param \Closure(): bool       $cappedColumn whether the sidecar has the tsv_capped column (TextConfigCache::cappedColumn())
+     * @param \Closure(): bool       $openClass    whether the open-class indexes may serve a restricted viewer (TextConfigCache::openClass())
      */
     public function __construct(
         public IndexDefinition $index,
@@ -31,6 +32,7 @@ final readonly class SearchContext
         public Thresholds $thresholds,
         public Names $names,
         private \Closure $cappedColumn,
+        private \Closure $openClass,
     ) {}
 
     /**
@@ -38,11 +40,11 @@ final readonly class SearchContext
      */
     public function builder(array $candidates = []): SearchSqlBuilder
     {
-        return new SearchSqlBuilder($this->index, $this->names, $candidates, $this->query->allowedFields, true, cappedColumn: $this->cappedColumn);
+        return new SearchSqlBuilder($this->index, $this->names, $candidates, $this->query->allowedFields, true, cappedColumn: $this->cappedColumn, openClass: $this->openClass);
     }
 
     public function fuzzy(): FuzzyQueryCompiler
     {
-        return new FuzzyQueryCompiler($this->index, $this->thresholds, $this->names, [], $this->query->allowedFields, true, cappedColumn: $this->cappedColumn);
+        return new FuzzyQueryCompiler($this->index, $this->thresholds, $this->names, [], $this->query->allowedFields, true, cappedColumn: $this->cappedColumn, openClass: $this->openClass);
     }
 }

@@ -12,6 +12,7 @@ use Fuzzphony\Core\Query\SynonymExpander;
 use Fuzzphony\Core\Ranking\Thresholds;
 use Fuzzphony\Core\Support\Coerce;
 use Fuzzphony\Engine\Postgres\Schema\Names;
+use Fuzzphony\Engine\Postgres\Schema\OpenClass;
 use Fuzzphony\Engine\Postgres\Schema\PostgresSchemaGenerator;
 use Fuzzphony\Engine\Postgres\Sql\Sql;
 
@@ -45,6 +46,8 @@ final class TextConfigCache
     private array $emptyAnswers = [];
     /** @var array<string, bool> sidecar table => whether it has the tsv_capped column (see cappedColumn()) */
     private array $cappedColumns = [];
+    /** @var array<string, bool> sidecar table => whether a restricted viewer's lookup may use the open-class indexes (see openClass()) */
+    private array $openClasses = [];
     /** @var \WeakMap<Synonyms, string>|null the content digest of each Synonyms object (immutable), made once; see expandSynonyms() */
     private ?\WeakMap $synonymDigests = null;
 
@@ -61,6 +64,7 @@ final class TextConfigCache
         $this->stems = [];
         $this->emptyAnswers = [];
         $this->cappedColumns = [];
+        $this->openClasses = [];
         $this->synonymDigests = null;
     }
 
@@ -80,6 +84,35 @@ final class TextConfigCache
             return $this->cappedColumns[$table] ??= $this->connection->fetchValue(
                 "SELECT EXISTS (SELECT 1 FROM pg_attribute WHERE attrelid = to_regclass(:table) AND attname = :column AND NOT attisdropped AND has_column_privilege(attrelid, attname, 'SELECT'))",
                 ['table' => $table, 'column' => PostgresSchemaGenerator::CAPPED_COLUMN],
+            ) === true;
+        };
+    }
+
+    /**
+     * Whether a restricted viewer who holds none of the index's granted fields may look its words up in the open-class indexes
+     * (OpenClass) instead of `fz` / `tsv`: every one of them exists, is valid and ready (a missing or half-built index would send
+     * the same statement to a table scan), and together they are smaller than the index they replace (`fz`, or `tsv` when no field is
+     * typo-tolerant): when the granted fields hold little of the text the open indexes are no shorter to read. Asked once per table
+     * and kept until reset(): an index applied later is used from the next process (or resetCaches()), never wrongly before.
+     *
+     * @return \Closure(): bool
+     */
+    public function openClass(IndexDefinition $index): \Closure
+    {
+        return function () use ($index): bool {
+            $table = $this->names->sidecar($index);
+            if (isset($this->openClasses[$table])) {
+                return $this->openClasses[$table];
+            }
+            $open = array_map(fn(string $suffix): string => $this->names->indexName($index, $suffix), array_keys(OpenClass::indexes($index, $this->names)));
+            $base = $this->names->indexName($index, $index->hasFuzzy() ? 'fz' : 'tsv');
+
+            return $this->openClasses[$table] = $open !== [] && $this->connection->fetchValue(
+                'SELECT count(*) FILTER (WHERE c.relname = ANY(CAST(:open AS text[]))) = CAST(:count AS integer)
+                    AND coalesce(sum(pg_relation_size(c.oid)) FILTER (WHERE c.relname = ANY(CAST(:open AS text[]))), 0) < coalesce(sum(pg_relation_size(c.oid)) FILTER (WHERE c.relname = :base), 0)
+                   FROM pg_index AS i JOIN pg_class AS c ON c.oid = i.indexrelid
+                  WHERE i.indrelid = to_regclass(:table) AND i.indisvalid AND i.indisready',
+                ['open' => Sql::arrayLiteral($open), 'count' => count($open), 'base' => $base, 'table' => $table],
             ) === true;
         };
     }

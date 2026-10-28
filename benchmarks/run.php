@@ -9,7 +9,8 @@ declare(strict_types=1);
  *
  * Reports the first ("cold") run and the median of the next 5 ("warm") runs per query: ILIKE against Fuzzphony for the common cases,
  * then Fuzzphony alone for the paths that cost more than a plain word (a filter with a disjunctive facet, a restricted viewer, a query of
- * sixteen mistyped words, a deep page, a long typo-tolerant text), see docs/benchmarks.md.
+ * sixteen mistyped words, a deep page, a long typo-tolerant text, a restricted viewer on an index with granted fields whose hidden text is
+ * full of the words searched), see docs/benchmarks.md.
  * Output: text (default), --markdown (GitHub job summary) or --json.
  */
 
@@ -70,15 +71,29 @@ $long = IndexDefinition::builder('bench_long')
     ->filter('price', 'int')
     ->filter('in_stock', 'bool')
     ->build();
-$fuzzphony = new Fuzzphony(new PostgresEngine($connection), new IndexRegistry([$index, $long]));
+// Brand and description are granted (the viewer who holds neither is the common restricted one); name and category are the open class, with
+// their own two indexes (OpenClass). Every field typo-tolerant, the description full of very common words (battery, ideal, office, gaming).
+$granted = IndexDefinition::builder('bench_granted')
+    ->fromQuery('SELECT p.id, p.name, p.description, b.name AS brand, c.name AS category, p.price, p.in_stock FROM bench_product p JOIN bench_brand b ON b.id = p.brand_id JOIN bench_category c ON c.id = p.category_id')
+    ->watch('bench_product')
+    ->field('name', 'A', fuzzy: true)
+    ->field('brand', 'B', fuzzy: true, granted: 'ROLE_BRAND')
+    ->field('category', 'C', fuzzy: true)
+    ->field('description', 'D', fuzzy: true, granted: 'ROLE_DESCRIPTION')
+    ->filter('price', 'int')
+    ->filter('in_stock', 'bool')
+    ->build();
+$fuzzphony = new Fuzzphony(new PostgresEngine($connection), new IndexRegistry([$index, $long, $granted]));
 
 if (in_array('--setup', $argv, true) || in_array('--setup-only', $argv, true)) {
     $t = microtime(true);
     $fuzzphony->schema()->apply($connection);
     $n = $fuzzphony->reindex('bench', new ReindexOptions(batchSize: 10_000, onBatch: static function (int $done): void { fwrite(STDERR, "\r  indexed " . number_format($done)); }))->written;
     $fuzzphony->reindex('bench_long', new ReindexOptions(batchSize: 10_000));
+    $fuzzphony->reindex('bench_granted', new ReindexOptions(batchSize: 10_000));
     $pdo->exec('ANALYZE fuzzphony_bench');
     $pdo->exec('ANALYZE fuzzphony_bench_long');
+    $pdo->exec('ANALYZE fuzzphony_bench_granted');
     fprintf(STDERR, "\nSetup: %s documents in %.1fs\n", number_format($n), microtime(true) - $t);
     if (in_array('--setup-only', $argv, true)) {
         exit(0);
@@ -148,10 +163,23 @@ $paths = [
     'typo, long typo-tolerant text' => ['bench_long', 'batery', static fn($s) => $s],
     'typo, long text, restricted' => ['bench_long', 'batery', static fn($s) => $s->restrictedToFields('name', 'description')],
     'exact word beside a typo' => ['bench', 'mousse', static fn($s) => $s],
+    // a viewer who holds neither granted field (name, category): the words the hidden fields are full of, through the open-class indexes
+    'hidden-heavy, 1 word' => ['bench_granted', 'battery', static fn($s) => $s->restrictedToFields('name', 'category')],
+    'hidden-heavy, 3 words' => ['bench_granted', 'battery ideal office', static fn($s) => $s->restrictedToFields('name', 'category')],
+    'hidden-heavy, 5 words' => ['bench_granted', 'battery ideal office gaming travel', static fn($s) => $s->restrictedToFields('name', 'category')],
+    'hidden-heavy, phrase' => ['bench_granted', '"battery life"', static fn($s) => $s->restrictedToFields('name', 'category')],
+    'hidden-heavy, rare word' => ['bench_granted', 'lenvo', static fn($s) => $s->restrictedToFields('name', 'category')],
+    'hidden-heavy, typo + hidden word' => ['bench_granted', 'batery ideal', static fn($s) => $s->restrictedToFields('name', 'category')],
+    // viewers who hold a granted field keep fz and tsv: the one that holds the big granted field and hides a small one must not get slower
+    'granted text held, brand hidden' => ['bench_granted', 'keyb*', static fn($s) => $s->restrictedToFields('name', 'category', 'description')],
+    'brand held, description hidden' => ['bench_granted', 'battery ideal office', static fn($s) => $s->restrictedToFields('name', 'category', 'brand')],
 ];
 $pathRows = [];
 $longReady = $pdo->query("SELECT to_regclass('fuzzphony_bench_long') IS NOT NULL")->fetchColumn();
 foreach ($paths as $label => [$name, $query, $configure]) {
+    if ($name === 'bench_granted' && !$pdo->query("SELECT to_regclass('fuzzphony_bench_granted') IS NOT NULL")->fetchColumn()) {
+        continue; // a database set up before this index existed: run with --setup
+    }
     if ($name === 'bench_long' && !$longReady) {
         continue; // a database set up before this index existed: run with --setup
     }

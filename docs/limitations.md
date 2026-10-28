@@ -176,7 +176,7 @@ word, the documents the trigram index returns, at most `candidate_limit` (the wi
   stored size of the first matches' text in the fields the viewer may SEE (so 300 characters per document leave about 10 000 matches,
   a visible document of 17 000 words leaves a few hundred), never fewer than the candidates asked for. A hidden field never moves
   it, so what it holds cannot change the candidates; the price is that a long hidden text still costs its recheck time
-  ([below](#a-restricted-viewers-very-common-word-in-a-hidden-typo-tolerant-field-is-slow)). Beyond the budget the first matches of the index are taken, in
+  ([below](#a-restricted-viewers-very-common-word-in-a-hidden-typo-tolerant-field)). Beyond the budget the first matches of the index are taken, in
   physical order, as above ([Security](security.md#the-limits-stated-honestly)). The cost of a document of this branch is about 8
   microseconds for a short name and grows with the text that is rechecked.
 - **A page past the candidates** selects the window `offset + limit` in this branch too (up to 10 000), like the strict one.
@@ -211,16 +211,33 @@ page past the limit (which selects more hits) does not count more facet candidat
 first `candidate_limit` documents by id. With `exactCounts()` every match is counted: in the example above, a limit of 10 gave
 4, 3 and 3 for three categories, and the exact counts were 1 001, 1 000 and 1 000. See [Facets](searching.md#facets).
 
-### A restricted viewer's very common word in a hidden typo-tolerant field is slow
+### A restricted viewer's very common word in a hidden typo-tolerant field
 
-A viewer who may not see a typo-tolerant field is still searched through that field's trigram index and the
-rows are rejected afterwards, so a word that is in most documents' hidden field makes the probe of a typo-tolerant
-search read every row: on 200 000 products with five ordinary words in a hidden field, one such word takes 1.7 s
-and five of them 19 s (the same search for a viewer who sees the field takes 0.1 to 0.4 s). Nothing leaks (the
-result is the same as for any other hidden content; only the time depends on it, see
-[Security](security.md#the-limits-stated-honestly)). Planned: a trigram
-index on the allowed field's own column, or a work cap on the probe. Until then keep a field that is in most
-documents and that some viewers may not see out of `fuzzy: true`.
+A restricted viewer's words are looked up in an index that also holds the text of the fields it may not see, and the rows that
+match only there are rejected afterwards. A word that is in most documents' hidden field then makes a typo-tolerant search read
+every row (200 000 products, five ordinary words in a hidden field: one such word 1.7 s, five 19 s).
+
+**What is fast now.** An index with at least one `granted` field has two more indexes over its open fields (the ones without
+`granted`): a trigram index over their typo-tolerant text and a full-text index over their text (`fuzzphony:schema --apply` builds
+them, concurrently; the doctor reports a missing one). A restricted viewer who holds **none** of the granted fields looks its words
+up there, where the hidden text is not, so a word the hidden fields are full of costs it nothing (numbers in
+[Benchmarks](benchmarks.md#a-restricted-viewer-whose-hidden-fields-are-full-of-the-words-searched)). The results are the same
+with or without them, and an index without a `granted` field has no extra index and no changed statement.
+
+**What stays slow.**
+
+- A viewer who holds **some** of the granted fields (and not all, or all): its words are looked up in `fz` and `tsv` as before. An
+  index per combination of granted fields would multiply the size; it is not built.
+- A word that is common in a field the viewer **can** see costs what it costs an unrestricted viewer.
+- A phrase over fields of both classes, or with a synonym alternative, is rechecked on the fields' own columns as before.
+- A viewer restricted by hand (`restrictedToFields()`) on an index with no `granted` field has no open class: as slow as above.
+- The open-class indexes are used only when they exist, are valid and are smaller than `fz`; the engine asks once per process, so
+  after `fuzzphony:schema --apply` built them restart long-running workers (or call `PostgresEngine::resetCaches()`). Until then,
+  and when the granted fields hold little of the text, the viewer is on the statements it always had.
+- Timing is not hidden: how long a search takes still depends on how often a word occurs in the fields the viewer can see
+  ([Security](security.md#the-limits-stated-honestly)).
+
+Nothing about a hidden field changes what a restricted viewer finds, with or without the open-class indexes.
 
 ### Synonyms are expanded on the query, and stop there
 
