@@ -386,8 +386,8 @@ clean.
 ### `explain()` and its statement labels are not a stable API
 
 `explain()` and `fuzzphony:search --explain` are for people. The SQL text, the number of statements, their
-labels (`full-text`, `fallback: full-text + fuzzy`, `facet: category_id, in_stock`, `did you mean`,
-`relaxation probe`, `exact total`, and the same labels with the prefix `rescue: `) and the plan lines change between releases (0.9.5 merged the facet
+labels (`full-text`, `full-text + fuzzy`, `fallback: full-text + fuzzy`, `browse`, `facet: category_id, in_stock`, `did you mean`,
+`relaxation probe`, `highlighting`, `exact total`, and the same labels with the prefix `rescue: `) and the plan lines change between releases (0.9.5 merged the facet
 statements into one). Do not parse them or build a test or an alert on them.
 
 ### A rescued search is not a zero-result search in the log
