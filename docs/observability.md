@@ -67,7 +67,7 @@ services:
 
 ## Instrumentation points
 
-- `PostgresEngine::guard()` wraps every engine operation (the full zero-downtime rebuild lifecycle,
+- The engine's `EngineGuard` wraps every engine operation (the full zero-downtime rebuild lifecycle,
   queue processing, orphan pruning and more, by its own operation name, e.g.
   `fuzzphony.rebuild.duration_ms`): `fuzzphony.<operation>.duration_ms` (a histogram) always,
   `fuzzphony.<operation>.errors` (a counter) on failure.

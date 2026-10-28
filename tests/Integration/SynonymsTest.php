@@ -11,6 +11,7 @@ use Fuzzphony\Core\Ranking\Thresholds;
 use Fuzzphony\Core\Registry\IndexRegistry;
 use Fuzzphony\Core\Search\SearchResult;
 use Fuzzphony\Engine\Postgres\PostgresEngine;
+use Fuzzphony\Engine\Postgres\TextConfigCache;
 use Fuzzphony\Tests\Fixtures\Indexes;
 use Fuzzphony\Tests\Unit\Core\Observability\RecordingMetricsCollector;
 use PHPUnit\Framework\TestCase;
@@ -325,17 +326,17 @@ laptop => notebook
     {
         $fuzzphony = $this->fuzzphony();
         $fuzzphony->in('products')->thresholds(['fuzzy_mode' => 'never'])->query('tv')->get();
-        $property = new \ReflectionProperty(PostgresEngine::class, 'stems');
+        $property = new \ReflectionProperty(TextConfigCache::class, 'stems');
         /** @var array<string, array<string, string>> $cached */
-        $cached = $property->getValue($this->engine);
+        $cached = $property->getValue($this->cache());
         $config = (string) array_key_first($cached);
-        $property->setValue($this->engine, [$config => array_fill_keys(array_map(static fn(int $i): string => 'filler' . $i, range(1, 5_001)), 'x')]);
+        $property->setValue($this->cache(), [$config => array_fill_keys(array_map(static fn(int $i): string => 'filler' . $i, range(1, 5_001)), 'x')]);
 
         $result = $fuzzphony->in('products')->thresholds(['fuzzy_mode' => 'never'])->query('tv')->get();
 
         self::assertSame([1, 2, 8], self::ids($result));
         /** @var array<string, array<string, string>> $after */
-        $after = $property->getValue($this->engine);
+        $after = $property->getValue($this->cache());
         self::assertLessThan(100, count($after[$config]), 'the filler is gone, the stems of this query are back');
     }
 
@@ -351,5 +352,14 @@ laptop => notebook
         // with max_terms 3 the budget is 12: two words fit, three do not
         self::assertNotContains($warning, $run('w0 w1', 3));
         self::assertContains($warning, $run('w0 w1 w2', 3));
+    }
+
+    /** The process caches of the engine under test. */
+    private function cache(): TextConfigCache
+    {
+        $caches = (new \ReflectionProperty(PostgresEngine::class, 'caches'))->getValue($this->engine);
+        self::assertInstanceOf(TextConfigCache::class, $caches);
+
+        return $caches;
     }
 }

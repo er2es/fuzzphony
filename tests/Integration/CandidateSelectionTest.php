@@ -7,6 +7,8 @@ namespace Fuzzphony\Tests\Integration;
 use Fuzzphony\Core\Database\Connection;
 use Fuzzphony\Core\Definition\IndexDefinition;
 use Fuzzphony\Core\Fuzzphony;
+use Fuzzphony\Core\Query\Filter\Condition;
+use Fuzzphony\Core\Query\Filter\Operator;
 use Fuzzphony\Core\Ranking\FuzzyMode;
 use Fuzzphony\Core\Ranking\RankingProfile;
 use Fuzzphony\Core\Ranking\Thresholds;
@@ -382,5 +384,43 @@ final class CandidateSelectionTest extends TestCase
         self::assertContains(900001, $first->ids(), 'the planted documents are found through the rank without the exclusions');
         $explained = $this->search('common -zz1 -zz2')->explain();
         self::assertStringContainsString('AS tsr', $explained->statements[0]['sql']);
+    }
+
+    /**
+     * The page and a facet that leaves its own filter out come from one scan (SearchSqlBuilder::wideSelection()). With a scan that is
+     * not cut (a large budget) the page is read from it; with a tiny budget the scan is cut and the page keeps its own: either way the
+     * page and the facet equal the two separate statements.
+     *
+     * @return iterable<string, array{int}>
+     */
+    public static function budgets(): iterable
+    {
+        yield 'a scan that is not cut' => [100_000];
+        yield 'a scan cut at 30 matches' => [30];
+        yield 'a scan cut at 400 matches' => [400];
+    }
+
+    #[\PHPUnit\Framework\Attributes\DataProvider('budgets')]
+    public function testThePageAndTheFacetOfOneScanEqualTwoSeparateStatements(int $budget): void
+    {
+        $this->loadCorpus();
+        $profile = new RankingProfile();
+        $thresholds = new Thresholds(candidateLimit: 50, fuzzyMode: FuzzyMode::Never);
+        $conditions = [new Condition('in_stock', Operator::Eq, true)];
+        $builder = new SearchSqlBuilder($this->index, new Names(), [], null, false, max(1, $budget));
+
+        $one = $builder->ranked("'common'", 'common', null, $conditions, $profile, $thresholds, 5, 0, [], null, false, ['conditions' => [], 'filter' => 'in_stock', 'values' => 10]);
+        $page = $this->connection->fetchAll($one['sql'], $one['params']);
+        $plain = $builder->ranked("'common'", 'common', null, $conditions, $profile, $thresholds, 5, 0);
+        $expected = $this->connection->fetchAll($plain['sql'], $plain['params']);
+        $facet = $builder->facets(['in_stock'], "'common'", 'common', null, [], $profile, $thresholds, 10, false);
+        $counts = array_map(static fn(array $r): array => [Coerce::int($r['value']), Coerce::int($r['n'])], $this->connection->fetchAll($facet['sql'], $facet['params']));
+
+        $strip = static fn(array $rows): array => array_map(static fn(mixed $r): array => array_diff_key(is_array($r) ? $r : [], ['wide_facet' => 1]), $rows);
+        self::assertSame($strip($expected), $strip($page), 'the page is the same');
+        self::assertNotNull($page[0]['wide_facet']);
+        $decoded = json_decode(Coerce::str($page[0]['wide_facet']), true);
+        self::assertIsArray($decoded);
+        self::assertSame($counts, array_map(static fn(mixed $pair): array => is_array($pair) ? [Coerce::int($pair[0]), Coerce::int($pair[1])] : [], $decoded), 'the facet is the same');
     }
 }

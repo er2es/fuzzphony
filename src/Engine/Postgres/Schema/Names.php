@@ -300,4 +300,27 @@ final readonly class Names
     {
         return Sql::ident($this->schema . '.' . $name);
     }
+
+    /**
+     * The vector the text rank and the highlighter judge the strict query on: the whole document (`s.tsv`), or for a restricted
+     * viewer only the vectors of the fields it may see; a hidden field never takes part.
+     *
+     * @param list<string>|null $allowed
+     */
+    public function visibleVector(IndexDefinition $index, ?array $allowed): string
+    {
+        if ($allowed === null) {
+            return 's.tsv';
+        }
+        $parts = array_map(
+            fn(string $name): string => 's.' . $this->fieldVector($name),
+            array_values(array_filter($index->fieldNames(), static fn(string $name): bool => in_array($name, $allowed, true))),
+        );
+
+        return match (count($parts)) {
+            0 => "''::tsvector",
+            1 => $parts[0],
+            default => '(' . implode(' || ', $parts) . ')',
+        };
+    }
 }

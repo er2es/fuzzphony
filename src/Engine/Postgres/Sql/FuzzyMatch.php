@@ -20,5 +20,7 @@ final readonly class FuzzyMatch
         public array $columns,
         /** How many positive words the predicate looks up: the work of scoring a document grows with it (SearchSqlBuilder::scanLimit()). */
         public int $words = 1,
+        /** Whether the predicate holds a `<%` comparison, which reads pg_trgm.word_similarity_threshold (FuzzyQueryCompiler::readsWordThreshold()). */
+        public bool $readsWordThreshold = false,
     ) {}
 }

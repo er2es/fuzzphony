@@ -27,6 +27,14 @@ reindex is driven through the engine too (`beginRebuild()`, `refreshShadow()`, `
 `abortRebuild()`, `discardLeftoverRebuild()`), so `Reindexer` stays engine-agnostic; the PostgreSQL engine builds next to the
 live table and swaps it in ([ADR 0008](adr/0008-shadow-rebuild-with-a-change-log.md)).
 
+`PostgresEngine` is a thin facade (all of these are `@internal`): `Search\SearchRunner` runs a search (validation, the strict
+and typo-tolerant statements, relaxation, exact total, did-you-mean, rescue, hits), `Search\FacetRunner` counts the facets by one
+path (one statement per group of facets that count under the same conditions), `SearchSession` owns the connection's
+`pg_trgm` settings and the search transaction, `TextConfigCache` the process caches (stop words, synonym stems, the
+`tsv_capped` probe), `VocabularyService` the vocabulary and did-you-mean, `IndexMaintenance` refresh, queue and rebuild records.
+A `Statement` carries its `StatementKind` (explain() and the metrics read the kind, never the label) and declares whether it
+reads `pg_trgm.word_similarity_threshold`; the SQL builders (`Sql\SearchSqlBuilder`) say so from the operator they emit.
+
 ## Public API
 
 From 1.0 the backward-compatibility promise covers exactly these classes, interfaces and enums;
