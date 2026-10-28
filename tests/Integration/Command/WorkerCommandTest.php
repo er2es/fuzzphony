@@ -105,7 +105,7 @@ final class WorkerCommandTest extends TestCase
         self::assertSame(['*'], $this->queued(), 'the next cycle runs it again');
         $check = array_find($fuzzphony->inspect('products')->checks, static fn(Check $c): bool => $c->name === 'Sync queue') ?? self::fail('no queue check');
         self::assertSame(CheckStatus::Warning, $check->status);
-        self::assertMatchesRegularExpression('/^1 item\(s\) waiting, one of them a full rebuild \(queued by a TRUNCATE\); a full rebuild keeps failing: .*permission denied.* \(1 times, last at \d{4}-\d\d-\d\d \d\d:\d\d:\d\d UTC\)$/s', $check->message);
+        self::assertMatchesRegularExpression('/^1 item waiting, one of them a full rebuild \(queued by a TRUNCATE\); a full rebuild keeps failing: .*permission denied.* \(1 times, last at \d{4}-\d\d-\d\d \d\d:\d\d:\d\d UTC\)$/s', $check->message);
         self::assertSame('fix the cause; the worker retries with a back-off, or run: bin/console fuzzphony:reindex products', $check->fix);
 
         self::assertSame(1, (new Worker($fuzzphony->engine()))->runOnce([$fuzzphony->registry()->get('products')]), 'with the rights back');
