@@ -3,24 +3,11 @@
 Before 1.0, a minor version may contain breaking changes. Each section lists what to change,
 and the [CHANGELOG](CHANGELOG.md) has the full list of changes.
 
-## From 0.9.4 to 0.9.5
-
-1. **Symfony 8.0 is no longer supported** (the `symfony/*` constraints are now `^7.4 || ^8.1`). Symfony 8.0 is not a
-   long-term release and no longer receives fixes: every 8.0.x is affected by four `symfony/yaml` denial-of-service
-   advisories (CVE-2026-45133, -45304, -45305, CVE-2026-109413), so Composer refuses to install it. Move to Symfony 8.1
-   (`composer update "symfony/*" -W` after raising your constraints to `^8.1`) or stay on the 7.4 LTS. Nothing else changes.
-2. **With DoctrineBundle and `doctrine.orm` configured, the ORM wiring is now really active** (a bug: the bundle never detected
-   DoctrineBundle in a running application, see the CHANGELOG). `#[Searchable]` entities are discovered
-   (`discover_entities: false` turns that off), `EntityLoader` is a service and `sync: orm` indexes follow the
-   entity manager. Nothing to do unless you had worked around the missing wiring: a hand-registered
-   `DoctrineIndexDiscovery`, `EntityLoader` or `OrmSyncListener` is now a duplicate of the bundle's, and an index
-   that is both an attribute and in YAML `indexes` is overridden by the YAML as documented.
-
 ## From 0.9.8 to 0.9.9
 
 Nothing is required. One visible change: a top-level AND of stop words with exclusions (`the who -rock`) used to return every document without `rock` (a bug); it now searches `the who` and leaves out the documents that have `rock`, so such a query returns far fewer results. If you showed a page for "everything except X" through it, use a filter instead. After `fuzzphony:schema --apply` added a column to an existing table, restart long-running workers (Messenger, RoadRunner, FrankenPHP); the command says so.
 
-And: **a few results change, for the better.** An exact word is no longer ranked below its look-alikes in a capped typo search (a full-text match
+**A few results change, for the better.** An exact word is no longer ranked below its look-alikes in a capped typo search (a full-text match
 keeps its typo score), `total` of a capped `fuzzy_mode: always` search can be larger (`2000+`, `2667+`) because those matches count, a
 page past `candidate_limit` is served by the typo-tolerant branch and by a filter-only listing, a short text is highlighted whole
 (`Ergonomic mouse 1001`, not `Ergonomic mouse`), and swapped letters (`mosue`) get a "did you mean" and a mark. A capped typo search is **not**
@@ -104,6 +91,19 @@ Nothing is required. One thing to know: **a restricted viewer's phrase or field-
    `InvalidArgument` and the other reports keep working). If you call
    `new SearchRecord(...)` or `new SearchGate(...)` with positional arguments, nothing changes: the new `ip` and `ipMode`
    arguments are trailing and optional.
+
+## From 0.9.4 to 0.9.5
+
+1. **Symfony 8.0 is no longer supported** (the `symfony/*` constraints are now `^7.4 || ^8.1`). Symfony 8.0 is not a
+   long-term release and no longer receives fixes: every 8.0.x is affected by four `symfony/yaml` denial-of-service
+   advisories (CVE-2026-45133, -45304, -45305, CVE-2026-109413), so Composer refuses to install it. Move to Symfony 8.1
+   (`composer update "symfony/*" -W` after raising your constraints to `^8.1`) or stay on the 7.4 LTS. Nothing else changes.
+2. **With DoctrineBundle and `doctrine.orm` configured, the ORM wiring is now really active** (a bug: the bundle never detected
+   DoctrineBundle in a running application, see the CHANGELOG). `#[Searchable]` entities are discovered
+   (`discover_entities: false` turns that off), `EntityLoader` is a service and `sync: orm` indexes follow the
+   entity manager. Nothing to do unless you had worked around the missing wiring: a hand-registered
+   `DoctrineIndexDiscovery`, `EntityLoader` or `OrmSyncListener` is now a duplicate of the bundle's, and an index
+   that is both an attribute and in YAML `indexes` is overridden by the YAML as documented.
 
 ## From 0.8 to 0.9
 

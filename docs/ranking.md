@@ -86,6 +86,7 @@ $fuzzphony->in('products')->query('mouse')->profile('popular')->ranking(['boost'
 
 Set them per index (YAML `thresholds:`) or per query:
 
+<!-- fragment -->
 ```php
 ->thresholds(['min_score' => 0.1, 'fuzzy_mode' => 'always'])
 ```
@@ -123,6 +124,8 @@ depend on how common its words are. A word with fewer matches than that costs wh
   number of words for short texts, fewer for long ones), so that a field the viewer cannot see never decides the candidates. Ties are
   broken by the id.
 - **Facets** of a capped search count the very candidates the hits come from (lower bounds); **`exactCounts()`** counts every match.
+
+Texts of thousands of words in a typo-tolerant field make the default expensive: [Tuning `candidate_limit`](tuning-candidate-limit.md).
 
 See also [ADR 0005](adr/0005-candidate-limit.md) on the candidate limit, and the
 [known limitations](limitations.md#ranking-of-very-common-words) of typo tolerance and `candidate_limit`.

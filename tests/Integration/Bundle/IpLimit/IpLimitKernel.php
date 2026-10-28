@@ -9,6 +9,9 @@ use Fuzzphony\Bundle\FuzzphonyBundle;
 use Fuzzphony\Tests\Integration\Bridge\DoctrineTestCase;
 use Symfony\Bundle\FrameworkBundle\FrameworkBundle;
 use Symfony\Bundle\FrameworkBundle\Kernel\MicroKernelTrait;
+use Symfony\Component\DependencyInjection\Compiler\CompilerPassInterface;
+use Symfony\Component\DependencyInjection\Compiler\PassConfig;
+use Symfony\Component\DependencyInjection\ContainerBuilder;
 use Symfony\Component\DependencyInjection\Loader\Configurator\ContainerConfigurator;
 use Symfony\Component\HttpKernel\Kernel;
 use Symfony\Component\Routing\Loader\Configurator\RoutingConfigurator;
@@ -55,6 +58,19 @@ final class IpLimitKernel extends Kernel
     public function getLogDir(): string
     {
         return $this->scratch . '/log';
+    }
+
+    protected function build(ContainerBuilder $container): void
+    {
+        // the bundle's default limiter entry is private: the test reads the limit it was compiled with
+        $container->addCompilerPass(new class implements CompilerPassInterface {
+            public function process(ContainerBuilder $container): void
+            {
+                if ($container->hasDefinition('limiter.fuzzphony_ip')) {
+                    $container->getDefinition('limiter.fuzzphony_ip')->setPublic(true);
+                }
+            }
+        }, PassConfig::TYPE_BEFORE_REMOVING);
     }
 
     protected function configureContainer(ContainerConfigurator $container): void

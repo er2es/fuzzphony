@@ -1,6 +1,6 @@
 # Development database for integration tests:
-#   docker compose up -d
-#   FUZZPHONY_TEST_DSN="pgsql:host=127.0.0.1;port=5432;dbname=fuzzphony_test;user=fuzzphony;password=fuzzphony" composer test:integration
+#   docker compose up -d            (FUZZPHONY_TEST_PORT=55432 docker compose up -d when a local PostgreSQL holds 5432)
+#   composer test:db                (FUZZPHONY_TEST_PORT=55432 composer test:db for the same port)
 # The database name must contain "test" -- the integration tests refuse to run against anything
 # else, because they drop and recreate tables (see CONTRIBUTING.md).
 services:
@@ -11,7 +11,7 @@ services:
       POSTGRES_USER: fuzzphony
       POSTGRES_PASSWORD: fuzzphony
     ports:
-      - "5432:5432"
+      - "${FUZZPHONY_TEST_PORT:-5432}:5432"
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U fuzzphony"]
       interval: 2s

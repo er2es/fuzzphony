@@ -198,10 +198,12 @@ number of rows deleted.
 
 **An index**, with `log: false` (everything searched there is skipped):
 
+<!-- fragment -->
 ```php
 #[Searchable(log: false)]           // attribute
 ```
 
+<!-- fragment -->
 ```php
 IndexDefinition::builder('internal_notes')->log(false)   // builder
 ```

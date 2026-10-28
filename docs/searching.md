@@ -81,6 +81,7 @@ IndexDefinition::builder('listings')
     ->build();
 ```
 
+<!-- fragment -->
 ```php
 #[Route('/search', name: 'search')]
 public function __invoke(Request $request, Fuzzphony $fuzzphony): JsonResponse

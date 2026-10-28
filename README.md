@@ -1,12 +1,6 @@
 # Fuzzphony
 
 [![CI](https://github.com/er2es/fuzzphony/actions/workflows/ci.yml/badge.svg)](https://github.com/er2es/fuzzphony/actions/workflows/ci.yml)
-[![codecov](https://codecov.io/gh/er2es/fuzzphony/graph/badge.svg)](https://codecov.io/gh/er2es/fuzzphony)
-[![PHPStan level max](https://img.shields.io/badge/PHPStan-level%20max-brightgreen)](https://github.com/er2es/fuzzphony/blob/main/phpstan.neon.dist)
-[![Mutation score](https://img.shields.io/endpoint?style=flat&url=https%3A%2F%2Fbadge-api.stryker-mutator.io%2Fgithub.com%2Fer2es%2Ffuzzphony%2Fmain)](https://dashboard.stryker-mutator.io/reports/github.com/er2es/fuzzphony/main)
-[![OpenSSF Scorecard](https://api.scorecard.dev/projects/github.com/er2es/fuzzphony/badge)](https://scorecard.dev/viewer/?uri=github.com/er2es/fuzzphony)
-[![OpenSSF Best Practices](https://www.bestpractices.dev/projects/14933/badge)](https://www.bestpractices.dev/projects/14933)
-
 [![Packagist Version](https://img.shields.io/packagist/v/fuzzphony/fuzzphony)](https://packagist.org/packages/fuzzphony/fuzzphony)
 [![PHP](https://img.shields.io/packagist/dependency-v/fuzzphony/fuzzphony/php)](https://packagist.org/packages/fuzzphony/fuzzphony)
 [![PostgreSQL 15 | 16 | 17 | 18](https://img.shields.io/badge/PostgreSQL-15%20%7C%2016%20%7C%2017%20%7C%2018-336791?logo=postgresql&logoColor=white)](https://github.com/er2es/fuzzphony/blob/main/.github/workflows/ci.yml)
@@ -33,7 +27,7 @@ foreach ($result as $hit) {
 }
 ```
 
-Status: v0.8. The API may still change before 1.0. Breaking changes are listed in the
+Status: v0.9 (pre-1.0). The API may still change before 1.0. Breaking changes are listed in the
 [CHANGELOG](https://github.com/er2es/fuzzphony/blob/main/CHANGELOG.md) and explained in
 [UPGRADE.md](https://github.com/er2es/fuzzphony/blob/main/UPGRADE.md).
 
@@ -46,43 +40,8 @@ git clone https://github.com/er2es/fuzzphony
 cd fuzzphony/demo && docker compose up --build    # http://localhost:8000
 ```
 
-On **Windows**, newer Docker Compose versions ask for a build privilege on every build; one environment variable stops that
-(`cmd`: `setx` keeps it for every new window, `set` only for the current one):
-
-```bat
-:: cmd
-setx BUILDX_BAKE_ENTITLEMENTS_FS 0
-set BUILDX_BAKE_ENTITLEMENTS_FS=0
-cd fuzzphony\demo
-docker compose up --build
-```
-
-```powershell
-# PowerShell
-$env:BUILDX_BAKE_ENTITLEMENTS_FS = "0"
-cd fuzzphony\demo
-docker compose up --build
-```
-
-The default catalogue has 500 000 products (`DEMO_ROWS`, about a minute to index); the **large profile** (1 000 000 products, needs
-8 GB for Docker) and its setup are in the [demo README](https://github.com/er2es/fuzzphony/blob/main/demo/README.md#the-large-profile-1-000-000-products):
-
-```bat
-:: cmd: a fresh volume, 1 000 000 products
-docker compose down -v
-set DEMO_ROWS=1000000
-docker compose -f docker-compose.yml -f docker-compose.large.yml up --build
-```
-
-```powershell
-# PowerShell
-docker compose down -v
-$env:DEMO_ROWS = "1000000"
-docker compose -f docker-compose.yml -f docker-compose.large.yml up --build
-```
-
-`docker compose down -v` removes the data, so the next start seeds again (the seed only runs on an empty volume). To go back to
-the default size run `docker compose -f docker-compose.yml -f docker-compose.large.yml down -v` and start the plain command.
+The default catalogue has 500 000 products (about a minute to index). Windows (a Docker Compose build privilege prompt) and the
+large profile (1 000 000 products) are in the [demo README](https://github.com/er2es/fuzzphony/blob/main/demo/README.md).
 
 [Screenshots](https://github.com/er2es/fuzzphony/blob/main/docs/screenshots.md) of the demo's search, relevance, languages and tuning pages show what it looks like before you run it.
 
@@ -158,7 +117,7 @@ before 1.0).
 - Optional: Symfony 7.4+ and Doctrine (DBAL 4.2+, ORM 3.3+) for the bundle. CI tests every Symfony release the
   `^7.4 || ^8.1` constraint allows (the 7.4 LTS and 8.1 today), and the next minor (8.2) as an early warning. What the
   constraint allows and what CI tests are the same list: a release that Symfony no longer maintains (8.0 since July
-  2026) leaves the constraint and CI together, in a minor release of Fuzzphony, with a note in the CHANGELOG.
+  2026) leaves the constraint and CI together, in a release of Fuzzphony (before 1.0 that can be a patch release), with a note in the CHANGELOG.
 
 `bin/console fuzzphony:doctor` checks all of this and prints the fix for anything missing.
 
@@ -295,7 +254,7 @@ order, each one a foundation for the next, up to v1.0's stable API and backward-
 promise. PostgreSQL only before 1.0:
 
 - v1.0 Stable: a reviewed public API (a smaller stable surface, the rest `@internal`), the
-  backward-compatibility promise, mutation score 90% with a CI gate. The documentation (an index, the
+  backward-compatibility promise, a mutation-score gate in CI (the full run scores 96% today). The documentation (an index, the
   "Migrating from `LIKE`" guide and three recipes, with a link check in CI) is in place since 0.9.6.
 
 After 1.0: a Laravel Scout driver, and record linkage (matching people and companies across

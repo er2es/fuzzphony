@@ -8,8 +8,14 @@ on:
 permissions:
   contents: read
 
+# A new push to the same pull request (or branch) makes the run before it pointless.
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
 jobs:
   validate:
+    timeout-minutes: 5
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -21,6 +27,7 @@ jobs:
 
   quality:
     needs: validate
+    timeout-minutes: 5
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -36,19 +43,20 @@ jobs:
   tests:
     needs: validate
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     strategy:
       fail-fast: false
-      # Symfony only touches the bundle, PostgreSQL only the engine, so the two axes are not multiplied: every PHP and
-      # PostgreSQL version runs on the LTS (7.4), and the other maintained Symfony releases run on the newest PostgreSQL.
-      # Every Symfony release the composer constraint allows is tested (7.4 LTS, 8.1): what the README and the badge
-      # claim is what runs here. A release leaves the constraint and this list together, in a minor release of Fuzzphony.
-      # The next minor is its own job below.
+      # A diagonal, not the full product: Symfony only touches the bundle and PostgreSQL only the engine, so every PHP
+      # version meets two PostgreSQL versions, every PostgreSQL version from 15 to 18 runs once, and Symfony 7.4 (LTS) and
+      # 8.1 (the releases the composer constraint allows) both run on both PHP versions. A release leaves the constraint
+      # and this list together, with a note in the CHANGELOG. The next Symfony minor is its own job below.
+      # The `coverage` leg runs everything (the `slow` group too) with pcov and uploads the report; the others skip `slow`.
       matrix:
-        php: ['8.4', '8.5']
-        postgres: ['15', '16', '17', '18']
-        symfony: ['7.4']
         include:
-          - { php: '8.4', postgres: '18', symfony: '8.1' }
+          - { php: '8.4', postgres: '15', symfony: '7.4' }
+          - { php: '8.4', postgres: '18', symfony: '7.4', coverage: true }
+          - { php: '8.5', postgres: '16', symfony: '7.4' }
+          - { php: '8.5', postgres: '17', symfony: '7.4' }
           - { php: '8.5', postgres: '18', symfony: '8.1' }
     services:
       postgres:
@@ -69,21 +77,43 @@ jobs:
         with:
           php-version: ${{ matrix.php }}
           extensions: pdo_pgsql, mbstring
-          coverage: pcov
+          coverage: ${{ matrix.coverage && 'pcov' || 'none' }}
       - name: Pin Symfony ${{ matrix.symfony }}
+        # Every symfony/* package of require-dev as a group (not the symfony/ux-* packages: they have their own versions).
         run: >-
-          composer require --dev --no-update
-          "symfony/console:${{ matrix.symfony }}.*"
-          "symfony/framework-bundle:${{ matrix.symfony }}.*"
-          "symfony/messenger:${{ matrix.symfony }}.*"
-          "symfony/yaml:${{ matrix.symfony }}.*"
+          composer require --dev --no-update $(php -r '
+          foreach (array_keys(json_decode(file_get_contents("composer.json"), true)["require-dev"]) as $p) {
+          if (str_starts_with($p, "symfony/") && !str_starts_with($p, "symfony/ux-")) { echo $p . ":${{ matrix.symfony }}.* "; } }')
       - run: composer install --no-progress --prefer-dist
-      - run: vendor/bin/phpunit --coverage-text
+      - name: Tests
+        if: ${{ !matrix.coverage }}
+        run: vendor/bin/phpunit --exclude-group slow
+      - name: Tests with coverage
+        if: ${{ matrix.coverage }}
+        run: vendor/bin/phpunit --coverage-clover=coverage.xml
+      - name: Upload coverage reports to Codecov
+        if: ${{ matrix.coverage }}
+        uses: codecov/codecov-action@303a32d7a59b442fa8d48b6a1cc6825c09c847a5 # v7.1.1
+        with:
+          token: ${{ secrets.CODECOV_TOKEN }}
+          files: coverage.xml
+          # Fork PRs don't have access to CODECOV_TOKEN, so only hard-fail CI on
+          # same-repo pushes/PRs; degrade to a warning on external contributors' PRs.
+          fail_ci_if_error: ${{ github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository }}
+      # The goal is 100%; this floor only stops a real slide (see CONTRIBUTING.md).
+      - name: Require at least 90% line coverage
+        if: ${{ matrix.coverage }}
+        run: >-
+          php -r '$m = simplexml_load_file("coverage.xml")->project->metrics;
+          $p = 100 * (int) $m["coveredstatements"] / max(1, (int) $m["statements"]);
+          printf("Line coverage: %.2f%%
+", $p); exit($p < 90 ? 1 : 0);'
 
   # The next Symfony minor (8.2, still in development), as an early warning: it may fail without turning a pull request red,
   # and `ci-ok` does not wait for it. A failure here means "look before 8.2 is released", not "the library is broken".
   symfony-next:
     needs: validate
+    timeout-minutes: 30
     runs-on: ubuntu-latest
     continue-on-error: true
     services:
@@ -114,9 +144,24 @@ jobs:
       - run: composer update --no-progress --prefer-dist
       - run: vendor/bin/phpunit
 
+  # The lowest allowed dependencies (DBAL 4.2, ORM 3.3, Symfony 7.4 ...) against a real PostgreSQL, not the unit tests only.
   prefer-lowest:
     needs: validate
+    timeout-minutes: 30
     runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_DB: fuzzphony_test
+          POSTGRES_USER: fuzzphony
+          POSTGRES_PASSWORD: fuzzphony
+        ports: ['5432:5432']
+        options: >-
+          --health-cmd "pg_isready -U fuzzphony"
+          --health-interval 2s --health-retries 20
+    env:
+      FUZZPHONY_TEST_DSN: "pgsql:host=127.0.0.1;port=5432;dbname=fuzzphony_test;user=fuzzphony;password=fuzzphony"
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: shivammathur/setup-php@eb7c497e18156a6bbabfef1d3a82760b9eda3962 # 2.40.0
@@ -125,10 +170,26 @@ jobs:
           extensions: pdo_pgsql, mbstring
           coverage: none
       - run: composer update --no-progress --prefer-dist --prefer-lowest --prefer-stable
-      - run: composer test
+      - run: vendor/bin/phpunit --exclude-group slow
+
+  # A raw newline inside a string literal is invisible in a review and changed by an editor (SourceHygieneTest checks the same).
+  source-hygiene:
+    needs: validate
+    timeout-minutes: 5
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: shivammathur/setup-php@eb7c497e18156a6bbabfef1d3a82760b9eda3962 # 2.40.0
+        with:
+          php-version: '8.4'
+          coverage: none
+      - name: No raw newline inside a short string literal, no carriage return, in PHP files
+        run: |
+          ! grep -rlzP '"\r?\n[ \t]*"|\r' --include='*.php' src tests tools
 
   demo-smoke:
     needs: validate
+    timeout-minutes: 20
     runs-on: ubuntu-latest
     services:
       postgres:
@@ -178,50 +239,11 @@ jobs:
         working-directory: demo
         run: php bin/console fuzzphony:doctor --strict
 
-  coverage:
-    needs: validate
-    runs-on: ubuntu-latest
-    services:
-      postgres:
-        image: postgres:17
-        env:
-          POSTGRES_DB: fuzzphony_test
-          POSTGRES_USER: fuzzphony
-          POSTGRES_PASSWORD: fuzzphony
-        ports: ['5432:5432']
-        options: >-
-          --health-cmd "pg_isready -U fuzzphony"
-          --health-interval 2s --health-retries 20
-    env:
-      FUZZPHONY_TEST_DSN: "pgsql:host=127.0.0.1;port=5432;dbname=fuzzphony_test;user=fuzzphony;password=fuzzphony"
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-      - uses: shivammathur/setup-php@eb7c497e18156a6bbabfef1d3a82760b9eda3962 # 2.40.0
-        with:
-          php-version: '8.4'
-          extensions: pdo_pgsql, mbstring
-          coverage: pcov
-      - run: composer install --no-progress --prefer-dist
-      - run: vendor/bin/phpunit --coverage-clover=coverage.xml
-      - name: Upload coverage reports to Codecov
-        uses: codecov/codecov-action@303a32d7a59b442fa8d48b6a1cc6825c09c847a5 # v7.1.1
-        with:
-          token: ${{ secrets.CODECOV_TOKEN }}
-          files: coverage.xml
-          # Fork PRs don't have access to CODECOV_TOKEN, so only hard-fail CI on
-          # same-repo pushes/PRs; degrade to a warning on external contributors' PRs.
-          fail_ci_if_error: ${{ github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository }}
-      # The goal is 100%; this floor only stops a real slide (see CONTRIBUTING.md).
-      - name: Require at least 90% line coverage
-        run: >-
-          php -r '$m = simplexml_load_file("coverage.xml")->project->metrics;
-          $p = 100 * (int) $m["coveredstatements"] / max(1, (int) $m["statements"]);
-          printf("Line coverage: %.2f%%\n", $p); exit($p < 90 ? 1 : 0);'
-
   # The one required status check of the main branch: green only when every job above passed.
   ci-ok:
+    timeout-minutes: 5
     if: always()
-    needs: [validate, quality, tests, prefer-lowest, demo-smoke, coverage]
+    needs: [validate, quality, tests, prefer-lowest, demo-smoke, source-hygiene]
     runs-on: ubuntu-latest
     steps:
       - run: test "${{ contains(needs.*.result, 'failure') || contains(needs.*.result, 'cancelled') || contains(needs.*.result, 'skipped') }}" = false

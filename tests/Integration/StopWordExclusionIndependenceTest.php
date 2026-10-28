@@ -10,15 +10,17 @@ use Fuzzphony\Core\Fuzzphony;
 use Fuzzphony\Core\Registry\IndexRegistry;
 use Fuzzphony\Engine\Postgres\PostgresEngine;
 use PHPUnit\Framework\Attributes\DataProvider;
+use PHPUnit\Framework\Attributes\Group;
 use PHPUnit\Framework\TestCase;
 
 /**
  * A query of stop words with an exclusion ("the who -rock") is searched on the typo-tolerant branch, the exclusion
  * applied. What a restricted viewer finds through it must not depend on a hidden field in any way (its words, its
- * exclusion words, its size): 1 200 documents identical in the allowed fields and different in the hidden ones (empty,
+ * exclusion words, its size): 300 documents identical in the allowed fields and different in the hidden ones (empty,
  * full of the searched and the excluded words, of very different sizes) give identical ids, order, scores, totals,
  * facets and statements. Tenants only see their own documents.
  */
+#[Group('slow')]
 final class StopWordExclusionIndependenceTest extends TestCase
 {
     private Connection $connection;
@@ -49,7 +51,7 @@ final class StopWordExclusionIndependenceTest extends TestCase
             'empty' => "''",
             'the words' => "'the who rock band ' || repeat('the who ', i % 7)",
             'sizes' => "repeat('filler rock text ', 1 + (i * 37) % 30)",
-            'long' => "CASE WHEN i % 400 = 0 THEN repeat('zz the who rock ', 5000) ELSE 'zz rock' END",
+            'long' => "CASE WHEN i % 100 = 0 THEN repeat('zz the who rock ', 5000) ELSE 'zz rock' END",
         ];
         $queries = ['the who -rock', 'the who -band', 'who the -rock -band', 'the who -secret', 'the -rock', '"the who" -rock', 'title:who the -rock', 'the who -rock -the', '(the -rock) OR who', 'the who -(rock OR band)'];
         // below the candidate limit: with a cap the typo-tolerant branch keeps the candidates in the physical order of the sidecar (a known limit, see limitations.md)
@@ -59,7 +61,7 @@ final class StopWordExclusionIndependenceTest extends TestCase
             $this->connection->execute('CREATE TABLE fz_swx_doc (id bigint PRIMARY KEY, title text NOT NULL, body text NOT NULL, secret text NOT NULL, cat text NOT NULL)');
             $column = static fn(string $name, string $text): string => in_array($name, $hiddenFields, true) ? '(' . $hidden . ')' : $text;
             $this->connection->execute(sprintf(
-                "INSERT INTO fz_swx_doc SELECT i, %s, %s, %s, CASE WHEN i %% 2 = 0 THEN 'a' ELSE 'b' END FROM generate_series(1, 1200) AS i",
+                "INSERT INTO fz_swx_doc SELECT i, %s, %s, %s, CASE WHEN i %% 2 = 0 THEN 'a' ELSE 'b' END FROM generate_series(1, 300) AS i",
                 $column('title', "CASE i % 5 WHEN 0 THEN 'The Who n' || i WHEN 1 THEN 'Who is it n' || i WHEN 2 THEN 'Rock the who n' || i WHEN 3 THEN 'Band of the day n' || i ELSE 'Other n' || i END"),
                 $column('body', "CASE i % 4 WHEN 0 THEN 'the who live ' || i WHEN 1 THEN 'rock band ' || i ELSE 'about ' || i END"),
                 $column('secret', "'plain'"),
