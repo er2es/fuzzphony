@@ -26,6 +26,7 @@ docker compose up -d          # FUZZPHONY_TEST_PORT=55432 docker compose up -d i
 composer install
 composer test:db              # the whole suite against that database (FUZZPHONY_TEST_PORT=... for another port)
 composer test:db -- --exclude-group slow   # the quick run: skips the slow sweep tests (the CI runs them on one leg)
+composer test:parallel        # the quick run on 4 processes (paratest, each with its own database {dbname}_t1 ..., so the role needs CREATEDB)
 composer qa                   # php-cs-fixer (PER-CS 2.0), PHPStan (level max + strict rules), unit tests
 ```
 

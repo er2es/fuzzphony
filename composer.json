@@ -53,6 +53,7 @@
     },
     "require-dev": {
         "api-platform/doctrine-orm": "^4.1 || ^5.0",
+        "brianium/paratest": "^7.27",
         "doctrine/dbal": "^4.2",
         "doctrine/orm": "^3.3",
         "friendsofphp/php-cs-fixer": "^3.64",
@@ -89,6 +90,7 @@
     "scripts": {
         "test": "phpunit --testsuite=unit",
         "test:db": "@php tools/test-db.php",
+        "test:parallel": "paratest --exclude-group slow",
         "test:integration": "phpunit --testsuite=integration",
         "test:recipes": "phpunit --testsuite=recipes",
         "test:all": "phpunit",
