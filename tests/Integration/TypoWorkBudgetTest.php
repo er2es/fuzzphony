@@ -10,6 +10,7 @@ use Fuzzphony\Core\Fuzzphony;
 use Fuzzphony\Core\Registry\IndexRegistry;
 use Fuzzphony\Core\Support\Coerce;
 use Fuzzphony\Engine\Postgres\PostgresEngine;
+use PHPUnit\Framework\Attributes\Group;
 use PHPUnit\Framework\TestCase;
 
 /**
@@ -18,6 +19,7 @@ use PHPUnit\Framework\TestCase;
  * texts keep the row budget (30 000, divided by the words of the query); long ones lower it, never under the candidates asked for.
  * A hidden field never moves it: the candidates must not depend on what a hidden field holds.
  */
+#[Group('slow')]
 final class TypoWorkBudgetTest extends TestCase
 {
     private const int MATCHES = 1500;

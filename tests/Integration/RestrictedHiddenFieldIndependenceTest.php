@@ -10,6 +10,7 @@ use Fuzzphony\Core\Fuzzphony;
 use Fuzzphony\Core\Registry\IndexRegistry;
 use Fuzzphony\Engine\Postgres\PostgresEngine;
 use PHPUnit\Framework\Attributes\DataProvider;
+use PHPUnit\Framework\Attributes\Group;
 use PHPUnit\Framework\TestCase;
 
 /**
@@ -18,6 +19,7 @@ use PHPUnit\Framework\TestCase;
  * is 16 383 and a phrase on `tsv` would not match there (the lookup of a phrase is the AND of its words instead).
  * Every outcome (hits, order, scores, totals, facets, the statements and their values) is compared across hidden contents.
  */
+#[Group('slow')]
 final class RestrictedHiddenFieldIndependenceTest extends TestCase
 {
     private const array DOCUMENTS = [

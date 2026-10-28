@@ -10,6 +10,7 @@ use Fuzzphony\Core\Fuzzphony;
 use Fuzzphony\Core\Registry\IndexRegistry;
 use Fuzzphony\Engine\Postgres\PostgresEngine;
 use PHPUnit\Framework\Attributes\DataProvider;
+use PHPUnit\Framework\Attributes\Group;
 use PHPUnit\Framework\TestCase;
 
 /**
@@ -20,6 +21,7 @@ use PHPUnit\Framework\TestCase;
  * and different in a hidden one (empty, very long, full of the common word) give identical ids, order, scores, totals,
  * facets and statements. A tenant's selection never returns, and is never crowded out by, another tenant's documents.
  */
+#[Group('slow')]
 final class CandidateSelectionRestrictedTest extends TestCase
 {
     private Connection $connection;
