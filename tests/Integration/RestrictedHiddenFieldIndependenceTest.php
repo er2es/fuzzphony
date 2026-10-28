@@ -75,8 +75,10 @@ final class RestrictedHiddenFieldIndependenceTest extends TestCase
             }
             foreach ($documents as [$id, $title, $body, $secret]) {
                 $row = ['title' => $title, 'body' => $body, 'secret' => $secret];
+                // The long text sits in the first three documents (a phrase across two fields, in the title, in the body), not in the rest:
+                // the position cap of tsv acts per document, and every long text is rechecked by every phrase query.
                 foreach ($hiddenFields as $name) {
-                    $row[$name] = $hidden;
+                    $row[$name] = $variant === 'long' && $id > 3 ? '' : $hidden;
                 }
                 $this->connection->execute('INSERT INTO fz_hidden_doc VALUES (:id, :title, :body, :secret, :cat)', ['id' => $id, 'title' => $row['title'], 'body' => $row['body'], 'secret' => $row['secret'], 'cat' => $id % 2 === 0 ? 'a' : 'b']);
             }
