@@ -88,6 +88,8 @@ final class FuzzyQueryCompiler
     private readonly ?array $allowed;
     /** @var array<string, list<string>> the swapped-letter variants of each word (by candidateKey()), set for the statement by allocateVariants() */
     private array $variants = [];
+    /** @var bool whether a condition compiled since the last compile()/leafConditions() holds `<%` (a word without a candidate list) */
+    private bool $readsWordThreshold = false;
 
     /**
      * @param list<string>|null $allowedFields the fields a restricted viewer may see (SearchQuery::$allowedFields): every
@@ -356,10 +358,11 @@ final class FuzzyQueryCompiler
     public function compile(Node $node, ParameterBag $params, array $emptyQueries = []): ?FuzzyMatch
     {
         $this->columns = [];
+        $this->readsWordThreshold = false;
         $this->allocateVariants($this->trigramLeaves($node, $emptyQueries));
         $compiled = $this->node($node, $params, $emptyQueries);
 
-        return $compiled === null || $compiled['score'] === null ? null : new FuzzyMatch($compiled['predicate'], $compiled['score'], $this->columns, max(1, count($this->positiveLeaves($node))));
+        return $compiled === null || $compiled['score'] === null ? null : new FuzzyMatch($compiled['predicate'], $compiled['score'], $this->columns, max(1, count($this->positiveLeaves($node))), $this->readsWordThreshold);
     }
 
     /**
@@ -399,6 +402,7 @@ final class FuzzyQueryCompiler
     public function leafConditions(array $leaves, ParameterBag $params, array $emptyQueries, bool $fuzzy): array
     {
         $this->columns = [];
+        $this->readsWordThreshold = false;
         $this->allocateVariants($fuzzy ? array_merge([], ...array_map(fn(Node $leaf): array => $this->trigramLeaves($leaf, $emptyQueries), $leaves)) : []);
         $predicates = [];
         foreach ($leaves as $leaf) {
@@ -498,6 +502,7 @@ final class FuzzyQueryCompiler
         $score = $threshold === null ? $trigram['similarity'] : sprintf('CASE WHEN %1$s >= %2$s THEN %1$s ELSE 0.0 END', $trigram['similarity'], $threshold);
         $key = $this->candidateKey($node);
         $ids = $this->candidates[$key] ?? null;
+        $this->readsWordThreshold = $this->readsWordThreshold || $ids === null;
         $condition = $ids === null
             ? $trigram['condition']
             : sprintf('s.id = ANY(%s)', $this->column('id', sprintf('CAST(%s AS %s[])', $params->add(Sql::arrayLiteral($ids)), Types::id($this->index->idType))));
@@ -520,6 +525,16 @@ final class FuzzyQueryCompiler
             'score' => sprintf('GREATEST(%s)', implode(', ', $scores)),
             'partial' => false,
         ];
+    }
+
+    /**
+     * Whether the last compile() or leafConditions() put a `<%` comparison into its predicate, which reads
+     * pg_trgm.word_similarity_threshold: a word whose candidates were probed (a candidate list) holds none. The statement that runs
+     * the predicate declares it (Statement::$readsWordThreshold), so the engine never searches SQL text for the operator.
+     */
+    public function readsWordThreshold(): bool
+    {
+        return $this->readsWordThreshold;
     }
 
     /**

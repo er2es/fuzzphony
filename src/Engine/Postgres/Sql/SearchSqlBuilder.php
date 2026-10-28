@@ -47,7 +47,8 @@ final class SearchSqlBuilder
         /** Whether a typed word also matches with two neighbouring letters swapped (FuzzyQueryCompiler, Transpositions). */
         private readonly bool $transpositions = false,
         /**
-         * @internal How many matches the ordered selection scores (see scored()); only a test makes it smaller.
+         * How many matches the ordered selection scores (see scored()). The production value is the constant; the parameter is the
+         * seam of the tests that prove the budget bounds the work (a small one cuts the scan, a large one shows the division by words).
          *
          * @var positive-int
          */
@@ -113,7 +114,7 @@ final class SearchSqlBuilder
      * @param bool            $withCandidates also return the ids of every candidate that passes the minimum score, as JSON in the meta row's
      *                                        `cand_ids`: the facets of the search count exactly these documents (facetsOf())
      *
-     * @return array{sql: string, params: array<string, scalar|null>}
+     * @return array{sql: string, params: array<string, scalar|null>, readsWordThreshold: bool}
      */
     public function ranked(?string $tsquery, string $plain, ?Node $fuzzyRoot, array $conditions, RankingProfile $profile, Thresholds $thresholds, int $limit, int $offset, array $emptyQueries = [], ?Node $scopedRoot = null, bool $withCandidates = false): array
     {
@@ -143,7 +144,7 @@ final class SearchSqlBuilder
             implode(', ', $counts),
         );
 
-        return ['sql' => $sql, 'params' => $params->all()];
+        return ['sql' => $sql, 'params' => $params->all(), 'readsWordThreshold' => $fuzzy?->readsWordThreshold === true];
     }
 
     /**
@@ -406,47 +407,21 @@ final class SearchSqlBuilder
     }
 
     /**
-     * The values of one filter among the matches of a ranked search, with how many documents have each
-     * (the facet). `$conditions` are the search's own without the ones on this filter: a facet shows what
-     * choosing another value would find. With `$exact` it reads every match, not only the candidates.
-     *
-     * @param list<Condition> $conditions
-     * @param list<string>    $emptyQueries
-     *
-     * @return array{sql: string, params: array<string, scalar|null>}
-     */
-    public function facet(string $filter, ?string $tsquery, string $plain, ?Node $fuzzyRoot, array $conditions, RankingProfile $profile, Thresholds $thresholds, int $values, bool $exact, array $emptyQueries = [], ?Node $scopedRoot = null): array
-    {
-        ['ctes' => $ctes, 'params' => $params] = $this->scored($tsquery, $plain, $fuzzyRoot, $conditions, $profile, $thresholds, $emptyQueries, $scopedRoot, $exact, $thresholds->candidateLimit);
-        $column = 's.' . FilterCompiler::column($filter);
-        $sql = sprintf(
-            "WITH %s\nSELECT %s AS value, count(*) AS n\nFROM scored AS sc JOIN %s AS s ON s.id = sc.id\nWHERE sc.relevance >= %s\nGROUP BY %s\nORDER BY n DESC, value NULLS LAST\nLIMIT %d",
-            implode(",\n", $ctes),
-            $column,
-            $this->names->sidecar($this->index),
-            Sql::float($thresholds->minScore),
-            $column,
-            $values,
-        );
-
-        return ['sql' => $sql, 'params' => $params->all()];
-    }
-
-    /**
-     * Several facets in one statement: the candidates are evaluated once (`fc` holds the filter column of each facet for
-     * every match) and each facet is one `GROUP BY` branch, tagged with its position in `$filters` (`f`). For the facets
-     * whose conditions are the search's own (a facet that leaves a condition out needs its own candidates: see facet()).
+     * The facets of a group in one statement, whatever their number: the candidates are evaluated once (`fc` holds the filter column
+     * of each facet for every match) and each facet is one `GROUP BY` branch, tagged with its position in `$filters` (`f`).
+     * `$conditions` are the conditions of the group: the search's own, or without the ones on the filters of a facet that leaves
+     * its own out (such a group selects its own candidates).
      * Rows: f, rk (the facet's own order: count descending, then the value), value (as text), n; ordered by f, rk.
      *
      * @param non-empty-list<string> $filters
      * @param list<Condition>        $conditions
      * @param list<string>           $emptyQueries
      *
-     * @return array{sql: string, params: array<string, scalar|null>}
+     * @return array{sql: string, params: array<string, scalar|null>, readsWordThreshold: bool}
      */
     public function facets(array $filters, ?string $tsquery, string $plain, ?Node $fuzzyRoot, array $conditions, RankingProfile $profile, Thresholds $thresholds, int $values, bool $exact, array $emptyQueries = [], ?Node $scopedRoot = null): array
     {
-        ['ctes' => $ctes, 'params' => $params] = $this->scored($tsquery, $plain, $fuzzyRoot, $conditions, $profile, $thresholds, $emptyQueries, $scopedRoot, $exact, $thresholds->candidateLimit);
+        ['ctes' => $ctes, 'params' => $params, 'fuzzy' => $fuzzy] = $this->scored($tsquery, $plain, $fuzzyRoot, $conditions, $profile, $thresholds, $emptyQueries, $scopedRoot, $exact, $thresholds->candidateLimit);
         $ctes[] = sprintf(
             "fc AS (
     SELECT %s
@@ -458,7 +433,7 @@ final class SearchSqlBuilder
             Sql::float($thresholds->minScore),
         );
 
-        return ['sql' => $this->facetBranches($ctes, $filters, $values), 'params' => $params->all()];
+        return ['sql' => $this->facetBranches($ctes, $filters, $values), 'params' => $params->all(), 'readsWordThreshold' => $fuzzy?->readsWordThreshold === true];
     }
 
     /**
@@ -565,37 +540,14 @@ UNION ALL
      * @param list<Condition> $conditions
      * @param list<string>    $emptyQueries
      *
-     * @return array{sql: string, params: array<string, scalar|null>}
+     * @return array{sql: string, params: array<string, scalar|null>, readsWordThreshold: bool}
      */
     public function exactTotal(?string $tsquery, string $plain, ?Node $fuzzyRoot, array $conditions, RankingProfile $profile, Thresholds $thresholds, array $emptyQueries = [], ?Node $scopedRoot = null): array
     {
-        ['ctes' => $ctes, 'params' => $params] = $this->scored($tsquery, $plain, $fuzzyRoot, $conditions, $profile, $thresholds, $emptyQueries, $scopedRoot, true);
+        ['ctes' => $ctes, 'params' => $params, 'fuzzy' => $fuzzy] = $this->scored($tsquery, $plain, $fuzzyRoot, $conditions, $profile, $thresholds, $emptyQueries, $scopedRoot, true);
         $sql = sprintf("WITH %s\nSELECT count(*) AS total FROM scored WHERE relevance >= %s", implode(",\n", $ctes), Sql::float($thresholds->minScore));
 
-        return ['sql' => $sql, 'params' => $params->all()];
-    }
-
-    /**
-     * The facet of a search without text (filter-only browsing).
-     *
-     * @param list<Condition> $conditions
-     *
-     * @return array{sql: string, params: array<string, scalar|null>}
-     */
-    public function browseFacet(string $filter, array $conditions, Thresholds $thresholds, int $values, bool $exact): array
-    {
-        $params = new ParameterBag();
-        $column = FilterCompiler::column($filter);
-        $sql = sprintf(
-            "WITH b AS (\n    SELECT s.%s AS value FROM %s AS s WHERE %s%s\n)\nSELECT value, count(*) AS n FROM b GROUP BY value ORDER BY n DESC, value NULLS LAST LIMIT %d",
-            $column,
-            $this->names->sidecar($this->index),
-            (new FilterCompiler($this->index))->compile($conditions, $params),
-            $exact ? '' : self::firstById($thresholds->candidateLimit),
-            $values,
-        );
-
-        return ['sql' => $sql, 'params' => $params->all()];
+        return ['sql' => $sql, 'params' => $params->all(), 'readsWordThreshold' => $fuzzy?->readsWordThreshold === true];
     }
 
     /**
@@ -624,14 +576,15 @@ UNION ALL
      * @param list<Condition> $conditions
      * @param list<string>    $emptyQueries leaf tsqueries the text configuration reduces to nothing (stop words)
      *
-     * @return array{sql: string, params: array<string, scalar|null>}
+     * @return array{sql: string, params: array<string, scalar|null>, readsWordThreshold: bool}
      */
     public function probe(array $leaves, bool $fuzzy, array $conditions, Thresholds $thresholds, array $emptyQueries = []): array
     {
         $params = new ParameterBag();
         $filters = new FilterCompiler($this->index);
         $table = $this->names->sidecar($this->index);
-        $compiled = (new FuzzyQueryCompiler($this->index, $thresholds, $this->names, [], $this->allowedFields, $this->transpositions, $this->cappedColumn))->leafConditions($leaves, $params, $emptyQueries, $fuzzy);
+        $compiler = new FuzzyQueryCompiler($this->index, $thresholds, $this->names, [], $this->allowedFields, $this->transpositions, $this->cappedColumn);
+        $compiled = $compiler->leafConditions($leaves, $params, $emptyQueries, $fuzzy);
         if (array_filter($compiled['predicates'], static fn(?string $p): bool => $p !== null) === []) {
             throw new \LogicException('A relaxation probe needs at least one leaf that is not a stop word.');
         }
@@ -662,7 +615,7 @@ SELECT
      ", $ctes), implode(",
 ", $columns));
 
-        return ['sql' => $sql, 'params' => $params->all()];
+        return ['sql' => $sql, 'params' => $params->all(), 'readsWordThreshold' => $compiler->readsWordThreshold()];
     }
 
     /**
@@ -696,7 +649,7 @@ SELECT
     }
 
     /**
-     * The text rank of a full-text candidate: ts_rank_cd of the vector the viewer reads (rankVector()). A document that `tsv`
+     * The text rank of a full-text candidate: ts_rank_cd of the vector the viewer reads (Names::visibleVector()). A document that `tsv`
      * does not match but the search found anyway (a phrase or a scoped word after a long field, see TsQueryCompiler) has no
      * usable rank on tsv, whose positions and weights were capped: it is ranked on the fields' own vectors (the best of the
      * first field's and of every run of later fields, Names::laterVectors()). A document tsv matches keeps its rank. With the
@@ -708,7 +661,7 @@ SELECT
         $weights = self::tsRankWeights($profile);
         $rank = static fn(string $vector): string => sprintf("ts_rank_cd('%s'::real[], %s, %s, 32)", $weights, $vector, $rankQuery);
         if (!$positional) {
-            return $rank($this->rankVector());
+            return $rank($this->names->visibleVector($this->index, $this->allowedFields));
         }
         $vectors = ['s.' . $this->names->fieldVector($this->index->fieldNames()[0]), ...array_map(static fn(string $v): string => '(' . $v . ')', $this->names->laterVectors($this->index))];
 
@@ -743,25 +696,6 @@ SELECT
         }
 
         return $parts === [] ? '0' : implode(' + ', $parts);
-    }
-
-    /** The vector the text rank reads: the whole tsv, or only the fields a restricted viewer may see. */
-    private function rankVector(): string
-    {
-        $allowed = $this->allowedFields;
-        if ($allowed === null) {
-            return 's.tsv';
-        }
-        $parts = array_map(
-            fn(string $name): string => 's.' . $this->names->fieldVector($name),
-            array_values(array_filter($this->index->fieldNames(), static fn(string $name): bool => in_array($name, $allowed, true))),
-        );
-
-        return match (count($parts)) {
-            0 => "''::tsvector",
-            1 => $parts[0],
-            default => '(' . implode(' || ', $parts) . ')',
-        };
     }
 
     private function boostExpression(RankingProfile $profile): string

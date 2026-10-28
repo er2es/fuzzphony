@@ -4,19 +4,15 @@ declare(strict_types=1);
 
 namespace Fuzzphony\Tests\Unit\Postgres;
 
-use Fuzzphony\Engine\Postgres\PostgresEngine;
+use Fuzzphony\Engine\Postgres\VocabularyService;
 use PHPUnit\Framework\TestCase;
 
 /** The edit distance "did you mean" ranks the vocabulary words by: characters, however many different ones the two words have. */
-final class PostgresEngineMutationsTest extends TestCase
+final class VocabularyDistanceTest extends TestCase
 {
     private static function distance(string $a, string $b): int
     {
-        $method = new \ReflectionMethod(PostgresEngine::class, 'distance');
-        $distance = $method->invoke(null, $a, $b);
-        self::assertIsInt($distance);
-
-        return $distance;
+        return VocabularyService::distance($a, $b);
     }
 
     /** @return string a word of $count different characters (private use area) */

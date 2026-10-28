@@ -122,7 +122,7 @@ final class SearchSqlBuilderCandidatesTest extends TestCase
 
         // the facets count the best `candidate_limit` matches, whatever the order of the heap: the ordered selection of the hits
         foreach ([
-            $builder->facet('in_stock', "'mouse'", 'mouse', null, [], $profile, $thresholds, 10, false)['sql'],
+            $builder->facets(['in_stock'], "'mouse'", 'mouse', null, [], $profile, $thresholds, 10, false)['sql'],
             $builder->facets(['in_stock', 'brand_id'], "'mouse'", 'mouse', null, [], $profile, $thresholds, 10, false)['sql'],
         ] as $sql) {
             self::assertStringContainsString('fts_fast AS (', $sql);
@@ -130,10 +130,10 @@ final class SearchSqlBuilderCandidatesTest extends TestCase
             self::assertStringContainsString('LIMIT 100000', $sql);
         }
         // a deep page does not make the facets count more candidates: their window is the candidate limit
-        self::assertStringContainsString('count(*) FROM fts_fast) < 2000', $builder->facet('in_stock', "'mouse'", 'mouse', null, [], $profile, $thresholds, 10, false)['sql']);
+        self::assertStringContainsString('count(*) FROM fts_fast) < 2000', $builder->facets(['in_stock'], "'mouse'", 'mouse', null, [], $profile, $thresholds, 10, false)['sql']);
 
         $statements = [
-            $builder->facet('in_stock', "'mouse'", 'mouse', null, [], $profile, $thresholds, 10, true)['sql'],
+            $builder->facets(['in_stock'], "'mouse'", 'mouse', null, [], $profile, $thresholds, 10, true)['sql'],
             $builder->facets(['in_stock', 'brand_id'], "'mouse'", 'mouse', null, [], $profile, $thresholds, 10, true)['sql'],
             $builder->exactTotal("'mouse'", 'mouse', null, [], $profile, $thresholds)['sql'],
             $builder->browse([], $profile, $thresholds, 20, 0)['sql'],
@@ -337,10 +337,10 @@ final class SearchSqlBuilderCandidatesTest extends TestCase
         $thresholds = new Thresholds(candidateLimit: 300);
 
         self::assertStringContainsString("ORDER BY s.id
-    LIMIT 300", $builder->browseFacet('in_stock', [], $thresholds, 10, false)['sql']);
+    LIMIT 300", $builder->browseFacets(['in_stock'], [], $thresholds, 10, false)['sql']);
         self::assertStringContainsString("ORDER BY s.id
     LIMIT 300", $builder->browseFacets(['in_stock', 'brand_id'], [], $thresholds, 10, false)['sql']);
-        self::assertStringNotContainsString('LIMIT 300', $builder->browseFacet('in_stock', [], $thresholds, 10, true)['sql']);
+        self::assertStringNotContainsString('LIMIT 300', $builder->browseFacets(['in_stock'], [], $thresholds, 10, true)['sql']);
     }
 
     /** @param list<string>|null $allowed */

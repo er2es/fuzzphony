@@ -36,7 +36,7 @@ final class PostgresEngineNullThresholdResetTest extends TestCase
                     str_starts_with($sql, 'SELECT s.id') => array_fill(0, $probed, ['id' => 1]),
                     // the relaxation probe: "mouze" matches nothing on its own, "ab" and "cd" do (but not together)
                     str_contains($sql, 'm0 AS MATERIALIZED') => [['l0' => false, 'l1' => true, 'l2' => true]],
-                    str_contains($sql, 'count(*) AS n') => [['value' => true, 'n' => 1]],
+                    str_contains($sql, 'count(*) AS n') => [['f' => 0, 'value' => true, 'n' => 1]],
                     default => null,
                 };
             },
