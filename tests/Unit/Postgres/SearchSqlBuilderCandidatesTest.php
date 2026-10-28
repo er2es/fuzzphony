@@ -289,7 +289,8 @@ final class SearchSqlBuilderCandidatesTest extends TestCase
         self::assertStringContainsString('(SELECT count(*) FROM fuzzy_fast) AS fuzzy_n', $sql, 'capped is the count of the cheap selection');
         self::assertStringNotContainsString('fuzzy_pool', $sql);
         // the scan: the work budget by what the first matches weigh (their stored text), between the window and the row budget
-        self::assertStringContainsString('pg_column_size(s.fz)::bigint AS w', $sql);
+        self::assertStringContainsString('(coalesce(pg_column_size(s."z_name"), 0))::bigint AS w', $sql, 'the size of the visible fields only');
+        self::assertStringNotContainsString('pg_column_size(s.fz)', $sql);
         self::assertStringContainsString('LIMIT greatest(500, least(30000, (1500000 / (100 + coalesce((SELECT avg(w) FROM fuzzy_fast), 0)) / 1)::bigint))', $sql);
     }
 

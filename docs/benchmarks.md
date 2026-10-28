@@ -50,13 +50,14 @@ copies of the description, about 300 characters of typo-tolerant text a document
 | typo, page 101 (offset 2000) | `hedphones` | 46 ms, **0 hits** | 48 ms, 20 hits |
 | strict, page 101 | `wireless` | 33 ms | 43 ms |
 | typo, long typo-tolerant text | `batery` | 483 ms | 539 ms |
-| the same, restricted viewer (name, description) | `batery` | 358 ms | 650 ms |
+| the same, restricted viewer (name, description) | `batery` | 358 ms | 1 100 ms |
 | an exact word beside look-alikes | `mousse` | 45 ms | 42 ms (exact matches first) |
 
 A restricted viewer pays for the ordered selection that keeps hidden fields out of the candidates (see
 [Known limitations](limitations.md#ranking-of-very-common-words)); everyone else's typo search costs what it did. On a database
 where some documents hold thousands of words in a field the viewer cannot see (3 000 documents, 60 of them with 17 000 words,
-`candidate_limit` 100) the restricted `comon` takes 0.45 s, 0.1 s in 0.9.8, and without the work budget 4 s.
+`candidate_limit` 100) the restricted `comon` takes about 1 s, 0.1 s in 0.9.8: the work budget counts the text the viewer may see, so a hidden text is
+rechecked in full.
 
 ## Round trips
 
@@ -166,7 +167,7 @@ hits returns. Median of 7 runs, warm, `candidate_limit` 2000, 200 000 products, 
 | `wireless` with a facet / and an active filter (strict) | 48 / 47 ms | 46 / 79 ms |
 | a filter-only listing with a facet | 2.1 ms | 2.4 ms |
 | 12 typo-tolerant-field index (`bench12`), `batery` | 189 ms | 208 ms |
-| the same, restricted viewer (name, description) | 218 ms | 498 ms |
+| the same, restricted viewer (name, description) | 218 ms | 487 ms |
 | the same index, the reversed phrase `"office ideal"` | 541 ms | 274 ms |
 
 `wireless` in `fuzzy_mode: always` pays for the typo score of its 2 000 full-text candidates (they are rescored when the typo branch is

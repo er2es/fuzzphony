@@ -332,17 +332,18 @@ a covert-channel proof:
   exception is a selection that depends on the PHYSICAL order of the index's rows, which the size of a hidden field shapes
   (a reindex fills free space in earlier pages). For a restricted viewer that is only what lies beyond the budgets: the strict
   candidates beyond 100 000 matches and the typo branch's beyond its work budget (30 000 matches divided by the number of
-  words of the query when the typo-tolerant texts are short; fewer when the first matches hold a lot of text, about 1.5 MB per
-  statement, see [limitations](limitations.md#ranking-of-very-common-words)). Up to those budgets the candidates, their order, `total`
+  words of the query when the typo-tolerant texts the viewer may see are short; fewer when the first matches hold a lot of that
+  text, about 1.5 MB per statement; the budget is computed from the visible fields' sizes only, see [limitations](limitations.md#ranking-of-very-common-words)). Up to those budgets the candidates, their order, `total`
   and the facet counts of a capped search are chosen by the text rank, the similarity and the bonuses of the fields the viewer may
   read, then the id. What the tests prove: corpora that differ only in a hidden field (empty, a phrase, a size per document, a very
   long field in a few documents; five layouts of hidden and allowed fields; 3 000 rows, candidate limit 100) give identical ids, order,
   scores, totals, facets and statements for `never`, `fallback` and `always`, with words as they are and with a typo word that matches
-  more documents than the limit. Two things are not proven and not claimed: beyond a budget a search of a very common word can return
-  slightly different hits or counts for two corpora that differ in a hidden field, and the typo budget itself is taken from the stored
-  size of the first matches (hidden fields included), so a large amount of hidden text lowers it. Neither shows what a hidden field
-  holds (no document is returned for a word that only a hidden field has); the work budget is what keeps one restricted search from
-  reading a long hidden text for thousands of matches (3 000 documents, 60 of them with a 17 000-word hidden field, candidate limit 100: 0.5 s instead of 4 s).
+  more documents than the limit. The budgets themselves never depend on a hidden field (the typo work budget counts the size of the visible fields' text
+  only). Not claimed: beyond a budget a search of a very common word takes the first matches in the table's physical order, which a hidden
+  field's size shapes, so two corpora that differ in a hidden field can then return slightly different hits or counts; it reveals nothing
+  about what the field holds (no document is returned for a word that only a hidden field has). A long hidden text still costs its recheck
+  time (3 000 documents, 60 of them with a 17 000-word hidden field, candidate limit 100: about 1 s for `comon`, 0.1 s in 0.9.8); only the visible text
+  is bounded by the work budget.
 - **An unrestricted viewer's and a tenant's typo candidates are the first matches of the table.** Nothing is hidden from an
   unrestricted viewer, so the physical order of the table shows it nothing it could not read. A tenant's candidates are chosen among
   its own documents (the tenant condition is part of the statement), so the size of another tenant's rows does not change them: a

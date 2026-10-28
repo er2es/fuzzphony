@@ -311,7 +311,7 @@ final class SearchSqlBuilder
 )",
                 $fuzzyFast,
                 $fuzzy->score,
-                $orderedFuzzy ? ', pg_column_size(s.fz)::bigint AS w' : '',
+                $orderedFuzzy ? ', (' . $this->visibleTextSize() . ')::bigint AS w' : '',
                 $table,
                 $fuzzy->predicate,
                 $filterSql,
@@ -331,7 +331,7 @@ final class SearchSqlBuilder
                     $table,
                     $fuzzy->predicate,
                     $filterSql,
-                    // the rows the work budget allows, by what the first matches weigh (the stored size of their typo-tolerant text)
+                    // the rows the work budget allows, by what the first matches weigh in the fields the viewer may see (never a hidden field)
                     sprintf(
                         'greatest(%d, least(%d, (%d / (%d + coalesce((SELECT avg(w) FROM fuzzy_fast), 0)) / %d)::bigint))',
                         $limit,
@@ -726,6 +726,23 @@ SELECT
         }
 
         return sprintf('CASE WHEN s.tsv @@ q.tsq THEN %s ELSE GREATEST(%s) END', $rank('s.tsv'), implode(', ', array_map($rank, $vectors)));
+    }
+
+    /**
+     * The stored size of the typo-tolerant text a restricted viewer may see, as a SQL expression of the row: the work budget of the ordered
+     * typo selection counts it. Only the allowed fields' own columns, never `fz` or a hidden field's: the budget, and with it the
+     * candidates, must not depend on what a hidden field holds.
+     */
+    private function visibleTextSize(): string
+    {
+        $parts = [];
+        foreach ($this->index->fields as $field) {
+            if ($field->fuzzy && in_array($field->name, $this->allowedFields ?? [], true)) {
+                $parts[] = sprintf('coalesce(pg_column_size(s.%s), 0)', $this->names->fieldFuzzy($field->name));
+            }
+        }
+
+        return $parts === [] ? '0' : implode(' + ', $parts);
     }
 
     /** The vector the text rank reads: the whole tsv, or only the fields a restricted viewer may see. */

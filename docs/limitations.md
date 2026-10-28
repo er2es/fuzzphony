@@ -175,8 +175,10 @@ word, the documents the trigram index returns, at most `candidate_limit` (the wi
   sort key (similarity, bonuses, boost, recency, then the id): exact up to **30 000 matches divided by the number of words of the
   query** when the typo-tolerant texts are short (an internal constant, like the 100 000 of the strict branch), and up to fewer when
   they are long: the budget is about 1.5 MB of typo-tolerant text per statement, counting 100 bytes for every row, taken from the
-  stored size of the first matches (so 300 characters per document leave about 10 000 matches, a document of 17 000 words
-  leaves a few hundred), never fewer than the candidates asked for. Beyond the budget the first matches of the index are taken, in
+  stored size of the first matches' text in the fields the viewer may SEE (so 300 characters per document leave about 10 000 matches,
+  a visible document of 17 000 words leaves a few hundred), never fewer than the candidates asked for. A hidden field never moves
+  it, so what it holds cannot change the candidates; the price is that a long hidden text still costs its recheck time
+  ([below](#a-restricted-viewers-very-common-word-in-a-hidden-typo-tolerant-field-is-slow)). Beyond the budget the first matches of the index are taken, in
   physical order, as above ([Security](security.md#the-limits-stated-honestly)). The cost of a document of this branch is about 8
   microseconds for a short name and grows with the text that is rechecked.
 - **A page past the candidates** selects the window `offset + limit` in this branch too (up to 10 000), like the strict one.
