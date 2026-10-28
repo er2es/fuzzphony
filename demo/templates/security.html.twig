@@ -1,4 +1,5 @@
 {% extends 'base.html.twig' %}
+{% import '_ui.html.twig' as ui %}
 {% block title %}{{ q != '' ? q ~ ' · ' }}Security · Fuzzphony{% endblock %}
 
 {% block body %}
@@ -8,20 +9,21 @@
         <h1>Security</h1>
         <p class="lede">Who is searching decides what a search may see. Switch the viewer and search the same words.</p>
 
-        <nav class="segmented" aria-label="Viewing as">
+        <nav class="segmented viewer-links" aria-label="Viewing as">
             {% for id, name in viewers %}
                 <a href="{{ path('security', {as: id, q: q ?: null}) }}"{% if id == viewerId %} aria-current="true"{% endif %} data-loading-message="Viewing as {{ name }}…">{{ name }}</a>
             {% endfor %}
         </nav>
-
-        <form method="get" action="{{ path('security') }}" role="search" class="field-wrap">
-            <input type="hidden" name="as" value="{{ viewerId }}">
-            <div class="search-field">
-                <svg class="icon" aria-hidden="true"><use href="#i-search"/></svg>
-                <input type="search" name="q" value="{{ q }}" placeholder="Try salary, budget or lawsuit" aria-label="Search the intranet notes" autocomplete="off" spellcheck="false" enterkeyhint="search" maxlength="100">
-            </div>
-            <button type="submit" class="sr-only">Search</button>
+        {# the same choice as a select on a phone, where five labels do not fit in a row #}
+        <form method="get" action="{{ path('security') }}" class="viewer-select" data-controller="autosubmit" data-loading-message="Changing the viewer…">
+            <label for="viewer">Viewing as</label>
+            <select id="viewer" name="as" data-action="change->autosubmit#submit">
+                {% for id, name in viewers %}<option value="{{ id }}"{% if id == viewerId %} selected{% endif %}>{{ name }}</option>{% endfor %}
+            </select>
+            {% if q != '' %}<input type="hidden" name="q" value="{{ q }}">{% endif %}
         </form>
+
+        {{ ui.search_field(path('security'), q, 'intranet', 'Search the intranet: salary, budget, lawsuit', {as: viewerId}, false, false, false) }}
         <div class="chips chips-center">
             {% for label, example in examples %}
                 <a class="chip" href="{{ path('security', {as: viewerId, q: example}) }}" data-loading-message="Searching for {{ example }}…"><code>{{ example }}</code> <small>{{ label }}</small></a>
@@ -129,13 +131,14 @@
                     <div class="row-title">Rate limit</div>
                     <div class="row-sub">
                         {% if viewer %}
-                            {{ used }} of {{ limit }} searches used in the current 10 seconds (per user); each search on this page spends one, its SQL included
+                            {{ used }} of {{ limit }} searches used in the current 10 seconds (per user). Each search counts once; the SQL below is shown without searching again
                         {% else %}
                             not counted: the limit is per user, and an anonymous visitor is refused before it
                         {% endif %}
                     </div>
                 </div>
-                {% if viewer %}<a class="button small" href="{{ path('security', {as: viewerId, q: q ?: null, reset: 1}) }}">Reset the count</a>{% endif %}
+                {# the card of a refused search has this button already: one is enough #}
+                {% if viewer and not (outcome and outcome.kind == 'limited') %}<a class="button small" href="{{ path('security', {as: viewerId, q: q ?: null, reset: 1}) }}">Reset the count</a>{% endif %}
             </li>
         </ul>
     </section>
@@ -154,6 +157,6 @@
         </details>
     {% endif %}
 
-    <p class="muted">The viewers are five fixed accounts without passwords: the choice is kept in the session, and nothing about a viewer comes from the request. The search is made with <code>-&gt;asActor()</code>; the other pages of the demo never do, so nothing here applies to them. The guards run from <code>fuzzphony.actor</code>, <code>fuzzphony.authorization</code> and <code>fuzzphony.rate_limit</code> in <code>config/packages/fuzzphony.yaml</code>, and the field's <code>granted: ROLE_HR</code> is on the <code>intranet</code> index. This page is the worked example of <code>docs/security.md</code>.</p>
+    <p class="muted">The viewers are four fixed accounts (and nobody) without passwords: the choice is kept in the session, and nothing about a viewer comes from the request. The search is made with <code>-&gt;asActor()</code>; the other pages of the demo never do, so nothing here applies to them. The guards run from <code>fuzzphony.actor</code>, <code>fuzzphony.authorization</code> and <code>fuzzphony.rate_limit</code> in <code>config/packages/fuzzphony.yaml</code>, and the field's <code>granted: ROLE_HR</code> is on the <code>intranet</code> index. This page is the worked example of <code>docs/security.md</code>.</p>
 </div>
 {% endblock %}

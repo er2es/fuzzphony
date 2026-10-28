@@ -50,10 +50,26 @@ await page.keyboard.type('wireless mou', { delay: 50 });
 await page.waitForSelector('.suggest-panel:not([hidden]) .suggest-item');
 const items = await page.locator('.suggest-panel .suggest-item').count();
 check('the panel offers completions', items > 0, String(items));
+check('combobox: the field names its popup (aria-controls) and the options have ids', await page.evaluate(() => {
+    const input = document.querySelector('input[type=search]');
+    const panel = document.getElementById(input.getAttribute('aria-controls'));
+    return panel !== null && panel.getAttribute('role') === 'listbox' && [...panel.querySelectorAll('[role=option]')].every((o) => o.id !== '');
+}));
+check('combobox: the headings are groups named by their heading, inside the listbox', await page.evaluate(() => {
+    const groups = [...document.querySelectorAll('.suggest-panel [role=group]')];
+    return groups.length > 0 && groups.every((g) => document.getElementById(g.getAttribute('aria-labelledby'))?.textContent !== '' && g.querySelector('[role=option]') !== null);
+}));
+check('combobox: the home page offers the completions only (the categories are the facets next to the results)', await page.evaluate(() => [...document.querySelectorAll('.suggest-panel .suggest-heading')].map((h) => h.textContent).join() === 'Searches'));
+check('combobox: the panel is opaque', await page.evaluate(() => /^rgb\(/.test(getComputedStyle(document.querySelector('.suggest-panel')).backgroundColor)));
 await page.keyboard.press('ArrowDown');
 check('ArrowDown marks the first item', await page.evaluate(() => document.querySelector('.suggest-item.is-active') !== null));
+check('combobox: and the field points at it (aria-activedescendant)', await page.evaluate(() => document.querySelector('input[type=search]').getAttribute('aria-activedescendant') === document.querySelector('.suggest-item.is-active')?.id));
+const typedText = await page.inputValue('input[type=search]');
 await page.keyboard.press('Escape');
 check('Escape closes the panel', await page.evaluate(() => document.querySelector('.suggest-panel')?.hidden === true));
+check('combobox: and leaves the text in the field (it does not empty it, which would leave the results of a gone text)', (await page.inputValue('input[type=search]')) === typedText && (await page.evaluate(() => !document.querySelector('input[type=search]').hasAttribute('aria-activedescendant'))));
+await page.keyboard.press('Escape');
+check('combobox: Escape with the panel closed does not empty the field either', (await page.inputValue('input[type=search]')) === typedText);
 
 // 5. a facet narrows the search
 await page.fill('input[type=search]', 'mouse');
@@ -68,6 +84,14 @@ await go(page, BASE + '/?q=mouse');
 await page.click('.segmented a >> text=Speed');
 await page.waitForSelector('.speed-bars');
 check('Speed shows the bars', (await page.locator('.speed-row').count()) >= 2);
+// the page does not wait for the measuring: this search's own time is there at once while the comparison is still being measured
+const measuring = await context.newPage();
+await measuring.route('**/speed/ilike*', async (route) => { await new Promise((resolve) => setTimeout(resolve, 3000)); await route.continue(); });
+await measuring.goto(BASE + '/?q=mouse&view=speed', { waitUntil: 'load', timeout: 20000 });
+check('speed: the page shows the time of this search at once, while the comparison is still being measured', (await measuring.locator('.speed-bars [aria-busy=true] .speed-row .speed-value').first().innerText()).includes(' ms') && (await measuring.locator('.speed-factor').count()) === 0);
+await measuring.waitForSelector('.speed-factor', { timeout: 20000 });
+check('speed: and then the bars hold the measured medians and the factor', (await measuring.locator('.speed-bars .speed-row').count()) === 2);
+await measuring.close();
 
 // 7. waiting on the server looks the same everywhere: the field shows a spinner and the region dims (aria-busy is the signal)
 const slow = await browser.newContext({ viewport: { width: 1280, height: 800 }, reducedMotion: 'reduce' });
@@ -225,6 +249,21 @@ await page.click('label[for=view-sql]');
 await page.waitForSelector('.panel-sql pre');
 check('the SQL wraps instead of scrolling sideways', await page.evaluate(() => [...document.querySelectorAll('.panel-sql pre')].every((pre) => pre.scrollWidth <= pre.clientWidth + 1)));
 
+// the library's highlight is markup (<mark>), on every list of products, never visible tags
+for (const [path, selector] of [['/?q=hedphones', '#results .hit-row'], ['/relevance?q=mouse', '.hit-row'], ['/languages?lang=fr&q=chevaux', '.hit-row'], ['/tune?query=mouse', '.hit-row']]) {
+    await go(page, BASE + path);
+    await page.waitForSelector(selector);
+    const titles = await page.locator(`${selector} .row-title`).allInnerTexts();
+    check(`highlights are markup, not visible tags: ${path}`, (await page.locator(`${selector} mark`).count()) > 0 && !titles.some((t) => /<\/?mark>/.test(t)), titles.slice(0, 2).join(' | '));
+}
+
+// the ranking profile `popular` of the configuration is a starting point in Tune: its values land in the sliders
+await go(page, `${BASE}/tune?query=mouse`);
+await page.click('.profile-chips .chip >> text=popular');
+const sliderValue = (label) => page.evaluate((l) => [...document.querySelectorAll('.slider')].find((s) => s.innerText.trim().startsWith(l))?.querySelector('input').value, label);
+await page.waitForFunction(() => [...document.querySelectorAll('.slider')].find((s) => s.innerText.trim().startsWith('Recency half-life'))?.querySelector('input').value === '60', null, { timeout: 15000 });
+check('tune: the popular profile fills the sliders from the configuration', (await sliderValue('Popularity boost')) === '0.03' && (await sliderValue('Recency half-life')) === '60');
+
 // both stock chips of Tune narrow the search
 await go(page, BASE + '/tune?query=mouse');
 await page.waitForSelector('.facets .chip');
@@ -234,14 +273,38 @@ await page.click('.facets .chip >> text=out of stock');
 await page.waitForSelector('.facets .chip[aria-pressed=true]');
 check('the out of stock chip is a button that narrows the search', (await page.locator('.facets .chip[aria-pressed=true]').innerText()).startsWith('out of stock') && before > 0);
 
+// a failing live search keeps the old results and says so in one quiet line, which goes away with the next answer
+await go(page, BASE + '/?q=mouse');
+await page.route('**/*', (route) => (route.request().headers()['x-requested-with'] === 'fetch' && !route.request().headers()['x-settled'] ? route.fulfill({ status: 500, body: 'boom' }) : route.continue()));
+await page.fill('input[name=q]', 'mouse pad');
+await page.waitForSelector('.live-error:not([hidden])');
+check('a failed live search keeps the old results and shows a quiet notice', (await page.locator('#results .hit-row').count()) > 0 && /Could not update the results/.test(await page.locator('.live-error').innerText()));
+await page.unrouteAll({ behavior: 'ignoreErrors' });
+await page.fill('input[name=q]', 'mouse');
+await page.waitForSelector('.live-error', { state: 'hidden' });
+check('and the notice goes away with the next answer', (await page.locator('#results .hit-row').count()) > 0);
+
+// the error pages are the demo's own: the shell, the navigation and a way back, with the right status
+const missing = await page.goto(`${BASE}/no-such-page`, { waitUntil: 'load' });
+check('a missing page is a branded 404 with the navigation and a way back', missing?.status() === 404 && (await page.locator('main h1').innerText()) === 'Page not found' && (await page.locator('nav.nav').count()) === 1 && (await page.locator('main a[href="/"]').count()) > 0);
+
 // 10. a phone: the tab bar is at the bottom of the screen
 const phone = await browser.newContext({ viewport: { width: 390, height: 844 }, reducedMotion: 'reduce' });
 const p2 = await phone.newPage();
 await go(p2, BASE + '/');
 const box = await p2.locator('nav.nav').boundingBox();
 check('on a phone the navigation is a tab bar at the bottom', box !== null && box.y > 700, JSON.stringify(box));
+const secPhone = await phone.newPage();
+await go(secPhone, BASE + '/under-the-hood/security?as=hana&q=menu');
+check('security on a phone: a select instead of the row of five buttons', (await secPhone.locator('.viewer-select select').isVisible()) && !(await secPhone.locator('.viewer-links').isVisible()) && (await secPhone.locator('.viewer-select select').inputValue()) === 'hana');
+await Promise.all([secPhone.waitForURL(/as=eve/), secPhone.selectOption('.viewer-select select', 'eve')]);
+check('and choosing a viewer in it changes the viewer and keeps the search', /q=menu/.test(secPhone.url()) && (await secPhone.locator('.callout.is-bad').count()) === 1);
+await secPhone.close();
 await p2.click('.nav .menu summary');
 check('the menu opens upwards from the tab bar', (await p2.locator('.menu-panel a').first().boundingBox())?.y < box.y);
+const menuLink = await p2.locator('.menu-panel a').first().evaluate((a) => ({ size: parseFloat(getComputedStyle(a).fontSize), dir: getComputedStyle(a).flexDirection, panel: getComputedStyle(a.parentElement).backgroundColor, height: a.getBoundingClientRect().height }));
+check('on a phone the links of the menu are rows of normal size, not tab-bar captions', menuLink.size >= 15 && menuLink.dir === 'row' && menuLink.height >= 44, JSON.stringify(menuLink));
+check('and the panel is opaque', /^rgb\(/.test(menuLink.panel), menuLink.panel);
 
 // 11. the Security page (docs/security.md): who searches decides what a search may see. A fresh browser context, so the viewer chosen on the
 // page (kept in the session) is its own. The limit is 5 searches in 10 seconds; reset=1 forgets the viewer's searches of the window
@@ -252,6 +315,14 @@ const sec = await secContext.newPage();
 sec.setDefaultTimeout(8000);
 const viewing = (q, as, extra = '') => `${BASE}/under-the-hood/security?as=${as}&q=${q}${extra}`;
 const sqlOf = async (p) => (await p.locator('.disclosure pre').allTextContents()).join(' ');
+
+// a first visit opens on Ada and an answer, not on a refusal; Anonymous is the last choice; there is one reset button at a time
+const fresh = await (await browser.newContext({ viewport: { width: 1280, height: 800 }, reducedMotion: 'reduce' })).newPage();
+await go(fresh, `${BASE}/under-the-hood/security?q=menu`);
+check('security: a first visit is Ada, with an answer and no refusal', (await fresh.locator('.viewer-links [aria-current]').innerText()) === 'Ada' && (await fresh.locator('.callout.is-bad').count()) === 0 && (await fresh.locator('.hit-row').count()) > 0);
+check('security: Anonymous is the last choice', (await fresh.locator('.viewer-links a').last().innerText()) === 'Anonymous');
+check('security: the reset button is shown once on the page', (await fresh.locator('a.button', { hasText: 'Reset the count' }).count()) === 1);
+await fresh.context().close();
 
 await go(sec, viewing('salary', 'hana', '&reset=1'));
 check('security: HR finds notes by a word that is only in the hidden field', (await sec.locator('.hit-row').count()) > 0);
@@ -336,7 +407,7 @@ for (let attempt = 0; attempt < 8; attempt++) {
 const adaRow = rowOf(allRows, adaWord)[0] ?? [];
 const anonRow = rowOf(allRows, anonWord)[0] ?? [];
 const eveRow = rowOf(allRows, eveWord)[0] ?? [];
-check('who: a search of the Security page as Ada is listed with her name, her company, the intranet and "answered"', adaRow[1] === 'Ada' && adaRow[2] === 'Acme' && adaRow[3] === 'intranet' && adaRow[6] === 'answered', adaRow.join(' | '));
+check('who: a search of the Security page as Ada is listed with her name, her company, the intranet and "found nothing" (it answered, with no hit)', adaRow[1] === 'Ada' && adaRow[2] === 'Acme' && adaRow[3] === 'intranet' && adaRow[6] === 'found nothing', adaRow.join(' | '));
 check('who: the anonymous refusal is a denied row without a user', anonRow[1] === 'anonymous' && anonRow[6] === 'denied', anonRow.join(' | '));
 check('who: the refusal of Eve is a denied row with her name', eveRow[1] === 'Eve (guest)' && eveRow[6] === 'denied', eveRow.join(' | '));
 check('who: the typed text of an answered search is listed once, not twice', rowOf(allRows, adaWord).length === 1, String(rowOf(allRows, adaWord).length));
@@ -359,42 +430,68 @@ check('the observability page points to who searched what', (await page.locator(
 
 // 14. the zero-result rescue: a typo that finds nothing, and has one word of the catalogue exactly one letter away, is answered with the results
 // of that word under a bar that says so ("Showing results for ..."), with a link that searches the typed text as it is (exact=1). The home page
-// searches as you type, which the library never rescues, so the page searches once more as a finished text when that finds nothing, but
-// only for a search the visitor means (Enter, a chip, a link, a page load, or typing that has settled: 1.5 s), never while the text is typed.
-// `kpttle` (kettle) and `mpuse` (mouse) are one replaced letter in the middle of a word: typo tolerance does not find them, the rescue does.
+// searches as you type, which the library never rescues, so a text that finds nothing is answered with "Searching for a correction..." and the
+// browser asks at once for the rescue (no waiting for the typing to settle, no "Nothing found" in between); a word that finds results is never
+// rescued while it is typed. `kpttle` (kettle) and `mpuse` (mouse) are one replaced letter in the middle of a word: typo tolerance does not find
+// them, the rescue does.
 const resultsSettled = async (p, fragment) => {
     await p.waitForFunction((f) => location.search.includes(f), fragment);
     await p.waitForSelector('#results:not([aria-busy="true"])');
 };
 await go(page, BASE + '/');
 await page.click('input[type=search]');
+// what the results region said, whenever it changed: "Nothing found for kpttle" must never be among it
+await page.evaluate(() => {
+    window.__said = [];
+    new MutationObserver(() => window.__said.push(document.querySelector('#results .empty')?.innerText ?? '')).observe(document.querySelector('#results'), { childList: true, subtree: true });
+});
+// the settle request (the one that logs the search, 1.5 s after the last key) is held back for 8 s: the bar must not depend on it
+let settleHeld = false;
+await page.route('**/*', async (route) => {
+    if (route.request().headers()['x-settled'] === '1' && route.request().url().includes('q=kpttle')) {
+        settleHeld = true;
+        await new Promise((resolve) => setTimeout(resolve, 8000));
+        settleHeld = false;
+    }
+    await route.continue().catch(() => {});
+});
 await page.keyboard.type('kpttle', { delay: 50 });
-await resultsSettled(page, 'q=kpttle');
 const bar = page.locator('#results .corrected');
-check('rescue: while the text is still being typed there is no bar, only the plain as-you-type answer', (await bar.count()) === 0 && (await page.locator('#results .hit-row').count()) === 0 && /Nothing found/.test(await page.locator('#results .empty').innerText()));
-await page.waitForSelector('#results .corrected', { timeout: 6000 }); // the settled text (1.5 s) is searched once more, and rescued
-check('rescue: once the typing has settled a typo that finds nothing shows the bar with the corrected query', (await bar.count()) === 1 && /Showing results for\s+\S*kettle/.test(await bar.innerText()), (await bar.allInnerTexts()).join('|'));
+await page.waitForSelector('#results .corrected', { timeout: 6000 });
+check('rescue: a typo that finds nothing shows the bar with the corrected query at once, not after the typing has settled', (await bar.count()) === 1 && /Showing results for\s+\S*kettle/.test(await bar.innerText()), (await bar.allInnerTexts()).join('|'));
+await page.waitForTimeout(1800);
+check('rescue: (the settle request that logs it was held back meanwhile, so the bar did not wait for it)', settleHeld === true);
+await page.unrouteAll({ behavior: 'ignoreErrors' });
+check('rescue: and the page never said "Nothing found" for it on the way (it said it was looking for a correction)', !(await page.evaluate(() => window.__said)).some((t) => /Nothing found for “kpttle”/.test(t)) && (await page.evaluate(() => window.__said)).some((t) => /Searching for a correction/.test(t)), (await page.evaluate(() => window.__said)).join(' | '));
 check('rescue: and the results of the corrected query', (await page.locator('#results .hit-row').count()) > 0);
 check('rescue: and no second sentence for the same thing in the warnings', (await page.locator('#results .warnings').count()) === 0);
 check('rescue: and no "did you mean" (the suggestion was taken)', (await page.locator('#results .did-you-mean').count()) === 0);
 const insteadLink = bar.locator('a');
+check('rescue: the bar names the corrected word, not the expanded query', (await bar.locator('strong').innerText()) === 'kettle', await bar.locator('strong').innerText());
+check('a11y: the results region is not a live region; a short status line announces the result instead', (await page.locator('#results[aria-live]').count()) === 0 && (await page.locator('#results').evaluate((el) => el.closest('[aria-live]') === null)) && /kettle/.test(await page.locator('[role=status][data-live-search-target=status]').innerText()) && (await page.locator('[role=status][data-live-search-target=status]').innerText()).length < 120, await page.locator('[role=status][data-live-search-target=status]').textContent());
 check('rescue: the link says what it searches, in the typed words', (await insteadLink.innerText()) === 'Search for “kpttle” instead', await insteadLink.innerText());
 check('rescue: and it asks for the exact text', ((await insteadLink.getAttribute('href')) ?? '').includes('exact=1'));
-check('rescue: the notice is part of the live region the results are announced from', await page.evaluate(() => document.querySelector('#results .corrected')?.closest('[aria-live]')?.id === 'results'));
 
 // typing on to a query that finds something removes the bar (it belongs to the fragment the live search replaces)
 await page.fill('input[name=q]', 'kettle');
 await resultsSettled(page, 'q=kettle');
 check('rescue: a following search that needs no rescue removes the bar', (await page.locator('#results .corrected').count()) === 0 && (await page.locator('#results .hit-row').count()) > 0);
 await page.fill('input[name=q]', 'kpttle');
-await resultsSettled(page, 'q=kpttle');
-check('rescue: typing the typo again shows no bar at first', (await page.locator('#results .corrected').count()) === 0);
 await page.waitForSelector('#results .corrected', { timeout: 6000 });
-check('rescue: and the settled text brings it back', (await page.locator('#results .corrected').count()) === 1 && (await page.locator('#results .hit-row').count()) > 0);
+check('rescue: typing the typo again brings it back', (await page.locator('#results .corrected').count()) === 1 && (await page.locator('#results .hit-row').count()) > 0);
 await page.fill('input[name=q]', 'kettle');
 await page.waitForSelector('#results .hit-row');
 await page.waitForFunction(() => document.querySelectorAll('#results .corrected').length === 0);
 check('rescue: and a search that needs no rescue takes it away again', (await page.locator('#results .corrected').count()) === 0);
+// the owner's rule: a word that finds results is never rescued while it is typed, whatever the next letter will make of it
+await page.fill('input[name=q]', '');
+await page.keyboard.type('wireles mou', { delay: 50 });
+await resultsSettled(page, 'q=wireles');
+check('rescue: a text that finds results (typo tolerance, a half-typed word) shows no bar while it is typed', (await page.locator('#results .corrected').count()) === 0 && (await page.locator('#results .hit-row').count()) > 0);
+// the rescue is not for a text with nothing close: after the request for it, the answer is "Nothing found"
+await page.fill('input[name=q]', `qzxv${suffix}7`);
+await page.waitForFunction(() => /Nothing found/.test(document.querySelector('#results .empty')?.innerText ?? ''));
+check('rescue: a text nothing can rescue ends in "Nothing found", not in "Searching for a correction"', !/Searching for a correction/.test(await page.locator('#results').innerText()));
 // Enter is a search the visitor means: a page load, rescued at once
 await page.fill('input[name=q]', 'kpttle');
 await Promise.all([page.waitForURL(/q=kpttle/), page.keyboard.press('Enter')]);
@@ -416,6 +513,18 @@ for (const [what, q, hits] of [['a normal query', 'mouse', true], ['a typo that 
     await go(page, `${BASE}/?q=${encodeURIComponent(q)}`);
     check(`rescue: ${what} shows no bar`, (await page.locator('.corrected').count()) === 0 && ((await page.locator('#results .hit-row').count()) > 0) === hits);
 }
+
+// nothing found: one block across the whole results area (not in the narrow facet column), no repeated examples, no "0 products" headline
+await go(page, `${BASE}/?q=qzxv${suffix}6`);
+const emptyBox = await page.locator('#results .empty').boundingBox();
+const resultsBox = await page.locator('#results .results').boundingBox();
+check('nothing found: the message spans the results area', emptyBox !== null && resultsBox !== null && emptyBox.width > resultsBox.width * 0.9, JSON.stringify([emptyBox, resultsBox]));
+check('nothing found: no copy of the example chips and no "0 products" headline', (await page.locator('#results .empty .chip').count()) === 0 && (await page.locator('#results .stat').count()) === 0);
+
+// a typo that typo tolerance already found says "Including results for ...", not "Did you mean": the results are the suggestion's
+await go(page, `${BASE}/?q=hedphones`);
+check('a typo that typo tolerance finds says "Including results for headphones", with no question', /^Including results for\s+headphones$/.test((await page.locator('#results .did-you-mean').innerText()).trim()) && (await page.locator('#results .did-you-mean a').count()) === 0);
+check('the headline no longer carries the expanded query; the disclosure does', !(await page.locator('#results .stat-caption').innerText()).includes('understood as') && /understood as/.test(await page.locator('#results .disclosure').textContent()));
 
 // the visitor's own words are escaped, in the bar and in the "nothing found" line: no element comes out of them
 const hostile = 'mpuse<>"\'&';
@@ -462,8 +571,57 @@ check('rescue: the same text searched "instead" (exact) is logged as the search 
 check('rescue: who searched what lists the typed text with the hits of the rescued search', rescuedHits.length > 0 && rescuedHits.every((h) => h !== '0'), rescuedHits.join(', '));
 await go(page, BASE + '/under-the-hood/observability?q=mpuse');
 check('rescue: the observability page counts a rescued search', /fuzzphony\.search\.rescued/.test(await page.locator('body').innerText()));
-await go(page, BASE + '/relevance?q=kpttle'); // (logged as a search that found nothing: not the typo of the Analytics checks above)
+await go(page, BASE + '/relevance?q=kpttle'); // (not logged: the page runs searches of its own)
 check('rescue: the Relevance page shows what each rule finds, not a rescue (the price of a letter replaced in the middle)', /\b0 hits/.test(await page.locator('body').innerText()));
+// the Relevance and Synonyms pages run searches of their own (forced typo tolerance, a flat similarity, a suggestion): none is logged
+const relWord = `relw${suffix}`;
+for (const path of ['/relevance?q=', '/under-the-hood/synonyms?q=']) {
+    for (let i = 0; i < 3; i++) {
+        await go(page, BASE + path + relWord);
+    }
+}
+await page.waitForTimeout(1500);
+check('the Relevance and Synonyms pages log nothing', !(await listRows('')).some((r) => r[4] === relWord));
+
+// a search the visitor means is logged once, with the hits it found: the probe that decided what to answer is not a row of its own, and the
+// run that logs a found search happens after the response (kernel.terminate), so the row may come a moment later
+const onceWord = `mouse${[...suffix].reverse().join('')}`;
+await go(page, `${BASE}/?q=${onceWord}`);
+let onceRows = [];
+for (let attempt = 0; attempt < 8 && onceRows.length === 0; attempt++) {
+    await page.waitForTimeout(500);
+    onceRows = rowOf(await listRows(''), onceWord);
+}
+await page.waitForTimeout(1500);
+onceRows = rowOf(await listRows(''), onceWord);
+check('a search that found something is logged once, with its hits', onceRows.length === 1 && onceRows[0][5] !== '0', onceRows.map((r) => r.join(' | ')).join(' / '));
+
+// a total at the candidate cap is "2,000+", not "2,000.0" (the table of the most searched) or a bare 2,000 (the list)
+await go(page, `${BASE}/?q=wireless`);
+await page.waitForTimeout(2000);
+await go(page, `${BASE}/under-the-hood/analytics`);
+const analyticsText = await page.locator('main').innerText();
+check('analytics: a capped total is shown as 2,000+', /2,000\+/.test(analyticsText) && !/2,000\.0|2,000(?!\+)/.test(analyticsText), (analyticsText.match(/.{20}2,000.{10}/g) ?? []).join(' / '));
+
+// small things the accessibility check found
+await go(page, `${BASE}/relevance?q=tv`);
+const h2s = (await page.locator('main h2').allTextContents()).map((t) => t.trim());
+check('relevance: no two headings of level 2 have the same text', new Set(h2s).size === h2s.length, h2s.join(' | '));
+await go(page, `${BASE}/tune?query=mouse`);
+check('tune: the sliders are 24 px tall at least and the view switch has no frame of its own', (await page.locator('input[type=range]').evaluateAll((els) => els.every((e) => e.getBoundingClientRect().height >= 24))) && (await page.locator('fieldset.segmented').evaluate((f) => getComputedStyle(f).borderTopWidth)) === '0px');
+await go(page, `${BASE}/under-the-hood/doctor`);
+check('doctor: a skipped check does not wear the disclosure chevron', (await page.locator('.status-dot use[href="#i-chevron"]').count()) === 0);
+await go(p2, `${BASE}/under-the-hood/analytics`);
+check('analytics on a phone: a table that scrolls sideways can be reached with the keyboard and has a name', await p2.locator('.table-card').evaluateAll((els) => els.every((e) => e.scrollWidth <= e.clientWidth || (e.tabIndex === 0 && e.getAttribute('role') === 'region' && e.hasAttribute('aria-label')))));
+
+// microcopy
+await go(page, BASE + '/');
+check('home: one line says what Fuzzphony is, with links to the repository and the documentation', (await page.locator('.hero .about a[href*="github.com/er2es/fuzzphony"]').count()) === 2 && /PostgreSQL/.test(await page.locator('.hero .about').innerText()));
+await go(page, `${BASE}/under-the-hood/observability`);
+const observed = await page.locator('main').innerText();
+check('observability: milliseconds with one decimal and counts in plain words', /[\d,]+\.\d ms/.test(observed) && !/\d\.\d{3} ms/.test(observed) && !/item\(s\)/.test(observed), observed.slice(0, 400));
+await go(page, `${BASE}/languages?lang=en&q=telly`);
+check('languages: the merged list shows ranks, not scores of different indexes', (await page.locator('section[aria-labelledby=all] .row-trailing').first().innerText()).trim() === '#1' && /found through its synonyms/.test(await page.locator('aside[aria-labelledby=analysis]').innerText()));
 
 await secContext.close();
 

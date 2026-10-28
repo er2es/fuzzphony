@@ -107,6 +107,26 @@ final class Playground
         $this->category = $this->category === $name ? '' : mb_substr($name, 0, 40);
     }
 
+    /**
+     * The ranking sliders take the values of a profile of the catalogue index (`default`, or `popular` in config/packages/fuzzphony.yaml):
+     * the profile is read from the index definition, so the page and the configuration cannot drift apart.
+     */
+    #[LiveAction]
+    public function startFrom(#[LiveArg] string $name): void
+    {
+        if (!in_array($name, ['default', 'popular'], true)) {
+            return;
+        }
+        $profile = $this->fuzzphony->registry()->get('catalog')->profile($name);
+        $this->text = $profile->text;
+        $this->fuzzy = $profile->fuzzy;
+        $this->exactBonus = $profile->exactBonus;
+        $this->prefixBonus = $profile->prefixBonus;
+        $this->boost = $profile->boost;
+        $this->recency = $profile->recency;
+        $this->halfLife = $profile->recencyHalfLifeDays;
+    }
+
     #[LiveAction]
     public function toggleInStock(): void
     {

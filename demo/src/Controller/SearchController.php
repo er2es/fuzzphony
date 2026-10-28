@@ -5,15 +5,19 @@ declare(strict_types=1);
 namespace App\Controller;
 
 use App\Service\Catalog;
+use App\Service\Examples;
 use App\Service\Facets;
 use App\Service\Measure;
 use Fuzzphony\Core\Exception\FuzzphonyException;
 use Fuzzphony\Core\Fuzzphony;
 use Fuzzphony\Core\Search\SearchBuilder;
+use Fuzzphony\Core\Search\SearchResult;
 use Symfony\Bundle\FrameworkBundle\Controller\AbstractController;
 use Symfony\Component\HttpFoundation\Request;
 use Symfony\Component\HttpFoundation\Response;
+use Symfony\Component\HttpKernel\KernelEvents;
 use Symfony\Component\Routing\Attribute\Route;
+use Symfony\Contracts\EventDispatcher\EventDispatcherInterface;
 
 /**
  * The home page: one search field over the catalogue. The results appear in place while you type (the page answers a
@@ -22,31 +26,17 @@ use Symfony\Component\Routing\Attribute\Route;
  */
 final class SearchController extends AbstractController
 {
-    /** The tokens under the field: label => query, grouped by what they show. */
-    public const array EXAMPLES = [
-        'accent' => 'creme',
-        'typo' => 'hedphones',
-        'stemming' => 'drills',
-        'phrase + exclude' => '"noise cancelling" -headphones',
-        'field' => 'category:kitchen kettle',
-        'exact field' => 'brand:sony headphones',
-        'prefix' => 'ergono*',
-    ];
-
-    /** What the field's suggestions suggest to try: the three things the demo is about. */
-    private const array TRY = [
-        'Typos' => 'hedphones',
-        'Beginnings' => 'cr',
-        'Meaning' => 'tv',
-        'Accents' => 'creme',
-        'Word forms' => 'drills',
-    ];
-
     /** Like the Languages page: the ILIKE fragment is a public endpoint that scans the whole table. */
     private const int MAX_QUERY = 100;
 
+    /** A live answer for fewer letters is "Nothing found" at once: one letter always finds something, and the settle (live_search_controller.js) starts at two. */
+    private const int RESCUE_MIN = 2;
+
+    /** What a total or a facet counts at most: the default `candidate_limit`, which the page names where it shows a count as "2,000+". */
+    private const int CANDIDATE_CAP = 2000;
+
     #[Route('/', name: 'search')]
-    public function __invoke(Request $request, Fuzzphony $fuzzphony, Catalog $catalog, Facets $facets): Response
+    public function __invoke(Request $request, Fuzzphony $fuzzphony, Catalog $catalog, Facets $facets, EventDispatcherInterface $dispatcher): Response
     {
         $q = self::normalizeQuery($request);
         $view = (string) $request->query->get('view') === 'speed' ? 'speed' : 'results';
@@ -61,17 +51,20 @@ final class SearchController extends AbstractController
         // the settled query is: a full page load, or the live search's one silent repeat after the text has stood for a moment
         $live = $request->headers->get('X-Requested-With') === 'fetch';
         $logged = !$live || $request->headers->get('X-Settled') === '1';
+        // a live answer that found nothing is followed at once by one more request marked X-Rescue (unlogged), which may rescue it
+        $rescuing = $live && $request->headers->get('X-Rescue') === '1';
 
         // "Search for <what I typed> instead" (the link of the bar): the text is searched as typed, without the zero-result rescue
         $exact = $request->query->getBoolean('exact');
 
         // The field searches as you type (the last word also matches as a beginning), and the library never rescues such a search:
-        // the last word is not finished. The rescue is for a search the visitor means: a request that counts ($logged: a page load, a
-        // chip, Enter, or typing that has SETTLED, see live_search_controller.js) searches in two steps: as you type; and only when that
-        // finds nothing, the text once more as a finished one, where a typo with a unique one-edit correction (`mpuse` -> `mouse`) is
-        // rescued (SearchResult::$correctedFrom). While the visitor is still typing (an unlogged live request) there is only the plain
-        // as-you-type search and no bar. The first step is a probe and never logged; the search that answers is logged (once), so the
-        // Analytics page sees `mpuse` with the rescued hits, not as a search that found nothing.
+        // the last word is not finished. The rescue is for a text that found nothing even so: the text once more as a finished one, where
+        // a typo with a unique one-edit correction (`mpuse` -> `mouse`) is rescued (SearchResult::$correctedFrom). A search the visitor
+        // means ($logged: a page load, a chip, Enter, or typing that has SETTLED, see live_search_controller.js) does both steps in this
+        // request. While the visitor is still typing, an empty answer is not shown as "Nothing found": the page says it is looking for a
+        // correction ($pending) and the browser asks at once for the rescue (X-Rescue); a word that finds results is never rescued, so
+        // the bar cannot appear under a word that is still being typed. The first step is a probe and never logged; the search that
+        // answers is logged (once), so the Analytics page sees `mpuse` with the rescued hits, not as a search that found nothing.
         $build = static function (bool $asYouType, bool $log) use ($fuzzphony, $facets, $q, $category, $stock, $exact): SearchBuilder {
             $search = $fuzzphony->in('catalog')->query($q)->highlight('name')->limit(20);
             $search = $facets->narrow($asYouType ? $search->asYouType() : $search, $category, $stock);
@@ -84,24 +77,30 @@ final class SearchController extends AbstractController
         $rows = [];
         $categories = $stockValues = [];
         $error = null;
-        $speed = null;
+        $pending = false;
+        $asYouType = true;
         if ($q !== '') {
             try {
-                $asYouType = true;
                 $result = $build(true, false)->facets('category_id', 'in_stock')->get();
-                if ($result->total === 0 && !$exact && $logged) {
+                if ($result->total === 0 && !$exact && ($logged || $rescuing)) {
                     $asYouType = false;
                     $result = $build(false, $logged)->facets('category_id', 'in_stock')->get();
+                } elseif ($result->total === 0 && !$exact && $live && mb_strlen($q) >= self::RESCUE_MIN) {
+                    $pending = true;
                 } elseif ($logged) {
-                    $result = $build(true, true)->facets('category_id', 'in_stock')->get();
+                    // the probe found hits and the search is meant: the library logs a search only by running it, so the logged run
+                    // is the one that answers nothing and waits for nothing: it runs after the response has been sent (kernel.terminate)
+                    $dispatcher->addListener(KernelEvents::TERMINATE, static function () use ($build): void {
+                        try {
+                            $build(true, true)->facets('category_id', 'in_stock')->get();
+                        } catch (FuzzphonyException) {
+                            // the answer has gone out already; a log row that cannot be written is the library's to count
+                        }
+                    }, 10); // before the library writes the buffered log rows (its kernel.terminate listener has priority 0)
                 }
                 $rows = $catalog->rows($result->ids());
                 $categories = $facets->categories($result->facets['category_id'] ?? []);
                 $stockValues = $result->facets['in_stock'] ?? [];
-                if ($view === 'speed') {
-                    // the measured search is the one that answered, without facets: what a search box waits for
-                    $speed = Measure::median(static fn () => $facets->narrow($fuzzphony->in('catalog')->query($q)->asYouType($asYouType)->limit(20)->unlogged(), $category, $stock)->get());
-                }
             } catch (FuzzphonyException $e) {
                 $error = $e->getMessage();
             }
@@ -118,10 +117,13 @@ final class SearchController extends AbstractController
             'stock' => $stock,
             'exact' => $exact,
             'error' => $error,
-            'speed' => $speed,
+            'asYouType' => $asYouType,
             'warmRuns' => Measure::WARM_RUNS,
             'rowEstimate' => $catalog->estimatedProductCount(),
-            'examples' => self::TRY,
+            'examples' => Examples::HOME,
+            'pending' => $pending,
+            'cap' => self::CANDIDATE_CAP,
+            'correctedTo' => $result === null ? null : self::correctedTo($result),
         ];
 
         // the live search asks for the region only
@@ -132,24 +134,52 @@ final class SearchController extends AbstractController
         return $this->render('search/index.html.twig', $data);
     }
 
-    /** The comparison bars of the Speed view: the ILIKE side is measured here, fetched after the page has rendered (ilike_controller.js). */
+    /**
+     * The comparison bars of the Speed view, measured after the page has rendered (ilike_controller.js): the page itself shows the search's own
+     * time at once. Both sides are measured here the same way (one cold run, then the warm median), for the search that answered
+     * (`ay`: as you type or the finished text), without its facets: what a search box waits for.
+     */
     #[Route('/speed/ilike', name: 'search_ilike')]
-    public function ilike(Request $request, Catalog $catalog): Response
+    public function ilike(Request $request, Fuzzphony $fuzzphony, Catalog $catalog, Facets $facets): Response
     {
         $q = self::normalizeQuery($request);
-        $without = $q !== '' ? Measure::median(static fn (): array => $catalog->ilike($q)) : null;
+        $category = mb_substr(trim((string) $request->query->get('cat', '')), 0, 40);
+        $stock = match ((string) $request->query->get('stock', '')) {
+            '1' => true,
+            '0' => false,
+            default => null,
+        };
+        $asYouType = $request->query->get('ay', '1') !== '0';
+        $without = $with = null;
+        if ($q !== '') {
+            try {
+                $with = Measure::median(static fn () => $facets->narrow($fuzzphony->in('catalog')->query($q)->asYouType($asYouType)->limit(20)->unlogged(), $category, $stock)->get());
+                $without = Measure::median(static fn (): array => $catalog->ilike($q));
+            } catch (FuzzphonyException) {
+                // the page above has shown the error; the bars stay empty
+            }
+        }
 
-        return $this->render('search/_bars.html.twig', [
-            'without' => $without,
-            'fuzzphony_ms' => max(0.01, (float) $request->query->get('fz', '0')),
-            'q' => $q,
-        ]);
+        return $this->render('search/_bars.html.twig', ['without' => $without, 'with' => $with, 'q' => $q]);
     }
 
-    /** @return array<string, string> label => query, the nine queries of the benchmark */
-    public static function benchmarkQueries(): array
+    /**
+     * The text the rescued search was made with (`mouse` for `mpuse`). The library names it only in the warning of the rescue
+     * ("No results for 'mpuse'; showing results for 'mouse'."), not in a property: SearchResult::$interpretedAs is the expanded query
+     * ("(mouse OR mice)"). Null when the search was not rescued or the sentence is not that one: the page then shows the expanded query.
+     */
+    private static function correctedTo(SearchResult $result): ?string
     {
-        return self::EXAMPLES + ['plain word' => 'wireless', 'two words' => 'wireless mouse'];
+        if ($result->correctedFrom === null) {
+            return null;
+        }
+        foreach ($result->warnings as $warning) {
+            if (preg_match("/^No results for '.*'; showing results for '(.+)'\.$/su", $warning, $m) === 1) {
+                return $m[1];
+            }
+        }
+
+        return null;
     }
 
     private static function normalizeQuery(Request $request): string

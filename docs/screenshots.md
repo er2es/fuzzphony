@@ -7,16 +7,16 @@ What the [demo](../demo/README.md) looks like: a Symfony app on a seeded catalog
 
 One search field over the whole catalogue. The results appear in place while you type, with the category and
 availability facets at the side. Here the typo `hedphones` still finds headphones (the search is typo tolerant and reads the
-last word as a beginning too: `(hedphones OR hedphones*)`), "Did you mean headphones?" offers the corrected spelling, and the
-number at the top is how long PostgreSQL took.
+last word as a beginning too), the highlight shows what matched, "Including results for headphones" says what the typo was
+taken for, and the number at the top is how long PostgreSQL took. How the text was understood is one disclosure away ("How this was searched").
 
-![Search: the typo "hedphones" finds headphones, with "Did you mean", facets and the time taken](image/search-typo.png)
+![Search: the typo "hedphones" finds headphones, with "Including results for headphones", highlights, facets and the time taken](image/search-typo.png)
 
 ## Search: the zero-result rescue
 
 `mpuse` (a letter replaced in the middle of `mouse`) is not found by typo tolerance, but the vocabulary has exactly one word one edit
-away, so (once the typing has settled, or on Enter) the search is run once more with it and a bar above the results says so: "Showing results for `(mouse OR mice)`"
-(the synonyms of the corrected query show), with a link that searches the typed text as it is (`exact=1`). See
+away, so the search is run once more with it (at once, also while typing: the page says "Searching for a correction..." until it has the answer) and a bar above the
+results says so: "Showing results for mouse", with a link that searches the typed text as it is (`exact=1`). See
 [Zero-result rescue](searching.md#zero-result-rescue).
 
 ![Search: "mpuse" is answered with the results for mouse, under a bar with a link to search for mpuse instead](image/search-rescue.png)
@@ -24,7 +24,7 @@ away, so (once the typing has settled, or on Enter) the search is run once more 
 ## Synonyms, and the "Under the hood" menu
 
 `tv` finds the television that is called "Smart Television" and the "TV Wall Bracket": the synonyms of the catalogue are part
-of the search (`((tv OR television OR telly) OR tv*)`, shown under the number). The open menu lists the pages that show what is
+of the search (the expanded query, `((tv OR television OR telly) OR tv*)`, is under "How this was searched"). The open menu lists the pages that show what is
 going on inside: the configuration wizard, the benchmark, the doctor report, observability, the synonym editor, the
 [analytics](analytics.md) of what people searched for and the [security](security.md) example.
 

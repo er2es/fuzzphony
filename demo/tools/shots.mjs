@@ -5,7 +5,8 @@
 //   docker run --rm -v "$PWD/demo/tools:/work" -v "$PWD/build/shots:/out" -e BASE=http://host.docker.internal:8099 \
 //       mcr.microsoft.com/playwright:v1.55.0-noble sh -c "cd /work && npm i --no-save --no-audit --no-fund playwright@1.55.0 @axe-core/playwright >/dev/null 2>&1 && node shots.mjs"
 //
-// Writes <out>/<page>-<viewport>-<scheme>.png and prints the axe violations (light scheme, desktop) per page.
+// Writes <out>/<page>-<viewport>-<scheme>.png and prints the axe violations (WCAG 2.2 AA) of every page at every width and in both colour
+// schemes: some violations exist only on a phone (a scrolling table, the menu) or only in the dark scheme.
 import { chromium } from 'playwright';
 import AxeBuilder from '@axe-core/playwright';
 
@@ -27,15 +28,16 @@ const pages = JSON.parse(process.env.PAGES ?? JSON.stringify([
     { name: 'doctor', path: '/under-the-hood/doctor' },
     { name: 'observability', path: '/under-the-hood/observability' },
     { name: 'analytics', path: '/under-the-hood/analytics' },
-    // each context is a new visitor: the default viewer is nobody; reset=1 forgets the viewer's searches of the 10-second window (demo only); `before` are requests made first
+    // each context is a new visitor: the default viewer is Ada; reset=1 forgets the viewer's searches of the 10-second window (demo only); `before` are requests made first
     // (five searches as Ada, so that the page itself is the refused sixth, with its countdown)
-    { name: 'security', path: '/under-the-hood/security?q=salary' },
+    { name: 'security', path: '/under-the-hood/security?q=salary' }, // a first visit: Ada
+    { name: 'security-anonymous', path: '/under-the-hood/security?as=anonymous&q=salary' },
     { name: 'security-hana', path: '/under-the-hood/security?as=hana&q=salary&reset=1' },
     { name: 'security-eve', path: '/under-the-hood/security?as=eve&q=salary' },
     { name: 'security-limited', path: '/under-the-hood/security?as=ada&q=menu', before: ['reset=1', 'q=menu', 'q=menu', 'q=menu', 'q=menu', 'q=menu'].map((x) => `/under-the-hood/security?as=ada&${x}`) },
     { name: 'security-ada', path: '/under-the-hood/security?as=ada&q=salary&reset=1' },
 ]));
-const viewports = { phone: { width: 390, height: 844 }, laptop: { width: 1280, height: 800 } };
+const viewports = { phone: { width: 390, height: 844 }, tablet: { width: 820, height: 1180 }, laptop: { width: 1280, height: 800 } };
 // interactions: typing into the search box and capturing the suggestion panel
 const flows = JSON.parse(process.env.FLOWS ?? JSON.stringify([
     { name: 'suggest-home', path: '/', type: 'wireless mou', selector: 'input[type=search]' },
@@ -65,10 +67,10 @@ for (const page of pages) {
                 console.log(`! ${page.name} ${vpName} ${scheme}: horizontal overflow of ${overflow}px`);
                 failures++;
             }
-            if (vpName === 'laptop' && scheme === 'light') {
-                const result = await new AxeBuilder({ page: p }).analyze();
+            {
+                const result = await new AxeBuilder({ page: p }).withTags(['wcag2a', 'wcag2aa', 'wcag21a', 'wcag21aa', 'wcag22aa', 'best-practice']).analyze();
                 for (const v of result.violations) {
-                    console.log(`! axe ${page.name}: ${v.id} (${v.impact}) x${v.nodes.length}: ${v.help}`);
+                    console.log(`! axe ${page.name} ${vpName} ${scheme}: ${v.id} (${v.impact}) x${v.nodes.length}: ${v.help}`);
                     for (const n of v.nodes.slice(0, 3)) console.log(`    ${n.html.slice(0, 140)}`);
                     failures++;
                 }

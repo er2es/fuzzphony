@@ -10,14 +10,15 @@
         {{ ui.search_field(path('relevance'), q, 'catalog', 'Try mose, tv or hedphones') }}
     </div>
 
-    <div class="example-groups">
+    <section class="example-groups" aria-labelledby="examples">
+        <h2 id="examples" class="sr-only">Examples</h2>
         {% for group, items in examples %}
             <div>
-                <h2 class="list-title">{{ group }}</h2>
+                <h3 class="list-title">{{ group }}</h3>
                 {{ ui.examples(items, 'relevance') }}
             </div>
         {% endfor %}
-    </div>
+    </section>
 
     {% if byLength %}
         <section aria-labelledby="typos" class="stack">

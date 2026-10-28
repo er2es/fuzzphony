@@ -26,6 +26,12 @@ changes; they are always listed under **Breaking** and explained in [UPGRADE.md]
 
 ### Changed
 
+- **Demo: the rescue and the search page.** A text that finds nothing is rescued at once (no "Nothing found" flash, no waiting for the typing to settle); the
+  bar names the corrected word; a found search is logged after the response, not by a second run before it; the Speed view opens at once.
+- **Demo: accessibility and the Security page.** One short status line instead of a live results region, the full combobox pattern in the dropdown, a
+  readable phone menu, focusable scrolling tables, 24 px targets; the Security page opens on Ada, with a select on phones. `shots.mjs` has a tablet width and runs axe everywhere.
+- **Demo: Analytics and errors.** Relevance and Synonyms no longer log searches, capped totals read `2,000+`, the log-table hint appears only for a missing table or column,
+  and a stopped database shows the demo's own error page after at most a few seconds.
 - **`fuzzphony:schema --apply` reminds you to restart long-running processes when it added a `tsv_capped` or `actor_ip` column to an existing table** (the engine looks those columns up once per process), and the doctor's warnings about the missing columns say the same.
 - **An exact word is never ranked below its look-alikes in a capped typo search.** A full-text match outside the first typo candidates keeps its typo score (`mousse` lists the three `mousse cake` documents first); a restricted viewer's typo candidates are the best by the page's sort key, within a work budget, so a hidden field never decides them.
 - **The facet counts of a capped search are taken over the very candidates the hits come from** (the best `candidate_limit` documents), so they no longer vary with a hidden field's size; they are still lower bounds (`120+`). A filter-only listing counts the first `candidate_limit` documents by id.
