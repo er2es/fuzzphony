@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Fuzzphony\Bundle\Command;
 
 use Fuzzphony\Core\Exception\InvalidQuery;
+use Fuzzphony\Core\Exception\SearchRefused;
 use Fuzzphony\Core\Fuzzphony;
 use Fuzzphony\Core\Search\Actor;
 use Fuzzphony\Core\Support\Coerce;
@@ -45,6 +46,7 @@ final class SearchCommand extends Command
             ->addOption('exact', null, InputOption::VALUE_NONE, 'Count every match (an exact total and exact facets), not only the candidates: can be slow on a large index')
             ->addOption('as-you-type', null, InputOption::VALUE_NONE, 'Search-as-you-type: the last word also matches as the beginning of a longer one')
             ->addOption('suggest', null, InputOption::VALUE_NONE, 'Only complete the last word of the query from the vocabulary of the index (search-as-you-type)')
+            ->addOption('log', null, InputOption::VALUE_NONE, 'Write the search to the search log (off by default: with --tenant and --user a test would look like a visitor searching)')
             ->addOption('explain', null, InputOption::VALUE_NONE, 'Print the SQL and the query plan')
             ->addOption('analyze', null, InputOption::VALUE_NONE, 'With --explain: EXPLAIN ANALYZE (executes the query)')
             ->addOption('tenant', null, InputOption::VALUE_REQUIRED, 'Search as this tenant (a tenant-scoped index needs it)')
@@ -67,56 +69,61 @@ final class SearchCommand extends Command
 
             return Command::SUCCESS;
         }
-        $search = $this->fuzzphony->in(Coerce::str($input->getArgument('index')))
-            ->query(Coerce::str($input->getArgument('query')))
-            ->profile(Coerce::str($input->getOption('rank-profile')))
-            ->limit(max(1, Coerce::int($input->getOption('limit'))));
-
-        foreach ((array) $input->getOption('where') as $where) {
-            $where = Coerce::str($where);
-            if (preg_match('/^([a-z_][a-z0-9_]*)\s*(<=|>=|!=|=|<|>)\s*(.*)$/', $where, $m) !== 1) {
-                $io->error(sprintf('Cannot parse filter "%s"; use name<op>value.', $where));
-
-                return Command::INVALID;
-            }
-            $value = match (strtolower($m[3])) {
-                'true' => true,
-                'false' => false,
-                default => $m[3],
-            };
-            $search = $search->where($m[1], $m[2], $value);
-        }
-        $overrides = [];
-        foreach ((array) $input->getOption('threshold') as $pair) {
-            [$key, $value] = array_pad(explode('=', Coerce::str($pair), 2), 2, '');
-            // "null" goes back to the default (fuzzy_similarity: by word length)
-            $overrides[$key] = strtolower($value) === 'null' ? null : (is_numeric($value) ? $value + 0 : $value);
-        }
-        if ($overrides !== []) {
-            $search = $search->thresholds($overrides);
-        }
-        $facets = array_map(Coerce::str(...), (array) $input->getOption('facet'));
-        if ($facets !== []) {
-            $search = $search->facets(...$facets);
-        }
-        if ($input->getOption('as-you-type') === true) {
-            $search = $search->asYouType();
-        }
-        if ($input->getOption('exact') === true) {
-            $search = $search->exactCounts();
-        }
-
-        $tenant = $input->getOption('tenant');
-        $user = $input->getOption('user');
-        if (is_string($tenant) || is_string($user)) {
-            $search = $search->asActor(new Actor(is_string($tenant) ? $tenant : null, is_string($user) ? $user : null));
-        }
-
-        $explain = $input->getOption('explain') === true;
         try {
+            $search = $this->fuzzphony->in(Coerce::str($input->getArgument('index')))
+                ->query(Coerce::str($input->getArgument('query')))
+                ->profile(Coerce::str($input->getOption('rank-profile')))
+                ->limit(max(1, Coerce::int($input->getOption('limit'))));
+
+            foreach ((array) $input->getOption('where') as $where) {
+                $where = Coerce::str($where);
+                if (preg_match('/^([a-z_][a-z0-9_]*)\s*(<=|>=|!=|=|<|>)\s*(.*)$/', $where, $m) !== 1) {
+                    $io->error(sprintf('Cannot parse filter "%s"; use name<op>value.', $where));
+
+                    return Command::INVALID;
+                }
+                $value = match (strtolower($m[3])) {
+                    'true' => true,
+                    'false' => false,
+                    default => $m[3],
+                };
+                $search = $search->where($m[1], $m[2], $value);
+            }
+            $overrides = [];
+            foreach ((array) $input->getOption('threshold') as $pair) {
+                [$key, $value] = array_pad(explode('=', Coerce::str($pair), 2), 2, '');
+                // "null" goes back to the default (fuzzy_similarity: by word length)
+                $overrides[$key] = strtolower($value) === 'null' ? null : (is_numeric($value) ? $value + 0 : $value);
+            }
+            if ($overrides !== []) {
+                $search = $search->thresholds($overrides);
+            }
+            $facets = array_map(Coerce::str(...), (array) $input->getOption('facet'));
+            if ($facets !== []) {
+                $search = $search->facets(...$facets);
+            }
+            if ($input->getOption('as-you-type') === true) {
+                $search = $search->asYouType();
+            }
+            if ($input->getOption('exact') === true) {
+                $search = $search->exactCounts();
+            }
+
+            $tenant = $input->getOption('tenant');
+            $user = $input->getOption('user');
+            if (is_string($tenant) || is_string($user)) {
+                $search = $search->asActor(new Actor(is_string($tenant) ? $tenant : null, is_string($user) ? $user : null));
+            }
+
+            if ($input->getOption('log') !== true) {
+                $search = $search->unlogged();
+            }
+
+            $explain = $input->getOption('explain') === true;
             $explanation = $explain ? $search->explain($input->getOption('analyze') === true) : null;
             $result = $explanation !== null ? $explanation->result : $search->get();
-        } catch (InvalidQuery $e) { // includes ActorRequired: a tenant-scoped index searched without --tenant / --user
+
+        } catch (InvalidQuery|SearchRefused $e) { // a typo in --where / --threshold / --rank-profile, or (ActorRequired) a tenant-scoped index searched without --tenant / --user
             $io->error($e->getMessage());
 
             return Command::FAILURE;

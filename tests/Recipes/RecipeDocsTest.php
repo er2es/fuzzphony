@@ -105,10 +105,7 @@ final class RecipeDocsTest extends TestCase
     /** @return list<string> */
     private static function lines(string $text): array
     {
-        return explode("
-", str_replace("
-", "
-", $text));
+        return explode("\n", str_replace("\r\n", "\n", $text));
     }
 
     private static function normalise(string $code): string

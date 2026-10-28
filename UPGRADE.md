@@ -26,6 +26,18 @@ the facet counts of a capped search count the candidates the hits come from. `to
 lower bound (`2000+`). A search whose typo word matches fewer documents than the limit returns exactly what it returned. A capped typo search is
 slower (0.3 to 1 s where it was 40 to 130 ms on 200 000 to 1 000 000 products); no new setting, no schema change, no API change.
 
+**YAML that worked by accident now fails with a message.** The index configuration (`fuzzphony.indexes`, `ArrayDefinitionLoader`) is checked as a whole: an unknown key at any level (`wieght`, `fuzy`, `tabel`, `colums`), a string where a boolean belongs (`fuzzy: "false"` used to switch typo tolerance ON; use `true`/`false`), `fields: [name, body]` or `profiles: popular` (a list or a string where a map belongs) and an unknown `class` throw an `InvalidDefinition` that names the place and suggests the closest key. An override of an attribute-defined index may no longer carry `fields`, `filters`, `source`, `id_type` or `class` (they were silently dropped); change the attributes instead. Fix the key the message names; correct configurations are unaffected.
+
+**`RankingProfile::with()` / `->ranking()` merges `label_weights`.** A per-query override that names some labels keeps the profile's own weights for the others (before, the others fell back to the library defaults 1.0 / 0.4 / 0.2 / 0.1). Only code that passes `label_weights` per query on a profile with non-default labels sees other scores.
+
+**Exceptions.** `RebuildAlreadyRunning` now extends `\RuntimeException` (it was an `\InvalidArgumentException`): a `catch (\InvalidArgumentException)` around a reindex no longer catches it, catch `RebuildAlreadyRunning` itself. A bad per-query `->thresholds([...])` / `->ranking([...])` throws `InvalidQuery` (was `InvalidDefinition`). The 403 body of a refused search is the fixed text "Searching is not allowed for this caller." (the exception in `previous` has the details). New interface `SearchRefused`, implemented by `AccessDenied`, `ActorRequired` and `RateLimited`; nothing else about them changes.
+
+**Metrics no longer carry the search text.** `fuzzphony.search.took_ms`, `.fallback` and `.rescued` have the single label `index`. A `MetricsCollector` of your own no longer receives a `query` label (it was the raw text, before `search_log.redact`); drop any code that read it. The `LoggingMetricsCollector` constructor lost its `logQueryText` argument: remove the named argument if you pass it.
+
+**`fuzzphony:search` is unlogged by default.** It wrote a row to the search log (with the `--user` / `--tenant` you gave it) for every run; now it writes none unless you pass the new `--log` option. Scripts that relied on the rows (rare) add `--log`.
+
+**Prepared synonym lists.** `Synonyms` has a new last constructor parameter `$table` (internal: the lookup table `Fuzzphony::stemSynonyms()` now builds). A list prepared and cached by an older version still works (it has no table and builds it as before); prepare it again to get the saving. The cached object is about 2.5 times larger.
+
 ## From 0.9.7 to 0.9.8
 
 Nothing is required, but **run `fuzzphony:schema --apply` and then `fuzzphony:reindex`** (item 5), **searches that returned nothing may now return results**, in two ways, and **the results of searches with a very common word change** (items 3 and 4):

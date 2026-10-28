@@ -47,7 +47,9 @@ A refusal is shown by the HTTP integrations as **403** (`ActorRequired`, `Access
 with a `Retry-After` header (`RateLimited`), as the original exception's `previous`. (`fuzzphony:search`
 runs no guard, so the only refusal it can show is `ActorRequired`, as its error message.) Your own controllers catch the exceptions
 (`Fuzzphony\Core\Exception\AccessDenied`, `RateLimited` with `$retryAfter` in seconds; all are
-`FuzzphonyException`s) or let the bundle's listener map them.
+`FuzzphonyException`s, and the three refusals `AccessDenied`, `ActorRequired` and `RateLimited` share the interface
+`Fuzzphony\Core\Exception\SearchRefused`) or let the bundle's listener map them. The 403 response says only
+"Searching is not allowed for this caller." (no index or tenant rule); the original exception, with the index name, is its `previous` and is logged.
 
 Without Symfony, pass your own guards to the gate:
 
@@ -303,8 +305,8 @@ intersected.
 `fuzzphony:search` is an operator tool: it needs database access anyway, so it runs no guard, with or
 without `--tenant` and `--user` (a console has no Security token, so an authorization guard could only
 deny it). The bundle gives the command its own `Fuzzphony` over a gate without guards; every other
-service keeps the guarded one. Its searches are still counted in the metrics and, with the
-[search log](analytics.md) on, logged with the `--user` you gave. See [Console commands](commands.md).
+service keeps the guarded one. Its searches are counted in the metrics but not written to the
+[search log](analytics.md) unless you pass `--log` (then with the `--user` you gave). See [Console commands](commands.md).
 
 ## The limits, stated honestly
 

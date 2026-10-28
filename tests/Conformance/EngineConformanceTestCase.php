@@ -280,7 +280,7 @@ abstract class EngineConformanceTestCase extends TestCase
 
     public function testInvalidRankingOverridesFailFast(): void
     {
-        $this->expectException(\Fuzzphony\Core\Exception\InvalidDefinition::class);
+        $this->expectException(\Fuzzphony\Core\Exception\InvalidQuery::class);
         $this->fuzzphony->in('products')->ranking(['text' => 0, 'fuzzy' => 0]);
     }
 

@@ -61,6 +61,18 @@ final class RankingProfileTest extends TestCase
         self::assertEquals($base, RankingProfile::fromArray($base->toArray()));
     }
 
+    public function testWithMergesLabelWeightsIntoTheProfilesOwn(): void
+    {
+        $base = new RankingProfile(labelWeights: ['A' => 0.9, 'B' => 0.7, 'C' => 0.3]);
+
+        $tuned = $base->with(['label_weights' => ['C' => 0.5]]);
+
+        self::assertSame(['A' => 0.9, 'B' => 0.7, 'C' => 0.5, 'D' => 0.1], $tuned->labelWeights, 'the other labels of the profile are kept, not refilled with the library defaults');
+        self::assertSame(['A' => 0.9, 'B' => 0.7, 'C' => 0.3, 'D' => 0.1], $base->labelWeights);
+        self::assertSame(0.6, $base->with(['label_weights' => ['b' => 0.6]])->labelWeights['B'], 'a lower-case label counts');
+        self::assertSame($base->labelWeights, $base->with(['fuzzy' => 0.1])->labelWeights);
+    }
+
     public function testAnUnknownWeightLabelIsRejected(): void
     {
         $this->expectException(InvalidDefinition::class);

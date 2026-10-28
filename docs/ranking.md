@@ -67,6 +67,8 @@ Any profile value can be overridden for one query. The demo's playground does th
 $fuzzphony->in('products')->query('mouse')->profile('popular')->ranking(['boost' => 0.1, 'fuzzy' => 0.8])->get();
 ```
 
+`label_weights` is merged into the profile's own: `['label_weights' => ['C' => 0.5]]` changes label C and keeps the profile's other labels.
+
 ## Thresholds
 
 | Option | Default | Meaning |

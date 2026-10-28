@@ -275,4 +275,52 @@ final class WorkerTest extends TestCase
 
         self::assertContains(['increment', 'fuzzphony.worker.rebuild_failures', 1.0, ['index' => 'products']], $metrics->calls);
     }
+
+    public function testRunOnceStopsWhenStopIsCalledWhileAnIndexIsStillBusy(): void
+    {
+        $worker = null;
+        $calls = 0;
+        $engine = self::createStub(Engine::class);
+        $engine->method('processQueue')->willReturnCallback(static function () use (&$worker, &$calls): int {
+            if (++$calls === 2) {
+                self::assertInstanceOf(Worker::class, $worker);
+                $worker->stop();
+            }
+            if ($calls > 100) {
+                throw new \LogicException('runOnce() ignored stop().');
+            }
+
+            return 7;
+        });
+        $worker = new Worker($engine);
+
+        self::assertSame(14, $worker->runOnce([Indexes::products(), Indexes::products()->withName('other')]));
+        self::assertSame(2, $calls, 'the other index is skipped once stop() was called');
+    }
+
+    public function testARunCycleLooksForRequestedRebuildsEvenWhileAnIndexIsAlwaysBusy(): void
+    {
+        $a = Indexes::products();
+        $b = $a->withName('b');
+        $cycles = 0;
+        $asked = [];
+        $engine = self::createStub(Engine::class);
+        $engine->method('processQueue')->willReturnCallback(static function (IndexDefinition $index): int {
+            return $index->name === 'products' ? 3 : 0;
+        });
+        $engine->method('rebuildRequested')->willReturnCallback(static function (IndexDefinition $index) use (&$asked): bool {
+            $asked[] = $index->name;
+
+            return false;
+        });
+        $worker = new Worker($engine);
+
+        $worker->run([$a, $b], 10, 0.0, null, static function () use (&$cycles, $worker): void {
+            if (++$cycles === 3) {
+                $worker->stop();
+            }
+        });
+
+        self::assertSame(['products', 'b', 'products', 'b', 'products', 'b'], $asked, 'every cycle visits every index although "products" never runs dry');
+    }
 }

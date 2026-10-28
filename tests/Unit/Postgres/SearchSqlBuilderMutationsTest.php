@@ -41,8 +41,7 @@ UNION ALL
 ORDER BY f, rk", $sql);
         self::assertStringContainsString("cand AS (
 ", $sql);
-        self::assertStringNotContainsString('LIMIT 7) AS g' . "
-" . 'SELECT', $sql);
+        self::assertStringNotContainsString('LIMIT 7) AS g' . "\n" . 'SELECT', $sql);
     }
 
     public function testSharedFacetsOfASearchWithoutTextReadTheSidecarOnceUpToTheCandidateLimitUnlessExact(): void

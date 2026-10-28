@@ -29,7 +29,7 @@ final class PrometheusMetricsCollectorLabelsTest extends TestCase
     {
         $registry = new CollectorRegistry(new InMemory(), false);
         $collector = new PrometheusMetricsCollector($registry);
-        $labels = ['index' => 'products', 'attempt' => 3, 'ratio' => 0.5, 'fuzzy' => true, 'query' => 'wireless mouse'];
+        $labels = ['index' => 'products', 'attempt' => 3, 'ratio' => 0.5, 'fuzzy' => true];
 
         $collector->increment('fuzzphony.counted', $labels);
         $collector->observe('fuzzphony.observed', 1.5, $labels);

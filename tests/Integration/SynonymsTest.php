@@ -6,6 +6,7 @@ namespace Fuzzphony\Tests\Integration;
 
 use Fuzzphony\Core\Definition\Synonyms;
 use Fuzzphony\Core\Fuzzphony;
+use Fuzzphony\Core\Query\SynonymExpander;
 use Fuzzphony\Core\Ranking\Thresholds;
 use Fuzzphony\Core\Registry\IndexRegistry;
 use Fuzzphony\Core\Search\SearchResult;
@@ -132,6 +133,8 @@ laptop => notebook
         // what an application caches: the prepared list serialized, and handed to every request
         $cached = unserialize(serialize($prepared));
         self::assertInstanceOf(Synonyms::class, $cached);
+        self::assertNotSame([], $cached->table, 'the lookup table is part of what is cached');
+        self::assertSame(SynonymExpander::tableOf($prepared, $prepared->stems), $cached->table);
         $fuzzphony->useSynonyms('products', $cached);
         $before = $this->roundTrips();
         self::assertSame([1, 2, 8], self::ids($fuzzphony->in('products')->thresholds(['fuzzy_mode' => 'never'])->query('tv')->get()));

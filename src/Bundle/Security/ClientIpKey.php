@@ -4,6 +4,8 @@ declare(strict_types=1);
 
 namespace Fuzzphony\Bundle\Security;
 
+use Fuzzphony\Core\Support\IpAddress;
+
 /**
  * @internal The rate-limit bucket of a client address (rate_limit.per: ip): an IPv4 address is its own bucket, an IPv6
  * address shares one with the rest of its /64 (a visitor owns a whole /64 and can rotate inside it, so a bucket per
@@ -23,11 +25,8 @@ final class ClientIpKey
 {
     public static function of(?string $ip): ?string
     {
+        $ip = IpAddress::valid($ip);
         if ($ip === null) {
-            return null;
-        }
-        $ip = self::normalise($ip);
-        if (filter_var($ip, \FILTER_VALIDATE_IP) === false) {
             return null;
         }
         $packed = (string) inet_pton($ip); // a valid address always packs
@@ -52,20 +51,5 @@ final class ClientIpKey
     public static function isUnparseable(?string $ip): bool
     {
         return $ip !== null && trim($ip) !== '' && self::of($ip) === null;
-    }
-
-    private static function normalise(string $ip): string
-    {
-        $ip = trim($ip);
-        if (preg_match('/^\[([^\]]+)\](?::\d{1,5})?$/', $ip, $m) === 1) {
-            $ip = $m[1];
-        } elseif (preg_match('/^(\d{1,3}(?:\.\d{1,3}){3}):\d{1,5}$/', $ip, $m) === 1) {
-            $ip = $m[1];
-        }
-        if (str_contains($ip, ':') && ($zone = strpos($ip, '%')) !== false) {
-            $ip = substr($ip, 0, $zone);
-        }
-
-        return $ip;
     }
 }

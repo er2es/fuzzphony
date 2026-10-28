@@ -554,7 +554,7 @@ final class PostgresEngine implements Engine, Vocabulary, SynonymStems, Suggesti
             // 'mp usb'" about hits that are for "usb" alone, so the original empty answer stands.
             if ($second['result']->total > 0 && !$second['relaxed']) {
                 $run = $this->rescued($query, $run, $second, $rescue, $started);
-                $this->metrics->increment('fuzzphony.search.rescued', ['index' => $index->name, 'query' => $query->text]);
+                $this->metrics->increment('fuzzphony.search.rescued', ['index' => $index->name]);
             } else {
                 // nothing either: the answer is the original, empty one; explain() still lists what the attempt ran
                 $run['statements'] = [...$run['statements'], ...self::rescueLabels($second['statements'])];
@@ -562,9 +562,9 @@ final class PostgresEngine implements Engine, Vocabulary, SynonymStems, Suggesti
             }
         }
         $result = $run['result'];
-        $this->metrics->observe('fuzzphony.search.took_ms', $result->tookMs, ['index' => $index->name, 'query' => $query->text]);
+        $this->metrics->observe('fuzzphony.search.took_ms', $result->tookMs, ['index' => $index->name]);
         if (array_any($run['statements'], static fn(array $s): bool => str_ends_with($s['label'], 'fallback: full-text + fuzzy'))) {
-            $this->metrics->increment('fuzzphony.search.fallback', ['index' => $index->name, 'query' => $query->text]);
+            $this->metrics->increment('fuzzphony.search.fallback', ['index' => $index->name]);
         }
 
         return ['result' => $result, 'statements' => $run['statements'], 'threshold' => $run['threshold']];

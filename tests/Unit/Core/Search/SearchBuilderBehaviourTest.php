@@ -47,8 +47,26 @@ final class SearchBuilderBehaviourTest extends TestCase
 
     public function testBadThresholdsFailWhenTheyAreSetNotWhenTheSearchRuns(): void
     {
-        $this->expectException(InvalidDefinition::class);
+        $this->expectException(InvalidQuery::class);
+        $this->expectExceptionMessage('Index "products": invalid thresholds for this query: "min_score" must be a number.');
         $this->builder()->thresholds(['min_score' => 'not a number']);
+    }
+
+    public function testATypoInAPerQueryThresholdOrRankingIsAnInvalidQueryNamingTheIndex(): void
+    {
+        foreach ([
+            static fn(SearchBuilder $b): SearchBuilder => $b->thresholds(['min_scor' => 1]),
+            static fn(SearchBuilder $b): SearchBuilder => $b->ranking(['bost' => 1]),
+            static fn(SearchBuilder $b): SearchBuilder => $b->ranking(['label_weights' => ['E' => 1]]),
+        ] as $attempt) {
+            try {
+                $attempt($this->builder());
+                self::fail('InvalidQuery expected');
+            } catch (InvalidQuery $e) {
+                self::assertStringStartsWith('Index "products": invalid ', $e->getMessage());
+                self::assertInstanceOf(InvalidDefinition::class, $e->getPrevious());
+            }
+        }
     }
 
     public function testExplainIsNotAnalyzedByDefault(): void

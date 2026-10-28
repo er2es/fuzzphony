@@ -4,6 +4,8 @@ declare(strict_types=1);
 
 namespace Fuzzphony\Core\Analytics;
 
+use Fuzzphony\Core\Support\IpAddress;
+
 /**
  * Whether the search log keeps the client IP of an actor, and how much of it: nothing (the default), the address with
  * its host part cut off, or the whole address. An IP address is personal data: Masked is the mode the documentation
@@ -17,7 +19,8 @@ enum IpMode: string
 
     /**
      * What the log stores for $ip: null when the mode is Off, when there is no address or when it is not a valid IP
-     * address (anything else would be free text in a personal-data column). Full keeps the valid address in its canonical
+     * address once cleaned the way the rate limit cleans it (whitespace, a port, brackets, a zone id: IpAddress); anything
+     * else would be free text in a personal-data column. Full keeps the valid address in its canonical
      * form (2001:DB8::1 and 2001:0db8:0:0:0:0:0:1 are one value). Masked zeroes the last octet of an IPv4 address and keeps
      * the first 48 bits of an IPv6 address (203.0.113.45 becomes 203.0.113.0, 2001:db8:abcd:12::1 becomes 2001:db8:abcd::);
      * an IPv4-mapped IPv6 address (::ffff:203.0.113.45) is masked as the IPv4 address it carries, and so is the IPv4 address
@@ -26,7 +29,8 @@ enum IpMode: string
      */
     public function apply(?string $ip): ?string
     {
-        if ($this === self::Off || $ip === null || filter_var($ip, \FILTER_VALIDATE_IP) === false) {
+        $ip = $this === self::Off ? null : IpAddress::valid($ip);
+        if ($ip === null) {
             return null;
         }
         $packed = (string) inet_pton($ip); // a valid address always packs
