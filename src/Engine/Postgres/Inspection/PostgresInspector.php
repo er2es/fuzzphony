@@ -662,7 +662,7 @@ final class PostgresInspector
         $size = Coerce::int($row['n']);
         $age = Coerce::int($row['age']);
         $rebuild = $row['rebuild'] === true;
-        $waiting = sprintf('%d item(s) waiting%s', $size, $rebuild ? ', one of them a full rebuild (queued by a TRUNCATE)' : '');
+        $waiting = sprintf('%d %s waiting%s', $size, $size === 1 ? 'item' : 'items', $rebuild ? ', one of them a full rebuild (queued by a TRUNCATE)' : '');
         $failure = $rebuild ? $this->rebuildFailure($index) : null;
 
         return match (true) {

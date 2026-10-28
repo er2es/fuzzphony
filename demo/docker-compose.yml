@@ -28,7 +28,7 @@ x-hardened: &hardened
   logging: *logging
 
 x-php-image: &php-image
-  image: fuzzphony-demo/php:local
+  image: ${COMPOSE_PROJECT_NAME:-fuzzphony-demo}/php:local
   build:
     context: ..
     dockerfile: demo/Dockerfile
@@ -175,7 +175,7 @@ services:
 
   web:
     <<: *hardened
-    image: fuzzphony-demo/web:local
+    image: ${COMPOSE_PROJECT_NAME:-fuzzphony-demo}/web:local
     build:
       context: ..
       dockerfile: demo/Dockerfile

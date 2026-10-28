@@ -15,7 +15,7 @@
                 <span class="status-dot is-{{ check.status.value }}" role="img" aria-label="{{ check.status.value }}"><svg class="icon" aria-hidden="true"><use href="#{{ icons[check.status.value] }}"/></svg></span>
                 <div class="row-body">
                     <div class="row-title">{{ check.name }}</div>
-                    <div class="row-sub">{{ check.message|plain_count }}</div>
+                    <div class="row-sub">{{ check.message }}</div>
                     {% if check.fix %}<div class="row-fix"><code>{{ check.fix }}</code></div>{% endif %}
                 </div>
             </li>

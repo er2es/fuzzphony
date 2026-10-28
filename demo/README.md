@@ -213,6 +213,8 @@ Every setting has a default; override with environment variables or a file:
 `cp .env.example docker.env`, edit, then `docker compose --env-file docker.env up --build`
 (`docker.env` is git-ignored; `demo/.env` belongs to Symfony and is not used by the containers).
 
+Several stacks side by side (a second checkout, a test run): `docker compose -p other up -d --build` with its own `DEMO_PORT` / `DEMO_DB_PORT`. The project name is also the image name (`<project>/php:local`, `<project>/web:local`) and the volume prefix, so stacks never share an image or a database; without `-p` the project is `fuzzphony-demo`. `docker compose -p other down -v` removes that stack and its volume.
+
 | Variable | Default | |
 |---|---|---|
 | `DEMO_PORT` / `DEMO_DB_PORT` | `8000` / `5432` | host ports |
