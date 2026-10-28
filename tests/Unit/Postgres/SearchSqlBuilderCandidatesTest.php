@@ -233,46 +233,88 @@ final class SearchSqlBuilderCandidatesTest extends TestCase
         return $match[0] ?? '';
     }
 
-    public function testTheTypoBranchIsTheCheapSelectionAndAGuardedOrderedOne(): void
+    /** The ranked statement of a typo-tolerant search for `mouse` (candidate limit 500). */
+    private static function typoStatement(SearchSqlBuilder $builder, int $limit = 20, int $offset = 0): string
     {
         $root = self::parse('mouse');
-        $ranked = static fn(SearchSqlBuilder $builder): string => $builder->ranked("'mouse'", 'mouse', $root, [], new RankingProfile(), new Thresholds(candidateLimit: 500, fuzzySimilarity: 0.3), 20, 0, [], $root)['sql'];
 
-        $ordered = $ranked(new SearchSqlBuilder(Indexes::products()));
-        self::assertStringContainsString('fuzzy_fast AS (', $ordered);
-        self::assertStringContainsString('SELECT id, r_fuzzy FROM fuzzy_fast WHERE (SELECT count(*) FROM fuzzy_fast) < 500', $ordered);
-        self::assertStringContainsString('WHERE (SELECT count(*) FROM fuzzy_fast) >= 500', $ordered);
-        self::assertStringContainsString('ORDER BY 0.5 * w.r_fuzzy + w.exact_bonus + w.prefix_bonus + w.boost_bonus + w.recency_bonus DESC, w.id', $ordered);
-        self::assertStringContainsString("            LIMIT 30000
-        ) AS w", $ordered, 'the typo scan budget');
-        self::assertStringContainsString('(SELECT count(*) FROM fuzzy_fast) AS fuzzy_n', $ordered, 'capped is the count of the cheap selection');
-        self::assertStringNotContainsString('fuzzy_pool', $ordered);
-
-        // the cheap form is the statement the typo branch always had: one CTE named fuzzy, the candidate limit
-        $cheap = $ranked(new SearchSqlBuilder(Indexes::products(), orderedTypo: false));
-        self::assertStringContainsString("fuzzy AS (
-    SELECT s.id, (", $cheap);
-        self::assertStringContainsString('(SELECT count(*) FROM fuzzy) AS fuzzy_n', $cheap);
-        self::assertStringNotContainsString('fuzzy_fast', $cheap);
-        self::assertStringContainsString("
-    LIMIT 500
-)", $cheap);
+        return $builder->ranked("'mouse'", 'mouse', $root, [], new RankingProfile(), new Thresholds(candidateLimit: 500, fuzzySimilarity: 0.3), $limit, $offset, [], $root)['sql'];
     }
 
-    public function testThePoolIsTheOrderedSelectionOfAWordThatHasOneAndTheScanOnlyFillsWhatIsLeft(): void
+    public function testTheTypoBranchOfAnUnrestrictedViewerIsTheCheapSelection(): void
     {
-        $root = self::parse('mouse');
-        $sql = (new SearchSqlBuilder(Indexes::products(), pool: ['mouse' . " " . '' . " " . '' => [1, 2, 3]]))
-            ->ranked("'mouse'", 'mouse', $root, [], new RankingProfile(), new Thresholds(candidateLimit: 500, fuzzySimilarity: 0.3), 20, 0, [], $root)['sql'];
+        $sql = self::typoStatement(new SearchSqlBuilder(Indexes::products()));
 
-        // the pool's ids are a bound array, read once as a q column of their own prefix; the scan runs only when the pool holds fewer than the limit
-        self::assertStringContainsString('fuzzy_pool AS (', $sql);
-        self::assertStringContainsString('s.id = ANY(q.pid', $sql);
-        self::assertStringContainsString('AND (SELECT count(*) FROM fuzzy_fast) >= 500', $sql, 'the pool is read only when the cheap selection was capped');
-        self::assertStringContainsString('AND (SELECT count(*) FROM fuzzy_pool) < 500', $sql);
-        self::assertStringContainsString("SELECT * FROM fuzzy_pool
-            UNION
-", $sql);
+        // one CTE named fuzzy: the first matches the trigram index returns, the candidate limit; no ordered re-selection, no pool
+        self::assertStringContainsString("fuzzy AS (
+    SELECT s.id, (", $sql);
+        self::assertStringContainsString("
+    LIMIT 500
+)", $sql);
+        self::assertStringContainsString('(SELECT count(*) FROM fuzzy) AS fuzzy_n', $sql);
+        self::assertStringNotContainsString('fuzzy_fast', $sql);
+        self::assertStringNotContainsString('fuzzy_pool', $sql);
+        self::assertStringNotContainsString('pg_column_size', $sql);
+    }
+
+    public function testAStrictMatchKeepsItsTypoScoreWhenTheTypoBranchIsCapped(): void
+    {
+        $sql = self::typoStatement(new SearchSqlBuilder(Indexes::products()));
+
+        // a full-text match outside the first typo candidates would score below every look-alike inside them: it gets the typo score too,
+        // only when the typo branch holds as many candidates as it may (otherwise the branch holds every match and nothing changes)
+        self::assertStringContainsString('SELECT t.id, t.r_text, CASE WHEN (SELECT count(*) FROM fuzzy) >= 500 THEN (', $sql);
+        self::assertStringContainsString('FROM fts AS t JOIN "public"."fuzzphony_products" AS s ON s.id = t.id CROSS JOIN q', $sql);
+        self::assertStringContainsString('SELECT id, 0::double precision AS r_text, r_fuzzy FROM fuzzy', $sql);
+    }
+
+    public function testAStrictOnlyStatementAndAnExactCountAreNotRescored(): void
+    {
+        $strictOnly = (new SearchSqlBuilder(Indexes::products()))->ranked("'mouse'", 'mouse', null, [], new RankingProfile(), new Thresholds(candidateLimit: 500), 20, 0)['sql'];
+        self::assertStringNotContainsString('FROM fts AS t JOIN', $strictOnly);
+
+        $root = self::parse('mouse');
+        $exact = (new SearchSqlBuilder(Indexes::products()))->exactTotal("'mouse'", 'mouse', $root, [], new RankingProfile(), new Thresholds(candidateLimit: 500, fuzzySimilarity: 0.3), [], $root)['sql'];
+        self::assertStringNotContainsString('FROM fts AS t JOIN', $exact, 'an exact count reads every typo match');
+    }
+
+    public function testARestrictedViewersTypoBranchSelectsItsBestCandidatesWithinAWorkBudget(): void
+    {
+        $sql = self::typoStatement(new SearchSqlBuilder(Indexes::products(), allowedFields: ['name']));
+
+        self::assertStringContainsString('fuzzy_fast AS (', $sql);
+        self::assertStringContainsString('SELECT id, r_fuzzy FROM fuzzy_fast WHERE (SELECT count(*) FROM fuzzy_fast) < 500', $sql);
+        self::assertStringContainsString('WHERE (SELECT count(*) FROM fuzzy_fast) >= 500', $sql);
+        self::assertStringContainsString('ORDER BY 0.5 * w.r_fuzzy + w.exact_bonus + w.prefix_bonus + w.boost_bonus + w.recency_bonus DESC, w.id', $sql);
+        self::assertStringContainsString('(SELECT count(*) FROM fuzzy_fast) AS fuzzy_n', $sql, 'capped is the count of the cheap selection');
+        self::assertStringNotContainsString('fuzzy_pool', $sql);
+        // the scan: the work budget by what the first matches weigh (their stored text), between the window and the row budget
+        self::assertStringContainsString('(coalesce(pg_column_size(s."z_name"), 0))::bigint AS w', $sql, 'the size of the visible fields only');
+        self::assertStringNotContainsString('pg_column_size(s.fz)', $sql);
+        self::assertStringContainsString('LIMIT greatest(500, least(30000, (1500000 / (100 + coalesce((SELECT avg(w) FROM fuzzy_fast), 0)) / 1)::bigint))', $sql);
+    }
+
+    public function testTheTypoWorkBudgetIsDividedByTheWordsAndNeverUnderTheWindow(): void
+    {
+        $root = self::parse('mouse wireless');
+        $sql = (new SearchSqlBuilder(Indexes::products(), allowedFields: ['name']))->ranked("'mouse' & 'wireless'", 'mouse wireless', $root, [], new RankingProfile(), new Thresholds(candidateLimit: 500, fuzzySimilarity: 0.3), 20, 0, [], $root)['sql'];
+
+        self::assertStringContainsString('LIMIT greatest(500, least(15000, (1500000 / (100 + coalesce((SELECT avg(w) FROM fuzzy_fast), 0)) / 2)::bigint))', $sql);
+    }
+
+    public function testADeepPageSelectsTheWindowOfTheTypoBranchToo(): void
+    {
+        $cheap = self::typoStatement(new SearchSqlBuilder(Indexes::products()), 20, 980);
+        self::assertStringContainsString("
+    LIMIT 1000
+)", $cheap);
+        self::assertStringContainsString('(SELECT count(*) FROM fuzzy) >= 1000 THEN', $cheap);
+
+        $restricted = self::typoStatement(new SearchSqlBuilder(Indexes::products(), allowedFields: ['name']), 20, 980);
+        self::assertStringContainsString('(SELECT count(*) FROM fuzzy_fast) < 1000', $restricted);
+        self::assertStringContainsString('LIMIT greatest(1000, least(30000,', $restricted);
+        self::assertStringContainsString("        LIMIT 1000
+    ) AS o", $restricted);
     }
 
     public function testFacetsOfTheCandidatesCountTheIdsTheRankedStatementReturns(): void

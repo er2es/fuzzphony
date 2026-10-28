@@ -7,7 +7,9 @@ declare(strict_types=1);
  *
  *   FUZZPHONY_BENCH_DSN="pgsql:host=127.0.0.1;dbname=fuzzphony_bench;user=fuzzphony;password=fuzzphony" php benchmarks/run.php [--setup]
  *
- * Reports the first ("cold") run and the median of the next 5 ("warm") runs per query.
+ * Reports the first ("cold") run and the median of the next 5 ("warm") runs per query: ILIKE against Fuzzphony for the common cases,
+ * then Fuzzphony alone for the paths that cost more than a plain word (a filter with a disjunctive facet, a restricted viewer, a query of
+ * sixteen mistyped words, a deep page, a long typo-tolerant text), see docs/benchmarks.md.
  * Output: text (default), --markdown (GitHub job summary) or --json.
  */
 
@@ -51,13 +53,32 @@ $index = IndexDefinition::builder('bench')
     ->boostBy('popularity')
     ->recencyBy('published_at')
     ->build();
-$fuzzphony = new Fuzzphony(new PostgresEngine($connection), new IndexRegistry([$index]));
+// Four more typo-tolerant copies of the description: the wide, long typo-tolerant text of a real catalogue (about 300 characters of it per
+// document), where every typo match is rechecked on more text. Built by --setup next to the first index.
+$long = IndexDefinition::builder('bench_long')
+    ->fromQuery("SELECT p.id, p.name, p.description, b.name AS brand, c.name AS category, p.description || ' ' || p.name AS d1, p.description AS d2, p.description AS d3, p.description AS d4, p.price, p.in_stock
+                 FROM bench_product p JOIN bench_brand b ON b.id = p.brand_id JOIN bench_category c ON c.id = p.category_id")
+    ->watch('bench_product')
+    ->field('name', 'A', fuzzy: true)
+    ->field('brand', 'B')
+    ->field('category', 'C')
+    ->field('description', 'D', fuzzy: true)
+    ->field('d1', 'D', fuzzy: true)
+    ->field('d2', 'D', fuzzy: true)
+    ->field('d3', 'D', fuzzy: true)
+    ->field('d4', 'D', fuzzy: true)
+    ->filter('price', 'int')
+    ->filter('in_stock', 'bool')
+    ->build();
+$fuzzphony = new Fuzzphony(new PostgresEngine($connection), new IndexRegistry([$index, $long]));
 
 if (in_array('--setup', $argv, true) || in_array('--setup-only', $argv, true)) {
     $t = microtime(true);
     $fuzzphony->schema()->apply($connection);
     $n = $fuzzphony->reindex('bench', new ReindexOptions(batchSize: 10_000, onBatch: static function (int $done): void { fwrite(STDERR, "\r  indexed " . number_format($done)); }))->written;
+    $fuzzphony->reindex('bench_long', new ReindexOptions(batchSize: 10_000));
     $pdo->exec('ANALYZE fuzzphony_bench');
+    $pdo->exec('ANALYZE fuzzphony_bench_long');
     fprintf(STDERR, "\nSetup: %s documents in %.1fs\n", number_format($n), microtime(true) - $t);
     if (in_array('--setup-only', $argv, true)) {
         exit(0);
@@ -117,10 +138,41 @@ foreach ($cases as $label => [$query, $like]) {
     ];
 }
 
+// The paths that cost more than a plain word. Fuzzphony only: ILIKE can neither rank, nor page past what it scans, nor facet.
+$paths = [
+    'typo + filter + facet' => ['bench', 'hedphones', static fn($s) => $s->where('in_stock', true)->facets('in_stock')],
+    'typo, restricted viewer' => ['bench', 'hedphones', static fn($s) => $s->restrictedToFields('name', 'brand')],
+    'typo, 16 words OR' => ['bench', 'hedphones OR kettel OR profesional OR mosue OR wireles OR keybord OR moniter OR speker OR batery OR cabel OR chargr OR laptp OR tablt OR printr OR scaner OR webcm', static fn($s) => $s],
+    'typo, a page past the limit' => ['bench', 'hedphones', static fn($s) => $s->limit(20, 2000)],
+    'strict, a page past the limit' => ['bench', 'wireless', static fn($s) => $s->limit(20, 2000)],
+    'typo, long typo-tolerant text' => ['bench_long', 'batery', static fn($s) => $s],
+    'typo, long text, restricted' => ['bench_long', 'batery', static fn($s) => $s->restrictedToFields('name', 'description')],
+    'exact word beside a typo' => ['bench', 'mousse', static fn($s) => $s],
+];
+$pathRows = [];
+$longReady = $pdo->query("SELECT to_regclass('fuzzphony_bench_long') IS NOT NULL")->fetchColumn();
+foreach ($paths as $label => [$name, $query, $configure]) {
+    if ($name === 'bench_long' && !$longReady) {
+        continue; // a database set up before this index existed: run with --setup
+    }
+    $fz = $measure(static function () use ($fuzzphony, $name, $query, $configure) {
+        return $configure($fuzzphony->in($name)->query($query)->limit(20))->get();
+    });
+    $pathRows[] = [
+        'case' => $label,
+        'query' => strlen($query) > 40 ? substr($query, 0, 37) . '...' : $query,
+        'fuzzphony_cold_ms' => round($fz['cold'], 2),
+        'fuzzphony_warm_ms' => round($fz['warm'], 2),
+        'fuzzphony_hits' => count($fz['value']->hits),
+        'fuzzphony_total' => $fz['value']->total . ($fz['value']->totalIsLowerBound ? '+' : ''),
+        'typo_tolerant' => $fz['value']->usedFuzzy,
+    ];
+}
+
 $documents = (int) $pdo->query('SELECT count(*) FROM fuzzphony_bench')->fetchColumn();
 
 if (in_array('--json', $argv, true)) {
-    echo json_encode(['documents' => $documents, 'postgres' => $pdo->query('SHOW server_version')->fetchColumn(), 'php' => PHP_VERSION, 'cases' => $rows], JSON_PRETTY_PRINT), "\n";
+    echo json_encode(['documents' => $documents, 'postgres' => $pdo->query('SHOW server_version')->fetchColumn(), 'php' => PHP_VERSION, 'cases' => $rows, 'paths' => $pathRows], JSON_PRETTY_PRINT), "\n";
 } elseif (in_array('--markdown', $argv, true)) {
     printf("### Fuzzphony benchmark: %s documents, PostgreSQL %s, PHP %s\n\n", number_format($documents), $pdo->query('SHOW server_version')->fetchColumn(), PHP_VERSION);
     echo "| case | query | ILIKE cold / warm | hits | Fuzzphony cold / warm | hits (total) |\n|---|---|---:|---:|---:|---:|\n";
@@ -128,9 +180,17 @@ if (in_array('--json', $argv, true)) {
         printf("| %s | `%s` | %.1f / %.1f ms | %d | %.1f / %.1f ms | %d (%s)%s |\n", $r['case'], str_replace('|', '\\|', $r['query']), $r['ilike_cold_ms'], $r['ilike_warm_ms'], $r['ilike_hits'], $r['fuzzphony_cold_ms'], $r['fuzzphony_warm_ms'], $r['fuzzphony_hits'], $r['fuzzphony_total'], $r['typo_tolerant'] ? ' ~' : '');
     }
     echo "\nWarm = median of 5 runs after the cold one. ~ = typo-tolerant fallback used. ILIKE neither ranks nor excludes.\n";
+    echo "\n| path | query | Fuzzphony cold / warm | hits (total) |\n|---|---|---:|---:|\n";
+    foreach ($pathRows as $r) {
+        printf("| %s | `%s` | %.1f / %.1f ms | %d (%s)%s |\n", $r['case'], str_replace('|', '\\|', $r['query']), $r['fuzzphony_cold_ms'], $r['fuzzphony_warm_ms'], $r['fuzzphony_hits'], $r['fuzzphony_total'], $r['typo_tolerant'] ? ' ~' : '');
+    }
 } else {
     printf("%-20s %22s %6s   %22s %6s\n", 'case', 'ILIKE cold/warm ms', 'hits', 'Fuzzphony cold/warm ms', 'hits');
     foreach ($rows as $r) {
         printf("%-20s %10.1f / %9.1f %6d   %10.1f / %9.1f %6d %s\n", $r['case'], $r['ilike_cold_ms'], $r['ilike_warm_ms'], $r['ilike_hits'], $r['fuzzphony_cold_ms'], $r['fuzzphony_warm_ms'], $r['fuzzphony_hits'], $r['typo_tolerant'] ? '~' : '');
+    }
+    printf("\n%-30s %26s %6s\n", 'path', 'Fuzzphony cold/warm ms', 'hits');
+    foreach ($pathRows as $r) {
+        printf("%-30s %12.1f / %9.1f %6d %s\n", $r['case'], $r['fuzzphony_cold_ms'], $r['fuzzphony_warm_ms'], $r['fuzzphony_hits'], $r['typo_tolerant'] ? '~' : '');
     }
 }

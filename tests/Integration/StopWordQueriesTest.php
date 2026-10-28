@@ -283,7 +283,7 @@ final class StopWordQueriesTest extends TestCase
         }
         $this->fuzzphony->reindex('stop_docs');
 
-        $result = $this->search('the')->thresholds(['candidate_limit' => 10])->limit(50)->get();
+        $result = $this->search('the')->thresholds(['candidate_limit' => 10])->limit(10)->get();
 
         self::assertSame(10, $result->total, 'at most the candidate limit');
         self::assertTrue($result->totalIsLowerBound);

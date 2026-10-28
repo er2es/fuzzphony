@@ -20,11 +20,13 @@ and the [CHANGELOG](CHANGELOG.md) has the full list of changes.
 
 Nothing is required. One visible change: a top-level AND of stop words with exclusions (`the who -rock`) used to return every document without `rock` (a bug); it now searches `the who` and leaves out the documents that have `rock`, so such a query returns far fewer results. If you showed a page for "everything except X" through it, use a filter instead. After `fuzzphony:schema --apply` added a column to an existing table, restart long-running workers (Messenger, RoadRunner, FrankenPHP); the command says so.
 
-And: **The results of capped typo-tolerant searches may differ, for the better:** a typo word that matches more documents than
-`candidate_limit` (`mouss`, `wireles` on a large catalogue) now ranks its closest spellings instead of the first matches the index returned, and
-the facet counts of a capped search count the candidates the hits come from. `total` of a capped `fuzzy_mode: always` search is a smaller
-lower bound (`2000+`). A search whose typo word matches fewer documents than the limit returns exactly what it returned. A capped typo search is
-slower (0.3 to 1 s where it was 40 to 130 ms on 200 000 to 1 000 000 products); no new setting, no schema change, no API change.
+And: **a few results change, for the better.** An exact word is no longer ranked below its look-alikes in a capped typo search (a full-text match
+keeps its typo score), `total` of a capped `fuzzy_mode: always` search can be larger (`2000+`, `2667+`) because those matches count, a
+page past `candidate_limit` is served by the typo-tolerant branch and by a filter-only listing, a short text is highlighted whole
+(`Ergonomic mouse 1001`, not `Ergonomic mouse`), and swapped letters (`mosue`) get a "did you mean" and a mark. A capped typo search is **not**
+slower for an unrestricted viewer or a tenant (25 to 75 ms on 200 000 products); a restricted viewer's costs one more selection, bounded by a work budget.
+A word with more matches than the limit contributes the first matches of the table, not the closest spellings (a lower bound, like `total`). No new
+setting, no schema change, no API change.
 
 **YAML that worked by accident now fails with a message.** The index configuration (`fuzzphony.indexes`, `ArrayDefinitionLoader`) is checked as a whole: an unknown key at any level (`wieght`, `fuzy`, `tabel`, `colums`), a string where a boolean belongs (`fuzzy: "false"` used to switch typo tolerance ON; use `true`/`false`), `fields: [name, body]` or `profiles: popular` (a list or a string where a map belongs) and an unknown `class` throw an `InvalidDefinition` that names the place and suggests the closest key. An override of an attribute-defined index may no longer carry `fields`, `filters`, `source`, `id_type` or `class` (they were silently dropped); change the attributes instead. Fix the key the message names; correct configurations are unaffected.
 

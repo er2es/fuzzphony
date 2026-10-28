@@ -157,38 +157,40 @@ the same cheap selection as before and returns the same hits.
 - `min_score` keeps the documents under it out of the candidate slots (the strict branch), so a query that
   needs it still finds its best documents; `total` stays flagged as a lower bound.
 
-**Typo-tolerant branch: the best candidates too, exact up to a smaller budget.** The typo branch (a word that is misspelled,
-`fuzzy_mode: always`, or a search that found too little) first takes the cheap selection, the first `candidate_limit` matches
-of its trigram index. When a typo-tolerant word matches more documents than that, the candidates are the best by the same sort
-key as the strict branch (similarity, bonuses, boost, recency, then the id), not the first ones: among 20 000 documents that
-look like `mouss`, the planted `Mousss` documents are candidates and come first. A typo search whose candidates stay under the
-limit is not affected at all: it runs the cheap selection only and returns what it returned before.
+**Typo-tolerant branch: the first matches of the trigram index; exact only while a word has no more matches than the limit.**
+The typo branch (a word that is misspelled, `fuzzy_mode: always`, or a search that found too little) takes, for each typo-tolerant
+word, the documents the trigram index returns, at most `candidate_limit` (the window of the page when that is larger) of them.
 
-- **The pool.** For a typo word with more matches than the limit the search first asks the trigram index, word by word, for the
-  documents at least as close as a raised similarity (at most four probes of up to three times the limit each, halving the interval between the
-  word's own similarity and 1) and uses a level whose pool holds between the limit and three times the limit. That pool is a
-  set of document ids that depends on the content of the fields the viewer may read and nothing else, and the best candidates are chosen inside
-  it: exact, deterministic and independent of the order of the rows. The words of a two-word query each get their own pool.
-- **When no such level exists** (the look-alikes are one big group of equal similarity: `wireles` is `0.875` to every one of the 20 000 `wireless`
-  documents, and the word itself, with its exact matches in `fuzzy_mode: always`, is such a group) the pool holds the closest documents only
-  and the rest of the candidates are chosen among the first matches of the trigram index, scored with the same key. That selection is
-  exact when the matches are at most the typo scan budget, **30 000 matches divided by the number of words of the query** (an internal
-  constant: a document of this branch costs about 8 microseconds, ten times what a full-text match does, because every trigram match is
-  rechecked on the text of the typo-tolerant fields), and beyond it the document that would rank first can be missing, as with the strict
-  branch beyond 100 000. A typo word is that common in 15 % of the rows of a 200 000-row catalogue and 3 % of a 1 000 000-row one.
-- **Cost.** About 8 milliseconds per thousand scored matches, plus four probes: a capped typo search costs 0.3 to 0.4 s on 200 000 products (40 to 90 ms before)
-  and 0.4 to 1 s on 1 000 000 (60 to 130 ms before), more with facets
-  ([Benchmarks](benchmarks.md#common-words)); a typo search under the limit costs what it did. In `fuzzy_mode: always` the strict
-  and the typo branch now choose the same best documents, so the candidate set (and `total`, a lower bound) is smaller than before, where the
-  first 2 000 of each branch were different documents.
+- **Under the limit it is exact.** Every match of the typo-tolerant words is a candidate. A document the full-text branch finds
+  also keeps the typo score it would have had: an exact word is never ranked below its look-alikes because it fell outside the
+  first typo candidates (three documents titled `mousse cake` at the end of 3 000 titles with `mouse` come first for `mousse`).
+- **Over the limit it is a lower bound.** A typo word that matches more documents than the limit (a spelling like `mouss` is close
+  to 20 000 titles of a 200 000-row catalogue) contributes the first `candidate_limit` of its matches in the table's physical
+  order, ranked by the page's sort key. A closer spelling further down the table may not be among them: the page is a full page of
+  matches of the word, the same on every run on the same data, but not guaranteed to be the closest ones. That order shows an
+  unrestricted viewer nothing it could not read (it may see every field), and a tenant's candidates are chosen among its own
+  documents, so the size of another tenant's rows does not change them (a test compares corpora that differ only there).
+- **A restricted viewer gets the best candidates instead.** The first matches in physical order are shaped by the size of the
+  fields the viewer cannot see, so its typo branch scores the matches it may see, up to a work budget, and keeps the best by the same
+  sort key (similarity, bonuses, boost, recency, then the id): exact up to **30 000 matches divided by the number of words of the
+  query** when the typo-tolerant texts are short (an internal constant, like the 100 000 of the strict branch), and up to fewer when
+  they are long: the budget is about 1.5 MB of typo-tolerant text per statement, counting 100 bytes for every row, taken from the
+  stored size of the first matches' text in the fields the viewer may SEE (so 300 characters per document leave about 10 000 matches,
+  a visible document of 17 000 words leaves a few hundred), never fewer than the candidates asked for. A hidden field never moves
+  it, so what it holds cannot change the candidates; the price is that a long hidden text still costs its recheck time
+  ([below](#a-restricted-viewers-very-common-word-in-a-hidden-typo-tolerant-field-is-slow)). Beyond the budget the first matches of the index are taken, in
+  physical order, as above ([Security](security.md#the-limits-stated-honestly)). The cost of a document of this branch is about 8
+  microseconds for a short name and grows with the text that is rechecked.
+- **A page past the candidates** selects the window `offset + limit` in this branch too (up to 10 000), like the strict one.
+- **Cost.** A typo search costs what the trigram index and the recheck of up to `candidate_limit` matches cost: 25 to 75 ms on
+  200 000 products for a typo word that matches 15 000 of them, whatever the limit does to the other branch. A restricted viewer pays
+  one more selection (about 0.15 s for `hedphones` restricted to two fields, `batery` on a 12-field index 0.5 s)
+  ([Benchmarks](benchmarks.md#typo-words-and-facets-of-a-capped-search)).
 
-**What decides which documents are candidates, on every branch.** The text rank, the bonuses and the similarity of the fields the viewer
-may read, the id, and the filters. Not the physical order of the sidecar table (which the size of every row, hidden fields included,
-shapes): the strict candidates up to 100 000 matches, the typo candidates up to the typo scan budget (or the pool), and the facet
-counts of a capped search depend on content only, and tests compare corpora that differ only in a hidden field. Beyond those budgets
-the first matches of the index are taken, in the table's physical order: for a restricted viewer that is the one remaining difference between two
-corpora that differ in a hidden field only. Nothing a hidden field holds is shown by it (a document that holds a word only in a hidden
-field is never returned), but the difference is not zero ([Security](security.md#the-limits-stated-honestly)).
+**What decides which documents are candidates.** On the full-text branch and for a restricted viewer's typo branch: the text rank,
+the bonuses and the similarity of the fields the viewer may read, the id, and the filters, not the physical order of the sidecar table
+(which the size of every row, hidden fields included, shapes), up to the budgets above. For everyone else's typo branch above the limit:
+the physical order of the table decides which matches are looked at, and the page sort key only orders them.
 
 `exactCounts()` counts everything the query matches, for the total and the facets, but the page of hits is
 still the ranked candidates ([Facets](searching.md#facets)).
@@ -203,7 +205,7 @@ it to request input): it reads every match and can take seconds on a large index
 ### Facet counts are over the candidates
 
 When the search hit its candidate limit the counts of `facets()` are taken over the very candidates the hits come from (the best
-`candidate_limit` documents of the strict branch and, with typo tolerance, of the typo branch; the statement that finds the hits
+`candidate_limit` documents of the strict branch and, with typo tolerance, the typo branch's candidates; the statement that finds the hits
 returns their ids and the facets count them), so a facet shows the documents the page was chosen from, and does not depend on the
 order of the table. They are still lower bounds ("120+"; the Live Component prints the `+`) while `total` is a lower bound too, and a
 page past the limit (which selects more hits) does not count more facet candidates. A facet that leaves a condition out
@@ -242,8 +244,8 @@ mode can be newer than the index.
 A hit found only through typo tolerance has its mistyped words marked too (`hedphones` marks `Headphones`),
 by a simpler rule than the search's: each word of the field text is compared with the typed word on its own,
 with the similarity the search used, so a match that the search found across two words (`head phones` for
-`headphones`) is not marked, nor is a word found as a swapped-letter variant (`mosue` finds `mouse`, which gets no mark),
-and a hit can have no mark although it was found. Only typo-tolerant fields get
+`headphones`) is not marked, and a hit can have no mark although it was found. A word found as a swapped-letter variant
+(`mosue` finds `mouse`) is marked when it is the variant as a whole word. Only typo-tolerant fields get
 these marks (a field that is not `fuzzy` shows ts_headline's snippet). The work is bounded: the marks are made
 for the first 200 typo-found hits of a page, of each field only the first 10 000 characters (2000 words) are
 looked at, a page spends a budget of 100 000 word comparisons and 4000 distinct words, and a phrase of more than

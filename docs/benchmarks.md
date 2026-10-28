@@ -22,25 +22,42 @@ it on every push to `main` and publishes the current table in its job summary.
 
 ## Example run
 
-200 000 products, PostgreSQL 16, a small cloud VM; the output of `run.php --markdown`:
+200 000 products, PostgreSQL 17 in a local container, one laptop; the output of `run.php --markdown`:
 
 | case | query | ILIKE cold / warm | hits | Fuzzphony cold / warm | hits (total) |
 |---|---|---:|---:|---:|---:|
-| plain word | `wireless` | 1.7 / 0.6 ms | 20 | 17.9 / 11.1 ms | 20 (2000+) |
-| two words | `wireless mouse` | 4.1 / 3.7 ms | 20 | 19.9 / 13.1 ms | 20 (1666) |
-| accent | `creme` | 257.6 / 251.6 ms | **0** | 11.9 / 10.4 ms | 20 (2000+) |
-| typo | `hedphones` | 248.1 / 252.6 ms | **0** | 24.2 / 20.7 ms | 20 (2000+) ~ |
-| stemming | `drills` | 342.0 / 257.1 ms | **0** | 11.9 / 10.6 ms | 20 (2000+) |
-| phrase + exclusion | `"noise cancelling" -headphones` | 0.6 / 0.5 ms | 20 | 24.3 / 23.2 ms | 20 (2000+) |
-| filter + text | `kettle` | 0.8 / 0.7 ms | 20 | 12.8 / 11.3 ms | 20 (2000+) |
+| plain word | `wireless` | 6.5 / 1.3 ms | 20 | 458.4 / 35.3 ms | 20 (2000+) |
+| two words | `wireless mouse` | 3.7 / 3.1 ms | 20 | 28.1 / 10.4 ms | 20 (1666) |
+| accent | `creme` | 190.0 / 162.6 ms | **0** | 489.3 / 43.1 ms | 20 (2000+) |
+| typo | `hedphones` | 178.4 / 171.7 ms | **0** | 71.0 / 41.8 ms | 20 (2000+) ~ |
+| stemming | `drills` | 172.9 / 171.1 ms | **0** | 37.9 / 39.8 ms | 20 (2000+) |
+| phrase + exclusion | `"noise cancelling" -headphones` | 1.8 / 1.1 ms | 20 | 91.9 / 84.5 ms | 20 (2000+) |
+| filter + text | `kettle` | 2.3 / 1.8 ms | 20 | 20.1 / 15.8 ms | 20 (2000+) |
 
-`~` means the typo-tolerant fallback ran.
+`~` means the typo-tolerant fallback ran. The first ("cold") run reads the table from disk; a word that matches more
+documents than `candidate_limit` costs one more pass (see [Common words](#common-words)), which is most of the 35 to 45 ms
+of the rows with a total of `2000+`. The typo-tolerant statement rechecks each word against the similarity of its own length;
+on 200 000 rows the plans keep using the trigram indexes. Single-digit milliseconds on a shared laptop are noise.
 
-The table was measured before 0.7. Since 0.7 the typo-tolerant statement also rechecks each word
-against the similarity of its own length; on 200 000 rows (`wireles mouse`, `hedphones`, `mose` in
-`fuzzy_mode: always`, measured separately from this script) the plans keep using the trigram
-indexes and the statements run within roughly 0.9 to 1.4 times the time of a flat `fuzzy_similarity`.
-Re-run `benchmarks/run.php` on your own data to compare.
+The paths that cost more than a plain word (`run.php` prints them below the table; the long text is a second index with five typo-tolerant
+copies of the description, about 300 characters of typo-tolerant text a document), 0.9.8 and now, warm:
+
+| path | query | 0.9.8 | now |
+|---|---|---:|---:|
+| typo, a filter and a facet | `hedphones` | 79 ms | 76 ms |
+| typo, restricted viewer (name, brand) | `hedphones` | 41 ms | 159 ms |
+| typo, 16 mistyped words OR | `hedphones OR kettel OR ...` | 238 ms | 260 ms |
+| typo, page 101 (offset 2000) | `hedphones` | 46 ms, **0 hits** | 48 ms, 20 hits |
+| strict, page 101 | `wireless` | 33 ms | 43 ms |
+| typo, long typo-tolerant text | `batery` | 483 ms | 539 ms |
+| the same, restricted viewer (name, description) | `batery` | 358 ms | 1 100 ms |
+| an exact word beside look-alikes | `mousse` | 45 ms | 42 ms (exact matches first) |
+
+A restricted viewer pays for the ordered selection that keeps hidden fields out of the candidates (see
+[Known limitations](limitations.md#ranking-of-very-common-words)); everyone else's typo search costs what it did. On a database
+where some documents hold thousands of words in a field the viewer cannot see (3 000 documents, 60 of them with 17 000 words,
+`candidate_limit` 100) the restricted `comon` takes about 1 s, 0.1 s in 0.9.8: the work budget counts the text the viewer may see, so a hidden text is
+rechecked in full.
 
 ## Round trips
 
@@ -129,34 +146,34 @@ The first run after a restart reads the table from disk and is much slower (seco
 spread over every page); the figures are warm. Both columns were measured on the same machine in the same session, but
 single-digit milliseconds on a shared laptop are noise.
 
-### Typo words and facets of a capped search (0.9.9)
+### Typo words and facets of a capped search
 
-The typo branch used to take the first `candidate_limit` matches of its trigram index (cheap, but not the best, and in the order of the
-table); a typo word that matches more documents than that (`mouss` is 20 000 look-alikes on 200 000 products) now gets the best
-candidates by the page's sort key, inside a pool of its closest spellings and among the first 30 000 matches
-([Known limitations](limitations.md#ranking-of-very-common-words)). The facets of a capped search count the ids the statement of the hits returns. Median of 7 runs, warm, `candidate_limit` 2000, 200 000 / 1 000 000 products (the second figure of a pair is the 1 000 000-row database with the same planted documents; a cold cache makes the 1 000 000 figures of the
-strict common-word rows jump by seconds, so they were repeated warm), 0.9.8 -> 0.9.9:
+A typo word that matches more documents than `candidate_limit` (`mouss` is 20 000 look-alikes on 200 000 products) contributes
+the first `candidate_limit` matches of its trigram index, cheap and a lower bound ([Known limitations](limitations.md#ranking-of-very-common-words));
+a full-text match that is not among them keeps its typo score. The facets of a capped search count the ids the statement of the
+hits returns. Median of 7 runs, warm, `candidate_limit` 2000, 200 000 products, 0.9.8 -> now:
 
-| search | 0.9.8 | 0.9.9 |
+| search | 0.9.8 | now |
 |---|---:|---:|
-| `mouss`, fallback / always | 41 / 41 ms; 64 / 63 ms | 301 / 298 ms; 457 / 439 ms |
-| `wireles`, fallback / always | 52 / 50 ms; 93 / 92 ms | 331 / 337 ms; 662 / 675 ms |
-| `hedphones`, fallback | 46 ms; 64 ms | 344 ms; 667 ms |
-| `wireles mose` (two typo words) | 89 ms; 130 ms | 367 ms; 1 106 ms |
-| `mouss`, restricted viewer | 48 ms; 65 ms | 304 ms; 442 ms |
-| `mouss` with two facets / and an active filter | 68 / 93 ms; 100 / 133 ms | 316 / 554 ms; 457 / 870 ms |
-| `screwdrivr 1234` (two words, under the limit) | 40 ms; 83 ms | 40 ms; 89 ms |
-| `wireless`, `fuzzy_mode: always` | 77 ms; 322 ms | 244 ms; 833 ms |
-| `ideal`, `fuzzy_mode: always` | 140 ms; 256 ms | 324 ms; 629 ms |
-| `wireless` with two facets / and an active filter (strict) | 50 / 58 ms; 271 / 281 ms | 45 / 76 ms; 257 / 507 ms |
-| a filter-only listing with a facet | 2.2 ms; 1.8 ms | 2.2 ms; 2.1 ms |
+| `mouss`, fallback / always | 44 / 36 ms | 47 / 43 ms |
+| `wireles`, fallback / always | 54 / 53 ms | 51 / 52 ms |
+| `hedphones`, fallback | 46 ms | 48 ms |
+| `wireles mose` (two typo words) | 90 ms | 92 ms |
+| `mouss`, restricted viewer (name, brand) | 44 ms | 141 ms |
+| `mouss` with a facet / and an active filter | 68 / 70 ms | 46 / 67 ms |
+| `screwdrivr 1234` (two words, under the limit) | 39 ms | 37 ms |
+| `wireless`, `fuzzy_mode: always` | 73 ms | 94 ms |
+| `ideal`, `fuzzy_mode: always` | 132 ms | 131 ms |
+| `wireless` with a facet / and an active filter (strict) | 48 / 47 ms | 46 / 79 ms |
+| a filter-only listing with a facet | 2.1 ms | 2.4 ms |
+| 12 typo-tolerant-field index (`bench12`), `batery` | 189 ms | 208 ms |
+| the same, restricted viewer (name, description) | 218 ms | 487 ms |
+| the same index, the reversed phrase `"office ideal"` | 541 ms | 274 ms |
 
-The cost is the second selection, about 8 microseconds per scored match (every trigram match is rechecked on the text of the
-typo-tolerant fields, ten times a full-text match) over at most 30 000 matches, plus four probes of the pool (20 to 30 ms each at both
-sizes: the bitmap of the whole trigram posting list is built before a probe stops). A typo search that stays under the limit runs the cheap
-selection only and costs what it did. Where the look-alikes are one group of equal similarity (`wireles` is `0.875` to every `wireless`
-document) the group is scored whole up to the budget; the planted `Wireles`, `Mousse`/`Mousss` and `Hedphones` documents come first at
-both sizes, where the first 2 000 matches of the index missed the `Mousss` ones before.
+`wireless` in `fuzzy_mode: always` pays for the typo score of its 2 000 full-text candidates (they are rescored when the typo branch is
+capped, about 10 microseconds each); the restricted viewer pays for the ordered selection, about 8 microseconds per scored match for a
+short name and more for a long text (the work budget in the known limitations). The typo statement of a word under the limit is the one
+it always was.
 
 ## Reading the numbers
 
@@ -164,7 +181,7 @@ The two columns do different work. `ILIKE … LIMIT 20` returns the first 20 row
 unranked, and cannot exclude words: its 20 hits for the exclusion query include headphones. So
 `ILIKE` is fastest when the word is common, and finds nothing for accents, typos or other word
 forms, after scanning the whole table. Fuzzphony ranks every result and handles those cases in
-about 10–25 ms.
+about 10 to 90 ms on 200 000 products (a typo word 25 to 75 ms; a wide index of long typo-tolerant text 0.2 to 0.6 s).
 
 Measure on your own data. The demo's Speed view runs this benchmark in the browser, and
 [demo/README.md](../demo/README.md#measured) has results on 200 000 and 500 000 rows.

@@ -111,6 +111,15 @@ final class SearchSqlBuilderTest extends TestCase
         self::assertSame([], $statement['params']);
     }
 
+    public function testBrowseSelectsTheWindowOfAPagePastTheCandidateLimit(): void
+    {
+        $statement = (new SearchSqlBuilder(Indexes::products()))->browse([], new RankingProfile(), new Thresholds(candidateLimit: 100), 20, 380);
+
+        self::assertStringContainsString("LIMIT 400
+), page AS", $statement['sql']);
+        self::assertStringContainsString('LIMIT 20 OFFSET 380', $statement['sql']);
+    }
+
     /** No positive words (e.g. every leaf negated): q.norm is a plain empty-text literal, not a bound value. */
     public function testNoPlainTextMeansNormIsAnEmptyLiteral(): void
     {

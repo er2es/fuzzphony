@@ -68,8 +68,9 @@ final class CandidateSelectionRestrictedTest extends TestCase
      * total, lower-bound flag, statements and facets (the counts of a capped search too), for `never`, `fallback` and `always`,
      * with words as they are and with typos (`comon` matches 2 900 titles, more than the candidate limit). The strict candidates are
      * the best by the page's own key among the first 100 000 matches (here all 3 000 of them) and the typo-tolerant ones the best by
-     * the same key among the matches of the typo branch (here all of them), so the order of the heap, which the size of a hidden
-     * field shapes, does not enter.
+     * the same key among the matches of the typo branch (here all of them: the scan of a restricted viewer is a work budget, by the
+     * size of the text it may see only, so no hidden field moves it), so the order of the
+     * heap, which the size of a hidden field shapes, does not enter.
      *
      * @param list<string> $order
      * @param list<string> $allowed
