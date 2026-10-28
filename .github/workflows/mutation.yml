@@ -52,7 +52,7 @@ jobs:
   full:
     if: github.event_name != 'pull_request'
     runs-on: ubuntu-latest
-    # The first full run (3,944 mutants, four threads) took 17 minutes.
+    # A full run (about 6,000 mutants) takes under 20 minutes on four threads.
     timeout-minutes: 120
     services:
       postgres:

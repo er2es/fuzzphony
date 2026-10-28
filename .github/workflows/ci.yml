@@ -49,7 +49,7 @@ jobs:
       # A diagonal, not the full product: Symfony only touches the bundle and PostgreSQL only the engine, so every PHP
       # version meets two PostgreSQL versions, every PostgreSQL version from 15 to 18 runs once, and Symfony 7.4 (LTS) and
       # 8.1 (the releases the composer constraint allows) both run on both PHP versions. A release leaves the constraint
-      # and this list together, in a minor release of Fuzzphony. The next Symfony minor is its own job below.
+      # and this list together, with a note in the CHANGELOG. The next Symfony minor is its own job below.
       # The `coverage` leg runs everything (the `slow` group too) with pcov and uploads the report; the others skip `slow`.
       matrix:
         include:

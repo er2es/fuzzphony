@@ -74,9 +74,10 @@ with `pdo_pgsql` and `pcov` installed, next to the test database. There is no CI
 
 ## Backward compatibility
 
-Until 1.0, a minor version (0.x) may contain breaking changes. Each one is listed under
-**Breaking** in the CHANGELOG and explained in [UPGRADE.md](UPGRADE.md); patch versions never
-break. From 1.0 on the project follows Semantic Versioning for the [public
+Until 1.0, any release (0.x, and the 0.9.x patch releases too) may contain a breaking change or a behaviour change; 0.9.5
+dropped Symfony 8.0 and 0.9.8 changed `hasMore()`, turned the zero-result rescue on and ranked capped searches differently, all
+as patch releases. Each one is listed under **Breaking** (or **Behaviour change**) in the CHANGELOG and explained in
+[UPGRADE.md](UPGRADE.md). From 1.0 the numbers mean what Semantic Versioning says: a patch release never breaks. From 1.0 on the project follows Semantic Versioning for the [public
 API](docs/architecture.md#public-api): classes and methods marked `@internal` are not covered,
 and anything removed is deprecated for at least one minor version first. A new class is
 `@internal` unless it is added to that list (and to `tests/Unit/PublicApiTest.php`).

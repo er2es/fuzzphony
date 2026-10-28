@@ -54,7 +54,7 @@ depends on it, so nothing built early has to be refactored once a later mileston
   search boxes use them. Additive: no breaking changes; `fuzzphony:schema --apply` adds a prefix index to
   each vocabulary. See the [CHANGELOG](../CHANGELOG.md#080---2026-10-10).
 
-- v0.9 Security and analytics (current): one release in three parts, in order. **Identity:** an `Actor` (a tenant and a user),
+- v0.9 Security and analytics: one release in three parts, in order. **Identity:** an `Actor` (a tenant and a user),
   `SearchBuilder::asActor()`, the `fuzzphony.actor` configuration (your own resolver, or property paths on the Security user),
   a 403 for a missing tenant, and tenant-scoped indexes through the API Platform filter, the Live Component and
   `fuzzphony:search --tenant --user`. **Search log and analytics:** an opt-in log (`fuzzphony.search_log`) with retention, a
@@ -65,6 +65,11 @@ depends on it, so nothing built early has to be refactored once a later mileston
   "Under the hood": Analytics and Security. All of it is optional and off by default: nothing configured means 0.8's behaviour.
   See the [CHANGELOG](../CHANGELOG.md#090---2026-10-14), [UPGRADE.md](../UPGRADE.md#from-08-to-09), [Security](security.md) and
   [Search log and analytics](analytics.md).
+- v0.9.1 to 0.9.9 (current), the road to the API review: fewer round trips per search and a faster registry (0.9.5), who searched what, the
+  documentation round and the known limitations (0.9.6), restricted-viewer and stop-word fixes, typo highlights (0.9.7), the best
+  match of a very common word, the rate limit by client IP, swapped-letter typos and the zero-result rescue (0.9.8), and the
+  review round of 0.9.9 (typo candidates, strict configuration checks, a faster test suite and CI, docs). Behaviour changes of these
+  patch releases are in the [CHANGELOG](../CHANGELOG.md) and [UPGRADE.md](../UPGRADE.md).
 
 ## v1.0: Stable
 
@@ -85,8 +90,9 @@ pull requests. The first full run (September 2026) killed 85% of 3,944 mutants; 
 run of 5,989 mutants scores 96% covered-code MSI (17 minutes on CI); the score is on the README badge, which the full
 run on `main` updates. The mutants that still escape in the files worked on are equivalent (a cast that changes nothing, a
 key that is never read, a constant only a real sleep would show). Next: add a `minCoveredMsi` gate to the full run so the
-score can't slip, raised by every pull request after that, and look at the ~1,400 mutants Infection skips because their
-covering tests are slower than the 30 s `timeout` (the reindex and rebuild paths): they are not in the score.
+score can't slip, raised by every pull request after that, and look at the roughly 2,000 mutants Infection skips because their
+covering tests are slower than the 30 s `timeout` (the reindex, rebuild and candidate-selection paths): they are not in the score. The
+test suite is faster since 0.9.9, so the next full run settles the number.
 
 ### Backward-compatibility promise
 

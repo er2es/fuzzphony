@@ -2,8 +2,12 @@
 
 All notable changes to this project are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the project adheres to
-[Semantic Versioning](https://semver.org/). Before 1.0, minor versions may contain breaking
-changes; they are always listed under **Breaking** and explained in [UPGRADE.md](UPGRADE.md).
+[Semantic Versioning](https://semver.org/) from 1.0 on. Before 1.0 any release, a 0.9.x patch release too, may contain a breaking
+change or a behaviour change; they are listed under **Breaking** or **Behaviour change** and explained in [UPGRADE.md](UPGRADE.md).
+
+**Style of an entry:** one bullet per user-visible change, at most three lines: what changed in bold, who is affected, what to do,
+and a link. Measurements, proofs and test names belong to the pull request, [docs/benchmarks.md](docs/benchmarks.md) or
+[docs/limitations.md](docs/limitations.md), not here.
 
 ## [Unreleased]
 

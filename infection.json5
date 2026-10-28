@@ -16,16 +16,10 @@
     "testFramework": "phpunit",
 
     "timeout": 30,
-    // The integration suite shares one PostgreSQL database and a handful of tables; several
-    // tests DROP/CREATE/TRUNCATE them (see tests/Integration/PostgresTestCase::createFixtures()).
-    // With threads > 1, Infection's worker processes run different mutants' test subsets
-    // concurrently against that same database, and one worker's DROP/CREATE can land between
-    // another's, producing mutants that are wrongly "killed" by an unrelated PDOException
-    // instead of by a real assertion (measured: the same 37 mutants on one file went from 9
-    // escaped at threads=1 to 1 escaped at threads=4 -- not a real MSI improvement, DB
-    // contamination). 1 is the only setting that gives reproducible results until the
-    // integration suite gets a per-worker schema or database.
-    "threads": 1,
+    // The integration tests share one PostgreSQL database, but each Infection worker (TEST_TOKEN=1, 2, ...) gets its own
+    // {dbname}_t{TEST_TOKEN} database (tests/Integration/PostgresTestCase::dsn()), so the threads do not disturb each other.
+    // `composer mutation` and CI pass --threads=max; this is the default for a plain `vendor/bin/infection`.
+    "threads": "max",
 
     "logs": {
         "text": "build/infection/infection-log.txt",

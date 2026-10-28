@@ -28,3 +28,4 @@
 /.gitattributes export-ignore
 /.gitignore export-ignore
 /codecov.yml export-ignore
+/.bestpractices.json export-ignore
