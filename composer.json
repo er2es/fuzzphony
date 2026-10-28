@@ -22,10 +22,11 @@
     "support": {
         "issues": "https://github.com/er2es/fuzzphony/issues",
         "source": "https://github.com/er2es/fuzzphony",
+        "docs": "https://github.com/er2es/fuzzphony/tree/main/docs",
         "security": "https://github.com/er2es/fuzzphony/security/advisories/new"
     },
     "require": {
-        "php": ">=8.4",
+        "php": "^8.4",
         "ext-mbstring": "*",
         "ext-pdo": "*",
         "ext-pdo_pgsql": "*",
@@ -87,6 +88,7 @@
     },
     "scripts": {
         "test": "phpunit --testsuite=unit",
+        "test:db": "@php tools/test-db.php",
         "test:integration": "phpunit --testsuite=integration",
         "test:recipes": "phpunit --testsuite=recipes",
         "test:all": "phpunit",
@@ -105,6 +107,5 @@
         "allow-plugins": {
             "infection/extension-installer": true
         }
-    },
-    "minimum-stability": "stable"
+    }
 }
