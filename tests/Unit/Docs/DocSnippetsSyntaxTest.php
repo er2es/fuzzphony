@@ -14,11 +14,19 @@ use PHPUnit\Framework\TestCase;
  */
 final class DocSnippetsSyntaxTest extends TestCase
 {
+    /** @return list<string> */
+    private static function files(string $pattern): array
+    {
+        $found = glob($pattern);
+
+        return $found === false ? [] : $found;
+    }
+
     /** @return iterable<string, array{string}> */
     public static function snippets(): iterable
     {
         $root = dirname(__DIR__, 3);
-        $files = array_merge([$root . '/README.md', $root . '/UPGRADE.md', $root . '/SECURITY.md'], glob($root . '/docs/*.md') ?: [], glob($root . '/docs/recipes/*.md') ?: []);
+        $files = array_merge([$root . '/README.md', $root . '/UPGRADE.md', $root . '/SECURITY.md'], self::files($root . '/docs/*.md'), self::files($root . '/docs/recipes/*.md'));
         foreach ($files as $file) {
             $text = (string) file_get_contents($file);
             if (preg_match_all('/^(?:<!-- fragment -->\R)?```php\R(.*?)^```/ms', $text, $matches, PREG_OFFSET_CAPTURE) === 0) {
@@ -39,10 +47,9 @@ final class DocSnippetsSyntaxTest extends TestCase
     {
         $source = str_starts_with(ltrim($code), '<?php') ? $code : "<?php\n" . $code;
         try {
-            token_get_all($source, TOKEN_PARSE);
+            self::assertNotSame([], token_get_all($source, TOKEN_PARSE));
         } catch (\ParseError $e) {
             self::fail('Syntax error in a documentation snippet: ' . $e->getMessage() . ' (line ' . $e->getLine() . ' of the snippet)');
         }
-        $this->addToAssertionCount(1);
     }
 }
