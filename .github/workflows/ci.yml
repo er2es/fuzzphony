@@ -106,8 +106,7 @@ jobs:
         run: >-
           php -r '$m = simplexml_load_file("coverage.xml")->project->metrics;
           $p = 100 * (int) $m["coveredstatements"] / max(1, (int) $m["statements"]);
-          printf("Line coverage: %.2f%%
-", $p); exit($p < 90 ? 1 : 0);'
+          printf("Line coverage: %.2f%%\n", $p); exit($p < 90 ? 1 : 0);'
 
   # The next Symfony minor (8.2, still in development), as an early warning: it may fail without turning a pull request red,
   # and `ci-ok` does not wait for it. A failure here means "look before 8.2 is released", not "the library is broken".
