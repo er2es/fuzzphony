@@ -542,8 +542,7 @@ ON CONFLICT (index_name) DO UPDATE SET layout_version = EXCLUDED.layout_version,
                 %1$s
                 SQL,
             self::TAG,
-            implode("
-    ", $loops),
+            implode("\n    ", $loops),
         ), sprintf($create ? 'TRUNCATE sync on every partition of %s' : 'No TRUNCATE sync on the partitions of %s', $watch->table));
     }
 
@@ -960,11 +959,8 @@ ON CONFLICT (index_name) DO UPDATE SET layout_version = EXCLUDED.layout_version,
         RETURN NULL;
     END IF;",
             Sql::ident($index->source->table),
-            implode("
-            ", $wipe),
-            str_replace("
-        ", "
-            ", $resync),
+            implode("\n            ", $wipe),
+            str_replace("\n        ", "\n            ", $resync),
         );
     }
 

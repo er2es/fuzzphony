@@ -333,8 +333,7 @@ final class TypoHighlightTest extends TestCase
 
         self::assertCount(count($without) + 1, $with, 'the headline statement only');
         self::assertSame('Wireless <mark>mouse</mark>', $this->hitIn($strict(true)->get(), 3)->highlights['title']);
-        self::assertStringNotContainsString('AS "fz_typo"', implode("
-", $with), 'the statements are the strict ones');
+        self::assertStringNotContainsString('AS "fz_typo"', implode("\n", $with), 'the statements are the strict ones');
     }
 
     /**
