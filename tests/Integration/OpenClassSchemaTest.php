@@ -10,6 +10,7 @@ use Fuzzphony\Core\Definition\IndexDefinition;
 use Fuzzphony\Core\Fuzzphony;
 use Fuzzphony\Core\Inspection\CheckStatus;
 use Fuzzphony\Core\Registry\IndexRegistry;
+use Fuzzphony\Core\Support\Coerce;
 use Fuzzphony\Engine\Postgres\PostgresEngine;
 use PHPUnit\Framework\TestCase;
 use Symfony\Component\Console\Command\Command;
@@ -45,7 +46,7 @@ final class OpenClassSchemaTest extends TestCase
     private function openIndexes(): array
     {
         return array_map(
-            static fn(array $row): string => (string) $row['indexname'],
+            static fn(array $row): string => Coerce::str($row['indexname']),
             $this->connection->fetchAll("SELECT indexname FROM pg_indexes WHERE tablename = 'fuzzphony_open_docs' AND indexname ~ '_open_(fz|tsv)$' ORDER BY indexname"),
         );
     }

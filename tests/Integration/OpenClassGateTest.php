@@ -78,7 +78,11 @@ final class OpenClassGateTest extends TestCase
         return $fuzzphony;
     }
 
-    /** @return array{open: bool, ids: list<int|string>, total: int} whether a statement looked up in the open class, and what was found */
+    /**
+     * @param list<string>|null $allowed
+     *
+     * @return array{open: bool, ids: list<int|string>, total: int} whether a statement looked up in the open class, and what was found
+     */
     private function search(Fuzzphony $fuzzphony, string $text, ?array $allowed = ['name', 'category']): array
     {
         $builder = $fuzzphony->in('gate_items')->query($text)->thresholds(['fuzzy_mode' => 'always']);

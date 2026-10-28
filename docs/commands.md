@@ -21,7 +21,9 @@ authorization), with or without `--tenant` and `--user`; those options only make
 tenant scope, the log's user). Its searches are counted but **not written to the search log** unless you pass `--log`
 (with `--tenant` and `--user` a test search would otherwise look like that user searching, and pollute the zero-result report).
 
-`fuzzphony:schema` without `--apply` only prints the SQL, so you can review it first. See
+`fuzzphony:schema` without `--apply` only prints the SQL, so you can review it first. An index with a `granted` field gets two more
+indexes (`..._open_fz`, `..._open_tsv`, over its open fields), built `CONCURRENTLY` and only once; when the apply built a column or one
+of them on a table that was there, the command asks you to restart long-running workers (they look these up once per process). See
 [Reindexing and orphan pruning](sync.md#reindexing-and-orphan-pruning) for what `--no-prune` and
 `--prune-empty` are for.
 
@@ -63,7 +65,8 @@ It checks:
   schema);
 - that the source can be queried;
 - id, field, filter, boost and recency column mapping and types, and the source key;
-- sidecar column drift, and missing or INVALID indexes;
+- sidecar column drift, and missing or INVALID indexes (for an index with a `granted` field also its two open-class indexes: an error until
+  `fuzzphony:schema --apply` has built them, the fix is the `CREATE INDEX CONCURRENTLY` statement);
 - objects left in `public` after switching to a dedicated `schema` (a warning when the configured
   schema has no sidecar table for an index but `public` still has one);
 - with DoctrineBundle, an application `schema_filter` that still lets Fuzzphony's tables through,

@@ -140,7 +140,7 @@ budget is a trade between the worst case and the share of matches that are ranke
 costs 60 to 115 ms, 50 000 about 160 to 240 ms, 100 000 (the one used) 170 to 330 ms, 200 000 300 to 630 ms (these four were measured while other jobs ran on the machine: indicative). With the
 planted documents at the end of the table, 100 000 misses the five that sit beyond the 100 000 matches of `wireless`
 and 200 000 finds them. A restricted viewer's search of a word that is common in a field the viewer cannot see is slow for a
-different reason that this does not change (see [Known limitations](limitations.md#a-restricted-viewers-very-common-word-in-a-hidden-typo-tolerant-field-is-slow)).
+different reason that this does not change (see [Known limitations](limitations.md#a-restricted-viewers-very-common-word-in-a-hidden-typo-tolerant-field)).
 
 The first run after a restart reads the table from disk and is much slower (seconds at 1 000 000 rows for a word that is
 spread over every page); the figures are warm. Both columns were measured on the same machine in the same session, but

@@ -204,7 +204,10 @@ final class OpenClassSqlTest extends TestCase
         self::assertStringNotContainsString('t_category', $sql);
     }
 
-    /** @param (\Closure(): bool)|null $gate */
+    /**
+     * @param list<string>|null       $allowed
+     * @param (\Closure(): bool)|null $gate
+     */
     private static function builder(?array $allowed, ?\Closure $gate): SearchSqlBuilder
     {
         return new SearchSqlBuilder(self::index(), new Names(), [], $allowed, true, openClass: $gate);

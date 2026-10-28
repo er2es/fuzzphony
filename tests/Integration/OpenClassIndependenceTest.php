@@ -179,22 +179,27 @@ final class OpenClassIndependenceTest extends TestCase
         }
     }
 
+    /** @return list<int|string> */
+    private function ids(Fuzzphony $fuzzphony, string $text, string ...$allowed): array
+    {
+        return array_map(static fn($hit): int|string => $hit->id, $fuzzphony->in('oc_items')->query($text)->thresholds(['fuzzy_mode' => 'never'])->restrictedToFields(...$allowed)->get()->hits);
+    }
+
     public function testAWordOnlyAGrantedFieldHoldsIsNotFoundByAViewerWhoHoldsNoneOfThem(): void
     {
         $fuzzphony = $this->fuzzphony();
         $fuzzphony->schema()->apply($this->connection);
         $this->load($fuzzphony, 'base', []);
-        $find = static fn(string $text, array $allowed): array => array_map(static fn($hit): int|string => $hit->id, $fuzzphony->in('oc_items')->query($text)->thresholds(['fuzzy_mode' => 'never'])->restrictedToFields(...$allowed)->get()->hits);
+        $total = static fn(string $text, string ...$allowed): int => $fuzzphony->in('oc_items')->query($text)->thresholds(['fuzzy_mode' => 'never'])->restrictedToFields(...$allowed)->get()->total;
 
-        self::assertSame([], $find('zorbaxx', ['name', 'category']), 'a brand');
+        self::assertSame([], $this->ids($fuzzphony, 'zorbaxx', 'name', 'category'), 'a brand');
         // 'makita' is a brand: the AND of an open and a granted word finds nothing for the viewer who holds no brand, and the search then
         // relaxes to the word it can find ('kettle'); with the brand the AND holds
-        self::assertSame($find('kettle', ['name', 'category']), $find('kettle makita', ['name', 'category']));
-        self::assertContains(2, $find('kettle makita', ['name', 'category', 'brand']), 'with the brand the document is found');
-        $total = static fn(string $text, array $allowed): int => $fuzzphony->in('oc_items')->query($text)->thresholds(['fuzzy_mode' => 'never'])->restrictedToFields(...$allowed)->get()->total;
-        self::assertLessThan($total('kettle', ['name', 'category']), $total('kettle makita', ['name', 'category', 'brand']));
-        self::assertSame([4], $find('zorbaxx', ['name', 'brand']));
-        self::assertSame([3], $find('zzqq', ['description', 'name']));
-        self::assertSame([1], $find('"alpha beta"', ['name', 'category']), 'a phrase across two open fields');
+        self::assertSame($this->ids($fuzzphony, 'kettle', 'name', 'category'), $this->ids($fuzzphony, 'kettle makita', 'name', 'category'));
+        self::assertContains(2, $this->ids($fuzzphony, 'kettle makita', 'name', 'category', 'brand'), 'with the brand the document is found');
+        self::assertLessThan($total('kettle', 'name', 'category'), $total('kettle makita', 'name', 'category', 'brand'));
+        self::assertSame([4], $this->ids($fuzzphony, 'zorbaxx', 'name', 'brand'));
+        self::assertSame([3], $this->ids($fuzzphony, 'zzqq', 'description', 'name'));
+        self::assertSame([1], $this->ids($fuzzphony, '"alpha beta"', 'name', 'category'), 'a phrase across two open fields');
     }
 }

@@ -20,7 +20,7 @@ use PHPUnit\Framework\TestCase;
 final class RestrictedPrefixSimilarityTest extends TestCase
 {
     /** @param list<string>|null $allowed */
-    private static function lowest(string $text, ?array $allowed, ?Thresholds $thresholds = null): ?float
+    private static function lowest(string $text, ?array $allowed, ?Thresholds $thresholds = null): float
     {
         $root = (new QueryParser())->parse($text)->root;
         self::assertNotNull($root);
