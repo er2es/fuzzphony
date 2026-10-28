@@ -69,7 +69,9 @@
                                 {% if hit.breakdown.textRank == 0 and hit.breakdown.fuzzySimilarity > 0 %}<span class="flag">typo match</span>{% endif %}
                                 {% if hit.id not in ilike %}<span class="flag is-limit">ILIKE misses this</span>{% endif %}
                             </div>{% endset %}
-                            {{ ui.product_row(row.category ?? '', names[hit.id] ?? null ? names[hit.id]|raw : (row.name ?? hit.id), hit.highlights.description is defined ? hit.highlights.description|raw : (row.description ?? ''), aside, code) }}
+                            {% set title %}{% if names[hit.id] ?? null %}{{ names[hit.id]|raw }}{% else %}{{ row.name ?? hit.id }}{% endif %}{% endset %}
+                            {% set sub %}{% if hit.highlights.description is defined %}{{ hit.highlights.description|raw }}{% else %}{{ row.description ?? '' }}{% endif %}{% endset %}
+                            {{ ui.product_row(row.category ?? '', title, sub, aside, code) }}
                         {% else %}
                             <li class="row no-lead"><span class="muted">Nothing found{% if language.presets|filter(p => p.q == q and p.kind ends with 'not matched')|length %}, as expected: the stemmer has no rule that turns this word into the one in the catalogue{% endif %}.</span></li>
                         {% endfor %}

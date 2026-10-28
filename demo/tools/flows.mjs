@@ -249,6 +249,14 @@ await page.click('label[for=view-sql]');
 await page.waitForSelector('.panel-sql pre');
 check('the SQL wraps instead of scrolling sideways', await page.evaluate(() => [...document.querySelectorAll('.panel-sql pre')].every((pre) => pre.scrollWidth <= pre.clientWidth + 1)));
 
+// the library's highlight is markup (<mark>), on every list of products, never visible tags
+for (const [path, selector] of [['/?q=hedphones', '#results .hit-row'], ['/relevance?q=mouse', '.hit-row'], ['/languages?lang=fr&q=chevaux', '.hit-row'], ['/tune?query=mouse', '.hit-row']]) {
+    await go(page, BASE + path);
+    await page.waitForSelector(selector);
+    const titles = await page.locator(`${selector} .row-title`).allInnerTexts();
+    check(`highlights are markup, not visible tags: ${path}`, (await page.locator(`${selector} mark`).count()) > 0 && !titles.some((t) => /<\/?mark>/.test(t)), titles.slice(0, 2).join(' | '));
+}
+
 // the ranking profile `popular` of the configuration is a starting point in Tune: its values land in the sliders
 await go(page, `${BASE}/tune?query=mouse`);
 await page.click('.profile-chips .chip >> text=popular');

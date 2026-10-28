@@ -129,7 +129,8 @@
                             {% endset %}
                             {% set aside %}<div class="row-trailing">{{ hit.score|number_format(3) }}</div>{% endset %}
                             {# the highlight is HTML-escaped by Fuzzphony (only <mark> is added); the fallback is raw database text, escaped by Twig #}
-                            {{ shared.product_row(row.category ?? '', hit.highlights.name is defined ? hit.highlights.name|raw : (row.name ?? hit.id), (row.brand ?? '') ~ ' · ' ~ (row.category ?? '') ~ (row ? ' · ' ~ row.price|number_format(0, '.', ' ') ~ ' Ft' : ''), aside, null, below) }}
+                            {% set title %}{% if hit.highlights.name is defined %}{{ hit.highlights.name|raw }}{% else %}{{ row.name ?? hit.id }}{% endif %}{% endset %}
+                            {{ shared.product_row(row.category ?? '', title, (row.brand ?? '') ~ ' · ' ~ (row.category ?? '') ~ (row ? ' · ' ~ row.price|number_format(0, '.', ' ') ~ ' Ft' : ''), aside, null, below) }}
                         {% else %}
                             <li class="row no-lead"><span class="muted">No hits. Lower "Min relevance"{% if not similarityByLength %} or "Fuzzy similarity"{% endif %}, or switch fuzzy mode to "always".</span></li>
                         {% endfor %}

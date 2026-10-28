@@ -45,8 +45,10 @@
 {% macro hit_row(hit, row, flag = null) %}
     {% import _self as ui %}
     {% set aside %}{% if flag %}<span class="flag">{{ flag }}</span>{% endif %}{% if row %}<div class="row-trailing">{{ row.price|number_format(0, '.', ' ') }} Ft</div>{% endif %}{% endset %}
-    {# the highlight is HTML-escaped by Fuzzphony (only <mark> is added); the fallback is escaped by Twig #}
-    {{ ui.product_row(row.category ?? '', hit.highlights.name is defined ? hit.highlights.name|raw : (row.name ?? hit.id), (row.brand ?? '') ~ ' · ' ~ (row.category ?? ''), aside) }}
+    {# the highlight is HTML-escaped by Fuzzphony (only <mark> is added), so it is output raw; the fallback is escaped by Twig. The captured block
+       is markup, which the macro does not escape again (|raw inside a ternary would not survive the argument). #}
+    {% set title %}{% if hit.highlights.name is defined %}{{ hit.highlights.name|raw }}{% else %}{{ row.name ?? hit.id }}{% endif %}{% endset %}
+    {{ ui.product_row(row.category ?? '', title, (row.brand ?? '') ~ ' · ' ~ (row.category ?? ''), aside) }}
 {% endmacro %}
 
 {# Example tokens that link to a search. #}

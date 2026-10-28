@@ -338,6 +338,7 @@
     .hero h1 { font-size: clamp(1.75rem, 1.2rem + 2.2vw, 2.5rem); text-align: center; }
     .hero .lede { text-align: center; color: var(--label-2); }
     .hero .about { text-align: center; margin-top: -.5rem; }
+    .hero .about a { text-decoration: underline; } /* a link inside a sentence must not rely on its colour alone */
     .hero .segmented { justify-self: center; }
     .field-wrap { position: relative; }
     .examples-row { display: flex; flex-wrap: wrap; justify-content: center; align-items: center; gap: .5rem .5rem; }
