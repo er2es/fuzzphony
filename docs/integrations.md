@@ -163,7 +163,7 @@ echo json_encode([
 and the page that calls it:
 
 ```html
-<input id="q" type="search" placeholder="Search products…" autocomplete="off">
+<input id="q" type="search" placeholder="Search productsâ€¦" autocomplete="off">
 <div id="results"></div>
 <script>
   const esc = (s) => s.replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]);
