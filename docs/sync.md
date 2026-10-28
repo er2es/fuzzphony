@@ -31,6 +31,7 @@ When a change shows up in search depends on the mode:
 
 Triggers also watch joined tables, so renaming a brand reindexes its products:
 
+<!-- fragment -->
 ```php
 ->watch('brand', 'SELECT id FROM product WHERE brand_id = :id')
 ```
@@ -59,6 +60,7 @@ change a mapped field, filter, boost or recency column. No configuration is need
 
 Joined-table watches opt in by listing the columns that matter:
 
+<!-- fragment -->
 ```php
 ->watch('brand', 'SELECT id FROM product WHERE brand_id = :id', columns: ['name'])
 // updating any OTHER column of "brand" no longer refreshes dependent products

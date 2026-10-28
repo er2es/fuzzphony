@@ -86,6 +86,7 @@ $fuzzphony->in('products')->query('mouse')->profile('popular')->ranking(['boost'
 
 Set them per index (YAML `thresholds:`) or per query:
 
+<!-- fragment -->
 ```php
 ->thresholds(['min_score' => 0.1, 'fuzzy_mode' => 'always'])
 ```

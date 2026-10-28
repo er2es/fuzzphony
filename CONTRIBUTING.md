@@ -70,6 +70,9 @@ with `pdo_pgsql` and `pcov` installed, next to the test database. There is no CI
 - Documentation links are checked in CI (the `docs-links` job: relative links, `#anchors` and absolute links to this
   repository in every `*.md` file; links to other sites are not). Run `php tools/check-docs-links.php` before you push
   when you rename or move a file, a page or a heading.
+- Every ```php block in the README and `docs/` must parse (`DocSnippetsSyntaxTest`); a block that is a piece on purpose (an
+  attribute, a method chain) has `<!-- fragment -->` on the line before it. Code that must also run is marked `<!-- tested: ... -->`
+  (see `tests/Recipes`).
 - Commit messages are short imperative sentences that say why ("Fix the fuzzy branch ignoring
   nested negations"), with detail in the body when it helps.
 

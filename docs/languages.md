@@ -7,6 +7,7 @@ How Fuzzphony handles stemming, stop words and accents per language. Back to the
 
 Each index analyses its text in one language:
 
+<!-- fragment -->
 ```php
 #[Searchable(language: 'hungarian')]                            // attribute
 IndexDefinition::builder('termekek')->language('hungarian')     // builder

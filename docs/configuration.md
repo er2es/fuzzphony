@@ -139,6 +139,7 @@ fuzzphony:
         - 'laptop => notebook | portable'
 ```
 
+<!-- fragment -->
 ```php
 IndexDefinition::builder('products')->synonyms([['tv', 'television'], 'laptop => notebook'])   // builder
 #[Searchable(synonyms: [['tv', 'television'], 'laptop => notebook'])]                         // attribute
@@ -163,6 +164,7 @@ products:
     entries: [[ssd, solid state drive]]      # optional, added to the file's
 ```
 
+<!-- fragment -->
 ```php
 IndexDefinition::builder('products')->synonymsFile($path);       // builder
 #[Searchable(synonymsFile: __DIR__ . '/products.txt')]             // attribute (synonyms: [...] is added to it)

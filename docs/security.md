@@ -236,6 +236,7 @@ has already refused).
 `granted` takes a Symfony attribute (a role such as `ROLE_HR`, or anything a voter decides), in all
 four definition styles:
 
+<!-- fragment -->
 ```php
 // attribute
 #[SearchField('B', granted: 'ROLE_HR')] public string $salary;
@@ -254,6 +255,7 @@ fuzzphony:
         salary: { weight: B, granted: ROLE_HR }
 ```
 
+<!-- fragment -->
 ```php
 // a plain PHP array, the same keys as the YAML (ArrayDefinitionLoader)
 ['fields' => ['salary' => ['weight' => 'B', 'granted' => 'ROLE_HR']]]
