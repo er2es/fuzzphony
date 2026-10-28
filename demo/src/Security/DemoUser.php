@@ -15,6 +15,9 @@ final readonly class DemoUser implements UserInterface
     /** What the page shows for a visitor nobody has signed in as (no user object exists for it). */
     public const string ANONYMOUS = 'anonymous';
 
+    /** The two companies of the demo: id => name. A viewer's company is the tenant; the notes carry the same ids (sql/demo_note.sql). */
+    public const array COMPANIES = [1 => 'Acme', 2 => 'Globex'];
+
     /** @param list<string> $roles */
     private function __construct(
         private string $id,
@@ -28,11 +31,11 @@ final readonly class DemoUser implements UserInterface
     public static function all(): array
     {
         return [
-            'ada' => new self('ada', 'Ada', ['ROLE_USER'], 1, 'Acme'),
-            'hana' => new self('hana', 'Hana (HR)', ['ROLE_USER', 'ROLE_HR'], 1, 'Acme'),
-            'bob' => new self('bob', 'Bob', ['ROLE_USER'], 2, 'Globex'),
+            'ada' => new self('ada', 'Ada', ['ROLE_USER'], 1, self::COMPANIES[1]),
+            'hana' => new self('hana', 'Hana (HR)', ['ROLE_USER', 'ROLE_HR'], 1, self::COMPANIES[1]),
+            'bob' => new self('bob', 'Bob', ['ROLE_USER'], 2, self::COMPANIES[2]),
             // signed in, with a company (so the tenant check passes) but without ROLE_USER: the AccessDenied example
-            'eve' => new self('eve', 'Eve (guest)', [], 1, 'Acme'),
+            'eve' => new self('eve', 'Eve (guest)', [], 1, self::COMPANIES[1]),
         ];
     }
 

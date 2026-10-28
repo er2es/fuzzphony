@@ -1,4 +1,5 @@
 {% extends 'base.html.twig' %}
+{% import '_ui.html.twig' as ui %}
 {% block title %}{{ q != '' ? q ~ ' · ' }}Security · Fuzzphony{% endblock %}
 
 {% block body %}
@@ -22,14 +23,7 @@
             {% if q != '' %}<input type="hidden" name="q" value="{{ q }}">{% endif %}
         </form>
 
-        <form method="get" action="{{ path('security') }}" role="search" class="field-wrap">
-            <input type="hidden" name="as" value="{{ viewerId }}">
-            <div class="search-field">
-                <svg class="icon" aria-hidden="true"><use href="#i-search"/></svg>
-                <input type="search" name="q" value="{{ q }}" placeholder="Try salary, budget or lawsuit" aria-label="Search the intranet notes" autocomplete="off" spellcheck="false" enterkeyhint="search" maxlength="100">
-            </div>
-            <button type="submit" class="sr-only">Search</button>
-        </form>
+        {{ ui.search_field(path('security'), q, 'intranet', 'Search the intranet: salary, budget, lawsuit', {as: viewerId}, false, false, false) }}
         <div class="chips chips-center">
             {% for label, example in examples %}
                 <a class="chip" href="{{ path('security', {as: viewerId, q: example}) }}" data-loading-message="Searching for {{ example }}…"><code>{{ example }}</code> <small>{{ label }}</small></a>

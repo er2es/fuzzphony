@@ -39,7 +39,7 @@
 fuzzphony.metric {"event":"fuzzphony.search.fallback","by":1,"index":"catalog"}{% endif %}{% if rescued %}
 
 fuzzphony.metric {"event":"fuzzphony.search.rescued","by":1,"index":"catalog"}{% endif %}</code></pre>
-        <p class="muted">The query text is left out of the line unless you opt in (<code>logQueryText</code>), and is never a Prometheus label (one time series per distinct query would never stop growing).</p>
+        <p class="muted">The query text is never part of a metric (no log line, no Prometheus label: one time series per distinct query would never stop growing); the search log keeps it.</p>
     </details>
 
     <details class="disclosure">

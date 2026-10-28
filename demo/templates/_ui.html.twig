@@ -4,36 +4,49 @@
 #}
 
 {# The search field of a page that submits (the home page has its own, which also searches while you type). #}
-{% macro search_field(action, q, index, placeholder, params = {}, categories = false, products = true) %}
-    <form method="get" action="{{ action }}" role="search" class="field-wrap" data-controller="suggest"
+{% macro search_field(action, q, index, placeholder, params = {}, categories = false, products = true, suggest = true) %}
+    {# `suggest: false` is for an index the dropdown must not read (/suggest refuses the actor-guarded intranet index): no completions, clear button or spinner #}
+    <form method="get" action="{{ action }}" role="search" class="field-wrap"{% if suggest %} data-controller="suggest"
           data-suggest-url-value="{{ path('suggest') }}" data-suggest-index-value="{{ index }}" data-suggest-page-value="{{ action }}"
           data-suggest-params-value="{{ params|json_encode|e('html_attr') }}"
-          data-suggest-categories-value="{{ categories ? 'true' : 'false' }}" data-suggest-products-value="{{ products ? 'true' : 'false' }}">
+          data-suggest-categories-value="{{ categories ? 'true' : 'false' }}" data-suggest-products-value="{{ products ? 'true' : 'false' }}"{% endif %}>
         {% for name, value in params %}<input type="hidden" name="{{ name }}" value="{{ value }}">{% endfor %}
         <div class="search-field">
             <svg class="icon" aria-hidden="true"><use href="#i-search"/></svg>
             <input type="search" name="q" value="{{ q }}" placeholder="{{ placeholder }}" aria-label="{{ placeholder }}" autocomplete="off" spellcheck="false" enterkeyhint="search" maxlength="100"
-                   {% if q == '' %}autofocus{% endif %} data-suggest-target="input" data-action="input->suggest#update">
-            <button type="button" class="clear" aria-label="Clear the search" data-action="suggest#clear"><svg class="icon" aria-hidden="true"><use href="#i-clear"/></svg></button>
-            <span class="field-spinner" aria-hidden="true"></span>
+                   {% if q == '' %}autofocus{% endif %}{% if suggest %} data-suggest-target="input" data-action="input->suggest#update"{% endif %}>
+            {% if suggest %}
+                <button type="button" class="clear" aria-label="Clear the search" data-action="suggest#clear"><svg class="icon" aria-hidden="true"><use href="#i-clear"/></svg></button>
+                <span class="field-spinner" aria-hidden="true"></span>
+            {% endif %}
         </div>
-        <div class="suggest-panel" data-suggest-target="panel" data-live-ignore hidden></div>
+        {% if suggest %}<div class="suggest-panel" data-suggest-target="panel" data-live-ignore hidden></div>{% endif %}
         <button type="submit" class="sr-only">Search</button>
     </form>
 {% endmacro %}
 
-{# A product row of the catalogue: the category's tile, the name (the library's escaped highlight), brand and category, the price. #}
-{% macro hit_row(hit, row, flag = null) %}
-    {% set style = category_style(row.category ?? '') %}
+{# One row of a product list, the same everywhere: the category's tile, a title and a line under it (both text, escaped by Twig, or the
+   library's escaped highlight passed through |raw), what goes on the right (`aside`, markup built by the caller), and `below` (more markup
+   under the line: the score bar of Tune). `lang` marks the language of the title and line. #}
+{% macro product_row(category, title, sub, aside = null, lang = null, below = null) %}
+    {% set style = category_style(category ?? '') %}
     <li class="row hit-row">
         <span class="tile{{ style.hue < 0 ? ' is-neutral' }}" style="--h: {{ style.hue }}" aria-hidden="true"><svg class="icon"><use href="#{{ style.icon }}"/></svg></span>
         <div class="row-body">
-            <div class="row-title">{% if hit.highlights.name is defined %}{{ hit.highlights.name|raw }}{% else %}{{ row.name ?? hit.id }}{% endif %}</div>
-            <div class="row-sub">{{ row.brand ?? '' }} · {{ row.category ?? '' }}</div>
+            <div class="row-title"{% if lang %} lang="{{ lang }}"{% endif %}>{{ title }}</div>
+            <div class="row-sub"{% if lang %} lang="{{ lang }}"{% endif %}>{{ sub }}</div>
+            {{ below }}
         </div>
-        {% if flag %}<span class="flag">{{ flag }}</span>{% endif %}
-        {% if row %}<div class="row-trailing">{{ row.price|number_format(0, '.', ' ') }} Ft</div>{% endif %}
+        {{ aside }}
     </li>
+{% endmacro %}
+
+{# A product row of the catalogue (a search hit and its row): the name with the library's highlight, brand and category, the price on the right. #}
+{% macro hit_row(hit, row, flag = null) %}
+    {% import _self as ui %}
+    {% set aside %}{% if flag %}<span class="flag">{{ flag }}</span>{% endif %}{% if row %}<div class="row-trailing">{{ row.price|number_format(0, '.', ' ') }} Ft</div>{% endif %}{% endset %}
+    {# the highlight is HTML-escaped by Fuzzphony (only <mark> is added); the fallback is escaped by Twig #}
+    {{ ui.product_row(row.category ?? '', hit.highlights.name is defined ? hit.highlights.name|raw : (row.name ?? hit.id), (row.brand ?? '') ~ ' · ' ~ (row.category ?? ''), aside) }}
 {% endmacro %}
 
 {# Example tokens that link to a search. #}

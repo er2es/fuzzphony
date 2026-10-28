@@ -6,11 +6,17 @@
     </label>
 {% endmacro %}
 {% import _self as ui %}
+{% import '_ui.html.twig' as shared %}
 
 <div {{ attributes.defaults(stimulus_controller('suggest', {url: path('suggest'), index: 'catalog', page: path('tune'), param: 'query', categories: false})) }} class="layout" data-loading-message="Updating…">
     <aside class="settings" aria-label="Settings">
         <section>
             <h2 class="list-title">Ranking</h2>
+            <div class="chips profile-chips" role="group" aria-label="Start from a ranking profile of the catalogue">
+                <span class="muted">Start from</span>
+                <button type="button" class="chip" data-action="live#action" data-live-action-param="startFrom" data-live-name-param="default">default</button>
+                <button type="button" class="chip" data-action="live#action" data-live-action-param="startFrom" data-live-name-param="popular">popular</button>
+            </div>
             <div class="list">
                 {{ ui.slider('Full-text weight', 'text', text, 0, 2, 0.05) }}
                 {{ ui.slider('Fuzzy weight', 'fuzzy', fuzzy, 0, 2, 0.05) }}
@@ -112,13 +118,7 @@
                         {% for hit in result.hits %}
                             {% set b = hit.breakdown %}
                             {% set row = rows[hit.id] ?? null %}
-                            {% set style = category_style(row.category ?? '') %}
-                            <li class="row hit-row">
-                                <span class="tile{{ style.hue < 0 ? ' is-neutral' }}" style="--h: {{ style.hue }}" aria-hidden="true"><svg class="icon"><use href="#{{ style.icon }}"/></svg></span>
-                                <div class="row-body">
-                                    {# the highlight is HTML-escaped by Fuzzphony (only <mark> is added); the fallback is raw database text, escaped by Twig #}
-                                    <div class="row-title">{% if hit.highlights.name is defined %}{{ hit.highlights.name|raw }}{% else %}{{ row.name ?? hit.id }}{% endif %}</div>
-                                    <div class="row-sub">{{ row.brand ?? '' }} · {{ row.category ?? '' }}{% if row %} · {{ row.price|number_format(0, '.', ' ') }} Ft{% endif %}</div>
+                            {% set below %}
                                     <div class="bar" role="img" aria-label="Score {{ hit.score|number_format(3) }}: text {{ (b.textRank * text)|number_format(3) }}, fuzzy {{ (b.fuzzySimilarity * fuzzy)|number_format(3) }}, bonus {{ (b.exactBonus + b.prefixBonus)|number_format(2) }}, boost {{ b.boostBonus|number_format(3) }}, recency {{ b.recencyBonus|number_format(3) }}" title="text {{ (b.textRank * text)|number_format(3) }} · fuzzy {{ (b.fuzzySimilarity * fuzzy)|number_format(3) }} · bonus {{ (b.exactBonus + b.prefixBonus)|number_format(2) }} · boost {{ b.boostBonus|number_format(3) }} · recency {{ b.recencyBonus|number_format(3) }}">
                                         <span class="b-text" style="width: {{ 100 * b.textRank * text / max(top, 0.001) }}%"></span>
                                         <span class="b-fuzzy" style="width: {{ 100 * b.fuzzySimilarity * fuzzy / max(top, 0.001) }}%"></span>
@@ -126,9 +126,10 @@
                                         <span class="b-boost" style="width: {{ 100 * b.boostBonus / max(top, 0.001) }}%"></span>
                                         <span class="b-recency" style="width: {{ 100 * b.recencyBonus / max(top, 0.001) }}%"></span>
                                     </div>
-                                </div>
-                                <div class="row-trailing">{{ hit.score|number_format(3) }}</div>
-                            </li>
+                            {% endset %}
+                            {% set aside %}<div class="row-trailing">{{ hit.score|number_format(3) }}</div>{% endset %}
+                            {# the highlight is HTML-escaped by Fuzzphony (only <mark> is added); the fallback is raw database text, escaped by Twig #}
+                            {{ shared.product_row(row.category ?? '', hit.highlights.name is defined ? hit.highlights.name|raw : (row.name ?? hit.id), (row.brand ?? '') ~ ' · ' ~ (row.category ?? '') ~ (row ? ' · ' ~ row.price|number_format(0, '.', ' ') ~ ' Ft' : ''), aside, null, below) }}
                         {% else %}
                             <li class="row no-lead"><span class="muted">No hits. Lower "Min relevance"{% if not similarityByLength %} or "Fuzzy similarity"{% endif %}, or switch fuzzy mode to "always".</span></li>
                         {% endfor %}

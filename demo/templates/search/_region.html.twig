@@ -1,8 +1,8 @@
 {# The results region of the home page: swapped in place while the visitor types (live_search_controller.js). #}
 {% macro url(q, view, category, stock, extra = {}) %}{{ path('search', {q: q, view: view == 'speed' ? 'speed' : null, cat: category ?: null, stock: stock is null ? null : (stock ? 1 : 0)}|merge(extra)) }}{% endmacro %}
 {% import _self as u %}
+{% import '_ui.html.twig' as ui %}
 {% set keep = exact ? {exact: 1} : {} %}
-{% macro price(value) %}{{ value|number_format(0, '.', ' ') }} Ft{% endmacro %}
 
 {% if q != '' %}
     {# what a screen reader hears when this fragment replaces the last one (live_search_controller.js copies it into the status line) #}
@@ -103,19 +103,7 @@
 
                 <div>
                         <ul class="list" aria-label="Products">
-                            {% for hit in result.hits %}
-                                {% set row = rows[hit.id] ?? null %}
-                                {% set style = category_style(row.category ?? '') %}
-                                <li class="row hit-row">
-                                    <span class="tile{{ style.hue < 0 ? ' is-neutral' }}" style="--h: {{ style.hue }}" aria-hidden="true"><svg class="icon"><use href="#{{ style.icon }}"/></svg></span>
-                                    <div class="row-body">
-                                        {# the highlight is HTML-escaped by Fuzzphony (only <mark> is added); the fallback is escaped by Twig #}
-                                        <div class="row-title">{% if hit.highlights.name is defined %}{{ hit.highlights.name|raw }}{% else %}{{ row.name ?? hit.id }}{% endif %}</div>
-                                        <div class="row-sub">{{ row.brand ?? '' }} · {{ row.category ?? '' }}</div>
-                                    </div>
-                                    {% if row %}<div class="row-trailing">{{ _self.price(row.price) }}</div>{% endif %}
-                                </li>
-                            {% endfor %}
+                            {% for hit in result.hits %}{{ ui.hit_row(hit, rows[hit.id] ?? null) }}{% endfor %}
                         </ul>
                 </div>
             </div>

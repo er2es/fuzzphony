@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace App\Controller;
 
 use App\Service\Catalog;
+use App\Service\Examples;
 use Fuzzphony\Core\Fuzzphony;
 use Fuzzphony\Core\Search\SearchResult;
 use Symfony\Bundle\FrameworkBundle\Controller\AbstractController;
@@ -19,31 +20,6 @@ use Symfony\Component\Routing\Attribute\Route;
  */
 final class RelevanceController extends AbstractController
 {
-    /** Group => label => query. */
-    public const array EXAMPLES = [
-        'Typo tolerance by word length' => [
-            'a correct short word' => 'mouse',
-            'a typo in a four-letter word' => 'mose',
-            'a typo in a long word' => 'hedphones',
-            'a typo and a correct word' => 'wireles mouse',
-            'the price: a letter replaced in the middle' => 'mpuse',
-        ],
-        'Synonyms' => [
-            'an abbreviation' => 'tv',
-            'an irregular plural' => 'mice',
-            'another word for a monitor' => 'display',
-            'a headset' => 'headset',
-            'one way only: a drill finds screwdrivers' => 'drill',
-            '... but not the other way round' => 'screwdriver',
-        ],
-        'Did you mean' => [
-            'a misspelled word' => 'hedphones',
-            'inside a query' => 'ergonmic -silent',
-            'a phrase' => '"noise cancelling" headphnoes',
-            'a word of the vocabulary: nothing to suggest' => 'headphones',
-        ],
-    ];
-
     private const int MAX_QUERY = 100;
 
     #[Route('/relevance', name: 'relevance')]
@@ -63,7 +39,7 @@ final class RelevanceController extends AbstractController
 
         return $this->render('relevance.html.twig', [
             'q' => $q,
-            'examples' => self::EXAMPLES,
+            'examples' => Examples::RELEVANCE,
             'byLength' => $byLength,
             'flat' => $flat,
             'rows' => $rows,

@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace App\Controller;
 
 use App\Security\DemoUser;
+use App\Service\Examples;
 use Doctrine\DBAL\ArrayParameterType;
 use Doctrine\DBAL\Connection;
 use Fuzzphony\Core\Exception\AccessDenied;
@@ -32,15 +33,6 @@ final class SecurityController extends AbstractController
     private const string INDEX = 'intranet';
     private const int LIMIT = 5;
     private const int MAX_QUERY = 100;
-
-    /** label => query */
-    private const array EXAMPLES = [
-        'only in a hidden field' => 'salary',
-        'in both companies' => 'budget',
-        'also only in a hidden field' => 'lawsuit',
-        'in a title and a hidden field' => 'bonus',
-        'ordinary' => 'menu',
-    ];
 
     #[Route('/under-the-hood/security', name: 'security')]
     public function page(
@@ -124,7 +116,7 @@ final class SecurityController extends AbstractController
             'viewer' => $viewer,
             'viewerId' => $viewer?->getUserIdentifier() ?? DemoUser::ANONYMOUS,
             'q' => $q,
-            'examples' => self::EXAMPLES,
+            'examples' => Examples::INTRANET,
             'result' => $result,
             'explanation' => $explanation,
             'rows' => $rows,
@@ -134,7 +126,7 @@ final class SecurityController extends AbstractController
             'used' => $used,
             'limit' => self::LIMIT,
             'wasReset' => $wasReset,
-            'companies' => [1 => 'Acme', 2 => 'Globex'],
+            'companies' => DemoUser::COMPANIES,
         ]);
     }
 

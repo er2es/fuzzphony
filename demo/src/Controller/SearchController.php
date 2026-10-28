@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace App\Controller;
 
 use App\Service\Catalog;
+use App\Service\Examples;
 use App\Service\Facets;
 use App\Service\Measure;
 use Fuzzphony\Core\Exception\FuzzphonyException;
@@ -25,26 +26,6 @@ use Symfony\Contracts\EventDispatcher\EventDispatcherInterface;
  */
 final class SearchController extends AbstractController
 {
-    /** The tokens under the field: label => query, grouped by what they show. */
-    public const array EXAMPLES = [
-        'accent' => 'creme',
-        'typo' => 'hedphones',
-        'stemming' => 'drills',
-        'phrase + exclude' => '"noise cancelling" -headphones',
-        'field' => 'category:kitchen kettle',
-        'exact field' => 'brand:sony headphones',
-        'prefix' => 'ergono*',
-    ];
-
-    /** What the field's suggestions suggest to try: the three things the demo is about. */
-    private const array TRY = [
-        'Typos' => 'hedphones',
-        'Beginnings' => 'cr',
-        'Meaning' => 'tv',
-        'Accents' => 'creme',
-        'Word forms' => 'drills',
-    ];
-
     /** Like the Languages page: the ILIKE fragment is a public endpoint that scans the whole table. */
     private const int MAX_QUERY = 100;
 
@@ -139,7 +120,7 @@ final class SearchController extends AbstractController
             'asYouType' => $asYouType,
             'warmRuns' => Measure::WARM_RUNS,
             'rowEstimate' => $catalog->estimatedProductCount(),
-            'examples' => self::TRY,
+            'examples' => Examples::HOME,
             'pending' => $pending,
             'cap' => self::CANDIDATE_CAP,
             'correctedTo' => $result === null ? null : self::correctedTo($result),
@@ -180,12 +161,6 @@ final class SearchController extends AbstractController
         }
 
         return $this->render('search/_bars.html.twig', ['without' => $without, 'with' => $with, 'q' => $q]);
-    }
-
-    /** @return array<string, string> label => query, the nine queries of the benchmark */
-    public static function benchmarkQueries(): array
-    {
-        return self::EXAMPLES + ['plain word' => 'wireless', 'two words' => 'wireless mouse'];
     }
 
     /**

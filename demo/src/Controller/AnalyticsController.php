@@ -73,7 +73,7 @@ final class AnalyticsController extends AbstractController
             ],
             'chosen' => ['index' => $index ?? 'all', 'who' => $who ?? 'all', 'status' => $status ?? 'all'],
             'userNames' => array_map(static fn(DemoUser $u): string => $u->name, DemoUser::all()),
-            'companies' => ['1' => 'Acme', '2' => 'Globex'],
+            'companies' => DemoUser::COMPANIES,
             'limit' => self::RECENT,
             'cap' => self::CAP,
         ]);

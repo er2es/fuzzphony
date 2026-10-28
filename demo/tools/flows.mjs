@@ -249,6 +249,13 @@ await page.click('label[for=view-sql]');
 await page.waitForSelector('.panel-sql pre');
 check('the SQL wraps instead of scrolling sideways', await page.evaluate(() => [...document.querySelectorAll('.panel-sql pre')].every((pre) => pre.scrollWidth <= pre.clientWidth + 1)));
 
+// the ranking profile `popular` of the configuration is a starting point in Tune: its values land in the sliders
+await go(page, `${BASE}/tune?query=mouse`);
+await page.click('.profile-chips .chip >> text=popular');
+const sliderValue = (label) => page.evaluate((l) => [...document.querySelectorAll('.slider')].find((s) => s.innerText.trim().startsWith(l))?.querySelector('input').value, label);
+await page.waitForFunction(() => [...document.querySelectorAll('.slider')].find((s) => s.innerText.trim().startsWith('Recency half-life'))?.querySelector('input').value === '60', null, { timeout: 15000 });
+check('tune: the popular profile fills the sliders from the configuration', (await sliderValue('Popularity boost')) === '0.03' && (await sliderValue('Recency half-life')) === '60');
+
 // both stock chips of Tune narrow the search
 await go(page, BASE + '/tune?query=mouse');
 await page.waitForSelector('.facets .chip');
