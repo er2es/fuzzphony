@@ -47,6 +47,7 @@ If you read in order: the README (install and quick start), then [Index definiti
 - [Architecture](architecture.md): how is the code organised into layers, and what is the public API?
 - [Known limitations](limitations.md): what does Fuzzphony not do, or do less well than expected, and what should I do
   about it?
+- [Tuning `candidate_limit`](tuning-candidate-limit.md): what to set when the indexed texts are long, with numbers.
 - [Benchmarks](benchmarks.md): how does it compare with a naive `ILIKE`, and how do I measure it myself?
 - [Design decisions (ADRs)](adr/): why is it built this way (sidecar table, queue sync by default, candidate limit,
   shadow rebuild and more)?
