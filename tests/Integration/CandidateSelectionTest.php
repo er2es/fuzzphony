@@ -407,7 +407,7 @@ final class CandidateSelectionTest extends TestCase
         $profile = new RankingProfile();
         $thresholds = new Thresholds(candidateLimit: 50, fuzzyMode: FuzzyMode::Never);
         $conditions = [new Condition('in_stock', Operator::Eq, true)];
-        $builder = new SearchSqlBuilder($this->index, new Names(), [], null, false, $budget);
+        $builder = new SearchSqlBuilder($this->index, new Names(), [], null, false, max(1, $budget));
 
         $one = $builder->ranked("'common'", 'common', null, $conditions, $profile, $thresholds, 5, 0, [], null, false, ['conditions' => [], 'filter' => 'in_stock', 'values' => 10]);
         $page = $this->connection->fetchAll($one['sql'], $one['params']);
@@ -416,11 +416,11 @@ final class CandidateSelectionTest extends TestCase
         $facet = $builder->facets(['in_stock'], "'common'", 'common', null, [], $profile, $thresholds, 10, false);
         $counts = array_map(static fn(array $r): array => [Coerce::int($r['value']), Coerce::int($r['n'])], $this->connection->fetchAll($facet['sql'], $facet['params']));
 
-        $strip = static fn(array $rows): array => array_map(static fn(array $r): array => array_diff_key($r, ['wide_facet' => 1]), $rows);
+        $strip = static fn(array $rows): array => array_map(static fn(mixed $r): array => array_diff_key(is_array($r) ? $r : [], ['wide_facet' => 1]), $rows);
         self::assertSame($strip($expected), $strip($page), 'the page is the same');
         self::assertNotNull($page[0]['wide_facet']);
         $decoded = json_decode(Coerce::str($page[0]['wide_facet']), true);
         self::assertIsArray($decoded);
-        self::assertSame($counts, array_map(static fn(array $pair): array => [Coerce::int($pair[0]), Coerce::int($pair[1])], $decoded), 'the facet is the same');
+        self::assertSame($counts, array_map(static fn(mixed $pair): array => is_array($pair) ? [Coerce::int($pair[0]), Coerce::int($pair[1])] : [], $decoded), 'the facet is the same');
     }
 }
