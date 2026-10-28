@@ -163,7 +163,7 @@ final class FuzzyQueryCompiler
             $probes[$key] = [
                 'sql' => sprintf("SELECT s.id\nFROM %s AS s\nWHERE %s\nLIMIT %d", $this->names->sidecar($this->index), $where, $cap + 1),
                 'params' => $params->all(),
-                'similarity' => $this->thresholds->fuzzySimilarity ?? TypoCurve::lowest(self::length($needle), preg_match('/^[ -~]*$/', $needle) === 1),
+                'similarity' => $this->lookupSimilarity($leaf, $needle),
             ];
         }
 
@@ -256,7 +256,20 @@ final class FuzzyQueryCompiler
         }
         $needle = $this->exact($node, $emptyQueries) === null ? null : $this->needle($node);
 
-        return $needle === null ? null : ($this->thresholds->fuzzySimilarity ?? TypoCurve::lowest(self::length($needle), preg_match('/^[ -~]*$/', $needle) === 1));
+        return $needle === null ? null : $this->lookupSimilarity($node, $needle);
+    }
+
+    /**
+     * The similarity the session's pg_trgm threshold is set to for a word's candidates: the lowest its length allows. A prefix is
+     * judged one letter shorter (similaritySql()), and a restricted viewer's candidates are looked up at the threshold the
+     * recheck uses: a lookup stricter than the recheck would find the documents of the allowed fields only when the text of the
+     * other fields (in `fz` or the open class) also matches, so what the viewer finds would depend on a field it may not see.
+     */
+    private function lookupSimilarity(Node $leaf, string $needle): float
+    {
+        $length = self::length($needle) - ($this->allowed !== null && $this->isPrefix($leaf) ? 1 : 0);
+
+        return $this->thresholds->fuzzySimilarity ?? TypoCurve::lowest($length, preg_match('/^[ -~]*$/', $needle) === 1);
     }
 
     /**
