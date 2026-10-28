@@ -45,7 +45,7 @@ The exit code is non-zero on errors (with `--strict`, also on warnings), so it b
   ✔ Filter price             price (integer)
   ✘ Sidecar columns          Schema drift, missing: f_in_stock.
   ✘ Index fuzzphony_products_fz   INVALID (an interrupted concurrent build)
-  ! Sync queue               12840 item(s) waiting, oldest 900s: is the worker running?
+  ! Sync queue               12840 items waiting, oldest 900s: is the worker running?
   ✔ Coverage                 999 812 of 1 000 000 documents indexed (100.0%, estimated)
 
  Fix for "Sidecar columns": bin/console fuzzphony:schema --apply

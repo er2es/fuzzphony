@@ -107,7 +107,7 @@ final class PostgresInspectorChecksTest extends TestCase
                 ['Rebuild change log function', CheckStatus::Ok, '"public"."fuzzphony_track_products"()', null],
                 ['Sync trigger on fz_product', CheckStatus::Ok, '4 trigger(s), queue mode, statement level', null],
                 ['Sync trigger on fz_brand', CheckStatus::Ok, '4 trigger(s), queue mode, statement level', null],
-                ['Sync queue', CheckStatus::Ok, '0 item(s) waiting', null],
+                ['Sync queue', CheckStatus::Ok, '0 items waiting', null],
                 ['Coverage', CheckStatus::Skipped, 'Estimates are not available for query sources; run with --deep for exact counts.', null],
                 ['Orphaned documents', CheckStatus::Skipped, 'Run with --deep to count indexed documents that are no longer in the source.', null],
                 ['Vocabulary', CheckStatus::Ok, '12 words', null],
@@ -391,7 +391,7 @@ final class PostgresInspectorChecksTest extends TestCase
     {
         $fuzzphony = $this->fuzzphony(Indexes::products('queue'));
         $options = new InspectOptions(maxQueueAgeSeconds: -1);
-        self::assertEquals(Check::ok('Sync queue', '0 item(s) waiting'), self::named($fuzzphony, 'products', 'Sync queue', $options)[0], 'an empty queue has no age');
+        self::assertEquals(Check::ok('Sync queue', '0 items waiting'), self::named($fuzzphony, 'products', 'Sync queue', $options)[0], 'an empty queue has no age');
 
         $queue = static fn(int $age): InterceptingConnection => new InterceptingConnection(
             PostgresTestCase::connect(),
@@ -402,10 +402,10 @@ final class PostgresInspectorChecksTest extends TestCase
             static fn(Check $c): bool => $c->name === 'Sync queue',
         ))[0];
 
-        self::assertEquals(Check::ok('Sync queue', '1 item(s) waiting'), $check(60), 'exactly the limit is not over it');
+        self::assertEquals(Check::ok('Sync queue', '1 item waiting'), $check(60), 'exactly the limit is not over it');
         $late = $check(61);
         self::assertSame(CheckStatus::Warning, $late->status);
-        self::assertSame('1 item(s) waiting, oldest 61s: is the worker running?', $late->message);
+        self::assertSame('1 item waiting, oldest 61s: is the worker running?', $late->message);
         self::assertSame('bin/console fuzzphony:worker   (or from cron: bin/console fuzzphony:worker --once)', $late->fix);
     }
 
@@ -484,9 +484,9 @@ final class PostgresInspectorChecksTest extends TestCase
             ))[0];
         };
 
-        self::assertEquals(Check::ok('Sync queue', '3 item(s) waiting'), $check(3));
+        self::assertEquals(Check::ok('Sync queue', '3 items waiting'), $check(3));
         self::assertSame(CheckStatus::Warning, $check(4)->status);
-        self::assertSame('4 item(s) waiting, oldest 0s: is the worker running?', $check(4)->message);
+        self::assertSame('4 items waiting, oldest 0s: is the worker running?', $check(4)->message);
     }
 
     public function testTypoToleranceThatCannotWorkIsAWarning(): void

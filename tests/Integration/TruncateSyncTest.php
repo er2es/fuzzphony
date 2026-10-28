@@ -86,10 +86,10 @@ final class TruncateSyncTest extends TestCase
             self::assertSame(['*'], $this->queued($index), 'one rebuild job instead of every document id');
             self::assertSame(1, $this->engine->queueSize($index));
             $check = array_find($fuzzphony->inspect('noted')->checks, static fn(Check $c): bool => $c->name === 'Sync queue') ?? self::fail('no queue check');
-            self::assertSame('1 item(s) waiting, one of them a full rebuild (queued by a TRUNCATE)', $check->message);
+            self::assertSame('1 item waiting, one of them a full rebuild (queued by a TRUNCATE)', $check->message);
             $backlog = array_find($fuzzphony->inspect('noted', new InspectOptions(maxQueueBacklog: 0))->checks, static fn(Check $c): bool => $c->name === 'Sync queue') ?? self::fail('no queue check');
             self::assertSame(CheckStatus::Warning, $backlog->status);
-            self::assertMatchesRegularExpression('/^1 item\(s\) waiting, one of them a full rebuild \(queued by a TRUNCATE\), oldest \d+s: is the worker running\?$/', $backlog->message);
+            self::assertMatchesRegularExpression('/^1 item waiting, one of them a full rebuild \(queued by a TRUNCATE\), oldest \d+s: is the worker running\?$/', $backlog->message);
             self::assertEqualsCanonicalizing([1, 3], $search('fragile'), 'nothing changes before the worker runs');
             self::assertSame(1, $this->converge($index));
             self::assertFalse($this->engine->rebuildRequested($index));

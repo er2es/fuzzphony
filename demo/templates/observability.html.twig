@@ -20,7 +20,7 @@
                     <tr><td><code>fuzzphony.search.fallback</code></td><td>counter</td><td>{{ fallback ? '+1 (typo tolerance ran)' : 'not incremented (exact match was enough)' }}</td></tr>
                     {% if rescued %}<tr><td><code>fuzzphony.search.rescued</code></td><td>counter</td><td>+1 (the zero-result rescue ran: nothing contained <code>{{ query }}</code>, the answer is the search for <code>{{ interpreted }}</code>)</td></tr>{% endif %}
                     <tr><td>SQL statements</td><td>&mdash;</td><td>{{ statements }}</td></tr>
-                    {% if queue %}<tr><td><code>fuzzphony.queue.depth</code></td><td>gauge</td><td>{{ queue.message|plain_count }}</td></tr>{% endif %}
+                    {% if queue %}<tr><td><code>fuzzphony.queue.depth</code></td><td>gauge</td><td>{{ queue.message }}</td></tr>{% endif %}
                 </tbody>
             </table>
         </div>

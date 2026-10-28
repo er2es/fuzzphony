@@ -9,6 +9,7 @@ changes; they are always listed under **Breaking** and explained in [UPGRADE.md]
 
 ### Fixed
 
+- **The doctor's `Sync queue` check says "1 item" / "N items"** (it wrote "item(s)").
 - **A failed flush no longer leaks its ids into the next one (`sync: orm`).** `OrmSyncListener` kept what a failed flush had collected (Doctrine closes that manager and never calls `postFlush`) and refreshed it with the next successful flush; ids collected by a closed manager are now dropped.
 - **A refused `suggest()` is recorded in the search log like a refused search, and `suggest()` cuts the text at `max_query_length`** (256 by default; it cut at a fixed 100 characters). A completion of a text between 101 and 256 characters now uses all of it.
 - **The search log and the rate limit read a client address the same way.** `1.2.3.4:80`, `[2001:db8::1]:443`, ` 1.2.3.4` and `fe80::1%eth0` were limited as the address they carry but stored as nothing; the log now stores that address too (masked or full as configured). Nothing else that is stored changes.
