@@ -103,7 +103,7 @@ final class SchemaCommand extends Command
         $io->progressFinish();
         $io->success(sprintf('%d statement(s) applied. Next: fuzzphony:reindex, then fuzzphony:doctor.', count($plan->statements)));
         if (array_any(array_diff($this->cachedColumns(), $columnsBefore), static fn(string $column): bool => isset($tablesBefore[explode('.', $column)[0]]))) {
-            $io->warning('A column was added that the engine looks up once per process: restart long-running processes (Messenger workers, RoadRunner, FrankenPHP) so that they see it, or call PostgresEngine::resetCaches().');
+            $io->warning('A column or index was added that the engine looks up once per process (tsv_capped, actor_ip, the open-class indexes of an index with granted fields): restart long-running processes (Messenger workers, RoadRunner, FrankenPHP) so that they see it, or call PostgresEngine::resetCaches().');
         }
 
         return Command::SUCCESS;
@@ -123,14 +123,15 @@ final class SchemaCommand extends Command
     }
 
     /**
-     * The columns the engine looks up once per process (tsv_capped, actor_ip), as "table oid.name": a column that appears in a
-     * table that was there before the apply is the one a long-running process does not know about (a fresh install has no such process).
+     * The columns and indexes the engine looks up once per process (tsv_capped, actor_ip; the open-class indexes, see OpenClass), as
+     * "table oid.name": one that appears in a table that was there before the apply is the one a long-running process does not know
+     * about (a fresh install has no such process).
      *
      * @return list<string>
      */
     private function cachedColumns(): array
     {
-        return array_map(Coerce::str(...), array_column($this->connection->fetchAll("SELECT attrelid::text || '.' || attname AS col FROM pg_attribute WHERE attname IN ('tsv_capped', 'actor_ip') AND NOT attisdropped AND attnum > 0"), 'col'));
+        return array_map(Coerce::str(...), array_column($this->connection->fetchAll("SELECT attrelid::text || '.' || attname AS col FROM pg_attribute WHERE attname IN ('tsv_capped', 'actor_ip') AND NOT attisdropped AND attnum > 0 UNION ALL SELECT i.indrelid::text || '.' || c.relname FROM pg_index AS i JOIN pg_class AS c ON c.oid = i.indexrelid WHERE c.relname ~ '_open_(fz|tsv)$'"), 'col'));
     }
 
     /** @param list<IndexDefinition> $indexes */
