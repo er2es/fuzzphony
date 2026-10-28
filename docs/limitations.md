@@ -82,8 +82,7 @@ limits:
 
 - Only a query whose every word is a stop word, or a top-level AND of stop words with exclusions. One real word and
   the stop words around it are ignored as before. `the who -rock` and `the who -(rock OR roll)` search `the who` and
-  leave out the documents that have `rock` (before 0.9.9 their full-text branch was "everything but rock", and that is
-  what came back). A query with an OR at the top level, or an OR or an exclusion inside a positive group (`the OR -rock`,
+  leave out the documents that have `rock`. A query with an OR at the top level, or an OR or an exclusion inside a positive group (`the OR -rock`,
   `(the -rock) OR who`, `(the OR who) -rock`), is as it always was. An excluded stop word (`the who -the`, `the -who`)
   is dropped, it excludes nothing. Where the stop-word search does not apply (no typo-tolerant search, more than three
   words, a word shorter than `fuzzy_min_length`) such a query is as it always was: `the who -rock` with
@@ -148,9 +147,8 @@ the same cheap selection as before and returns the same hits.
   for the rank at all (`ideal -a -b ... -o` ranks like `ideal`). The rank of a document is the same either way.
   Measured on 200 000 products, a one-word query costs 0.7 to 1 microseconds per scanned match, 170 to 330 ms in the
   worst case at 1 000 000 rows; the hostile ones (16 words, 15 exclusions, 15 prefixes) cost 170 to 340 ms at 200 000
-  rows and 0.4 to 1 s at 1 000 000, about twice the time of the same query before 0.9.8 (the index scan that finds
-  the matches is most of it), where an earlier build of 0.9.8 took 2 to 3 s
-  ([Benchmarks](benchmarks.md#common-words)).
+  rows and 0.4 to 1 s at 1 000 000 (the index scan that finds
+  the matches is most of it; [Benchmarks](benchmarks.md#common-words)).
 - **A word under the limit costs what it did** (a rare word: 0.15 ms more to plan, never executed); a word
   over it costs one more pass over its matches: 10 to 38 ms for `wireless` (20 000 matches) on 200 000 products,
   up to 105 ms for the most common word there.
@@ -220,7 +218,7 @@ rows are rejected afterwards, so a word that is in most documents' hidden field 
 search read every row: on 200 000 products with five ordinary words in a hidden field, one such word takes 1.7 s
 and five of them 19 s (the same search for a viewer who sees the field takes 0.1 to 0.4 s). Nothing leaks (the
 result is the same as for any other hidden content; only the time depends on it, see
-[Security](security.md#the-limits-stated-honestly)); it is not a regression of 0.9.8. Planned: a trigram
+[Security](security.md#the-limits-stated-honestly)). Planned: a trigram
 index on the allowed field's own column, or a work cap on the probe. Until then keep a field that is in most
 documents and that some viewers may not see out of `fuzzy: true`.
 
@@ -257,10 +255,9 @@ it, even when a typed word was found in it by typo only. See [Highlighting](sear
 PostgreSQL keeps a word's position in a `tsvector` only up to 16 383: a later word gets position 16 383 too. Fuzzphony's
 whole-text vector (`tsv`) is the vectors of all fields joined, so after a field of more than about 16 000 words every word of
 the fields that follow it is at one position there, and where several words share one position only the highest weight of
-them is kept. Phrases and field-scoped words need those positions and weights. Since 0.9.8 that costs a document nothing:
+them is kept. Phrases and field-scoped words need those positions and weights. That costs a document nothing:
 a phrase (`"usb receiver"`, `name:"usb receiver"`, `usb-c`) and a word scoped to a field (`secret:word`) are looked up by
-their words and decided by each field's own vector, which the cap does not reach (before 0.9.8 an unrestricted search lost
-them after a long field, a restricted one had been fixed in 0.9.7: see the [CHANGELOG](../CHANGELOG.md)).
+their words and decided by each field's own vector, which the cap does not reach.
 
 What still does not work, because the data is not in the index in a usable form:
 
@@ -387,8 +384,7 @@ clean.
 
 `explain()` and `fuzzphony:search --explain` are for people. The SQL text, the number of statements, their
 labels (`full-text`, `full-text + fuzzy`, `fallback: full-text + fuzzy`, `browse`, `facet: category_id, in_stock`, `did you mean`,
-`relaxation probe`, `highlighting`, `exact total`, and the same labels with the prefix `rescue: `) and the plan lines change between releases (0.9.5 merged the facet
-statements into one). Do not parse them or build a test or an alert on them.
+`relaxation probe`, `highlighting`, `exact total`, and the same labels with the prefix `rescue: `) and the plan lines change between releases. Do not parse them or build a test or an alert on them.
 
 ### A rescued search is not a zero-result search in the log
 
@@ -417,24 +413,11 @@ then do not read.
 
 ### Field authorization hides content, not existence or timing
 
-Field-level authorization (`granted`, see [Security](security.md)) keeps the content of a hidden field out of
-what a restricted viewer can match, rank, highlight, count and be suggested. It is not row-level security (a
-viewer who may search an index may find every document of it, within the tenant) and it is not a covert-channel
-proof:
-
-- a hidden field's existence is visible (`salary:x` gives no "Unknown field" warning), and a highlight request for it shows nothing;
-- timing is not hidden: how long a search takes can depend on how often a word occurs in a hidden field;
-- filters and facets are not restricted;
-- the vocabulary of unrestricted viewers still holds every word (a restricted viewer gets no suggestions and no "did you mean");
-- an exact phrase is read from the fields the viewer may see, as if the hidden ones did not exist: it spans two
-  allowed fields as it does for an unrestricted search, and never reaches into a hidden one. With a hidden field
-  between two allowed ones a restricted phrase can match where the unrestricted search (which sees the hidden
-  text in between) does not. The typo-tolerant similarity of a phrase that spans two fields is still taken per
-  field (a typo in it is found less reliably than for an unrestricted viewer);
-- `explain()` of a restricted viewer returns the statements and a note instead of the plan, because estimates
-  and `ANALYZE` counts would leak how often a word occurs in the hidden fields;
-- an index upgraded to layout 2 without a full reindex has empty per-field columns, so a restricted viewer finds
-  nothing (it fails closed): reindex after upgrading.
+Field-level authorization (`granted`) keeps the content of a hidden field out of what a restricted viewer can match, rank,
+highlight, count and be suggested. It is not row-level security and not a covert-channel proof: the existence of a hidden field,
+timing, filters and facets, and the vocabulary of unrestricted viewers are not hidden. **What to do:** read the full list in
+[Security: the limits, stated honestly](security.md#the-limits-stated-honestly) (the one place that lists them) and do not put a secret
+where only a field-level rule protects it from being inferred.
 
 ### The client IP in the search log
 
