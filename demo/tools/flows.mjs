@@ -558,6 +558,18 @@ for (const q of [injected, `mpuse ${injected}`]) {
 }
 
 // the log keeps what was typed, with the hits of the rescued search: the typo is among the most searched, not among the searches that found nothing
+// (on a used stack "mpuse" may already be in the zero-result table from a deliberate exact=1 search: what must not change is its count there)
+const zeroCountOf = async (word) => {
+    await go(page, BASE + '/under-the-hood/analytics');
+    const rows = await page.locator('.table-card').nth(1).locator('tbody tr').all();
+    for (const tr of rows) {
+        if ((await tr.locator('td code').first().innerText()).trim() === word) {
+            return Number((await tr.locator('td').nth(1).innerText()).replace(/\D/g, ''));
+        }
+    }
+    return 0;
+};
+const zeroBefore = await zeroCountOf('mpuse');
 for (let i = 0; i < 3; i++) {
     await go(page, BASE + '/?q=mpuse');
 }
@@ -582,7 +594,10 @@ if (!rescuedTop.includes('mpuse')) {
     rescuedRows = await listSection.locator('tbody tr').all();
 }
 check('rescue: the analytics page lists the rescued typo among the most searched', rescuedTop.includes('mpuse'), rescuedTop.join(', '));
-check('rescue: and not among the searches that found nothing', !rescuedZero.includes('mpuse'), rescuedZero.join(', '));
+const zeroAfter = await zeroCountOf('mpuse');
+await go(page, BASE + '/under-the-hood/analytics');
+rescuedRows = await listSection.locator('tbody tr').all();
+check('rescue: and not among the searches that found nothing (its count there did not grow)', zeroAfter === zeroBefore, `${zeroBefore} -> ${zeroAfter}`);
 const rescuedHits = [];
 const insteadHits = [];
 for (const tr of rescuedRows) {
