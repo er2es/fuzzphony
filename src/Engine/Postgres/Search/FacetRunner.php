@@ -58,8 +58,15 @@ final readonly class FacetRunner
 
         $statements = [];
         $facetRows = [];
+        $carried = self::carriedFacet($c, $rows);
         foreach ($groups as $first => $names) {
             $isCommon = $first === $common;
+            if ($carried !== null && $first === $carried['filter']) {
+                // the page's own statement counted it (SearchSqlBuilder::wideSelection())
+                $facetRows[$first] = $carried['rows'];
+
+                continue;
+            }
             $statement = $this->statement($c, $run, $isCommon ? $builder : $c->builder(), $names, $others[$first], $isCommon ? $ids : null);
             // ids: the statement reads no similarity setting
             $result = $this->session->run($statement, $isCommon && $ids !== null ? null : $threshold);
@@ -78,6 +85,46 @@ final readonly class FacetRunner
         }
 
         return new FacetResult($facets, $statements);
+    }
+
+    /**
+     * The facet the page's strict statement can count in the same scan: the first facet that leaves a condition out. Null when
+     * the facets are not counted over the page's candidates (exact counts, a deeper page) or there is none.
+     *
+     * @return array{conditions: list<Condition>, filter: string, values: int}|null
+     */
+    public static function carriable(SearchContext $c): ?array
+    {
+        $query = $c->query;
+        if ($query->facets === [] || $query->exactCounts || SearchSqlBuilder::window($c->thresholds, $query->limit, $query->offset) !== $c->thresholds->candidateLimit) {
+            return null;
+        }
+        foreach ($query->facets as $name) {
+            $others = array_values(array_filter($c->conditions, static fn(Condition $condition): bool => $condition->filter !== $name || $condition->filter === $c->index->tenant));
+            if ($others !== $c->conditions) {
+                return ['conditions' => $others, 'filter' => $name, 'values' => $query->facetValues];
+            }
+        }
+
+        return null;
+    }
+
+    /**
+     * @param list<array<string, mixed>> $rows
+     *
+     * @return array{filter: string, rows: list<array{value: mixed, n: int}>}|null
+     */
+    private static function carriedFacet(SearchContext $c, array $rows): ?array
+    {
+        $wide = self::carriable($c);
+        if ($wide === null || $rows === [] || !array_key_exists('wide_facet', $rows[0])) {
+            return null;
+        }
+        $json = $rows[0]['wide_facet'];
+        $decoded = $json === null ? [] : json_decode(Coerce::str($json), true, 8, JSON_THROW_ON_ERROR);
+        assert(is_array($decoded));
+
+        return ['filter' => $wide['filter'], 'rows' => array_map(static fn(mixed $pair): array => ['value' => is_array($pair) ? $pair[0] : null, 'n' => is_array($pair) ? Coerce::int($pair[1]) : 0], array_values($decoded))];
     }
 
     /**

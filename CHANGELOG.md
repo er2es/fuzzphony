@@ -26,6 +26,7 @@ changes; they are always listed under **Breaking** and explained in [UPGRADE.md]
 
 ### Changed
 
+- **A filtered search with a facet on the same filter is faster.** The page and that facet now come from one scan instead of two; results are identical.
 - **Internal restructuring, no behaviour change.** `PostgresEngine` is split into services, a facet is counted by one statement form, and the bundle's `loadExtension()` into steps; nothing public changes.
 - **Demo: the rescue and the search page.** A text that finds nothing is rescued at once (no "Nothing found" flash, no waiting for the typing to settle); the
   bar names the corrected word; a found search is logged after the response, not by a second run before it; the Speed view opens at once.

@@ -114,11 +114,14 @@ final class SearchSqlBuilder
      * @param bool            $withCandidates also return the ids of every candidate that passes the minimum score, as JSON in the meta row's
      *                                        `cand_ids`: the facets of the search count exactly these documents (facetsOf())
      *
+     * @param array{conditions: list<Condition>, filter: string, values: int}|null $wide the one facet that leaves conditions out, counted in this statement
+     *                                                                               when it is a strict one (`wide_facet` in the meta row: JSON [[value, n], ...])
+     *
      * @return array{sql: string, params: array<string, scalar|null>, readsWordThreshold: bool}
      */
-    public function ranked(?string $tsquery, string $plain, ?Node $fuzzyRoot, array $conditions, RankingProfile $profile, Thresholds $thresholds, int $limit, int $offset, array $emptyQueries = [], ?Node $scopedRoot = null, bool $withCandidates = false): array
+    public function ranked(?string $tsquery, string $plain, ?Node $fuzzyRoot, array $conditions, RankingProfile $profile, Thresholds $thresholds, int $limit, int $offset, array $emptyQueries = [], ?Node $scopedRoot = null, bool $withCandidates = false, ?array $wide = null): array
     {
-        ['ctes' => $ctes, 'params' => $params, 'fuzzy' => $fuzzy, 'fast' => $fast, 'fuzzyFast' => $fuzzyFast] = $this->scored($tsquery, $plain, $fuzzyRoot, $conditions, $profile, $thresholds, $emptyQueries, $scopedRoot, false, self::window($thresholds, $limit, $offset));
+        ['ctes' => $ctes, 'params' => $params, 'fuzzy' => $fuzzy, 'fast' => $fast, 'fuzzyFast' => $fuzzyFast, 'wideFacet' => $wideFacet] = $this->scored($tsquery, $plain, $fuzzyRoot, $conditions, $profile, $thresholds, $emptyQueries, $scopedRoot, false, self::window($thresholds, $limit, $offset), $wide);
 
         $counts = [];
         // what the fast selection found: it hit its limit exactly when the matches were cut off, whatever the ordered one kept
@@ -127,6 +130,9 @@ final class SearchSqlBuilder
         $minScore = Sql::float($thresholds->minScore);
         if ($withCandidates) {
             $counts[] = sprintf('(SELECT json_agg(id ORDER BY id) FROM scored WHERE relevance >= %s) AS cand_ids', $minScore);
+        }
+        if ($wideFacet !== null) {
+            $counts[] = $wideFacet;
         }
         $ctes[] = sprintf(
             "page AS (\n    SELECT id, r_text, r_fuzzy, relevance, exact_bonus, prefix_bonus, boost_bonus, recency_bonus,\n        relevance + exact_bonus + prefix_bonus + boost_bonus + recency_bonus AS score\n    FROM scored\n    WHERE relevance >= %s\n    ORDER BY score DESC, id\n    LIMIT %d OFFSET %d\n)",
@@ -137,9 +143,10 @@ final class SearchSqlBuilder
 
         // The meta row always exists, so totals are known even for pages past the end.
         $sql = sprintf(
-            "WITH %s\nSELECT m.total, m.fts_n, m.fuzzy_n%s, page.*\nFROM (SELECT (SELECT count(*) FROM scored WHERE relevance >= %s) AS total, %s) AS m\nLEFT JOIN page ON TRUE\nORDER BY page.score DESC NULLS LAST, page.id",
+            "WITH %s\nSELECT m.total, m.fts_n, m.fuzzy_n%s%s, page.*\nFROM (SELECT (SELECT count(*) FROM scored WHERE relevance >= %s) AS total, %s) AS m\nLEFT JOIN page ON TRUE\nORDER BY page.score DESC NULLS LAST, page.id",
             implode(",\n", $ctes),
             $withCandidates ? ', m.cand_ids' : '',
+            $wideFacet !== null ? ', m.wide_facet' : '',
             $minScore,
             implode(', ', $counts),
         );
@@ -162,9 +169,11 @@ final class SearchSqlBuilder
      * @param list<Condition> $conditions
      * @param list<string>    $emptyQueries
      *
-     * @return array{ctes: list<string>, params: ParameterBag, fuzzy: ?FuzzyMatch, fast: string, fuzzyFast: string}
+     * @param array{conditions: list<Condition>, filter: string, values: int}|null $wide one facet that leaves conditions out, carried by the strict selection (wideSelection())
+     *
+     * @return array{ctes: list<string>, params: ParameterBag, fuzzy: ?FuzzyMatch, fast: string, fuzzyFast: string, wideFacet: ?string}
      */
-    private function scored(?string $tsquery, string $plain, ?Node $fuzzyRoot, array $conditions, RankingProfile $profile, Thresholds $thresholds, array $emptyQueries, ?Node $scopedRoot, bool $uncapped, ?int $window = null): array
+    private function scored(?string $tsquery, string $plain, ?Node $fuzzyRoot, array $conditions, RankingProfile $profile, Thresholds $thresholds, array $emptyQueries, ?Node $scopedRoot, bool $uncapped, ?int $window = null, ?array $wide = null): array
     {
         $params = new ParameterBag();
         $filters = new FilterCompiler($this->index);
@@ -249,30 +258,38 @@ final class SearchSqlBuilder
         ];
         $filterSql = $filters->compile($conditions, $params);
         $fast = 'fts';
+        $wideFacet = null;
         if ($tsquery !== null) {
             $fast = $ordered ? 'fts_fast' : 'fts';
             $rank = $this->textRank($profile, $positional, $rankQuery) . '::double precision';
             $where = implode(' AND ', $strict) . ' AND ' . $filterSql;
-            $ctes[] = sprintf(
-                "%s AS (
+            $n = (int) $window;
+            $min = $fuzzy === null && $thresholds->minScore > 0.0 ? sprintf(' AND %s * w.r_text >= %s', Sql::float($profile->text), Sql::float($thresholds->minScore)) : '';
+            if ($ordered && $wide !== null && $fuzzy === null) {
+                $selection = $this->wideSelection($wide, $strict, $rank, $bonuses, $table, $where, $conditions, $filters, $params, $profile, $thresholds, $n, self::scanLimit($this->scanBudget, $operands, $n), $min);
+                array_push($ctes, ...$selection['ctes']);
+                $wideFacet = $selection['facet'];
+            } else {
+                $ctes[] = sprintf(
+                    "%s AS (
     SELECT s.id, %s AS r_text
     FROM %s AS s CROSS JOIN q
     WHERE %s%s
 )",
-                $fast,
-                $rank,
-                $table,
-                $where,
-                $ordered ? "
+                    $fast,
+                    $rank,
+                    $table,
+                    $where,
+                    $ordered ? "
     LIMIT " . $window : $cap,
-            );
-            if ($ordered) {
-                $n = (int) $window;
-                // a minimum relevance keeps the documents under it out of the slots; with typo tolerance in the same statement a
-                // document may pass on its typo similarity, so the fast selection's rule (no cut here) stands
-                $min = $fuzzy === null && $thresholds->minScore > 0.0 ? sprintf(' AND %s * w.r_text >= %s', Sql::float($profile->text), Sql::float($thresholds->minScore)) : '';
-                $ctes[] = sprintf(
-                    "fts AS (
+                );
+                if ($ordered) {
+                    $n = (int) $window;
+                    // a minimum relevance keeps the documents under it out of the slots; with typo tolerance in the same statement a
+                    // document may pass on its typo similarity, so the fast selection's rule (no cut here) stands
+                    $min = $fuzzy === null && $thresholds->minScore > 0.0 ? sprintf(' AND %s * w.r_text >= %s', Sql::float($profile->text), Sql::float($thresholds->minScore)) : '';
+                    $ctes[] = sprintf(
+                        "fts AS (
     SELECT id, r_text FROM fts_fast WHERE (SELECT count(*) FROM fts_fast) < %1\$d
     UNION ALL
     SELECT id, r_text FROM (
@@ -287,18 +304,19 @@ final class SearchSqlBuilder
         LIMIT %1\$d
     ) AS o
 )",
-                    $n,
-                    $rank,
-                    $bonuses[0],
-                    $bonuses[1],
-                    $bonuses[2],
-                    $bonuses[3],
-                    $table,
-                    $where,
-                    self::scanLimit($this->scanBudget, $operands, $n),
-                    $min,
-                    Sql::float($profile->text),
-                );
+                        $n,
+                        $rank,
+                        $bonuses[0],
+                        $bonuses[1],
+                        $bonuses[2],
+                        $bonuses[3],
+                        $table,
+                        $where,
+                        self::scanLimit($this->scanBudget, $operands, $n),
+                        $min,
+                        Sql::float($profile->text),
+                    );
+                }
             }
         }
         $fuzzyFast = 'fuzzy';
@@ -403,7 +421,7 @@ final class SearchSqlBuilder
             $table,
         );
 
-        return ['ctes' => $ctes, 'params' => $params, 'fuzzy' => $fuzzy, 'fast' => $fast, 'fuzzyFast' => $fuzzyFast];
+        return ['ctes' => $ctes, 'params' => $params, 'fuzzy' => $fuzzy, 'fast' => $fast, 'fuzzyFast' => $fuzzyFast, 'wideFacet' => $wideFacet];
     }
 
     /**
@@ -507,6 +525,129 @@ final class SearchSqlBuilder
     }
 
     /**
+     * The strict selection of a page and of ONE facet that leaves a condition out, from one scan. The page counts the matches that
+     * pass every condition; the facet the matches that pass all but the left-out ones, so its candidates are the best `$n` of a
+     * wider set. `wide` scans that wider set once (at most `$scan` matches, the bound of the ordered selection) and flags the
+     * matches that also pass the left-out conditions (`in_page`). When the scan was not cut (fewer than `$scan` rows) the matches
+     * of the page are exactly the flagged ones, so the page selects from `wide`; when it was cut, the page keeps its own scan
+     * (the first `$scan` matches that pass every condition), which only then runs ("never executed" otherwise). The facet
+     * always selects from `wide`: that is the scan its own statement would have made.
+     *
+     * @param array{conditions: list<Condition>, filter: string, values: int} $wide
+     * @param list<string>                                                      $strict
+     * @param list<string>                                                      $bonuses
+     * @param list<Condition>                                                   $conditions
+     *
+     * @return array{ctes: list<string>, facet: string}
+     */
+    private function wideSelection(array $wide, array $strict, string $rank, array $bonuses, string $table, string $where, array $conditions, FilterCompiler $filters, ParameterBag $params, RankingProfile $profile, Thresholds $thresholds, int $n, int $scan, string $min): array
+    {
+        $left = array_values(array_filter($conditions, static fn(Condition $c): bool => !in_array($c, $wide['conditions'], true)));
+        $wideWhere = implode(' AND ', $strict) . ' AND ' . $filters->compile($wide['conditions'], $params);
+        $inPage = $filters->compile($left, $params);
+        $complete = sprintf('(SELECT count(*) FROM wide) < %d', $scan);
+        $cut = sprintf('(SELECT count(*) FROM wide) >= %d', $scan);
+        $order = sprintf('%s * w.r_text + w.e0 + w.e1 + w.e2 + w.e3 DESC, w.id', Sql::float($profile->text));
+        $ctes = [
+            sprintf(
+                "wide AS MATERIALIZED (\n    SELECT s.id, %s AS r_text, %s AS e0, %s AS e1, %s AS e2, %s AS e3, (%s) AS in_page, s.%s AS v0\n    FROM %s AS s CROSS JOIN q\n    WHERE %s\n    LIMIT %d\n)",
+                $rank,
+                $bonuses[0],
+                $bonuses[1],
+                $bonuses[2],
+                $bonuses[3],
+                $inPage,
+                FilterCompiler::column($wide['filter']),
+                $table,
+                $wideWhere,
+                $scan,
+            ),
+            sprintf(
+                "fts_fast AS (\n    SELECT x.id, x.r_text FROM (SELECT id, r_text FROM wide WHERE in_page LIMIT %1\$d) AS x WHERE %2\$s\n    UNION ALL\n    SELECT y.id, y.r_text FROM (SELECT s.id, %3\$s AS r_text FROM %4\$s AS s CROSS JOIN q WHERE %5\$s LIMIT %1\$d) AS y WHERE %6\$s\n)",
+                $n,
+                $complete,
+                $rank,
+                $table,
+                $where,
+                $cut,
+            ),
+            sprintf(
+                "fts AS (
+    SELECT id, r_text FROM fts_fast WHERE (SELECT count(*) FROM fts_fast) < %1\$d
+    UNION ALL
+    SELECT id, r_text FROM (
+        SELECT w.id, w.r_text FROM (
+            SELECT id, r_text, e0, e1, e2, e3 FROM wide WHERE in_page AND %2\$s
+            UNION ALL
+            SELECT t.id, t.r_text, t.e0, t.e1, t.e2, t.e3 FROM (
+                SELECT s.id, %3\$s AS r_text, %4\$s AS e0, %5\$s AS e1, %6\$s AS e2, %7\$s AS e3
+                FROM %8\$s AS s CROSS JOIN q
+                WHERE %9\$s
+                LIMIT %10\$d
+            ) AS t WHERE %11\$s
+        ) AS w
+        WHERE (SELECT count(*) FROM fts_fast) >= %1\$d%12\$s
+        ORDER BY %13\$s
+        LIMIT %1\$d
+    ) AS o
+)",
+                $n,
+                $complete,
+                $rank,
+                $bonuses[0],
+                $bonuses[1],
+                $bonuses[2],
+                $bonuses[3],
+                $table,
+                $where,
+                $scan,
+                $cut,
+                $min,
+                $order,
+            ),
+            sprintf(
+                "wfts AS (
+    SELECT id, r_text FROM wide WHERE %2\$s
+    UNION ALL
+    SELECT id, r_text FROM (
+        SELECT w.id, w.r_text FROM wide AS w
+        WHERE (SELECT count(*) FROM wide) >= %1\$d%3\$s
+        ORDER BY %4\$s
+        LIMIT %1\$d
+    ) AS o
+)",
+                $n,
+                sprintf('(SELECT count(*) FROM wide) < %d', $n),
+                $min,
+                $order,
+            ),
+            sprintf(
+                "wf AS (\n    SELECT w.v0 FROM wfts AS f JOIN wide AS w ON w.id = f.id\n    WHERE %s * f.r_text + %s * 0::double precision >= %s\n)",
+                Sql::float($profile->text),
+                Sql::float($profile->fuzzy),
+                Sql::float($thresholds->minScore),
+            ),
+        ];
+        $branch = $this->facetBranch(0, $wide['filter'], $wide['values'], 'wf');
+
+        return ['ctes' => $ctes, 'facet' => sprintf('(SELECT json_agg(json_build_array(b.value, b.n) ORDER BY b.rk) FROM (%s) AS b) AS wide_facet', $branch)];
+    }
+
+    /** One GROUP BY branch of a facet over `$from`: see facetBranches(). */
+    private function facetBranch(int $i, string $filter, int $values, string $from): string
+    {
+        $cast = $this->index->filter($filter)->type === FilterType::Bool ? 'g.value::int::text' : 'g.value::text';
+
+        return sprintf(
+            'SELECT %1$d AS f, g.rk, %2$s AS value, g.n FROM (SELECT v%1$d AS value, count(*) AS n, row_number() OVER (ORDER BY count(*) DESC, v%1$d NULLS LAST) AS rk FROM %4$s GROUP BY v%1$d ORDER BY rk LIMIT %3$d) AS g',
+            $i,
+            $cast,
+            $values,
+            $from,
+        );
+    }
+
+    /**
      * One GROUP BY branch per facet over `fc`: the same order and limit as facet() (count descending, then the value in
      * its own type, NULL last), kept in `rk`; the value travels as text (a bool as 1 / 0) so the branches can be united.
      *
@@ -517,13 +658,7 @@ final class SearchSqlBuilder
     {
         $branches = [];
         foreach ($filters as $i => $filter) {
-            $cast = $this->index->filter($filter)->type === FilterType::Bool ? 'g.value::int::text' : 'g.value::text';
-            $branches[] = sprintf(
-                'SELECT %1$d AS f, g.rk, %2$s AS value, g.n FROM (SELECT v%1$d AS value, count(*) AS n, row_number() OVER (ORDER BY count(*) DESC, v%1$d NULLS LAST) AS rk FROM fc GROUP BY v%1$d ORDER BY rk LIMIT %3$d) AS g',
-                $i,
-                $cast,
-                $values,
-            );
+            $branches[] = $this->facetBranch($i, $filter, $values, 'fc');
         }
 
         return sprintf("WITH %s

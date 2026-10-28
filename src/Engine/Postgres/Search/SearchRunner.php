@@ -440,7 +440,7 @@ final readonly class SearchRunner
             if ($alwaysFuzzy && $fuzzyRoot !== null) {
                 $phase = $typoPhase($fuzzyRoot, StatementKind::Search, $labelPrefix . 'full-text + fuzzy', $emptyQueries ?? []);
             } else {
-                $statement = Statement::of(StatementKind::Search, $labelPrefix . 'full-text', $builder->ranked($tsquery, $plain, null, $c->conditions, $c->profile, $thresholds, $query->limit, $query->offset, $emptyQueries ?? [], $scopedRoot, $withIds));
+                $statement = Statement::of(StatementKind::Search, $labelPrefix . 'full-text', $builder->ranked($tsquery, $plain, null, $c->conditions, $c->profile, $thresholds, $query->limit, $query->offset, $emptyQueries ?? [], $scopedRoot, $withIds, FacetRunner::carriable($c)));
                 $rows = $this->session->run($statement, null);
                 $statements[] = $statement;
                 $ranked = new RankedSearch($tsquery, $plain, null, $emptyQueries ?? [], $scopedRoot, []);
