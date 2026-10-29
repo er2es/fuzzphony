@@ -9,8 +9,8 @@ If you read in order: the README (install and quick start), then [Index definiti
 ## Getting started
 
 - [README](../README.md#install): requirements, install, the Symfony quick start and the query syntax in brief.
-- [Index definitions](configuration.md): how do I describe what to search (attributes, YAML or the builder), set up the
-  bundle and build the index?
+- [Index definitions](configuration.md): how do I describe what to search (attributes, YAML or the builder; joins, several
+  tables and several indexes), set up the bundle and build the index?
 - [Searching](searching.md): how do I run a search, and what do typo tolerance, synonyms, "did you mean", facets and
   empty-result relaxation do?
 - [Migrating from `LIKE`](migrating-from-like.md): I have `WHERE name ILIKE '%mouse%'` today; how do I move that search

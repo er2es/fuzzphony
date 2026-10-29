@@ -360,6 +360,42 @@ What to do: run `fuzzphony:reindex <index>` afterwards; it also removes the orph
 
 See [Keeping the index in sync](sync.md).
 
+### Connecting a legacy database
+
+Plain tables without entities work (see [Joins, several tables and several indexes](configuration.md#joins-several-tables-and-several-indexes)),
+but a few things take more writing than with one entity per index.
+
+- **A `UNION ALL` index needs a hand-written watch per table.** What happens: a table of the union without a watch is not
+  followed, and its changes never reach the index; there is no error. Why: Fuzzphony cannot derive the tables, or the id
+  prefix, from the query text. What to do: one `watch` per table, returning the prefixed id (`SELECT 'product-' || :id`),
+  and check it with a test that changes a row of each table.
+- **The hits of a union carry only a string id.** What happens: `'article-1'`, nothing says which table it is. `EntityLoader`
+  maps one class and does not skip foreign ids (it fails with a database error on an integer key). What to do: split the
+  id yourself and load each kind from its own table; for one search box over several kinds prefer one index per kind and a
+  [federated search](searching.md#federated-search).
+- **A watch `key` must be one plain column.** What happens: an expression, or a composite key, is refused ("is not a valid
+  column name"). What to do: key on one column of the group (`order_no`) and return all documents of that group with an
+  `ids` query (the group is refreshed as a whole, more than the changed row), or key on the column that points at the
+  document.
+- **A one-to-many join is folded in the source query.** What happens: a join that returns several rows for one id makes the
+  id repeat. What to do: `string_agg(...) ... GROUP BY` in the query, one row per document.
+- **Every joined table needs its own watch.** What happens: nothing is derived from the join, a table you do not list is not
+  followed, and a watch without `columns` refreshes on every `UPDATE` of the table, also of columns the index does not
+  use. What to do: list each joined table with an `ids` query (or `key`), and add `columns` where the table is written
+  often ([Column-aware filtering](sync.md#column-aware-filtering)).
+- **Overlapping indexes multiply triggers.** What happens: each index adds four triggers to every table it watches, and
+  one `UPDATE` of a shared table refreshes all the indexes that watch it (in `trigger` mode inside the writing
+  transaction, in `queue` mode as one queue row per index and document). What to do: for a hot table prefer `sync: queue`
+  and `columns`, and keep the number of indexes over it small.
+- **One `#[Searchable]` per class.** What happens: a second attribute is a PHP error. What to do: define further indexes
+  over the same table or entity in YAML or the builder, under another name.
+- **A federated search merges by rank only.** What happens: the scores of different indexes are not comparable, so the best
+  hit of each index comes first, whatever its score. What to do: weight an index (`weight:`) to move it up, or use one
+  union index when one common ranking matters more than the loading of entities.
+- **A database that does not allow triggers follows nothing by itself.** What happens: `sync: queue` and `trigger` fail at
+  `schema --apply` (permission denied for the source table) and create nothing. What to do: `sync: manual` and a
+  `fuzzphony:reindex` from cron or after an import, or `refresh()` for single documents.
+
 ### One id column per document
 
 A document is identified by one column (`id` by default) of an integer, UUID or string type, and the string

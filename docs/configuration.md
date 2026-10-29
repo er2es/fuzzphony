@@ -25,6 +25,255 @@ typed filter columns and the ranking inputs,
 each with the right index (GIN, GIN trigram, btree). Your schema is untouched. Dropping the index
 is one command.
 
+## Joins, several tables and several indexes
+
+### Entity attributes or YAML?
+
+| Your situation | Use |
+|---|---|
+| Doctrine entities, one index per entity, over (mostly) that entity's table | attributes (`#[Searchable]` on the class) |
+| A legacy database without entities (plain tables, no ORM) | YAML (Symfony) or the builder (plain PHP) |
+| A source with joins, or over several tables | YAML or the builder (`source.query`, `watch`) |
+| Several indexes over the same table or entity (attributes are one per class) | the first by attributes if you like, the others in YAML or the builder under another name |
+| An attribute index whose `sync`, `language`, `boost`, `watch`, ... you want to change per environment | a YAML entry with the same name overrides those keys (see [YAML](#yaml)) |
+
+**A join goes in the source query.** Attributes only name a table, so for a join define the index in YAML (`source.query`)
+or with the builder (`fromQuery()`); the first example under [YAML](#yaml) and the one under
+[Builder](#builder-plain-php) are joined indexes. The query returns one row per document, with the id in a column
+(`id` by default; `source.id`, or the second argument of `fromQuery()`, names another). A one-to-many join (a customer's
+addresses) must be folded into the row (`string_agg(...)` and `GROUP BY`), or the id repeats.
+
+**List every joined table in `watch`**, or a change in it is not followed. A watch answers "when a row of this table
+changes, which document ids are affected": `SELECT :id` for the table the documents are keyed on, a query for a joined table
+(`:id` is the changed row's key, see [Watched tables](sync.md#watched-tables)). When the joined table has a column that
+points at the document, name it with `key` and keep `SELECT :id`; this follows a deleted row too:
+
+```yaml
+fuzzphony:
+  indexes:
+    people:
+      source:
+        query: |
+          SELECT cu.id, cu.first_name || ' ' || cu.last_name AS name, co.name AS company,
+                 string_agg(DISTINCT ad.city, ' ') AS cities, string_agg(DISTINCT ct.email, ' ') AS emails
+          FROM customer cu
+          JOIN company co ON co.id = cu.company_id
+          LEFT JOIN address ad ON ad.customer_id = cu.id
+          LEFT JOIN contact ct ON ct.customer_id = cu.id
+          GROUP BY cu.id, cu.first_name, cu.last_name, co.name
+      fields:
+        name: { weight: A, fuzzy: true }
+        company: B
+        cities: C
+        emails: C
+      watch:
+        customer: 'SELECT :id'
+        company: 'SELECT id FROM customer WHERE company_id = :id'
+        address: { ids: 'SELECT :id', key: customer_id }
+        contact: { ids: 'SELECT :id', key: customer_id }
+      sync: trigger
+```
+
+With these four tables (checked with `sync: queue`), one change in each table queued exactly these `people` documents: a
+customer change its own document, a company change the documents of its customers, an address or a contact change (insert, update
+or delete) its customer, and nothing else. A watch without `columns` refreshes on every `UPDATE` of its table, also of a
+column the index does not use (see [Column-aware filtering](sync.md#column-aware-filtering)).
+
+### Several indexes
+
+Give `indexes:` several entries (with the builder: build several definitions and give them all to the `IndexRegistry`).
+Each index has its own sidecar table, triggers and queue rows, so indexes can share tables:
+
+```yaml
+    companies:
+      source:
+        query: |
+          SELECT co.id, co.name, string_agg(cu.last_name, ' ') AS staff
+          FROM company co LEFT JOIN customer cu ON cu.company_id = co.id
+          GROUP BY co.id, co.name
+      fields: { name: { weight: A, fuzzy: true }, staff: C }
+      watch:
+        company: 'SELECT :id'
+        customer: { ids: 'SELECT :id', key: company_id }
+    invoices:
+      source:
+        query: |
+          SELECT i.id, i.number, cu.last_name AS customer, i.total
+          FROM invoice i JOIN customer cu ON cu.id = i.customer_id
+      fields: { number: A, customer: B }
+      filters: { total: int }
+      watch:
+        invoice: 'SELECT :id'
+        customer: 'SELECT id FROM invoice WHERE customer_id = :id'
+```
+
+- `customer` is now watched by `people`, `companies` and `invoices`. `fuzzphony:schema --apply` creates four triggers per
+  index and table (`fuzzphony_sync_<index>__<table>_ins|upd|del|trn`), so there is no name clash, and applying it twice
+  changes nothing. Every extra index that watches a table adds four triggers on it and one more queue row (in `trigger`
+  mode, one more refresh) per changed document: one `UPDATE` of a customer queued rows for `people`, `companies` and
+  `invoices` (and for a fourth index over the same table, below).
+- Dropping one index (`fuzzphony:schema people --drop --apply`) removes its triggers only; the other indexes keep theirs.
+- **One `#[Searchable]` per class.** The attribute is not repeatable (a second one is a PHP error). To index the same table
+  or entity twice (a public and an admin index, with other fields, language or `sync`), define the second one under
+  another name in YAML or the builder, with `source.table`; it needs no class:
+
+```yaml
+    people_admin:
+      source: { table: customer }
+      fields: { first_name: { weight: A, fuzzy: true }, last_name: A, note: D }
+      watch: { customer: 'SELECT :id' }
+      language: simple
+```
+
+### A complete example: two indexes over overlapping tables
+
+`items` (item + category + location) and `people` (person + organisation + the organisation's location) are two
+independent indexes, each with its own joins and a `watch` for every joined table. Both watch `location`. I ran this
+file with `sync: trigger` on PostgreSQL 17: `schema --apply`, `reindex` (3 items, 2 people), then the searches below.
+
+```yaml
+fuzzphony:
+  indexes:
+    items:
+      source:
+        query: |
+          SELECT i.id, i.name, c.name AS category, l.name AS location
+          FROM item i
+          JOIN category c ON c.id = i.category_id
+          JOIN location l ON l.id = i.location_id
+      fields:
+        name: { weight: A, fuzzy: true }
+        category: B
+        location: C
+      watch:
+        item: 'SELECT :id'
+        category: 'SELECT id FROM item WHERE category_id = :id'
+        location: 'SELECT id FROM item WHERE location_id = :id'
+      sync: trigger
+    people:
+      source:
+        query: |
+          SELECT p.id, p.name, o.name AS organisation, l.name AS location
+          FROM person p
+          JOIN organisation o ON o.id = p.organisation_id
+          JOIN location l ON l.id = o.location_id
+      fields:
+        name: { weight: A, fuzzy: true }
+        organisation: B
+        location: C
+      watch:
+        person: 'SELECT :id'
+        organisation: 'SELECT id FROM person WHERE organisation_id = :id'
+        location: 'SELECT p.id FROM person p JOIN organisation o ON o.id = p.organisation_id WHERE o.location_id = :id'
+      sync: trigger
+```
+
+Search each index on its own, or both together:
+
+```php
+$items = $fuzzphony->in('items')->query('drill')->get();      // ids [1]
+$people = $fuzzphony->in('people')->query('kovacs')->get();   // ids [1]
+
+$both = $fuzzphony->federated()->index('items')->index('people')->query('debrecen')->get();
+foreach ($both as $hit) {
+    echo $hit->index, ' ', $hit->hit->id, "\n";               // items 2, people 1, people 2
+}
+```
+
+What the run showed. `UPDATE location SET name = 'Warehouse Szeged' WHERE id = 1` changed both indexes in the same
+statement: `budapest` found nothing in either afterwards, `szeged` found the items 1 and 3 and the person 1. Moving
+organisation 1 to location 2 reindexed only `people` (the `organisation` watch), and renaming a category only `items`. The
+`location` table carries 8 triggers, four for each index.
+
+### Searching several indexes together
+
+One search box over several kinds of things is a [federated search](searching.md#federated-search):
+
+```php
+$result = $fuzzphony->federated()
+    ->index('people')->index('companies', weight: 1.5)->index('invoices')
+    ->query('acme')
+    ->limit(20)
+    ->get();
+
+foreach ($result as $hit) {
+    echo $hit->index, ' ', $hit->hit->id, ' ', $hit->score; // the index, its own id, the merged score
+}
+```
+
+A hit carries `index`, the index's own `Hit` (`->hit->id`, its own score and highlights) and the merged score. The scores
+of different indexes are not comparable ([limitations](limitations.md#scores-are-not-stable)), so the lists are merged by
+rank: the best hit of each index first. The ids are those of each index (`people` 1 and `companies` 1 are different rows):
+use `$hit->index` to tell them apart and load each kind from its own table.
+
+### One index over two tables (`UNION ALL`)
+
+One list with one ranking over unrelated tables is one index over a union with string ids:
+
+```php
+$everything = IndexDefinition::builder('everything')
+    ->fromQuery("SELECT 'product-' || p.id AS id, p.name AS title, '' AS body FROM product p
+                 UNION ALL
+                 SELECT 'article-' || a.id, a.title, a.body FROM article a")
+    ->idType('string')
+    ->watch('product', "SELECT 'product-' || :id")
+    ->watch('article', "SELECT 'article-' || :id")
+    ->field('title', 'A', fuzzy: true)
+    ->field('body', 'C')
+    ->sync('trigger')
+    ->build();
+```
+
+The schema, the triggers on both tables, `fuzzphony:reindex`, search, highlights and the doctor accepted it, and inserts,
+updates and deletes of either table reached the index. A hit's `id` is the string (`'article-1'`, `'product-1'`). Limits:
+
+- **You split the id yourself** (`str_starts_with`, then the number). `EntityLoader` passes all ids to `findBy` on one
+  entity, so with these ids it fails (in the test with a database error, `invalid input syntax for type integer:
+  "article-1"`); load the rows yourself, one `findBy` per kind. The API Platform filter does the same `IN` on the ids and
+  was not tried, but is not meant for this.
+- A filter or field has to mean the same in both tables (select a constant or `NULL` for a column one side lacks).
+- Every table in the union needs its own watch that returns the prefixed id; a forgotten watch means stale hits, with no
+  error.
+
+### Legacy tables with a composite key
+
+A document has one id column. Build it in the query and make the watch return the same text. A watch `key` is one real
+column, so key on a column of the primary key and return every document of that group:
+
+```yaml
+    order_lines:
+      id_type: string
+      source:
+        query: "SELECT order_no || '/' || line_no AS id, description FROM order_line"
+      fields: { description: A }
+      watch:
+        order_line:
+          ids: "SELECT order_no || '/' || line_no FROM order_line WHERE order_no = :id"
+          key: order_no
+```
+
+Changing line `SO-1/2` refreshed `SO-1/1` and `SO-1/2` (the whole order), and an insert added its document. An expression as
+the key (`key: "(order_no || '/' || line_no)"`) is refused with "is not a valid column name".
+
+### A database where Fuzzphony may not create triggers
+
+Tried with a role that has `SELECT` on the source tables, `CREATE` on the database and a schema of its own
+(`new PostgresEngine($connection, schema: 'fz')`, see [Fuzzphony's schema](#fuzzphonys-schema)). With `sync: manual`,
+`schema --apply`, `reindex`, search, `refresh()` and the doctor worked, and nothing was installed on the source tables.
+With `sync: queue` the apply stopped with `permission denied for table …` and created nothing: triggers need ownership of
+(or `TRIGGER` on) the source tables. Without that right, run `fuzzphony:reindex` from cron or after an import, and call
+`refresh()` for single documents. (`sync: orm` was not tried.)
+
+### Which should I use
+
+| You want | Use |
+|---|---|
+| Labels of a related table searchable with the row (the brand name with the product) | one index, `source.query` with a join, a `watch` for each joined table |
+| Several kinds of things found in one search box, each shown as its own kind | one index per kind, searched with `federated()` |
+| One list of mixed rows with one ranking | one index over a `UNION ALL` with string ids (limits above) |
+| The same table with two configurations | two indexes with different names, in YAML or the builder |
+| A table with a composite key | a string id built in the query, a watch keyed on one column |
+
 ## Attributes
 
 ```php
