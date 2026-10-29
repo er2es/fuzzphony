@@ -1,6 +1,12 @@
 # Fuzzphony
 
 [![CI](https://github.com/er2es/fuzzphony/actions/workflows/ci.yml/badge.svg)](https://github.com/er2es/fuzzphony/actions/workflows/ci.yml)
+[![codecov](https://codecov.io/gh/er2es/fuzzphony/graph/badge.svg)](https://codecov.io/gh/er2es/fuzzphony)
+[![PHPStan level max](https://img.shields.io/badge/PHPStan-level%20max-brightgreen)](https://github.com/er2es/fuzzphony/blob/main/phpstan.neon.dist)
+[![Mutation score](https://img.shields.io/endpoint?style=flat&url=https%3A%2F%2Fbadge-api.stryker-mutator.io%2Fgithub.com%2Fer2es%2Ffuzzphony%2Fmain)](https://dashboard.stryker-mutator.io/reports/github.com/er2es/fuzzphony/main)
+[![OpenSSF Scorecard](https://api.scorecard.dev/projects/github.com/er2es/fuzzphony/badge)](https://scorecard.dev/viewer/?uri=github.com/er2es/fuzzphony)
+[![OpenSSF Best Practices](https://www.bestpractices.dev/projects/14933/badge)](https://www.bestpractices.dev/projects/14933)
+
 [![Packagist Version](https://img.shields.io/packagist/v/fuzzphony/fuzzphony)](https://packagist.org/packages/fuzzphony/fuzzphony)
 [![PHP](https://img.shields.io/packagist/dependency-v/fuzzphony/fuzzphony/php)](https://packagist.org/packages/fuzzphony/fuzzphony)
 [![PostgreSQL 15 | 16 | 17 | 18](https://img.shields.io/badge/PostgreSQL-15%20%7C%2016%20%7C%2017%20%7C%2018-336791?logo=postgresql&logoColor=white)](https://github.com/er2es/fuzzphony/blob/main/.github/workflows/ci.yml)
