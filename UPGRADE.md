@@ -3,6 +3,12 @@
 Before 1.0, a minor version may contain breaking changes. Each section lists what to change,
 and the [CHANGELOG](CHANGELOG.md) has the full list of changes.
 
+## From 0.9.10 to 0.9.11
+
+**What you must do.** Nothing. The rankings of searches made with `asYouType()` (the Twig search component, `--as-you-type`) may change: the
+exact-title and prefix bonuses now compare the words the visitor typed with the title, so a title equal to the typed text ranks first, as
+[ranking](docs/ranking.md) says. Searches without `asYouType()` and their statements are unchanged.
+
 ## From 0.9.8 to 0.9.9
 
 **What you must do.** Only if an index has a `granted` field: run `fuzzphony:schema --apply`, then restart long-running processes
