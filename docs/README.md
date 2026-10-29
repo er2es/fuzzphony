@@ -1,5 +1,7 @@
 # Documentation
 
+This folder is in the Git repository, not in the Composer package (`composer require fuzzphony/fuzzphony` installs just `src/`).
+
 Where to find what. The [README](../README.md) says what Fuzzphony is, how to install it and shows a first search;
 the pages below go deeper. Every page links back here or to the README, and a CI check keeps these links working.
 

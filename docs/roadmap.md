@@ -82,6 +82,8 @@ additive work after it (0.11.0) and the stable 1.0.0 do not have to change the A
   definitions, a reworked demo and CI, and documentation for a database that already exists (see
   [Joins, several tables and several indexes](configuration.md#joins-several-tables-and-several-indexes)).
 
+- v0.9.11: the exact-title and prefix bonuses now apply to searches made as you type (`asYouType()`).
+
 - v0.9.10, demo only (the library does not change): the language switch resets the search, an emptied search box
   removes `q` from the URL, a centred menu, a footer at the bottom of the page with the library version and links to
   the docs and GitHub, a dark mode switch, a "why it matched" line for every hit on the Relevance page, refreshed

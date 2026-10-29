@@ -11,6 +11,19 @@ and a link. Measurements, proofs and test names belong to the pull request, [doc
 
 ## [Unreleased]
 
+## [0.9.11] - 2026-10-29
+
+Patch release: a ranking fix for searches made as you type.
+
+### Fixed
+
+- **The exact-title and prefix bonuses now apply to searches made with `asYouType()`** (the home search, completions-as-you-type): their text was built from the
+  as-you-type expansion and never matched a title; rankings of such searches change: a title equal to what was typed now ranks first, as documented.
+
+### Behaviour change
+
+- Rankings of `asYouType()` searches change, see **Fixed** above and [UPGRADE.md](UPGRADE.md#from-0910-to-0911).
+
 ## [0.9.10] - 2026-10-29
 
 Demo-only release: no change to the library.
@@ -1045,7 +1058,8 @@ on its own:
 - Sync modes: queue (default), trigger, ORM, manual; watches for joined tables.
 - Doctor with fixes; CLI commands for schema, reindex, worker, search and explain.
 
-[Unreleased]: https://github.com/er2es/fuzzphony/compare/v0.9.10...HEAD
+[Unreleased]: https://github.com/er2es/fuzzphony/compare/v0.9.11...HEAD
+[0.9.11]: https://github.com/er2es/fuzzphony/compare/v0.9.10...v0.9.11
 [0.9.10]: https://github.com/er2es/fuzzphony/compare/v0.9.9...v0.9.10
 [0.9.9]: https://github.com/er2es/fuzzphony/compare/v0.9.8...v0.9.9
 [0.9.8]: https://github.com/er2es/fuzzphony/compare/v0.9.7...v0.9.8

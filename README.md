@@ -33,18 +33,20 @@ foreach ($result as $hit) {
 }
 ```
 
-Status: v0.9.10 (pre-1.0). The API may still change before 1.0; 0.10.0 gathers the remaining breaking changes. Breaking changes are listed in the
+Status: v0.9.11 (pre-1.0). The API may still change before 1.0; 0.10.0 gathers the remaining breaking changes. Breaking changes are listed in the
 [CHANGELOG](https://github.com/er2es/fuzzphony/blob/main/CHANGELOG.md) and explained in
 [UPGRADE.md](https://github.com/er2es/fuzzphony/blob/main/UPGRADE.md).
 
 ## Try the demo
 
-A full Symfony app on a seeded product catalogue, in one command:
+A full Symfony app on a seeded product catalogue, in one command:*
 
 ```bash
 git clone https://github.com/er2es/fuzzphony
 cd fuzzphony/demo && docker compose up --build    # http://localhost:8000
 ```
+
+\* The demo, the documentation ([docs/](https://github.com/er2es/fuzzphony/blob/main/docs/README.md)), the tests and the benchmarks live in the Git repository only: `composer require fuzzphony/fuzzphony` installs just the library (`src/`). Clone the repository to run the demo and read the docs offline; the docs are also on [GitHub](https://github.com/er2es/fuzzphony/blob/main/docs/README.md).
 
 The default catalogue has 500 000 products (about a minute to index). Windows (a Docker Compose build privilege prompt) and the
 large profile (1 000 000 products) are in the [demo README](https://github.com/er2es/fuzzphony/blob/main/demo/README.md).
@@ -255,7 +257,7 @@ Details in [docs/limitations.md](https://github.com/er2es/fuzzphony/blob/main/do
 
 ## Roadmap
 
-Current: v0.9.10 (a demo-only patch on the 0.9.9 review-fix round after identity, search log and analytics, rate limit and
+Current: v0.9.11 (a ranking patch for as-you-type searches, on the 0.9.9 review-fix round after identity, search log and analytics, rate limit and
 authorization). Breaking changes are gathered in one release so 1.0 can promise stability. PostgreSQL only before 1.0:
 
 - v0.10.0: a sturdier engine (`schema --apply` mandatory, a failing document no longer blocks its index, `code` fields for

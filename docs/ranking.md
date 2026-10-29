@@ -25,7 +25,7 @@ fuzzy weight only applies when the typo-tolerant branch runs. With the by-length
 cannot lift an OR above the words that do match.
 
 The exact bonus is added when the whole title (the primary field) equals the typed words, ignoring case and accents; the prefix
-bonus when the title starts with them and is longer. `boost` is multiplied by the raw value of the boost column (the demo's
+bonus when the title starts with them and is longer. The bonuses compare the typed words with the title also for a search made as you type (the word being typed is not compared as its `word | word*` expansion). `boost` is multiplied by the raw value of the boost column (the demo's
 `popularity`, a number up to 10), and the recency bonus is `recency` on the day a document is published, half of it after
 `recency_half_life_days`, a quarter after twice that.
 

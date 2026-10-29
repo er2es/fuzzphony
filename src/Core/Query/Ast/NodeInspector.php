@@ -43,10 +43,12 @@ final class NodeInspector
      * not words of the query.
      *
      * @param (callable(string): bool)|null $fieldFilter only include field-scoped words when this returns true
+     * @param bool                          $typed       the words as the visitor typed them: a search-as-you-type text ends with
+     *                                                   `(hea | hea*)` (see Typeahead), which counts as the one word `hea`
      *
      * @return list<string>
      */
-    public static function positiveWords(?Node $node, ?callable $fieldFilter = null): array
+    public static function positiveWords(?Node $node, ?callable $fieldFilter = null, bool $typed = false): array
     {
         return match (true) {
             $node === null, $node instanceof Not => [],
@@ -54,10 +56,23 @@ final class NodeInspector
             $node instanceof Phrase => $node->synonym ? [] : $node->words,
             $node instanceof FieldScoped => $fieldFilter === null || $fieldFilter($node->field) ? self::positiveWords($node->node) : [],
             $node instanceof AllOf, $node instanceof AnyOf => array_merge(...array_map(
-                static fn(Node $n): array => self::positiveWords($n, $fieldFilter),
-                $node->nodes,
+                static fn(Node $n): array => self::positiveWords($n, $fieldFilter, $typed),
+                $typed && $node instanceof AnyOf && self::isTypeahead($node) ? [$node->nodes[0]] : $node->nodes,
             )),
             default => [],
         };
+    }
+
+    /** The pair search-as-you-type makes of the last word: the word (or its synonym expansion) and the same word as a prefix. */
+    private static function isTypeahead(AnyOf $node): bool
+    {
+        $word = $node->nodes[0] ?? null;
+        $prefix = $node->nodes[1] ?? null;
+        if ($word instanceof AnyOf && $word->expansion) {
+            $word = $word->nodes[0];
+        }
+
+        return !$node->expansion && count($node->nodes) === 2 && $prefix instanceof Term && $prefix->prefix
+            && $word instanceof Term && !$word->prefix && $word->text === $prefix->text;
     }
 }
