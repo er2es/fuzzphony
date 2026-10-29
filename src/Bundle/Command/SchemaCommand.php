@@ -6,6 +6,7 @@ namespace Fuzzphony\Bundle\Command;
 
 use Fuzzphony\Core\Database\Connection;
 use Fuzzphony\Core\Definition\IndexDefinition;
+use Fuzzphony\Core\Exception\EngineFailure;
 use Fuzzphony\Core\Fuzzphony;
 use Fuzzphony\Core\Schema\SchemaPlan;
 use Fuzzphony\Core\Schema\Statement;
@@ -98,9 +99,27 @@ final class SchemaCommand extends Command
         $tablesBefore = $this->tables();
         $columnsBefore = $this->cachedColumns();
         $io->progressStart(count($plan->statements));
-        $warnings = $plan->apply($this->connection, static function (Statement $statement) use ($io): void {
-            $io->progressAdvance();
-        });
+        $current = null;
+        try {
+            $warnings = $plan->apply($this->connection, static function (Statement $statement) use ($io, &$current): void {
+                $current = $statement;
+                $io->progressAdvance();
+            });
+        } catch (EngineFailure $e) {
+            $table = $current !== null && stripos($current->sql, 'TRIGGER') !== false ? self::deniedTable($e) : null;
+            if ($table === null) {
+                throw $e;
+            }
+            $io->newLine();
+            $io->error(sprintf(
+                "This database role cannot create the triggers on the table %s: it needs to be the owner of the table (or hold its TRIGGER privilege) for sync: queue or trigger. Nothing was applied (the apply is one transaction).
+"
+                . 'Either run fuzzphony:schema --apply as the table owner (or grant the privilege), or use sync: manual, which needs no triggers: call refresh() after a change, or fuzzphony:reindex (see docs/sync.md, "A database where you cannot create triggers").',
+                $table,
+            ));
+
+            return Command::FAILURE;
+        }
         $io->progressFinish();
         foreach ($warnings as $warning) {
             $io->warning($warning);
@@ -118,6 +137,18 @@ final class SchemaCommand extends Command
         if ($input->mustSuggestArgumentValuesFor('index')) {
             $suggestions->suggestValues(IndexArgument::names($this->fuzzphony));
         }
+    }
+
+    /** The table a "permission denied" / "must be owner" failure names, or null for any other failure. */
+    private static function deniedTable(\Throwable $failure): ?string
+    {
+        for ($e = $failure; $e !== null; $e = $e->getPrevious()) {
+            if (preg_match('/(?:permission denied for table|must be owner of table) (\S+)/', $e->getMessage(), $match) === 1) {
+                return $match[1];
+            }
+        }
+
+        return null;
     }
 
     /** @return array<string, true> the oids of the tables there are now */

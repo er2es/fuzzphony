@@ -6,7 +6,8 @@ Doctrine, API Platform, Symfony UX Live Component and Messenger. Back to the
 ## Doctrine
 
 - `Fuzzphony\Bridge\Doctrine\EntityLoader` turns search results into entities with one query,
-  keeping the ranking order. In `queue` mode it skips hits whose row no longer exists.
+  keeping the ranking order. In `queue` mode it skips hits whose row no longer exists,
+  and hits whose id cannot be an id of the entity (the string `article-1` of a federated result for an integer key); `FuzzphonySearchFilter` does the same.
 - `Fuzzphony\Bridge\Doctrine\DbalConnection` runs Fuzzphony on an existing Doctrine DBAL
   connection. The Symfony bundle uses the connection named in `fuzzphony.connection` (default
   `default`).

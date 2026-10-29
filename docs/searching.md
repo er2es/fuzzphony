@@ -556,6 +556,22 @@ Cost: one probe statement, a possible stop-word lookup, and one or two relaxed s
 not apply `min_score` or the candidate limit. A word can count as matching through documents the
 search would reject; it is then kept, not dropped. The relaxation errs on the side of doing less.
 
+## Codes and numbers
+
+Invoice numbers, SKUs and part numbers (`INV-001`, `AB-12/3`, `INV.007`) can find nothing on a field that is not typo tolerant. PostgreSQL's text-search parser indexes a hyphen before digits as a
+sign (`INV-001` becomes `inv` and `-001`) and a dot or a slash between a letter and a digit as one token (`inv.007`, `inv/008`), while the query is always split at every character that is not a letter
+or a digit (`'inv' <-> '001'`), so the two never meet. A field with `fuzzy: true` finds the code through the trigram fallback (`INV-001`, `INV001`, also with a typo, but a loose match that lists
+`INV-002` after it). For an exact match, index the code with its separators turned into spaces, so the index holds exactly what the query is split into:
+
+<!-- fragment -->
+```php
+->fromQuery("SELECT id, regexp_replace(number, '[^[:alnum:]]+', ' ', 'g') AS number, name FROM invoice")->watch('invoice')
+->field('number', 'A')
+```
+
+`INV-001`, `inv-001`, `"INV-001"`, `001` and `INV-2024-0042` then find only their invoice; `INV001` (no separator) still needs `fuzzy: true`. Letters joined by a hyphen (`usb-c`, `mouse-pad`)
+are unaffected. See [Limitations](limitations.md#codes-with-a-hyphen-before-digits-a-dot-or-a-slash).
+
 ## Limits and errors
 
 `max_query_length`, `max_terms` and a nesting depth of 8 keep hostile input cheap (see

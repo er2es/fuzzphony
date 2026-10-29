@@ -11,10 +11,6 @@ and a link. Measurements, proofs and test names belong to the pull request, [doc
 
 ## [Unreleased]
 
-### Changed
-
-- **Docs: a new section "Joins, several tables and several indexes"** in [docs/configuration.md](docs/configuration.md#joins-several-tables-and-several-indexes): where a join and its `watch` go, several (overlapping) indexes with federated search, a `UNION ALL` index, composite keys and a database without trigger rights.
-
 ## [0.9.9] - 2026-10-29
 
 The review-fix round before the API round: a restricted viewer's search on words common in hidden fields is fast again (open-class indexes), the typo-tolerant branch is cheap again for everyone (`hedphones` 354 -> 51 ms at 200k), the engine is split into services, and the demo and the CI were reworked. Run `fuzzphony:schema --apply` on indexes with a `granted` field (see [UPGRADE.md](UPGRADE.md#from-098-to-099)); nothing else is required. Strict YAML/array validation, the stricter `granted` check and some result changes for restricted and capped searches are listed under Behaviour change.
@@ -33,6 +29,8 @@ The review-fix round before the API round: a restricted viewer's search on words
 
 ### Fixed
 
+- **`fuzzphony:schema --apply` as a role that cannot create triggers on a watched table says so** (the table, that it needs ownership or the `TRIGGER` privilege, and that `sync: manual` works without) instead of a raw `permission denied`; still exit code 1, nothing applied ([docs](docs/sync.md#a-database-where-you-cannot-create-triggers)).
+- **`EntityLoader` and `FuzzphonySearchFilter` skip hits whose id cannot be an id of the entity** (a string such as `article-1` for an integer key) instead of failing with `invalid input syntax for type integer`; still one query, same order ([docs](docs/integrations.md#doctrine)).
 - **A restricted viewer's prefix typo search (`mouse*`) no longer depends on the text of the fields it cannot see.** Its candidates were looked up at a stricter similarity than the recheck used for a prefix, so a document of an allowed field was found only when a hidden field also matched. Other searches are unchanged.
 - **The doctor's `Sync queue` check says "1 item" / "N items"** (it wrote "item(s)").
 - **A failed flush no longer leaks its ids into the next one (`sync: orm`).** `OrmSyncListener` kept what a failed flush had collected (Doctrine closes that manager and never calls `postFlush`) and refreshed it with the next successful flush; ids collected by a closed manager are now dropped.
@@ -52,6 +50,7 @@ The review-fix round before the API round: a restricted viewer's search on words
 
 ### Changed
 
+- **Docs: a new section "Joins, several tables and several indexes"** in [docs/configuration.md](docs/configuration.md#joins-several-tables-and-several-indexes): where a join and its `watch` go, several (overlapping) indexes with federated search, a `UNION ALL` index, composite keys and a database without trigger rights.
 - **A filtered search with a facet on the same filter is faster.** The page and that facet now come from one scan instead of two; results are identical.
 - **Internal restructuring, no behaviour change.** `PostgresEngine` is split into services, a facet is counted by one statement form, and the bundle's `loadExtension()` into steps; nothing public changes.
 - **Demo: the rescue and the search page.** A text that finds nothing is rescued at once (no "Nothing found" flash, no waiting for the typing to settle); the
