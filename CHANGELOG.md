@@ -11,6 +11,10 @@ and a link. Measurements, proofs and test names belong to the pull request, [doc
 
 ## [Unreleased]
 
+### Fixed
+
+- **`EntityLoader` and `FuzzphonySearchFilter` skip hits whose id cannot be an id of the entity** (a string such as `article-1` for an integer key) instead of failing with `invalid input syntax for type integer`; still one query, same order ([docs](docs/integrations.md#doctrine)).
+
 ## [0.9.9] - 2026-10-29
 
 The review-fix round before the API round: a restricted viewer's search on words common in hidden fields is fast again (open-class indexes), the typo-tolerant branch is cheap again for everyone (`hedphones` 354 -> 51 ms at 200k), the engine is split into services, and the demo and the CI were reworked. Run `fuzzphony:schema --apply` on indexes with a `granted` field (see [UPGRADE.md](UPGRADE.md#from-098-to-099)); nothing else is required. Strict YAML/array validation, the stricter `granted` check and some result changes for restricted and capped searches are listed under Behaviour change.

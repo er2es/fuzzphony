@@ -8,6 +8,7 @@ use ApiPlatform\Doctrine\Orm\Filter\FilterInterface;
 use ApiPlatform\Doctrine\Orm\Util\QueryNameGeneratorInterface;
 use ApiPlatform\Metadata\Operation;
 use Doctrine\ORM\QueryBuilder;
+use Fuzzphony\Bridge\Doctrine\EntityLoader;
 use Fuzzphony\Core\Fuzzphony;
 use Fuzzphony\Core\Search\ActorResolver;
 
@@ -45,20 +46,22 @@ final class FuzzphonySearchFilter implements FilterInterface
         }
         $result = $search->get();
         $alias = $queryBuilder->getRootAliases()[0];
-        $idField = $queryBuilder->getEntityManager()->getClassMetadata($resourceClass)->getSingleIdentifierFieldName();
+        $metadata = $queryBuilder->getEntityManager()->getClassMetadata($resourceClass);
+        $idField = $metadata->getSingleIdentifierFieldName();
+        $matching = EntityLoader::fittingIds($metadata, $idField, $result->ids()); // an id that cannot be an id of the entity matches nothing
 
-        if ($result->hits === []) {
+        if ($matching === []) {
             $queryBuilder->andWhere('1 = 0');
 
             return;
         }
 
         $ids = $queryNameGenerator->generateParameterName('fuzzphony_ids');
-        $queryBuilder->andWhere(sprintf('%s.%s IN (:%s)', $alias, $idField, $ids))->setParameter($ids, $result->ids());
+        $queryBuilder->andWhere(sprintf('%s.%s IN (:%s)', $alias, $idField, $ids))->setParameter($ids, $matching);
 
         // Keep Fuzzphony's order: CASE on the id, as a hidden select used for sorting.
         $cases = [];
-        foreach ($result->ids() as $position => $id) {
+        foreach ($matching as $position => $id) {
             $parameter = $queryNameGenerator->generateParameterName('fuzzphony_rank');
             $cases[] = sprintf('WHEN %s.%s = :%s THEN %d', $alias, $idField, $parameter, $position);
             $queryBuilder->setParameter($parameter, $id);
