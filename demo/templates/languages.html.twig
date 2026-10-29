@@ -14,7 +14,7 @@
 
         <nav class="chips chips-center" aria-label="Language">
             {% for c, l in languages %}
-                <a class="chip{{ c == code ? ' is-current' }}" href="{{ path('languages', {lang: c, q: q ?: null}) }}"{% if c == code %} aria-current="page"{% endif %} lang="{{ c }}" data-loading-message="Switching the language…">{{ l.native }}{% if l.native != l.name %} <small>{{ l.name }}</small>{% endif %}</a>
+                <a class="chip{{ c == code ? ' is-current' }}" href="{{ path('languages', {lang: c}) }}"{% if c == code %} aria-current="page"{% endif %} lang="{{ c }}" data-loading-message="Switching the language…">{{ l.native }}{% if l.native != l.name %} <small>{{ l.name }}</small>{% endif %}</a>
             {% endfor %}
         </nav>
 
