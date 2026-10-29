@@ -816,7 +816,7 @@ check('relevance: the caption explains the flat threshold', /single shared trigr
 
     // keyboard: focus opens, Enter keeps it and a second Enter closes, Space opens, Escape closes and the focus stays on the button
     await btn('Exact title bonus').focus();
-    check('tune tooltips: focus opens the tooltip with its meaning and example', (await shown().count()) === 1 && (await btn('Exact title bonus').getAttribute('aria-expanded')) === 'true' && /whole title equals the query/.test(await shown().innerText()) && /Wireless mouse 1002/.test(await shown().innerText()));
+    check('tune tooltips: focus opens the tooltip with its meaning and example', (await shown().count()) === 1 && (await btn('Exact title bonus').getAttribute('aria-expanded')) === 'true' && /whole title equals the query/.test(await shown().innerText()) && /TV Wall Bracket 1003/.test(await shown().innerText()));
     await tp.keyboard.press('Enter');
     check('tune tooltips: Enter keeps it open', (await shown().count()) === 1);
     await tp.keyboard.press('Enter');
