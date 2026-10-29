@@ -793,6 +793,124 @@ check('relevance: the caption explains the flat threshold', /single shared trigr
     await ph.close();
 }
 
+// the info tooltips of the Tune controls: a button for every control, a custom tooltip that opens on hover, focus and tap, closes on Escape, stays inside a phone
+{
+    const errors = [];
+    const tipCtx = await browser.newContext({ viewport: { width: 1280, height: 800 }, reducedMotion: 'reduce' });
+    const tp = await tipCtx.newPage();
+    tp.on('pageerror', (e) => errors.push(e.message));
+    tp.on('console', (m) => m.type() === 'error' && !m.text().includes('Cross-Origin-Opener-Policy') && errors.push(m.text()));
+    await go(tp, `${BASE}/tune?query=mouse`);
+    await tp.waitForSelector('.hit-row');
+    const btn = (name) => tp.locator(`.tip-btn[aria-label="What does ${name} do?"]`);
+    const shown = () => tp.locator('.tip-bubble:not([hidden])');
+
+    const controls = await tp.evaluate(() => [...document.querySelectorAll('.settings .slider, .settings .setting, .settings .profile-chips')].map((c) => ({
+        hasButton: c.querySelector('button.tip-btn') !== null,
+        described: (() => { const b = c.querySelector('button.tip-btn'); const t = b && document.getElementById(b.getAttribute('aria-describedby') ?? ''); return t?.getAttribute('role') === 'tooltip' && t.textContent.trim().length > 20; })(),
+        named: /^What does .+ do\?$/.test(c.querySelector('button.tip-btn')?.getAttribute('aria-label') ?? ''),
+    })));
+    check('tune tooltips: every control (16) has an info button that names its setting and points at a tooltip', controls.length === 16 && controls.every((c) => c.hasButton && c.described && c.named), JSON.stringify(controls.filter((c) => !(c.hasButton && c.described && c.named))));
+    check('tune tooltips: the buttons are real <button type=button> of 24 px at least, closed at first', await tp.evaluate(() => [...document.querySelectorAll('.tip-btn')].every((b) => { const r = b.getBoundingClientRect(); return b.type === 'button' && r.width >= 24 && r.height >= 24 && b.getAttribute('aria-expanded') === 'false'; })));
+    check('tune tooltips: the icon is an inline sprite drawing, not an icon font', (await tp.locator('.tip-btn svg use[href="#i-info"]').count()) === 16);
+
+    // keyboard: focus opens, Enter keeps it and a second Enter closes, Space opens, Escape closes and the focus stays on the button
+    await btn('Exact title bonus').focus();
+    check('tune tooltips: focus opens the tooltip with its meaning and example', (await shown().count()) === 1 && (await btn('Exact title bonus').getAttribute('aria-expanded')) === 'true' && /whole title equals the query/.test(await shown().innerText()) && /Wireless mouse 1002/.test(await shown().innerText()));
+    await tp.keyboard.press('Enter');
+    check('tune tooltips: Enter keeps it open', (await shown().count()) === 1);
+    await tp.keyboard.press('Enter');
+    check('tune tooltips: and a second Enter closes it', (await shown().count()) === 0 && (await btn('Exact title bonus').getAttribute('aria-expanded')) === 'false');
+    await tp.keyboard.press('Space');
+    check('tune tooltips: Space opens it', (await shown().count()) === 1);
+    await tp.keyboard.press('Escape');
+    check('tune tooltips: Escape closes it and the focus stays on the button', (await shown().count()) === 0 && (await tp.evaluate(() => document.activeElement?.getAttribute('aria-label'))) === 'What does Exact title bonus do?' && (await btn('Exact title bonus').getAttribute('aria-expanded')) === 'false');
+    await btn('Exact title bonus').blur();
+
+    // pointer: hover opens, only one at a time, leaving closes (unless the button has the focus), a press outside closes
+    await btn('Prefix bonus').hover();
+    check('tune tooltips: hover opens the tooltip', (await shown().count()) === 1 && /starts with what you typed/.test(await shown().innerText()));
+    await btn('Recency half-life (days)').focus();
+    check('tune tooltips: only one is open at a time', (await shown().count()) === 1 && /halved/.test(await shown().innerText()));
+    await tp.mouse.move(700, 400);
+    await tp.waitForTimeout(300);
+    check('tune tooltips: the pointer leaving does not close the one the keyboard focus is on', (await shown().count()) === 1);
+    await tp.mouse.click(700, 300);
+    check('tune tooltips: a press outside closes it', (await shown().count()) === 0);
+    await btn('Min relevance').click();
+    await tp.mouse.move(700, 400);
+    await tp.waitForTimeout(300);
+    check('tune tooltips: a click keeps it open until the next click', (await shown().count()) === 1);
+    await btn('Min relevance').click();
+    check('tune tooltips: and the next click closes it', (await shown().count()) === 0);
+
+    // a re-render of the Live Component (a slider moves) leaves an open tooltip whole; Escape still closes it; no error
+    const valueOf = (name) => tp.evaluate((l) => [...document.querySelectorAll('.slider')].find((s) => s.innerText.trim().startsWith(l))?.querySelector('input').value, name);
+    await btn('Fuzzy weight').click();
+    const requests = [];
+    tp.on('request', (r) => r.url().includes('/_components/') && requests.push(r.url()));
+    await tp.evaluate(() => { const s = document.querySelector('#in-text'); s.value = '1.55'; s.dispatchEvent(new Event('input', { bubbles: true })); });
+    await tp.waitForTimeout(1800);
+    check('tune tooltips: a slider that moves re-renders the page and the value is kept', requests.length > 0 && (await valueOf('Full-text weight')) === '1.55', requests.length + ' requests');
+    check('tune tooltips: the open tooltip is still whole afterwards', (await shown().count()) === 1 && (await btn('Fuzzy weight').getAttribute('aria-expanded')) === 'true');
+    await tp.keyboard.press('Escape');
+    check('tune tooltips: Escape still closes it after the re-render', (await shown().count()) === 0);
+    // dragging the handle with the mouse: the press closes an open tooltip, nothing stays stuck
+    await btn('Candidate limit').click();
+    await tp.locator('#in-boost').scrollIntoViewIfNeeded();
+    const handle = await tp.locator('#in-boost').boundingBox();
+    await tp.mouse.move(handle.x + 10, handle.y + handle.height / 2);
+    await tp.mouse.down();
+    await tp.mouse.move(handle.x + handle.width / 2, handle.y + handle.height / 2, { steps: 5 });
+    await tp.mouse.up();
+    await tp.waitForTimeout(1800);
+    check('tune tooltips: dragging a slider closes the tooltip, the readout follows and the page has no error', (await shown().count()) === 0 && parseFloat(await valueOf('Popularity boost')) > 0 && errors.length === 0, errors.join(' | '));
+    await btn('Candidate limit').focus();
+    check('tune tooltips: the buttons still work after the slider re-rendered the page', (await shown().count()) === 1);
+    await tipCtx.close();
+
+    // readable in both schemes: the text of the bubble against its background, 4.5:1 at least
+    const contrast = (rgbs) => {
+        const lum = (c) => {
+            const [r, g, b] = c.match(/[\d.]+/g).slice(0, 3).map(Number).map((v) => { v /= 255; return v <= 0.03928 ? v / 12.92 : ((v + 0.055) / 1.055) ** 2.4; });
+            return 0.2126 * r + 0.7152 * g + 0.0722 * b;
+        };
+        const [a, b] = rgbs.map(lum);
+        return (Math.max(a, b) + 0.05) / (Math.min(a, b) + 0.05);
+    };
+    for (const scheme of ['light', 'dark']) {
+        const c = await browser.newContext({ viewport: { width: 1280, height: 800 }, colorScheme: scheme, reducedMotion: 'reduce' });
+        const sp = await c.newPage();
+        await go(sp, `${BASE}/tune?query=mouse`);
+        await sp.locator('.tip-btn').first().focus();
+        const colours = await sp.locator('.tip-bubble:not([hidden])').evaluate((e) => [getComputedStyle(e).color, getComputedStyle(e).backgroundColor]);
+        const ratio = contrast(colours);
+        check(`tune tooltips: the text is readable in the ${scheme} scheme (${ratio.toFixed(1)}:1)`, ratio >= 4.5, colours.join(' on '));
+        await c.close();
+    }
+
+    // a phone: every tooltip opens by tap inside the window, nothing scrolls sideways, and opening one moves nothing
+    const phoneCtx = await browser.newContext({ viewport: { width: 390, height: 844 }, reducedMotion: 'reduce', hasTouch: true, isMobile: true });
+    const pp = await phoneCtx.newPage();
+    await go(pp, `${BASE}/tune?query=mouse`);
+    await pp.waitForSelector('.hit-row');
+    const inside = [];
+    let moved = false;
+    for (let i = 0; i < 16; i++) {
+        const b = pp.locator('.tip-btn').nth(i);
+        await b.scrollIntoViewIfNeeded();
+        const top = await pp.evaluate(() => document.querySelector('.panels').getBoundingClientRect().top + scrollY);
+        await b.tap();
+        const r = await pp.locator('.tip-bubble:not([hidden])').evaluate((e) => { const x = e.getBoundingClientRect(); return { l: x.left, t: x.top, r: x.right, b: x.bottom, w: innerWidth, h: innerHeight, sw: document.documentElement.scrollWidth }; });
+        inside.push(r.l >= 0 && r.t >= 0 && r.r <= r.w && r.b <= r.h && r.sw <= r.w);
+        moved ||= (await pp.evaluate(() => document.querySelector('.panels').getBoundingClientRect().top + scrollY)) !== top;
+        await pp.touchscreen.tap(5, 5); // a press outside
+    }
+    check('tune tooltips: on a 390 px phone each of the 16 tooltips opens by tap inside the window, without sideways scrolling', inside.length === 16 && inside.every(Boolean), inside.join(','));
+    check('tune tooltips: opening one shifts nothing in the layout', !moved);
+    await phoneCtx.close();
+}
+
 await secContext.close();
 
 await browser.close();
