@@ -214,12 +214,13 @@ final class OpenClassSchemaTest extends TestCase
     {
         $this->fuzzphony(true)->schema()->apply($this->connection);
         $this->connection->execute('CREATE INDEX fuzzphony_open_docs_open_fz_mine ON fuzzphony_open_docs (id)');
+        $this->connection->execute('CREATE INDEX fuzzphony_open_docs_open_fz_myindex1 ON fuzzphony_open_docs (id)');
         self::assertCount(2, $this->openIndexes());
 
         $this->fuzzphony(false)->schema()->apply($this->connection);
 
         self::assertSame([], $this->openIndexes());
-        self::assertSame(1, Coerce::int($this->connection->fetchValue("SELECT count(*) FROM pg_indexes WHERE indexname = 'fuzzphony_open_docs_open_fz_mine'")), 'only the hashed names of ours are dropped');
+        self::assertSame(2, Coerce::int($this->connection->fetchValue("SELECT count(*) FROM pg_indexes WHERE indexname IN ('fuzzphony_open_docs_open_fz_mine', 'fuzzphony_open_docs_open_fz_myindex1')")), 'only the hashed names of ours are dropped');
     }
 
     public function testAFreshInstallNeedsNoRestart(): void

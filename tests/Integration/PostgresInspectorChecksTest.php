@@ -361,7 +361,7 @@ final class PostgresInspectorChecksTest extends TestCase
 
         self::assertSame(CheckStatus::Error, $check->status);
         self::assertSame('INVALID (an interrupted concurrent build); it is ignored by the planner', $check->message);
-        self::assertStringStartsWith('DROP INDEX CONCURRENTLY "fuzzphony_products_f_price"; CREATE INDEX CONCURRENTLY IF NOT EXISTS "fuzzphony_products_f_price" ON ', (string) $check->fix);
+        self::assertStringStartsWith('DROP INDEX CONCURRENTLY "public"."fuzzphony_products_f_price"; CREATE INDEX CONCURRENTLY IF NOT EXISTS "fuzzphony_products_f_price" ON ', (string) $check->fix);
     }
 
     public function testAMissingIndexIsReportedByName(): void

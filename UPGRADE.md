@@ -10,12 +10,14 @@ and the [CHANGELOG](CHANGELOG.md) has the full list of changes.
 to an existing table, up once per process; the command says so). The apply builds two indexes over the fields that are not granted, with
 `CREATE INDEX CONCURRENTLY` (the table stays writable); until then the doctor reports them missing and the definition as changed, and
 searches run as before. After you change which fields are `granted` later, run it again: the indexes carry a hash of their definition, the
-apply builds the new ones and drops the old, and the doctor calls an old one stale. No reindex is required, no setting is new, and
+apply builds the new ones and drops the old (each with `DROP INDEX CONCURRENTLY`, found by the end of its name at any name length, so no search waits behind the drop; a drop that fails is a warning, run the apply again; `--dump-migration` leaves this step out), and the doctor calls an old one stale. No reindex is required, no setting is new, and
 indexes without a `granted` field change nothing.
 
 **Stricter configuration.** `granted` in YAML or an array must be a non-empty string: `granted: ~`, a key without a value, a list of
 roles, `false` and an empty string used to load (as an open field, or one that is always hidden) and now throw an `InvalidDefinition` that
 names the field. Fix the key the message names, or remove it to leave the field open.
+
+**Good to know (not new, now documented).** One document the source cannot read (a failing cast) keeps the whole queue of its index from draining; the worker retries it with a back-off and the other indexes go on. The failure message printed to stderr can contain a value from the source row, so treat worker logs as sensitive ([limitations](docs/limitations.md#one-unreadable-document-stops-its-indexs-queue)).
 
 **Results that change.**
 

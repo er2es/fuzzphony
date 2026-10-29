@@ -77,8 +77,23 @@ final class OpenClassSqlTest extends TestCase
 
         self::assertSame(OpenClass::expectedNames($one, new Names()), OpenClass::expectedNames($one, new Names()));
         self::assertNotSame(OpenClass::expectedNames($one, new Names()), OpenClass::expectedNames($other, new Names()));
-        self::assertSame([], OpenClass::stalePrefixes(IndexDefinition::builder(str_repeat('x', 40))->fromQuery('SELECT id FROM t')->field('name', 'A')->sync('manual')->build(), new Names()), 'a shortened name has no prefix to look for');
-        self::assertCount(2, OpenClass::stalePrefixes($one, new Names()));
+    }
+
+    public function testALongNameKeepsTheTailAndTwoLongNamesStayApart(): void
+    {
+        $names = new Names();
+        $long = static fn(string $name): IndexDefinition => IndexDefinition::builder($name)->fromQuery('SELECT id, name, secret FROM t')
+            ->field('name', 'A', fuzzy: true)->field('secret', 'B', fuzzy: true, granted: 'ROLE_X')->sync('manual')->build();
+        $a = OpenClass::expectedNames($long(str_repeat('x', 40) . 'a'), $names);
+        $b = OpenClass::expectedNames($long(str_repeat('x', 40) . 'b'), $names);
+
+        foreach ([...$a, ...$b] as $name) {
+            self::assertLessThanOrEqual(Names::MAX_IDENTIFIER_BYTES, strlen($name));
+            self::assertTrue(OpenClass::isOpenClassName($name), $name);
+        }
+        self::assertSame([], array_intersect($a, $b));
+        self::assertFalse(OpenClass::isOpenClassName('fuzzphony_products_open_fz_myindex1'));
+        self::assertFalse(OpenClass::isOpenClassName('fuzzphony_products_open_fz_0123456'));
     }
 
     public function testNoTypoTolerantOpenFieldMeansNoTrigramIndex(): void

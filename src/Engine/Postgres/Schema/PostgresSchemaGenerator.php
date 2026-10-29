@@ -234,22 +234,20 @@ final class PostgresSchemaGenerator
                 transactional: false,
             );
         }
-        $stale = array_map(static fn(string $prefix): string => addcslashes($prefix, '\\_%') . '________', OpenClass::stalePrefixes($index, $this->names));
-        if ($stale !== []) {
-            // after the open-class indexes above: one built for other granted fields is dropped once the right one exists (a plain DROP INDEX
-            // that gives up after 5 s instead of queueing every search behind it; the apply is safe to run again)
-            $statements[] = new Statement(
-                sprintf(
-                    'DO %1$s DECLARE r record; BEGIN PERFORM set_config(\'lock_timeout\', \'5s\', true); FOR r IN SELECT c.oid::regclass AS name FROM pg_index AS i JOIN pg_class AS c ON c.oid = i.indexrelid WHERE i.indrelid = to_regclass(%2$s) AND c.relname LIKE ANY (%3$s) AND c.relname <> ALL (%4$s) LOOP EXECUTE \'DROP INDEX \' || r.name; END LOOP; END %1$s',
-                    self::TAG,
-                    Sql::string($table),
-                    'ARRAY[' . implode(', ', array_map(Sql::string(...), $stale)) . ']::text[]',
-                    'ARRAY[' . implode(', ', array_map(Sql::string(...), [...OpenClass::expectedNames($index, $this->names), ''])) . ']::text[]',
-                ),
-                'Drop an open-class index built for other granted fields',
-                transactional: false,
-            );
-        }
+        // after the open-class indexes above: one built for other granted fields (or for none any more) is dropped once the right ones exist.
+        // The names are read when the plan is applied and each is dropped CONCURRENTLY (no ACCESS EXCLUSIVE lock, so no search queues
+        // behind the drop); a drop that fails is a warning and the apply is safe to run again
+        $statements[] = new Statement(
+            'DROP INDEX CONCURRENTLY IF EXISTS {name}',
+            'Drop an open-class index built for other granted fields',
+            transactional: false,
+            forEach: sprintf(
+                'SELECT quote_ident(n.nspname) || \'.\' || quote_ident(c.relname) AS name FROM pg_index AS i JOIN pg_class AS c ON c.oid = i.indexrelid JOIN pg_namespace AS n ON n.oid = c.relnamespace WHERE i.indrelid = to_regclass(%1$s) AND c.relname ~ %2$s AND c.relname <> ALL (%3$s)',
+                Sql::string($table),
+                Sql::string('_' . OpenClass::NAME_TAIL . '$'),
+                'ARRAY[' . implode(', ', array_map(Sql::string(...), [...OpenClass::expectedNames($index, $this->names), ''])) . ']::text[]',
+            ),
+        );
         foreach ($this->layoutSteps($index) as $target => [$step, $why]) {
             $statements[] = new Statement(sprintf(
                 'DO %1$s BEGIN IF to_regclass(%2$s) IS NOT NULL THEN IF (SELECT layout_version FROM %3$s WHERE index_name = %4$s) < %5$d THEN %6$s END IF; END IF; END %1$s',

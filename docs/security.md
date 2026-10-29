@@ -326,8 +326,9 @@ a covert-channel proof:
   hidden field. For a viewer who holds none of an index's granted fields the open-class indexes (see
   [limitations](limitations.md#a-restricted-viewers-very-common-word-in-a-hidden-typo-tolerant-field)) do not hold the
   hidden text at all, so for that viewer the time no longer follows a hidden word; for a viewer who holds some of the granted
-  fields, and for a field the viewer can see, it still follows the word. Which statement a search uses (the open-class indexes or
-  `fz` / `tsv`) depends on the size of the indexes, never on what a hidden field holds.
+  fields, and for a field the viewer can see, it still follows the word. Which statement runs, and its timing, depend on how much hidden text there is (the size of `fz` / `tsv` includes it); the
+  results never do. A restricted viewer of a tenant with no match for a word that is common in another tenant waits longer: the time
+  reveals something about the other tenants' data volume, not about content.
 - **Filters and facets are not restricted.** Their values are attributes of the document, searchable
   and countable by anyone who may search the index.
 - **The vocabulary of unrestricted viewers still holds every word.** An unrestricted viewer of an

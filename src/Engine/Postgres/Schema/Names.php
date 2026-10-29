@@ -223,6 +223,14 @@ final readonly class Names
 
     public function indexName(IndexDefinition $index, string $suffix): string
     {
+        if (preg_match('/^' . OpenClass::NAME_TAIL . '$/', $suffix) === 1 && strlen($this->sidecarName($index) . '_' . $suffix) > self::MAX_IDENTIFIER_BYTES) {
+            // an open-class index keeps its `_open_..._<hash>` tail whatever the length (the apply, the doctor and the restart reminder
+            // find it by that tail): the sidecar part is shortened instead, with its own hash so that two long names stay apart
+            $sidecar = $this->sidecarName($index);
+
+            return substr($sidecar, 0, self::MAX_IDENTIFIER_BYTES - strlen($suffix) - 10) . '_' . hash('crc32b', $sidecar) . '_' . $suffix;
+        }
+
         return self::limit($this->sidecarName($index) . '_' . $suffix);
     }
 
