@@ -234,9 +234,9 @@ with or without them, and an index without a `granted` field has no extra index 
 - The open-class indexes are used only when they exist, are valid and each is smaller than the index it replaces (`fz`, `tsv`); the engine asks once per process, so
   after `fuzzphony:schema --apply` built them restart long-running workers (or call `PostgresEngine::resetCaches()`). Until then,
   and when the granted fields hold little of the text, the viewer is on the statements it always had.
-- A word that is common in other tenants' documents and absent from the viewer's own tenant makes a restricted viewer's typo-tolerant search read the
-  index for all of them before the tenant's filter drops them (measured on 200 000 products: a word in most of another tenant's documents and in none of the
-  viewer's, 5.8 s). Nothing of the other tenant is returned or counted; the time is the cost, as for the same word in a hidden field.
+- A typo-tolerant search of a word the viewer's own tenant does not have, while other tenants do, can be slow for a restricted viewer (5.8 s on 200 000
+  products in one measurement: no match in the tenant, the word in most documents of another). Nothing of the other tenant is returned or counted; the
+  time is the cost.
 - Changing which fields are `granted` makes the open-class indexes stale: run `fuzzphony:schema --apply` (it builds the new ones and drops the old); until then the doctor reports the old ones as stale and the viewer is on the statements it always had.
 - Timing is not hidden: how long a search takes still depends on how often a word occurs in the fields the viewer can see
   ([Security](security.md#the-limits-stated-honestly)).
