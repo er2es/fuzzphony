@@ -64,7 +64,15 @@
         background: var(--bg-page);
         -webkit-font-smoothing: antialiased;
     }
-    main { display: block; transition: opacity var(--t-base) var(--ease); }
+    /* the page is a column as tall as the window: <main> takes what the content leaves, so the footer is at the bottom of a short page and below a long one */
+    body { min-height: 100vh; min-height: 100dvh; display: flex; flex-direction: column; }
+    main { display: block; flex: 1 0 auto; transition: opacity var(--t-base) var(--ease); }
+    .site-footer { margin-top: auto; border-top: .5px solid var(--hairline); font-size: .8125rem; color: var(--label-2); }
+    .footer-inner { max-width: 70rem; margin: 0 auto; padding: 1rem 1.25rem; display: flex; flex-wrap: wrap; align-items: center; justify-content: center; gap: .25rem 1.25rem; text-align: center; }
+    .footer-inner p { margin: 0; }
+    .footer-inner strong { color: var(--label); font-weight: 600; }
+    .footer-links { display: flex; flex-wrap: wrap; justify-content: center; gap: .25rem 1rem; }
+    .footer-links a { display: inline-flex; align-items: center; min-height: 1.5rem; }
     main:focus { outline: none; }
 
     h1, h2, h3 { margin: 0; line-height: 1.15; letter-spacing: -.015em; text-wrap: balance; }
@@ -141,7 +149,7 @@
     .toolbar-inner { max-width: 70rem; margin: 0 auto; padding: 0 1.25rem; min-height: 3.25rem; display: grid; grid-template-columns: 1fr auto 1fr; align-items: center; gap: 1.75rem; }
     .toolbar-inner > .wordmark { justify-self: start; }
     .toolbar-inner > .nav { justify-self: center; }
-    @media (max-width: 58rem) {
+    @media (max-width: 48rem) {
         .toolbar-inner { grid-template-columns: 1fr; justify-items: center; gap: .1rem; padding-block: .45rem; }
         .toolbar-inner > .wordmark { justify-self: center; }
     }
@@ -336,6 +344,8 @@
         .nav .short { display: inline; }
         .menu-panel { top: auto; bottom: calc(100% + .5rem); right: .25rem; }
         .nav-status { bottom: calc(5rem + env(safe-area-inset-bottom)); }
+        /* the tab bar is fixed at the bottom: the footer ends above it */
+        .site-footer { padding-bottom: calc(4.5rem + env(safe-area-inset-bottom)); }
     }
 }
 

@@ -49,5 +49,16 @@
     </div>
 </header>
 <main id="main" tabindex="-1">{% block body %}{% endblock %}</main>
+<footer class="site-footer">
+    <div class="footer-inner">
+        {# The version comes from Composer, or the CHANGELOG where Composer only knows "dev-main" (src/Service/Version.php). #}
+        <p><strong>Fuzzphony</strong> {{ fuzzphony_version() }} <span aria-hidden="true">·</span> <a href="https://github.com/er2es/fuzzphony/blob/main/LICENSE">MIT licence</a></p>
+        <nav class="footer-links" aria-label="Project links">
+            <a href="https://github.com/er2es/fuzzphony/tree/main/docs">Documentation</a>
+            <a href="https://github.com/er2es/fuzzphony">GitHub</a>
+            <a href="https://github.com/er2es/fuzzphony/blob/main/CHANGELOG.md">Changelog</a>
+        </nav>
+    </div>
+</footer>
 </body>
 </html>

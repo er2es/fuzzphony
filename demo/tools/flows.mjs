@@ -705,6 +705,44 @@ await page.waitForFunction(() => new URLSearchParams(location.search).get('query
 await go(page, page.url());
 check('tune: clearing the box empties the address parameter too, and a reload keeps the empty search', (await page.inputValue('input[type=search]')) === '' && !page.url().includes('mouse'), page.url());
 
+// 0.9.10: the footer sits at the bottom of the window on a short page and below the content on a tall one (never fixed or sticky)
+const footerBox = () => page.evaluate(() => {
+    const f = document.querySelector('footer.site-footer');
+    const r = f.getBoundingClientRect();
+    return { bottom: r.bottom + scrollY, top: r.top + scrollY, vh: innerHeight, doc: document.documentElement.scrollHeight, mainBottom: document.querySelector('main').getBoundingClientRect().bottom + scrollY, position: getComputedStyle(f).position };
+});
+for (const path of ['/', '/nope']) {
+    await go(page, BASE + path);
+    const box = await footerBox();
+    check(`footer: ${path === '/' ? 'the empty home page' : 'the error page'} ends with the footer exactly at the bottom of the window`, Math.abs(box.bottom - box.vh) < 1 && box.doc <= box.vh && box.position === 'static', JSON.stringify(box));
+}
+await go(page, BASE + '/?q=mouse');
+await page.waitForSelector('#results .hit-row');
+const tall = await footerBox();
+check('footer: a tall results page has it below the content, at the end of the document', tall.doc > tall.vh && Math.abs(tall.bottom - tall.doc) < 1 && tall.top >= tall.mainBottom - 1 && tall.position === 'static', JSON.stringify(tall));
+const foot = await page.locator('footer.site-footer').evaluate((f) => ({ text: f.innerText, links: [...f.querySelectorAll('a')].map((a) => [a.innerText.trim(), a.href]), role: f.parentElement.tagName }));
+check('footer: a landmark child of <body> with the Fuzzphony version (a release number, not dev-main)', foot.role === 'BODY' && /^Fuzzphony\s+\d+\.\d+\.\d+/.test(foot.text.trim()) && !/dev-/.test(foot.text), foot.text);
+check('footer: links to the documentation, GitHub, the changelog and the licence', ['Documentation', 'GitHub', 'Changelog', 'MIT licence'].every((n) => foot.links.some(([t, h]) => t === n && h.startsWith('https://github.com/er2es/fuzzphony'))), JSON.stringify(foot.links));
+{
+    const phone = await browser.newContext({ viewport: { width: 390, height: 844 }, reducedMotion: 'reduce' });
+    const pp = await phone.newPage();
+    await go(pp, BASE + '/');
+    const m = await pp.evaluate(() => ({ bottom: document.querySelector('footer.site-footer').getBoundingClientRect().bottom, vh: innerHeight, tab: document.querySelector('.nav').getBoundingClientRect().top, foot: document.querySelector('.footer-links').getBoundingClientRect().bottom }));
+    check('footer: on a phone it still ends at the bottom of the window, and its links are above the tab bar', Math.abs(m.bottom - m.vh) < 1 && m.foot <= m.tab, JSON.stringify(m));
+    // the brand and the links are centred on the page at every width
+    for (const width of [1280, 900, 700, 390]) {
+        await pp.setViewportSize({ width, height: 844 });
+        const c = await pp.evaluate(() => {
+            const wm = document.querySelector('.wordmark').getBoundingClientRect();
+            const nav = document.querySelector('.nav').getBoundingClientRect();
+            return { navCentre: (nav.left + nav.right) / 2, wmCentre: (wm.left + wm.right) / 2, vw: document.documentElement.clientWidth, over: document.documentElement.scrollWidth - document.documentElement.clientWidth, wmRight: wm.right, navLeft: nav.left, stacked: nav.top > wm.bottom - 1 };
+        });
+        const fixedNav = width <= 640; // a tab bar at the bottom: centred too, the brand centred above
+        check(`menu: centred on the page at ${width} px, no overflow`, Math.abs(c.navCentre - c.vw / 2) < 2 && c.over <= 0 && (width >= 768 ? c.wmRight <= c.navLeft : Math.abs(c.wmCentre - c.vw / 2) < 2), JSON.stringify(c) + String(fixedNav));
+    }
+    await phone.close();
+}
+
 await secContext.close();
 
 await browser.close();
