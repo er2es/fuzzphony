@@ -15,21 +15,20 @@ way. Every PHP and YAML snippet and every query of [the mapping table](#your-lik
 - **A leading wildcard cannot use a B-tree index**, so the search reads the whole table. (A trigram index makes
   the same predicate fast, and fixes only the speed.)
 
-Measured with this repository's benchmark (100 000 products, PostgreSQL 17 in a local container, the median of 5 runs
+Measured with this repository's benchmark (200 000 products, PostgreSQL 17 in a local container, the median of 5 runs
 after the first, 20 results each; reproduce it with `benchmarks/run.php`, see [Benchmarks](benchmarks.md)):
 
 | case | query | `ILIKE ... LIMIT 20` | Fuzzphony |
 |---|---|---:|---:|
-| a common word | `wireless` | 1.5 ms, 20 rows | 8.6 ms, 20 hits |
-| two words | `wireless mouse` | 4.4 ms, 20 rows | 6.4 ms, 20 hits (833 in all) |
-| accent | `creme` | 92.5 ms, **0** rows | 9.5 ms, 20 hits |
-| typo | `hedphones` | 95.9 ms, **0** rows | 46.2 ms, 20 hits |
-| word form | `drills` | 91.8 ms, **0** rows | 7.7 ms, 20 hits |
+| a common word | `wireless` | 1.3 ms, 20 rows | 35 ms, 20 hits |
+| two words | `wireless mouse` | 3.1 ms, 20 rows | 10 ms, 20 hits (1666 in all) |
+| accent | `creme` | 163 ms, **0** rows | 43 ms, 20 hits |
+| typo | `hedphones` | 172 ms, **0** rows | 42 ms, 20 hits |
+| word form | `drills` | 171 ms, **0** rows | 40 ms, 20 hits |
 
 **`ILIKE ... LIMIT 20` is the fastest option when the word is common**: it stops at the first 20 rows it meets.
-Fuzzphony costs a few milliseconds more there, and a few dozen when typo tolerance has to run. What you buy is that the
-accent, the typo and the word form are found at all, ranked, and that a miss no longer reads the whole table (a
-200 000-row run is in [Benchmarks](benchmarks.md#example-run)). If your users never mistype and every word is common,
+Fuzzphony costs some tens of milliseconds more there (it ranks the best 2 000 matches, not the first 20). What you buy is that the
+accent, the typo and the word form are found at all, ranked, and that a miss no longer reads the whole table. If your users never mistype and every word is common,
 you may not need this.
 
 ## Step by step

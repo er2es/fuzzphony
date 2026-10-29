@@ -31,6 +31,7 @@ When a change shows up in search depends on the mode:
 
 Triggers also watch joined tables, so renaming a brand reindexes its products:
 
+<!-- fragment -->
 ```php
 ->watch('brand', 'SELECT id FROM product WHERE brand_id = :id')
 ```
@@ -46,6 +47,13 @@ is idempotent and the doctor flags leftovers. See
 Statement-level triggers cannot be attached to individual partitions (a PostgreSQL rule): see
 [Partitioned tables](#partitioned-tables).
 
+## A database where you cannot create triggers
+
+`queue` and `trigger` sync need triggers on every watched table, and PostgreSQL lets only the table's owner (or a role holding its `TRIGGER` privilege) create them. As a role without that right
+`fuzzphony:schema --apply` stops with a message naming the table and exits non-zero; nothing is applied (the apply is one transaction), so the doctor then reports every object as missing.
+Either run the apply once as the table owner (or `GRANT TRIGGER ON the_table TO the_role`), or use `sync: manual`: it needs no triggers, you call `refresh()` after a change
+or run `fuzzphony:reindex` (see [Reindexing](#reindexing-and-orphan-pruning)).
+
 ## The worker
 
 The worker takes a batch and refreshes it in one statement, so a failure never loses queued ids.
@@ -59,6 +67,7 @@ change a mapped field, filter, boost or recency column. No configuration is need
 
 Joined-table watches opt in by listing the columns that matter:
 
+<!-- fragment -->
 ```php
 ->watch('brand', 'SELECT id FROM product WHERE brand_id = :id', columns: ['name'])
 // updating any OTHER column of "brand" no longer refreshes dependent products

@@ -7,6 +7,7 @@ namespace Fuzzphony\Tests\Integration\Twig;
 use Fuzzphony\Core\Fuzzphony;
 use Fuzzphony\Tests\Integration\Bridge\DoctrineTestCase;
 use Fuzzphony\Tests\Integration\PostgresTestCase;
+use Fuzzphony\Tests\Support\RestoresPhpHandlers;
 use Symfony\Bundle\FrameworkBundle\Test\KernelTestCase;
 use Symfony\UX\LiveComponent\Test\InteractsWithLiveComponents;
 
@@ -16,6 +17,8 @@ use Symfony\UX\LiveComponent\Test\InteractsWithLiveComponents;
  */
 final class SearchComponentTest extends KernelTestCase
 {
+    use RestoresPhpHandlers;
+
     use InteractsWithLiveComponents;
 
     protected static function getKernelClass(): string

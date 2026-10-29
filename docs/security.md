@@ -47,7 +47,9 @@ A refusal is shown by the HTTP integrations as **403** (`ActorRequired`, `Access
 with a `Retry-After` header (`RateLimited`), as the original exception's `previous`. (`fuzzphony:search`
 runs no guard, so the only refusal it can show is `ActorRequired`, as its error message.) Your own controllers catch the exceptions
 (`Fuzzphony\Core\Exception\AccessDenied`, `RateLimited` with `$retryAfter` in seconds; all are
-`FuzzphonyException`s) or let the bundle's listener map them.
+`FuzzphonyException`s, and the three refusals `AccessDenied`, `ActorRequired` and `RateLimited` share the interface
+`Fuzzphony\Core\Exception\SearchRefused`) or let the bundle's listener map them. The 403 response says only
+"Searching is not allowed for this caller." (no index or tenant rule); the original exception, with the index name, is its `previous` and is logged.
 
 Without Symfony, pass your own guards to the gate:
 
@@ -234,6 +236,7 @@ has already refused).
 `granted` takes a Symfony attribute (a role such as `ROLE_HR`, or anything a voter decides), in all
 four definition styles:
 
+<!-- fragment -->
 ```php
 // attribute
 #[SearchField('B', granted: 'ROLE_HR')] public string $salary;
@@ -252,6 +255,7 @@ fuzzphony:
         salary: { weight: B, granted: ROLE_HR }
 ```
 
+<!-- fragment -->
 ```php
 // a plain PHP array, the same keys as the YAML (ArrayDefinitionLoader)
 ['fields' => ['salary' => ['weight' => 'B', 'granted' => 'ROLE_HR']]]
@@ -303,8 +307,8 @@ intersected.
 `fuzzphony:search` is an operator tool: it needs database access anyway, so it runs no guard, with or
 without `--tenant` and `--user` (a console has no Security token, so an authorization guard could only
 deny it). The bundle gives the command its own `Fuzzphony` over a gate without guards; every other
-service keeps the guarded one. Its searches are still counted in the metrics and, with the
-[search log](analytics.md) on, logged with the `--user` you gave. See [Console commands](commands.md).
+service keeps the guarded one. Its searches are counted in the metrics but not written to the
+[search log](analytics.md) unless you pass `--log` (then with the `--user` you gave). See [Console commands](commands.md).
 
 ## The limits, stated honestly
 
@@ -319,32 +323,37 @@ a covert-channel proof:
   accepted and shows nothing.
 - **Timing is not hidden.** The text index still visits the candidates of a hidden match before the
   per-field recheck drops them, so how long a search takes can depend on how often a word occurs in a
-  hidden field.
+  hidden field. For a viewer who holds none of an index's granted fields the open-class indexes (see
+  [limitations](limitations.md#a-restricted-viewers-very-common-word-in-a-hidden-typo-tolerant-field)) do not hold the
+  hidden text at all, so for that viewer the time no longer follows a hidden word; for a viewer who holds some of the granted
+  fields, and for a field the viewer can see, it still follows the word. Which statement runs, and its timing, depend on how much hidden text there is (the size of `fz` / `tsv` includes it); the
+  results never do. A restricted viewer of a tenant with no match for a word that is common in another tenant waits longer: the time
+  reveals something about the other tenants' data volume, not about content.
 - **Filters and facets are not restricted.** Their values are attributes of the document, searchable
   and countable by anyone who may search the index.
 - **The vocabulary of unrestricted viewers still holds every word.** An unrestricted viewer of an
   index with a hidden field still gets suggestions, "did you mean" and the zero-result rescue built from the words of
   all its fields, which is why a restricted viewer gets none.
 - **What a hidden field holds, or how long it is, never changes whether a restricted viewer's phrase or field-scoped word
-  matches, nor which strict candidates it gets (up to the scan budget).** The candidates of a phrase or of a field-scoped
-  word are looked up by the words alone, because the positions of the whole-text vector are capped at 16 383 and a long
-  hidden field in front of an allowed one would otherwise decide whether a phrase of the allowed field matches. The
-  exception is a selection that depends on the PHYSICAL order of the index's rows, which the size of a hidden field shapes
-  (a reindex fills free space in earlier pages): the typo-tolerant branch's first `candidate_limit` candidates, the strict
-  ones beyond the scan budget (100 000 matches) and the facet counts of a search that hit its candidate limit. What a hidden
-  field holds is not revealed by it (no document is returned for a word that only a hidden field has), but a search of a very
-  common word can return slightly different hits or counts for two corpora that differ in a hidden field only. A
-  deterministic order for the typo branch is planned for 0.9.9
-  ([limitations](limitations.md#ranking-of-very-common-words)).
+  matches, nor which candidates it gets.** The lookup uses the words alone (the positions of the whole-text vector are capped at
+  16 383) and the allowed fields' own columns decide; the candidates are the best by the text rank and bonuses of the allowed fields, then
+  the id, and the work budget of the typo branch counts the size of the visible text only. The one exception is what lies beyond the
+  budgets (more than 100 000 strict matches, or the typo branch's work budget): there a very common word takes the first matches of the
+  table's physical order, which a hidden field's size shapes; it reveals nothing about what the field holds. A long hidden text
+  still costs its recheck time ([limitations](limitations.md#ranking-of-very-common-words)). Tests compare corpora
+  that differ only in a hidden field (empty, a phrase, many sizes, a very long field), in five layouts and all fuzzy modes.
+- **An unrestricted viewer's and a tenant's typo candidates are the first matches of the table.** Nothing is hidden from an
+  unrestricted viewer, so the physical order of the table shows it nothing it could not read. A tenant's candidates are chosen among
+  its own documents (the tenant condition is part of the statement), so the size of another tenant's rows does not change them: a
+  test compares a tenant's hits, totals and facets over corpora whose other tenant takes four different sizes.
 - **The candidates of a very common word are chosen by the fields the viewer may see only.** When a word matches more
   documents than `candidate_limit`, the best candidates are selected by the page's own sort key; for a restricted
   viewer that key is the text rank of the allowed fields' vectors and the exact and prefix bonuses only when the primary
   field is allowed, with the same lookup, recheck, tenant and filter conditions as the cheap selection, so neither which
   documents are candidates nor their order depends on a hidden field (the tests compare corpora that differ only in a
-  hidden field, even a very long one, for the strict modes `never` and `fallback`; `always` is asserted for ownership only, see
-  the next entry). The selection scores at most 100 000 matches that pass
+  hidden field, even a very long one, for the three modes). The selection scores at most 100 000 matches that pass
   the recheck; the scan that finds them can still be long when the word is common in a hidden typo-tolerant field (see the
-  timing entry above and [limitations](limitations.md#a-restricted-viewers-very-common-word-in-a-hidden-typo-tolerant-field-is-slow)).
+  timing entry above and [limitations](limitations.md#a-restricted-viewers-very-common-word-in-a-hidden-typo-tolerant-field)).
 - **A phrase is read from the fields the viewer may see, as if the others did not exist.** Like an
   unrestricted search, a restricted one matches `"ada lovelace"` with `ada` at the end of one allowed field and
   `lovelace` at the start of the next. A hidden field never takes part: a phrase that reaches into one does not

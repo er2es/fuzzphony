@@ -20,8 +20,8 @@ final class SearchSqlBuilderTest extends TestCase
         $conditions = (new SearchQuery())->where('price', '<', 500)->conditions;
         $statement = (new SearchSqlBuilder(Indexes::products()))->ranked("'mouse'", 'mouse', new Term('mouse'), $conditions, new RankingProfile(), new Thresholds(minScore: 0.1, fuzzySimilarity: 0.3), 20, 40);
 
-        // q.tsq, q.norm, the per-word fuzzy values (q.ft0, q.fn1), fts filter, fuzzy filter
-        self::assertSame(['p0' => "'mouse'", 'p1' => 'mouse', 'p2' => "'mouse'", 'p3' => 'mouse', 'p4' => 500, 'p5' => 500], $statement['params']);
+        // q.tsq, q.norm, the per-word fuzzy values (q.ft0, q.fn1), the filter (one value for every selection that applies it)
+        self::assertSame(['p0' => "'mouse'", 'p1' => 'mouse', 'p2' => "'mouse'", 'p3' => 'mouse', 'p4' => 500], $statement['params']);
         self::assertStringContainsString(
             "q AS MATERIALIZED (SELECT to_tsquery('\"public\".\"fuzzphony_english\"'::regconfig, :p0) AS tsq, \"public\".\"fuzzphony_norm\"(:p1) AS norm, to_tsquery('\"public\".\"fuzzphony_english\"'::regconfig, :p2) AS ft0, \"public\".\"fuzzphony_norm\"(:p3) AS fn1)",
             $statement['sql'],
@@ -109,6 +109,15 @@ final class SearchSqlBuilderTest extends TestCase
 
         self::assertStringContainsString('LIMIT 100', $statement['sql']);
         self::assertSame([], $statement['params']);
+    }
+
+    public function testBrowseSelectsTheWindowOfAPagePastTheCandidateLimit(): void
+    {
+        $statement = (new SearchSqlBuilder(Indexes::products()))->browse([], new RankingProfile(), new Thresholds(candidateLimit: 100), 20, 380);
+
+        self::assertStringContainsString("LIMIT 400
+), page AS", $statement['sql']);
+        self::assertStringContainsString('LIMIT 20 OFFSET 380', $statement['sql']);
     }
 
     /** No positive words (e.g. every leaf negated): q.norm is a plain empty-text literal, not a bound value. */

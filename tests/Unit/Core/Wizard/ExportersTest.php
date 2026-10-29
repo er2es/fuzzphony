@@ -9,6 +9,7 @@ use Fuzzphony\Core\Definition\AttributeDefinitionLoader;
 use Fuzzphony\Core\Definition\IndexDefinition;
 use Fuzzphony\Core\Definition\Synonyms;
 use Fuzzphony\Core\Exception\InvalidArgument;
+use Fuzzphony\Core\Ranking\RankingProfile;
 use Fuzzphony\Core\Ranking\Thresholds;
 use Fuzzphony\Core\Wizard\Export\ArrayExporter;
 use Fuzzphony\Core\Wizard\Export\AttributeExporter;
@@ -238,6 +239,25 @@ final class ExportersTest extends TestCase
         self::assertFalse((new AttributeExporter())->supports(Indexes::products()));
     }
 
+    public function testIndexesWithProfilesOrThresholdsCannotBeAttributes(): void
+    {
+        $exporter = new AttributeExporter();
+        $plain = IndexDefinition::builder('gadgets')->fromTable('gadget')->field('title', 'A')->build();
+        self::assertTrue($exporter->supports($plain));
+        self::assertTrue($exporter->supports($plain->withProfiles(['default' => new RankingProfile()])), 'an unchanged default profile is nothing');
+
+        $withProfile = IndexDefinition::builder('gadgets')->fromTable('gadget')->field('title', 'A')->profile('popular', new RankingProfile(fuzzy: 0.2))->build();
+        $withLabels = IndexDefinition::builder('gadgets')->fromTable('gadget')->field('title', 'A')->profile('default', new RankingProfile(labelWeights: ['B' => 0.9]))->build();
+        $withThresholds = $plain->withThresholds(new Thresholds(minScore: 0.1));
+
+        foreach ([$withProfile, $withLabels, $withThresholds] as $index) {
+            self::assertFalse($exporter->supports($index));
+        }
+        $this->expectException(InvalidArgument::class);
+        $this->expectExceptionMessage('ranking profiles and thresholds');
+        $exporter->export($withThresholds);
+    }
+
     public function testArrayExportRoundTripsWatchColumns(): void
     {
         $original = IndexDefinition::builder('products')
@@ -302,7 +322,7 @@ final class ExportersTest extends TestCase
     public function testAttributeExportThrowsForUnsupportedSources(): void
     {
         $this->expectException(InvalidArgument::class);
-        $this->expectExceptionMessage('Only table sources without extra watches can be expressed with attributes; export YAML instead.');
+        $this->expectExceptionMessage('Only table sources without extra watches, ranking profiles and thresholds can be expressed with attributes; export YAML instead.');
         (new AttributeExporter())->export(Indexes::products());
     }
 

@@ -113,7 +113,8 @@ final class PostgresEngineSuggestionDetailsTest extends TestCase
         $search = fn(string $typed): ?string => $this->fuzzphony(new PostgresEngine($this->connection))->in('products')->query($typed)->get()->didYouMean;
 
         self::assertSame('zzzzzzz mouse', $search('zzzzzzz mose'), 'no candidate at all');
-        self::assertSame('cabel mouse', $search('cabel mose'), 'cable is two edits from cabel: too far for five letters');
+        self::assertSame('cabxy mouse', $search('cabxy mose'), 'cable is two edits from cabxy: too far for five letters');
+        self::assertSame('cable mouse', $search('cabel mose'), 'a swap is one edit');
     }
 
     public function testAWordWithADigitOfAnyScriptIsACodeNotASpelling(): void

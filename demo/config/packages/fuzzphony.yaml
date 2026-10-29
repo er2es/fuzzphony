@@ -86,7 +86,7 @@ fuzzphony:
       watch:
         lang_product: 'SELECT :id'
       language: english
-      # typo tolerance only when nothing matches exactly: on 30 products the default (fewer than 5 exact hits) would
+      # typo tolerance only when nothing matches exactly: on 31 products the default (fewer than 5 exact hits) would
       # mix typo matches into every stemming example
       thresholds: { fallback_below: 1 }
     lang_de:

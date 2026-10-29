@@ -61,7 +61,11 @@ final class WorkerCommand extends Command implements SignalableCommandInterface
                 $errors->writeln(sprintf('<error>The full rebuild of "%s" a TRUNCATE queued failed; the job stays queued: %s</error>', $name, $failure->getMessage()));
             }
 
-            return $worker->rebuildFailures() !== [];
+            foreach ($worker->queueFailures() as $name => $failure) {
+                $errors->writeln(sprintf('<error>The queue of "%s" could not be processed; its items stay queued and the other indexes went on: %s</error>', $name, $failure->getMessage()));
+            }
+
+            return $worker->rebuildFailures() !== [] || $worker->queueFailures() !== [];
         };
 
         if ($input->getOption('once') === true) {

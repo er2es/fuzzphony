@@ -76,7 +76,7 @@ final class SearchSqlBuilderRestrictedTest extends TestCase
         $thresholds = new Thresholds(fuzzySimilarity: 0.3);
         $statements = [
             $builder->ranked("'mouse'", 'mouse', $root, [], new RankingProfile(), $thresholds, 10, 0, [], $root)['sql'],
-            $builder->facet('in_stock', "'mouse'", 'mouse', $root, [], new RankingProfile(), $thresholds, 10, false, [], $root)['sql'],
+            $builder->facets(['in_stock'], "'mouse'", 'mouse', $root, [], new RankingProfile(), $thresholds, 10, false, [], $root)['sql'],
             $builder->exactTotal("'mouse'", 'mouse', $root, [], new RankingProfile(), $thresholds, [], $root)['sql'],
         ];
         foreach ($statements as $sql) {
@@ -109,7 +109,7 @@ final class SearchSqlBuilderRestrictedTest extends TestCase
             foreach ([new Thresholds(), new Thresholds(fuzzySimilarity: 0.3)] as $t) {
                 $args = [$tsquery, $text, $root, $conditions, new RankingProfile(), $t];
                 self::assertSame($plain->ranked(...[...$args, 10, 0, [], $scoped]), $null->ranked(...[...$args, 10, 0, [], $scoped]), $text);
-                self::assertSame($plain->facet('in_stock', ...[...$args, 10, true, [], $scoped]), $null->facet('in_stock', ...[...$args, 10, true, [], $scoped]), $text);
+                self::assertSame($plain->facets(['in_stock'], ...[...$args, 10, true, [], $scoped]), $null->facets(['in_stock'], ...[...$args, 10, true, [], $scoped]), $text);
                 self::assertSame($plain->exactTotal(...[...$args, [], $scoped]), $null->exactTotal(...[...$args, [], $scoped]), $text);
                 self::assertSame($plain->probe([new Term('mouse'), new Term('cable')], true, $conditions, $t), $null->probe([new Term('mouse'), new Term('cable')], true, $conditions, $t), $text);
             }

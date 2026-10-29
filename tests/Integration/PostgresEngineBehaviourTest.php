@@ -173,10 +173,10 @@ final class PostgresEngineBehaviourTest extends TestCase
 
     public function testFacetValuesAreTypedByTheFilterWhateverTheDriverDelivers(): void
     {
-        $facet = static fn(string $sql): bool => str_contains($sql, 'count(*) AS n FROM b GROUP BY value');
+        $facet = static fn(string $sql): bool => str_contains($sql, 'FROM fc GROUP BY v0');
         $spy = $this->spy(fetchAll: static fn(string $sql): ?array => $facet($sql) ? [
-            ['value' => 't', 'n' => '3'], ['value' => '1', 'n' => 2], ['value' => 1, 'n' => 1], ['value' => 'f', 'n' => 1],
-            ['value' => '0', 'n' => 1], ['value' => true, 'n' => 1], ['value' => false, 'n' => 1], ['value' => null, 'n' => 1],
+            ['f' => 0, 'value' => 't', 'n' => '3'], ['f' => 0, 'value' => '1', 'n' => 2], ['f' => 0, 'value' => 1, 'n' => 1], ['f' => 0, 'value' => 'f', 'n' => 1],
+            ['f' => 0, 'value' => '0', 'n' => 1], ['f' => 0, 'value' => true, 'n' => 1], ['f' => 0, 'value' => false, 'n' => 1], ['f' => 0, 'value' => null, 'n' => 1],
         ] : null);
 
         $values = $this->fuzzphony($spy)->in('products')->query('')->facets('in_stock')->get()->facets['in_stock'];
@@ -247,7 +247,7 @@ final class PostgresEngineBehaviourTest extends TestCase
         (new Fuzzphony(new PostgresEngine($this->connection), new IndexRegistry([$this->index])))->reindex('products');
         $spy = $this->spy(fetchAll: static fn(string $sql): ?array => str_starts_with($sql, 'SELECT count(*) AS total FROM') ? [] : null);
 
-        $result = $this->fuzzphony($spy)->in('products')->query('')->thresholds(['candidate_limit' => 10])->exactCounts()->get();
+        $result = $this->fuzzphony($spy)->in('products')->query('')->thresholds(['candidate_limit' => 10])->limit(10)->exactCounts()->get();
 
         self::assertSame(0, $result->total, 'no row: no documents');
         self::assertFalse($result->totalIsLowerBound);

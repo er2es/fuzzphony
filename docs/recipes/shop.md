@@ -65,6 +65,7 @@ That also builds the vocabulary of the fuzzy fields. It ages as the catalogue ch
 ## The listing, with facets
 
 <!-- tested: tests/Recipes/Shop/Storefront.php#listing -->
+<!-- fragment -->
 ```php
 /** The listing page: hits, the facets of the sidebar and a did-you-mean link. */
 public function listing(string $text, ?int $categoryId = null, string $sort = 'default'): SearchResult
@@ -100,8 +101,8 @@ self::assertSame(['category_id' => ['1' => 2, '2' => 1], 'in_stock' => ['true' =
 That is the *disjunctive* behaviour of a shop sidebar, and it is the default: **a facet does not count the
 conditions on its own filter**. The values are ids; showing "Audio (2)" is your template's job (the facet gives
 `value` and `count`). An empty text is a browse (`listing('')` lists the shop and counts every category), so one
-endpoint serves the first page and the search results. The page's counts are over the search's first candidates (2000
-by default, the cheap selection: the hits themselves are the best ones): `totalIsLowerBound` says when to print "120+", and `exactCounts()` counts everything, slowly: never
+endpoint serves the first page and the search results. The page's counts are over the search's candidates (the best 2000
+by default, the ones the hits are chosen from): `totalIsLowerBound` says when to print "120+", and `exactCounts()` counts everything, slowly: never
 wire that to request input.
 
 ### What it costs
@@ -140,6 +141,7 @@ A small catalogue therefore pays the typo-tolerant branch on most searches. `fuz
 ## Search as you type
 
 <!-- tested: tests/Recipes/Shop/Storefront.php#dropdown -->
+<!-- fragment -->
 ```php
 /**
  * The dropdown under the search box while the visitor types.
@@ -218,6 +220,7 @@ into the results. The listing takes the profile from `?sort=`: whitelist it, as 
 ## Products and categories in one list
 
 <!-- tested: tests/Recipes/Shop/Storefront.php#everything -->
+<!-- fragment -->
 ```php
 /** Products (in stock, twice the weight) and categories in one merged list. */
 public function everything(string $text): FederatedResult

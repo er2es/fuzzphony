@@ -6,7 +6,6 @@ namespace Fuzzphony\Tests\Unit\Bundle\Command;
 
 use Fuzzphony\Bundle\Command\SearchCommand;
 use Fuzzphony\Core\Engine\Engine;
-use Fuzzphony\Core\Exception\InvalidQuery;
 use Fuzzphony\Core\Fuzzphony;
 use Fuzzphony\Core\Registry\IndexRegistry;
 use Fuzzphony\Tests\Fixtures\Indexes;
@@ -20,9 +19,9 @@ final class SearchCommandMutationsTest extends TestCase
     {
         $tester = new CommandTester(new SearchCommand(new Fuzzphony(self::createStub(Engine::class), new IndexRegistry([Indexes::products('manual')]))));
 
-        $this->expectException(InvalidQuery::class);
-        $this->expectExceptionMessage('has no filter "5"');
+        $status = $tester->execute(['index' => 'products', 'query' => 'mouse', '--facet' => [5]], ['interactive' => false]);
 
-        $tester->execute(['index' => 'products', 'query' => 'mouse', '--facet' => [5]], ['interactive' => false]);
+        self::assertSame(1, $status, 'a mistake in an option is an error message, not a stack trace');
+        self::assertStringContainsString('has no filter "5"', $tester->getDisplay(true));
     }
 }

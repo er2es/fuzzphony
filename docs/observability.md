@@ -13,8 +13,7 @@ Prometheus's own data model. Nothing is required; pick one:
   zero cost, zero behavior.
 - `LoggingMetricsCollector` (Core, PSR-3-backed) — one structured `debug`-level log line per call
   (`event`, `by`/`value`, labels). The default for the Symfony bundle when nothing more specific is
-  available. `new LoggingMetricsCollector($logger, logQueryText: true)` keeps the search `query`
-  text on the logged line (omitted by default — see "Cardinality" below).
+  available.
 - `Fuzzphony\Bundle\Observability\PrometheusMetricsCollector` — translates calls into a
   `Prometheus\CollectorRegistry` (`promphp/prometheus_client_php`, not a required dependency: add
   it yourself with `composer require promphp/prometheus_client_php`).
@@ -68,7 +67,7 @@ services:
 
 ## Instrumentation points
 
-- `PostgresEngine::guard()` wraps every engine operation (the full zero-downtime rebuild lifecycle,
+- The engine's `EngineGuard` wraps every engine operation (the full zero-downtime rebuild lifecycle,
   queue processing, orphan pruning and more, by its own operation name, e.g.
   `fuzzphony.rebuild.duration_ms`): `fuzzphony.<operation>.duration_ms` (a histogram) always,
   `fuzzphony.<operation>.errors` (a counter) on failure.
@@ -76,9 +75,8 @@ services:
   `mouse`, [Zero-result rescue](searching.md#zero-result-rescue)): `fuzzphony.search.rescued` (a counter), labeled
   as `fuzzphony.search.fallback` below. `took_ms` is observed once per search, rescue included.
 - Each search: `fuzzphony.search.took_ms` (a histogram) and `fuzzphony.search.fallback` (a counter,
-  incremented when the full-text/fuzzy fallback ran), both labeled `index` (and `query` for
-  `LoggingMetricsCollector` when opted in — never for `PrometheusMetricsCollector`, see
-  "Cardinality").
+  incremented when the full-text/fuzzy fallback ran), both labeled `index` only (the search
+  text is never a label, see "Cardinality").
 - A refused search (an actor without a tenant on a tenant-scoped index): `fuzzphony.search.denied` (a
   counter) labeled `index` and `reason` (`actor_required` or `authorization`); see
   [Multi-tenancy](multi-tenancy.md#a-refusal-is-a-403).
@@ -101,10 +99,11 @@ services:
 
 ## Cardinality
 
-A search query's raw text is unbounded cardinality for a Prometheus label — one new time series
-per distinct query ever run. `PrometheusMetricsCollector` strips a `query` label before it ever
-reaches the registry; `LoggingMetricsCollector`'s `logQueryText` constructor argument (default
-`false`) is the only place it can appear, and only in a log line, never a label.
+A search query's raw text is unbounded cardinality for a Prometheus label (one new time series
+per distinct query ever run) and is the visitor's data, which `search_log.redact` and `search_log.ip` handle for
+the search log. No metric carries it: the engine never passes the text to a `MetricsCollector`, so a collector of
+your own receives only `index` and the other bounded labels. What was searched is the job of the
+[search log](analytics.md).
 
 ## `/metrics` endpoint
 

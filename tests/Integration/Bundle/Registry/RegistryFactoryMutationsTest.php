@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Fuzzphony\Tests\Integration\Bundle\Registry;
 
 use Doctrine\ORM\EntityManagerInterface;
+use Doctrine\ORM\Mapping\ClassMetadataFactory;
 use Fuzzphony\Bridge\Doctrine\DoctrineIndexDiscovery;
 use Fuzzphony\Bundle\Registry\RegistryFactory;
 use Fuzzphony\Core\Definition\IndexDefinition;
@@ -52,7 +53,9 @@ final class RegistryFactoryMutationsTest extends TestCase
         $cache->save($cache->getItem('fuzzphony_discovered_indexes')->set([])); // the pool says: no indexes
 
         $entityManager = $this->createMock(EntityManagerInterface::class);
-        $entityManager->expects(self::exactly(2))->method('getMetadataFactory');
+        $metadataFactory = self::createStub(ClassMetadataFactory::class);
+        $metadataFactory->method('getAllMetadata')->willReturn([]); // getAllMetadata is untyped in the oldest supported persistence: a bare stub returns null
+        $entityManager->expects(self::exactly(2))->method('getMetadataFactory')->willReturn($metadataFactory);
         $first = RegistryFactory::create([], new DoctrineIndexDiscovery($entityManager), $cache);
         $second = RegistryFactory::create([], new DoctrineIndexDiscovery($entityManager), $cache);
 

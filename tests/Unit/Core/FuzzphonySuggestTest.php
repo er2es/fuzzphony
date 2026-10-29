@@ -9,6 +9,7 @@ use Fuzzphony\Core\Engine\Engine;
 use Fuzzphony\Core\Engine\Suggestions;
 use Fuzzphony\Core\Exception\InvalidArgument;
 use Fuzzphony\Core\Fuzzphony;
+use Fuzzphony\Core\Ranking\Thresholds;
 use Fuzzphony\Core\Registry\IndexRegistry;
 use Fuzzphony\Tests\Fixtures\Indexes;
 use PHPUnit\Framework\Attributes\DataProvider;
@@ -64,17 +65,34 @@ final class FuzzphonySuggestTest extends TestCase
         self::assertSame([['hea', $limit]], $this->asked);
     }
 
-    public function testLeadingWhitespaceIsDroppedAndTheTextIsCutAtOneHundredCharacters(): void
+    public function testLeadingWhitespaceIsDroppedAndTheTextIsCutWhereASearchIsCut(): void
     {
         $fuzzphony = $this->fuzzphony();
 
         self::assertSame(['heaone'], array_slice($fuzzphony->suggest('products', "  \t hea"), 0, 1));
 
-        $fuzzphony->suggest('products', str_repeat('é', 150));
-        self::assertSame([str_repeat('é', 100), 8], $this->asked[1]);
+        $fuzzphony->suggest('products', str_repeat('é', 300));
+        self::assertSame([str_repeat('é', 256), 8], $this->asked[1], 'max_query_length (256 by default)');
 
-        $fuzzphony->suggest('products', str_repeat('x', 100) . 'yz');
-        self::assertSame([str_repeat('x', 100), 8], $this->asked[2]);
+        $fuzzphony->suggest('products', str_repeat('x', 256) . 'yz');
+        self::assertSame([str_repeat('x', 256), 8], $this->asked[2]);
+    }
+
+    public function testTheCutFollowsTheIndexsMaxQueryLength(): void
+    {
+        $engine = self::createStubForIntersectionOfInterfaces([Engine::class, Suggestions::class]);
+        assert($engine instanceof Engine);
+        $asked = [];
+        $engine->method('suggestWords')->willReturnCallback(static function (IndexDefinition $index, string $prefix, int $limit) use (&$asked): array {
+            $asked[] = $prefix;
+
+            return [];
+        });
+        $index = Indexes::products()->withThresholds(new Thresholds(maxQueryLength: 20));
+
+        (new Fuzzphony($engine, new IndexRegistry([$index])))->suggest('products', 'wireless ' . str_repeat('m', 30));
+
+        self::assertSame(['m' . str_repeat('m', 10)], $asked, 'the text is cut at 20 characters: "wireless " + 11 letters');
     }
 
     public function testTheTextBeforeTheLastWordSpansLines(): void

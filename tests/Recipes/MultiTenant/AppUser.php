@@ -29,5 +29,8 @@ final class AppUser implements UserInterface
     {
         return $this->roles;
     }
+
+    /** Symfony 7.4's UserInterface still requires it (removed in 8): nothing to erase here. */
+    public function eraseCredentials(): void {}
 }
 // endregion

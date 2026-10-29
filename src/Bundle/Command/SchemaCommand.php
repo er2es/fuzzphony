@@ -6,10 +6,12 @@ namespace Fuzzphony\Bundle\Command;
 
 use Fuzzphony\Core\Database\Connection;
 use Fuzzphony\Core\Definition\IndexDefinition;
+use Fuzzphony\Core\Exception\EngineFailure;
 use Fuzzphony\Core\Fuzzphony;
 use Fuzzphony\Core\Schema\SchemaPlan;
 use Fuzzphony\Core\Schema\Statement;
 use Fuzzphony\Core\Support\Coerce;
+use Fuzzphony\Engine\Postgres\Schema\OpenClass;
 use Symfony\Component\Console\Attribute\AsCommand;
 use Symfony\Component\Console\Command\Command;
 use Symfony\Component\Console\Completion\CompletionInput;
@@ -94,12 +96,38 @@ final class SchemaCommand extends Command
             return Command::FAILURE;
         }
 
+        $tablesBefore = $this->tables();
+        $columnsBefore = $this->cachedColumns();
         $io->progressStart(count($plan->statements));
-        $plan->apply($this->connection, static function (Statement $statement) use ($io): void {
-            $io->progressAdvance();
-        });
+        $current = null;
+        try {
+            $warnings = $plan->apply($this->connection, static function (Statement $statement) use ($io, &$current): void {
+                $current = $statement;
+                $io->progressAdvance();
+            });
+        } catch (EngineFailure $e) {
+            $table = $current !== null && stripos($current->sql, 'TRIGGER') !== false ? self::deniedTable($e) : null;
+            if ($table === null) {
+                throw $e;
+            }
+            $io->newLine();
+            $io->error(sprintf(
+                "This database role cannot create the triggers on the table %s: it needs to be the owner of the table (or hold its TRIGGER privilege) for sync: queue or trigger. Nothing was applied (the apply is one transaction).
+"
+                . 'Either run fuzzphony:schema --apply as the table owner (or grant the privilege), or use sync: manual, which needs no triggers: call refresh() after a change, or fuzzphony:reindex (see docs/sync.md, "A database where you cannot create triggers").',
+                $table,
+            ));
+
+            return Command::FAILURE;
+        }
         $io->progressFinish();
+        foreach ($warnings as $warning) {
+            $io->warning($warning);
+        }
         $io->success(sprintf('%d statement(s) applied. Next: fuzzphony:reindex, then fuzzphony:doctor.', count($plan->statements)));
+        if (array_any(array_diff($this->cachedColumns(), $columnsBefore), static fn(string $column): bool => isset($tablesBefore[explode('.', $column)[0]]))) {
+            $io->warning('A column or index was added that the engine looks up once per process (tsv_capped, actor_ip, the open-class indexes of an index with granted fields): restart long-running processes (Messenger workers, RoadRunner, FrankenPHP) so that they see it, or call PostgresEngine::resetCaches().');
+        }
 
         return Command::SUCCESS;
     }
@@ -109,6 +137,36 @@ final class SchemaCommand extends Command
         if ($input->mustSuggestArgumentValuesFor('index')) {
             $suggestions->suggestValues(IndexArgument::names($this->fuzzphony));
         }
+    }
+
+    /** The table a "permission denied" / "must be owner" failure names, or null for any other failure. */
+    private static function deniedTable(\Throwable $failure): ?string
+    {
+        for ($e = $failure; $e !== null; $e = $e->getPrevious()) {
+            if (preg_match('/(?:permission denied for table|must be owner of table) (\S+)/', $e->getMessage(), $match) === 1) {
+                return $match[1];
+            }
+        }
+
+        return null;
+    }
+
+    /** @return array<string, true> the oids of the tables there are now */
+    private function tables(): array
+    {
+        return array_fill_keys(array_map(Coerce::str(...), array_column($this->connection->fetchAll("SELECT oid::text AS oid FROM pg_class WHERE relkind IN ('r', 'p')"), 'oid')), true);
+    }
+
+    /**
+     * The columns and indexes the engine looks up once per process (tsv_capped, actor_ip; the open-class indexes, see OpenClass), as
+     * "table oid.name": one that appears in a table that was there before the apply is the one a long-running process does not know
+     * about (a fresh install has no such process).
+     *
+     * @return list<string>
+     */
+    private function cachedColumns(): array
+    {
+        return array_map(Coerce::str(...), array_column($this->connection->fetchAll("SELECT attrelid::text || '.' || attname AS col FROM pg_attribute WHERE attname IN ('tsv_capped', 'actor_ip') AND NOT attisdropped AND attnum > 0 UNION ALL SELECT i.indrelid::text || '.' || c.relname FROM pg_index AS i JOIN pg_class AS c ON c.oid = i.indexrelid WHERE c.relname ~ '_" . OpenClass::NAME_TAIL . "$'"), 'col'));
     }
 
     /** @param list<IndexDefinition> $indexes */
@@ -137,7 +195,8 @@ final class SchemaCommand extends Command
         $class = 'Version' . date('YmdHis');
         $up = implode("\n", array_map(
             static fn(Statement $s): string => sprintf("        // %s\n        \$this->addSql(%s);", $s->description, var_export($s->sql, true)),
-            $plan->statements,
+            // a statement that needs the database's answer to know what to run (dropping stale indexes) is for --apply, the doctor reports what is left
+            array_filter($plan->statements, static fn(Statement $s): bool => $s->forEach === null),
         ));
         $code = <<<PHP
             <?php

@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace App\Controller;
 
 use App\Service\Catalog;
+use App\Service\Examples;
 use Fuzzphony\Core\Fuzzphony;
 use Fuzzphony\Core\Search\SearchResult;
 use Symfony\Bundle\FrameworkBundle\Controller\AbstractController;
@@ -19,31 +20,6 @@ use Symfony\Component\Routing\Attribute\Route;
  */
 final class RelevanceController extends AbstractController
 {
-    /** Group => label => query. */
-    public const array EXAMPLES = [
-        'Typo tolerance by word length' => [
-            'a correct short word' => 'mouse',
-            'a typo in a four-letter word' => 'mose',
-            'a typo in a long word' => 'hedphones',
-            'a typo and a correct word' => 'wireles mouse',
-            'the price: a letter replaced in the middle' => 'mpuse',
-        ],
-        'Synonyms' => [
-            'an abbreviation' => 'tv',
-            'an irregular plural' => 'mice',
-            'another word for a monitor' => 'display',
-            'a headset' => 'headset',
-            'one way only: a drill finds screwdrivers' => 'drill',
-            '... but not the other way round' => 'screwdriver',
-        ],
-        'Did you mean' => [
-            'a misspelled word' => 'hedphones',
-            'inside a query' => 'ergonmic -silent',
-            'a phrase' => '"noise cancelling" headphnoes',
-            'a word of the vocabulary: nothing to suggest' => 'headphones',
-        ],
-    ];
-
     private const int MAX_QUERY = 100;
 
     #[Route('/relevance', name: 'relevance')]
@@ -53,15 +29,17 @@ final class RelevanceController extends AbstractController
         $byLength = $flat = null;
         if ($q !== '') {
             // always: typo tolerance runs even when exact matching finds plenty, so the two columns differ only by the similarity rule
-            $search = $fuzzphony->in('catalog')->query($q)->highlight('name')->limit(8)->thresholds(['fuzzy_mode' => 'always']);
+            $search = $fuzzphony->in('catalog')->query($q)->highlight('name')->limit(8)->unlogged()->thresholds(['fuzzy_mode' => 'always', 'rescue_empty' => false]); // no zero-result rescue: this page shows what each rule finds, `mpuse` included
+            // unlogged: the page runs several searches of its own (typo tolerance forced on, a flat similarity, the suggestion); none is a search
+            // somebody made, and the log would list them as ones that found nothing or as `mpuse` searched twice
             $byLength = $search->get();
-            $flat = $search->unlogged()->thresholds(['fuzzy_similarity' => 0.3])->get(); // only the main search is logged: the two columns and the suggestion are one visit
+            $flat = $search->thresholds(['fuzzy_similarity' => 0.3])->get();
         }
         $rows = $catalog->rows(array_merge($byLength?->ids() ?? [], $flat?->ids() ?? []));
 
         return $this->render('relevance.html.twig', [
             'q' => $q,
-            'examples' => self::EXAMPLES,
+            'examples' => Examples::RELEVANCE,
             'byLength' => $byLength,
             'flat' => $flat,
             'rows' => $rows,
@@ -75,6 +53,6 @@ final class RelevanceController extends AbstractController
     /** The suggestion of the search as an application would run it (typo tolerance in its default mode). */
     private function suggestion(Fuzzphony $fuzzphony, string $q): ?SearchResult
     {
-        return $q === '' ? null : $fuzzphony->in('catalog')->query($q)->limit(1)->unlogged()->get();
+        return $q === '' ? null : $fuzzphony->in('catalog')->query($q)->limit(1)->unlogged()->thresholds(['rescue_empty' => false])->get(); // a rescued search would have no suggestion to show
     }
 }

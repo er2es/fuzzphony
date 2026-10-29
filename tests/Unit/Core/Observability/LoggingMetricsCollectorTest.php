@@ -54,20 +54,17 @@ final class LoggingMetricsCollectorTest extends TestCase
         ]]], $logger->calls);
     }
 
-    public function testQueryTextIsOmittedByDefault(): void
+    public function testTheLabelsAreLoggedAsTheyAreGiven(): void
     {
         $logger = self::spy();
-        (new LoggingMetricsCollector($logger))->observe('fuzzphony.search.took_ms', 12.4, ['index' => 'products', 'query' => 'mosue']);
+        (new LoggingMetricsCollector($logger))->observe('fuzzphony.search.took_ms', 12.4, ['index' => 'products']);
 
-        self::assertArrayNotHasKey('query', $logger->calls[0][1]);
+        self::assertSame([[LogLevel::DEBUG, ['event' => 'fuzzphony.search.took_ms', 'value' => 12.4, 'index' => 'products']]], $logger->calls);
     }
 
-    public function testQueryTextIsKeptWhenOptedIn(): void
+    public function testThereIsNoOptionToLogTheSearchText(): void
     {
-        $logger = self::spy();
-        (new LoggingMetricsCollector($logger, logQueryText: true))->observe('fuzzphony.search.took_ms', 12.4, ['index' => 'products', 'query' => 'mosue']);
-
-        self::assertSame('mosue', $logger->calls[0][1]['query']);
+        self::assertCount(1, (new \ReflectionClass(LoggingMetricsCollector::class))->getConstructor()?->getParameters() ?? []);
     }
 
     private static function spy(): RecordingLogger

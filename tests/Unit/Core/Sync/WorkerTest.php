@@ -9,6 +9,7 @@ use Fuzzphony\Core\Engine\Engine;
 use Fuzzphony\Core\Exception\EngineFailure;
 use Fuzzphony\Core\Exception\InvalidArgument;
 use Fuzzphony\Core\Exception\RebuildAlreadyRunning;
+use Fuzzphony\Core\Support\Coerce;
 use Fuzzphony\Core\Sync\Worker;
 use Fuzzphony\Tests\Fixtures\Indexes;
 use Fuzzphony\Tests\Unit\Core\Observability\RecordingMetricsCollector;
@@ -169,6 +170,82 @@ final class WorkerTest extends TestCase
         self::assertSame(12, $attemptsAt($at), 'a success resets the back-off');
     }
 
+    public function testAQueueThatFailsDoesNotStopTheOtherIndexesAndIsTriedAgainAfterABackOff(): void
+    {
+        $failing = Indexes::products();
+        $other = Indexes::products()->withName('other');
+        $now = 1_000.0;
+        $calls = ['products' => 0, 'other' => 0];
+        $left = new \ArrayObject(['other' => 3]);
+        $engine = self::createStub(Engine::class);
+        $engine->method('processQueue')->willReturnCallback(static function (IndexDefinition $index) use (&$calls, $left): int {
+            ++$calls[$index->name];
+            if ($index->name === 'products') {
+                throw new EngineFailure('the batch cannot be built');
+            }
+            $processed = Coerce::int($left['other']);
+            $left['other'] = 0;
+
+            return $processed;
+        });
+        $metrics = new RecordingMetricsCollector();
+        $worker = new Worker($engine, static function () use (&$now): float {
+            return $now;
+        }, $metrics);
+
+        self::assertSame(3, $worker->runOnce([$failing, $other]), 'the second index is processed although the first always fails');
+        self::assertSame(['products' => 1, 'other' => 2], $calls);
+        self::assertArrayHasKey('products', $worker->queueFailures());
+        self::assertSame('the batch cannot be built', $worker->queueFailures()['products']->getMessage());
+        self::assertSame([], $worker->rebuildFailures());
+
+        // after a restart of the supervisor the same order must not starve the other index again
+        $left['other'] = 2;
+        $now = 1_059.9;
+        self::assertSame(2, $worker->runOnce([$failing, $other]));
+        self::assertSame(1, $calls['products'], 'inside the back-off the failing queue is left alone');
+        self::assertSame([], $worker->queueFailures(), 'not tried, not a failure of this cycle');
+
+        $now = 1_060.0;
+        $worker->runOnce([$failing, $other]);
+        self::assertSame(2, $calls['products'], 'tried again after 60 s');
+        $now = 1_060.0 + 119.9;
+        $worker->runOnce([$failing, $other]);
+        self::assertSame(2, $calls['products'], 'the second wait is 120 s');
+        $now = 1_060.0 + 120.0;
+        $worker->runOnce([$failing, $other]);
+        self::assertSame(3, $calls['products']);
+    }
+
+    public function testAQueueThatWorksAgainLeavesTheBackOff(): void
+    {
+        $index = Indexes::products();
+        $now = 1_000.0;
+        $state = new \ArrayObject(['down' => true]);
+        $engine = self::createStub(Engine::class);
+        $engine->method('processQueue')->willReturnCallback(static function () use ($state): int {
+            if ($state['down'] === true) {
+                throw new EngineFailure('down');
+            }
+            $state['down'] = true; // fails again right after the one batch
+
+            return 1;
+        });
+        $worker = new Worker($engine, static function () use (&$now): float {
+            return $now;
+        });
+
+        $worker->runOnce([$index]);
+        $state['down'] = false;
+        $now = 1_060.0;
+        self::assertSame(1, $worker->runOnce([$index]), 'one batch, then it fails again');
+        $now = 1_060.0 + 60.0;
+        $before = $worker->queueFailures();
+        self::assertNotSame([], $before);
+        $worker->runOnce([$index]);
+        self::assertNotSame([], $worker->queueFailures(), 'the back-off was reset by the success: 60 s, not 120 s');
+    }
+
     public function testRunStopsAfterATimeLimitEvenWithWorkStillPending(): void
     {
         $index = Indexes::products();
@@ -274,5 +351,53 @@ final class WorkerTest extends TestCase
         (new Worker($engine, metrics: $metrics))->runOnce([$products]);
 
         self::assertContains(['increment', 'fuzzphony.worker.rebuild_failures', 1.0, ['index' => 'products']], $metrics->calls);
+    }
+
+    public function testRunOnceStopsWhenStopIsCalledWhileAnIndexIsStillBusy(): void
+    {
+        $worker = null;
+        $calls = 0;
+        $engine = self::createStub(Engine::class);
+        $engine->method('processQueue')->willReturnCallback(static function () use (&$worker, &$calls): int {
+            if (++$calls === 2) {
+                self::assertInstanceOf(Worker::class, $worker);
+                $worker->stop();
+            }
+            if ($calls > 100) {
+                throw new \LogicException('runOnce() ignored stop().');
+            }
+
+            return 7;
+        });
+        $worker = new Worker($engine);
+
+        self::assertSame(14, $worker->runOnce([Indexes::products(), Indexes::products()->withName('other')]));
+        self::assertSame(2, $calls, 'the other index is skipped once stop() was called');
+    }
+
+    public function testARunCycleLooksForRequestedRebuildsEvenWhileAnIndexIsAlwaysBusy(): void
+    {
+        $a = Indexes::products();
+        $b = $a->withName('b');
+        $cycles = 0;
+        $asked = [];
+        $engine = self::createStub(Engine::class);
+        $engine->method('processQueue')->willReturnCallback(static function (IndexDefinition $index): int {
+            return $index->name === 'products' ? 3 : 0;
+        });
+        $engine->method('rebuildRequested')->willReturnCallback(static function (IndexDefinition $index) use (&$asked): bool {
+            $asked[] = $index->name;
+
+            return false;
+        });
+        $worker = new Worker($engine);
+
+        $worker->run([$a, $b], 10, 0.0, null, static function () use (&$cycles, $worker): void {
+            if (++$cycles === 3) {
+                $worker->stop();
+            }
+        });
+
+        self::assertSame(['products', 'b', 'products', 'b', 'products', 'b'], $asked, 'every cycle visits every index although "products" never runs dry');
     }
 }

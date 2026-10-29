@@ -1,5 +1,11 @@
 # Contributing
 
+[![codecov](https://codecov.io/gh/er2es/fuzzphony/graph/badge.svg)](https://codecov.io/gh/er2es/fuzzphony)
+[![PHPStan level max](https://img.shields.io/badge/PHPStan-level%20max-brightgreen)](https://github.com/er2es/fuzzphony/blob/main/phpstan.neon.dist)
+[![Mutation score](https://img.shields.io/endpoint?style=flat&url=https%3A%2F%2Fbadge-api.stryker-mutator.io%2Fgithub.com%2Fer2es%2Ffuzzphony%2Fmain)](https://dashboard.stryker-mutator.io/reports/github.com/er2es/fuzzphony/main)
+[![OpenSSF Scorecard](https://api.scorecard.dev/projects/github.com/er2es/fuzzphony/badge)](https://scorecard.dev/viewer/?uri=github.com/er2es/fuzzphony)
+[![OpenSSF Best Practices](https://www.bestpractices.dev/projects/14933/badge)](https://www.bestpractices.dev/projects/14933)
+
 Thanks for helping! A few rules keep Fuzzphony predictable:
 
 1. **User input never throws, developer mistakes always do.** Search text degrades with warnings;
@@ -16,13 +22,18 @@ The integration tests need PostgreSQL 15+ with `pg_trgm` and `unaccent`; the roo
 `docker-compose.yml` starts one on port 5432, seeded with a database named `fuzzphony_test`.
 
 ```bash
-docker compose up -d
+docker compose up -d          # FUZZPHONY_TEST_PORT=55432 docker compose up -d if a local PostgreSQL holds 5432
 composer install
-FUZZPHONY_TEST_DSN="pgsql:host=127.0.0.1;dbname=fuzzphony_test;user=fuzzphony;password=fuzzphony" composer test:all
-composer qa      # php-cs-fixer (PER-CS 2.0), PHPStan (level max + strict rules), unit tests
+composer test:db              # the whole suite against that database (FUZZPHONY_TEST_PORT=... for another port)
+composer test:db -- --exclude-group slow   # the quick run: skips the slow sweep tests (the CI runs them on one leg)
+composer test:parallel        # the quick run on 4 processes (paratest, each with its own database {dbname}_t1 ..., so the role needs CREATEDB)
+composer qa                   # php-cs-fixer (PER-CS 2.0), PHPStan (level max + strict rules), unit tests
 ```
 
-Without `FUZZPHONY_TEST_DSN` the integration tests are skipped. CI additionally runs the suite
+`composer test` and `composer qa` run the unit tests only. Without `FUZZPHONY_TEST_DSN` (which `composer test:db` builds for you
+from `FUZZPHONY_TEST_PORT`, default 5432) the integration tests are skipped, and a skipped test looks green: read the summary
+for "skipped". The whole suite takes a few minutes; the tests in `#[Group('slow')]` (the independence sweeps over thousands of
+rows) are most of that, and one CI leg runs them with coverage. CI additionally runs the suite
 against PHP 8.4 / 8.5, PostgreSQL 15 to 18, Symfony 7.4 LTS / 8.1 (and 8.2 in development, as an early warning) and the lowest allowed dependencies.
 
 The integration tests drop and recreate tables, so `PostgresTestCase::dsn()` refuses to run
@@ -59,17 +70,32 @@ with `pdo_pgsql` and `pcov` installed, next to the test database. There is no CI
 - Documentation links are checked in CI (the `docs-links` job: relative links, `#anchors` and absolute links to this
   repository in every `*.md` file; links to other sites are not). Run `php tools/check-docs-links.php` before you push
   when you rename or move a file, a page or a heading.
+- Every ```php block in the README and `docs/` must parse (`DocSnippetsSyntaxTest`); a block that is a piece on purpose (an
+  attribute, a method chain) has `<!-- fragment -->` on the line before it. Code that must also run is marked `<!-- tested: ... -->`
+  (see `tests/Recipes`).
 - Commit messages are short imperative sentences that say why ("Fix the fuzzy branch ignoring
   nested negations"), with detail in the body when it helps.
 
 ## Backward compatibility
 
-Until 1.0, a minor version (0.x) may contain breaking changes. Each one is listed under
-**Breaking** in the CHANGELOG and explained in [UPGRADE.md](UPGRADE.md); patch versions never
-break. From 1.0 on the project follows Semantic Versioning for the [public
+Until 1.0, any release (0.x, and the 0.9.x patch releases too) may contain a breaking change or a behaviour change; 0.9.5
+dropped Symfony 8.0 and 0.9.8 changed `hasMore()`, turned the zero-result rescue on and ranked capped searches differently, all
+as patch releases. Each one is listed under **Breaking** (or **Behaviour change**) in the CHANGELOG and explained in
+[UPGRADE.md](UPGRADE.md). From 1.0 the numbers mean what Semantic Versioning says: a patch release never breaks. From 1.0 on the project follows Semantic Versioning for the [public
 API](docs/architecture.md#public-api): classes and methods marked `@internal` are not covered,
 and anything removed is deprecated for at least one minor version first. A new class is
 `@internal` unless it is added to that list (and to `tests/Unit/PublicApiTest.php`).
+
+## Releasing
+
+For the maintainer. `main` is protected, so a release is a pull request first.
+
+1. Move `## [Unreleased]` in [CHANGELOG.md](CHANGELOG.md) to `## [x.y.z] - date`, add a fresh empty `[Unreleased]`, and update the
+   compare links at the bottom; check that [UPGRADE.md](UPGRADE.md) has the step from the previous version.
+2. Open the pull request, wait for `ci-ok`, merge it.
+3. Tag the merge commit (`git tag -s vX.Y.Z`, `git push origin vX.Y.Z`) and run `gh release create vX.Y.Z` with the CHANGELOG
+   section as the notes.
+4. Packagist picks the tag up through its GitHub hook; check that the new version appears there.
 
 ## Security
 

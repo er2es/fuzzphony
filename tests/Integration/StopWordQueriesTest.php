@@ -162,18 +162,81 @@ final class StopWordQueriesTest extends TestCase
         self::assertSame([], $this->search('the who -rock', 'never', 'stop_plain')->thresholds(['relax_when_empty' => false])->where('cat', 'nothing')->get()->ids());
     }
 
-    public function testAnExcludedRealWordLeavesTheQueryAsItWas(): void
+    #[\PHPUnit\Framework\Attributes\DataProvider('fuzzyModes')]
+    public function testAnExclusionNarrowsTheStopWordSearch(string $mode): void
     {
-        // the strict branch is then a pure exclusion ("everything but rock", known and unchanged); the typo-tolerant branch
-        // does not run in fallback mode with that many hits, and the stop words stay dropped
-        $result = $this->search('the who -band')->get();
-        self::assertFalse($result->usedFuzzy);
-        self::assertSame([2, 3, 4, 6, 7, 8], self::sorted($result->ids()));
+        // it used to be "everything but rock": the strict tsquery was a pure exclusion once PostgreSQL dropped the stop words
+        $result = $this->search('the who -rock', $mode)->get();
+        self::assertSame([5, 6], self::sorted($result->ids()), '1 and 3 have "rock", 2 and 4 are not about "the who"');
+        self::assertTrue($result->usedFuzzy);
+        self::assertSame('(the AND who AND NOT rock)', $result->interpretedAs);
+        self::assertSame([], $result->warnings);
+
+        // an exclusion of a word the search expands (band, group): 1 and 5 have it
+        self::assertSame([3, 6], self::sorted($this->search('the who -band', $mode)->get()->ids()));
+        self::assertSame([1, 5, 6], self::sorted($this->search('the who -(rock opera)', $mode)->get()->ids()), 'a group excludes the documents that have both: 3 has, 1 has no "opera"');
+        self::assertSame([6], $this->search('the who -rock -band', $mode)->get()->ids());
+        self::assertSame([5, 6], self::sorted($this->search('the who -(rock OR opera)', $mode)->get()->ids()), 'an OR inside the exclusion is still a top-level exclusion');
+        self::assertSame([], $this->search('the who -rock -zebra -band', $mode)->get()->ids(), 'every candidate is excluded: nothing, not "everything else"');
+        self::assertSame([1, 3, 5, 6], self::sorted($this->search('the who -zzzzzz', $mode)->get()->ids()), 'an exclusion that matches nothing');
+        self::assertSame([5, 6], self::sorted($this->search('-rock the who', $mode)->get()->ids()), 'the order does not matter');
+        self::assertSame([6], $this->search('who the -rock -band', $mode)->get()->ids());
+        self::assertSame(array_values(array_diff(self::sorted($this->search('"the who"', $mode)->get()->ids()), [1, 3])), self::sorted($this->search('"the who" -rock', $mode)->get()->ids()), 'a quoted phrase of stop words: the same without the documents that have "rock"');
     }
 
-    public function testAnExcludedStopWordIsStillIgnored(): void
+    public function testAnExcludedStopWordExcludesNothing(): void
     {
-        self::assertSame([1, 3, 5, 6, 8], self::sorted($this->search('the -who')->get()->ids()), '"the" is searched, "-who" is dropped as a stop word always was');
+        // an excluded stop word has always been dropped, also next to a searched one
+        $plain = $this->search('the who')->get()->ids();
+        self::assertSame($plain, $this->search('the who -the')->get()->ids());
+        self::assertSame($plain, $this->search('the who -who')->get()->ids());
+        self::assertSame(self::sorted($this->search('the who -rock')->get()->ids()), self::sorted($this->search('the who -rock -the')->get()->ids()));
+        self::assertSame([1, 3, 5, 6, 8], self::sorted($this->search('the -who')->get()->ids()));
+    }
+
+    public function testAnExclusionOfARealWordNextToARealWordIsAsItWas(): void
+    {
+        // one real word: the stop words stay ignored, the strict branch does the work (byte for byte what it did)
+        self::assertSame([1], $this->search('the who rock -opera')->get()->ids());
+        self::assertSame([1], $this->search('the who rock -opera -doctor')->get()->ids());
+        self::assertSame([3], $this->search('the who rock -band')->get()->ids());
+        self::assertSame([7], $this->search('mouse for the -garden')->get()->ids());
+    }
+
+    public function testWhereTheStopWordRuleDoesNotApplyTheQueryIsAsItWas(): void
+    {
+        // "everything but rock" is what the strict branch has always made of these; the rule needs a typo-tolerant search
+        $everythingButRock = [2, 4, 5, 6, 7, 8];
+        foreach ([[$this->search('the who -rock', 'never'), 'fuzzy_mode never'], [$this->search('the who -rock', 'fallback', 'stop_plain'), 'no typo-tolerant field'], [$this->search('the who -rock', 'always', 'stop_plain'), 'no typo-tolerant field, always']] as [$builder, $why]) {
+            $result = $builder->get();
+            self::assertSame($everythingButRock, self::sorted($result->ids()), $why);
+            self::assertFalse($result->usedFuzzy, $why);
+        }
+        self::assertSame($everythingButRock, self::sorted($this->search('the who -rock')->thresholds(['fuzzy_mode' => 'always'])->ranking(['fuzzy' => 0.0])->get()->ids()), 'a typo-tolerant weight of 0');
+        // too short for typo tolerance: the search could not find the words, the query is not changed
+        self::assertSame([1, 2, 3, 4, 5, 7, 8], self::sorted($this->search('to be -zebra')->get()->ids()), 'short stop words: "everything but zebra" as before');
+        // more than three words
+        $this->connection->execute("INSERT INTO fz_stop_doc VALUES (30, 'The Who and for', '', '', 'music', 1)");
+        $this->fuzzphony->reindex('stop_docs');
+        self::assertContains(7, $this->search('the who and for -rock')->get()->ids(), 'four stop words and an exclusion: not searched');
+        self::assertSame([30], $this->search('the who and -rock')->get()->ids(), 'three words are');
+        // an OR at the top level, or an OR or an exclusion inside a positive group, keeps the old rule and the old statements:
+        // "everything but rock" for the strict branch (the typo-tolerant branch does not run with that many hits)
+        foreach (['the OR -rock', '(the -rock) OR who', '(the who) OR rock', '(the OR who) -rock'] as $text) {
+            $either = $this->search($text)->get();
+            self::assertSame($this->mainResult($text), self::sorted($either->ids()), $text);
+        }
+        self::assertContains(7, $this->search('(the -rock) OR who')->get()->ids());
+    }
+
+    /**
+     * What the strict branch alone finds, the old behaviour of a query the rule does not touch: its fuzzy_mode never result.
+     *
+     * @return list<int|string>
+     */
+    private function mainResult(string $text): array
+    {
+        return self::sorted($this->search($text, 'never')->get()->ids());
     }
 
     public function testTheFiltersAndTheTenantStillApply(): void
@@ -220,7 +283,7 @@ final class StopWordQueriesTest extends TestCase
         }
         $this->fuzzphony->reindex('stop_docs');
 
-        $result = $this->search('the')->thresholds(['candidate_limit' => 10])->limit(50)->get();
+        $result = $this->search('the')->thresholds(['candidate_limit' => 10])->limit(10)->get();
 
         self::assertSame(10, $result->total, 'at most the candidate limit');
         self::assertTrue($result->totalIsLowerBound);

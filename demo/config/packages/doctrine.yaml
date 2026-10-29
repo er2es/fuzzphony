@@ -1,3 +1,7 @@
 doctrine:
     dbal:
         url: '%env(resolve:DATABASE_URL)%'
+        # PDO::ATTR_TIMEOUT (2) is the connect timeout of pdo_pgsql: with the database down a page answers after 3 s with the error page,
+        # not after the ~10 s of the operating system's own timeout
+        options:
+            2: 3

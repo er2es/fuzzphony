@@ -1,12 +1,13 @@
 {# The Speed view: the same search against a plain ILIKE, then the benchmark of nine queries on demand. #}
 <div class="stack">
-    {% if speed %}
-        <div class="speed-bars" data-controller="ilike" data-src="{{ path('search_ilike', {q: q, fz: speed.warm|round(3)}) }}">
-            <div class="busy-region" data-ilike-target="region" data-loading-message="Measuring ILIKE…" aria-busy="true">
+    {% if result and result.hits %}
+        {# The page shows this search's own time at once; the comparison (the warm median of both sides) is measured by its own request. #}
+        <div class="speed-bars" data-controller="ilike" data-src="{{ path('search_ilike', {q: q, cat: category ?: null, stock: stock is null ? null : (stock ? 1 : 0), ay: asYouType ? 1 : 0}) }}">
+            <div class="busy-region" data-ilike-target="region" data-loading-message="Measuring both sides…" aria-busy="true">
                 <div class="speed-row">
                     <span>Fuzzphony</span>
                     <span class="speed-bar"><span class="is-fuzzphony" style="width: 2%"></span></span>
-                    <span class="speed-value">{{ speed.warm|number_format(1) }} ms</span>
+                    <span class="speed-value">{{ result.tookMs < 10 ? result.tookMs|number_format(1) : result.tookMs|number_format(0) }} ms</span>
                 </div>
                 <div class="speed-row">
                     <span>ILIKE</span>
@@ -15,9 +16,9 @@
                 </div>
             </div>
         </div>
-        <p class="muted">Warm median of {{ warmRuns }} runs after one cold run ({{ speed.cold|number_format(1) }} ms), for the search without its facets. ILIKE is measured the same way, in a request of its own so Fuzzphony's answer never waits for it. <code>ILIKE '%…%'</code> does not rank, fold accents, stem or tolerate typos.</p>
+        <p class="muted">The first figure is this search, as it was just run. The bars replace it with the warm median of {{ warmRuns }} runs after one cold run, for the search without its facets, and ILIKE is measured the same way, in a request of its own so this page never waits for it. <code>ILIKE '%…%'</code> does not rank, fold accents, stem or tolerate typos.</p>
     {% else %}
-        <div class="empty"><strong>Nothing to compare yet</strong>Search something, then see how long it takes next to a plain <code>ILIKE</code>.</div>
+        <div class="empty"><strong>Nothing to compare yet</strong>Search something that finds products, then see how long it takes next to a plain <code>ILIKE</code>.</div>
     {% endif %}
 
     <ul class="list">

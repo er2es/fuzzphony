@@ -7,7 +7,6 @@ namespace Fuzzphony\Tests\Integration\Bundle\Registry;
 use Doctrine\DBAL\Connection as DbalConnection;
 use Doctrine\ORM\EntityManager;
 use Doctrine\ORM\EntityManagerInterface;
-use Doctrine\ORM\ORMSetup;
 use Fuzzphony\Bundle\FuzzphonyBundle;
 use Fuzzphony\Tests\Integration\Bridge\DoctrineTestCase;
 use Psr\Log\NullLogger;
@@ -66,8 +65,7 @@ final class RegistryCacheKernel extends Kernel
 
     public static function entityManager(): EntityManagerInterface
     {
-        $config = ORMSetup::createAttributeMetadataConfig([__DIR__ . '/../../../Fixtures/Doctrine'], true);
-        $config->enableNativeLazyObjects(true);
+        $config = DoctrineTestCase::attributeConfig([__DIR__ . '/../../../Fixtures/Doctrine']);
         $config->setClassMetadataFactoryName(CountingMetadataFactory::class);
 
         return new EntityManager(DoctrineTestCase::dbalConnection(), $config);

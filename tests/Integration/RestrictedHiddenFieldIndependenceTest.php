@@ -10,6 +10,7 @@ use Fuzzphony\Core\Fuzzphony;
 use Fuzzphony\Core\Registry\IndexRegistry;
 use Fuzzphony\Engine\Postgres\PostgresEngine;
 use PHPUnit\Framework\Attributes\DataProvider;
+use PHPUnit\Framework\Attributes\Group;
 use PHPUnit\Framework\TestCase;
 
 /**
@@ -18,6 +19,7 @@ use PHPUnit\Framework\TestCase;
  * is 16 383 and a phrase on `tsv` would not match there (the lookup of a phrase is the AND of its words instead).
  * Every outcome (hits, order, scores, totals, facets, the statements and their values) is compared across hidden contents.
  */
+#[Group('slow')]
 final class RestrictedHiddenFieldIndependenceTest extends TestCase
 {
     private const array DOCUMENTS = [
@@ -75,8 +77,10 @@ final class RestrictedHiddenFieldIndependenceTest extends TestCase
             }
             foreach ($documents as [$id, $title, $body, $secret]) {
                 $row = ['title' => $title, 'body' => $body, 'secret' => $secret];
+                // The long text sits in the first three documents (a phrase across two fields, in the title, in the body), not in the rest:
+                // the position cap of tsv acts per document, and every long text is rechecked by every phrase query.
                 foreach ($hiddenFields as $name) {
-                    $row[$name] = $hidden;
+                    $row[$name] = $variant === 'long' && $id > 3 ? '' : $hidden;
                 }
                 $this->connection->execute('INSERT INTO fz_hidden_doc VALUES (:id, :title, :body, :secret, :cat)', ['id' => $id, 'title' => $row['title'], 'body' => $row['body'], 'secret' => $row['secret'], 'cat' => $id % 2 === 0 ? 'a' : 'b']);
             }

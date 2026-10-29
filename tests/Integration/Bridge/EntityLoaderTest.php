@@ -10,6 +10,9 @@ use Fuzzphony\Bridge\Doctrine\DoctrineIndexDiscovery;
 use Fuzzphony\Bridge\Doctrine\EntityLoader;
 use Fuzzphony\Core\Fuzzphony;
 use Fuzzphony\Core\Registry\IndexRegistry;
+use Fuzzphony\Core\Search\Hit;
+use Fuzzphony\Core\Search\ScoreBreakdown;
+use Fuzzphony\Core\Search\SearchResult;
 use Fuzzphony\Engine\Postgres\PostgresEngine;
 use Fuzzphony\Tests\Fixtures\Doctrine\Article;
 use Fuzzphony\Tests\Integration\PostgresTestCase;
@@ -111,6 +114,35 @@ final class EntityLoaderTest extends TestCase
 
         self::assertNotContains(1, array_map(static fn(array $row): int => $row['entity']->getId(), $loaded));
         self::assertCount(count($result->hits) - 1, $loaded);
+    }
+
+    public function testIdsThatCannotBeIdsOfTheEntityAreSkippedWithoutADatabaseError(): void
+    {
+        // A federated (UNION ALL) result can carry string ids such as 'article-1'; an integer key must not turn them into 'invalid input syntax'.
+        $real = $this->fuzzphony->in('articles')->query('mouse')->get();
+        $hits = [];
+        foreach ([...array_slice($real->hits, 0, 1), new Hit('article-1', 1.0, new ScoreBreakdown()), new Hit('9999999999', 1.0, new ScoreBreakdown()), ...array_slice($real->hits, 1)] as $hit) {
+            $hits[] = $hit;
+        }
+        $mixed = new SearchResult($hits, count($hits), false, 0.1, false, [], 20, 0);
+
+        $logger = new class extends AbstractLogger {
+            public int $selects = 0;
+
+            public function log($level, string|\Stringable $message, array $context = []): void
+            {
+                if (isset($context['sql']) && is_string($context['sql']) && stripos($context['sql'], 'select') === 0) {
+                    ++$this->selects;
+                }
+            }
+        };
+        $loader = new EntityLoader(DoctrineTestCase::entityManager([new Middleware($logger)]));
+
+        $loaded = $loader->load($mixed, Article::class);
+
+        self::assertSame($real->ids(), array_map(static fn(array $row): int => $row['entity']->getId(), $loaded), 'the rest keeps the ranking order');
+        self::assertSame(1, $logger->selects, 'still one query');
+        self::assertSame([], $loader->load(new SearchResult([new Hit('article-1', 1.0, new ScoreBreakdown())], 1, false, 0.1, false, [], 20, 0), Article::class));
     }
 
     public function testEmptyResultLoadsNothingWithoutQuerying(): void

@@ -35,4 +35,20 @@ final class TypoCurveTest extends TestCase
             self::assertLessThanOrEqual(TypoCurve::similarity($length), TypoCurve::lowest($length, ascii: false), "length $length");
         }
     }
+
+    public function testAnyNormalisationNeverNeedsLessThanTheLookupAllows(): void
+    {
+        // a word of $length letters with $n of them outside ASCII can end at any length from length - n to length + 3n
+        foreach (range(1, 14) as $length) {
+            foreach (range(0, $length) as $n) {
+                $lowest = TypoCurve::lowestAnyNormalisation($length, $n);
+                foreach (range(max(1, $length - $n), $length + 3 * $n) as $normalised) {
+                    self::assertLessThanOrEqual(TypoCurve::similarity($normalised), $lowest, "length $length, $n non-ASCII, normalised to $normalised");
+                }
+            }
+        }
+        // five letters, three of them "ß": 5 -> 8 crosses the band the old range (up to length + 2) did not reach
+        self::assertEqualsWithDelta(0.23, TypoCurve::lowestAnyNormalisation(5, 3), 1e-9);
+        self::assertGreaterThan(0.23, TypoCurve::lowest(5, ascii: false));
+    }
 }

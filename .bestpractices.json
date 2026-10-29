@@ -26,7 +26,7 @@
     "english_status": "Met",
     "english_justification": "All documentation, code and issues are in English.",
     "maintained_status": "Met",
-    "maintained_justification": "Actively maintained: releases 0.2.0, 0.3.0 and 0.3.1 in September 2026. https://github.com/er2es/fuzzphony/blob/main/CHANGELOG.md",
+    "maintained_justification": "Actively maintained: a release every few days since September 2026 (see the CHANGELOG for the latest). https://github.com/er2es/fuzzphony/blob/main/CHANGELOG.md",
     "repo_public_status": "Met",
     "repo_public_justification": "https://github.com/er2es/fuzzphony",
     "repo_track_status": "Met",

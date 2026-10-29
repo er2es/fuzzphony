@@ -7,6 +7,7 @@ namespace Fuzzphony\Core\Search;
 use Fuzzphony\Core\Definition\FilterType;
 use Fuzzphony\Core\Definition\IndexDefinition;
 use Fuzzphony\Core\Engine\Engine;
+use Fuzzphony\Core\Exception\InvalidDefinition;
 use Fuzzphony\Core\Exception\InvalidQuery;
 use Fuzzphony\Core\Query\SearchQuery;
 use Fuzzphony\Core\Query\Typeahead;
@@ -95,7 +96,11 @@ final readonly class SearchBuilder
     /** @param array<string, mixed> $overrides e.g. ['min_score' => 0.1, 'fuzzy_mode' => 'always'] */
     public function thresholds(array $overrides): self
     {
-        $this->index->thresholds->with($overrides); // validate now, not at execution time
+        try {
+            $this->index->thresholds->with($overrides); // validate now, not at execution time
+        } catch (InvalidDefinition $e) {
+            throw new InvalidQuery(sprintf('Index "%s": invalid thresholds for this query: %s', $this->index->name, implode(' ', $e->violations)), 0, $e);
+        }
 
         return $this->with($this->query->thresholds($overrides));
     }
@@ -103,7 +108,11 @@ final readonly class SearchBuilder
     /** @param array<string, mixed> $overrides e.g. ['fuzzy' => 0.8, 'boost' => 0.1] on top of the chosen profile */
     public function ranking(array $overrides): self
     {
-        $this->index->profile($this->query->profile)->with($overrides); // validate now
+        try {
+            $this->index->profile($this->query->profile)->with($overrides); // validate now
+        } catch (InvalidDefinition $e) {
+            throw new InvalidQuery(sprintf('Index "%s": invalid ranking for this query: %s', $this->index->name, implode(' ', $e->violations)), 0, $e);
+        }
 
         return $this->with($this->query->ranking($overrides));
     }

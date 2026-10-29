@@ -28,7 +28,7 @@ final class SearchExceptionListenerTest extends TestCase
 
         self::assertInstanceOf(AccessDeniedHttpException::class, $event->getThrowable());
         self::assertSame($original, $event->getThrowable()->getPrevious());
-        self::assertSame($original->getMessage(), $event->getThrowable()->getMessage());
+        self::assertSame('Searching is not allowed for this caller.', $event->getThrowable()->getMessage(), 'no index name in the response');
     }
 
     public function testActorRequiredWrappedByTwigBecomesA403(): void
@@ -42,7 +42,7 @@ final class SearchExceptionListenerTest extends TestCase
 
         self::assertInstanceOf(AccessDeniedHttpException::class, $event->getThrowable());
         self::assertSame($original, $event->getThrowable()->getPrevious());
-        self::assertSame($original->getMessage(), $event->getThrowable()->getMessage());
+        self::assertSame('Searching is not allowed for this caller.', $event->getThrowable()->getMessage(), 'no index name in the response');
     }
 
     public function testAccessDeniedBecomesA403(): void
@@ -54,7 +54,8 @@ final class SearchExceptionListenerTest extends TestCase
         self::assertInstanceOf(AccessDeniedHttpException::class, $thrown);
         self::assertSame(403, $thrown->getStatusCode());
         self::assertSame($original, $thrown->getPrevious());
-        self::assertSame($original->getMessage(), $thrown->getMessage());
+        self::assertSame('Searching is not allowed for this caller.', $thrown->getMessage(), 'no index name in the response');
+        self::assertStringContainsString('products', $original->getMessage(), 'the log has it');
     }
 
     public function testAccessDeniedWrappedByTwigBecomesA403(): void
