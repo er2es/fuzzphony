@@ -8,6 +8,7 @@ use Fuzzphony\Core\Fuzzphony;
 use Fuzzphony\Core\Search\FacetValue;
 use Fuzzphony\Core\Search\SearchBuilder;
 use Fuzzphony\Tests\Integration\PostgresTestCase;
+use Fuzzphony\Tests\Support\RestoresPhpHandlers;
 use Symfony\Bundle\FrameworkBundle\Console\Application;
 use Symfony\Bundle\FrameworkBundle\Test\KernelTestCase;
 use Symfony\Component\Console\Tester\ApplicationTester;
@@ -17,6 +18,8 @@ use Twig\Environment;
 /** Everything docs/recipes/shop.md claims, run against PostgreSQL. */
 final class ShopTest extends KernelTestCase
 {
+    use RestoresPhpHandlers;
+
     use InteractsWithLiveComponents;
 
     protected static function getKernelClass(): string
