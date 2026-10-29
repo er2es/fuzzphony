@@ -518,14 +518,6 @@ final class PostgresInspector
         )];
     }
 
-    private function isOpenClassName(IndexDefinition $index, string $name): bool
-    {
-        return array_any(
-            OpenClass::stalePrefixes($index, $this->names),
-            static fn(string $prefix): bool => str_starts_with($name, $prefix) && strlen($name) === strlen($prefix) + 8,
-        );
-    }
-
     /** @return list<Check> */
     private function sidecarIndexes(IndexDefinition $index): array
     {
@@ -543,15 +535,15 @@ final class PostgresInspector
             $create = sprintf('CREATE INDEX CONCURRENTLY IF NOT EXISTS %s ON %s %s;', Sql::ident($name), $this->names->sidecar($index), $definition);
             $checks[] = match (true) {
                 !array_key_exists($name, $valid) => Check::error('Index ' . $name, 'missing', $create),
-                !$valid[$name] => Check::error('Index ' . $name, 'INVALID (an interrupted concurrent build); it is ignored by the planner', sprintf('DROP INDEX CONCURRENTLY %s; %s', Sql::ident($name), $create)),
+                !$valid[$name] => Check::error('Index ' . $name, 'INVALID (an interrupted concurrent build); it is ignored by the planner', sprintf('DROP INDEX CONCURRENTLY %s; %s', $this->names->index($name), $create)),
                 default => Check::ok('Index ' . $name, 'valid'),
             };
         }
         // an open-class index built for other granted fields (the expected one has another name): never used, and costs every write
         $expected = array_keys($this->schema->indexes($index));
         foreach (array_keys($valid) as $name) {
-            if (!in_array($name, $expected, true) && $this->isOpenClassName($index, $name)) {
-                $checks[] = Check::error('Index ' . $name, 'STALE (built for other granted fields; no search uses it)', sprintf('DROP INDEX CONCURRENTLY %s; or run "bin/console fuzzphony:schema --apply"', Sql::ident($name)));
+            if (!in_array($name, $expected, true) && OpenClass::isOpenClassName($name)) {
+                $checks[] = Check::error('Index ' . $name, 'STALE (built for other granted fields; no search uses it)', sprintf('DROP INDEX CONCURRENTLY %s; or run "bin/console fuzzphony:schema --apply"', $this->names->index($name)));
             }
         }
 

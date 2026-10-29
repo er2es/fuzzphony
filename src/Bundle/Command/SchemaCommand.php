@@ -10,6 +10,7 @@ use Fuzzphony\Core\Fuzzphony;
 use Fuzzphony\Core\Schema\SchemaPlan;
 use Fuzzphony\Core\Schema\Statement;
 use Fuzzphony\Core\Support\Coerce;
+use Fuzzphony\Engine\Postgres\Schema\OpenClass;
 use Symfony\Component\Console\Attribute\AsCommand;
 use Symfony\Component\Console\Command\Command;
 use Symfony\Component\Console\Completion\CompletionInput;
@@ -97,10 +98,13 @@ final class SchemaCommand extends Command
         $tablesBefore = $this->tables();
         $columnsBefore = $this->cachedColumns();
         $io->progressStart(count($plan->statements));
-        $plan->apply($this->connection, static function (Statement $statement) use ($io): void {
+        $warnings = $plan->apply($this->connection, static function (Statement $statement) use ($io): void {
             $io->progressAdvance();
         });
         $io->progressFinish();
+        foreach ($warnings as $warning) {
+            $io->warning($warning);
+        }
         $io->success(sprintf('%d statement(s) applied. Next: fuzzphony:reindex, then fuzzphony:doctor.', count($plan->statements)));
         if (array_any(array_diff($this->cachedColumns(), $columnsBefore), static fn(string $column): bool => isset($tablesBefore[explode('.', $column)[0]]))) {
             $io->warning('A column or index was added that the engine looks up once per process (tsv_capped, actor_ip, the open-class indexes of an index with granted fields): restart long-running processes (Messenger workers, RoadRunner, FrankenPHP) so that they see it, or call PostgresEngine::resetCaches().');
@@ -131,7 +135,7 @@ final class SchemaCommand extends Command
      */
     private function cachedColumns(): array
     {
-        return array_map(Coerce::str(...), array_column($this->connection->fetchAll("SELECT attrelid::text || '.' || attname AS col FROM pg_attribute WHERE attname IN ('tsv_capped', 'actor_ip') AND NOT attisdropped AND attnum > 0 UNION ALL SELECT i.indrelid::text || '.' || c.relname FROM pg_index AS i JOIN pg_class AS c ON c.oid = i.indexrelid WHERE c.relname ~ '_open_(fz|tsv)_[0-9a-f]{8}$'"), 'col'));
+        return array_map(Coerce::str(...), array_column($this->connection->fetchAll("SELECT attrelid::text || '.' || attname AS col FROM pg_attribute WHERE attname IN ('tsv_capped', 'actor_ip') AND NOT attisdropped AND attnum > 0 UNION ALL SELECT i.indrelid::text || '.' || c.relname FROM pg_index AS i JOIN pg_class AS c ON c.oid = i.indexrelid WHERE c.relname ~ '_" . OpenClass::NAME_TAIL . "$'"), 'col'));
     }
 
     /** @param list<IndexDefinition> $indexes */
@@ -160,7 +164,8 @@ final class SchemaCommand extends Command
         $class = 'Version' . date('YmdHis');
         $up = implode("\n", array_map(
             static fn(Statement $s): string => sprintf("        // %s\n        \$this->addSql(%s);", $s->description, var_export($s->sql, true)),
-            $plan->statements,
+            // a statement that needs the database's answer to know what to run (dropping stale indexes) is for --apply, the doctor reports what is left
+            array_filter($plan->statements, static fn(Statement $s): bool => $s->forEach === null),
         ));
         $code = <<<PHP
             <?php

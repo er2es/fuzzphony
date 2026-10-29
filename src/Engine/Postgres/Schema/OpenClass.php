@@ -22,6 +22,8 @@ final readonly class OpenClass
 {
     public const string TRIGRAM = 'open_fz';
     public const string VECTOR = 'open_tsv';
+    /** The end of an open-class index name: kind and the hash of the definition (a PostgreSQL regex too). */
+    public const string NAME_TAIL = 'open_(fz|tsv)_[0-9a-f]{8}';
 
     /** @return list<FieldDefinition> the fields that are not granted, when the index has a granted field; else none */
     public static function fields(IndexDefinition $index): array
@@ -76,24 +78,10 @@ final readonly class OpenClass
         return $indexes;
     }
 
-    /**
-     * Prefixes of the names an open-class index of this sidecar can have (then any hash), for finding the stale ones: an index that
-     * is one of these plus 8 characters (the hash) and is not among the expected ones was built for other granted fields. Empty when a name would be
-     * shortened by the identifier limit (the hash is not at the end then, and a prefix could match other indexes).
-     *
-     * @return list<string>
-     */
-    public static function stalePrefixes(IndexDefinition $index, Names $names): array
+    /** Whether an index name ends the way an open-class index's does (any length of name, see Names::indexName()); the same test everywhere. */
+    public static function isOpenClassName(string $name): bool
     {
-        $prefixes = [];
-        foreach ([self::TRIGRAM, self::VECTOR] as $kind) {
-            $prefix = $names->sidecarName($index) . '_' . $kind . '_';
-            if (strlen($prefix) + 8 <= Names::MAX_IDENTIFIER_BYTES) {
-                $prefixes[] = $prefix;
-            }
-        }
-
-        return $prefixes;
+        return preg_match('/_' . self::NAME_TAIL . '$/', $name) === 1;
     }
 
     /** @return list<string> the names the open-class indexes of this definition have now (none without a granted field) */
