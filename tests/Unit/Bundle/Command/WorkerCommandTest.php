@@ -173,6 +173,19 @@ final class WorkerCommandTest extends TestCase
         self::assertFalse((new WorkerCommand($this->fuzzphony($this->queue([]))))->handleSignal(2));
     }
 
+    public function testAQueueThatCannotBeProcessedIsReportedAndFailsTheOnceRun(): void
+    {
+        $engine = self::createStub(Engine::class);
+        $engine->method('processQueue')->willThrowException(new \RuntimeException('connection lost'));
+        $tester = new CommandTester(new WorkerCommand($this->fuzzphony($engine)));
+
+        $status = $tester->execute(['--once' => true], ['interactive' => false]);
+
+        self::assertSame(Command::FAILURE, $status);
+        self::assertStringContainsString('The queue of "products" could not be processed', $tester->getDisplay());
+        self::assertStringContainsString('connection lost', $tester->getDisplay());
+    }
+
     /**
      * @param list<int> $processed what processQueue() returns on its calls, 0 after that
      */
