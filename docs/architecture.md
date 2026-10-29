@@ -112,8 +112,8 @@ each occurs, created by `fuzzphony:schema --apply` and rebuilt after every full 
 mean" ([ADR 0009](adr/0009-vocabulary-rebuilt-after-a-full-reindex.md)). It is additive: the layout
 below does not change.
 
-An index with a `granted` field has two more indexes over the open (not granted) fields, `..._open_fz` (trigram over their `z_`
-columns) and `..._open_tsv` (full text over their `t_` columns). A restricted viewer who holds none of the granted fields looks its words
+An index with a `granted` field has two more indexes over the open (not granted) fields, `..._open_fz_<hash>` (trigram over their `z_`
+columns) and `..._open_tsv_<hash>` (full text over their `t_` columns). A restricted viewer who holds none of the granted fields looks its words
 up there instead of in `fz` / `tsv` (`OpenClass`, `TextConfigCache::openClass()`): the lookup only has to find a superset of the allowed
 fields' own matches, the recheck against their columns decides, so the result is unchanged. The engine uses them only when both exist, are
 valid and ready and each is smaller than the one it replaces (`fz`, `tsv`) (asked once per process, `resetCaches()`); a viewer who holds a granted field keeps

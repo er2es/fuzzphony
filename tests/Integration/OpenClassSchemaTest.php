@@ -47,8 +47,14 @@ final class OpenClassSchemaTest extends TestCase
     {
         return array_map(
             static fn(array $row): string => Coerce::str($row['indexname']),
-            $this->connection->fetchAll("SELECT indexname FROM pg_indexes WHERE tablename = 'fuzzphony_open_docs' AND indexname ~ '_open_(fz|tsv)$' ORDER BY indexname"),
+            $this->connection->fetchAll("SELECT indexname FROM pg_indexes WHERE tablename = 'fuzzphony_open_docs' AND indexname ~ '_open_(fz|tsv)_[0-9a-f]{8}$' ORDER BY indexname"),
         );
+    }
+
+    /** The name of the open-class index of one kind (open_fz / open_tsv) the table has now. */
+    private function open(string $kind): string
+    {
+        return Coerce::str($this->connection->fetchValue("SELECT indexname FROM pg_indexes WHERE tablename = 'fuzzphony_open_docs' AND indexname ~ '_open_" . $kind . "_[0-9a-f]{8}\$'"));
     }
 
     /** @return array<string, \Fuzzphony\Core\Inspection\Check> */
@@ -66,15 +72,14 @@ final class OpenClassSchemaTest extends TestCase
     {
         $fuzzphony = $this->fuzzphony(true);
         $plan = $fuzzphony->schema();
-        $statements = array_values(array_filter(array_map(static fn($s): string => $s->sql, $plan->statements), static fn(string $sql): bool => preg_match('/_open_(fz|tsv)"/', $sql) === 1));
+        $statements = array_values(array_filter(array_map(static fn($s): string => $s->sql, $plan->statements), static fn(string $sql): bool => preg_match('/^CREATE INDEX CONCURRENTLY IF NOT EXISTS "fuzzphony_open_docs_open_(fz|tsv)_/', $sql) === 1));
 
-        self::assertSame([
-            'CREATE INDEX CONCURRENTLY IF NOT EXISTS "fuzzphony_open_docs_open_fz" ON "public"."fuzzphony_open_docs" USING gin (("z_name") "public".gin_trgm_ops)',
-            'CREATE INDEX CONCURRENTLY IF NOT EXISTS "fuzzphony_open_docs_open_tsv" ON "public"."fuzzphony_open_docs" USING gin (("t_name"))',
-        ], $statements);
+        self::assertCount(2, $statements);
+        self::assertMatchesRegularExpression('/^CREATE INDEX CONCURRENTLY IF NOT EXISTS "fuzzphony_open_docs_open_fz_[0-9a-f]{8}" ON "public"."fuzzphony_open_docs" USING gin \(\("z_name"\) "public".gin_trgm_ops\)$/', $statements[0]);
+        self::assertMatchesRegularExpression('/^CREATE INDEX CONCURRENTLY IF NOT EXISTS "fuzzphony_open_docs_open_tsv_[0-9a-f]{8}" ON "public"."fuzzphony_open_docs" USING gin \(\("t_name"\)\)$/', $statements[1]);
         $fuzzphony->schema()->apply($this->connection);
         $fuzzphony->schema()->apply($this->connection);
-        self::assertSame(['fuzzphony_open_docs_open_fz', 'fuzzphony_open_docs_open_tsv'], $this->openIndexes());
+        self::assertCount(2, $this->openIndexes());
     }
 
     public function testAnIndexWithoutAGrantedFieldIsPlannedExactlyAsBefore(): void
@@ -84,7 +89,7 @@ final class OpenClassSchemaTest extends TestCase
 
         self::assertSame([], $this->openIndexes());
         foreach ($fuzzphony->schema()->statements as $statement) {
-            self::assertDoesNotMatchRegularExpression('/_open_(fz|tsv)"/', $statement->sql);
+            self::assertDoesNotMatchRegularExpression('/CREATE INDEX[^;]*_open_(fz|tsv)_/', $statement->sql);
         }
     }
 
@@ -94,14 +99,16 @@ final class OpenClassSchemaTest extends TestCase
         $fuzzphony->schema()->apply($this->connection);
         $fuzzphony->reindex('open_docs');
         $checks = self::checks($fuzzphony);
-        self::assertSame(CheckStatus::Ok, $checks['Index fuzzphony_open_docs_open_fz']->status);
-        self::assertSame(CheckStatus::Ok, $checks['Index fuzzphony_open_docs_open_tsv']->status);
+        $fz = $this->open('fz');
+        $tsv = $this->open('tsv');
+        self::assertSame(CheckStatus::Ok, $checks['Index ' . $fz]->status);
+        self::assertSame(CheckStatus::Ok, $checks['Index ' . $tsv]->status);
 
-        $this->connection->execute('DROP INDEX fuzzphony_open_docs_open_tsv');
-        $check = self::checks($fuzzphony)['Index fuzzphony_open_docs_open_tsv'];
+        $this->connection->execute('DROP INDEX ' . $tsv);
+        $check = self::checks($fuzzphony)['Index ' . $tsv];
         self::assertSame(CheckStatus::Error, $check->status);
         self::assertSame('missing', $check->message);
-        self::assertSame('CREATE INDEX CONCURRENTLY IF NOT EXISTS "fuzzphony_open_docs_open_tsv" ON "public"."fuzzphony_open_docs" USING gin (("t_name"));', $check->fix);
+        self::assertSame(sprintf('CREATE INDEX CONCURRENTLY IF NOT EXISTS "%s" ON "public"."fuzzphony_open_docs" USING gin (("t_name"));', $tsv), $check->fix);
     }
 
     public function testAnInstallThatHasNotAppliedSinceAFieldBecameGrantedIsToldSo(): void
@@ -111,8 +118,8 @@ final class OpenClassSchemaTest extends TestCase
         $checks = self::checks($granted);
 
         self::assertSame(CheckStatus::Error, $checks['Definition']->status, 'the definition hash follows which fields are granted');
-        self::assertSame(CheckStatus::Error, $checks['Index fuzzphony_open_docs_open_fz']->status);
-        self::assertSame(CheckStatus::Error, $checks['Index fuzzphony_open_docs_open_tsv']->status);
+        $missing = array_filter($checks, static fn($check): bool => preg_match('/^Index fuzzphony_open_docs_open_(fz|tsv)_/', $check->name) === 1 && $check->status === CheckStatus::Error && $check->message === 'missing');
+        self::assertCount(2, $missing);
 
         $granted->schema()->apply($this->connection);
         self::assertSame(CheckStatus::Ok, self::checks($granted)['Definition']->status);
@@ -144,7 +151,76 @@ final class OpenClassSchemaTest extends TestCase
         $engine->refreshShadow($definition, [1]);
         $engine->finishRebuild($definition);
 
-        self::assertSame(['fuzzphony_open_docs_open_fz', 'fuzzphony_open_docs_open_tsv'], $this->openIndexes());
+        self::assertCount(2, $this->openIndexes());
+    }
+
+    private function swapped(bool $secretIsGranted): Fuzzphony
+    {
+        // the open fields change with it: name in one, secret in the other
+        $definition = IndexDefinition::builder('open_docs')->fromQuery('SELECT id, name, secret FROM fz_open_doc')
+            ->field('name', 'A', fuzzy: true, granted: $secretIsGranted ? null : 'ROLE_NAME')->field('secret', 'B', fuzzy: true, granted: $secretIsGranted ? 'ROLE_SECRET' : null)
+            ->language('english')->sync('manual')->build();
+
+        return new Fuzzphony(new PostgresEngine($this->connection), new IndexRegistry([$definition]));
+    }
+
+    /** Whether a statement of a viewer who holds none of the granted fields looks its words up in the open-class index over `$column`. */
+    private function usesOpenClass(Fuzzphony $fuzzphony, string $column): bool
+    {
+        $explained = $fuzzphony->in('open_docs')->query('kettle')->thresholds(['fuzzy_mode' => 'always'])->restrictedToFields($column)->explain();
+
+        $sql = implode("
+", array_column($explained->statements, 'sql'));
+
+        return str_contains($sql, 's."t_' . $column . '" @@ q.') && !str_contains($sql, 's.tsv @@');
+    }
+
+    /** The granted fields change on an applied index: the old open-class indexes are stale, no search uses them, the doctor says so, the apply fixes it. */
+    public function testIndexesBuiltForOtherGrantedFieldsAreStaleUntilTheApplyReplacesThem(): void
+    {
+        // the granted name holds most of the text, the open secret little: the open-class indexes are the smaller ones
+        $this->connection->execute("INSERT INTO fz_open_doc SELECT i, md5(i::text) || ' ' || md5((i + 1)::text) || ' ' || md5((i + 2)::text), 'kettle ' || i FROM generate_series(2, 400) AS i");
+        $before = $this->swapped(true);
+        $before->schema()->apply($this->connection);
+        $before->reindex('open_docs');
+        $this->connection->execute('ANALYZE fuzzphony_open_docs');
+        $old = $this->openIndexes();
+        self::assertCount(2, $old);
+
+        $after = $this->swapped(false); // name is granted now, secret is open
+        $checks = self::checks($after);
+        foreach ($old as $name) {
+            self::assertSame(CheckStatus::Error, $checks['Index ' . $name]->status, $name);
+            self::assertStringContainsString('STALE', $checks['Index ' . $name]->message);
+            self::assertStringContainsString('DROP INDEX CONCURRENTLY', (string) $checks['Index ' . $name]->fix);
+        }
+        $missing = array_filter($checks, static fn($check): bool => preg_match('/^Index fuzzphony_open_docs_open_(fz|tsv)_/', $check->name) === 1 && $check->message === 'missing');
+        self::assertCount(2, $missing, 'the indexes the definition needs now are not there');
+        self::assertFalse($this->usesOpenClass($after, 'secret'), 'the gate is false: today\'s statements');
+
+        $after->schema()->apply($this->connection);
+        $now = $this->openIndexes();
+        self::assertCount(2, $now);
+        self::assertSame([], array_intersect($old, $now), 'the stale indexes are gone, the right ones are there');
+        foreach ($now as $name) {
+            self::assertSame(CheckStatus::Ok, self::checks($after)['Index ' . $name]->status);
+        }
+        self::assertTrue($this->usesOpenClass($this->swapped(false), 'secret'), 'a new process uses them');
+        $after->schema()->apply($this->connection);
+        self::assertSame($now, $this->openIndexes(), 'idempotent');
+    }
+
+    /** No granted field any more: the open-class indexes are stale and the apply drops them; an index of the same table that is not ours stays. */
+    public function testRemovingEveryGrantedFieldDropsTheOpenClassIndexesAndNothingElse(): void
+    {
+        $this->fuzzphony(true)->schema()->apply($this->connection);
+        $this->connection->execute('CREATE INDEX fuzzphony_open_docs_open_fz_mine ON fuzzphony_open_docs (id)');
+        self::assertCount(2, $this->openIndexes());
+
+        $this->fuzzphony(false)->schema()->apply($this->connection);
+
+        self::assertSame([], $this->openIndexes());
+        self::assertSame(1, Coerce::int($this->connection->fetchValue("SELECT count(*) FROM pg_indexes WHERE indexname = 'fuzzphony_open_docs_open_fz_mine'")), 'only the hashed names of ours are dropped');
     }
 
     public function testAFreshInstallNeedsNoRestart(): void

@@ -104,7 +104,7 @@ final class FuzzyQueryCompiler
      *                                          is compiled) whether the sidecar has the tsv_capped column; null or false: it has not, and
      *                                          the later fields' vectors are read for every document that `tsv` does not match
      * @param (\Closure(): bool)|null $openClass asked (only for a restricted viewer who holds none of the index's granted fields) whether the
-     *                                          open-class indexes exist, are valid and are smaller than `fz`; null or false: the lookups
+     *                                          open-class indexes exist, are valid and each is smaller than the one it replaces; null or false: the lookups
      *                                          stay on `fz` and `tsv`
      */
     public function __construct(

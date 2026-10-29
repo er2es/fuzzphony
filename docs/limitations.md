@@ -234,6 +234,7 @@ with or without them, and an index without a `granted` field has no extra index 
 - The open-class indexes are used only when they exist, are valid and each is smaller than the index it replaces (`fz`, `tsv`); the engine asks once per process, so
   after `fuzzphony:schema --apply` built them restart long-running workers (or call `PostgresEngine::resetCaches()`). Until then,
   and when the granted fields hold little of the text, the viewer is on the statements it always had.
+- Changing which fields are `granted` makes the open-class indexes stale: run `fuzzphony:schema --apply` (it builds the new ones and drops the old); until then the doctor reports the old ones as stale and the viewer is on the statements it always had.
 - Timing is not hidden: how long a search takes still depends on how often a word occurs in the fields the viewer can see
   ([Security](security.md#the-limits-stated-honestly)).
 

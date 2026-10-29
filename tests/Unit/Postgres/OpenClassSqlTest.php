@@ -41,9 +41,14 @@ final class OpenClassSqlTest extends TestCase
     {
         $indexes = (new PostgresSchemaGenerator())->indexes(self::index());
 
-        self::assertSame(['fuzzphony_items_tsv', 'fuzzphony_items_fz', 'fuzzphony_items_open_fz', 'fuzzphony_items_open_tsv', 'fuzzphony_items_f_price'], array_keys($indexes));
-        self::assertSame('USING gin (("z_name" || \' \' || "z_category") "public".gin_trgm_ops)', $indexes['fuzzphony_items_open_fz']);
-        self::assertSame('USING gin (("t_name" || "t_category"))', $indexes['fuzzphony_items_open_tsv']);
+        $names = array_keys($indexes);
+        self::assertCount(5, $names);
+        self::assertSame(['fuzzphony_items_tsv', 'fuzzphony_items_fz'], array_slice($names, 0, 2));
+        self::assertMatchesRegularExpression('/^fuzzphony_items_open_fz_[0-9a-f]{8}$/', $names[2]);
+        self::assertMatchesRegularExpression('/^fuzzphony_items_open_tsv_[0-9a-f]{8}$/', $names[3]);
+        self::assertSame('fuzzphony_items_f_price', $names[4]);
+        self::assertSame('USING gin (("z_name" || \' \' || "z_category") "public".gin_trgm_ops)', $indexes[$names[2]]);
+        self::assertSame('USING gin (("t_name" || "t_category"))', $indexes[$names[3]]);
     }
 
     public function testAnIndexWithoutAGrantedFieldHasNoneOfThem(): void
@@ -57,7 +62,23 @@ final class OpenClassSqlTest extends TestCase
         $index = IndexDefinition::builder('items')->fromQuery('SELECT id, name, secret FROM fz_item')
             ->field('name', 'A', fuzzy: true)->field('secret', 'B', fuzzy: true, granted: 'ROLE_X')->sync('manual')->build();
 
-        self::assertSame(['open_fz' => 'USING gin (("z_name") "public".gin_trgm_ops)', 'open_tsv' => 'USING gin (("t_name"))'], OpenClass::indexes($index, new Names()));
+        $indexes = OpenClass::indexes($index, new Names());
+        self::assertSame(['USING gin (("z_name") "public".gin_trgm_ops)', 'USING gin (("t_name"))'], array_values($indexes));
+        self::assertMatchesRegularExpression('/^open_fz_[0-9a-f]{8}$/', array_keys($indexes)[0]);
+        self::assertMatchesRegularExpression('/^open_tsv_[0-9a-f]{8}$/', array_keys($indexes)[1]);
+    }
+
+    public function testTheNameFollowsTheDefinitionSoAChangeOfGrantedFieldsIsANewIndex(): void
+    {
+        $one = IndexDefinition::builder('items')->fromQuery('SELECT id, name, secret FROM fz_item')
+            ->field('name', 'A', fuzzy: true)->field('secret', 'B', fuzzy: true, granted: 'ROLE_X')->sync('manual')->build();
+        $other = IndexDefinition::builder('items')->fromQuery('SELECT id, name, secret FROM fz_item')
+            ->field('name', 'A', fuzzy: true, granted: 'ROLE_X')->field('secret', 'B', fuzzy: true)->sync('manual')->build();
+
+        self::assertSame(OpenClass::expectedNames($one, new Names()), OpenClass::expectedNames($one, new Names()));
+        self::assertNotSame(OpenClass::expectedNames($one, new Names()), OpenClass::expectedNames($other, new Names()));
+        self::assertSame([], OpenClass::stalePrefixes(IndexDefinition::builder(str_repeat('x', 40))->fromQuery('SELECT id FROM t')->field('name', 'A')->sync('manual')->build(), new Names()), 'a shortened name has no prefix to look for');
+        self::assertCount(2, OpenClass::stalePrefixes($one, new Names()));
     }
 
     public function testNoTypoTolerantOpenFieldMeansNoTrigramIndex(): void
@@ -65,7 +86,9 @@ final class OpenClassSqlTest extends TestCase
         $index = IndexDefinition::builder('items')->fromQuery('SELECT id, name, secret FROM fz_item')
             ->field('name', 'A')->field('secret', 'B', fuzzy: true, granted: 'ROLE_X')->sync('manual')->build();
 
-        self::assertSame(['open_tsv'], array_keys(OpenClass::indexes($index, new Names())));
+        $keys = array_keys(OpenClass::indexes($index, new Names()));
+        self::assertCount(1, $keys);
+        self::assertStringStartsWith('open_tsv_', $keys[0]);
     }
 
     public function testTheLookupsOfAViewerWhoHoldsNoGrantedFieldGoThroughTheOpenClass(): void

@@ -107,7 +107,7 @@ final class TextConfigCache
             // every open index against the one it replaces: open_fz for fz (a statement of the typo branch), open_tsv for tsv (the strict one)
             $pairs = [];
             foreach (array_keys(OpenClass::indexes($index, $this->names)) as $suffix) {
-                $pairs[$this->names->indexName($index, $suffix)] = $this->names->indexName($index, $suffix === OpenClass::TRIGRAM ? 'fz' : 'tsv');
+                $pairs[$this->names->indexName($index, $suffix)] = $this->names->indexName($index, str_starts_with($suffix, OpenClass::TRIGRAM) ? 'fz' : 'tsv');
             }
             if ($pairs === []) {
                 return $this->openClasses[$table] = false;
