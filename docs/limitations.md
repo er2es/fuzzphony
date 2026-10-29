@@ -237,7 +237,7 @@ with or without them, and an index without a `granted` field has no extra index 
 - A typo-tolerant search of a word the viewer's own tenant does not have, while other tenants do, can be slow for a restricted viewer (5.8 s on 200 000
   products in one measurement: no match in the tenant, the word in most documents of another). Nothing of the other tenant is returned or counted; the
   time is the cost.
-- Changing which fields are `granted` makes the open-class indexes stale: run `fuzzphony:schema --apply` (it builds the new ones and drops the old); until then the doctor reports the old ones as stale and the viewer is on the statements it always had.
+- Changing which fields are `granted` makes the open-class indexes stale: run `fuzzphony:schema --apply` (it builds the new ones and drops the old, each with `DROP INDEX CONCURRENTLY` so that no search queues behind it; a drop that fails is a warning, run the apply again); until then the doctor reports the old ones as stale and the viewer is on the statements it always had.
 - Timing is not hidden: how long a search takes still depends on how often a word occurs in the fields the viewer can see
   ([Security](security.md#the-limits-stated-honestly)).
 
@@ -365,6 +365,14 @@ See [Keeping the index in sync](sync.md).
 A document is identified by one column (`id` by default) of an integer, UUID or string type, and the string
 `*` is reserved. A table with a composite key needs a source query that builds one id (a string id type, for
 example `a || '-' || b AS id`).
+
+### One unreadable document stops its index's queue
+
+The worker processes a queue batch as a unit: all or nothing. One document the source cannot read (a cast that fails on one row, for
+example) keeps the whole queue of its index from draining. The batch is retried with a back-off (60 s, doubling to 3600 s) while the other
+indexes go on; the doctor's "Sync queue" check shows the queue growing, not which id fails. The failure message the worker prints to
+stderr can contain a value from the source row, so treat worker logs as sensitive. What to do: find the bad row with the message, fix the
+source (or the cast), or run `fuzzphony:reindex <index>`, which rebuilds the documents from the source.
 
 ### A full reindex needs room and a session connection
 
