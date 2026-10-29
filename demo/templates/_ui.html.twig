@@ -6,7 +6,7 @@
 {# The search field of a page that submits (the home page has its own, which also searches while you type). #}
 {% macro search_field(action, q, index, placeholder, params = {}, categories = false, products = true, suggest = true) %}
     {# `suggest: false` is for an index the dropdown must not read (/suggest refuses the actor-guarded intranet index): no completions, clear button or spinner #}
-    <form method="get" action="{{ action }}" role="search" class="field-wrap"{% if suggest %} data-controller="suggest"
+    <form method="get" action="{{ action }}" role="search" class="field-wrap" data-controller="{% if suggest %}suggest {% endif %}clearable"{% if suggest %}
           data-suggest-url-value="{{ path('suggest') }}" data-suggest-index-value="{{ index }}" data-suggest-page-value="{{ action }}"
           data-suggest-params-value="{{ params|json_encode|e('html_attr') }}"
           data-suggest-categories-value="{{ categories ? 'true' : 'false' }}" data-suggest-products-value="{{ products ? 'true' : 'false' }}"{% endif %}>

@@ -664,6 +664,47 @@ check('observability: milliseconds with one decimal and counts in plain words', 
 await go(page, `${BASE}/languages?lang=en&q=telly`);
 check('languages: the merged list shows ranks, not scores of different indexes', (await page.locator('section[aria-labelledby=all] .row-trailing').first().innerText()).trim() === '#1' && /found through its synonyms/.test(await page.locator('aside[aria-labelledby=analysis]').innerText()));
 
+// 0.9.10: a language switch drops the old query: the chips link to ?lang=xx only, the box is empty and that language's examples show
+await go(page, `${BASE}/languages?lang=es&q=canciones`);
+check('languages: the chips do not carry the query', (await page.locator('nav[aria-label=Language] a').evaluateAll((as) => as.every((a) => !a.getAttribute('href').includes('q=')))));
+await page.locator('nav[aria-label=Language] a[lang=hu]').click();
+await page.waitForURL(/lang=hu/);
+check('languages: switching the language empties the box, drops q from the address and shows the examples of that language',
+    !page.url().includes('q=') && (await page.inputValue('input[type=search]')) === '' && /Try, in Hungarian/.test(await page.locator('main').innerText()) && (await page.locator('#contrast').count()) === 0, page.url());
+await go(page, `${BASE}/languages?lang=hu&q=zene`);
+check('languages: ?lang=xx&q=... typed or linked directly still searches', (await page.inputValue('input[type=search]')) === 'zene' && (await page.locator('#contrast').count()) === 1);
+
+// 0.9.10: emptying the box takes q out of the address on every page with a search box (a reload shows the empty page, other parameters stay)
+await go(page, BASE + '/');
+await page.click('input[type=search]');
+await page.keyboard.type('mouse', { delay: 40 });
+await page.waitForFunction(() => location.search.includes('q=mouse'));
+await page.click('.search-field .clear');
+await page.waitForFunction(() => !location.search.includes('q='));
+await go(page, page.url());
+check('home: clearing the box removes q from the address, a reload shows the empty page', !page.url().includes('q=') && (await page.inputValue('input[type=search]')) === '' && (await page.locator('#results .hit-row').count()) === 0, page.url());
+await go(page, BASE + '/?q=mouse&cat=Computers');
+await page.fill('input[type=search]', '');
+await page.waitForFunction(() => !location.search.includes('q='));
+check('home: and the filters stay in the address', page.url().includes('cat=Computers'), page.url());
+for (const [path, keep] of [['/relevance?q=mouse', null], ['/languages?lang=fr&q=chevaux', 'lang=fr'], ['/under-the-hood/synonyms?q=tv', null], ['/under-the-hood/security?as=anonymous&q=salary', 'as=anonymous']]) {
+    await go(page, BASE + path);
+    await page.fill('input[type=search]', '');
+    await page.waitForFunction(() => !new URLSearchParams(location.search).has('q'));
+    await page.waitForLoadState('load');
+    check(`${path.split('?')[0]}: clearing the box removes q from the address${keep ? ' and keeps ' + keep : ''}`, !page.url().includes('q=') && (keep === null || page.url().includes(keep)) && (await page.inputValue('input[type=search]')) === '', page.url());
+}
+// observability always measures something: without q it is the default example, so the box refills but the address has no q
+await go(page, `${BASE}/under-the-hood/observability?q=mouse`);
+await page.fill('input[type=search]', '');
+await page.waitForFunction(() => !location.search.includes('q='));
+check('observability: clearing the box removes q from the address (the page falls back to its default example)', !page.url().includes('q='), page.url());
+await go(page, `${BASE}/tune?query=mouse`);
+await page.fill('input[type=search]', '');
+await page.waitForFunction(() => new URLSearchParams(location.search).get('query') === '');
+await go(page, page.url());
+check('tune: clearing the box empties the address parameter too, and a reload keeps the empty search', (await page.inputValue('input[type=search]')) === '' && !page.url().includes('mouse'), page.url());
+
 await secContext.close();
 
 await browser.close();

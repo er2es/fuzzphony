@@ -182,6 +182,8 @@ export default class extends Controller {
         this.inputTarget.value = '';
         this.close();
         this.inputTarget.focus();
+        // the pages that submit leave the old search (see clearable_controller.js); on the Tune page the Live Component follows the field
+        this.inputTarget.dispatchEvent(new Event('input', { bubbles: true }));
     }
 
     key(event) {
