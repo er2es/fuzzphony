@@ -82,11 +82,10 @@ additive work after it (0.11.0) and the stable 1.0.0 do not have to change the A
   definitions, a reworked demo and CI, and documentation for a database that already exists (see
   [Joins, several tables and several indexes](configuration.md#joins-several-tables-and-several-indexes)).
 
-### Next patch: v0.9.10
-
-Demo only; the library does not change. The language switch resets the search, an emptied search box removes `q` from
-the URL, a centred menu, a footer at the bottom of the page with the library version and links to the docs and GitHub,
-a dark mode switch, refreshed images for the [screenshots](screenshots.md), and this roadmap.
+- v0.9.10, demo only (the library does not change): the language switch resets the search, an emptied search box
+  removes `q` from the URL, a centred menu, a footer at the bottom of the page with the library version and links to
+  the docs and GitHub, a dark mode switch, a "why it matched" line for every hit on the Relevance page, refreshed
+  images for the [screenshots](screenshots.md), and this roadmap.
 
 ## Next
 
