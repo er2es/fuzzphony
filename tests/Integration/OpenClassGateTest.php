@@ -14,7 +14,7 @@ use PHPUnit\Framework\TestCase;
 
 /**
  * The gate of the open-class indexes (TextConfigCache::openClass()): a restricted viewer who holds none of the granted fields looks its
- * words up in them only when every one exists, is valid and ready, and together they are smaller than `fz`; otherwise it gets today's
+ * words up in them only when every one exists, is valid and ready, and each is smaller than the index it replaces (open_fz than `fz`, open_tsv than `tsv`); otherwise it gets today's
  * statements, and the results are the same either way. The answer is kept per process until resetCaches().
  */
 final class OpenClassGateTest extends TestCase
@@ -33,7 +33,7 @@ final class OpenClassGateTest extends TestCase
     }
 
     /** The granted fields hold most of the text: the open-class indexes are the smaller ones. */
-    private function load(bool $grantedIsBig = true): void
+    private function load(bool $grantedIsBig = true, int $descriptionWords = 60, ?int $nameWords = null): void
     {
         mt_srand(7);
         $words = array_map(static fn(int $i): string => 'w' . dechex($i * 7919 % 4096) . 'x', range(1, 300));
@@ -43,10 +43,10 @@ final class OpenClassGateTest extends TestCase
                 'INSERT INTO fz_gate_item VALUES (:id, :name, :category, :brand, :description)',
                 [
                     'id' => $id,
-                    'name' => $id === 7 ? 'kettle red' : $text($grantedIsBig ? 2 : 40),
+                    'name' => $id === 7 ? 'kettle red' : $text($nameWords ?? ($grantedIsBig ? 2 : 40)),
                     'category' => 'cat' . ($id % 5),
-                    'brand' => $id === 8 ? 'zorbaxx' : $text($grantedIsBig ? 5 : 1),
-                    'description' => $grantedIsBig ? $text(60) : 'x',
+                    'brand' => $id === 8 ? 'zorbaxx' : ($grantedIsBig ? $text(5) : ''),
+                    'description' => $grantedIsBig ? $text($descriptionWords) : '',
                 ],
             );
         }
@@ -67,11 +67,11 @@ final class OpenClassGateTest extends TestCase
         return new Fuzzphony($engine, new IndexRegistry([$definition]));
     }
 
-    private function applyAndLoad(PostgresEngine $engine, bool $grantedIsBig = true): Fuzzphony
+    private function applyAndLoad(PostgresEngine $engine, bool $grantedIsBig = true, int $descriptionWords = 60, ?int $nameWords = null): Fuzzphony
     {
         $fuzzphony = $this->fuzzphony($engine);
         $fuzzphony->schema()->apply($this->connection);
-        $this->load($grantedIsBig);
+        $this->load($grantedIsBig, $descriptionWords, $nameWords);
         $fuzzphony->reindex('gate_items');
         $this->connection->execute('ANALYZE fuzzphony_gate_items');
 
@@ -180,5 +180,26 @@ final class OpenClassGateTest extends TestCase
         $this->load();
         $fuzzphony->reindex('gate_items');
         self::assertFalse($this->search($fuzzphony, 'kettle')['open']);
+    }
+
+    /** Each open index is judged against the one it replaces: two that are both smaller are used although they add up to more than `fz`. */
+    public function testEachOpenIndexIsComparedWithTheOneItReplaces(): void
+    {
+        $sizes = [];
+        $fuzzphony = null;
+        foreach ([1, 2, 3, 5, 8, 12, 20] as $words) {
+            $fuzzphony = $this->applyAndLoad($this->engine(), descriptionWords: $words, nameWords: 40);
+            $sizes = [];
+            foreach (['fz', 'tsv', 'open_fz', 'open_tsv'] as $suffix) {
+                $sizes[$suffix] = Coerce::int($this->connection->fetchValue(sprintf("SELECT pg_relation_size('fuzzphony_gate_items_%s'::regclass)", $suffix)));
+            }
+            if ($sizes['open_fz'] < $sizes['fz'] && $sizes['open_tsv'] < $sizes['tsv'] && $sizes['open_fz'] + $sizes['open_tsv'] > $sizes['fz']) {
+                break;
+            }
+            $this->setUp();
+        }
+        self::assertTrue($sizes['open_fz'] < $sizes['fz'] && $sizes['open_tsv'] < $sizes['tsv'] && $sizes['open_fz'] + $sizes['open_tsv'] > $sizes['fz'], 'the data: ' . json_encode($sizes));
+
+        self::assertTrue($this->search($fuzzphony ?? self::fail('no index'), 'kettle')['open'], json_encode($sizes));
     }
 }

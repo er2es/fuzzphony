@@ -231,7 +231,7 @@ with or without them, and an index without a `granted` field has no extra index 
 - A word that is common in a field the viewer **can** see costs what it costs an unrestricted viewer.
 - A phrase over fields of both classes, or with a synonym alternative, is rechecked on the fields' own columns as before.
 - A viewer restricted by hand (`restrictedToFields()`) on an index with no `granted` field has no open class: as slow as above.
-- The open-class indexes are used only when they exist, are valid and are smaller than `fz`; the engine asks once per process, so
+- The open-class indexes are used only when they exist, are valid and each is smaller than the index it replaces (`fz`, `tsv`); the engine asks once per process, so
   after `fuzzphony:schema --apply` built them restart long-running workers (or call `PostgresEngine::resetCaches()`). Until then,
   and when the granted fields hold little of the text, the viewer is on the statements it always had.
 - Timing is not hidden: how long a search takes still depends on how often a word occurs in the fields the viewer can see

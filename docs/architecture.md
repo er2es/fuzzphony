@@ -116,7 +116,7 @@ An index with a `granted` field has two more indexes over the open (not granted)
 columns) and `..._open_tsv` (full text over their `t_` columns). A restricted viewer who holds none of the granted fields looks its words
 up there instead of in `fz` / `tsv` (`OpenClass`, `TextConfigCache::openClass()`): the lookup only has to find a superset of the allowed
 fields' own matches, the recheck against their columns decides, so the result is unchanged. The engine uses them only when both exist, are
-valid and ready and together are smaller than `fz` (asked once per process, `resetCaches()`); a viewer who holds a granted field keeps
+valid and ready and each is smaller than the one it replaces (`fz`, `tsv`) (asked once per process, `resetCaches()`); a viewer who holds a granted field keeps
 `fz` / `tsv`.
 
 `fuzzphony_meta` (same schema) records, per index, the sidecar layout version, a hash of the
