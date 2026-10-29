@@ -51,6 +51,10 @@
     @media (prefers-reduced-motion: reduce) {
         :root { --t-fast: 0ms; --t-base: 0ms; --t-slow: 0ms; }
     }
+
+    /* the switch in the toolbar (theme_controller.js) sets data-theme on <html>; every colour token is a light-dark() pair, so the scheme alone decides */
+    :root[data-theme=light] { color-scheme: light; }
+    :root[data-theme=dark] { color-scheme: dark; }
 }
 
 /* ---- base --------------------------------------------------------------------------------------------------------- */
@@ -151,9 +155,20 @@
     .toolbar-inner { max-width: 70rem; margin: 0 auto; padding: 0 1.25rem; min-height: 3.25rem; display: grid; grid-template-columns: 1fr auto 1fr; align-items: center; gap: 1.75rem; }
     .toolbar-inner > .wordmark { justify-self: start; }
     .toolbar-inner > .nav { justify-self: center; }
+    .toolbar-inner > .theme-switch { justify-self: end; }
+    .theme-switch { display: inline-flex; gap: .125rem; padding: .125rem; border-radius: .6rem; background: var(--surface-2); }
+    .theme-switch button { margin: 0; border: 0; padding: 0; width: 2rem; height: 2rem; display: inline-grid; place-items: center; border-radius: .5rem; background: none; color: var(--label-2); cursor: pointer; transition: background-color var(--t-fast) var(--ease), color var(--t-fast) var(--ease); }
+    .theme-switch button:hover { color: var(--label); }
+    .theme-switch .icon { width: 1.125rem; height: 1.125rem; }
+    /* the pressed button follows the attribute on <html>, which the head script sets before the first paint (aria-pressed is kept in step by the controller) */
+    html:not([data-theme]) .theme-switch button[data-theme-value-param=system],
+    html[data-theme=light] .theme-switch button[data-theme-value-param=light],
+    html[data-theme=dark] .theme-switch button[data-theme-value-param=dark] { background: var(--surface); color: var(--accent); box-shadow: var(--shadow-1); }
     @media (max-width: 48rem) {
-        .toolbar-inner { grid-template-columns: 1fr; justify-items: center; gap: .1rem; padding-block: .45rem; }
-        .toolbar-inner > .wordmark { justify-self: center; }
+        .toolbar-inner { grid-template-columns: 1fr auto 1fr; grid-template-areas: ". brand theme" "nav nav nav"; justify-items: center; gap: .1rem; padding-block: .45rem; }
+        .toolbar-inner > .wordmark { grid-area: brand; justify-self: center; }
+        .toolbar-inner > .nav { grid-area: nav; }
+        .toolbar-inner > .theme-switch { grid-area: theme; }
     }
     .wordmark { font-weight: 700; font-size: 1.0625rem; letter-spacing: -.015em; color: var(--label); }
     .wordmark:hover { text-decoration: none; }

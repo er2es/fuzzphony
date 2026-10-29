@@ -753,6 +753,46 @@ check('relevance: the "only here" rows of Flat 0.3 say they matched in the brand
 check('relevance: a row found by the word says so, and a synonym row says synonym', /Matched in name \(“tv”\): the word itself/.test(await page.locator('.two-up .row-why').first().innerText()) && /synonym/.test(await page.locator('.two-up').innerText()));
 check('relevance: the caption explains the flat threshold', /single shared trigram/.test(await page.locator('#typos').locator('xpath=..').innerText()));
 
+// 0.9.10: the colour scheme switch (System / Light / Dark): the choice lasts, is applied before the first paint, and System follows the device
+{
+    const lightBg = 'rgb(245, 245, 247)';
+    const darkBg = 'rgb(0, 0, 0)';
+    const bg = (pg) => pg.evaluate(() => getComputedStyle(document.body).backgroundColor);
+    const sw = await browser.newContext({ viewport: { width: 1280, height: 800 }, colorScheme: 'light', reducedMotion: 'reduce' });
+    const tp = await sw.newPage();
+    tp.setDefaultTimeout(8000);
+    await go(tp, BASE + '/relevance');
+    check('theme: a group with three buttons named System, Light and Dark, System pressed first', JSON.stringify(await tp.locator('.theme-switch').evaluate((g) => [g.getAttribute('role'), g.getAttribute('aria-label'), ...[...g.querySelectorAll('button')].map((b) => `${b.getAttribute('aria-label')}:${b.getAttribute('aria-pressed')}`)])) === JSON.stringify(['group', 'Colour scheme', 'System:true', 'Light:false', 'Dark:false']));
+    check('theme: System follows the device (light here)', (await bg(tp)) === lightBg && (await tp.evaluate(() => document.documentElement.dataset.theme)) === undefined);
+    await tp.emulateMedia({ colorScheme: 'dark' });
+    check('theme: and when the device changes to dark', (await bg(tp)) === darkBg);
+    await tp.emulateMedia({ colorScheme: 'light' });
+    await tp.locator('.theme-switch button[aria-label=Dark]').click();
+    check('theme: Dark wins over a light device, is pressed and stored', (await bg(tp)) === darkBg && (await tp.locator('.theme-switch button[aria-label=Dark]').getAttribute('aria-pressed')) === 'true' && (await tp.evaluate(() => localStorage.getItem('fuzzphony-theme'))) === 'dark');
+    await tp.addInitScript(() => document.addEventListener('DOMContentLoaded', () => { window.__themeAtDcl = document.documentElement.dataset.theme; }));
+    await go(tp, BASE + '/');
+    check('theme: a reload keeps it, and the attribute is there before the document has loaded (no flash)', (await bg(tp)) === darkBg && (await tp.evaluate(() => window.__themeAtDcl)) === 'dark' && (await tp.locator('.theme-switch button[aria-label=Dark]').getAttribute('aria-pressed')) === 'true');
+    await tp.locator('.theme-switch button[aria-label=Light]').focus();
+    await tp.keyboard.press('Enter');
+    check('theme: the buttons work with the keyboard (Light)', (await bg(tp)) === lightBg && (await tp.evaluate(() => localStorage.getItem('fuzzphony-theme'))) === 'light');
+    check('theme: a focused button has a visible focus ring', await tp.locator('.theme-switch button[aria-label=Light]').evaluate((b) => { const s = getComputedStyle(b); return s.outlineStyle !== 'none' && parseFloat(s.outlineWidth) >= 2; }));
+    await tp.locator('.theme-switch button[aria-label=System]').click();
+    check('theme: System forgets the choice and follows the device again', (await tp.evaluate(() => localStorage.getItem('fuzzphony-theme'))) === null && (await tp.evaluate(() => document.documentElement.dataset.theme)) === undefined && (await bg(tp)) === lightBg);
+    await tp.evaluate(() => Storage.prototype.getItem = () => { throw new Error('blocked'); });
+    await tp.locator('.theme-switch button[aria-label=Dark]').click();
+    check('theme: storage that throws does not break the switch (it holds for this page view)', (await bg(tp)) === darkBg);
+    await sw.close();
+    const ph = await browser.newContext({ viewport: { width: 390, height: 844 }, colorScheme: 'light', reducedMotion: 'reduce' });
+    const pq = await ph.newPage();
+    await go(pq, BASE + '/');
+    const btn = pq.locator('.theme-switch button[aria-label=Dark]');
+    const box = await btn.boundingBox();
+    check('theme: on a phone the switch is in the bar, inside the window, with targets of 24 px at least', box !== null && box.x >= 0 && box.x + box.width <= 390 && box.width >= 24 && box.height >= 24, JSON.stringify(box));
+    await btn.click();
+    check('theme: and works there', (await bg(pq)) === darkBg);
+    await ph.close();
+}
+
 await secContext.close();
 
 await browser.close();
