@@ -1,5 +1,7 @@
 # Fuzzphony demo
 
+The demo lives in the Git repository only: `composer require fuzzphony/fuzzphony` installs just the library (`src/`); clone the repository to run it.
+
 > **A local showcase, not a production template.** It shows the SQL and query plans of every
 > search on purpose, and it ships throwaway secrets. Run it on your own machine; do not expose it
 > to the internet as is.
