@@ -38,6 +38,14 @@ final class RestrictedPrefixSimilarityTest extends TestCase
         self::assertSame(TypoCurve::lowest(5, true), self::lowest('mouse', ['name']), 'a whole word');
     }
 
+    public function testARestrictedViewersNonAsciiWordIsLookedUpAtTheLowestOfEveryNormalisation(): void
+    {
+        // "ßßßab" folds to eight letters (0.23) in PostgreSQL; the lookup must not be stricter than the recheck there
+        self::assertEqualsWithDelta(0.23, self::lowest("ßßßab", ['name']), 1e-9);
+        self::assertSame(TypoCurve::lowest(5, false), self::lowest("ßßßab", null), 'unrestricted: as it was');
+        self::assertSame(TypoCurve::lowest(5, true), self::lowest('mouse', ['name']), 'an ASCII word is unchanged');
+    }
+
     public function testAFixedSimilarityIsNotTouched(): void
     {
         self::assertSame(0.4, self::lowest('mouse*', ['name'], new Thresholds(fuzzySimilarity: 0.4)));

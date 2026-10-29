@@ -269,7 +269,17 @@ final class FuzzyQueryCompiler
     {
         $length = self::length($needle) - ($this->allowed !== null && $this->isPrefix($leaf) ? 1 : 0);
 
-        return $this->thresholds->fuzzySimilarity ?? TypoCurve::lowest($length, preg_match('/^[ -~]*$/', $needle) === 1);
+        if ($this->thresholds->fuzzySimilarity !== null) {
+            return $this->thresholds->fuzzySimilarity;
+        }
+        $ascii = preg_match('/^[ -~]*$/', $needle) === 1;
+        // a restricted viewer: the length after normalisation can be anything a non-ASCII letter folds to (a double s, a ligature), and a lookup
+        // stricter than the recheck there would make a match depend on the text of a field the viewer cannot see
+        if (!$ascii && $this->allowed !== null) {
+            return TypoCurve::lowestAnyNormalisation($length, (int) preg_match_all('/[^ -~]/u', $needle));
+        }
+
+        return TypoCurve::lowest($length, $ascii);
     }
 
     /**
