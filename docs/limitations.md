@@ -7,7 +7,7 @@ Some of these are limits of the technique (trigrams, PostgreSQL's triggers), som
 bounded, some protect the privacy of a log, and some are things to do when you deploy. Each entry says what
 happens, why, and what to do. The statements here were checked against the code and the tests.
 
-- [Search quality](#search-quality): [typo tolerance](#typo-tolerance-is-trigram-based), [whole words](#a-word-is-matched-as-a-whole-word),
+- [Search quality](#search-quality): [typo tolerance](#typo-tolerance-is-trigram-based), [whole words](#a-word-is-matched-as-a-whole-word), [codes](#codes-with-a-hyphen-before-digits-a-dot-or-a-slash),
   [stop words](#stop-words-are-ignored-and-only-a-query-of-nothing-else-finds-them), [languages](#stemming-covers-regular-forms-one-language-per-index),
   [very common words](#ranking-of-very-common-words), [facet counts](#facet-counts-are-over-the-candidates),
   [synonyms](#synonyms-are-expanded-on-the-query-and-stop-there), [highlights](#highlights-run-the-source-query-and-mark-typo-matches-by-word),
@@ -69,6 +69,14 @@ fewer than `fallback_below` hits, and as a look-alike ranked by similarity, neve
 
 What to do: if one column needs a guaranteed substring match (a part-number fragment), keep a `LIKE` (with a
 trigram index) on that column next to Fuzzphony.
+
+### Codes with a hyphen before digits, a dot or a slash
+
+`INV-001` is not found by a search for `INV-001` on a field that is not typo tolerant (`INV-2024-0042`, `AB-12/3`, `INV.007` likewise). The query is split at every character that is not a
+letter or a digit (`'inv' <-> '001'`); PostgreSQL's text-search parser indexes `INV-001` as `inv` and `-001` (a hyphen before digits is a sign), `INV.007` and `INV/008` as one token each.
+Letters joined by a hyphen (`usb-c`) are indexed in parts too and are not affected. A fuzzy field finds the code through the trigram fallback, as a look-alike.
+
+What to do: index the code with its separators turned into spaces, so that the index holds what the query is split into ([Codes and numbers](searching.md#codes-and-numbers)).
 
 ### Stop words are ignored, and only a query of nothing else finds them
 
