@@ -5,33 +5,58 @@ and the [CHANGELOG](CHANGELOG.md) has the full list of changes.
 
 ## From 0.9.8 to 0.9.9
 
-**If an index has a `granted` field, run `fuzzphony:schema --apply`** (nothing is required otherwise). It builds two indexes over the
-fields that are not granted, with `CREATE INDEX CONCURRENTLY` (the table stays writable); until then the doctor reports them missing and
-the definition as changed, and searches run as before. A restricted viewer who holds none of the granted fields is then much faster when a
-hidden field is full of the words searched. Restart long-running workers afterwards (the engine looks the indexes up once per process; the
-command says so). Indexes without a `granted` field change nothing.
+**What you must do.** Only if an index has a `granted` field: run `fuzzphony:schema --apply`, then restart long-running processes
+(Messenger workers, RoadRunner, FrankenPHP: the engine looks the new indexes, and the `tsv_capped` / `actor_ip` columns an apply may add
+to an existing table, up once per process; the command says so). The apply builds two indexes over the fields that are not granted, with
+`CREATE INDEX CONCURRENTLY` (the table stays writable); until then the doctor reports them missing and the definition as changed, and
+searches run as before. After you change which fields are `granted` later, run it again: the indexes carry a hash of their definition, the
+apply builds the new ones and drops the old, and the doctor calls an old one stale. No reindex is required, no setting is new, and
+indexes without a `granted` field change nothing.
 
-Nothing is required. One visible change: a top-level AND of stop words with exclusions (`the who -rock`) used to return every document without `rock` (a bug); it now searches `the who` and leaves out the documents that have `rock`, so such a query returns far fewer results. If you showed a page for "everything except X" through it, use a filter instead. After `fuzzphony:schema --apply` added a column to an existing table, restart long-running workers (Messenger, RoadRunner, FrankenPHP); the command says so.
+**Stricter configuration.** `granted` in YAML or an array must be a non-empty string: `granted: ~`, a key without a value, a list of
+roles, `false` and an empty string used to load (as an open field, or one that is always hidden) and now throw an `InvalidDefinition` that
+names the field. Fix the key the message names, or remove it to leave the field open.
 
-**A few results change, for the better.** An exact word is no longer ranked below its look-alikes in a capped typo search (a full-text match
-keeps its typo score), `total` of a capped `fuzzy_mode: always` search can be larger (`2000+`, `2667+`) because those matches count, a
-page past `candidate_limit` is served by the typo-tolerant branch and by a filter-only listing, a short text is highlighted whole
-(`Ergonomic mouse 1001`, not `Ergonomic mouse`), and swapped letters (`mosue`) get a "did you mean" and a mark. A capped typo search is **not**
-slower for an unrestricted viewer or a tenant (25 to 75 ms on 200 000 products); a restricted viewer's costs one more selection, bounded by a work budget.
-A word with more matches than the limit contributes the first matches of the table, not the closest spellings (a lower bound, like `total`). No new
-setting, no schema change, no API change.
+**Results that change.**
 
-**YAML that worked by accident now fails with a message.** The index configuration (`fuzzphony.indexes`, `ArrayDefinitionLoader`) is checked as a whole: an unknown key at any level (`wieght`, `fuzy`, `tabel`, `colums`), a string where a boolean belongs (`fuzzy: "false"` used to switch typo tolerance ON; use `true`/`false`), `fields: [name, body]` or `profiles: popular` (a list or a string where a map belongs) and an unknown `class` throw an `InvalidDefinition` that names the place and suggests the closest key. An override of an attribute-defined index may no longer carry `fields`, `filters`, `source`, `id_type` or `class` (they were silently dropped); change the attributes instead. Fix the key the message names; correct configurations are unaffected.
+- A top-level AND of stop words with exclusions (`the who -rock`) used to return every document without `rock` (a bug); it now searches
+  `the who` and leaves out the documents that have `rock`, so such a query returns far fewer results. If you showed a page for
+  "everything except X" through it, use a filter instead.
+- An exact word is no longer ranked below its look-alikes in a capped typo search (a full-text match keeps its typo score), `total` of a
+  capped `fuzzy_mode: always` search can be larger (`2000+`, `2667+`) because those matches count, a page past `candidate_limit` is served
+  by the typo-tolerant branch and by a filter-only listing, a short text is highlighted whole (`Ergonomic mouse 1001`, not
+  `Ergonomic mouse`), and swapped letters (`mosue`) get a "did you mean" and a mark. A capped typo search is **not** slower for an
+  unrestricted viewer or a tenant (25 to 75 ms on 200 000 products). A word with more matches than the limit contributes the first matches
+  of the table, not the closest spellings (a lower bound, like `total`).
+- A restricted viewer's typo candidates are the best by the page's sort key within a work budget (one more selection), and no longer depend
+  on a field the viewer cannot see: `mouse*`, a word that grows in normalisation (`ßßßab`) and the size of the visible text are looked up
+  and counted without the hidden fields. A viewer who may see every typo-tolerant field gets the unrestricted lookup. If you use
+  `restrictedToFields()` or `granted` fields, upgrade; no reindex is needed.
+- `RankingProfile::with()` / `->ranking()` merges `label_weights`: a per-query override that names some labels keeps the profile's own
+  weights for the others (before, the others fell back to the library defaults 1.0 / 0.4 / 0.2 / 0.1). Only code that passes
+  `label_weights` per query on a profile with non-default labels sees other scores.
+- The index configuration is checked as a whole: an unknown key at any level (`wieght`, `fuzy`, `tabel`, `colums`), a string where a boolean
+  belongs (`fuzzy: "false"` used to switch typo tolerance ON; use `true`/`false`), `fields: [name, body]` or `profiles: popular` (a list or
+  a string where a map belongs) and an unknown `class` throw an `InvalidDefinition` that names the place and suggests the closest key. An
+  override of an attribute-defined index may no longer carry `fields`, `filters`, `source`, `id_type` or `class` (they were silently
+  dropped); change the attributes instead. Correct configurations are unaffected.
+- `fuzzphony:search` is unlogged by default (it wrote a row to the search log, with the `--user` / `--tenant` you gave it, for every run):
+  pass the new `--log` to write one. `fuzzphony:worker` now also retries a queue it could not process after a back-off (60 s, doubling to
+  an hour) while the other indexes go on, and exits with code 1 under `--once`.
+- Metrics no longer carry the search text: `fuzzphony.search.took_ms`, `.fallback` and `.rescued` have the single label `index`.
 
-**`RankingProfile::with()` / `->ranking()` merges `label_weights`.** A per-query override that names some labels keeps the profile's own weights for the others (before, the others fell back to the library defaults 1.0 / 0.4 / 0.2 / 0.1). Only code that passes `label_weights` per query on a profile with non-default labels sees other scores.
+**API changes.**
 
-**Exceptions.** `RebuildAlreadyRunning` now extends `\RuntimeException` (it was an `\InvalidArgumentException`): a `catch (\InvalidArgumentException)` around a reindex no longer catches it, catch `RebuildAlreadyRunning` itself. A bad per-query `->thresholds([...])` / `->ranking([...])` throws `InvalidQuery` (was `InvalidDefinition`). The 403 body of a refused search is the fixed text "Searching is not allowed for this caller." (the exception in `previous` has the details). New interface `SearchRefused`, implemented by `AccessDenied`, `ActorRequired` and `RateLimited`; nothing else about them changes.
-
-**Metrics no longer carry the search text.** `fuzzphony.search.took_ms`, `.fallback` and `.rescued` have the single label `index`. A `MetricsCollector` of your own no longer receives a `query` label (it was the raw text, before `search_log.redact`); drop any code that read it. The `LoggingMetricsCollector` constructor lost its `logQueryText` argument: remove the named argument if you pass it.
-
-**`fuzzphony:search` is unlogged by default.** It wrote a row to the search log (with the `--user` / `--tenant` you gave it) for every run; now it writes none unless you pass the new `--log` option. Scripts that relied on the rows (rare) add `--log`.
-
-**Prepared synonym lists.** `Synonyms` has a new last constructor parameter `$table` (internal: the lookup table `Fuzzphony::stemSynonyms()` now builds). A list prepared and cached by an older version still works (it has no table and builds it as before); prepare it again to get the saving. The cached object is about 2.5 times larger.
+- `RebuildAlreadyRunning` now extends `\RuntimeException` (it was an `\InvalidArgumentException`): a `catch (\InvalidArgumentException)`
+  around a reindex no longer catches it, catch `RebuildAlreadyRunning` itself. A bad per-query `->thresholds([...])` / `->ranking([...])`
+  throws `InvalidQuery` (was `InvalidDefinition`). The 403 body of a refused search is the fixed text "Searching is not allowed for this
+  caller." (the exception in `previous` has the details). New interface `SearchRefused`, implemented by `AccessDenied`, `ActorRequired` and
+  `RateLimited`; nothing else about them changes.
+- The `LoggingMetricsCollector` constructor lost its `logQueryText` argument: remove the named argument if you pass it. A
+  `MetricsCollector` of your own no longer receives a `query` label; drop any code that read it.
+- `Synonyms` has a new last constructor parameter `$table` (internal: the lookup table `Fuzzphony::stemSynonyms()` now builds). A list
+  prepared and cached by an older version still works (it has no table and builds it as before); prepare it again to get the saving. The
+  cached object is about 2.5 times larger.
 
 ## From 0.9.7 to 0.9.8
 
