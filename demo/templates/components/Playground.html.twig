@@ -1,9 +1,22 @@
-{# The slider readout updates instantly (range controller); the server is asked once the handle rests for 300 ms. #}
+{# The slider readout updates instantly (range controller); the server is asked once the handle rests for 300 ms. The label and the info
+   button are siblings, so the button is not part of the slider's accessible name. #}
 {% macro slider(label, model, value, min, max, step) %}
-    <label class="slider" data-controller="range">
-        <span class="slider-head">{{ label }} <output data-range-target="output" data-live-ignore aria-live="off">{{ value }}</output></span>
-        <input type="range" data-action="input->range#update" data-model="debounce(300)|{{ model }}" value="{{ value }}" min="{{ min }}" max="{{ max }}" step="{{ step }}">
-    </label>
+    <div class="slider" data-controller="range">
+        <div class="slider-head">
+            <span class="slider-name"><label for="in-{{ model }}">{{ label }}</label>{{ _self.tip(model, label) }}</span>
+            <output data-range-target="output" data-live-ignore aria-live="off">{{ value }}</output>
+        </div>
+        <input type="range" id="in-{{ model }}" data-action="input->range#update" data-model="debounce(300)|{{ model }}" value="{{ value }}" min="{{ min }}" max="{{ max }}" step="{{ step }}">
+    </div>
+{% endmacro %}
+
+{# The info button of a setting and its tooltip (text: App\Service\SettingHelp, behaviour: tooltip_controller.js). data-live-ignore: a re-render of the Live Component leaves it alone. #}
+{% macro tip(key, label) %}
+    {% set help = setting_help(key) %}
+    <span class="tip" data-controller="tooltip" data-live-ignore>
+        <button type="button" class="tip-btn" data-tooltip-target="button" aria-label="What does {{ label }} do?" aria-expanded="false" aria-describedby="tip-{{ key }}"><svg class="icon" aria-hidden="true"><use href="#i-info"/></svg></button>
+        <span role="tooltip" class="tip-bubble" id="tip-{{ key }}" data-tooltip-target="bubble" hidden>{{ help.what }}<span class="tip-example">{{ help.example }}</span></span>
+    </span>
 {% endmacro %}
 {% import _self as ui %}
 {% import '_ui.html.twig' as shared %}
@@ -13,7 +26,7 @@
         <section>
             <h2 class="list-title">Ranking</h2>
             <div class="chips profile-chips" role="group" aria-label="Start from a ranking profile of the catalogue">
-                <span class="muted">Start from</span>
+                <span class="muted">Start from</span>{{ ui.tip('startFrom', 'Start from') }}
                 <button type="button" class="chip" data-action="live#action" data-live-action-param="startFrom" data-live-name-param="default">default</button>
                 <button type="button" class="chip" data-action="live#action" data-live-action-param="startFrom" data-live-name-param="popular">popular</button>
             </div>
@@ -32,13 +45,13 @@
             <h2 class="list-title">Typos</h2>
             <div class="list">
                 {{ ui.slider('Min relevance', 'minScore', minScore, 0, 1, 0.01) }}
-                <label class="check setting"><input type="checkbox" data-model="similarityByLength" {{ similarityByLength ? 'checked' }}><span>Similarity by word length <small class="muted">The slider below then sets one value for every word.</small></span></label>
+                <div class="check setting"><label><input type="checkbox" data-model="similarityByLength" {{ similarityByLength ? 'checked' }}><span>Similarity by word length <small class="muted">The slider below then sets one value for every word.</small></span></label>{{ ui.tip('similarityByLength', 'Similarity by word length') }}</div>
                 {{ ui.slider('Fuzzy similarity', 'similarity', similarity, 0.05, 1, 0.05) }}
-                <label class="setting select-row">Fuzzy mode
-                    <select data-model="fuzzyMode">
+                <div class="setting select-row"><label for="in-fuzzyMode">Fuzzy mode</label>{{ ui.tip('fuzzyMode', 'Fuzzy mode') }}
+                    <select id="in-fuzzyMode" data-model="fuzzyMode">
                         {% for mode in ['fallback', 'always', 'never'] %}<option value="{{ mode }}" {{ mode == fuzzyMode ? 'selected' }}>{{ mode }}</option>{% endfor %}
                     </select>
-                </label>
+                </div>
                 {{ ui.slider('Fallback below (hits)', 'fallbackBelow', fallbackBelow, 1, 50, 1) }}
                 {{ ui.slider('Candidate limit', 'candidateLimit', candidateLimit, 100, 10000, 100) }}
             </div>
@@ -47,10 +60,10 @@
         <section>
             <h2 class="list-title">Filters</h2>
             <div class="list">
-                <label class="check setting"><input type="checkbox" data-model="inStockOnly" {{ inStockOnly ? 'checked' }}><span>In stock only</span></label>
+                <div class="check setting"><label><input type="checkbox" data-model="inStockOnly" {{ inStockOnly ? 'checked' }}><span>In stock only</span></label>{{ ui.tip('inStockOnly', 'In stock only') }}</div>
                 {{ ui.slider('Max price (0 = any)', 'maxPrice', maxPrice, 0, 200000, 1000) }}
                 {% if this.exactAllowed %}
-                    <label class="check setting"><input type="checkbox" data-model="exactCounts" {{ exactCounts ? 'checked' }}><span>Exact counts <small class="muted">Count every match: the total and the facets, not only the candidates.</small></span></label>
+                    <div class="check setting"><label><input type="checkbox" data-model="exactCounts" {{ exactCounts ? 'checked' }}><span>Exact counts <small class="muted">Count every match: the total and the facets, not only the candidates.</small></span></label>{{ ui.tip('exactCounts', 'Exact counts') }}</div>
                 {% endif %}
             </div>
             {% if not this.exactAllowed %}

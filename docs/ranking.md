@@ -24,6 +24,11 @@ fuzzy weight only applies when the typo-tolerant branch runs. With the by-length
 `fuzzy_similarity` a word that does not reach the similarity of its own length scores 0, so it
 cannot lift an OR above the words that do match.
 
+The exact bonus is added when the whole title (the primary field) equals the typed words, ignoring case and accents; the prefix
+bonus when the title starts with them and is longer. `boost` is multiplied by the raw value of the boost column (the demo's
+`popularity`, a number up to 10), and the recency bonus is `recency` on the day a document is published, half of it after
+`recency_half_life_days`, a quarter after twice that.
+
 `min_score` applies to relevance only. Boosts reorder relevant hits but can never pull an
 irrelevant document into the results ([ADR 0004](adr/0004-min-score-on-relevance.md)).
 

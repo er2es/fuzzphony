@@ -17,6 +17,8 @@ Demo-only release: no change to the library.
 
 ### Added
 
+- **Demo: an info icon next to every control of the Tune page** opens a tooltip with what the setting does and an example from the catalogue (hover, focus or tap;
+  Escape closes it; usable by keyboard and screen reader, readable in both colour schemes, inside the window on a phone).
 - **Demo: a System / Light / Dark switch, a footer with the version, and a "Why" line on the Relevance page.** The switch is in the toolbar (the choice is kept per visitor and applied before the first paint); the footer shows the Fuzzphony version read at run time (`\Composer\InstalledVersions`, or the newest CHANGELOG release where Composer only knows `dev-main`) with links to the docs, GitHub and this changelog; every Relevance row says which field matched and how, with the word pair and similarity of typo-found rows, and the highlight now also marks the brand and category. See [demo/README.md](demo/README.md).
 
 ### Changed
