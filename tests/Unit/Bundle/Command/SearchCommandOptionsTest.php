@@ -200,7 +200,8 @@ final class SearchCommandOptionsTest extends TestCase
         $status = $tester->execute(['index' => 'products', 'query' => 'mouse', '--threshold' => [$threshold]], ['interactive' => false]);
 
         self::assertSame(1, $status);
-        self::assertStringContainsString($message, $tester->getDisplay(true));
+        // SymfonyStyle::error() word-wraps its block at the terminal width (80 columns on CI)
+        self::assertStringContainsString($message, (string) preg_replace('/\s+/', ' ', $tester->getDisplay(true)));
     }
 
     public function testAThresholdTypoIsAnErrorMessageNotAStackTrace(): void
@@ -210,7 +211,7 @@ final class SearchCommandOptionsTest extends TestCase
         $status = $tester->execute(['index' => 'products', 'query' => 'mouse', '--threshold' => ['min_scor=1']], ['interactive' => false]);
 
         self::assertSame(1, $status);
-        $display = $tester->getDisplay(true);
+        $display = (string) preg_replace('/\s+/', ' ', $tester->getDisplay(true));
         self::assertStringContainsString('Index "products": invalid thresholds for this query: Unknown threshold option(s): min_scor.', $display);
         self::assertNull($this->query, 'nothing was searched');
     }
