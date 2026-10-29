@@ -53,7 +53,7 @@ final class RegistryFactoryMutationsTest extends TestCase
         $cache->save($cache->getItem('fuzzphony_discovered_indexes')->set([])); // the pool says: no indexes
 
         $entityManager = $this->createMock(EntityManagerInterface::class);
-        $metadataFactory = $this->createStub(ClassMetadataFactory::class);
+        $metadataFactory = self::createStub(ClassMetadataFactory::class);
         $metadataFactory->method('getAllMetadata')->willReturn([]); // getAllMetadata is untyped in the oldest supported persistence: a bare stub returns null
         $entityManager->expects(self::exactly(2))->method('getMetadataFactory')->willReturn($metadataFactory);
         $first = RegistryFactory::create([], new DoctrineIndexDiscovery($entityManager), $cache);
