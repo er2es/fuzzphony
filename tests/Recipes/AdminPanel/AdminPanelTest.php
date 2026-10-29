@@ -21,6 +21,7 @@ use Fuzzphony\Engine\Postgres\PostgresEngine;
 use Fuzzphony\Tests\Integration\PostgresTestCase;
 use Fuzzphony\Tests\Recipes\RecipeOutput;
 use Fuzzphony\Tests\Recipes\Support\SingleManagerRegistry;
+use Fuzzphony\Tests\Support\RestoresPhpHandlers;
 use Symfony\Bundle\FrameworkBundle\Console\Application;
 use Symfony\Bundle\FrameworkBundle\Test\KernelTestCase;
 use Symfony\Component\Console\Tester\ApplicationTester;
@@ -28,6 +29,8 @@ use Symfony\Component\Console\Tester\ApplicationTester;
 /** Everything docs/recipes/admin-panel.md claims, run against PostgreSQL. */
 final class AdminPanelTest extends KernelTestCase
 {
+    use RestoresPhpHandlers;
+
     private EntityManagerInterface $em;
 
     protected static function getKernelClass(): string

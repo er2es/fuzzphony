@@ -7,6 +7,7 @@ namespace Fuzzphony\Tests\Integration\Bundle\IpLimit;
 use Fuzzphony\Core\Fuzzphony;
 use Fuzzphony\Core\Search\Actor;
 use Fuzzphony\Tests\Integration\PostgresTestCase;
+use Fuzzphony\Tests\Support\RestoresPhpHandlers;
 use PHPUnit\Framework\TestCase;
 use Symfony\Bundle\FrameworkBundle\Console\Application;
 use Symfony\Component\Console\Tester\ApplicationTester;
@@ -21,6 +22,8 @@ use Symfony\Component\RateLimiter\RateLimiterFactoryInterface;
  */
 final class IpLimitTest extends TestCase
 {
+    use RestoresPhpHandlers;
+
     private const array ALL_TABLES = ['iplimit_item', 'fuzzphony_items', 'fuzzphony_items__vocab', 'fuzzphony_items__next', 'fuzzphony_items__changes', 'fuzzphony_search_log'];
 
     private string $scratch;
