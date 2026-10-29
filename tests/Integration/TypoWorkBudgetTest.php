@@ -89,4 +89,30 @@ final class TypoWorkBudgetTest extends TestCase
 
         self::assertGreaterThanOrEqual(self::MATCHES, $scan, 'the same scan as with short hidden texts');
     }
+
+    /**
+     * A hidden field of a few hundred to a few thousand incompressible characters is what changes TOAST compression of the
+     * visible columns (the stored size of a column depends on the whole row's width): the budget counts the uncompressed size.
+     */
+    public function testAHiddenTextThatChangesCompressionDoesNotMoveTheScan(): void
+    {
+        mt_srand(11);
+        $random = static function (int $length): string {
+            $text = '';
+            while (strlen($text) < $length) {
+                $text .= implode('', array_map(static fn(): string => chr(mt_rand(97, 122)), range(1, mt_rand(4, 9)))) . ' ';
+            }
+
+            return $text;
+        };
+        $title = "repeat('common ', 140) || i";
+        $scans = [];
+        foreach ([0, 1200, 2500] as $hiddenLength) {
+            $this->setUp();
+            [, $scans[$hiddenLength]] = $this->scan($hiddenLength === 0 ? "''" : ':hidden', $hiddenLength === 0 ? [] : ['hidden' => $random($hiddenLength)], $title);
+        }
+
+        self::assertSame($scans[0], $scans[1200], 'a hidden text of 1 200 characters');
+        self::assertSame($scans[0], $scans[2500], 'a hidden text of 2 500 characters');
+    }
 }
