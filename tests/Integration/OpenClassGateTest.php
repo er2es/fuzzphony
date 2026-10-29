@@ -14,14 +14,11 @@ use PHPUnit\Framework\TestCase;
 
 /**
  * The gate of the open-class indexes (TextConfigCache::openClass()): a restricted viewer who holds none of the granted fields looks its
- * words up in them only when every one exists, is valid and ready, and together they are smaller than `fz`; otherwise it gets today's
+ * words up in them only when every one exists, is valid and ready, and each is smaller than the index it replaces (open_fz than `fz`, open_tsv than `tsv`); otherwise it gets today's
  * statements, and the results are the same either way. The answer is kept per process until resetCaches().
  */
 final class OpenClassGateTest extends TestCase
 {
-    private const string OPEN_FZ = 'fuzzphony_gate_items_open_fz';
-    private const string OPEN_TSV = 'fuzzphony_gate_items_open_tsv';
-
     private Connection $connection;
 
     protected function setUp(): void
@@ -33,7 +30,7 @@ final class OpenClassGateTest extends TestCase
     }
 
     /** The granted fields hold most of the text: the open-class indexes are the smaller ones. */
-    private function load(bool $grantedIsBig = true): void
+    private function load(bool $grantedIsBig = true, int $descriptionWords = 60, ?int $nameWords = null): void
     {
         mt_srand(7);
         $words = array_map(static fn(int $i): string => 'w' . dechex($i * 7919 % 4096) . 'x', range(1, 300));
@@ -43,13 +40,19 @@ final class OpenClassGateTest extends TestCase
                 'INSERT INTO fz_gate_item VALUES (:id, :name, :category, :brand, :description)',
                 [
                     'id' => $id,
-                    'name' => $id === 7 ? 'kettle red' : $text($grantedIsBig ? 2 : 40),
+                    'name' => $id === 7 ? 'kettle red' : $text($nameWords ?? ($grantedIsBig ? 2 : 40)),
                     'category' => 'cat' . ($id % 5),
-                    'brand' => $id === 8 ? 'zorbaxx' : $text($grantedIsBig ? 5 : 1),
-                    'description' => $grantedIsBig ? $text(60) : 'x',
+                    'brand' => $id === 8 ? 'zorbaxx' : ($grantedIsBig ? $text(5) : ''),
+                    'description' => $grantedIsBig ? $text($descriptionWords) : '',
                 ],
             );
         }
+    }
+
+    /** The name of the open-class index of one kind (fz / tsv) the table has now (its name ends with a hash of the definition). */
+    private function open(string $kind): string
+    {
+        return Coerce::str($this->connection->fetchValue("SELECT indexname FROM pg_indexes WHERE tablename = 'fuzzphony_gate_items' AND indexname ~ '_open_" . $kind . "_[0-9a-f]{8}\$'"));
     }
 
     private function engine(): PostgresEngine
@@ -67,11 +70,11 @@ final class OpenClassGateTest extends TestCase
         return new Fuzzphony($engine, new IndexRegistry([$definition]));
     }
 
-    private function applyAndLoad(PostgresEngine $engine, bool $grantedIsBig = true): Fuzzphony
+    private function applyAndLoad(PostgresEngine $engine, bool $grantedIsBig = true, int $descriptionWords = 60, ?int $nameWords = null): Fuzzphony
     {
         $fuzzphony = $this->fuzzphony($engine);
         $fuzzphony->schema()->apply($this->connection);
-        $this->load($grantedIsBig);
+        $this->load($grantedIsBig, $descriptionWords, $nameWords);
         $fuzzphony->reindex('gate_items');
         $this->connection->execute('ANALYZE fuzzphony_gate_items');
 
@@ -114,7 +117,7 @@ final class OpenClassGateTest extends TestCase
         $with = $this->search($fuzzphony, 'kettel');
         self::assertTrue($with['open']);
 
-        foreach ([self::OPEN_FZ, self::OPEN_TSV] as $dropped) {
+        foreach ([$this->open('fz'), $this->open('tsv')] as $dropped) {
             $this->connection->execute('DROP INDEX ' . $dropped);
             $without = $this->search($this->fuzzphony($this->engine()), 'kettel');
             self::assertFalse($without['open'], $dropped . ' is missing');
@@ -132,11 +135,11 @@ final class OpenClassGateTest extends TestCase
         }
         $with = $this->search($fuzzphony, 'kettel');
         foreach (['indisvalid', 'indisready'] as $flag) {
-            $this->connection->execute(sprintf("UPDATE pg_index SET %s = false WHERE indexrelid = '%s'::regclass", $flag, self::OPEN_TSV));
+            $this->connection->execute(sprintf("UPDATE pg_index SET %s = false WHERE indexrelid = '%s'::regclass", $flag, $this->open('tsv')));
             try {
                 $without = $this->search($this->fuzzphony($this->engine()), 'kettel');
             } finally {
-                $this->connection->execute(sprintf("UPDATE pg_index SET indisvalid = true, indisready = true WHERE indexrelid = '%s'::regclass", self::OPEN_TSV));
+                $this->connection->execute(sprintf("UPDATE pg_index SET indisvalid = true, indisready = true WHERE indexrelid = '%s'::regclass", $this->open('tsv')));
             }
             self::assertFalse($without['open'], $flag . ' is false');
             self::assertSame([$with['ids'], $with['total']], [$without['ids'], $without['total']]);
@@ -150,7 +153,7 @@ final class OpenClassGateTest extends TestCase
         $fuzzphony = $this->applyAndLoad($engine);
         self::assertTrue($this->search($fuzzphony, 'kettle')['open']);
 
-        $this->connection->execute('DROP INDEX ' . self::OPEN_FZ);
+        $this->connection->execute('DROP INDEX ' . $this->open('fz'));
         self::assertTrue($this->search($fuzzphony, 'kettle')['open'], 'one process asks once');
         $engine->resetCaches();
         self::assertFalse($this->search($fuzzphony, 'kettle')['open']);
@@ -180,5 +183,30 @@ final class OpenClassGateTest extends TestCase
         $this->load();
         $fuzzphony->reindex('gate_items');
         self::assertFalse($this->search($fuzzphony, 'kettle')['open']);
+    }
+
+    /** @param array{fz: int, tsv: int, open_fz: int, open_tsv: int} $s */
+    private static function bothSmallerButTheirSumIsNot(array $s): bool
+    {
+        return $s['open_fz'] < $s['fz'] && $s['open_tsv'] < $s['tsv'] && $s['open_fz'] + $s['open_tsv'] > $s['fz'];
+    }
+
+    /** Each open index is judged against the one it replaces: two that are both smaller are used although they add up to more than `fz`. */
+    public function testEachOpenIndexIsComparedWithTheOneItReplaces(): void
+    {
+        foreach ([1, 2, 3, 5, 8, 12, 20] as $words) {
+            $fuzzphony = $this->applyAndLoad($this->engine(), descriptionWords: $words, nameWords: 40);
+            $sizes = [];
+            foreach (['fz' => 'fuzzphony_gate_items_fz', 'tsv' => 'fuzzphony_gate_items_tsv', 'open_fz' => $this->open('fz'), 'open_tsv' => $this->open('tsv')] as $key => $name) {
+                $sizes[$key] = Coerce::int($this->connection->fetchValue(sprintf("SELECT pg_relation_size('%s'::regclass)", $name)));
+            }
+            if (self::bothSmallerButTheirSumIsNot($sizes + ['fz' => 0, 'tsv' => 0, 'open_fz' => 0, 'open_tsv' => 0])) {
+                self::assertTrue($this->search($fuzzphony, 'kettle')['open'], (string) json_encode($sizes));
+
+                return;
+            }
+            $this->setUp();
+        }
+        self::fail('no data set where both open indexes are smaller and their sum is not');
     }
 }

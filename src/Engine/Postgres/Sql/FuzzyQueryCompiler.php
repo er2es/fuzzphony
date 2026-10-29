@@ -104,7 +104,7 @@ final class FuzzyQueryCompiler
      *                                          is compiled) whether the sidecar has the tsv_capped column; null or false: it has not, and
      *                                          the later fields' vectors are read for every document that `tsv` does not match
      * @param (\Closure(): bool)|null $openClass asked (only for a restricted viewer who holds none of the index's granted fields) whether the
-     *                                          open-class indexes exist, are valid and are smaller than `fz`; null or false: the lookups
+     *                                          open-class indexes exist, are valid and each is smaller than the one it replaces; null or false: the lookups
      *                                          stay on `fz` and `tsv`
      */
     public function __construct(
@@ -264,12 +264,29 @@ final class FuzzyQueryCompiler
      * judged one letter shorter (similaritySql()), and a restricted viewer's candidates are looked up at the threshold the
      * recheck uses: a lookup stricter than the recheck would find the documents of the allowed fields only when the text of the
      * other fields (in `fz` or the open class) also matches, so what the viewer finds would depend on a field it may not see.
+     * A viewer who may see every typo-tolerant field has nothing to depend on: its lookup is the unrestricted one.
      */
     private function lookupSimilarity(Node $leaf, string $needle): float
     {
-        $length = self::length($needle) - ($this->allowed !== null && $this->isPrefix($leaf) ? 1 : 0);
+        $hides = $this->hidesTypoTolerantText();
+        $length = self::length($needle) - ($hides && $this->isPrefix($leaf) ? 1 : 0);
+        if ($this->thresholds->fuzzySimilarity !== null) {
+            return $this->thresholds->fuzzySimilarity;
+        }
+        $ascii = preg_match('/^[ -~]*$/', $needle) === 1;
+        // a restricted viewer: the length after normalisation can be anything a non-ASCII letter folds to (a double s, a ligature), and a lookup
+        // stricter than the recheck there would make a match depend on the text of a field the viewer cannot see
+        if (!$ascii && $hides) {
+            return TypoCurve::lowestAnyNormalisation($length, (int) preg_match_all('/[^ -~]/u', $needle));
+        }
 
-        return $this->thresholds->fuzzySimilarity ?? TypoCurve::lowest($length, preg_match('/^[ -~]*$/', $needle) === 1);
+        return TypoCurve::lowest($length, $ascii);
+    }
+
+    /** Whether a typo-tolerant field is hidden from this viewer (a restricted one who may see all of them hides none). */
+    private function hidesTypoTolerantText(): bool
+    {
+        return $this->allowed !== null && count($this->fuzzyAllowed(null)) < count(array_filter($this->index->fields, static fn(FieldDefinition $f): bool => $f->fuzzy));
     }
 
     /**

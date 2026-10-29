@@ -131,7 +131,7 @@ final class SchemaCommand extends Command
      */
     private function cachedColumns(): array
     {
-        return array_map(Coerce::str(...), array_column($this->connection->fetchAll("SELECT attrelid::text || '.' || attname AS col FROM pg_attribute WHERE attname IN ('tsv_capped', 'actor_ip') AND NOT attisdropped AND attnum > 0 UNION ALL SELECT i.indrelid::text || '.' || c.relname FROM pg_index AS i JOIN pg_class AS c ON c.oid = i.indexrelid WHERE c.relname ~ '_open_(fz|tsv)$'"), 'col'));
+        return array_map(Coerce::str(...), array_column($this->connection->fetchAll("SELECT attrelid::text || '.' || attname AS col FROM pg_attribute WHERE attname IN ('tsv_capped', 'actor_ip') AND NOT attisdropped AND attnum > 0 UNION ALL SELECT i.indrelid::text || '.' || c.relname FROM pg_index AS i JOIN pg_class AS c ON c.oid = i.indexrelid WHERE c.relname ~ '_open_(fz|tsv)_[0-9a-f]{8}$'"), 'col'));
     }
 
     /** @param list<IndexDefinition> $indexes */

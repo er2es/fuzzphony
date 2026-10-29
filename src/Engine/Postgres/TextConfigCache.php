@@ -91,8 +91,8 @@ final class TextConfigCache
     /**
      * Whether a restricted viewer who holds none of the index's granted fields may look its words up in the open-class indexes
      * (OpenClass) instead of `fz` / `tsv`: every one of them exists, is valid and ready (a missing or half-built index would send
-     * the same statement to a table scan), and together they are smaller than the index they replace (`fz`, or `tsv` when no field is
-     * typo-tolerant): when the granted fields hold little of the text the open indexes are no shorter to read. Asked once per table
+     * the same statement to a table scan), and each is smaller than the index it replaces (open_fz than `fz`, open_tsv than `tsv`): when the granted
+     * fields hold little of the text the open indexes are no shorter to read. Asked once per table
      * and kept until reset(): an index applied later is used from the next process (or resetCaches()), never wrongly before.
      *
      * @return \Closure(): bool
@@ -104,16 +104,30 @@ final class TextConfigCache
             if (isset($this->openClasses[$table])) {
                 return $this->openClasses[$table];
             }
-            $open = array_map(fn(string $suffix): string => $this->names->indexName($index, $suffix), array_keys(OpenClass::indexes($index, $this->names)));
-            $base = $this->names->indexName($index, $index->hasFuzzy() ? 'fz' : 'tsv');
-
-            return $this->openClasses[$table] = $open !== [] && $this->connection->fetchValue(
-                'SELECT count(*) FILTER (WHERE c.relname = ANY(CAST(:open AS text[]))) = CAST(:count AS integer)
-                    AND coalesce(sum(pg_relation_size(c.oid)) FILTER (WHERE c.relname = ANY(CAST(:open AS text[]))), 0) < coalesce(sum(pg_relation_size(c.oid)) FILTER (WHERE c.relname = :base), 0)
+            // every open index against the one it replaces: open_fz for fz (a statement of the typo branch), open_tsv for tsv (the strict one)
+            $pairs = [];
+            foreach (array_keys(OpenClass::indexes($index, $this->names)) as $suffix) {
+                $pairs[$this->names->indexName($index, $suffix)] = $this->names->indexName($index, str_starts_with($suffix, OpenClass::TRIGRAM) ? 'fz' : 'tsv');
+            }
+            if ($pairs === []) {
+                return $this->openClasses[$table] = false;
+            }
+            $sizes = [];
+            foreach ($this->connection->fetchAll(
+                'SELECT c.relname AS name, pg_relation_size(c.oid) AS size
                    FROM pg_index AS i JOIN pg_class AS c ON c.oid = i.indexrelid
-                  WHERE i.indrelid = to_regclass(:table) AND i.indisvalid AND i.indisready',
-                ['open' => Sql::arrayLiteral($open), 'count' => count($open), 'base' => $base, 'table' => $table],
-            ) === true;
+                  WHERE i.indrelid = to_regclass(:table) AND i.indisvalid AND i.indisready AND c.relname = ANY(CAST(:names AS text[]))',
+                ['names' => Sql::arrayLiteral([...array_keys($pairs), ...array_values($pairs)]), 'table' => $table],
+            ) as $row) {
+                $sizes[Coerce::str($row['name'] ?? null)] = Coerce::int($row['size'] ?? null);
+            }
+            foreach ($pairs as $open => $base) {
+                if (!isset($sizes[$open], $sizes[$base]) || $sizes[$open] >= $sizes[$base]) {
+                    return $this->openClasses[$table] = false;
+                }
+            }
+
+            return $this->openClasses[$table] = true;
         };
     }
 

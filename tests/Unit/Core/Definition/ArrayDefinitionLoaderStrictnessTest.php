@@ -29,6 +29,10 @@ final class ArrayDefinitionLoaderStrictnessTest extends TestCase
         yield 'fields as a list' => [['fields' => ['name', 'body']], '"fields" must be a map of field name => a weight letter (A-D) or options (e.g. fields: { title: A, body: { weight: C, fuzzy: true } }), got a list.'];
         yield 'filters as a list' => [['fields' => ['title' => 'A'], 'filters' => ['price']], '"filters" must be a map'];
         yield 'a field as a number' => [['fields' => ['title' => 5]], 'Field "title" must be a weight letter (A-D) or a map of options (weight, fuzzy, highlight, column, granted), got 5.'];
+        yield 'granted without a value (null)' => [['fields' => ['title' => ['weight' => 'A', 'granted' => null]]], 'Field "title" "granted" must be a non-empty string, the attribute that unlocks the field (granted: ROLE_HR), got null. Remove the key to leave the field open to everyone.'];
+        yield 'granted as a list of roles' => [['fields' => ['title' => ['weight' => 'A', 'granted' => ['ROLE_A', 'ROLE_B']]]], 'Field "title" "granted" must be a non-empty string'];
+        yield 'granted false' => [['fields' => ['title' => ['weight' => 'A', 'granted' => false]]], 'Field "title" "granted" must be a non-empty string, the attribute that unlocks the field (granted: ROLE_HR), got false.'];
+        yield 'granted empty' => [['fields' => ['title' => ['weight' => 'A', 'granted' => ' ']]], 'Field "title" "granted" must be a non-empty string'];
         yield 'source as a list' => [['source' => ['article'], 'fields' => ['title' => 'A']], '"source" must be a map'];
         yield 'an unknown class' => [['fields' => ['title' => 'A'], 'class' => 'App\\Entity\\Nope'], '"class" must be the name of an existing class, got \'App\\\\Entity\\\\Nope\'.'];
         yield 'a string option given a list' => [['fields' => ['title' => 'A'], 'boost' => ['x']], '"boost" must be a string, got a list.'];
@@ -47,6 +51,13 @@ final class ArrayDefinitionLoaderStrictnessTest extends TestCase
             self::assertSame('articles', $e->index);
             self::assertStringContainsString($message, implode("\n", $e->violations));
         }
+    }
+
+    public function testAGrantedFieldKeepsItsAttributeAndAFieldWithoutTheKeyStaysOpen(): void
+    {
+        $definition = (new ArrayDefinitionLoader())->load('articles', ['source' => ['table' => 'article'], 'fields' => ['title' => 'A', 'salary' => ['weight' => 'B', 'granted' => 'ROLE_HR']]]);
+
+        self::assertSame([null, 'ROLE_HR'], array_map(static fn($f): ?string => $f->granted, $definition->fields));
     }
 
     /** @return iterable<string, array{array<string, mixed>}> */

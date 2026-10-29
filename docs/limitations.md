@@ -173,7 +173,7 @@ word, the documents the trigram index returns, at most `candidate_limit` (the wi
   sort key (similarity, bonuses, boost, recency, then the id): exact up to **30 000 matches divided by the number of words of the
   query** when the typo-tolerant texts are short (an internal constant, like the 100 000 of the strict branch), and up to fewer when
   they are long: the budget is about 1.5 MB of typo-tolerant text per statement, counting 100 bytes for every row, taken from the
-  stored size of the first matches' text in the fields the viewer may SEE (so 300 characters per document leave about 10 000 matches,
+  uncompressed size of the first matches' text in the fields the viewer may SEE (so 300 characters per document leave about 10 000 matches,
   a visible document of 17 000 words leaves a few hundred), never fewer than the candidates asked for. A hidden field never moves
   it, so what it holds cannot change the candidates; the price is that a long hidden text still costs its recheck time
   ([below](#a-restricted-viewers-very-common-word-in-a-hidden-typo-tolerant-field)). Beyond the budget the first matches of the index are taken, in
@@ -231,9 +231,13 @@ with or without them, and an index without a `granted` field has no extra index 
 - A word that is common in a field the viewer **can** see costs what it costs an unrestricted viewer.
 - A phrase over fields of both classes, or with a synonym alternative, is rechecked on the fields' own columns as before.
 - A viewer restricted by hand (`restrictedToFields()`) on an index with no `granted` field has no open class: as slow as above.
-- The open-class indexes are used only when they exist, are valid and are smaller than `fz`; the engine asks once per process, so
+- The open-class indexes are used only when they exist, are valid and each is smaller than the index it replaces (`fz`, `tsv`); the engine asks once per process, so
   after `fuzzphony:schema --apply` built them restart long-running workers (or call `PostgresEngine::resetCaches()`). Until then,
   and when the granted fields hold little of the text, the viewer is on the statements it always had.
+- A typo-tolerant search of a word the viewer's own tenant does not have, while other tenants do, can be slow for a restricted viewer (5.8 s on 200 000
+  products in one measurement: no match in the tenant, the word in most documents of another). Nothing of the other tenant is returned or counted; the
+  time is the cost.
+- Changing which fields are `granted` makes the open-class indexes stale: run `fuzzphony:schema --apply` (it builds the new ones and drops the old); until then the doctor reports the old ones as stale and the viewer is on the statements it always had.
 - Timing is not hidden: how long a search takes still depends on how often a word occurs in the fields the viewer can see
   ([Security](security.md#the-limits-stated-honestly)).
 

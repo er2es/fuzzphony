@@ -8,6 +8,7 @@ use Fuzzphony\Core\Database\Connection;
 use Fuzzphony\Core\Definition\IndexDefinition;
 use Fuzzphony\Core\Fuzzphony;
 use Fuzzphony\Core\Registry\IndexRegistry;
+use Fuzzphony\Core\Support\Coerce;
 use Fuzzphony\Engine\Postgres\PostgresEngine;
 use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\Attributes\Group;
@@ -168,8 +169,9 @@ final class OpenClassIndependenceTest extends TestCase
         foreach ($viewers as $i => $allowed) {
             $with[$i] = $this->outcomes($this->fuzzphony(), $allowed);
         }
-        $this->connection->execute('DROP INDEX fuzzphony_oc_items_open_fz');
-        $this->connection->execute('DROP INDEX fuzzphony_oc_items_open_tsv');
+        foreach ($this->connection->fetchAll("SELECT indexname FROM pg_indexes WHERE tablename = 'fuzzphony_oc_items' AND indexname ~ '_open_(fz|tsv)_[0-9a-f]{8}\$'") as $row) {
+            $this->connection->execute('DROP INDEX ' . Coerce::str($row['indexname']));
+        }
         foreach ($viewers as $i => $allowed) {
             $without = $this->outcomes($this->fuzzphony(), $allowed);
             self::assertFalse($without['open'], 'no open-class index: today\'s statements');

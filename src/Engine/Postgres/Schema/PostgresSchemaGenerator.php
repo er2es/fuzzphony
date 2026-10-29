@@ -234,6 +234,22 @@ final class PostgresSchemaGenerator
                 transactional: false,
             );
         }
+        $stale = array_map(static fn(string $prefix): string => addcslashes($prefix, '\\_%') . '________', OpenClass::stalePrefixes($index, $this->names));
+        if ($stale !== []) {
+            // after the open-class indexes above: one built for other granted fields is dropped once the right one exists (a plain DROP INDEX
+            // that gives up after 5 s instead of queueing every search behind it; the apply is safe to run again)
+            $statements[] = new Statement(
+                sprintf(
+                    'DO %1$s DECLARE r record; BEGIN PERFORM set_config(\'lock_timeout\', \'5s\', true); FOR r IN SELECT c.oid::regclass AS name FROM pg_index AS i JOIN pg_class AS c ON c.oid = i.indexrelid WHERE i.indrelid = to_regclass(%2$s) AND c.relname LIKE ANY (%3$s) AND c.relname <> ALL (%4$s) LOOP EXECUTE \'DROP INDEX \' || r.name; END LOOP; END %1$s',
+                    self::TAG,
+                    Sql::string($table),
+                    'ARRAY[' . implode(', ', array_map(Sql::string(...), $stale)) . ']::text[]',
+                    'ARRAY[' . implode(', ', array_map(Sql::string(...), [...OpenClass::expectedNames($index, $this->names), ''])) . ']::text[]',
+                ),
+                'Drop an open-class index built for other granted fields',
+                transactional: false,
+            );
+        }
         foreach ($this->layoutSteps($index) as $target => [$step, $why]) {
             $statements[] = new Statement(sprintf(
                 'DO %1$s BEGIN IF to_regclass(%2$s) IS NOT NULL THEN IF (SELECT layout_version FROM %3$s WHERE index_name = %4$s) < %5$d THEN %6$s END IF; END IF; END %1$s',

@@ -825,7 +825,7 @@ SELECT
     }
 
     /**
-     * The stored size of the typo-tolerant text a restricted viewer may see, as a SQL expression of the row: the work budget of the ordered
+     * The uncompressed size of the typo-tolerant text a restricted viewer may see, as a SQL expression of the row: the work budget of the ordered
      * typo selection counts it. Only the allowed fields' own columns, never `fz` or a hidden field's: the budget, and with it the
      * candidates, must not depend on what a hidden field holds.
      */
@@ -834,7 +834,7 @@ SELECT
         $parts = [];
         foreach ($this->index->fields as $field) {
             if ($field->fuzzy && in_array($field->name, $this->allowedFields ?? [], true)) {
-                $parts[] = sprintf('coalesce(pg_column_size(s.%s), 0)', $this->names->fieldFuzzy($field->name));
+                $parts[] = sprintf('coalesce(octet_length(s.%s), 0)', $this->names->fieldFuzzy($field->name));
             }
         }
 

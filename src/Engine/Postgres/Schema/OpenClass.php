@@ -53,20 +53,53 @@ final readonly class OpenClass
         return self::joined(array_map(static fn(FieldDefinition $f): string => $alias . $names->fieldVector($f->name), self::fields($index)), ' || ');
     }
 
-    /** @return array<string, string> index name suffix => "USING ..." (what PostgresSchemaGenerator::indexes() adds) */
+    /**
+     * @return array<string, string> index name suffix => "USING ..." (what PostgresSchemaGenerator::indexes() adds). The suffix ends
+     *                               with a short hash of the definition: when the granted fields change, the expected index has a new
+     *                               name, so `CREATE INDEX ... IF NOT EXISTS` builds it instead of keeping an old body, and the old
+     *                               one is stale (see PostgresSchemaGenerator::staleOpenClassIndexes())
+     */
     public static function indexes(IndexDefinition $index, Names $names): array
     {
         $indexes = [];
         $trigram = self::trigram($index, $names);
         if ($trigram !== null) {
-            $indexes[self::TRIGRAM] = sprintf('USING gin ((%s) %s.gin_trgm_ops)', $trigram, $names->extension());
+            $definition = sprintf('USING gin ((%s) %s.gin_trgm_ops)', $trigram, $names->extension());
+            $indexes[self::TRIGRAM . '_' . hash('crc32b', $definition)] = $definition;
         }
         $vector = self::vector($index, $names);
         if ($vector !== null) {
-            $indexes[self::VECTOR] = sprintf('USING gin ((%s))', $vector);
+            $definition = sprintf('USING gin ((%s))', $vector);
+            $indexes[self::VECTOR . '_' . hash('crc32b', $definition)] = $definition;
         }
 
         return $indexes;
+    }
+
+    /**
+     * Prefixes of the names an open-class index of this sidecar can have (then any hash), for finding the stale ones: an index that
+     * is one of these plus 8 characters (the hash) and is not among the expected ones was built for other granted fields. Empty when a name would be
+     * shortened by the identifier limit (the hash is not at the end then, and a prefix could match other indexes).
+     *
+     * @return list<string>
+     */
+    public static function stalePrefixes(IndexDefinition $index, Names $names): array
+    {
+        $prefixes = [];
+        foreach ([self::TRIGRAM, self::VECTOR] as $kind) {
+            $prefix = $names->sidecarName($index) . '_' . $kind . '_';
+            if (strlen($prefix) + 8 <= Names::MAX_IDENTIFIER_BYTES) {
+                $prefixes[] = $prefix;
+            }
+        }
+
+        return $prefixes;
+    }
+
+    /** @return list<string> the names the open-class indexes of this definition have now (none without a granted field) */
+    public static function expectedNames(IndexDefinition $index, Names $names): array
+    {
+        return array_map(static fn(string $suffix): string => $names->indexName($index, $suffix), array_keys(self::indexes($index, $names)));
     }
 
     /** @param list<string> $columns */
