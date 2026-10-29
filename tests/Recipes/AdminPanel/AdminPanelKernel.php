@@ -7,7 +7,6 @@ namespace Fuzzphony\Tests\Recipes\AdminPanel;
 use Doctrine\DBAL\Connection as DbalConnection;
 use Doctrine\ORM\EntityManager;
 use Doctrine\ORM\EntityManagerInterface;
-use Doctrine\ORM\ORMSetup;
 use Fuzzphony\Bundle\FuzzphonyBundle;
 use Fuzzphony\Tests\Integration\Bridge\DoctrineTestCase;
 use Fuzzphony\Tests\Integration\Bundle\Registry\DoctrineStubBundle;
@@ -53,8 +52,7 @@ final class AdminPanelKernel extends Kernel
 
     public static function entityManager(): EntityManagerInterface
     {
-        $config = ORMSetup::createAttributeMetadataConfig([__DIR__], true);
-        $config->enableNativeLazyObjects(true);
+        $config = DoctrineTestCase::attributeConfig([__DIR__]);
 
         return new EntityManager(DoctrineTestCase::dbalConnection(), $config);
     }

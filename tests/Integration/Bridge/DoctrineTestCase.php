@@ -8,6 +8,7 @@ use Doctrine\DBAL\Configuration as DbalConfiguration;
 use Doctrine\DBAL\Connection as DbalConnection;
 use Doctrine\DBAL\Driver\Middleware as DbalMiddleware;
 use Doctrine\DBAL\DriverManager;
+use Doctrine\ORM\Configuration;
 use Doctrine\ORM\EntityManager;
 use Doctrine\ORM\EntityManagerInterface;
 use Doctrine\ORM\ORMSetup;
@@ -17,11 +18,30 @@ use Fuzzphony\Tests\Integration\PostgresTestCase;
 /** @internal Builds a real Doctrine ORM EntityManager against the same disposable Postgres used by PostgresTestCase. */
 final class DoctrineTestCase
 {
+    /**
+     * The ORM configuration the tests use, for the oldest ORM the library supports (3.3: the long method name, no native lazy objects)
+     * and the newest alike.
+     *
+     * @param list<string> $paths
+     */
+    public static function attributeConfig(array $paths): Configuration
+    {
+        // @phpstan-ignore function.alreadyNarrowedType (always true with the newest ORM, false with 3.3)
+        $config = method_exists(ORMSetup::class, 'createAttributeMetadataConfig')
+            ? ORMSetup::createAttributeMetadataConfig($paths, true)
+            : ORMSetup::createAttributeMetadataConfiguration($paths, true);
+        // @phpstan-ignore function.alreadyNarrowedType (always true with the newest ORM, false with 3.3)
+        if (method_exists($config, 'enableNativeLazyObjects')) {
+            $config->enableNativeLazyObjects(true);
+        }
+
+        return $config;
+    }
+
     /** @param list<DbalMiddleware> $middlewares DBAL middlewares must be registered before the connection is first used. */
     public static function entityManager(array $middlewares = []): EntityManagerInterface
     {
-        $config = ORMSetup::createAttributeMetadataConfig([__DIR__ . '/../../Fixtures/Doctrine'], true);
-        $config->enableNativeLazyObjects(true);
+        $config = self::attributeConfig([__DIR__ . '/../../Fixtures/Doctrine']);
 
         return new EntityManager(self::dbalConnection($middlewares), $config);
     }
