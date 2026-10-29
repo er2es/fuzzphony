@@ -342,6 +342,10 @@ final class ArrayDefinitionLoader
             if ($section === 'fields') {
                 self::assertBool($problems, $at . ' "fuzzy"', $options['fuzzy'] ?? null);
                 self::assertBool($problems, $at . ' "highlight"', $options['highlight'] ?? null);
+                if (array_key_exists('granted', $options) && (!is_string($options['granted']) || trim($options['granted']) === '')) {
+                    // never read as "open": a field meant to be protected must not become visible to everyone by a typo or an empty value
+                    $problems[] = sprintf('%s "granted" must be a non-empty string, the attribute that unlocks the field (granted: ROLE_HR), got %s. Remove the key to leave the field open to everyone.', $at, self::describe($options['granted']));
+                }
             }
         }
     }
