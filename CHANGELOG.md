@@ -11,6 +11,10 @@ and a link. Measurements, proofs and test names belong to the pull request, [doc
 
 ## [Unreleased]
 
+### Changed
+
+- **Docs: a new section "Joins, several tables and several indexes"** in [docs/configuration.md](docs/configuration.md#joins-several-tables-and-several-indexes): where a join and its `watch` go, several (overlapping) indexes with federated search, a `UNION ALL` index, composite keys and a database without trigger rights.
+
 ## [0.9.9] - 2026-10-29
 
 The review-fix round before the API round: a restricted viewer's search on words common in hidden fields is fast again (open-class indexes), the typo-tolerant branch is cheap again for everyone (`hedphones` 354 -> 51 ms at 200k), the engine is split into services, and the demo and the CI were reworked. Run `fuzzphony:schema --apply` on indexes with a `granted` field (see [UPGRADE.md](UPGRADE.md#from-098-to-099)); nothing else is required. Strict YAML/array validation, the stricter `granted` check and some result changes for restricted and capped searches are listed under Behaviour change.
