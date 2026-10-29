@@ -387,7 +387,7 @@ final readonly class SearchRunner
             // (so is a phrase on an index with several fields: tsv caps its positions, see SearchSqlBuilder)
             $scopedRoot = $compiler->hasFieldScope($root) || $query->allowedFields !== null || (count($index->fields) > 1 && $compiler->hasSequence($root)) ? $root : null;
         }
-        $plain = implode(' ', TsQueryCompiler::lexemes(implode(' ', NodeInspector::positiveWords($root))));
+        $plain = implode(' ', TsQueryCompiler::lexemes(implode(' ', NodeInspector::positiveWords($root, null, $query->asYouType))));
 
         // Typo tolerance is per word (FuzzyQueryCompiler); it needs at least one positive word long enough for it.
         $fuzzy = $c->fuzzy();
