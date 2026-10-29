@@ -1,7 +1,9 @@
 # Screenshots
 
 What the [demo](../demo/README.md) looks like: a Symfony app on a seeded catalogue of 500 000 products, run with
-`docker compose up --build` in the `demo` folder. Back to the [README](../README.md).
+`docker compose up --build` in the `demo` folder. The links of the top menu are centred on the page, the three buttons at the right of the bar
+choose the colour scheme (System, Light, Dark; the pictures were taken in the dark scheme), and a footer with the Fuzzphony version and links ends every page.
+Back to the [README](../README.md).
 
 ## Search
 
@@ -34,9 +36,10 @@ going on inside: the configuration wizard, the benchmark, the doctor report, obs
 
 Why a search finds what was meant. Ready-made examples sit in three columns: how far a typo may stray by the length of the
 word (`mouse` is not `monitor`), which words mean the same, and what "did you mean" suggests. Below, the results of the
-default rule (the similarity a word needs depends on its length) stand next to the flat 0.3 of earlier versions.
+default rule (the similarity a word needs depends on its length) stand next to the flat 0.3 of earlier versions. Under every row a "Why" line says which field matched and
+how: here the rows only the flat rule finds are `Tefal` products, found through the brand because `tefal` and `tv` share one trigram (similarity 0.33).
 
-![Relevance: typo tolerance by word length, synonyms and "did you mean", with two rules side by side](image/relevance.png)
+![Relevance: typo tolerance by word length, synonyms and "did you mean", with two rules side by side and a Why line under every row](image/relevance.png)
 
 ## Languages
 

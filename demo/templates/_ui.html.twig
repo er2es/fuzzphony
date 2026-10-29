@@ -6,7 +6,7 @@
 {# The search field of a page that submits (the home page has its own, which also searches while you type). #}
 {% macro search_field(action, q, index, placeholder, params = {}, categories = false, products = true, suggest = true) %}
     {# `suggest: false` is for an index the dropdown must not read (/suggest refuses the actor-guarded intranet index): no completions, clear button or spinner #}
-    <form method="get" action="{{ action }}" role="search" class="field-wrap"{% if suggest %} data-controller="suggest"
+    <form method="get" action="{{ action }}" role="search" class="field-wrap" data-controller="{% if suggest %}suggest {% endif %}clearable"{% if suggest %}
           data-suggest-url-value="{{ path('suggest') }}" data-suggest-index-value="{{ index }}" data-suggest-page-value="{{ action }}"
           data-suggest-params-value="{{ params|json_encode|e('html_attr') }}"
           data-suggest-categories-value="{{ categories ? 'true' : 'false' }}" data-suggest-products-value="{{ products ? 'true' : 'false' }}"{% endif %}>
@@ -42,13 +42,16 @@
 {% endmacro %}
 
 {# A product row of the catalogue (a search hit and its row): the name with the library's highlight, brand and category, the price on the right. #}
-{% macro hit_row(hit, row, flag = null) %}
+{% macro hit_row(hit, row, flag = null, why = null) %}
     {% import _self as ui %}
     {% set aside %}{% if flag %}<span class="flag">{{ flag }}</span>{% endif %}{% if row %}<div class="row-trailing">{{ row.price|number_format(0, '.', ' ') }} Ft</div>{% endif %}{% endset %}
     {# the highlight is HTML-escaped by Fuzzphony (only <mark> is added), so it is output raw; the fallback is escaped by Twig. The captured block
        is markup, which the macro does not escape again (|raw inside a ternary would not survive the argument). #}
     {% set title %}{% if hit.highlights.name is defined %}{{ hit.highlights.name|raw }}{% else %}{{ row.name ?? hit.id }}{% endif %}{% endset %}
-    {{ ui.product_row(row.category ?? '', title, (row.brand ?? '') ~ ' · ' ~ (row.category ?? ''), aside) }}
+    {# the brand and the category carry the library's highlight too when the search asked for it (the Relevance page does) #}
+    {% set sub %}{% if hit.highlights.brand is defined %}{{ hit.highlights.brand|raw }}{% else %}{{ row.brand ?? '' }}{% endif %} · {% if hit.highlights.category is defined %}{{ hit.highlights.category|raw }}{% else %}{{ row.category ?? '' }}{% endif %}{% endset %}
+    {% set below %}{% if why %}<div class="row-why"><span class="why-label">Why:</span> {{ why }}</div>{% endif %}{% endset %}
+    {{ ui.product_row(row.category ?? '', title, sub, aside, null, below) }}
 {% endmacro %}
 
 {# Example tokens that link to a search. #}

@@ -37,6 +37,7 @@ const pages = JSON.parse(process.env.PAGES ?? JSON.stringify([
     { name: 'security-limited', path: '/under-the-hood/security?as=ada&q=menu', before: ['reset=1', 'q=menu', 'q=menu', 'q=menu', 'q=menu', 'q=menu'].map((x) => `/under-the-hood/security?as=ada&${x}`) },
     { name: 'security-ada', path: '/under-the-hood/security?as=ada&q=salary&reset=1' },
 ]));
+const throughSwitch = ['home', 'home-query', 'relevance', 'languages', 'tune', 'synonyms'];
 const viewports = { phone: { width: 390, height: 844 }, tablet: { width: 820, height: 1180 }, laptop: { width: 1280, height: 800 } };
 // interactions: typing into the search box and capturing the suggestion panel
 const flows = JSON.parse(process.env.FLOWS ?? JSON.stringify([
@@ -48,8 +49,10 @@ let failures = 0;
 for (const page of pages) {
     if (ONLY && !ONLY.includes(page.name)) continue;
     for (const [vpName, viewport] of Object.entries(viewports)) {
-        for (const scheme of ['light', 'dark']) {
-            const context = await browser.newContext({ viewport, colorScheme: scheme, reducedMotion: 'reduce' });
+        // 'light' and 'dark' are the system scheme; 'to-dark' and 'to-light' start from the opposite system scheme and choose through the switch in the toolbar
+        // (only the pages of `throughSwitch`: the choice sets the same attribute on every page)
+        for (const scheme of ['light', 'dark', ...(throughSwitch.includes(page.name) ? ['to-dark', 'to-light'] : [])]) {
+            const context = await browser.newContext({ viewport, colorScheme: scheme === 'to-dark' ? 'light' : scheme === 'to-light' ? 'dark' : scheme, reducedMotion: 'reduce' });
             const p = await context.newPage();
             const messages = [];
             // the production headers include Cross-Origin-Opener-Policy, which a browser ignores (with an error) on any origin that is not
@@ -61,6 +64,15 @@ for (const page of pages) {
             await p.goto(BASE + page.path, { waitUntil: 'load', timeout: 10000 }).catch(() => p.goto(BASE + page.path, { waitUntil: 'load', timeout: 30000 }));
             await p.waitForLoadState('networkidle', { timeout: 8000 }).catch(() => {});
             await p.waitForTimeout(400);
+            if (scheme.startsWith('to-')) {
+                const want = scheme.slice(3);
+                await p.click(`.theme-switch button[aria-label="${want === 'dark' ? 'Dark' : 'Light'}"]`);
+                const scheme2 = await p.evaluate(() => getComputedStyle(document.documentElement).colorScheme);
+                if (scheme2 !== want || (await p.evaluate(() => getComputedStyle(document.body).backgroundColor)) !== (want === 'dark' ? 'rgb(0, 0, 0)' : 'rgb(245, 245, 247)')) {
+                    console.log(`! ${page.name} ${vpName} ${scheme}: the switch did not change the scheme (${scheme2})`);
+                    failures++;
+                }
+            }
             await p.screenshot({ path: `${OUT}/${page.name}-${vpName}-${scheme}.png`, fullPage: true });
             const overflow = await p.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth);
             if (overflow > 0) {
