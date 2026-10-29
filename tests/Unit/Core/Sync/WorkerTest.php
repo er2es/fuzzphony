@@ -9,6 +9,7 @@ use Fuzzphony\Core\Engine\Engine;
 use Fuzzphony\Core\Exception\EngineFailure;
 use Fuzzphony\Core\Exception\InvalidArgument;
 use Fuzzphony\Core\Exception\RebuildAlreadyRunning;
+use Fuzzphony\Core\Support\Coerce;
 use Fuzzphony\Core\Sync\Worker;
 use Fuzzphony\Tests\Fixtures\Indexes;
 use Fuzzphony\Tests\Unit\Core\Observability\RecordingMetricsCollector;
@@ -175,14 +176,14 @@ final class WorkerTest extends TestCase
         $other = Indexes::products()->withName('other');
         $now = 1_000.0;
         $calls = ['products' => 0, 'other' => 0];
-        $left = ['other' => 3];
+        $left = new \ArrayObject(['other' => 3]);
         $engine = self::createStub(Engine::class);
-        $engine->method('processQueue')->willReturnCallback(static function (IndexDefinition $index) use (&$calls, &$left): int {
+        $engine->method('processQueue')->willReturnCallback(static function (IndexDefinition $index) use (&$calls, $left): int {
             ++$calls[$index->name];
             if ($index->name === 'products') {
                 throw new EngineFailure('the batch cannot be built');
             }
-            $processed = $left['other'] ?? 0;
+            $processed = Coerce::int($left['other']);
             $left['other'] = 0;
 
             return $processed;
@@ -220,13 +221,13 @@ final class WorkerTest extends TestCase
     {
         $index = Indexes::products();
         $now = 1_000.0;
-        $down = true;
+        $state = new \ArrayObject(['down' => true]);
         $engine = self::createStub(Engine::class);
-        $engine->method('processQueue')->willReturnCallback(static function () use (&$down): int {
-            if ($down) {
+        $engine->method('processQueue')->willReturnCallback(static function () use ($state): int {
+            if ($state['down'] === true) {
                 throw new EngineFailure('down');
             }
-            $down = true; // fails again right after the one batch
+            $state['down'] = true; // fails again right after the one batch
 
             return 1;
         });
@@ -235,7 +236,7 @@ final class WorkerTest extends TestCase
         });
 
         $worker->runOnce([$index]);
-        $down = false;
+        $state['down'] = false;
         $now = 1_060.0;
         self::assertSame(1, $worker->runOnce([$index]), 'one batch, then it fails again');
         $now = 1_060.0 + 60.0;
