@@ -11,6 +11,10 @@ and a link. Measurements, proofs and test names belong to the pull request, [doc
 
 ## [Unreleased]
 
+## [0.9.9] - 2026-10-29
+
+The review-fix round before the API round: a restricted viewer's search on words common in hidden fields is fast again (open-class indexes), the typo-tolerant branch is cheap again for everyone (`hedphones` 354 -> 51 ms at 200k), the engine is split into services, and the demo and the CI were reworked. Run `fuzzphony:schema --apply` on indexes with a `granted` field (see [UPGRADE.md](UPGRADE.md#from-098-to-099)); nothing else is required. Strict YAML/array validation, the stricter `granted` check and some result changes for restricted and capped searches are listed under Behaviour change.
+
 ### Added
 
 - **A restricted viewer's search is fast when the fields it cannot see are full of the words searched.** An index with a `granted` field gets two indexes over its open
@@ -315,7 +319,7 @@ No upgrade steps for the library. The demo's routes changed (below).
 
 ### Changed
 
-- **Demo interface, rebuilt** (the design and its reasoning: `docs/superpowers/specs/2026-10-12-v082-demo-interface-design.md`). A search home
+- **Demo interface, rebuilt**. A search home
   where the results appear in place while you type, with the facets at the side and the category illustrations; a Speed view that measures the
   same search against `ILIKE` and runs the benchmark on demand; Relevance with the synonym editor; Languages with the federated view; Tune; and
   an "Under the hood" menu (wizard, doctor, observability). Nine navigation items became four plus the menu. A native-CSS design system
@@ -1019,7 +1023,8 @@ on its own:
 - Sync modes: queue (default), trigger, ORM, manual; watches for joined tables.
 - Doctor with fixes; CLI commands for schema, reindex, worker, search and explain.
 
-[Unreleased]: https://github.com/er2es/fuzzphony/compare/v0.9.8...HEAD
+[Unreleased]: https://github.com/er2es/fuzzphony/compare/v0.9.9...HEAD
+[0.9.9]: https://github.com/er2es/fuzzphony/compare/v0.9.8...v0.9.9
 [0.9.8]: https://github.com/er2es/fuzzphony/compare/v0.9.7...v0.9.8
 [0.9.7]: https://github.com/er2es/fuzzphony/compare/v0.9.6...v0.9.7
 [0.9.6]: https://github.com/er2es/fuzzphony/compare/v0.9.5...v0.9.6

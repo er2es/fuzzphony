@@ -116,8 +116,7 @@ patterns (the rounded search field, the segmented control, inset grouped lists, 
 least 4.5:1, light and dark from the system setting, sizes in `rem`, motion that explains cause and effect and stops under
 `prefers-reduced-motion`. It is native CSS (`@layer`, tokens with `light-dark()` and `color-mix()`, cross-document view transitions),
 the system font stack and one inline SVG sprite ([`templates/_sprite.html.twig`](templates/_sprite.html.twig): the interface icons and one drawing
-per product category); no font, image or script is downloaded for it. The design and its reasoning are in
-[`docs/superpowers/specs/2026-10-12-v082-demo-interface-design.md`](../docs/superpowers/specs/2026-10-12-v082-demo-interface-design.md).
+per product category); no font, image or script is downloaded for it.
 
 To look at it the way it was reviewed, [`tools/shots.mjs`](tools/shots.mjs) takes a screenshot of every page at phone, tablet and laptop size, light and dark,
 with reduced motion, and runs axe-core (WCAG 2.2 AA) and a horizontal-overflow check on every one of them (Playwright from its official Docker image; nothing
