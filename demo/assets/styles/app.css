@@ -136,7 +136,15 @@
         background: color-mix(in srgb, var(--bg-page) 78%, transparent);
         -webkit-backdrop-filter: saturate(1.8) blur(20px); backdrop-filter: saturate(1.8) blur(20px);
     }
-    .toolbar-inner { max-width: 70rem; margin: 0 auto; padding: 0 1.25rem; min-height: 3.25rem; display: flex; align-items: center; gap: 1.75rem; }
+    /* the links are centred on the page; the brand sits at the left edge of the bar and takes the same room on the right (1fr auto 1fr), so the centre does not move. Where
+       the bar is too narrow for that (the links would run into the brand), the brand gets a line of its own above the centred links. */
+    .toolbar-inner { max-width: 70rem; margin: 0 auto; padding: 0 1.25rem; min-height: 3.25rem; display: grid; grid-template-columns: 1fr auto 1fr; align-items: center; gap: 1.75rem; }
+    .toolbar-inner > .wordmark { justify-self: start; }
+    .toolbar-inner > .nav { justify-self: center; }
+    @media (max-width: 58rem) {
+        .toolbar-inner { grid-template-columns: 1fr; justify-items: center; gap: .1rem; padding-block: .45rem; }
+        .toolbar-inner > .wordmark { justify-self: center; }
+    }
     .wordmark { font-weight: 700; font-size: 1.0625rem; letter-spacing: -.015em; color: var(--label); }
     .wordmark:hover { text-decoration: none; }
     .nav { display: flex; align-items: center; gap: .125rem; }
