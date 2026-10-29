@@ -70,7 +70,7 @@ final class SchemaGeneratorTest extends TestCase
         $statements = (new PostgresSchemaGenerator())->index(Indexes::products())->statements;
         $concurrent = array_values(array_filter($statements, static fn(Statement $s): bool => str_contains($s->sql, 'CONCURRENTLY')));
 
-        self::assertCount(8, $concurrent); // tsv, trigram, 4 filters, the vocabulary's trigram and prefix indexes
+        self::assertCount(9, $concurrent); // tsv, trigram, 4 filters, the vocabulary's trigram and prefix indexes, the drop of stale open-class indexes
         foreach ($concurrent as $statement) {
             self::assertFalse($statement->transactional);
         }
