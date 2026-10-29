@@ -13,6 +13,7 @@ and a link. Measurements, proofs and test names belong to the pull request, [doc
 
 ### Fixed
 
+- **`fuzzphony:schema --apply` as a role that cannot create triggers on a watched table says so** (the table, that it needs ownership or the `TRIGGER` privilege, and that `sync: manual` works without) instead of a raw `permission denied`; still exit code 1, nothing applied ([docs](docs/sync.md#a-database-where-you-cannot-create-triggers)).
 - **`EntityLoader` and `FuzzphonySearchFilter` skip hits whose id cannot be an id of the entity** (a string such as `article-1` for an integer key) instead of failing with `invalid input syntax for type integer`; still one query, same order ([docs](docs/integrations.md#doctrine)).
 
 ## [0.9.9] - 2026-10-29

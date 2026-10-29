@@ -5,6 +5,11 @@ declare(strict_types=1);
 namespace Fuzzphony\Tests\Integration\Command;
 
 use Fuzzphony\Bundle\Command\SchemaCommand;
+use Fuzzphony\Core\Fuzzphony;
+use Fuzzphony\Core\Registry\IndexRegistry;
+use Fuzzphony\Core\Support\Coerce;
+use Fuzzphony\Engine\Postgres\PostgresEngine;
+use Fuzzphony\Tests\Fixtures\Indexes;
 use PHPUnit\Framework\TestCase;
 use Symfony\Component\Console\Command\Command;
 use Symfony\Component\Console\Tester\CommandCompletionTester;
@@ -171,6 +176,47 @@ final class SchemaCommandTest extends TestCase
 
         self::assertSame(Command::FAILURE, $status);
         self::assertStringContainsString('Cannot create directory', $this->tester->getDisplay(true));
+    }
+
+    public function testARoleThatCannotCreateTriggersOnTheWatchedTableGetsAnActionableMessageAndNothingIsApplied(): void
+    {
+        $connection = $this->context->connection;
+        if ($connection->fetchValue('SELECT rolsuper OR rolcreaterole FROM pg_roles WHERE rolname = current_user') !== true) {
+            self::markTestSkipped('The connection user cannot create roles.');
+        }
+        $tester = new CommandTester(new SchemaCommand(
+            new Fuzzphony(new PostgresEngine($connection, schema: 'fuzzphony_nt'), new IndexRegistry([Indexes::products('queue')])),
+            $connection,
+        ));
+        $role = 'fz_no_trigger_' . getmypid();
+        $connection->execute('DROP SCHEMA IF EXISTS fuzzphony_nt CASCADE');
+        $connection->execute(sprintf('DROP ROLE IF EXISTS %s', $role));
+        $connection->execute(sprintf('CREATE ROLE %s', $role));
+        try {
+            // The role owns Fuzzphony's own schema (like an application role in a dedicated schema) but only reads the application's tables.
+            $connection->execute(sprintf('CREATE SCHEMA fuzzphony_nt AUTHORIZATION %s', $role));
+            $connection->execute(sprintf('GRANT CREATE ON DATABASE %s TO %s', Coerce::str($connection->fetchValue('SELECT current_database()')), $role));
+            $connection->execute(sprintf('GRANT USAGE ON SCHEMA public TO %s', $role));
+            $connection->execute(sprintf('GRANT SELECT ON fz_product, fz_brand TO %s', $role));
+            $connection->execute(sprintf('SET ROLE %s', $role));
+            try {
+                $status = $tester->execute(['--apply' => true], ['interactive' => false]);
+            } finally {
+                $connection->execute('RESET ROLE');
+            }
+        } finally {
+            $connection->execute('DROP SCHEMA IF EXISTS fuzzphony_nt CASCADE');
+            $connection->execute(sprintf('DROP OWNED BY %s', $role));
+            $connection->execute(sprintf('DROP ROLE %s', $role));
+        }
+
+        $display = preg_replace('/\s+/', ' ', $tester->getDisplay(true));
+        self::assertSame(Command::FAILURE, $status);
+        self::assertStringContainsString('cannot create the triggers on the table fz_product', (string) $display);
+        self::assertStringContainsString('owner of the table (or hold its TRIGGER privilege)', (string) $display);
+        self::assertStringContainsString('sync: manual', (string) $display);
+        self::assertStringNotContainsString('statement(s) applied', (string) $display);
+        self::assertNull($connection->fetchValue("SELECT to_regclass('fuzzphony_nt.fuzzphony_products')"), 'the apply is transactional: nothing was created');
     }
 
     public function testCompletesIndexNames(): void
