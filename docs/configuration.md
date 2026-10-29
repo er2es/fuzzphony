@@ -27,6 +27,16 @@ is one command.
 
 ## Joins, several tables and several indexes
 
+### Entity attributes or YAML?
+
+| Your situation | Use |
+|---|---|
+| Doctrine entities, one index per entity, over (mostly) that entity's table | attributes (`#[Searchable]` on the class) |
+| A legacy database without entities (plain tables, no ORM) | YAML (Symfony) or the builder (plain PHP) |
+| A source with joins, or over several tables | YAML or the builder (`source.query`, `watch`) |
+| Several indexes over the same table or entity (attributes are one per class) | the first by attributes if you like, the others in YAML or the builder under another name |
+| An attribute index whose `sync`, `language`, `boost`, `watch`, ... you want to change per environment | a YAML entry with the same name overrides those keys (see [YAML](#yaml)) |
+
 **A join goes in the source query.** Attributes only name a table, so for a join define the index in YAML (`source.query`)
 or with the builder (`fromQuery()`); the first example under [YAML](#yaml) and the one under
 [Builder](#builder-plain-php) are joined indexes. The query returns one row per document, with the id in a column
@@ -114,6 +124,66 @@ Each index has its own sidecar table, triggers and queue rows, so indexes can sh
       watch: { customer: 'SELECT :id' }
       language: simple
 ```
+
+### A complete example: two indexes over overlapping tables
+
+`items` (item + category + location) and `people` (person + organisation + the organisation's location) are two
+independent indexes, each with its own joins and a `watch` for every joined table. Both watch `location`. I ran this
+file with `sync: trigger` on PostgreSQL 17: `schema --apply`, `reindex` (3 items, 2 people), then the searches below.
+
+```yaml
+fuzzphony:
+  indexes:
+    items:
+      source:
+        query: |
+          SELECT i.id, i.name, c.name AS category, l.name AS location
+          FROM item i
+          JOIN category c ON c.id = i.category_id
+          JOIN location l ON l.id = i.location_id
+      fields:
+        name: { weight: A, fuzzy: true }
+        category: B
+        location: C
+      watch:
+        item: 'SELECT :id'
+        category: 'SELECT id FROM item WHERE category_id = :id'
+        location: 'SELECT id FROM item WHERE location_id = :id'
+      sync: trigger
+    people:
+      source:
+        query: |
+          SELECT p.id, p.name, o.name AS organisation, l.name AS location
+          FROM person p
+          JOIN organisation o ON o.id = p.organisation_id
+          JOIN location l ON l.id = o.location_id
+      fields:
+        name: { weight: A, fuzzy: true }
+        organisation: B
+        location: C
+      watch:
+        person: 'SELECT :id'
+        organisation: 'SELECT id FROM person WHERE organisation_id = :id'
+        location: 'SELECT p.id FROM person p JOIN organisation o ON o.id = p.organisation_id WHERE o.location_id = :id'
+      sync: trigger
+```
+
+Search each index on its own, or both together:
+
+```php
+$items = $fuzzphony->in('items')->query('drill')->get();      // ids [1]
+$people = $fuzzphony->in('people')->query('kovacs')->get();   // ids [1]
+
+$both = $fuzzphony->federated()->index('items')->index('people')->query('debrecen')->get();
+foreach ($both as $hit) {
+    echo $hit->index, ' ', $hit->hit->id, "\n";               // items 2, people 1, people 2
+}
+```
+
+What the run showed. `UPDATE location SET name = 'Warehouse Szeged' WHERE id = 1` changed both indexes in the same
+statement: `budapest` found nothing in either afterwards, `szeged` found the items 1 and 3 and the person 1. Moving
+organisation 1 to location 2 reindexed only `people` (the `organisation` watch), and renaming a category only `items`. The
+`location` table carries 8 triggers, four for each index.
 
 ### Searching several indexes together
 
