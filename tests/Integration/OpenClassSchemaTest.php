@@ -169,8 +169,7 @@ final class OpenClassSchemaTest extends TestCase
     {
         $explained = $fuzzphony->in('open_docs')->query('kettle')->thresholds(['fuzzy_mode' => 'always'])->restrictedToFields($column)->explain();
 
-        $sql = implode("
-", array_column($explained->statements, 'sql'));
+        $sql = implode(' ', array_column($explained->statements, 'sql'));
 
         return str_contains($sql, 's."t_' . $column . '" @@ q.') && !str_contains($sql, 's.tsv @@');
     }
