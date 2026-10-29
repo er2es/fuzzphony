@@ -52,6 +52,7 @@ its own rules: here `chevaux` finds `cheval` (the French stemmer knows the -aux 
 ## Tune
 
 Every weight and threshold of the ranking as a control. Move a slider and the results, the score of each hit (the bar shows
-where the score comes from: full text, fuzzy, bonuses) and the SQL update at once.
+where the score comes from: full text, fuzzy, bonuses) and the SQL update at once. The info icon next to each label opens a
+tooltip with what the setting does and an example from the catalogue.
 
 ![Tune: the ranking weights and thresholds as sliders next to the results with their score breakdown](image/tune.png)

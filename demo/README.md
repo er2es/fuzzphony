@@ -85,7 +85,7 @@ Symfony: Twig + Stimulus via AssetMapper (no Node build), Live Components, DBAL.
 | **Search** (`/`) | One search field over the catalogue: results while you type, a typo or a half-typed word found, a calm bar when a typo is rescued (*Showing results for mouse* for `mpuse`), and a **Speed** view next to a plain `ILIKE`. |
 | **Relevance** (`/relevance`) | Why a search finds what was meant: typo tolerance by word length, synonyms, "did you mean". |
 | **Languages** (`/languages`) | One small catalogue in five languages, with the stem PostgreSQL made of every word and ILIKE's count next to Fuzzphony's. |
-| **Tune** (`/tune`) | Every ranking weight and threshold as a control, with a score breakdown per hit and the SQL. |
+| **Tune** (`/tune`) | Every ranking weight and threshold as a control, with a score breakdown per hit and the SQL. An info icon next to each label opens a tooltip: what the setting does and an example. |
 | **Under the hood** (`/under-the-hood/...`) | The **Config wizard**, **Benchmark**, **Doctor**, **Observability**, the **Synonyms** editor, **Analytics** (what was searched, and who searched what) and **Security** (below). |
 
 The mechanics sit next to the code that does them: the search page's two steps and its logging in
@@ -131,6 +131,8 @@ with reduced motion, and runs axe-core (WCAG 2.2 AA) and a horizontal-overflow c
 is added to the project): see the comment at the top of the file. [`tools/flows.mjs`](tools/flows.mjs) checks what a screenshot cannot show, in a real browser:
 the live results, the rescue, the suggestion panel with the keyboard, the colour scheme switch, the footer's position, the menu's centring, clearing a search box, the loading language, the search log, the Security page, the Speed view and the phone layout
 (it resets the viewer's count first, so a re-run is never refused by the previous one).
+
+**Info tooltips on Tune.** Each control has an info button (`<button>` with `aria-describedby` and `aria-expanded`) that opens a custom tooltip on hover, focus or tap and closes on Escape, a press outside or blur; one is open at a time, it is placed inside the window (also on a phone) and a Live Component re-render leaves it alone (`data-live-ignore`). The texts are in one place, [`SettingHelp`](src/Service/SettingHelp.php); the behaviour is [`tooltip_controller.js`](assets/controllers/tooltip_controller.js), checked in `tools/flows.mjs`.
 
 **Loading looks the same everywhere.** Whatever the demo waits for, it shows the same three things after a short delay (so a fast answer does not flicker): a hairline bar runs along the top, the page dims (the field too, though it stays usable), the field shows a small spinner (a page without a field gets one of its own) and a status pill at the bottom says what is going on. `aria-busy` is the one signal, for the eyes and for assistive technology: a Live Component (Tune) and the live results set it on their own region, and a link or form sets it on `<main>` (`progress_controller.js`); the bar and the spinner follow either. One rule in `app.css` (`.busy-region`, `.field-spinner`) covers every page.
 
