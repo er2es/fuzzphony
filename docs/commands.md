@@ -7,20 +7,23 @@ The `fuzzphony:*` commands, the doctor and the configuration wizard. Back to the
 
 | Command | Purpose |
 |---|---|
-| `fuzzphony:schema [index] [--apply\|--drop\|--dump-migration=dir] [--force]` | show / apply / export idempotent DDL (alias `fuzzphony:install`); `--dump-migration` writes a Doctrine migration, see [Doctrine Migrations](integrations.md#doctrine-migrations) |
+| `fuzzphony:schema [index] [--apply\|--drop\|--dump-migration=dir [--namespace=NS]] [--force]` | show / apply / export idempotent DDL (alias `fuzzphony:install`); `--dump-migration` writes a Doctrine migration, see [Doctrine Migrations](integrations.md#doctrine-migrations); a role that may not create triggers on a watched table gets a message naming it and exit code 1, see [A database where you cannot create triggers](sync.md#a-database-where-you-cannot-create-triggers) |
 | `fuzzphony:reindex [index] [--batch=5000] [--from=id] [--in-place] [--no-prune] [--prune-empty] [--vocabulary] [--force]` | rebuild next to the live index and swap it in (zero downtime; `--in-place` writes the live index directly), resumable, with progress; a failed run exits with code 1 and prints the command to resume with, and the command stops at the first index that fails; see [Reindexing](sync.md#reindexing-and-orphan-pruning); a full run also rebuilds the vocabulary of a fuzzy index ("did you mean"), and `--vocabulary` rebuilds only that for every fuzzy index (or the one named), writing no document, and cannot be combined with `--from`, `--in-place`, `--no-prune` or `--prune-empty` |
-| `fuzzphony:worker [--once] [--time-limit=s] [--index=x]` | drain the sync queue, including the full rebuilds a `TRUNCATE` queued (a failed one is retried after a back-off; `--once` then exits with code 1); graceful on SIGTERM |
+| `fuzzphony:worker [--once] [--time-limit=s] [--index=x] [--batch=n]` | drain the sync queue, including the full rebuilds a `TRUNCATE` queued (a failed one, or a queue that cannot be processed, is retried after a back-off of 60 s doubling to an hour while the other indexes go on; `--once` then exits with code 1); graceful on SIGTERM (after the batch in progress, also while the queue is busy); `--time-limit` is checked after every batch; the indexes take turns of at most 10 batches; a batch is all or nothing, see [One unreadable document](limitations.md#one-unreadable-document-stops-its-indexs-queue) |
 | `fuzzphony:doctor [index] [--deep] [--strict] [--format=text\|prometheus]` | health check with fixes; `--format=prometheus` prints Prometheus text-exposition lines instead, see [Observability](observability.md#fuzzphonydoctor---formatprometheus) |
-| `fuzzphony:search index 'query' [-w filter] [-f facet] [--exact] [--as-you-type] [--suggest] [--threshold key=value] [--tenant=ID] [--user=name] [--explain [--analyze]]` | try queries, see score breakdowns, SQL and plans; `-f in_stock` counts the values of a filter ([facets](searching.md#facets), `--exact` counts every match), `--as-you-type` also matches the last word as a prefix, `--suggest` only completes the last word ([search-as-you-type](searching.md#search-as-you-type)); `--tenant=42 --user=ada` searches as that actor ([multi-tenancy](multi-tenancy.md#integrations): a tenant-scoped index needs `--tenant`, otherwise the command prints why and exits with code 1; an empty `--tenant=` or `--user=` is refused, and the value is matched against the type of the tenant filter); `--threshold fuzzy_mode=always` overrides a [threshold](ranking.md#thresholds) for the run (`fuzzy_similarity=null` goes back to by word length) |
+| `fuzzphony:search index 'query' [-w filter] [-f facet] [-l limit] [-p profile] [--exact] [--as-you-type] [--suggest] [--threshold key=value] [--tenant=ID] [--user=name] [--log] [--explain [--analyze]]` | try queries, see score breakdowns, SQL and plans; `-f in_stock` counts the values of a filter ([facets](searching.md#facets), `--exact` counts every match), `--as-you-type` also matches the last word as a prefix, `--suggest` only completes the last word ([search-as-you-type](searching.md#search-as-you-type)); `--tenant=42 --user=ada` searches as that actor ([multi-tenancy](multi-tenancy.md#integrations): a tenant-scoped index needs `--tenant`, otherwise the command prints why and exits with code 1; an empty `--tenant=` or `--user=` is refused, and the value is matched against the type of the tenant filter); `--threshold fuzzy_mode=always` overrides a [threshold](ranking.md#thresholds) for the run (`fuzzy_similarity=null` goes back to by word length) |
 | `fuzzphony:analytics index [--top\|--zero\|--recent [--user=NAME\|--anonymous] [--status=ok\|denied\|rate_limited]] [--since=7d] [--limit=20] [--tenant=ID\|--all-tenants] [--format=table\|json]` | report on the [search log](analytics.md): the most searched texts (`--top`, the default) or the ones that found nothing (`--zero`), or with `--recent` the latest searches one per line, newest first, with who searched (personal data: see [Who searched what](analytics.md#who-searched-what)); `--user`, `--anonymous` and `--status` filter `--recent` only (`--user` and `--anonymous` exclude each other); `--since` takes hours, days or weeks (`12h`, `7d`, `4w`); a tenant-scoped index needs `--tenant` or `--all-tenants`; `--format=json` is for scripts. Only registered when `fuzzphony.search_log.enabled` is true |
 | `fuzzphony:search-log:purge` | delete the search log rows older than `fuzzphony.search_log.retention_days`; for cron, see [Retention](analytics.md#retention). Only registered when the log is enabled |
-| `fuzzphony:wizard [table] [--format=yaml\|builder\|attributes] [--write=file] [--try]` | suggest, explain and export a definition |
+| `fuzzphony:wizard [table] [--name=x] [--language=english] [--format=yaml\|builder\|attributes] [--write=file] [--try]` | suggest, explain and export a definition |
 
 `fuzzphony:search` is an operator tool: it runs no [guard](security.md#fuzzphonysearch-and-the-guards) (rate limit,
 authorization), with or without `--tenant` and `--user`; those options only make it search as that actor (the
-tenant scope, the log's user). Its searches are still counted and, with the search log on, logged.
+tenant scope, the log's user). Its searches are counted but **not written to the search log** unless you pass `--log`
+(with `--tenant` and `--user` a test search would otherwise look like that user searching, and pollute the zero-result report).
 
-`fuzzphony:schema` without `--apply` only prints the SQL, so you can review it first. See
+`fuzzphony:schema` without `--apply` only prints the SQL, so you can review it first. An index with a `granted` field gets two more
+indexes (`..._open_fz_<hash>`, `..._open_tsv_<hash>`, over its open fields; the hash follows their definition, so when the `granted` fields change the apply builds the new ones `CONCURRENTLY` and drops the old with `DROP INDEX CONCURRENTLY`, found by the end of the name at any length; a failed drop is a warning, run the apply again; `--dump-migration` leaves it out; the doctor reports an old one as stale until then); when the apply built a column or one
+of them on a table that was there, the command asks you to restart long-running workers (they look these up once per process). See
 [Reindexing and orphan pruning](sync.md#reindexing-and-orphan-pruning) for what `--no-prune` and
 `--prune-empty` are for.
 
@@ -30,6 +33,11 @@ every indexed document). Both explain what will happen and ask for confirmation
 (default **no**); `--force` skips the question, and is required to run either non-interactively
 (`--no-interaction`) -- without it they refuse with exit code 1. The PHP API
 (`Fuzzphony::schema()`, `Fuzzphony::reindex()`) never prompts.
+
+Short options (`-b` batch, `-f` facet or format, `-i` index, `-l` limit or language, `-p` rank profile, `-t` time limit, `-w` where
+or write) mean different things in different commands: `-l` is the limit in `fuzzphony:search` and `fuzzphony:analytics` and the language in
+`fuzzphony:wizard`; `-f` is a facet in `fuzzphony:search` and the format in `fuzzphony:wizard`; `-w` is a filter in `fuzzphony:search` and the
+output file in `fuzzphony:wizard`. Use the long names in scripts; the short ones are settled in the API round before 1.0.
 
 ## The doctor
 
@@ -44,7 +52,7 @@ The exit code is non-zero on errors (with `--strict`, also on warnings), so it b
   ✔ Filter price             price (integer)
   ✘ Sidecar columns          Schema drift, missing: f_in_stock.
   ✘ Index fuzzphony_products_fz   INVALID (an interrupted concurrent build)
-  ! Sync queue               12840 item(s) waiting, oldest 900s: is the worker running?
+  ! Sync queue               12840 items waiting, oldest 900s: is the worker running?
   ✔ Coverage                 999 812 of 1 000 000 documents indexed (100.0%, estimated)
 
  Fix for "Sidecar columns": bin/console fuzzphony:schema --apply
@@ -57,7 +65,8 @@ It checks:
   schema);
 - that the source can be queried;
 - id, field, filter, boost and recency column mapping and types, and the source key;
-- sidecar column drift, and missing or INVALID indexes;
+- sidecar column drift, and missing or INVALID indexes (for an index with a `granted` field also its two open-class indexes: an error until
+  `fuzzphony:schema --apply` has built them, the fix is the `CREATE INDEX CONCURRENTLY` statement);
 - objects left in `public` after switching to a dedicated `schema` (a warning when the configured
   schema has no sidecar table for an index but `public` still has one);
 - with DoctrineBundle, an application `schema_filter` that still lets Fuzzphony's tables through,
@@ -105,7 +114,7 @@ statistics and suggests a complete definition, explaining every decision:
  published_at   recency                             newest first in the "popular" ranking profile
 ```
 
-Output it as YAML, builder code or attributes (`--format`), write it to a file (`--write`), or
+Output it as YAML, builder code or attributes (`--format`; attributes cannot hold joined sources, extra watches, ranking profiles or thresholds, so the command shows YAML instead then), write it to a file (`--write`), or
 `--try` it on the spot: schema, reindex, doctor and interactive searches.
 
 Boost weights are scaled from the column's statistics, so the most popular document gets a bonus

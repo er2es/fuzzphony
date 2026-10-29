@@ -17,6 +17,7 @@ use Fuzzphony\Core\Query\Filter\Condition;
 use Fuzzphony\Core\Ranking\Thresholds;
 use Fuzzphony\Core\Ranking\TypoCurve;
 use Fuzzphony\Engine\Postgres\Schema\Names;
+use Fuzzphony\Engine\Postgres\Schema\OpenClass;
 use Fuzzphony\Engine\Postgres\Schema\PostgresSchemaGenerator;
 use Fuzzphony\Engine\Postgres\Schema\Types;
 use Fuzzphony\Engine\Postgres\TypoTerm;
@@ -88,6 +89,10 @@ final class FuzzyQueryCompiler
     private readonly ?array $allowed;
     /** @var array<string, list<string>> the swapped-letter variants of each word (by candidateKey()), set for the statement by allocateVariants() */
     private array $variants = [];
+    /** @var bool whether a condition compiled since the last compile()/leafConditions() holds `<%` (a word without a candidate list) */
+    private bool $readsWordThreshold = false;
+    /** @var bool|null whether the lookups go through the open-class indexes (open()), asked once */
+    private ?bool $open = null;
 
     /**
      * @param list<string>|null $allowedFields the fields a restricted viewer may see (SearchQuery::$allowedFields): every
@@ -98,6 +103,9 @@ final class FuzzyQueryCompiler
      * @param (\Closure(): bool)|null $cappedColumn asked (only when a phrase or a scoped word of an unrestricted viewer on an index with several fields
      *                                          is compiled) whether the sidecar has the tsv_capped column; null or false: it has not, and
      *                                          the later fields' vectors are read for every document that `tsv` does not match
+     * @param (\Closure(): bool)|null $openClass asked (only for a restricted viewer who holds none of the index's granted fields) whether the
+     *                                          open-class indexes exist, are valid and each is smaller than the one it replaces; null or false: the lookups
+     *                                          stay on `fz` and `tsv`
      */
     public function __construct(
         private readonly IndexDefinition $index,
@@ -108,6 +116,8 @@ final class FuzzyQueryCompiler
         ?array $allowedFields = null,
         private readonly bool $transpositions = false,
         private readonly ?\Closure $cappedColumn = null,
+        /** @var (\Closure(): bool)|null whether the open-class indexes may serve a restricted viewer's lookups (TextConfigCache::openClass()); null: they may not */
+        private readonly ?\Closure $openClass = null,
     ) {
         $this->tsquery = new TsQueryCompiler($index);
         $this->allowed = $allowedFields === null ? null : array_values(array_filter($index->fields, static fn(FieldDefinition $f): bool => in_array($f->name, $allowedFields, true)));
@@ -121,8 +131,8 @@ final class FuzzyQueryCompiler
      * Each applies the search's own conditions (the tenant and the filters), so it probes, counts and returns only
      * documents the search could find: an id of another tenant never reaches a statement (explain() shows them bound).
      *
-     * @param list<string>    $emptyQueries leaf tsqueries the text configuration reduces to nothing (stop words)
-     * @param list<Condition> $conditions   the search's conditions, tenant included; none: no extra predicate
+     * @param list<string>         $emptyQueries leaf tsqueries the text configuration reduces to nothing (stop words)
+     * @param list<Condition>      $conditions   the search's conditions, tenant included; none: no extra predicate
      *
      * @return array<string, array{sql: string, params: array<string, scalar|null>, similarity: float}> by candidateKey()
      */
@@ -153,7 +163,7 @@ final class FuzzyQueryCompiler
             $probes[$key] = [
                 'sql' => sprintf("SELECT s.id\nFROM %s AS s\nWHERE %s\nLIMIT %d", $this->names->sidecar($this->index), $where, $cap + 1),
                 'params' => $params->all(),
-                'similarity' => $this->thresholds->fuzzySimilarity ?? TypoCurve::lowest(self::length($needle), preg_match('/^[ -~]*$/', $needle) === 1),
+                'similarity' => $this->lookupSimilarity($leaf, $needle),
             ];
         }
 
@@ -164,7 +174,7 @@ final class FuzzyQueryCompiler
      * The words of the positive part of the query that match fuzzily, for the highlighter: one term per leaf, in order
      * (the same leaves the trigram branch has, so a negated word, a stop word, a word too short for typo tolerance, a
      * word scoped to a field that is not typo-tolerant, and for a restricted viewer a word with no allowed typo-tolerant
-     * field, are not among them).
+     * field, are not among them). A term carries the swapped-letter variants the search matched for its word.
      *
      * @param list<string> $emptyQueries leaf tsqueries the text configuration reduces to nothing (stop words)
      *
@@ -172,12 +182,15 @@ final class FuzzyQueryCompiler
      */
     public function typoTerms(Node $node, array $emptyQueries = []): array
     {
+        $leaves = $this->trigramLeaves($node, $emptyQueries);
+        $this->allocateVariants($leaves);
+
         return array_map(function (Node $leaf): TypoTerm {
             $needle = $this->needle($leaf);
             assert($needle !== null, 'trigramLeaves() keeps only the leaves that have a needle');
 
-            return new TypoTerm($needle, $this->isPrefix($leaf), $this->scopedField($leaf)?->name);
-        }, $this->trigramLeaves($node, $emptyQueries));
+            return new TypoTerm($needle, $this->isPrefix($leaf), $this->scopedField($leaf)?->name, $this->variants[$this->candidateKey($leaf)] ?? []);
+        }, $leaves);
     }
 
     /**
@@ -243,7 +256,37 @@ final class FuzzyQueryCompiler
         }
         $needle = $this->exact($node, $emptyQueries) === null ? null : $this->needle($node);
 
-        return $needle === null ? null : ($this->thresholds->fuzzySimilarity ?? TypoCurve::lowest(self::length($needle), preg_match('/^[ -~]*$/', $needle) === 1));
+        return $needle === null ? null : $this->lookupSimilarity($node, $needle);
+    }
+
+    /**
+     * The similarity the session's pg_trgm threshold is set to for a word's candidates: the lowest its length allows. A prefix is
+     * judged one letter shorter (similaritySql()), and a restricted viewer's candidates are looked up at the threshold the
+     * recheck uses: a lookup stricter than the recheck would find the documents of the allowed fields only when the text of the
+     * other fields (in `fz` or the open class) also matches, so what the viewer finds would depend on a field it may not see.
+     * A viewer who may see every typo-tolerant field has nothing to depend on: its lookup is the unrestricted one.
+     */
+    private function lookupSimilarity(Node $leaf, string $needle): float
+    {
+        $hides = $this->hidesTypoTolerantText();
+        $length = self::length($needle) - ($hides && $this->isPrefix($leaf) ? 1 : 0);
+        if ($this->thresholds->fuzzySimilarity !== null) {
+            return $this->thresholds->fuzzySimilarity;
+        }
+        $ascii = preg_match('/^[ -~]*$/', $needle) === 1;
+        // a restricted viewer: the length after normalisation can be anything a non-ASCII letter folds to (a double s, a ligature), and a lookup
+        // stricter than the recheck there would make a match depend on the text of a field the viewer cannot see
+        if (!$ascii && $hides) {
+            return TypoCurve::lowestAnyNormalisation($length, (int) preg_match_all('/[^ -~]/u', $needle));
+        }
+
+        return TypoCurve::lowest($length, $ascii);
+    }
+
+    /** Whether a typo-tolerant field is hidden from this viewer (a restricted one who may see all of them hides none). */
+    private function hidesTypoTolerantText(): bool
+    {
+        return $this->allowed !== null && count($this->fuzzyAllowed(null)) < count(array_filter($this->index->fields, static fn(FieldDefinition $f): bool => $f->fuzzy));
     }
 
     /**
@@ -269,14 +312,15 @@ final class FuzzyQueryCompiler
      * The stop-word tsqueries of the typo-tolerant branch for a query of stop words only ("the who"): the strict branch
      * has nothing to match then (the text search configuration drops the words from the query and from the documents),
      * but the trigram side works on the normalised text, stop words included, so the positive words stay ordinary leaves
-     * there. Only when every word of the query, excluded ones too, is a stop word (a real word left to exclude makes the
-     * strict branch a pure exclusion, and what it finds stays as it is), and only when every positive word is long
+     * there. Two shapes: every word of the query, excluded ones too, is a stop word; or the query is a top-level AND of
+     * stop words with top-level exclusions of anything ("the who -rock", see exclusionStopWords()). A real word to look
+     * for makes the strict branch find what it finds, the stop words around it ignored. Only when every positive word is long
      * enough for typo tolerance (a shorter one must match exactly, which a stop word never does: the search would find
      * nothing, so it does not run), and only for at most MAX_STOP_WORDS words: every kept word is a trigram condition
      * that, for a word in most documents, keeps all of its matches (it is over the candidate limit), and several of them
      * in one statement cost seconds on a large index (measured: five common stop words took 15 s for a restricted viewer
      * on 100 000 rows, under 1 s for an unrestricted one; three take under half a second for both). Otherwise $emptyQueries
-     * come back unchanged; the negated stop words stay dropped.
+     * come back unchanged; the negated stop words stay dropped (excluding one excludes nothing).
      *
      * @param list<string> $emptyQueries leaf tsqueries the text configuration reduces to nothing (stop words)
      *
@@ -286,11 +330,51 @@ final class FuzzyQueryCompiler
     {
         $queries = $this->leafQueries($root);
         $positive = $this->positiveLeaves($root);
-        if ($queries === [] || count($positive) > self::MAX_STOP_WORDS || array_diff($queries, $emptyQueries) !== [] || array_any($positive, fn(Node $leaf): bool => $this->needle($leaf) === null)) {
+        if ($queries === [] || count($positive) > self::MAX_STOP_WORDS || array_any($positive, fn(Node $leaf): bool => $this->needle($leaf) === null)) {
+            return $emptyQueries;
+        }
+        if (array_diff($queries, $emptyQueries) !== [] && $this->exclusionStopWords($root, $emptyQueries) === null) {
             return $emptyQueries;
         }
 
         return array_values(array_diff($emptyQueries, array_map($this->tsquery->compile(...), $positive)));
+    }
+
+    /**
+     * "the who -rock": a top-level AND whose positive parts are plain words (a word, a phrase, a field-scoped one: no group, no
+     * OR, no synonym expansion) and that has at least one top-level exclusion, of anything. PostgreSQL drops the stop words
+     * from the strict tsquery and what is left is a pure exclusion, "everything but rock". When every positive word is a
+     * stop word (and the shape of keepingStopWords() allows them) this returns the query without its exclusions, the strict
+     * branch's tsquery for it (nothing matches, as for "the who"); the typo-tolerant branch searches the stop words with the
+     * exclusion applied. Null otherwise, also when the query is the other shape (every word a stop word: it is as it was)
+     * and for any query with an OR at the top level or an OR or an exclusion inside a positive group: those are as they were.
+     *
+     * @param list<string> $emptyQueries leaf tsqueries the text configuration reduces to nothing (stop words)
+     */
+    public function exclusionStopWords(Node $root, array $emptyQueries): ?Node
+    {
+        if (!$root instanceof AllOf) {
+            return null;
+        }
+        $positive = array_values(array_filter($root->nodes, static fn(Node $n): bool => !$n instanceof Not));
+        if (
+            count($positive) === count($root->nodes) || $positive === [] || count($positive) > self::MAX_STOP_WORDS
+            || array_any($positive, fn(Node $n): bool => !$this->plainWord($n) || $this->needle($n) === null)
+            || array_diff($this->leafQueries($root), $emptyQueries) === []
+        ) {
+            return null;
+        }
+        $tsqueries = array_map($this->tsquery->compile(...), $positive);
+        if (array_any($tsqueries, static fn(?string $query): bool => $query === null || !in_array($query, $emptyQueries, true))) {
+            return null;
+        }
+
+        return count($positive) === 1 ? $positive[0] : new AllOf($positive);
+    }
+
+    private function plainWord(Node $node): bool
+    {
+        return $node instanceof Term || $node instanceof Phrase || $node instanceof FieldScoped;
     }
 
     /** @return list<Node> the leaves of the positive part of the query, in order */
@@ -312,10 +396,11 @@ final class FuzzyQueryCompiler
     public function compile(Node $node, ParameterBag $params, array $emptyQueries = []): ?FuzzyMatch
     {
         $this->columns = [];
+        $this->readsWordThreshold = false;
         $this->allocateVariants($this->trigramLeaves($node, $emptyQueries));
         $compiled = $this->node($node, $params, $emptyQueries);
 
-        return $compiled === null || $compiled['score'] === null ? null : new FuzzyMatch($compiled['predicate'], $compiled['score'], $this->columns);
+        return $compiled === null || $compiled['score'] === null ? null : new FuzzyMatch($compiled['predicate'], $compiled['score'], $this->columns, max(1, count($this->positiveLeaves($node))), $this->readsWordThreshold);
     }
 
     /**
@@ -355,6 +440,7 @@ final class FuzzyQueryCompiler
     public function leafConditions(array $leaves, ParameterBag $params, array $emptyQueries, bool $fuzzy): array
     {
         $this->columns = [];
+        $this->readsWordThreshold = false;
         $this->allocateVariants($fuzzy ? array_merge([], ...array_map(fn(Node $leaf): array => $this->trigramLeaves($leaf, $emptyQueries), $leaves)) : []);
         $predicates = [];
         foreach ($leaves as $leaf) {
@@ -454,6 +540,7 @@ final class FuzzyQueryCompiler
         $score = $threshold === null ? $trigram['similarity'] : sprintf('CASE WHEN %1$s >= %2$s THEN %1$s ELSE 0.0 END', $trigram['similarity'], $threshold);
         $key = $this->candidateKey($node);
         $ids = $this->candidates[$key] ?? null;
+        $this->readsWordThreshold = $this->readsWordThreshold || $ids === null;
         $condition = $ids === null
             ? $trigram['condition']
             : sprintf('s.id = ANY(%s)', $this->column('id', sprintf('CAST(%s AS %s[])', $params->add(Sql::arrayLiteral($ids)), Types::id($this->index->idType))));
@@ -476,6 +563,16 @@ final class FuzzyQueryCompiler
             'score' => sprintf('GREATEST(%s)', implode(', ', $scores)),
             'partial' => false,
         ];
+    }
+
+    /**
+     * Whether the last compile() or leafConditions() put a `<%` comparison into its predicate, which reads
+     * pg_trgm.word_similarity_threshold: a word whose candidates were probed (a candidate list) holds none. The statement that runs
+     * the predicate declares it (Statement::$readsWordThreshold), so the engine never searches SQL text for the operator.
+     */
+    public function readsWordThreshold(): bool
+    {
+        return $this->readsWordThreshold;
     }
 
     /**
@@ -545,7 +642,7 @@ final class FuzzyQueryCompiler
         }
         $checks = array_map(fn(FieldDefinition $f): string => sprintf('s.%s @@ %s', $this->names->fieldVector($f->name), $query()), $targets);
 
-        return sprintf('(s.tsv @@ %s AND %s)', $query(), count($checks) === 1 ? $checks[0] : '(' . implode(' OR ', $checks) . ')');
+        return sprintf('(%s AND %s)', $this->vectorLookup($query()), count($checks) === 1 ? $checks[0] : '(' . implode(' OR ', $checks) . ')');
     }
 
     /**
@@ -569,7 +666,7 @@ final class FuzzyQueryCompiler
             $similarity = count($similarities) === 1 ? $similarities[0] : 'GREATEST(' . implode(', ', $similarities) . ')';
 
             return [
-                'condition' => sprintf('(%s OPERATOR(%s.<%%) s.fz AND %s >= %s)', $norm, $schema, $similarity, $threshold ?? Sql::float((float) $this->thresholds->fuzzySimilarity)),
+                'condition' => sprintf('(%s OPERATOR(%s.<%%) %s AND %s >= %s)', $norm, $schema, $this->trigramColumn(), $similarity, $threshold ?? Sql::float((float) $this->thresholds->fuzzySimilarity)),
                 'similarity' => $similarity,
             ];
         }
@@ -577,9 +674,10 @@ final class FuzzyQueryCompiler
         $column = $field === null ? 's.fz' : 's.' . $this->names->fieldFuzzy($field->name);
         $similarity = sprintf('%s.word_similarity(%s, %s)', $schema, $norm, $column);
         $recheck = $threshold === null ? '' : sprintf(' AND %s >= %s', $similarity, $threshold);
+        $lookup = $this->trigramColumn();
         $trigram = $field === null
-            ? sprintf('%s OPERATOR(%s.<%%) s.fz', $norm, $schema)
-            : sprintf('%1$s OPERATOR(%2$s.<%%) s.fz AND %1$s OPERATOR(%2$s.<%%) %3$s', $norm, $schema, $column);
+            ? sprintf('%s OPERATOR(%s.<%%) %s', $norm, $schema, $lookup)
+            : sprintf('%1$s OPERATOR(%2$s.<%%) %4$s AND %1$s OPERATOR(%2$s.<%%) %3$s', $norm, $schema, $column, $lookup);
 
         return [
             'condition' => $field === null && $recheck === '' ? $trigram : '(' . $trigram . $recheck . ')',
@@ -719,7 +817,7 @@ final class FuzzyQueryCompiler
                 }
             }
 
-            return sprintf('(s.tsv @@ %s AND %s)', $lookup, count($checks) === 1 ? $checks[0] : '(' . implode(' OR ', $checks) . ')');
+            return sprintf('(%s AND %s)', $this->vectorLookup($lookup), count($checks) === 1 ? $checks[0] : '(' . implode(' OR ', $checks) . ')');
         }
         $config = $this->names->regconfig($this->index->text);
         $query = $this->column('ft', sprintf('to_tsquery(%s, %s)', $config, $params->add($tsquery)));
@@ -758,6 +856,37 @@ final class FuzzyQueryCompiler
         return $field === null
             ? 's.tsv @@ ' . $query
             : sprintf('(s.tsv @@ %1$s AND s.%2$s @@ %1$s)', $query, $this->names->fieldVector($field->name));
+    }
+
+    /**
+     * Whether this viewer's lookups go through the open-class indexes (OpenClass): the index has a granted field, the viewer holds
+     * none of them and at least one open field, and the indexes may be used (the gate). The lookup is then a superset of what the
+     * allowed fields match, as with `fz` / `tsv`, so the recheck against their own columns decides the same documents. A viewer who
+     * holds a granted field stays on `fz` / `tsv`: one term would not hold its words (a word in an open field and another in a
+     * granted one, ANDed), and no term for the combination is built.
+     */
+    private function open(): bool
+    {
+        return $this->open ??= $this->allowed !== null && $this->allowed !== [] && $this->openClass !== null
+            && OpenClass::fields($this->index) !== []
+            && array_all($this->allowed, static fn(FieldDefinition $f): bool => $f->granted === null)
+            && ($this->openClass)();
+    }
+
+    /** `s.tsv @@ <query>`, or the same on the open fields' vectors joined when this viewer's lookups go through the open-class indexes. */
+    public function vectorLookup(string $query): string
+    {
+        $vector = $this->open() ? OpenClass::vector($this->index, $this->names, 's.') : null;
+
+        return $vector === null ? 's.tsv @@ ' . $query : sprintf('%s @@ %s', str_contains($vector, ' || ') ? '(' . $vector . ')' : $vector, $query);
+    }
+
+    /** The column the trigram lookup `<%` is served by: `s.fz`, or the open fuzzy fields' columns joined for an open-class viewer. */
+    private function trigramColumn(): string
+    {
+        $joined = $this->open() ? OpenClass::trigram($this->index, $this->names, 's.') : null;
+
+        return $joined === null ? 's.fz' : (str_contains($joined, ' || ') ? '(' . $joined . ')' : $joined);
     }
 
     /** Adds a q column (ft<n> = tsquery, fn<n> = needle; scope(): sft<n>) and returns the reference to it. */

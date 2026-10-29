@@ -34,6 +34,31 @@ final class TypoMarkerTest extends TestCase
         self::assertSame(['i', 'a'], $marker->candidates('I a', 'name'), 'very short words are candidates too: the similarity rule decides');
     }
 
+    public function testASwappedLetterVariantIsMarkedAsAWholeWordWithoutAnySimilarity(): void
+    {
+        $marker = new TypoMarker([new TypoTerm('mosue', variants: ['omsue', 'mouse', 'mosue2'])]);
+
+        self::assertSame(self::S . 'Mouse' . self::E . ' pad', $marker->extend('Mouse pad', 'name', []), 'no similarity from PostgreSQL: the variant is the match');
+        self::assertSame('Wireless ' . self::S . 'mouse' . self::E . ' and mice', $marker->snippet('Wireless mouse and mice', 'name', []));
+        self::assertNull($marker->snippet('Wireless mouses', 'name', []), 'only the whole word');
+    }
+
+    public function testAVariantAlreadyMarkedByTheHeadlineStaysAsItIs(): void
+    {
+        $marker = new TypoMarker([new TypoTerm('mosue', variants: ['mouse'])]);
+        $marked = self::S . 'mouse' . self::E . ' and mouse';
+
+        self::assertSame(self::S . 'mouse' . self::E . ' and ' . self::S . 'mouse' . self::E, $marker->extend($marked, 'name', []));
+    }
+
+    public function testAVariantNeverMarksAPhraseTermOrAnotherFieldsTerm(): void
+    {
+        $marker = new TypoMarker([new TypoTerm('mosue', field: 'brand', variants: ['mouse'])]);
+
+        self::assertNull($marker->snippet('a mouse', 'name', []));
+        self::assertSame(self::S . 'mouse' . self::E, $marker->snippet('mouse', 'brand', []));
+    }
+
     public function testAnEmptyTextOrOneWithoutWordsHasNoCandidatesAndNoMarks(): void
     {
         $marker = new TypoMarker([new TypoTerm('mouse')]);

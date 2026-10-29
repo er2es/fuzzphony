@@ -81,6 +81,7 @@ IndexDefinition::builder('listings')
     ->build();
 ```
 
+<!-- fragment -->
 ```php
 #[Route('/search', name: 'search')]
 public function __invoke(Request $request, Fuzzphony $fuzzphony): JsonResponse
@@ -137,7 +138,7 @@ public function __invoke(Request $request, Fuzzphony $fuzzphony): JsonResponse
 ## Highlighting
 
 `highlight('name', 'description')` puts an HTML snippet in `$hit->highlights['name']`: the matching words wrapped in
-`<mark>`, the rest escaped (nothing else is ever a tag), as a short text or up to two fragments joined by ` … `.
+`<mark>`, the rest escaped (nothing else is ever a tag), a text of up to about 200 characters whole, a longer one as up to two fragments joined by ` … `.
 
 A hit found only through typo tolerance has no word that matches the query exactly, so Fuzzphony marks the words
 of the text that are the typo-tolerant match: a search for `hedphones` shows `Wireless <mark>Headphones</mark>`.
@@ -287,13 +288,12 @@ $result->didYouMean;   // "headphones -cable": the query with the word replaced,
   word added since the last full reindex is never "corrected"). Not corrected either: prefixes
   (`keyb*`), excluded words (`-cabel`), words a synonym expands (the index knows them by definition)
   and words with a digit (`rtx4090`: the nearest code is not what the user meant).
-- Which suggestion: the vocabulary word nearest by edit distance (the trigram index only picks ten
-  candidates; a trigram ranking alone suggests `most` for `mose`), then the one in more documents.
-  Nothing farther than a third of the word's length away is suggested (at least one edit: a swap of two neighbouring
-  letters is two edits, so a 4 or 5 letter word with a swap, `mosue`, gets no suggestion; the typo-tolerant search finds it
-  anyway, see [Typo tolerance](#typo-tolerance)), and a candidate has to share enough trigrams with the word (pg_trgm's
-  similarity of 0.25; it was 0.3 before 0.9.8, which missed four in ten of the one-letter typos of a 4-letter word), so a
-  word that is two edits away at the start and the end gets none. The suggested word is the
+- Which suggestion: the vocabulary word nearest by edit distance (the trigram index picks ten
+  candidates, and the words two neighbouring letters swapped make are candidates whatever their similarity; a trigram ranking alone suggests `most`
+  for `mose`), then the one in more documents. A swap of two neighbouring letters is one edit (`mosue` suggests `mouse`).
+  Nothing farther than a third of the word's length away is suggested (at least one edit), and a candidate has to share enough trigrams
+  with the word (pg_trgm's similarity of 0.25; it was 0.3 before 0.9.8, which missed four in ten of the one-letter typos of a 4-letter
+  word), unless it is a swapped-letter variant, so a word that is two edits away at the start and the end gets none. The suggested word is the
   vocabulary's, so lowercase and without accents.
 - Tenants and filters: the vocabulary is the words of the whole index, whatever a search's filters
   say, so a suggestion could reveal that a word exists in documents the search may not see.
@@ -345,7 +345,7 @@ with `thresholds(['rescue_empty' => false])`). `correctedFrom` is the visitor's 
 - **Which words**: the words did-you-mean may correct (whole words that the index does not know; not prefixes,
   excluded words, synonyms or words with a digit). A word is corrected only when the vocabulary has **exactly one word
   one edit away** (one letter replaced, missing or extra) among its ten closest candidates: `mpuse` becomes `mouse` when
-  nothing else of the vocabulary is one edit from `mpuse`. A tie (`mpuse` with both `mouse` and `mause` in the index)
+  nothing else of the vocabulary is one edit from `mpuse` (a swap of two neighbouring letters is one edit). A tie (`mpuse` with both `mouse` and `mause` in the index)
   means no rescue at all, and so does a tie in any one word of a longer query. A word with no one-edit candidate is left
   as typed. Two edits, such as a
   word typed with two wrong letters, is for the plain did-you-mean suggestion, never for the rescue.
@@ -474,8 +474,7 @@ foreach ($result->facets['category_id'] as $facet) {   // FacetValue: ->value, -
   would find (the usual shop behaviour): after `where('category_id', 3)` the category facet still lists
   the other categories, with the counts they would have; the other conditions, and the tenant, count.
 - **Counts are over the candidates**: when the search hit its candidate limit
-  (`$result->totalIsLowerBound`), the counts are lower bounds ("120+"), taken over the first `candidate_limit` matches the index
-  returns (the cheap selection), while `total` and the hits come from the best candidates ([limitation](limitations.md#facet-counts-are-over-the-candidates)). `exactCounts()` counts every
+  (`$result->totalIsLowerBound`), the counts are lower bounds ("120+"), taken over the very candidates the hits come from (the best `candidate_limit` documents, whatever the order of the table; [limitation](limitations.md#facet-counts-are-over-the-candidates)). `exactCounts()` counts every
   match instead, for the total and for the facets:
 
   ```php
@@ -556,6 +555,22 @@ Cost: one probe statement, a possible stop-word lookup, and one or two relaxed s
 `relax_when_empty: false`. The probe checks whether a word matches any document at all, so it does
 not apply `min_score` or the candidate limit. A word can count as matching through documents the
 search would reject; it is then kept, not dropped. The relaxation errs on the side of doing less.
+
+## Codes and numbers
+
+Invoice numbers, SKUs and part numbers (`INV-001`, `AB-12/3`, `INV.007`) can find nothing on a field that is not typo tolerant. PostgreSQL's text-search parser indexes a hyphen before digits as a
+sign (`INV-001` becomes `inv` and `-001`) and a dot or a slash between a letter and a digit as one token (`inv.007`, `inv/008`), while the query is always split at every character that is not a letter
+or a digit (`'inv' <-> '001'`), so the two never meet. A field with `fuzzy: true` finds the code through the trigram fallback (`INV-001`, `INV001`, also with a typo, but a loose match that lists
+`INV-002` after it). For an exact match, index the code with its separators turned into spaces, so the index holds exactly what the query is split into:
+
+<!-- fragment -->
+```php
+->fromQuery("SELECT id, regexp_replace(number, '[^[:alnum:]]+', ' ', 'g') AS number, name FROM invoice")->watch('invoice')
+->field('number', 'A')
+```
+
+`INV-001`, `inv-001`, `"INV-001"`, `001` and `INV-2024-0042` then find only their invoice; `INV001` (no separator) still needs `fuzzy: true`. Letters joined by a hyphen (`usb-c`, `mouse-pad`)
+are unaffected. See [Limitations](limitations.md#codes-with-a-hyphen-before-digits-a-dot-or-a-slash).
 
 ## Limits and errors
 

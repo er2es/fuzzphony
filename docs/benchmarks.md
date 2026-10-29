@@ -22,25 +22,42 @@ it on every push to `main` and publishes the current table in its job summary.
 
 ## Example run
 
-200 000 products, PostgreSQL 16, a small cloud VM; the output of `run.php --markdown`:
+200 000 products, PostgreSQL 17 in a local container, one laptop; the output of `run.php --markdown`:
 
 | case | query | ILIKE cold / warm | hits | Fuzzphony cold / warm | hits (total) |
 |---|---|---:|---:|---:|---:|
-| plain word | `wireless` | 1.7 / 0.6 ms | 20 | 17.9 / 11.1 ms | 20 (2000+) |
-| two words | `wireless mouse` | 4.1 / 3.7 ms | 20 | 19.9 / 13.1 ms | 20 (1666) |
-| accent | `creme` | 257.6 / 251.6 ms | **0** | 11.9 / 10.4 ms | 20 (2000+) |
-| typo | `hedphones` | 248.1 / 252.6 ms | **0** | 24.2 / 20.7 ms | 20 (2000+) ~ |
-| stemming | `drills` | 342.0 / 257.1 ms | **0** | 11.9 / 10.6 ms | 20 (2000+) |
-| phrase + exclusion | `"noise cancelling" -headphones` | 0.6 / 0.5 ms | 20 | 24.3 / 23.2 ms | 20 (2000+) |
-| filter + text | `kettle` | 0.8 / 0.7 ms | 20 | 12.8 / 11.3 ms | 20 (2000+) |
+| plain word | `wireless` | 6.5 / 1.3 ms | 20 | 458.4 / 35.3 ms | 20 (2000+) |
+| two words | `wireless mouse` | 3.7 / 3.1 ms | 20 | 28.1 / 10.4 ms | 20 (1666) |
+| accent | `creme` | 190.0 / 162.6 ms | **0** | 489.3 / 43.1 ms | 20 (2000+) |
+| typo | `hedphones` | 178.4 / 171.7 ms | **0** | 71.0 / 41.8 ms | 20 (2000+) ~ |
+| stemming | `drills` | 172.9 / 171.1 ms | **0** | 37.9 / 39.8 ms | 20 (2000+) |
+| phrase + exclusion | `"noise cancelling" -headphones` | 1.8 / 1.1 ms | 20 | 91.9 / 84.5 ms | 20 (2000+) |
+| filter + text | `kettle` | 2.3 / 1.8 ms | 20 | 20.1 / 15.8 ms | 20 (2000+) |
 
-`~` means the typo-tolerant fallback ran.
+`~` means the typo-tolerant fallback ran. The first ("cold") run reads the table from disk; a word that matches more
+documents than `candidate_limit` costs one more pass (see [Common words](#common-words)), which is most of the 35 to 45 ms
+of the rows with a total of `2000+`. The typo-tolerant statement rechecks each word against the similarity of its own length;
+on 200 000 rows the plans keep using the trigram indexes. Single-digit milliseconds on a shared laptop are noise.
 
-The table was measured before 0.7. Since 0.7 the typo-tolerant statement also rechecks each word
-against the similarity of its own length; on 200 000 rows (`wireles mouse`, `hedphones`, `mose` in
-`fuzzy_mode: always`, measured separately from this script) the plans keep using the trigram
-indexes and the statements run within roughly 0.9 to 1.4 times the time of a flat `fuzzy_similarity`.
-Re-run `benchmarks/run.php` on your own data to compare.
+The paths that cost more than a plain word (`run.php` prints them below the table; the long text is a second index with five typo-tolerant
+copies of the description, about 300 characters of typo-tolerant text a document), 0.9.8 and now, warm:
+
+| path | query | 0.9.8 | now |
+|---|---|---:|---:|
+| typo, a filter and a facet | `hedphones` | 79 ms | 76 ms |
+| typo, restricted viewer (name, brand) | `hedphones` | 41 ms | 159 ms |
+| typo, 16 mistyped words OR | `hedphones OR kettel OR ...` | 238 ms | 260 ms |
+| typo, page 101 (offset 2000) | `hedphones` | 46 ms, **0 hits** | 48 ms, 20 hits |
+| strict, page 101 | `wireless` | 33 ms | 43 ms |
+| typo, long typo-tolerant text | `batery` | 483 ms | 539 ms |
+| the same, restricted viewer (name, description) | `batery` | 358 ms | 1 100 ms |
+| an exact word beside look-alikes | `mousse` | 45 ms | 42 ms (exact matches first) |
+
+A restricted viewer pays for the ordered selection that keeps hidden fields out of the candidates (see
+[Known limitations](limitations.md#ranking-of-very-common-words)); everyone else's typo search costs what it did. On a database
+where some documents hold thousands of words in a field the viewer cannot see (3 000 documents, 60 of them with 17 000 words,
+`candidate_limit` 100) the restricted `comon` takes about 1 s, 0.1 s in 0.9.8: the work budget counts the text the viewer may see, so a hidden text is
+rechecked in full.
 
 ## Round trips
 
@@ -123,19 +140,86 @@ budget is a trade between the worst case and the share of matches that are ranke
 costs 60 to 115 ms, 50 000 about 160 to 240 ms, 100 000 (the one used) 170 to 330 ms, 200 000 300 to 630 ms (these four were measured while other jobs ran on the machine: indicative). With the
 planted documents at the end of the table, 100 000 misses the five that sit beyond the 100 000 matches of `wireless`
 and 200 000 finds them. A restricted viewer's search of a word that is common in a field the viewer cannot see is slow for a
-different reason that this does not change (see [Known limitations](limitations.md#a-restricted-viewers-very-common-word-in-a-hidden-typo-tolerant-field-is-slow)).
+different reason that this does not change (see [Known limitations](limitations.md#a-restricted-viewers-very-common-word-in-a-hidden-typo-tolerant-field)).
 
 The first run after a restart reads the table from disk and is much slower (seconds at 1 000 000 rows for a word that is
 spread over every page); the figures are warm. Both columns were measured on the same machine in the same session, but
 single-digit milliseconds on a shared laptop are noise.
 
+### Typo words and facets of a capped search
+
+A typo word that matches more documents than `candidate_limit` (`mouss` is 20 000 look-alikes on 200 000 products) contributes
+the first `candidate_limit` matches of its trigram index, cheap and a lower bound ([Known limitations](limitations.md#ranking-of-very-common-words));
+a full-text match that is not among them keeps its typo score. The facets of a capped search count the ids the statement of the
+hits returns. Median of 7 runs, warm, `candidate_limit` 2000, 200 000 products, 0.9.8 -> now:
+
+| search | 0.9.8 | now |
+|---|---:|---:|
+| `mouss`, fallback / always | 44 / 36 ms | 47 / 43 ms |
+| `wireles`, fallback / always | 54 / 53 ms | 51 / 52 ms |
+| `hedphones`, fallback | 46 ms | 48 ms |
+| `wireles mose` (two typo words) | 90 ms | 92 ms |
+| `mouss`, restricted viewer (name, brand) | 44 ms | 141 ms |
+| `mouss` with a facet / and an active filter | 68 / 70 ms | 46 / 67 ms |
+| `screwdrivr 1234` (two words, under the limit) | 39 ms | 37 ms |
+| `wireless`, `fuzzy_mode: always` | 73 ms | 94 ms |
+| `ideal`, `fuzzy_mode: always` | 132 ms | 131 ms |
+| `wireless` with a facet / and an active filter (strict) | 48 / 47 ms | 46 / 79 ms |
+| a filter-only listing with a facet | 2.1 ms | 2.4 ms |
+| 12 typo-tolerant-field index (`bench12`), `batery` | 189 ms | 208 ms |
+| the same, restricted viewer (name, description) | 218 ms | 487 ms |
+| the same index, the reversed phrase `"office ideal"` | 541 ms | 274 ms |
+
+`wireless` in `fuzzy_mode: always` pays for the typo score of its 2 000 full-text candidates (they are rescored when the typo branch is
+capped, about 10 microseconds each); the restricted viewer pays for the ordered selection, about 8 microseconds per scored match for a
+short name and more for a long text (the work budget in the known limitations). The typo statement of a word under the limit is the one
+it always was.
+
+## A restricted viewer whose hidden fields are full of the words searched
+
+An index with four typo-tolerant fields: `name` and `category` open, `brand` and `description` granted (`benchmarks/run.php`, the
+`bench_granted` index; the description is full of very common words). A viewer who holds neither granted field looks its words up in
+the two open-class indexes instead of `fz` / `tsv` (see [Known limitations](limitations.md#a-restricted-viewers-very-common-word-in-a-hidden-typo-tolerant-field)).
+Median of five runs after one warm-up in `fuzzy_mode: always` (one run when it takes longer than 8 s), PostgreSQL in a container on a
+shared development machine with the default 128 MB of shared buffers, `synchronize_seqscans` off; indicative, not a benchmark of the hardware.
+
+| viewer and search | 200 000 before | 200 000 after | 1 000 000 before | 1 000 000 after |
+|---|---:|---:|---:|---:|
+| name + category, `battery` (hidden) | 2 192 ms | 4.6 ms | 13 632 ms | 5.5 ms |
+| the same, 3 hidden words | 10 207 ms | 172 ms | 49 125 ms | 387 ms |
+| the same, 5 hidden words | 16 006 ms | 186 ms | 88 015 ms | 394 ms |
+| the same, phrase `"battery life"` | 2 230 ms | 4.6 ms | 13 539 ms | 5.5 ms |
+| the same, rare word `lenvo` | 1 972 ms | 4.4 ms | 8 731 ms | 5.5 ms |
+| the same, typo + hidden word | 7 696 ms | 7.3 ms | 40 317 ms | 8.6 ms |
+| the same, a common word the viewer sees (`kitchen`) | 973 ms | 193 ms | 1 043 ms | 477 ms |
+| the same, 3 words the viewer sees | 749 ms | 91 ms | 1 594 ms | 542 ms |
+| + brand (some granted fields), 3 words | 11 280 ms | 10 943 ms | 65 035 ms | 95 814 ms (same statement, noise) |
+| + brand, phrase / `kitchen` | 2 307 / 1 033 ms | 2 259 / 971 ms | 16 262 / 1 322 ms | 12 845 / 1 167 ms |
+| name + category + description (brand hidden): `keyb*` | 1 460 ms | 1 072 ms | 971 ms | 463 ms |
+| the same, phrase / typo | 1 452 / 775 ms | 1 427 / 757 ms | 1 543 / 1 610 ms | 1 462 / 1 623 ms |
+| unrestricted, typo / 3 common words | 1 162 / 640 ms | 1 174 / 638 ms | 1 527 / 1 940 ms | 1 453 / 955 ms |
+
+A viewer who holds a granted field has the statements it always had (byte for byte); the differences in those rows are the
+machine's, and the run-to-run spread on a shared machine is large for the slow ones. The viewer who holds the big granted field and
+hides a small one (the guard case) is not slower.
+
+Size and build time (`fuzzphony:schema --apply`, `CREATE INDEX CONCURRENTLY`, both indexes):
+
+| | 200 000 | 1 000 000 |
+|---|---:|---:|
+| existing indexes (pkey, filters, `fz`, `tsv`) | 55 MB | 180 MB |
+| open-class trigram index / full-text index | 11 MB / 2.7 MB | 52 MB / 10 MB |
+| growth | +25 % | +34 % |
+| build time | 2 s | 12.5 s |
+
+The indexes are used only when both exist, are valid and are smaller together than `fz`; an index with no granted field has none.
 ## Reading the numbers
 
 The two columns do different work. `ILIKE … LIMIT 20` returns the first 20 rows the scan reaches,
 unranked, and cannot exclude words: its 20 hits for the exclusion query include headphones. So
 `ILIKE` is fastest when the word is common, and finds nothing for accents, typos or other word
 forms, after scanning the whole table. Fuzzphony ranks every result and handles those cases in
-about 10–25 ms.
+about 10 to 90 ms on 200 000 products (a typo word 25 to 75 ms; a wide index of long typo-tolerant text 0.2 to 0.6 s).
 
 Measure on your own data. The demo's Speed view runs this benchmark in the browser, and
 [demo/README.md](../demo/README.md#measured) has results on 200 000 and 500 000 rows.

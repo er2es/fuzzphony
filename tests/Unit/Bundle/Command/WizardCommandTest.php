@@ -82,10 +82,9 @@ final class WizardCommandTest extends TestCase
         $status = $tester->execute(['table' => 'fz_order', '--format' => 'attributes'], ['interactive' => false]);
 
         self::assertSame(Command::SUCCESS, $status);
-        $display = $tester->getDisplay(true);
-        // SymfonyStyle::warning() word-wraps its block, so check the fragments rather than one long string.
-        self::assertStringContainsString('Joined sources cannot be expressed with attributes; showing YAML', $display);
-        self::assertStringContainsString('instead.', $display);
+        // SymfonyStyle::warning() word-wraps its block at the terminal width (80 columns on CI): compare with the whitespace collapsed
+        $display = (string) preg_replace('/\s+/', ' ', $tester->getDisplay(true));
+        self::assertStringContainsString('Joined sources, extra watches, ranking profiles and thresholds cannot be expressed with attributes; showing YAML instead.', $display);
         self::assertStringContainsString('config/packages/fuzzphony.yaml', $display);
     }
 

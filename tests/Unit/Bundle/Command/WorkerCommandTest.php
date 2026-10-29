@@ -121,9 +121,69 @@ final class WorkerCommandTest extends TestCase
         self::assertStringContainsString('Stopped after 2 item(s).', $tester->getDisplay(true));
     }
 
+    public function testTheTimeLimitEndsTheWorkerEvenWhenTheQueueNeverRunsDry(): void
+    {
+        $calls = 0;
+        $engine = self::createStub(Engine::class);
+        $engine->method('processQueue')->willReturnCallback(static function () use (&$calls): int {
+            usleep(50_000);
+            if (++$calls > 200) {
+                throw new \LogicException('The worker ignored --time-limit.');
+            }
+
+            return 4; // steady writes: the queue is never empty
+        });
+        $tester = new CommandTester(new WorkerCommand($this->fuzzphony($engine), idleSleep: 0.01));
+
+        $started = microtime(true);
+        $status = $tester->execute(['--time-limit' => '1'], ['interactive' => false]);
+
+        self::assertSame(Command::SUCCESS, $status);
+        self::assertLessThan(3.0, microtime(true) - $started);
+        self::assertMatchesRegularExpression('/Stopped after \d+ item\(s\)\./', $tester->getDisplay(true));
+    }
+
+    public function testASignalEndsTheOnceRunWhileTheQueueIsStillBusy(): void
+    {
+        $command = null;
+        $calls = 0;
+        $engine = self::createStub(Engine::class);
+        $engine->method('processQueue')->willReturnCallback(static function () use (&$command, &$calls): int {
+            if (++$calls === 2) {
+                self::assertInstanceOf(WorkerCommand::class, $command);
+                $command->handleSignal(15);
+            }
+            if ($calls > 100) {
+                throw new \LogicException('--once ignored the signal.');
+            }
+
+            return 3;
+        });
+        $command = new WorkerCommand($this->fuzzphony($engine));
+        $tester = new CommandTester($command);
+
+        $tester->execute(['--once' => true], ['interactive' => false]);
+
+        self::assertSame(2, $calls);
+        self::assertStringContainsString('Processed 6 queued item(s).', $tester->getDisplay(true));
+    }
+
     public function testASignalBeforeAnyRunIsHarmless(): void
     {
         self::assertFalse((new WorkerCommand($this->fuzzphony($this->queue([]))))->handleSignal(2));
+    }
+
+    public function testAQueueThatCannotBeProcessedIsReportedAndFailsTheOnceRun(): void
+    {
+        $engine = self::createStub(Engine::class);
+        $engine->method('processQueue')->willThrowException(new \RuntimeException('connection lost'));
+        $tester = new CommandTester(new WorkerCommand($this->fuzzphony($engine)));
+
+        $status = $tester->execute(['--once' => true], ['interactive' => false]);
+
+        self::assertSame(Command::FAILURE, $status);
+        self::assertStringContainsString('The queue of "products" could not be processed', $tester->getDisplay());
+        self::assertStringContainsString('connection lost', $tester->getDisplay());
     }
 
     /**

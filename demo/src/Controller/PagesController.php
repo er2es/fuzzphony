@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace App\Controller;
 
 use App\Service\Catalog;
+use App\Service\Examples;
 use App\Service\Measure;
 use Fuzzphony\Core\Exception\FuzzphonyException;
 use Fuzzphony\Core\Fuzzphony;
@@ -84,7 +85,7 @@ final class PagesController extends AbstractController
     public function benchmark(Catalog $catalog): Response
     {
         return $this->render('benchmark.html.twig', [
-            'queries' => SearchController::benchmarkQueries(),
+            'queries' => Examples::BENCHMARK,
             'table' => Catalog::TABLE,
             'rowEstimate' => $catalog->estimatedProductCount(),
             'warmRuns' => Measure::WARM_RUNS,
@@ -96,7 +97,7 @@ final class PagesController extends AbstractController
     #[Route('/under-the-hood/benchmark/row/{index}', name: 'benchmark_row', requirements: ['index' => '\d+'])]
     public function benchmarkRow(int $index, Fuzzphony $fuzzphony, Catalog $catalog): Response
     {
-        $entry = array_slice(SearchController::benchmarkQueries(), $index, 1, true);
+        $entry = array_slice(Examples::BENCHMARK, $index, 1, true);
         if ($entry === []) {
             throw $this->createNotFoundException();
         }
@@ -129,7 +130,7 @@ final class PagesController extends AbstractController
     public function observability(Request $request, Fuzzphony $fuzzphony): Response
     {
         $q = trim($request->query->getString('q'));
-        $query = $q !== '' ? $q : SearchController::EXAMPLES['typo'];
+        $query = $q !== '' ? $q : Examples::TYPO;
         if (mb_strlen($query) > 256) {
             throw new BadRequestHttpException('The query is too long.');
         }
@@ -144,10 +145,12 @@ final class PagesController extends AbstractController
 
         return $this->render('observability.html.twig', [
             'query' => $query,
-            'examples' => SearchController::EXAMPLES,
+            'examples' => Examples::CATALOGUE,
             'took_ms' => $explanation->result->tookMs,
             'total' => $explanation->result->total,
             'fallback' => $fallback,
+            'rescued' => $explanation->result->correctedFrom !== null,
+            'interpreted' => $explanation->result->interpretedAs,
             'statements' => count($explanation->statements),
             'queue' => $queueCheck,
         ]);

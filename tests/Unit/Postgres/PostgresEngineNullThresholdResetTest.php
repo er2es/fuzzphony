@@ -36,7 +36,7 @@ final class PostgresEngineNullThresholdResetTest extends TestCase
                     str_starts_with($sql, 'SELECT s.id') => array_fill(0, $probed, ['id' => 1]),
                     // the relaxation probe: "mouze" matches nothing on its own, "ab" and "cd" do (but not together)
                     str_contains($sql, 'm0 AS MATERIALIZED') => [['l0' => false, 'l1' => true, 'l2' => true]],
-                    str_contains($sql, 'count(*) AS n') => [['value' => true, 'n' => 1]],
+                    str_contains($sql, 'count(*) AS n') => [['f' => 0, 'value' => true, 'n' => 1]],
                     default => null,
                 };
             },
@@ -58,7 +58,8 @@ final class PostgresEngineNullThresholdResetTest extends TestCase
     {
         $connection = $this->search(11);
 
-        $resets = array_keys(array_filter($connection->log, static fn(string $sql): bool => $sql === self::RESET));
+        // the probes of a very common word set the similarity they look at (more round trips of the same statement): only the session's own value counts
+        $resets = array_keys(array_filter($connection->log, static fn(string $sql, int $i): bool => $sql === self::RESET && $connection->params[$i] === ['v' => '0.55'], ARRAY_FILTER_USE_BOTH));
         self::assertCount(1, $resets, 'the value is put back once');
         $reset = $resets[0];
         self::assertSame(['v' => '0.55'], $connection->params[$reset], "the session's own value, as read when the transaction first set it");

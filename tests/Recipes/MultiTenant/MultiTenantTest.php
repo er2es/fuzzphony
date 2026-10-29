@@ -12,6 +12,7 @@ use Fuzzphony\Core\Fuzzphony;
 use Fuzzphony\Core\Search\Actor;
 use Fuzzphony\Tests\Integration\PostgresTestCase;
 use Fuzzphony\Tests\Recipes\RecipeOutput;
+use Fuzzphony\Tests\Support\RestoresPhpHandlers;
 use Psr\Cache\CacheItemPoolInterface;
 use Symfony\Bundle\FrameworkBundle\Console\Application;
 use Symfony\Bundle\FrameworkBundle\Test\KernelTestCase;
@@ -24,6 +25,8 @@ use Symfony\Component\Security\Core\Authentication\Token\UsernamePasswordToken;
 /** Everything docs/recipes/multi-tenant-saas.md claims, run against PostgreSQL through a real kernel and real requests. */
 final class MultiTenantTest extends KernelTestCase
 {
+    use RestoresPhpHandlers;
+
     protected static function getKernelClass(): string
     {
         return MultiTenantKernel::class;

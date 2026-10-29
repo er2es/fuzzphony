@@ -6,7 +6,6 @@ namespace Fuzzphony\Tests\Integration\Docs;
 
 use Doctrine\ORM\EntityManagerInterface;
 use Doctrine\ORM\Mapping\UnderscoreNamingStrategy;
-use Doctrine\ORM\ORMSetup;
 use Doctrine\ORM\Tools\SchemaTool;
 use Fuzzphony\Bridge\Doctrine\DoctrineNamingStrategy;
 use Fuzzphony\Bridge\Doctrine\EntityLoader;
@@ -427,9 +426,8 @@ final class LikeGuideTest extends TestCase
 
     private static function entityManager(): EntityManagerInterface
     {
-        $config = ORMSetup::createAttributeMetadataConfig([], true);
+        $config = DoctrineTestCase::attributeConfig([]);
         $config->setNamingStrategy(new UnderscoreNamingStrategy());   // Symfony's default
-        $config->enableNativeLazyObjects(true);
 
         return new \Doctrine\ORM\EntityManager(DoctrineTestCase::dbalConnection(), $config);
     }

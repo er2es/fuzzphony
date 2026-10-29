@@ -67,6 +67,8 @@ Any profile value can be overridden for one query. The demo's playground does th
 $fuzzphony->in('products')->query('mouse')->profile('popular')->ranking(['boost' => 0.1, 'fuzzy' => 0.8])->get();
 ```
 
+`label_weights` is merged into the profile's own: `['label_weights' => ['C' => 0.5]]` changes label C and keeps the profile's other labels.
+
 ## Thresholds
 
 | Option | Default | Meaning |
@@ -76,7 +78,7 @@ $fuzzphony->in('products')->query('mouse')->profile('popular')->ranking(['boost'
 | `fallback_below` | `5` | in fallback mode: fewer exact hits than this triggers typo tolerance |
 | `fuzzy_similarity` | by word length | trigram word similarity each word needs (lower = more tolerant). Unset (`null`): one typo is tolerated from 4 letters and two from 8; the similarity a word needs is that of the worst such typo plus 0.03, `(n + 1 − 3t) / (n + 1 + 3t)` for `n` letters and `t` typos (0.28 for 4 letters, 0.36 for 5, 0.48 for 7, 0.23 for 8, 0.40 for 12), and 0.6 below 4 letters. A number applies to every word; `null` returns to by length. See [Typo tolerance](searching.md#typo-tolerance) |
 | `fuzzy_min_length` | `3` | shorter words must match exactly; a query with no longer word skips typo tolerance |
-| `candidate_limit` | `2000` | candidates ranked per branch. When a word has more matches, the full-text branch ranks the best ones by the page's own key (exact up to a scan budget of 100 000 matches; the typo branch still takes the first ones the index returns: [limitation](limitations.md#ranking-of-very-common-words)); a page past it selects `offset + limit` candidates, up to 10 000; `total` becomes a lower bound (`2000+`) |
+| `candidate_limit` | `2000` | candidates ranked per branch. When a word has more matches, the full-text branch ranks the best ones by the page's own key (exact up to a scan budget of 100 000 matches; the typo branch takes the first `candidate_limit` matches of its trigram index, a lower bound for a word with more, and a restricted viewer's the best ones within a work budget: [limitation](limitations.md#ranking-of-very-common-words)); a page past it selects `offset + limit` candidates, up to 10 000; `total` becomes a lower bound (`2000+`) |
 | `max_query_length` / `max_terms` | `256` / `16` | input limits |
 | `did_you_mean` | `true` | a search with fewer than `fallback_below` hits, or one that needed typo tolerance, suggests the spelling of a word the index does not know in `SearchResult::$didYouMean`; never on a tenant-scoped index ([details](searching.md#did-you-mean)) |
 | `rescue_empty` | `true` | a search that finds nothing, with a word that has exactly one vocabulary word one edit away (`mpuse` / `mouse`), is searched again with the corrected words and answers with that, flagged in `SearchResult::$correctedFrom` and a warning; never with `did_you_mean: false`, on a tenant-scoped index, for a restricted viewer, or with typo tolerance off ([details](searching.md#zero-result-rescue)) |
@@ -84,6 +86,7 @@ $fuzzphony->in('products')->query('mouse')->profile('popular')->ranking(['boost'
 
 Set them per index (YAML `thresholds:`) or per query:
 
+<!-- fragment -->
 ```php
 ->thresholds(['min_score' => 0.1, 'fuzzy_mode' => 'always'])
 ```
@@ -114,10 +117,15 @@ depend on how common its words are. A word with fewer matches than that costs wh
   documents under it out. So `Wireless` (an exact title) comes before 20 000 other `wireless` documents.
 - **A page past the candidates** selects the best `offset + limit` instead (at most 10 000), so deep pages are exact;
   `SearchResult::hasMore()` is false at the last page of the candidates.
-- **Typo-tolerant branch:** the first `candidate_limit` matches the trigram index returns (0.9.9 is to choose the
-  best there as well).
-- **Facets and `exactCounts()`** keep the cheap selection (the counts are lower bounds), so with a very common word
-  `total` and the facet counts come from different candidate sets.
+- **Typo-tolerant branch:** the first `candidate_limit` matches the trigram index returns (the window of the page when that is
+  larger), cheap and a lower bound for a word with more matches than that. A document the full-text branch finds keeps its typo
+  score, so an exact word never ranks below its look-alikes for missing those first matches. A restricted viewer's typo branch
+  selects the best by the same key as the full-text branch instead, among the first matches of a work budget (30 000 divided by the
+  number of words for short texts, fewer for long ones), so that a field the viewer cannot see never decides the candidates. Ties are
+  broken by the id.
+- **Facets** of a capped search count the very candidates the hits come from (lower bounds); **`exactCounts()`** counts every match.
+
+Texts of thousands of words in a typo-tolerant field make the default expensive: [Tuning `candidate_limit`](tuning-candidate-limit.md).
 
 See also [ADR 0005](adr/0005-candidate-limit.md) on the candidate limit, and the
 [known limitations](limitations.md#ranking-of-very-common-words) of typo tolerance and `candidate_limit`.

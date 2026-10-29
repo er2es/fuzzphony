@@ -27,6 +27,14 @@ reindex is driven through the engine too (`beginRebuild()`, `refreshShadow()`, `
 `abortRebuild()`, `discardLeftoverRebuild()`), so `Reindexer` stays engine-agnostic; the PostgreSQL engine builds next to the
 live table and swaps it in ([ADR 0008](adr/0008-shadow-rebuild-with-a-change-log.md)).
 
+`PostgresEngine` is a thin facade (all of these are `@internal`): `Search\SearchRunner` runs a search (validation, the strict
+and typo-tolerant statements, relaxation, exact total, did-you-mean, rescue, hits), `Search\FacetRunner` counts the facets by one
+path (one statement per group of facets that count under the same conditions), `SearchSession` owns the connection's
+`pg_trgm` settings and the search transaction, `TextConfigCache` the process caches (stop words, synonym stems, the
+`tsv_capped` probe), `VocabularyService` the vocabulary and did-you-mean, `IndexMaintenance` refresh, queue and rebuild records.
+A `Statement` carries its `StatementKind` (explain() and the metrics read the kind, never the label) and declares whether it
+reads `pg_trgm.word_similarity_threshold`; the SQL builders (`Sql\SearchSqlBuilder`) say so from the operator they emit.
+
 ## Public API
 
 From 1.0 the backward-compatibility promise covers exactly these classes, interfaces and enums;
@@ -71,7 +79,8 @@ everything else in `src/` is marked `@internal` and may change in any release.
   `Fuzzphony\Core\Exception\InvalidArgument`, `Fuzzphony\Core\Exception\InvalidConfiguration`,
   `Fuzzphony\Core\Exception\InvalidDefinition`, `Fuzzphony\Core\Exception\InvalidQuery`,
   `Fuzzphony\Core\Exception\ActorRequired`, `Fuzzphony\Core\Exception\AccessDenied`,
-  `Fuzzphony\Core\Exception\RateLimited`, `Fuzzphony\Core\Exception\RebuildAlreadyRunning`,
+  `Fuzzphony\Core\Exception\RateLimited`, `Fuzzphony\Core\Exception\SearchRefused` (implemented by the three refusals),
+  `Fuzzphony\Core\Exception\RebuildAlreadyRunning`,
   `Fuzzphony\Core\Exception\UnknownIndex`
 - Engine SPI (for custom engines): `Fuzzphony\Core\Engine\Engine`, `Fuzzphony\Core\Engine\Capabilities`,
   `Fuzzphony\Core\Engine\Capability`, `Fuzzphony\Core\Engine\Vocabulary`, `Fuzzphony\Core\Engine\SynonymStems`, `Fuzzphony\Core\Engine\Suggestions` and `Fuzzphony\Core\Engine\SearchLogStore` and `Fuzzphony\Core\Engine\RecentSearchStore` (all optional); the PostgreSQL engine: `Fuzzphony\Engine\Postgres\PostgresEngine`
@@ -102,6 +111,13 @@ A fuzzy index also has `fuzzphony_<index>__vocab` (same schema): its words and i
 each occurs, created by `fuzzphony:schema --apply` and rebuilt after every full reindex, for "did you
 mean" ([ADR 0009](adr/0009-vocabulary-rebuilt-after-a-full-reindex.md)). It is additive: the layout
 below does not change.
+
+An index with a `granted` field has two more indexes over the open (not granted) fields, `..._open_fz_<hash>` (trigram over their `z_`
+columns) and `..._open_tsv_<hash>` (full text over their `t_` columns). A restricted viewer who holds none of the granted fields looks its words
+up there instead of in `fz` / `tsv` (`OpenClass`, `TextConfigCache::openClass()`): the lookup only has to find a superset of the allowed
+fields' own matches, the recheck against their columns decides, so the result is unchanged. The engine uses them only when both exist, are
+valid and ready and each is smaller than the one it replaces (`fz`, `tsv`) (asked once per process, `resetCaches()`); a viewer who holds a granted field keeps
+`fz` / `tsv`.
 
 `fuzzphony_meta` (same schema) records, per index, the sidecar layout version, a hash of the
 definition it was applied with and a hash of the definition its documents were built from;

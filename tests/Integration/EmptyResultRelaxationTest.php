@@ -80,8 +80,7 @@ final class EmptyResultRelaxationTest extends TestCase
         $probe = $search->query('mouse torch')->explain()->statements[2];
         self::assertSame('relaxation probe', $probe['label']);
 
-        $plan = implode("
-", array_map(
+        $plan = implode("\n", array_map(
             static fn(array $row): string => Coerce::str(reset($row)),
             $this->connection->fetchAll('EXPLAIN ' . $probe['sql'], $probe['params']),
         ));
@@ -97,8 +96,7 @@ final class EmptyResultRelaxationTest extends TestCase
         $explanation = $this->fuzzphony()->in('products')->query('mouse torch')->explain();
 
         self::assertSame(['full-text', 'fallback: full-text + fuzzy', 'relaxation probe'], array_column($explanation->statements, 'label'));
-        $plan = implode("
-", $explanation->plan);
+        $plan = implode("\n", $explanation->plan);
         self::assertStringContainsString('CTE scored', $plan);
         self::assertStringNotContainsString('CTE m0', $plan);
     }
@@ -198,8 +196,7 @@ final class EmptyResultRelaxationTest extends TestCase
             ['full-text', 'fallback: full-text + fuzzy', 'relaxation probe', 'relaxed: full-text', 'relaxed: fallback: full-text + fuzzy'],
             array_column($explanation->statements, 'label'),
         );
-        self::assertStringContainsString('CTE scored', implode("
-", $explanation->plan));
+        self::assertStringContainsString('CTE scored', implode("\n", $explanation->plan));
     }
 
     public function testRelaxationNeverTurnsAnOrBranchIntoAnExclusionOnly(): void

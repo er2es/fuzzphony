@@ -223,6 +223,14 @@ final readonly class Names
 
     public function indexName(IndexDefinition $index, string $suffix): string
     {
+        if (preg_match('/^' . OpenClass::NAME_TAIL . '$/', $suffix) === 1 && strlen($this->sidecarName($index) . '_' . $suffix) > self::MAX_IDENTIFIER_BYTES) {
+            // an open-class index keeps its `_open_..._<hash>` tail whatever the length (the apply, the doctor and the restart reminder
+            // find it by that tail): the sidecar part is shortened instead, with its own hash so that two long names stay apart
+            $sidecar = $this->sidecarName($index);
+
+            return substr($sidecar, 0, self::MAX_IDENTIFIER_BYTES - strlen($suffix) - 10) . '_' . hash('crc32b', $sidecar) . '_' . $suffix;
+        }
+
         return self::limit($this->sidecarName($index) . '_' . $suffix);
     }
 
@@ -299,5 +307,28 @@ final readonly class Names
     private function qualify(string $name): string
     {
         return Sql::ident($this->schema . '.' . $name);
+    }
+
+    /**
+     * The vector the text rank and the highlighter judge the strict query on: the whole document (`s.tsv`), or for a restricted
+     * viewer only the vectors of the fields it may see; a hidden field never takes part.
+     *
+     * @param list<string>|null $allowed
+     */
+    public function visibleVector(IndexDefinition $index, ?array $allowed): string
+    {
+        if ($allowed === null) {
+            return 's.tsv';
+        }
+        $parts = array_map(
+            fn(string $name): string => 's.' . $this->fieldVector($name),
+            array_values(array_filter($index->fieldNames(), static fn(string $name): bool => in_array($name, $allowed, true))),
+        );
+
+        return match (count($parts)) {
+            0 => "''::tsvector",
+            1 => $parts[0],
+            default => '(' . implode(' || ', $parts) . ')',
+        };
     }
 }

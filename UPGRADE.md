@@ -3,18 +3,62 @@
 Before 1.0, a minor version may contain breaking changes. Each section lists what to change,
 and the [CHANGELOG](CHANGELOG.md) has the full list of changes.
 
-## From 0.9.4 to 0.9.5
+## From 0.9.8 to 0.9.9
 
-1. **Symfony 8.0 is no longer supported** (the `symfony/*` constraints are now `^7.4 || ^8.1`). Symfony 8.0 is not a
-   long-term release and no longer receives fixes: every 8.0.x is affected by four `symfony/yaml` denial-of-service
-   advisories (CVE-2026-45133, -45304, -45305, CVE-2026-109413), so Composer refuses to install it. Move to Symfony 8.1
-   (`composer update "symfony/*" -W` after raising your constraints to `^8.1`) or stay on the 7.4 LTS. Nothing else changes.
-2. **With DoctrineBundle and `doctrine.orm` configured, the ORM wiring is now really active** (a bug: the bundle never detected
-   DoctrineBundle in a running application, see the CHANGELOG). `#[Searchable]` entities are discovered
-   (`discover_entities: false` turns that off), `EntityLoader` is a service and `sync: orm` indexes follow the
-   entity manager. Nothing to do unless you had worked around the missing wiring: a hand-registered
-   `DoctrineIndexDiscovery`, `EntityLoader` or `OrmSyncListener` is now a duplicate of the bundle's, and an index
-   that is both an attribute and in YAML `indexes` is overridden by the YAML as documented.
+**What you must do.** Only if an index has a `granted` field: run `fuzzphony:schema --apply`, then restart long-running processes
+(Messenger workers, RoadRunner, FrankenPHP: the engine looks the new indexes, and the `tsv_capped` / `actor_ip` columns an apply may add
+to an existing table, up once per process; the command says so). The apply builds two indexes over the fields that are not granted, with
+`CREATE INDEX CONCURRENTLY` (the table stays writable); until then the doctor reports them missing and the definition as changed, and
+searches run as before. After you change which fields are `granted` later, run it again: the indexes carry a hash of their definition, the
+apply builds the new ones and drops the old (each with `DROP INDEX CONCURRENTLY`, found by the end of its name at any name length, so no search waits behind the drop; a drop that fails is a warning, run the apply again; `--dump-migration` leaves this step out), and the doctor calls an old one stale. No reindex is required, no setting is new, and
+indexes without a `granted` field change nothing.
+
+**Stricter configuration.** `granted` in YAML or an array must be a non-empty string: `granted: ~`, a key without a value, a list of
+roles, `false` and an empty string used to load (as an open field, or one that is always hidden) and now throw an `InvalidDefinition` that
+names the field. Fix the key the message names, or remove it to leave the field open.
+
+**Good to know (not new, now documented).** One document the source cannot read (a failing cast) keeps the whole queue of its index from draining; the worker retries it with a back-off and the other indexes go on. The failure message printed to stderr can contain a value from the source row, so treat worker logs as sensitive ([limitations](docs/limitations.md#one-unreadable-document-stops-its-indexs-queue)).
+
+**Results that change.**
+
+- A top-level AND of stop words with exclusions (`the who -rock`) used to return every document without `rock` (a bug); it now searches
+  `the who` and leaves out the documents that have `rock`, so such a query returns far fewer results. If you showed a page for
+  "everything except X" through it, use a filter instead.
+- An exact word is no longer ranked below its look-alikes in a capped typo search (a full-text match keeps its typo score), `total` of a
+  capped `fuzzy_mode: always` search can be larger (`2000+`, `2667+`) because those matches count, a page past `candidate_limit` is served
+  by the typo-tolerant branch and by a filter-only listing, a short text is highlighted whole (`Ergonomic mouse 1001`, not
+  `Ergonomic mouse`), and swapped letters (`mosue`) get a "did you mean" and a mark. A capped typo search is **not** slower for an
+  unrestricted viewer or a tenant (25 to 75 ms on 200 000 products). A word with more matches than the limit contributes the first matches
+  of the table, not the closest spellings (a lower bound, like `total`).
+- A restricted viewer's typo candidates are the best by the page's sort key within a work budget (one more selection), and no longer depend
+  on a field the viewer cannot see: `mouse*`, a word that grows in normalisation (`ßßßab`) and the size of the visible text are looked up
+  and counted without the hidden fields. A viewer who may see every typo-tolerant field gets the unrestricted lookup. If you use
+  `restrictedToFields()` or `granted` fields, upgrade; no reindex is needed.
+- `RankingProfile::with()` / `->ranking()` merges `label_weights`: a per-query override that names some labels keeps the profile's own
+  weights for the others (before, the others fell back to the library defaults 1.0 / 0.4 / 0.2 / 0.1). Only code that passes
+  `label_weights` per query on a profile with non-default labels sees other scores.
+- The index configuration is checked as a whole: an unknown key at any level (`wieght`, `fuzy`, `tabel`, `colums`), a string where a boolean
+  belongs (`fuzzy: "false"` used to switch typo tolerance ON; use `true`/`false`), `fields: [name, body]` or `profiles: popular` (a list or
+  a string where a map belongs) and an unknown `class` throw an `InvalidDefinition` that names the place and suggests the closest key. An
+  override of an attribute-defined index may no longer carry `fields`, `filters`, `source`, `id_type` or `class` (they were silently
+  dropped); change the attributes instead. Correct configurations are unaffected.
+- `fuzzphony:search` is unlogged by default (it wrote a row to the search log, with the `--user` / `--tenant` you gave it, for every run):
+  pass the new `--log` to write one. `fuzzphony:worker` now also retries a queue it could not process after a back-off (60 s, doubling to
+  an hour) while the other indexes go on, and exits with code 1 under `--once`.
+- Metrics no longer carry the search text: `fuzzphony.search.took_ms`, `.fallback` and `.rescued` have the single label `index`.
+
+**API changes.**
+
+- `RebuildAlreadyRunning` now extends `\RuntimeException` (it was an `\InvalidArgumentException`): a `catch (\InvalidArgumentException)`
+  around a reindex no longer catches it, catch `RebuildAlreadyRunning` itself. A bad per-query `->thresholds([...])` / `->ranking([...])`
+  throws `InvalidQuery` (was `InvalidDefinition`). The 403 body of a refused search is the fixed text "Searching is not allowed for this
+  caller." (the exception in `previous` has the details). New interface `SearchRefused`, implemented by `AccessDenied`, `ActorRequired` and
+  `RateLimited`; nothing else about them changes.
+- The `LoggingMetricsCollector` constructor lost its `logQueryText` argument: remove the named argument if you pass it. A
+  `MetricsCollector` of your own no longer receives a `query` label; drop any code that read it.
+- `Synonyms` has a new last constructor parameter `$table` (internal: the lookup table `Fuzzphony::stemSynonyms()` now builds). A list
+  prepared and cached by an older version still works (it has no table and builds it as before); prepare it again to get the saving. The
+  cached object is about 2.5 times larger.
 
 ## From 0.9.7 to 0.9.8
 
@@ -80,6 +124,19 @@ Nothing is required. One thing to know: **a restricted viewer's phrase or field-
    `InvalidArgument` and the other reports keep working). If you call
    `new SearchRecord(...)` or `new SearchGate(...)` with positional arguments, nothing changes: the new `ip` and `ipMode`
    arguments are trailing and optional.
+
+## From 0.9.4 to 0.9.5
+
+1. **Symfony 8.0 is no longer supported** (the `symfony/*` constraints are now `^7.4 || ^8.1`). Symfony 8.0 is not a
+   long-term release and no longer receives fixes: every 8.0.x is affected by four `symfony/yaml` denial-of-service
+   advisories (CVE-2026-45133, -45304, -45305, CVE-2026-109413), so Composer refuses to install it. Move to Symfony 8.1
+   (`composer update "symfony/*" -W` after raising your constraints to `^8.1`) or stay on the 7.4 LTS. Nothing else changes.
+2. **With DoctrineBundle and `doctrine.orm` configured, the ORM wiring is now really active** (a bug: the bundle never detected
+   DoctrineBundle in a running application, see the CHANGELOG). `#[Searchable]` entities are discovered
+   (`discover_entities: false` turns that off), `EntityLoader` is a service and `sync: orm` indexes follow the
+   entity manager. Nothing to do unless you had worked around the missing wiring: a hand-registered
+   `DoctrineIndexDiscovery`, `EntityLoader` or `OrmSyncListener` is now a duplicate of the bundle's, and an index
+   that is both an attribute and in YAML `indexes` is overridden by the YAML as documented.
 
 ## From 0.8 to 0.9
 

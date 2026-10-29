@@ -9,22 +9,37 @@ use Fuzzphony\Core\Definition\IndexDefinition;
 use Fuzzphony\Core\Definition\SyncMode;
 use Fuzzphony\Core\Definition\TriggerLevel;
 use Fuzzphony\Core\Exception\InvalidArgument;
+use Fuzzphony\Core\Ranking\RankingProfile;
+use Fuzzphony\Core\Ranking\Thresholds;
 
 /**
- * Emits the attributes to put on a Doctrine entity. Only table sources can be expressed with
- * attributes; for joined sources use YAML or the builder (supports() tells which).
+ * Emits the attributes to put on a Doctrine entity. Only table sources without extra watches, ranking
+ * profiles and thresholds can be expressed with attributes (they have no place in #[Searchable]); for the
+ * others use YAML or the builder (supports() tells which).
  */
 final class AttributeExporter
 {
     public function supports(IndexDefinition $index): bool
     {
-        return $index->source->table !== null && $index->watches === [];
+        return $index->source->table !== null && $index->watches === [] && !$this->hasProfilesOrThresholds($index);
+    }
+
+    private function hasProfilesOrThresholds(IndexDefinition $index): bool
+    {
+        $default = (new RankingProfile())->toArray();
+        foreach ($index->profiles as $name => $profile) {
+            if ($name !== 'default' || $profile->toArray() !== $default) {
+                return true;
+            }
+        }
+
+        return (array) $index->thresholds !== (array) new Thresholds();
     }
 
     public function export(IndexDefinition $index, string $className = 'Product'): string
     {
         if (!$this->supports($index)) {
-            throw new InvalidArgument('Only table sources without extra watches can be expressed with attributes; export YAML instead.');
+            throw new InvalidArgument('Only table sources without extra watches, ranking profiles and thresholds can be expressed with attributes; export YAML instead.');
         }
         $e = static fn(mixed $v): string => var_export($v, true);
 

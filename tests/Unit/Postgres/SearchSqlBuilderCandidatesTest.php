@@ -114,21 +114,35 @@ final class SearchSqlBuilderCandidatesTest extends TestCase
         self::assertStringNotContainsString('w.r_text >= ', $fuzzy);
     }
 
-    public function testFacetsExactCountsAndTheBrowseKeepTheFastSelection(): void
+    public function testFacetsSelectTheBestCandidatesAndExactCountsAndTheBrowseKeepTheFastSelection(): void
     {
         $builder = new SearchSqlBuilder(Indexes::products());
         $thresholds = new Thresholds();
+        $profile = new RankingProfile();
+
+        // the facets count the best `candidate_limit` matches, whatever the order of the heap: the ordered selection of the hits
+        foreach ([
+            $builder->facets(['in_stock'], "'mouse'", 'mouse', null, [], $profile, $thresholds, 10, false)['sql'],
+            $builder->facets(['in_stock', 'brand_id'], "'mouse'", 'mouse', null, [], $profile, $thresholds, 10, false)['sql'],
+        ] as $sql) {
+            self::assertStringContainsString('fts_fast AS (', $sql);
+            self::assertStringContainsString('ORDER BY 1 * w.r_text', $sql);
+            self::assertStringContainsString('LIMIT 100000', $sql);
+        }
+        // a deep page does not make the facets count more candidates: their window is the candidate limit
+        self::assertStringContainsString('count(*) FROM fts_fast) < 2000', $builder->facets(['in_stock'], "'mouse'", 'mouse', null, [], $profile, $thresholds, 10, false)['sql']);
+
         $statements = [
-            $builder->facet('in_stock', "'mouse'", 'mouse', null, [], new RankingProfile(), $thresholds, 10, false)['sql'],
-            $builder->facets(['in_stock', 'brand_id'], "'mouse'", 'mouse', null, [], new RankingProfile(), $thresholds, 10, false)['sql'],
-            $builder->exactTotal("'mouse'", 'mouse', null, [], new RankingProfile(), $thresholds)['sql'],
-            $builder->browse([], new RankingProfile(), $thresholds, 20, 0)['sql'],
+            $builder->facets(['in_stock'], "'mouse'", 'mouse', null, [], $profile, $thresholds, 10, true)['sql'],
+            $builder->facets(['in_stock', 'brand_id'], "'mouse'", 'mouse', null, [], $profile, $thresholds, 10, true)['sql'],
+            $builder->exactTotal("'mouse'", 'mouse', null, [], $profile, $thresholds)['sql'],
+            $builder->browse([], $profile, $thresholds, 20, 0)['sql'],
         ];
         foreach ($statements as $sql) {
             self::assertStringNotContainsString('fts_fast', $sql);
             self::assertStringNotContainsString('count(*) FROM fts)', $sql);
         }
-        self::assertStringContainsString("fts AS (\n    SELECT s.id, ts_rank_cd('{0.1,0.2,0.4,1}'::real[], s.tsv, q.tsq, 32)::double precision AS r_text\n    FROM \"public\".\"fuzzphony_products\" AS s CROSS JOIN q\n    WHERE s.tsv @@ q.tsq AND TRUE\n    LIMIT 2000\n)", $statements[0], 'facets: the candidate limit, no ordering');
+        self::assertStringNotContainsString('LIMIT 2000', $statements[0], 'the exact counts have no limit at all');
         self::assertStringNotContainsString('LIMIT 2000', $statements[2], 'the exact count has no limit at all');
     }
 
@@ -217,6 +231,116 @@ final class SearchSqlBuilderCandidatesTest extends TestCase
         self::assertSame(1, preg_match('/fts AS \(.*?\n\)/s', $sql, $match));
 
         return $match[0] ?? '';
+    }
+
+    /** The ranked statement of a typo-tolerant search for `mouse` (candidate limit 500). */
+    private static function typoStatement(SearchSqlBuilder $builder, int $limit = 20, int $offset = 0): string
+    {
+        $root = self::parse('mouse');
+
+        return $builder->ranked("'mouse'", 'mouse', $root, [], new RankingProfile(), new Thresholds(candidateLimit: 500, fuzzySimilarity: 0.3), $limit, $offset, [], $root)['sql'];
+    }
+
+    public function testTheTypoBranchOfAnUnrestrictedViewerIsTheCheapSelection(): void
+    {
+        $sql = self::typoStatement(new SearchSqlBuilder(Indexes::products()));
+
+        // one CTE named fuzzy: the first matches the trigram index returns, the candidate limit; no ordered re-selection, no pool
+        self::assertStringContainsString("fuzzy AS (
+    SELECT s.id, (", $sql);
+        self::assertStringContainsString("
+    LIMIT 500
+)", $sql);
+        self::assertStringContainsString('(SELECT count(*) FROM fuzzy) AS fuzzy_n', $sql);
+        self::assertStringNotContainsString('fuzzy_fast', $sql);
+        self::assertStringNotContainsString('fuzzy_pool', $sql);
+        self::assertStringNotContainsString('octet_length', $sql);
+    }
+
+    public function testAStrictMatchKeepsItsTypoScoreWhenTheTypoBranchIsCapped(): void
+    {
+        $sql = self::typoStatement(new SearchSqlBuilder(Indexes::products()));
+
+        // a full-text match outside the first typo candidates would score below every look-alike inside them: it gets the typo score too,
+        // only when the typo branch holds as many candidates as it may (otherwise the branch holds every match and nothing changes)
+        self::assertStringContainsString('SELECT t.id, t.r_text, CASE WHEN (SELECT count(*) FROM fuzzy) >= 500 THEN (', $sql);
+        self::assertStringContainsString('FROM fts AS t JOIN "public"."fuzzphony_products" AS s ON s.id = t.id CROSS JOIN q', $sql);
+        self::assertStringContainsString('SELECT id, 0::double precision AS r_text, r_fuzzy FROM fuzzy', $sql);
+    }
+
+    public function testAStrictOnlyStatementAndAnExactCountAreNotRescored(): void
+    {
+        $strictOnly = (new SearchSqlBuilder(Indexes::products()))->ranked("'mouse'", 'mouse', null, [], new RankingProfile(), new Thresholds(candidateLimit: 500), 20, 0)['sql'];
+        self::assertStringNotContainsString('FROM fts AS t JOIN', $strictOnly);
+
+        $root = self::parse('mouse');
+        $exact = (new SearchSqlBuilder(Indexes::products()))->exactTotal("'mouse'", 'mouse', $root, [], new RankingProfile(), new Thresholds(candidateLimit: 500, fuzzySimilarity: 0.3), [], $root)['sql'];
+        self::assertStringNotContainsString('FROM fts AS t JOIN', $exact, 'an exact count reads every typo match');
+    }
+
+    public function testARestrictedViewersTypoBranchSelectsItsBestCandidatesWithinAWorkBudget(): void
+    {
+        $sql = self::typoStatement(new SearchSqlBuilder(Indexes::products(), allowedFields: ['name']));
+
+        self::assertStringContainsString('fuzzy_fast AS (', $sql);
+        self::assertStringContainsString('SELECT id, r_fuzzy FROM fuzzy_fast WHERE (SELECT count(*) FROM fuzzy_fast) < 500', $sql);
+        self::assertStringContainsString('WHERE (SELECT count(*) FROM fuzzy_fast) >= 500', $sql);
+        self::assertStringContainsString('ORDER BY 0.5 * w.r_fuzzy + w.exact_bonus + w.prefix_bonus + w.boost_bonus + w.recency_bonus DESC, w.id', $sql);
+        self::assertStringContainsString('(SELECT count(*) FROM fuzzy_fast) AS fuzzy_n', $sql, 'capped is the count of the cheap selection');
+        self::assertStringNotContainsString('fuzzy_pool', $sql);
+        // the scan: the work budget by what the first matches weigh (their stored text), between the window and the row budget
+        self::assertStringContainsString('(coalesce(octet_length(s."z_name"), 0))::bigint AS w', $sql, 'the size of the visible fields only');
+        self::assertStringNotContainsString('octet_length(s.fz)', $sql);
+        self::assertStringContainsString('LIMIT greatest(500, least(30000, (1500000 / (100 + coalesce((SELECT avg(w) FROM fuzzy_fast), 0)) / 1)::bigint))', $sql);
+    }
+
+    public function testTheTypoWorkBudgetIsDividedByTheWordsAndNeverUnderTheWindow(): void
+    {
+        $root = self::parse('mouse wireless');
+        $sql = (new SearchSqlBuilder(Indexes::products(), allowedFields: ['name']))->ranked("'mouse' & 'wireless'", 'mouse wireless', $root, [], new RankingProfile(), new Thresholds(candidateLimit: 500, fuzzySimilarity: 0.3), 20, 0, [], $root)['sql'];
+
+        self::assertStringContainsString('LIMIT greatest(500, least(15000, (1500000 / (100 + coalesce((SELECT avg(w) FROM fuzzy_fast), 0)) / 2)::bigint))', $sql);
+    }
+
+    public function testADeepPageSelectsTheWindowOfTheTypoBranchToo(): void
+    {
+        $cheap = self::typoStatement(new SearchSqlBuilder(Indexes::products()), 20, 980);
+        self::assertStringContainsString("
+    LIMIT 1000
+)", $cheap);
+        self::assertStringContainsString('(SELECT count(*) FROM fuzzy) >= 1000 THEN', $cheap);
+
+        $restricted = self::typoStatement(new SearchSqlBuilder(Indexes::products(), allowedFields: ['name']), 20, 980);
+        self::assertStringContainsString('(SELECT count(*) FROM fuzzy_fast) < 1000', $restricted);
+        self::assertStringContainsString('LIMIT greatest(1000, least(30000,', $restricted);
+        self::assertStringContainsString("        LIMIT 1000
+    ) AS o", $restricted);
+    }
+
+    public function testFacetsOfTheCandidatesCountTheIdsTheRankedStatementReturns(): void
+    {
+        $builder = new SearchSqlBuilder(Indexes::products());
+        $ranked = $builder->ranked("'mouse'", 'mouse', null, [], new RankingProfile(), new Thresholds(), 20, 0, [], null, true);
+        self::assertStringContainsString('(SELECT json_agg(id ORDER BY id) FROM scored WHERE relevance >= 0) AS cand_ids', $ranked['sql']);
+        self::assertStringContainsString('m.cand_ids', $ranked['sql']);
+        self::assertStringNotContainsString('cand_ids', $builder->ranked("'mouse'", 'mouse', null, [], new RankingProfile(), new Thresholds(), 20, 0)['sql']);
+
+        $facets = $builder->facetsOf([5, 7], ['in_stock', 'brand_id'], 10);
+        self::assertSame(['p0' => '{5,7}'], $facets['params']);
+        self::assertStringContainsString('WHERE s.id = ANY(CAST(:p0 AS bigint[]))', $facets['sql']);
+        self::assertStringContainsString('UNION ALL', $facets['sql'], 'one branch per facet');
+    }
+
+    public function testACappedListingCountsTheFirstDocumentsById(): void
+    {
+        $builder = new SearchSqlBuilder(Indexes::products());
+        $thresholds = new Thresholds(candidateLimit: 300);
+
+        self::assertStringContainsString("ORDER BY s.id
+    LIMIT 300", $builder->browseFacets(['in_stock'], [], $thresholds, 10, false)['sql']);
+        self::assertStringContainsString("ORDER BY s.id
+    LIMIT 300", $builder->browseFacets(['in_stock', 'brand_id'], [], $thresholds, 10, false)['sql']);
+        self::assertStringNotContainsString('LIMIT 300', $builder->browseFacets(['in_stock'], [], $thresholds, 10, true)['sql']);
     }
 
     /** @param list<string>|null $allowed */

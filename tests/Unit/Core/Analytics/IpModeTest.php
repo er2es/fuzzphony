@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Fuzzphony\Tests\Unit\Core\Analytics;
 
 use Fuzzphony\Core\Analytics\IpMode;
+use Fuzzphony\Core\Support\IpAddress;
 use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\TestCase;
 
@@ -51,16 +52,32 @@ final class IpModeTest extends TestCase
         yield 'a host name' => ['example.com'];
         yield 'out of range octet' => ['256.1.1.1'];
         yield 'too few octets' => ['1.2.3'];
-        yield 'with a port' => ['203.0.113.45:8080'];
         yield 'with a prefix length' => ['203.0.113.0/24'];
-        yield 'with a leading space' => [' 203.0.113.45'];
-        yield 'with a trailing newline' => ["203.0.113.45\n"];
         yield 'leading zeros' => ['203.000.113.045'];
-        yield 'IPv6 with a zone' => ['fe80::1%eth0'];
-        yield 'IPv6 in brackets' => ['[2001:db8::1]'];
         yield 'two addresses' => ['203.0.113.45, 198.51.100.7'];
         yield 'an injection attempt' => ["1.2.3.4'; DROP TABLE x; --"];
         yield 'unknown' => ['unknown'];
+    }
+
+    /** @return iterable<string, array{string, string, string}> the spelling, what Masked stores, what Full stores */
+    public static function spellings(): iterable
+    {
+        yield 'with a port' => ['203.0.113.45:8080', '203.0.113.0', '203.0.113.45'];
+        yield 'with a leading space' => [' 203.0.113.45', '203.0.113.0', '203.0.113.45'];
+        yield 'with a trailing newline' => ["203.0.113.45\n", '203.0.113.0', '203.0.113.45'];
+        yield 'IPv6 with a zone' => ['fe80::1%eth0', 'fe80::', 'fe80::1'];
+        yield 'IPv6 in brackets' => ['[2001:db8::1]', '2001:db8::', '2001:db8::1'];
+        yield 'IPv6 in brackets with a port' => ['[2001:db8::1]:443', '2001:db8::', '2001:db8::1'];
+    }
+
+    #[DataProvider('spellings')]
+    public function testTheSpellingsTheRateLimitReadsAreStoredAsTheAddressTheyCarry(string $spelling, string $masked, string $full): void
+    {
+        self::assertSame($masked, IpMode::Masked->apply($spelling));
+        self::assertSame($full, IpMode::Full->apply($spelling));
+        self::assertNull(IpMode::Off->apply($spelling));
+        // the limiter and the log agree on whose address it is
+        self::assertSame($full, IpAddress::valid($spelling));
     }
 
     #[DataProvider('invalid')]

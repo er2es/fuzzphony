@@ -10,6 +10,7 @@ use Fuzzphony\Core\Fuzzphony;
 use Fuzzphony\Core\Ranking\Thresholds;
 use Fuzzphony\Core\Registry\IndexRegistry;
 use Fuzzphony\Engine\Postgres\PostgresEngine;
+use Fuzzphony\Engine\Postgres\TextConfigCache;
 use Fuzzphony\Tests\Conformance\EngineConformanceTestCase;
 use Fuzzphony\Tests\Fixtures\Indexes;
 use PHPUnit\Framework\TestCase;
@@ -110,38 +111,47 @@ final class EmptyQueriesCacheTest extends TestCase
 
         $properties = ['stems', 'expanders', 'emptyAnswers'];
         foreach ($properties as $name) {
-            self::assertNotSame([], (new \ReflectionProperty(PostgresEngine::class, $name))->getValue($this->engine), $name . ' was filled by the search');
+            self::assertNotSame([], (new \ReflectionProperty(TextConfigCache::class, $name))->getValue($this->cache()), $name . ' was filled by the search');
         }
-        self::assertNotNull((new \ReflectionProperty(PostgresEngine::class, 'synonymDigests'))->getValue($this->engine));
+        self::assertNotNull((new \ReflectionProperty(TextConfigCache::class, 'synonymDigests'))->getValue($this->cache()));
 
         $this->engine->resetCaches();
 
         foreach ($properties as $name) {
-            self::assertSame([], (new \ReflectionProperty(PostgresEngine::class, $name))->getValue($this->engine), $name);
+            self::assertSame([], (new \ReflectionProperty(TextConfigCache::class, $name))->getValue($this->cache()), $name);
         }
-        self::assertNull((new \ReflectionProperty(PostgresEngine::class, 'synonymDigests'))->getValue($this->engine));
+        self::assertNull((new \ReflectionProperty(TextConfigCache::class, 'synonymDigests'))->getValue($this->cache()));
         self::assertSame('(tv OR television)', $fuzzphony->in('products')->query('tv')->get()->interpretedAs, 'and it keeps expanding');
     }
 
     public function testTheCacheIsBoundedAndStartsOverWhenFull(): void
     {
         $first = $this->ids('wireles mose');
-        $property = new \ReflectionProperty(PostgresEngine::class, 'emptyAnswers');
+        $property = new \ReflectionProperty(TextConfigCache::class, 'emptyAnswers');
         /** @var array<string, array<string, bool>> $cached */
-        $cached = $property->getValue($this->engine);
+        $cached = $property->getValue($this->cache());
         $config = (string) array_key_first($cached);
         $filler = static fn(int $count): array => [$config => array_fill_keys(array_map(static fn(int $i): string => 'filler' . $i, range(1, $count)), false)];
 
-        $property->setValue($this->engine, $filler(5_000));
+        $property->setValue($this->cache(), $filler(5_000));
         $this->ids('wireles mose');
         /** @var array<string, array<string, bool>> $kept */
-        $kept = $property->getValue($this->engine);
+        $kept = $property->getValue($this->cache());
         self::assertGreaterThanOrEqual(5_000, count($kept[$config]), 'at the limit nothing is dropped');
 
-        $property->setValue($this->engine, $filler(5_001));
+        $property->setValue($this->cache(), $filler(5_001));
         self::assertSame($first, $this->ids('wireles mose'));
         /** @var array<string, array<string, bool>> $after */
-        $after = $property->getValue($this->engine);
+        $after = $property->getValue($this->cache());
         self::assertLessThan(100, count($after[$config]), 'the filler is gone, the answers of this query are back');
+    }
+
+    /** The process caches of the engine under test. */
+    private function cache(): TextConfigCache
+    {
+        $caches = (new \ReflectionProperty(PostgresEngine::class, 'caches'))->getValue($this->engine);
+        self::assertInstanceOf(TextConfigCache::class, $caches);
+
+        return $caches;
     }
 }

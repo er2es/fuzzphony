@@ -134,8 +134,7 @@ final class FuzzyQueryCompilerTranspositionsTest extends TestCase
         $match = self::compiler()->compile($node, $params);
 
         self::assertNotNull($match);
-        self::assertSame(1, substr_count(implode("
-", $match->columns), ' AS tv'), 'the typed word only');
+        self::assertSame(1, substr_count(implode("\n", $match->columns), ' AS tv'), 'the typed word only');
         self::assertContains("'etvision' | 'tveision' | 'teivsion' | 'tevsiion' | 'teviison' | 'tevisoin' | 'tevisino'", $params->all());
         self::assertCount(1, array_filter($params->all(), static fn(mixed $p): bool => is_string($p) && str_contains($p, ' | ')), 'no tsquery of variants for the synonym');
     }

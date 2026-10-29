@@ -7,7 +7,7 @@ Some of these are limits of the technique (trigrams, PostgreSQL's triggers), som
 bounded, some protect the privacy of a log, and some are things to do when you deploy. Each entry says what
 happens, why, and what to do. The statements here were checked against the code and the tests.
 
-- [Search quality](#search-quality): [typo tolerance](#typo-tolerance-is-trigram-based), [whole words](#a-word-is-matched-as-a-whole-word),
+- [Search quality](#search-quality): [typo tolerance](#typo-tolerance-is-trigram-based), [whole words](#a-word-is-matched-as-a-whole-word), [codes](#codes-with-a-hyphen-before-digits-a-dot-or-a-slash),
   [stop words](#stop-words-are-ignored-and-only-a-query-of-nothing-else-finds-them), [languages](#stemming-covers-regular-forms-one-language-per-index),
   [very common words](#ranking-of-very-common-words), [facet counts](#facet-counts-are-over-the-candidates),
   [synonyms](#synonyms-are-expanded-on-the-query-and-stop-there), [highlights](#highlights-run-the-source-query-and-mark-typo-matches-by-word),
@@ -70,6 +70,14 @@ fewer than `fallback_below` hits, and as a look-alike ranked by similarity, neve
 What to do: if one column needs a guaranteed substring match (a part-number fragment), keep a `LIKE` (with a
 trigram index) on that column next to Fuzzphony.
 
+### Codes with a hyphen before digits, a dot or a slash
+
+`INV-001` is not found by a search for `INV-001` on a field that is not typo tolerant (`INV-2024-0042`, `AB-12/3`, `INV.007` likewise). The query is split at every character that is not a
+letter or a digit (`'inv' <-> '001'`); PostgreSQL's text-search parser indexes `INV-001` as `inv` and `-001` (a hyphen before digits is a sign), `INV.007` and `INV/008` as one token each.
+Letters joined by a hyphen (`usb-c`) are indexed in parts too and are not affected. A fuzzy field finds the code through the trigram fallback, as a look-alike.
+
+What to do: index the code with its separators turned into spaces, so that the index holds what the query is split into ([Codes and numbers](searching.md#codes-and-numbers)).
+
 ### Stop words are ignored, and only a query of nothing else finds them
 
 The stop words of the index language are removed from documents and from queries, so they never narrow a
@@ -80,9 +88,13 @@ it works on the normalised text of the typo-tolerant fields, stop words included
 `title:who` and the quoted phrase `"to be or not to be"` find "The Who" and "To be or not to be". It has its
 limits:
 
-- Only a query whose every word is a stop word. One real word and the stop words around it are ignored as
-  before, and so is a query that excludes a real word (`the who -rock`: its full-text branch is "everything
-  but rock", which is left as it is).
+- Only a query whose every word is a stop word, or a top-level AND of stop words with exclusions. One real word and
+  the stop words around it are ignored as before. `the who -rock` and `the who -(rock OR roll)` search `the who` and
+  leave out the documents that have `rock`. A query with an OR at the top level, or an OR or an exclusion inside a positive group (`the OR -rock`,
+  `(the -rock) OR who`, `(the OR who) -rock`), is as it always was. An excluded stop word (`the who -the`, `the -who`)
+  is dropped, it excludes nothing. Where the stop-word search does not apply (no typo-tolerant search, more than three
+  words, a word shorter than `fuzzy_min_length`) such a query is as it always was: `the who -rock` with
+  `fuzzy_mode: never` is still "everything but rock".
 - Only with typo tolerance: the index has a typo-tolerant field and `fuzzy_mode` is not `never` (the ranking
   profile's `fuzzy` weight is not 0). Without it nothing changes and the query finds nothing.
 - Only in the typo-tolerant fields, and as a look-alike, like every typo-tolerant word: `who` ranks "Who" and
@@ -98,7 +110,7 @@ limits:
   catalogue); with `the` in half of the names of 100 000 products, `the` takes 43 ms and three stop words that no
   document has together 80 ms, the empty-result relaxation included. `candidate_limit` applies as always (the total is
   a lower bound).
-- An excluded stop word (`the -who`) is still dropped. The empty-result relaxation works as for any words.
+- The empty-result relaxation works as for any words.
 
 What to do: for names, titles or codes use `language: simple` (no stemming and no stop words), in an index of
 their own. See [Languages](languages.md#what-the-language-decides).
@@ -143,31 +155,48 @@ the same cheap selection as before and returns the same hits.
   for the rank at all (`ideal -a -b ... -o` ranks like `ideal`). The rank of a document is the same either way.
   Measured on 200 000 products, a one-word query costs 0.7 to 1 microseconds per scanned match, 170 to 330 ms in the
   worst case at 1 000 000 rows; the hostile ones (16 words, 15 exclusions, 15 prefixes) cost 170 to 340 ms at 200 000
-  rows and 0.4 to 1 s at 1 000 000, about twice the time of the same query before 0.9.8 (the index scan that finds
-  the matches is most of it), where an earlier build of 0.9.8 took 2 to 3 s
-  ([Benchmarks](benchmarks.md#common-words)).
+  rows and 0.4 to 1 s at 1 000 000 (the index scan that finds
+  the matches is most of it; [Benchmarks](benchmarks.md#common-words)).
 - **A word under the limit costs what it did** (a rare word: 0.15 ms more to plan, never executed); a word
   over it costs one more pass over its matches: 10 to 38 ms for `wireless` (20 000 matches) on 200 000 products,
   up to 105 ms for the most common word there.
 - `min_score` keeps the documents under it out of the candidate slots (the strict branch), so a query that
   needs it still finds its best documents; `total` stays flagged as a lower bound.
 
-**Typo-tolerant branch: still approximate.** The typo branch (a word that is misspelled, `fuzzy_mode: always`,
-or a search that found too little) still collects the first `candidate_limit` matches of its trigram index, **not
-the best ones**: with a very common typo-tolerant word the closest spelling can be missing, because 3 000 weaker
-look-alikes crowd it out. It is planned for 0.9.9. In `fuzzy_mode: always` the typo candidates are added to
-the strict ones, so a very common word there keeps its approximate part.
+**Typo-tolerant branch: the first matches of the trigram index; exact only while a word has no more matches than the limit.**
+The typo branch (a word that is misspelled, `fuzzy_mode: always`, or a search that found too little) takes, for each typo-tolerant
+word, the documents the trigram index returns, at most `candidate_limit` (the window of the page when that is larger) of them.
 
-**"First" is the physical order of the sidecar table.** The typo branch's first candidates, the first 100 000 matches
-beyond the scan budget, and the first `candidate_limit` matches the facets count are the ones a bitmap heap scan returns,
-in the order of the rows in the table. That order depends on how the rows were written (a reindex fills free space in
-earlier pages), and so on the size of every row, **hidden fields included**. For a restricted viewer this means: the strict
-candidates up to the scan budget, their order, the total and the hits are exact and independent of a hidden field (tests
-compare corpora that differ only in a hidden field's content and size); the typo branch's candidates, the strict ones
-beyond the budget, and the facet counts of a capped search (`totalIsLowerBound`) can differ between two corpora that
-differ only in a hidden field. Nothing a hidden field holds is shown by that (a document that holds a word only in a hidden
-field is never returned), but the difference is not zero. A deterministic order for the typo branch is planned for
-0.9.9.
+- **Under the limit it is exact.** Every match of the typo-tolerant words is a candidate. A document the full-text branch finds
+  also keeps the typo score it would have had: an exact word is never ranked below its look-alikes because it fell outside the
+  first typo candidates (three documents titled `mousse cake` at the end of 3 000 titles with `mouse` come first for `mousse`).
+- **Over the limit it is a lower bound.** A typo word that matches more documents than the limit (a spelling like `mouss` is close
+  to 20 000 titles of a 200 000-row catalogue) contributes the first `candidate_limit` of its matches in the table's physical
+  order, ranked by the page's sort key. A closer spelling further down the table may not be among them: the page is a full page of
+  matches of the word, the same on every run on the same data, but not guaranteed to be the closest ones. That order shows an
+  unrestricted viewer nothing it could not read (it may see every field), and a tenant's candidates are chosen among its own
+  documents, so the size of another tenant's rows does not change them (a test compares corpora that differ only there).
+- **A restricted viewer gets the best candidates instead.** The first matches in physical order are shaped by the size of the
+  fields the viewer cannot see, so its typo branch scores the matches it may see, up to a work budget, and keeps the best by the same
+  sort key (similarity, bonuses, boost, recency, then the id): exact up to **30 000 matches divided by the number of words of the
+  query** when the typo-tolerant texts are short (an internal constant, like the 100 000 of the strict branch), and up to fewer when
+  they are long: the budget is about 1.5 MB of typo-tolerant text per statement, counting 100 bytes for every row, taken from the
+  uncompressed size of the first matches' text in the fields the viewer may SEE (so 300 characters per document leave about 10 000 matches,
+  a visible document of 17 000 words leaves a few hundred), never fewer than the candidates asked for. A hidden field never moves
+  it, so what it holds cannot change the candidates; the price is that a long hidden text still costs its recheck time
+  ([below](#a-restricted-viewers-very-common-word-in-a-hidden-typo-tolerant-field)). Beyond the budget the first matches of the index are taken, in
+  physical order, as above ([Security](security.md#the-limits-stated-honestly)). The cost of a document of this branch is about 8
+  microseconds for a short name and grows with the text that is rechecked.
+- **A page past the candidates** selects the window `offset + limit` in this branch too (up to 10 000), like the strict one.
+- **Cost.** A typo search costs what the trigram index and the recheck of up to `candidate_limit` matches cost: 25 to 75 ms on
+  200 000 products for a typo word that matches 15 000 of them, whatever the limit does to the other branch. A restricted viewer pays
+  one more selection (about 0.15 s for `hedphones` restricted to two fields, `batery` on a 12-field index 0.5 s)
+  ([Benchmarks](benchmarks.md#typo-words-and-facets-of-a-capped-search)).
+
+**What decides which documents are candidates.** On the full-text branch and for a restricted viewer's typo branch: the text rank,
+the bonuses and the similarity of the fields the viewer may read, the id, and the filters, not the physical order of the sidecar table
+(which the size of every row, hidden fields included, shapes), up to the budgets above. For everyone else's typo branch above the limit:
+the physical order of the table decides which matches are looked at, and the page sort key only orders them.
 
 `exactCounts()` counts everything the query matches, for the total and the facets, but the page of hits is
 still the ranked candidates ([Facets](searching.md#facets)).
@@ -181,23 +210,46 @@ it to request input): it reads every match and can take seconds on a large index
 
 ### Facet counts are over the candidates
 
-The counts of `facets()` are taken over the first `candidate_limit` matches the index returns (the cheap
-selection, not the best ones), while `total` and the hits come from the best candidates: when a word is more
-common than the limit the two are different sets, and the counts are lower bounds ("120+"; the Live Component
-prints the `+`). With `exactCounts()` every match is counted: in the example above, a limit of 10 gave 4, 3
-and 3 for three categories, and the exact counts were 1 001, 1 000 and 1 000. A page past the limit selects more
-hits but not more facet candidates. See [Facets](searching.md#facets).
+When the search hit its candidate limit the counts of `facets()` are taken over the very candidates the hits come from (the best
+`candidate_limit` documents of the strict branch and, with typo tolerance, the typo branch's candidates; the statement that finds the hits
+returns their ids and the facets count them), so a facet shows the documents the page was chosen from, and does not depend on the
+order of the table. They are still lower bounds ("120+"; the Live Component prints the `+`) while `total` is a lower bound too, and a
+page past the limit (which selects more hits) does not count more facet candidates. A facet that leaves a condition out
+(the disjunctive facet of an active filter) selects its own candidates, by the same rule. A filter-only listing with no text counts the
+first `candidate_limit` documents by id. With `exactCounts()` every match is counted: in the example above, a limit of 10 gave
+4, 3 and 3 for three categories, and the exact counts were 1 001, 1 000 and 1 000. See [Facets](searching.md#facets).
 
-### A restricted viewer's very common word in a hidden typo-tolerant field is slow
+### A restricted viewer's very common word in a hidden typo-tolerant field
 
-A viewer who may not see a typo-tolerant field is still searched through that field's trigram index and the
-rows are rejected afterwards, so a word that is in most documents' hidden field makes the probe of a typo-tolerant
-search read every row: on 200 000 products with five ordinary words in a hidden field, one such word takes 1.7 s
-and five of them 19 s (the same search for a viewer who sees the field takes 0.1 to 0.4 s). Nothing leaks (the
-result is the same as for any other hidden content; only the time depends on it, see
-[Security](security.md#the-limits-stated-honestly)); it is not a regression of 0.9.8. Planned: a trigram
-index on the allowed field's own column, or a work cap on the probe. Until then keep a field that is in most
-documents and that some viewers may not see out of `fuzzy: true`.
+A restricted viewer's words are looked up in an index that also holds the text of the fields it may not see, and the rows that
+match only there are rejected afterwards. A word that is in most documents' hidden field then makes a typo-tolerant search read
+every row (200 000 products, five ordinary words in a hidden field: one such word 1.7 s, five 19 s).
+
+**What is fast now.** An index with at least one `granted` field has two more indexes over its open fields (the ones without
+`granted`): a trigram index over their typo-tolerant text and a full-text index over their text (`fuzzphony:schema --apply` builds
+them, concurrently; the doctor reports a missing one). A restricted viewer who holds **none** of the granted fields looks its words
+up there, where the hidden text is not, so a word the hidden fields are full of costs it nothing (numbers in
+[Benchmarks](benchmarks.md#a-restricted-viewer-whose-hidden-fields-are-full-of-the-words-searched)). The results are the same
+with or without them, and an index without a `granted` field has no extra index and no changed statement.
+
+**What stays slow.**
+
+- A viewer who holds **some** of the granted fields (and not all, or all): its words are looked up in `fz` and `tsv` as before. An
+  index per combination of granted fields would multiply the size; it is not built.
+- A word that is common in a field the viewer **can** see costs what it costs an unrestricted viewer.
+- A phrase over fields of both classes, or with a synonym alternative, is rechecked on the fields' own columns as before.
+- A viewer restricted by hand (`restrictedToFields()`) on an index with no `granted` field has no open class: as slow as above.
+- The open-class indexes are used only when they exist, are valid and each is smaller than the index it replaces (`fz`, `tsv`); the engine asks once per process, so
+  after `fuzzphony:schema --apply` built them restart long-running workers (or call `PostgresEngine::resetCaches()`). Until then,
+  and when the granted fields hold little of the text, the viewer is on the statements it always had.
+- A typo-tolerant search of a word the viewer's own tenant does not have, while other tenants do, can be slow for a restricted viewer (5.8 s on 200 000
+  products in one measurement: no match in the tenant, the word in most documents of another). Nothing of the other tenant is returned or counted; the
+  time is the cost.
+- Changing which fields are `granted` makes the open-class indexes stale: run `fuzzphony:schema --apply` (it builds the new ones and drops the old, each with `DROP INDEX CONCURRENTLY` so that no search queues behind it; a drop that fails is a warning, run the apply again); until then the doctor reports the old ones as stale and the viewer is on the statements it always had.
+- Timing is not hidden: how long a search takes still depends on how often a word occurs in the fields the viewer can see
+  ([Security](security.md#the-limits-stated-honestly)).
+
+Nothing about a hidden field changes what a restricted viewer finds, with or without the open-class indexes.
 
 ### Synonyms are expanded on the query, and stop there
 
@@ -219,8 +271,8 @@ mode can be newer than the index.
 A hit found only through typo tolerance has its mistyped words marked too (`hedphones` marks `Headphones`),
 by a simpler rule than the search's: each word of the field text is compared with the typed word on its own,
 with the similarity the search used, so a match that the search found across two words (`head phones` for
-`headphones`) is not marked, nor is a word found as a swapped-letter variant (`mosue` finds `mouse`, which gets no mark),
-and a hit can have no mark although it was found. Only typo-tolerant fields get
+`headphones`) is not marked, and a hit can have no mark although it was found. A word found as a swapped-letter variant
+(`mosue` finds `mouse`) is marked when it is the variant as a whole word. Only typo-tolerant fields get
 these marks (a field that is not `fuzzy` shows ts_headline's snippet). The work is bounded: the marks are made
 for the first 200 typo-found hits of a page, of each field only the first 10 000 characters (2000 words) are
 looked at, a page spends a budget of 100 000 word comparisons and 4000 distinct words, and a phrase of more than
@@ -232,10 +284,9 @@ it, even when a typed word was found in it by typo only. See [Highlighting](sear
 PostgreSQL keeps a word's position in a `tsvector` only up to 16 383: a later word gets position 16 383 too. Fuzzphony's
 whole-text vector (`tsv`) is the vectors of all fields joined, so after a field of more than about 16 000 words every word of
 the fields that follow it is at one position there, and where several words share one position only the highest weight of
-them is kept. Phrases and field-scoped words need those positions and weights. Since 0.9.8 that costs a document nothing:
+them is kept. Phrases and field-scoped words need those positions and weights. That costs a document nothing:
 a phrase (`"usb receiver"`, `name:"usb receiver"`, `usb-c`) and a word scoped to a field (`secret:word`) are looked up by
-their words and decided by each field's own vector, which the cap does not reach (before 0.9.8 an unrestricted search lost
-them after a long field, a restricted one had been fixed in 0.9.7: see the [CHANGELOG](../CHANGELOG.md)).
+their words and decided by each field's own vector, which the cap does not reach.
 
 What still does not work, because the data is not in the index in a usable form:
 
@@ -254,7 +305,8 @@ fields (see [UPGRADE](../UPGRADE.md#from-097-to-098)). The flag is true when a p
 has 256 or more positions (PostgreSQL keeps at most 256 per lexeme and drops the later field's positions of one that has them:
 without this sign a phrase after a field that repeats one of its words would be lost). The doctor warns while the flag is NULL;
 after a downgrade to a release without the column and back, reindex (an old refresh function does not touch the flag); the engine
-looks the column up once per process, so restart long-running workers after adding or dropping it.
+looks the column up once per process, so restart long-running workers after adding or dropping it
+(`fuzzphony:schema --apply` says so when it added the column to an existing table).
 
 What to do: do not index the whole of a very long text. Put an excerpt (the first few thousand words, a summary) in the
 searched field, or list the long field last (nothing follows it). The limits above hold for a restricted viewer too
@@ -316,11 +368,55 @@ What to do: run `fuzzphony:reindex <index>` afterwards; it also removes the orph
 
 See [Keeping the index in sync](sync.md).
 
+### Connecting a legacy database
+
+Plain tables without entities work (see [Joins, several tables and several indexes](configuration.md#joins-several-tables-and-several-indexes)),
+but a few things take more writing than with one entity per index.
+
+- **A `UNION ALL` index needs a hand-written watch per table.** What happens: a table of the union without a watch is not
+  followed, and its changes never reach the index; there is no error. Why: Fuzzphony cannot derive the tables, or the id
+  prefix, from the query text. What to do: one `watch` per table, returning the prefixed id (`SELECT 'product-' || :id`),
+  and check it with a test that changes a row of each table.
+- **The hits of a union carry only a string id.** What happens: `'article-1'`, nothing says which table it is. `EntityLoader`
+  maps one class and does not skip foreign ids (it fails with a database error on an integer key). What to do: split the
+  id yourself and load each kind from its own table; for one search box over several kinds prefer one index per kind and a
+  [federated search](searching.md#federated-search).
+- **A watch `key` must be one plain column.** What happens: an expression, or a composite key, is refused ("is not a valid
+  column name"). What to do: key on one column of the group (`order_no`) and return all documents of that group with an
+  `ids` query (the group is refreshed as a whole, more than the changed row), or key on the column that points at the
+  document.
+- **A one-to-many join is folded in the source query.** What happens: a join that returns several rows for one id makes the
+  id repeat. What to do: `string_agg(...) ... GROUP BY` in the query, one row per document.
+- **Every joined table needs its own watch.** What happens: nothing is derived from the join, a table you do not list is not
+  followed, and a watch without `columns` refreshes on every `UPDATE` of the table, also of columns the index does not
+  use. What to do: list each joined table with an `ids` query (or `key`), and add `columns` where the table is written
+  often ([Column-aware filtering](sync.md#column-aware-filtering)).
+- **Overlapping indexes multiply triggers.** What happens: each index adds four triggers to every table it watches, and
+  one `UPDATE` of a shared table refreshes all the indexes that watch it (in `trigger` mode inside the writing
+  transaction, in `queue` mode as one queue row per index and document). What to do: for a hot table prefer `sync: queue`
+  and `columns`, and keep the number of indexes over it small.
+- **One `#[Searchable]` per class.** What happens: a second attribute is a PHP error. What to do: define further indexes
+  over the same table or entity in YAML or the builder, under another name.
+- **A federated search merges by rank only.** What happens: the scores of different indexes are not comparable, so the best
+  hit of each index comes first, whatever its score. What to do: weight an index (`weight:`) to move it up, or use one
+  union index when one common ranking matters more than the loading of entities.
+- **A database that does not allow triggers follows nothing by itself.** What happens: `sync: queue` and `trigger` fail at
+  `schema --apply` (permission denied for the source table) and create nothing. What to do: `sync: manual` and a
+  `fuzzphony:reindex` from cron or after an import, or `refresh()` for single documents.
+
 ### One id column per document
 
 A document is identified by one column (`id` by default) of an integer, UUID or string type, and the string
 `*` is reserved. A table with a composite key needs a source query that builds one id (a string id type, for
 example `a || '-' || b AS id`).
+
+### One unreadable document stops its index's queue
+
+The worker processes a queue batch as a unit: all or nothing. One document the source cannot read (a cast that fails on one row, for
+example) keeps the whole queue of its index from draining. The batch is retried with a back-off (60 s, doubling to 3600 s) while the other
+indexes go on; the doctor's "Sync queue" check shows the queue growing, not which id fails. The failure message the worker prints to
+stderr can contain a value from the source row, so treat worker logs as sensitive. What to do: find the bad row with the message, fix the
+source (or the cast), or run `fuzzphony:reindex <index>`, which rebuilds the documents from the source.
 
 ### A full reindex needs room and a session connection
 
@@ -360,9 +456,8 @@ clean.
 ### `explain()` and its statement labels are not a stable API
 
 `explain()` and `fuzzphony:search --explain` are for people. The SQL text, the number of statements, their
-labels (`full-text`, `fallback: full-text + fuzzy`, `facet: category_id, in_stock`, `did you mean`,
-`relaxation probe`, `exact total`, and the same labels with the prefix `rescue: `) and the plan lines change between releases (0.9.5 merged the facet
-statements into one). Do not parse them or build a test or an alert on them.
+labels (`full-text`, `full-text + fuzzy`, `fallback: full-text + fuzzy`, `browse`, `facet: category_id, in_stock`, `did you mean`,
+`relaxation probe`, `highlighting`, `exact total`, and the same labels with the prefix `rescue: `) and the plan lines change between releases. Do not parse them or build a test or an alert on them.
 
 ### A rescued search is not a zero-result search in the log
 
@@ -391,24 +486,11 @@ then do not read.
 
 ### Field authorization hides content, not existence or timing
 
-Field-level authorization (`granted`, see [Security](security.md)) keeps the content of a hidden field out of
-what a restricted viewer can match, rank, highlight, count and be suggested. It is not row-level security (a
-viewer who may search an index may find every document of it, within the tenant) and it is not a covert-channel
-proof:
-
-- a hidden field's existence is visible (`salary:x` gives no "Unknown field" warning), and a highlight request for it shows nothing;
-- timing is not hidden: how long a search takes can depend on how often a word occurs in a hidden field;
-- filters and facets are not restricted;
-- the vocabulary of unrestricted viewers still holds every word (a restricted viewer gets no suggestions and no "did you mean");
-- an exact phrase is read from the fields the viewer may see, as if the hidden ones did not exist: it spans two
-  allowed fields as it does for an unrestricted search, and never reaches into a hidden one. With a hidden field
-  between two allowed ones a restricted phrase can match where the unrestricted search (which sees the hidden
-  text in between) does not. The typo-tolerant similarity of a phrase that spans two fields is still taken per
-  field (a typo in it is found less reliably than for an unrestricted viewer);
-- `explain()` of a restricted viewer returns the statements and a note instead of the plan, because estimates
-  and `ANALYZE` counts would leak how often a word occurs in the hidden fields;
-- an index upgraded to layout 2 without a full reindex has empty per-field columns, so a restricted viewer finds
-  nothing (it fails closed): reindex after upgrading.
+Field-level authorization (`granted`) keeps the content of a hidden field out of what a restricted viewer can match, rank,
+highlight, count and be suggested. It is not row-level security and not a covert-channel proof: the existence of a hidden field,
+timing, filters and facets, and the vocabulary of unrestricted viewers are not hidden. **What to do:** read the full list in
+[Security: the limits, stated honestly](security.md#the-limits-stated-honestly) (the one place that lists them) and do not put a secret
+where only a field-level rule protects it from being inferred.
 
 ### The client IP in the search log
 

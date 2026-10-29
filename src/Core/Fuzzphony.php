@@ -15,6 +15,7 @@ use Fuzzphony\Core\Exception\InvalidArgument;
 use Fuzzphony\Core\Exception\RateLimited;
 use Fuzzphony\Core\Inspection\InspectionReport;
 use Fuzzphony\Core\Inspection\InspectOptions;
+use Fuzzphony\Core\Query\SynonymExpander;
 use Fuzzphony\Core\Registry\IndexRegistry;
 use Fuzzphony\Core\Schema\SchemaPlan;
 use Fuzzphony\Core\Search\Actor;
@@ -126,10 +127,11 @@ final readonly class Fuzzphony
             throw new InvalidArgument(sprintf('The suggestion limit must be between 1 and 20, got %d.', $limit));
         }
         $definition = $this->registry->get($index);
-        if ($actor !== null && $this->gate !== null && !$this->gate->accessCounted($definition, $actor, $charge)->isAll()) {
+        // cut where a search is cut (max_query_length of the index), not at a number of its own
+        $text = mb_substr(ltrim($text), 0, $definition->thresholds->maxQueryLength);
+        if ($actor !== null && $this->gate !== null && !$this->gate->accessCounted($definition, $actor, $charge, $text)->isAll()) {
             return [];
         }
-        $text = mb_substr(ltrim($text), 0, 100);
         if (!$this->engine instanceof Suggestions || preg_match('/^(.*?)([\p{L}\p{N}]+)$/su', $text, $m) !== 1) {
             return [];
         }
@@ -157,9 +159,13 @@ final readonly class Fuzzphony
      */
     public function stemSynonyms(string $index, Synonyms $synonyms): Synonyms
     {
-        return $this->engine instanceof SynonymStems
-            ? $this->engine->stemSynonyms($this->registry->get($index), $synonyms)
-            : throw new InvalidArgument(sprintf('The "%s" engine does not prepare synonyms; useSynonyms() works without it.', $this->engine->name()));
+        if (!$this->engine instanceof SynonymStems) {
+            throw new InvalidArgument(sprintf('The "%s" engine does not prepare synonyms; useSynonyms() works without it.', $this->engine->name()));
+        }
+        $prepared = $this->engine->stemSynonyms($this->registry->get($index), $synonyms);
+
+        // the prepared object also carries the lookup table, so a cache of it holds everything a search needs
+        return $prepared->withTable(SynonymExpander::tableOf($prepared, $prepared->stems));
     }
 
     /**

@@ -18,6 +18,7 @@ use Fuzzphony\Core\Ranking\FuzzyMode;
 use Fuzzphony\Core\Support\Coerce;
 use Fuzzphony\Engine\Postgres\Schema\Fingerprint;
 use Fuzzphony\Engine\Postgres\Schema\Names;
+use Fuzzphony\Engine\Postgres\Schema\OpenClass;
 use Fuzzphony\Engine\Postgres\Schema\PostgresSchemaGenerator;
 use Fuzzphony\Engine\Postgres\Schema\Types;
 use Fuzzphony\Engine\Postgres\Sql\DocumentSql;
@@ -121,7 +122,7 @@ final class PostgresInspector
             );
         }
         if ($this->searchLogIp && !$this->hasColumn($table, 'actor_ip')) {
-            return Check::error('Search log', sprintf('search_log.ip is on, but table %s has no actor_ip column: the addresses are dropped (the rows are kept).', $table), self::APPLY);
+            return Check::error('Search log', sprintf('search_log.ip is on, but table %s has no actor_ip column: the addresses are dropped (the rows are kept). After applying the schema restart long-running workers (they look the column up once per process).', $table), self::APPLY);
         }
         $stale = $this->connection->fetchValue(
             sprintf('SELECT EXISTS (SELECT 1 FROM %s WHERE at < now() - make_interval(days => :days))', $table),
@@ -475,7 +476,7 @@ final class PostgresInspector
         if ($flagMissing) {
             $checks[] = Check::warning(
                 'Sidecar columns',
-                sprintf('Column %s is missing: phrases and field-scoped words are looked up the slower way on an index with several fields. Apply the schema, then reindex (the column is filled by the reindex).', PostgresSchemaGenerator::CAPPED_COLUMN),
+                sprintf('Column %s is missing: phrases and field-scoped words are looked up the slower way on an index with several fields. Apply the schema, then reindex (the column is filled by the reindex) and restart long-running workers (they look the column up once per process).', PostgresSchemaGenerator::CAPPED_COLUMN),
                 self::APPLY,
             );
         }
@@ -534,9 +535,16 @@ final class PostgresInspector
             $create = sprintf('CREATE INDEX CONCURRENTLY IF NOT EXISTS %s ON %s %s;', Sql::ident($name), $this->names->sidecar($index), $definition);
             $checks[] = match (true) {
                 !array_key_exists($name, $valid) => Check::error('Index ' . $name, 'missing', $create),
-                !$valid[$name] => Check::error('Index ' . $name, 'INVALID (an interrupted concurrent build); it is ignored by the planner', sprintf('DROP INDEX CONCURRENTLY %s; %s', Sql::ident($name), $create)),
+                !$valid[$name] => Check::error('Index ' . $name, 'INVALID (an interrupted concurrent build); it is ignored by the planner', sprintf('DROP INDEX CONCURRENTLY %s; %s', $this->names->index($name), $create)),
                 default => Check::ok('Index ' . $name, 'valid'),
             };
+        }
+        // an open-class index built for other granted fields (the expected one has another name): never used, and costs every write
+        $expected = array_keys($this->schema->indexes($index));
+        foreach (array_keys($valid) as $name) {
+            if (!in_array($name, $expected, true) && OpenClass::isOpenClassName($name)) {
+                $checks[] = Check::error('Index ' . $name, 'STALE (built for other granted fields; no search uses it)', sprintf('DROP INDEX CONCURRENTLY %s; or run "bin/console fuzzphony:schema --apply"', $this->names->index($name)));
+            }
         }
 
         return $checks;
@@ -662,7 +670,7 @@ final class PostgresInspector
         $size = Coerce::int($row['n']);
         $age = Coerce::int($row['age']);
         $rebuild = $row['rebuild'] === true;
-        $waiting = sprintf('%d item(s) waiting%s', $size, $rebuild ? ', one of them a full rebuild (queued by a TRUNCATE)' : '');
+        $waiting = sprintf('%d %s waiting%s', $size, $size === 1 ? 'item' : 'items', $rebuild ? ', one of them a full rebuild (queued by a TRUNCATE)' : '');
         $failure = $rebuild ? $this->rebuildFailure($index) : null;
 
         return match (true) {

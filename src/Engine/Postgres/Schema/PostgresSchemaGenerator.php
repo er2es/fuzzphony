@@ -234,6 +234,20 @@ final class PostgresSchemaGenerator
                 transactional: false,
             );
         }
+        // after the open-class indexes above: one built for other granted fields (or for none any more) is dropped once the right ones exist.
+        // The names are read when the plan is applied and each is dropped CONCURRENTLY (no ACCESS EXCLUSIVE lock, so no search queues
+        // behind the drop); a drop that fails is a warning and the apply is safe to run again
+        $statements[] = new Statement(
+            'DROP INDEX CONCURRENTLY IF EXISTS {name}',
+            'Drop an open-class index built for other granted fields',
+            transactional: false,
+            forEach: sprintf(
+                'SELECT quote_ident(n.nspname) || \'.\' || quote_ident(c.relname) AS name FROM pg_index AS i JOIN pg_class AS c ON c.oid = i.indexrelid JOIN pg_namespace AS n ON n.oid = c.relnamespace WHERE i.indrelid = to_regclass(%1$s) AND c.relname ~ %2$s AND c.relname <> ALL (%3$s)',
+                Sql::string($table),
+                Sql::string('_' . OpenClass::NAME_TAIL . '$'),
+                'ARRAY[' . implode(', ', array_map(Sql::string(...), [...OpenClass::expectedNames($index, $this->names), ''])) . ']::text[]',
+            ),
+        );
         foreach ($this->layoutSteps($index) as $target => [$step, $why]) {
             $statements[] = new Statement(sprintf(
                 'DO %1$s BEGIN IF to_regclass(%2$s) IS NOT NULL THEN IF (SELECT layout_version FROM %3$s WHERE index_name = %4$s) < %5$d THEN %6$s END IF; END IF; END %1$s',
@@ -438,6 +452,10 @@ ON CONFLICT (index_name) DO UPDATE SET layout_version = EXCLUDED.layout_version,
         if ($index->hasFuzzy()) {
             $indexes[$this->names->indexName($index, 'fz')] = sprintf('USING gin (fz %s.gin_trgm_ops)', $this->names->extension());
         }
+        // an index with a granted field: two more over the open fields, for the viewer who holds none of the granted ones (OpenClass)
+        foreach (OpenClass::indexes($index, $this->names) as $suffix => $definition) {
+            $indexes[$this->names->indexName($index, $suffix)] = $definition;
+        }
         foreach ($index->filters as $filter) {
             $indexes[$this->names->indexName($index, 'f_' . $filter->name)] = sprintf('(%s)', FilterCompiler::column($filter->name));
         }
@@ -542,8 +560,7 @@ ON CONFLICT (index_name) DO UPDATE SET layout_version = EXCLUDED.layout_version,
                 %1$s
                 SQL,
             self::TAG,
-            implode("
-    ", $loops),
+            implode("\n    ", $loops),
         ), sprintf($create ? 'TRUNCATE sync on every partition of %s' : 'No TRUNCATE sync on the partitions of %s', $watch->table));
     }
 
@@ -960,11 +977,8 @@ ON CONFLICT (index_name) DO UPDATE SET layout_version = EXCLUDED.layout_version,
         RETURN NULL;
     END IF;",
             Sql::ident($index->source->table),
-            implode("
-            ", $wipe),
-            str_replace("
-        ", "
-            ", $resync),
+            implode("\n            ", $wipe),
+            str_replace("\n        ", "\n            ", $resync),
         );
     }
 

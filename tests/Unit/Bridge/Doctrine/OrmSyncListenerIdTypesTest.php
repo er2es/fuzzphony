@@ -56,6 +56,7 @@ final class OrmSyncListenerIdTypesTest extends TestCase
         $metadata = self::createStub(ClassMetadata::class);
         $metadata->method('getIdentifierValues')->willReturn(['id' => $identifier]);
         $em = self::createStub(EntityManagerInterface::class);
+        $em->method('isOpen')->willReturn(true);
         $em->method('getClassMetadata')->willReturn($metadata);
 
         $listener = new OrmSyncListener($dispatcher, new IndexRegistry([$index]));

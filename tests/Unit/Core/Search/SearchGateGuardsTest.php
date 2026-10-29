@@ -304,7 +304,7 @@ final class SearchGateGuardsTest extends TestCase
         self::assertSame(0, $counting->calls);
     }
 
-    public function testARefusedSuggestIsCountedWithoutALogRow(): void
+    public function testARefusedSuggestIsCountedAndWrittenToTheSearchLog(): void
     {
         $metrics = new RecordingMetricsCollector();
         $log = new RecordingSearchLog();
@@ -324,7 +324,11 @@ final class SearchGateGuardsTest extends TestCase
             ['increment', 'fuzzphony.search.denied', 1.0, ['index' => 'products', 'reason' => 'authorization']],
             ['increment', 'fuzzphony.search.rate_limited', 1.0, ['index' => 'products']],
         ], $metrics->calls);
-        self::assertSame([], $log->records);
+        self::assertSame(
+            [[RecordStatus::Denied, 'wir', 'ada', 0], [RecordStatus::RateLimited, 'wir', 'ada', 0]],
+            array_map(static fn($r): array => [$r->status, $r->query, $r->user, $r->hits], $log->records),
+            'a refusal is never silent: the typed text is in the log, like for a search',
+        );
     }
 
     private function threeIndexes(): IndexRegistry

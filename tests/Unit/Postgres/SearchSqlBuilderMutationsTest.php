@@ -15,10 +15,11 @@ final class SearchSqlBuilderMutationsTest extends TestCase
 {
     public function testTheFacetReadsItsFilterColumnOfTheSidecarTableNotOfTheScoredSet(): void
     {
-        $sql = (new SearchSqlBuilder(Indexes::products()))->facet('brand_id', "'mouse'", 'mouse', new Term('mouse'), [], new RankingProfile(), new Thresholds(), 10, false)['sql'];
+        $sql = (new SearchSqlBuilder(Indexes::products()))->facets(['brand_id'], "'mouse'", 'mouse', new Term('mouse'), [], new RankingProfile(), new Thresholds(), 10, false)['sql'];
 
-        self::assertStringContainsString('SELECT s."f_brand_id" AS value, count(*) AS n', $sql);
-        self::assertStringContainsString("GROUP BY s.\"f_brand_id\"\nORDER BY n DESC", $sql);
+        self::assertStringContainsString('SELECT s."f_brand_id" AS v0', $sql);
+        self::assertStringContainsString('FROM scored AS sc JOIN ', $sql);
+        self::assertStringContainsString('SELECT v0 AS value, count(*) AS n, row_number() OVER (ORDER BY count(*) DESC, v0 NULLS LAST) AS rk FROM fc GROUP BY v0 ORDER BY rk LIMIT 10', $sql);
     }
 
     public function testSharedFacetsReadTheCandidatesOnceAndKeepEachFacetsOrderAndLimit(): void
@@ -41,8 +42,7 @@ UNION ALL
 ORDER BY f, rk", $sql);
         self::assertStringContainsString("cand AS (
 ", $sql);
-        self::assertStringNotContainsString('LIMIT 7) AS g' . "
-" . 'SELECT', $sql);
+        self::assertStringNotContainsString('LIMIT 7) AS g' . "\n" . 'SELECT', $sql);
     }
 
     public function testSharedFacetsOfASearchWithoutTextReadTheSidecarOnceUpToTheCandidateLimitUnlessExact(): void

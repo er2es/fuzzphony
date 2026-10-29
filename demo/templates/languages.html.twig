@@ -64,19 +64,14 @@
                     <ul class="list">
                         {% for hit in result.hits %}
                             {% set row = products[hit.id] ?? null %}
-                            {% set style = category_style(row.category ?? '') %}
-                            <li class="row">
-                                <span class="tile{{ style.hue < 0 ? ' is-neutral' }}" style="--h: {{ style.hue }}" aria-hidden="true"><svg class="icon"><use href="#{{ style.icon }}"/></svg></span>
-                                <div class="row-body">
-                                    {# names[hit.id]: the library's highlight (escaped HTML with <mark>), completed by the controller #}
-                                    <div class="row-title" lang="{{ code }}">{% if names[hit.id] ?? null %}{{ names[hit.id]|raw }}{% else %}{{ row.name ?? hit.id }}{% endif %}</div>
-                                    <div class="row-sub" lang="{{ code }}">{% if hit.highlights.description is defined %}{{ hit.highlights.description|raw }}{% else %}{{ row.description ?? '' }}{% endif %}</div>
-                                </div>
-                                <div class="row-flags">
-                                    {% if hit.breakdown.textRank == 0 and hit.breakdown.fuzzySimilarity > 0 %}<span class="flag">typo match</span>{% endif %}
-                                    {% if hit.id not in ilike %}<span class="flag is-limit">ILIKE misses this</span>{% endif %}
-                                </div>
-                            </li>
+                            {# names[hit.id]: the library's highlight (escaped HTML with <mark>), completed by the controller #}
+                            {% set aside %}<div class="row-flags">
+                                {% if hit.breakdown.textRank == 0 and hit.breakdown.fuzzySimilarity > 0 %}<span class="flag">typo match</span>{% endif %}
+                                {% if hit.id not in ilike %}<span class="flag is-limit">ILIKE misses this</span>{% endif %}
+                            </div>{% endset %}
+                            {% set title %}{% if names[hit.id] ?? null %}{{ names[hit.id]|raw }}{% else %}{{ row.name ?? hit.id }}{% endif %}{% endset %}
+                            {% set sub %}{% if hit.highlights.description is defined %}{{ hit.highlights.description|raw }}{% else %}{{ row.description ?? '' }}{% endif %}{% endset %}
+                            {{ ui.product_row(row.category ?? '', title, sub, aside, code) }}
                         {% else %}
                             <li class="row no-lead"><span class="muted">Nothing found{% if language.presets|filter(p => p.q == q and p.kind ends with 'not matched')|length %}, as expected: the stemmer has no rule that turns this word into the one in the catalogue{% endif %}.</span></li>
                         {% endfor %}
@@ -108,7 +103,7 @@
                                             A filler word: it neither has to match nor counts.
                                         {% else %}
                                             {% if folded %}Accents removed first. {% endif %}{{ w.lexeme == w.folded|lower ? 'The stem is unchanged.' : 'Cut to its stem.' }}
-                                            {% if w.docs > 0 %}In {{ w.docs }} product{{ w.docs == 1 ? '' : 's' }} exactly.{% else %}In no product exactly{% if result and result.usedFuzzy %}{{ result.total > 0 ? ': only typo tolerance can find it' : ', and typo tolerance found nothing close either' }}{% endif %}.{% endif %}
+                                            {% if w.docs > 0 %}In {{ w.docs }} product{{ w.docs == 1 ? '' : 's' }} exactly.{% else %}In no product exactly{% if result and result.usedFuzzy %}{{ result.total > 0 ? ': only typo tolerance can find it' : ', and typo tolerance found nothing close either' }}{% elseif result and result.total > 0 %}: products are found through its synonyms (or the other words){% endif %}.{% endif %}
                                         {% endif %}
                                     </div>
                                 </div>
@@ -130,7 +125,7 @@
                         <li class="row no-lead">
                             <span class="flag lang-flag">{{ h.index|replace({'lang_': ''}) }}</span>
                             <div class="row-body"><div class="row-title" lang="{{ h.index|replace({'lang_': ''}) }}">{{ federatedNames[h.index][h.hit.id] ?? h.hit.id }}</div></div>
-                            <div class="row-trailing muted">{{ (h.score * 100)|number_format(2) }}</div>
+                            <div class="row-trailing muted" title="Rank in the merged list">#{{ loop.index }}</div>
                         </li>
                     {% else %}
                         <li class="row no-lead"><span class="muted">Nothing found in any language.</span></li>

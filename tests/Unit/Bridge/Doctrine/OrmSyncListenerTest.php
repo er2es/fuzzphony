@@ -140,8 +140,47 @@ final class OrmSyncListenerTest extends TestCase
         $listener->postFlush(new PostFlushEventArgs(self::createStub(EntityManagerInterface::class)));
     }
 
+    public function testWhatAFailedFlushCollectedIsNotRefreshedWithTheNextFlush(): void
+    {
+        $registry = new IndexRegistry([$this->articleIndex]);
+        $dispatched = [];
+        $dispatcher = $this->createMock(RefreshDispatcher::class);
+        $dispatcher->method('dispatch')->willReturnCallback(static function (IndexDefinition $index, array $ids) use (&$dispatched): void {
+            $dispatched[] = $ids;
+        });
+        $listener = new OrmSyncListener($dispatcher, $registry);
+
+        // the first flush collected an id, failed (no postFlush) and Doctrine closed its manager
+        $failed = new Article(1, 'Rolled back');
+        $failedManager = $this->entityManagerFor($failed, ['id' => 1], open: false);
+        $listener->postPersist(new PostPersistEventArgs($failed, $failedManager));
+
+        // the next flush, on a manager that works
+        $kept = new Article(2, 'Saved');
+        $manager = $this->entityManagerFor($kept, ['id' => 2]);
+        $listener->postPersist(new PostPersistEventArgs($kept, $manager));
+        $listener->postFlush(new PostFlushEventArgs($manager));
+
+        self::assertSame([[2]], $dispatched, 'the rolled-back id is dropped, not refreshed');
+        $listener->postFlush(new PostFlushEventArgs($manager));
+        self::assertSame([[2]], $dispatched, 'and nothing is left to dispatch later');
+    }
+
+    public function testTheManagerOfTheFlushItselfIsTrustedEvenIfItReportsClosed(): void
+    {
+        $registry = new IndexRegistry([$this->articleIndex]);
+        $dispatcher = $this->createMock(RefreshDispatcher::class);
+        $dispatcher->expects(self::once())->method('dispatch')->with($this->articleIndex, [4]);
+        $listener = new OrmSyncListener($dispatcher, $registry);
+        $entity = new Article(4, 'Same manager');
+        $manager = $this->entityManagerFor($entity, ['id' => 4], open: false);
+
+        $listener->postPersist(new PostPersistEventArgs($entity, $manager));
+        $listener->postFlush(new PostFlushEventArgs($manager));
+    }
+
     /** @param array<string, int|string> $identifier */
-    private function entityManagerFor(object $entity, array $identifier): EntityManagerInterface
+    private function entityManagerFor(object $entity, array $identifier, bool $open = true): EntityManagerInterface
     {
         $metadata = self::createStub(ClassMetadata::class);
         $metadata->method('getIdentifierValues')->willReturnCallback(
@@ -149,6 +188,7 @@ final class OrmSyncListenerTest extends TestCase
         );
 
         $em = self::createStub(EntityManagerInterface::class);
+        $em->method('isOpen')->willReturn($open);
         $em->method('getClassMetadata')->willReturnCallback(
             static fn(string $class): ClassMetadata => $class === $entity::class ? $metadata : throw new \LogicException('unexpected class'),
         );

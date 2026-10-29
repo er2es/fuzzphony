@@ -30,7 +30,7 @@ final class Fingerprint
             'boost' => $index->boostColumn,
             'recency' => $index->recencyColumn,
             'tenant' => $index->tenant,
-        ]);
+        ] + self::granted($index));
     }
 
     public static function documents(IndexDefinition $index): string
@@ -63,6 +63,22 @@ final class Fingerprint
     private static function fields(IndexDefinition $index): array
     {
         return array_map(static fn(FieldDefinition $f): array => [$f->name, $f->column(), $f->weight->value, $f->fuzzy], $index->fields);
+    }
+
+    /**
+     * Which fields are granted (they decide whether the open-class indexes exist, OpenClass). Absent for an index without one, so the
+     * hash of every such index stays what it was.
+     *
+     * @return array{granted?: list<string>}
+     */
+    private static function granted(IndexDefinition $index): array
+    {
+        $granted = array_values(array_map(
+            static fn(FieldDefinition $f): string => $f->name,
+            array_filter($index->fields, static fn(FieldDefinition $f): bool => $f->granted !== null),
+        ));
+
+        return $granted === [] ? [] : ['granted' => $granted];
     }
 
     /** @return list<array{string, string, string}> */

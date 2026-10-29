@@ -1,0 +1,22 @@
+{# The error page of the demo (prod): the same shell as every page, so a missing page or a stopped database is not an unstyled screen
+   of the framework. It says nothing about the cause beyond the status: the details are in the php container's log. #}
+{% extends 'base.html.twig' %}
+{% block title %}{{ status_code == 404 ? 'Page not found' : 'Something went wrong' }} · Fuzzphony{% endblock %}
+{% block body %}
+<div class="page stack">
+    <div class="hero">
+        <p class="crumb">{{ status_code }}</p>
+        {% if status_code == 404 %}
+            <h1>Page not found</h1>
+            <p class="lede">There is nothing at this address. The search is the place to start.</p>
+        {% elseif status_code == 400 or status_code == 403 or status_code == 405 or status_code == 429 %}
+            <h1>That request was not accepted</h1>
+            <p class="lede">The demo could not use what was asked. Go back and change the search, or start again from the home page.</p>
+        {% else %}
+            <h1>The demo could not answer</h1>
+            <p class="lede">Something on the server failed, most likely the database (it may still be starting). Wait a moment and try again; the cause is in the log of the <code>php</code> container.</p>
+        {% endif %}
+        <p class="chips chips-center"><a class="button primary" href="{{ path('search') }}">Back to the search</a></p>
+    </div>
+</div>
+{% endblock %}

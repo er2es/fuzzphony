@@ -24,6 +24,9 @@ final class AnalyticsController extends AbstractController
     private const array INDEXES = ['catalog', 'intranet'];
     private const int RECENT = 20;
 
+    /** A search counts at most this many matches (the default `candidate_limit`): a total at the cap is shown as "2,000+". */
+    private const int CAP = 2000;
+
     #[Route('/under-the-hood/analytics', name: 'analytics')]
     public function analytics(Request $request, Fuzzphony $fuzzphony): Response
     {
@@ -34,9 +37,10 @@ final class AnalyticsController extends AbstractController
         try {
             $top = $fuzzphony->analytics()->topQueries('catalog', $from, null, 15);
             $zero = $fuzzphony->analytics()->zeroResultQueries('catalog', $from, null, 15);
-        } catch (FuzzphonyException) {
-            // A demo database from before 0.9 has no search log table: say how to create it instead of failing.
-            $error = true;
+        } catch (FuzzphonyException $e) {
+            // A demo database from before 0.9 has no search log table: say how to create it instead of failing. Any other failure
+            // (the database is down, a statement timed out) is not the visitor's database being old: it is the error page.
+            $error = self::schemaIsOld($e) ? true : throw $e;
         }
 
         // The filters of the list are links (?index=&who=&status=); anything that is not on the lists falls back to "all".
@@ -50,9 +54,9 @@ final class AnalyticsController extends AbstractController
         if (!$error) {
             try {
                 $recent = $this->recent($fuzzphony, $from, $index, $who, $status);
-            } catch (FuzzphonyException) {
+            } catch (FuzzphonyException $e) {
                 // A demo database from before 0.9.6 has no actor_ip column: the same hint as above.
-                $recentError = true;
+                $recentError = self::schemaIsOld($e) ? true : throw $e;
             }
         }
 
@@ -69,9 +73,27 @@ final class AnalyticsController extends AbstractController
             ],
             'chosen' => ['index' => $index ?? 'all', 'who' => $who ?? 'all', 'status' => $status ?? 'all'],
             'userNames' => array_map(static fn(DemoUser $u): string => $u->name, DemoUser::all()),
-            'companies' => ['1' => 'Acme', '2' => 'Globex'],
+            'companies' => DemoUser::COMPANIES,
             'limit' => self::RECENT,
+            'cap' => self::CAP,
         ]);
+    }
+
+    /** SQLSTATE 42P01 (undefined table) or 42703 (undefined column) somewhere in the chain of causes: the log table or a column of it is missing. */
+    private static function schemaIsOld(\Throwable $e): bool
+    {
+        for (; $e !== null; $e = $e->getPrevious()) {
+            $state = match (true) {
+                method_exists($e, 'getSQLState') => $e->getSQLState(),
+                $e instanceof \PDOException => is_array($e->errorInfo) ? ($e->errorInfo[0] ?? null) : null,
+                default => null,
+            };
+            if (in_array($state, ['42P01', '42703'], true)) {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     /**

@@ -4,7 +4,9 @@ import { Controller } from '@hotwired/stimulus';
  * The search-as-you-type dropdown, the same on every search box of the demo. While the visitor types, /suggest answers
  * with what the index knows, and this shows it in groups: the completions of the word being typed (Fuzzphony::suggest()),
  * the categories the text is found in (a facet, catalogue only, when `categories` is set) and the first hits
- * (matched as you type). Arrow keys move, Enter follows the highlighted line (or submits the form), Escape closes.
+ * (matched as you type). Arrow keys move, Enter follows the highlighted line (or submits the form), Escape closes the panel and
+ * leaves the text in the field. It is the ARIA combobox with a listbox popup: the focus stays in the input, `aria-activedescendant`
+ * names the marked option, `aria-controls` the panel, the groups are `role=group` named by their heading.
  * Everything is set with textContent / href, never as HTML.
  *
  *   <form data-controller="suggest" data-suggest-url-value="/suggest" data-suggest-index-value="catalog"
@@ -17,6 +19,8 @@ import { Controller } from '@hotwired/stimulus';
  * fixed parameters of that page. The panel is rendered by the server, so a Live Component's re-render leaves it alone
  * (`data-live-ignore`).
  */
+let instances = 0;
+
 export default class extends Controller {
     static targets = ['input', 'panel'];
     static values = {
@@ -37,9 +41,13 @@ export default class extends Controller {
         if (anchor && getComputedStyle(anchor).position === 'static') {
             anchor.style.position = 'relative';
         }
+        this.uid = `suggest-${++instances}`;
+        this.panelTarget.id = `${this.uid}-panel`;
         this.inputTarget.setAttribute('role', 'combobox');
         this.inputTarget.setAttribute('aria-expanded', 'false');
         this.inputTarget.setAttribute('aria-autocomplete', 'list');
+        this.inputTarget.setAttribute('aria-controls', this.panelTarget.id);
+        this.inputTarget.setAttribute('aria-haspopup', 'listbox');
         this.panelTarget.setAttribute('role', 'listbox');
         this.onKey = (event) => this.key(event);
         this.onOutside = (event) => {
@@ -97,16 +105,26 @@ export default class extends Controller {
         this.panelTarget.replaceChildren();
         this.items = [];
         this.active = -1;
-        for (const [title, entries] of sections) {
+        this.inputTarget.removeAttribute('aria-activedescendant');
+        for (const [group, [title, entries]] of sections.entries()) {
+            // a group is named by its heading; its options are the listbox's options
+            const section = document.createElement('div');
+            section.setAttribute('role', 'group');
             const heading = document.createElement('div');
             heading.className = 'suggest-heading';
+            heading.id = `${this.uid}-group-${group}`;
             heading.textContent = title;
-            this.panelTarget.append(heading);
+            section.setAttribute('aria-labelledby', heading.id);
+            section.append(heading);
+            this.panelTarget.append(section);
             for (const entry of entries) {
                 const item = document.createElement('a');
                 item.className = 'suggest-item';
                 item.href = entry.href;
+                item.id = `${this.uid}-option-${this.items.length}`;
+                item.tabIndex = -1; // the focus stays in the field (aria-activedescendant); Tab leaves it
                 item.setAttribute('role', 'option');
+                item.setAttribute('aria-selected', 'false');
                 if (entry.icon) {
                     // the category's drawing on its tint, from the sprite in the page
                     const tile = document.createElement('span');
@@ -141,7 +159,7 @@ export default class extends Controller {
                     item.classList.add('is-text');
                     item.append(count);
                 }
-                this.panelTarget.append(item);
+                section.append(item);
                 this.items.push(item);
             }
         }
@@ -167,6 +185,13 @@ export default class extends Controller {
     }
 
     key(event) {
+        if (event.key === 'Escape') {
+            // closes the panel; a search field would otherwise also empty itself and leave the results of a text that is gone
+            event.preventDefault();
+            this.close();
+
+            return;
+        }
         if (this.panelTarget.hidden) {
             return;
         }
@@ -182,8 +207,6 @@ export default class extends Controller {
         } else if (event.key === 'Enter' && this.active >= 0) {
             event.preventDefault();
             this.items[this.active].click();
-        } else if (event.key === 'Escape') {
-            this.close();
         }
     }
 
@@ -192,12 +215,18 @@ export default class extends Controller {
             item.classList.toggle('is-active', i === this.active);
             item.setAttribute('aria-selected', String(i === this.active));
         });
+        if (this.items[this.active]) {
+            this.inputTarget.setAttribute('aria-activedescendant', this.items[this.active].id);
+        } else {
+            this.inputTarget.removeAttribute('aria-activedescendant');
+        }
         this.items[this.active]?.scrollIntoView({ block: 'nearest' });
     }
 
     close() {
         this.panelTarget.hidden = true;
         this.inputTarget.setAttribute('aria-expanded', 'false');
+        this.inputTarget.removeAttribute('aria-activedescendant');
         this.active = -1;
     }
 

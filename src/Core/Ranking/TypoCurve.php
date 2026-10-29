@@ -48,4 +48,15 @@ final class TypoCurve
             ? self::similarity($length)
             : min(array_map(self::similarity(...), range(max(1, $length - self::SHRINKS), $length + self::GROWS)));
     }
+
+    /**
+     * The lowest similarity any normalisation of a word of $length letters, $nonAscii of them outside ASCII, can need: each such letter
+     * may fold to nothing (a combining mark) or grow to up to four (a ligature), so the normalised length is anywhere
+     * in [length - nonAscii, length + 3 * nonAscii]. For a viewer whose candidates must not depend on the text it cannot see: the lookup
+     * may never be stricter than the recheck at the real length.
+     */
+    public static function lowestAnyNormalisation(int $length, int $nonAscii): float
+    {
+        return min(array_map(self::similarity(...), range(max(1, $length - $nonAscii), $length + 3 * $nonAscii)));
+    }
 }

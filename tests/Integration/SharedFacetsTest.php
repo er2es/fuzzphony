@@ -15,9 +15,8 @@ use Fuzzphony\Engine\Postgres\PostgresEngine;
 use PHPUnit\Framework\TestCase;
 
 /**
- * Facets that count the search's own candidates share one statement. The reference is the per-facet statement:
- * a search with a single facet never shares (facet() / browseFacet()), so each facet of a many-facet search must
- * equal the same search asked for that facet alone: values, types, counts, order and limit.
+ * Facets that count the search's own candidates share one statement (one GROUP BY branch each). The reference is the search for
+ * that facet alone (a one-branch statement), so each facet of a many-facet search must equal it: values, types, counts, order and limit.
  */
 final class SharedFacetsTest extends TestCase
 {

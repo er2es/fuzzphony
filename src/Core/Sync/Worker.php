@@ -20,6 +20,9 @@ final class Worker
     private const int BACKOFF = 60;
     private const int BACKOFF_MAX = 3_600;
 
+    /** Batches one index may take in a row before the next index has its turn. */
+    private const int MAX_BATCHES_PER_TURN = 10;
+
     private bool $stop = false;
     private readonly Reindexer $reindexer;
 
@@ -31,6 +34,12 @@ final class Worker
 
     /** @var array<string, \Throwable> */
     private array $failures = [];
+
+    /** @var array<string, array{int, float}> the back-off (seconds) and when to process this queue again, by index name */
+    private array $queueBackoff = [];
+
+    /** @var array<string, \Throwable> */
+    private array $queueFailures = [];
 
     /** @param (\Closure(): float)|null $clock seconds, for the rebuild back-off (default microtime(true)) */
     public function __construct(
@@ -46,7 +55,9 @@ final class Worker
      * Processes every index until all queues are empty. A full rebuild a TRUNCATE requested runs
      * first and counts as one item. A rebuild that fails never stops the worker: the job stays
      * queued, the failure is recorded for the doctor and listed by rebuildFailures(), and the
-     * index's queued ids and the other indexes are processed as usual.
+     * index's queued ids and the other indexes are processed as usual. The indexes take turns of
+     * at most MAX_BATCHES_PER_TURN batches, so a busy index never starves the others, and stop()
+     * ends the drain after the batch in progress.
      *
      * @param list<IndexDefinition> $indexes
      *
@@ -54,22 +65,118 @@ final class Worker
      */
     public function runOnce(array $indexes, int $batchSize = 500): int
     {
+        return $this->drain($indexes, $batchSize, null, true);
+    }
+
+    /**
+     * @param list<IndexDefinition> $indexes
+     * @param float|null            $deadline   when ($this->clock)() reaches it, the drain ends after the batch in progress
+     * @param bool                  $untilEmpty false: one turn per index (a run() cycle), so a busy index cannot keep the cycle from
+     *                                          looking for requested rebuilds and reporting; true: until every queue is empty
+     */
+    private function drain(array $indexes, int $batchSize, ?float $deadline, bool $untilEmpty): int
+    {
         $this->failures = [];
+        $this->queueFailures = [];
         $total = 0;
+        /** @var array<string, IndexDefinition> $busy the indexes whose turn ended with work possibly left */
+        $busy = [];
+        /** @var array<string, int> $drained */
+        $drained = [];
+        $halt = false;
         foreach ($indexes as $index) {
+            if ($halt || !$this->keepRunning()) {
+                break;
+            }
             $total += $this->rebuildIfRequested($index);
             $this->metrics->gauge('fuzzphony.queue.depth', (float) $this->engine->queueSize($index), ['index' => $index->name]);
-            $drained = 0;
-            while (($processed = $this->engine->processQueue($index, $batchSize)) > 0) {
-                $drained += $processed;
+            if (($this->queueBackoff[$index->name][1] ?? 0.0) > ($this->clock)()) {
+                continue; // its queue failed a moment ago: the other indexes go on, this one is tried again after the back-off
             }
-            if ($drained > 0) {
-                $this->metrics->increment('fuzzphony.queue.processed', ['index' => $index->name], $drained);
+            $drained[$index->name] = 0;
+            $busy[$index->name] = $index;
+            [$done, $halt] = $this->turn($index, $batchSize, $deadline, $busy, $drained);
+            $total += $done;
+        }
+        while ($untilEmpty && $busy !== [] && !$halt && $this->keepRunning()) {
+            foreach ($busy as $index) {
+                [$done, $halt] = $this->turn($index, $batchSize, $deadline, $busy, $drained);
+                $total += $done;
+                if ($halt) {
+                    break;
+                }
             }
-            $total += $drained;
+        }
+        foreach ($drained as $name => $count) {
+            if ($count > 0) {
+                $this->metrics->increment('fuzzphony.queue.processed', ['index' => $name], $count);
+            }
         }
 
         return $total;
+    }
+
+    /**
+     * Up to MAX_BATCHES_PER_TURN batches of one index; an index whose queue turned out empty leaves $busy.
+     * Stop and the deadline are checked after a batch that did work (so every run makes progress,
+     * even with a time limit of 0); the second value is true when they say stop.
+     *
+     * @param array<string, IndexDefinition> $busy
+     * @param array<string, int>             $drained
+     *
+     * @return array{int, bool} the items processed and whether the drain must end
+     */
+    private function turn(IndexDefinition $index, int $batchSize, ?float $deadline, array &$busy, array &$drained): array
+    {
+        $turn = 0;
+        for ($batches = 0; $batches < self::MAX_BATCHES_PER_TURN; ++$batches) {
+            try {
+                $processed = $this->engine->processQueue($index, $batchSize);
+            } catch (\Throwable $e) {
+                // the batch stays queued; this index waits (back-off) and the others have their turns
+                $this->queueFailed($index, $e);
+                unset($busy[$index->name]);
+
+                break;
+            }
+            if ($processed <= 0) {
+                unset($busy[$index->name]);
+
+                break;
+            }
+            unset($this->queueBackoff[$index->name]);
+            $turn += $processed;
+            $drained[$index->name] += $processed;
+            if (!$this->mayContinue($deadline)) {
+                return [$turn, true];
+            }
+        }
+
+        return [$turn, false];
+    }
+
+    private function mayContinue(?float $deadline): bool
+    {
+        return $this->keepRunning() && ($deadline === null || ($this->clock)() < $deadline);
+    }
+
+    private function queueFailed(IndexDefinition $index, \Throwable $e): void
+    {
+        $this->queueFailures[$index->name] = $e;
+        $this->metrics->increment('fuzzphony.worker.queue_failures', ['index' => $index->name]);
+        $delay = isset($this->queueBackoff[$index->name]) ? min(self::BACKOFF_MAX, 2 * $this->queueBackoff[$index->name][0]) : self::BACKOFF;
+        $this->queueBackoff[$index->name] = [$delay, ($this->clock)() + $delay];
+    }
+
+    /**
+     * The queues that could not be processed in the last runOnce() (or run() cycle), by index name: the items stay queued, the index
+     * is tried again after a back-off (60 s, doubling to an hour) and the other indexes were processed as usual.
+     *
+     * @return array<string, \Throwable>
+     */
+    public function queueFailures(): array
+    {
+        return $this->queueFailures;
     }
 
     /**
@@ -128,16 +235,16 @@ final class Worker
      */
     public function run(array $indexes, int $batchSize = 500, float $idleSleepSeconds = 1.0, ?int $timeLimitSeconds = null, ?callable $onCycle = null): int
     {
-        $started = microtime(true);
+        $deadline = $timeLimitSeconds === null ? null : ($this->clock)() + $timeLimitSeconds;
         $total = 0;
         $this->stop = false;
         while ($this->keepRunning()) {
-            $processed = $this->runOnce($indexes, $batchSize);
+            $processed = $this->drain($indexes, $batchSize, $deadline, false);
             $total += $processed;
             if ($onCycle !== null) {
                 $onCycle($processed);
             }
-            if ($timeLimitSeconds !== null && microtime(true) - $started >= $timeLimitSeconds) {
+            if ($deadline !== null && ($this->clock)() >= $deadline) {
                 break;
             }
             if ($processed === 0) {

@@ -82,17 +82,31 @@ Symfony: Twig + Stimulus via AssetMapper (no Node build), Live Components, DBAL.
 
 | Page | What it shows |
 |---|---|
-| **Search** (`/`) | one search field over the catalogue (500 000 products by default). The results appear in place while you type (`live_search_controller.js` asks the page for just its results region): the last word also matches as the beginning of a longer one (`asYouType()`, so `cr` finds `Crème`), each product with the drawing and colour of its category, the speed of that search as the headline number, and the facets (category, stock) at the side. The category names merge the benchmark catalogue's fifty category rows (`whereIn`). One-click examples under the field: typo, beginning, meaning, accent, word form. **Speed** (`?view=speed`) measures the same search against a plain `ILIKE` (cold + median warm; ILIKE in a request of its own so Fuzzphony's answer never waits) and links to the nine-query benchmark |
-| **Relevance** (`/relevance`) | what 0.7 changed in matching quality, on one query: typo tolerance by word length next to a flat 0.3 (`mouse` is not `monitor`; the price: `mpuse`; the rows only one rule finds are marked), the catalogue's synonyms at work (`mice`, `display`, `headset`, and `drill` finding screwdrivers one way only) and "did you mean". **Synonyms** (under "Under the hood", `/under-the-hood/synonyms`): the list of every index, one per language, as plain text in the Solr format: edit and save (validated, no reindex), then try a word against it. Stored as a long list should be: one row per entry (`demo_synonym_entry`) and a version per index, with the prepared lists (`Fuzzphony::stemSynonyms()`) in a cache keyed by the version; a request listener hands them to Fuzzphony with `Fuzzphony::useSynonyms()` |
-| **Languages** (`/languages`) | one small catalogue in English, German, French, Spanish and Hungarian, one index per language; examples (plural, accents, stop words, typo, and an irregular form that is honestly not matched), the stem PostgreSQL made of every word, ILIKE's count next to Fuzzphony's, and the same text over all five indexes at once, merged by rank (`Fuzzphony::federated()`): try `tv` |
-| **Tune** (`/tune`) | every ranking weight and threshold as a control (the fuzzy similarity by word length, or one value for every word); live results with a score breakdown bar per hit; an SQL and EXPLAIN (ANALYZE) view; an exact-counts switch when the stack starts with `DEMO_ALLOW_EXACT=1` (it reads every match: seconds on 500 000 rows) |
-| **Under the hood** (`/under-the-hood/...`) | the **Config wizard** (pick a table: it explains each column decision and outputs YAML, builder code and attributes; `fuzzphony:wizard` in the terminal), the **Benchmark** (`/under-the-hood/benchmark`: nine queries on a plain `ILIKE` and on Fuzzphony, each row measured by its own request so the rows never compete; reproducible with `benchmarks/run.php`), the **Doctor** (the `fuzzphony:doctor` report), **Observability** (the metrics of a search, and a pointer to the search log as the other half), the **Synonyms** editor, **Security** (`/under-the-hood/security`: the worked example of [`docs/security.md`](../docs/security.md), see below) and **Analytics** (`/under-the-hood/analytics`: the most searched texts of the last seven days and the searches that found nothing, read from the search log with `Fuzzphony::analytics()`; `fuzzphony.search_log` is on with 30 days of retention and `redact: [email]`, so an e-mail address typed into the search box is stored as `[redacted]`; a demo database from before 0.9 shows a hint to run `fuzzphony:schema --apply`; a **Who searched what** list under them: the latest 20 searches of the `catalog` and the `intranet` indexes, newest first, with the time, who (the viewer's name, or anonymous), the tenant (company), the query, the hits, the status (answered, denied, rate limited) and the client address **masked** (`search_log.ip: masked`: `192.0.2.45` is stored as `192.0.2.0`), narrowed by links to one index, one viewer (anonymous, Ada, Hana, Eve, Bob) or one status, with a note that it is personal data (30 days of retention, e-mail redaction, the masked address); the searches of the Security page are logged as the viewer (the refusals as `denied` rows), the home page's are anonymous and carry no address, because only searches made `->asActor()` have one; the page reads it across the tenants (`allTenants: true`, a showcase: a real application would keep it behind an operator role); behind another proxy the address is that proxy's unless `framework.trusted_proxies` lists it, the demo's own nginx needs none (FastCGI hands PHP the client address); the same reports in the terminal: `bin/console fuzzphony:analytics catalog`, and `bin/console fuzzphony:analytics intranet --recent --all-tenants` for who searched what) |
+| **Search** (`/`) | One search field over the catalogue: results while you type, a typo or a half-typed word found, a calm bar when a typo is rescued (*Showing results for mouse* for `mpuse`), and a **Speed** view next to a plain `ILIKE`. |
+| **Relevance** (`/relevance`) | Why a search finds what was meant: typo tolerance by word length, synonyms, "did you mean". |
+| **Languages** (`/languages`) | One small catalogue in five languages, with the stem PostgreSQL made of every word and ILIKE's count next to Fuzzphony's. |
+| **Tune** (`/tune`) | Every ranking weight and threshold as a control, with a score breakdown per hit and the SQL. |
+| **Under the hood** (`/under-the-hood/...`) | The **Config wizard**, **Benchmark**, **Doctor**, **Observability**, the **Synonyms** editor, **Analytics** (what was searched, and who searched what) and **Security** (below). |
 
-**The Security page** shows what 0.9 adds, on a small intranet index of 24 notes of two companies ([`sql/demo_note.sql`](sql/demo_note.sql)) with a "Viewing as" switch (five fixed viewers, no passwords, kept in the session): Anonymous, Ada, Hana (HR) and Eve (a guest) of Acme, and Bob of Globex. The tenant: `budget` finds Acme's notes for Ada and Globex's for Bob. The permission: Eve is signed in and has a company but no `ROLE_USER`, so every search is refused with the `AccessDenied` card (a 403 in an application); an anonymous visitor is refused earlier, with `ActorRequired`, because the tenant check comes before the authorization (nobody has a tenant); and the `confidential` field is `granted: ROLE_HR`, so for Ada the word `salary` finds nothing and the SQL disclosure shows a search without any column of that field, while Hana finds notes and sees the highlight. The rate limit: five searches in 10 seconds per viewer; the sixth shows a live countdown of the seconds to wait with a button to reset the count (a demo shortcut) and, at zero, one to search again. It runs on the real configuration (`fuzzphony.actor`, `fuzzphony.authorization`, `fuzzphony.rate_limit` in [`config/packages/fuzzphony.yaml`](config/packages/fuzzphony.yaml), a voter and an authenticator in [`src/Security`](src/Security)); a Security firewall covers that page only and only its searches are made `asActor()`, so every other page is unchanged. `?reset=1` (the "Reset the count" button) forgets the current viewer's searches of the 10-second window and redirects (so a reload does not reset again): demo only. The viewers are shared by everyone who uses the demo, so on a demo several people use, the five searches are shared too.
+The mechanics sit next to the code that does them: the search page's two steps and its logging in
+[`SearchController`](src/Controller/SearchController.php), the live results in
+[`live_search_controller.js`](assets/controllers/live_search_controller.js), the dropdown in
+[`suggest_controller.js`](assets/controllers/suggest_controller.js), the Analytics page in
+[`AnalyticsController`](src/Controller/AnalyticsController.php) (privacy: [`docs/analytics.md`](../docs/analytics.md)).
+Searches are logged when you mean them: a page load, Enter, an example chip, a link, or typing that has stood for 1.5 seconds; the live search
+while you type is not. A rescued typo is logged as typed, with the hits of the rescued search
+([`docs/limitations.md`](../docs/limitations.md#a-rescued-search-is-not-a-zero-result-search-in-the-log)).
 
-Every search box has the same dropdown while you type (`assets/controllers/suggest_controller.js` asks `/suggest`): the completions of
-the word being typed (`Fuzzphony::suggest()`), the first hits matched as you type, and on the catalogue the categories the text is found in
-(a facet). Brand, price and category name are the application's data, loaded for the ids the search returned; arrows, Enter and Escape work.
+**The Security page** is the worked example of [`docs/security.md`](../docs/security.md) on a small intranet index of 24 notes of two
+companies ([`sql/demo_note.sql`](sql/demo_note.sql)). Choose who is searching (Ada, Hana (HR), Bob, Eve (a guest), or nobody; no passwords, kept in the
+session; a first visit is Ada) and search the same words: the company is the tenant, `ROLE_USER` may search at all, the `confidential` field
+needs `ROLE_HR`, and a viewer may search five times in 10 seconds (the sixth shows a countdown). The refusals are answers of the page, not
+error pages. The guards come from `fuzzphony.actor`, `fuzzphony.authorization` and `fuzzphony.rate_limit` in
+[`config/packages/fuzzphony.yaml`](config/packages/fuzzphony.yaml); only this page searches `->asActor()`. The viewers are shared by everyone who
+uses the demo, so the five searches are too (`?reset=1` forgets them: demo only).
+
+The search boxes of the catalogue, the Languages, Relevance, Synonyms and Observability pages have the dropdown while you type
+(completions of the word, `/suggest`); the Security page's box has none, because `/suggest` refuses the actor-guarded intranet index.
 
 ### The interface
 
@@ -102,21 +116,20 @@ patterns (the rounded search field, the segmented control, inset grouped lists, 
 least 4.5:1, light and dark from the system setting, sizes in `rem`, motion that explains cause and effect and stops under
 `prefers-reduced-motion`. It is native CSS (`@layer`, tokens with `light-dark()` and `color-mix()`, cross-document view transitions),
 the system font stack and one inline SVG sprite ([`templates/_sprite.html.twig`](templates/_sprite.html.twig): the interface icons and one drawing
-per product category); no font, image or script is downloaded for it. The design and its reasoning are in
-[`docs/superpowers/specs/2026-10-12-v082-demo-interface-design.md`](../docs/superpowers/specs/2026-10-12-v082-demo-interface-design.md).
+per product category); no font, image or script is downloaded for it.
 
-To look at it the way it was reviewed, [`tools/shots.mjs`](tools/shots.mjs) takes a screenshot of every page at phone and laptop size, light and dark,
-with reduced motion, and runs axe-core and a horizontal-overflow check (Playwright from its official Docker image; nothing is added to the project):
-see the comment at the top of the file. [`tools/flows.mjs`](tools/flows.mjs) checks what a screenshot cannot show in a real browser: the results
-appearing in place while typing, the clear button, the `/` shortcut, the suggestion panel with the keyboard, a facet, the Speed view and the tab bar on
-a phone, and that waiting always looks the same: the search field shows a spinner and the region being replaced dims, on the search, Tune and a page navigation, and that a word unique to the run, typed on the search page (no Enter: it settles after about a second), shows up on the Analytics page (and a nonsense word in its zero-result table), and the fragments typed on the way do not, example chips clicked in quick succession and a word typed and left by navigation at once are logged too, and the Security page: HR finds a word that is only in the hidden field and sees its highlight, an ordinary viewer finds nothing and her SQL has no column of that field, each company sees its own notes, the choice survives in the session, an anonymous visitor is refused while the home page still works, a guest without `ROLE_USER` gets the `AccessDenied` card, and the sixth search of 10 seconds is refused with a countdown that runs out and lets a search through again, and that Who searched what lists the Security page's searches once each with the viewer's name, company and a masked address, the refusals as `denied` rows (anonymous without a user), newest first, and the filters for one viewer, anonymous, denied and the intranet narrow it (68 checks; it resets the viewer's count first, so a re-run is never refused by the previous one).
+To look at it the way it was reviewed, [`tools/shots.mjs`](tools/shots.mjs) takes a screenshot of every page at phone, tablet and laptop size, light and dark,
+with reduced motion, and runs axe-core (WCAG 2.2 AA) and a horizontal-overflow check on every one of them (Playwright from its official Docker image; nothing
+is added to the project): see the comment at the top of the file. [`tools/flows.mjs`](tools/flows.mjs) checks what a screenshot cannot show, in a real browser:
+the live results, the rescue, the suggestion panel with the keyboard, the loading language, the search log, the Security page, the Speed view and the phone layout
+(it resets the viewer's count first, so a re-run is never refused by the previous one).
 
 **Loading looks the same everywhere.** Whatever the demo waits for, it shows the same three things after a short delay (so a fast answer does not flicker): a hairline bar runs along the top, the page dims (the field too, though it stays usable), the field shows a small spinner (a page without a field gets one of its own) and a status pill at the bottom says what is going on. `aria-busy` is the one signal, for the eyes and for assistive technology: a Live Component (Tune) and the live results set it on their own region, and a link or form sets it on `<main>` (`progress_controller.js`); the bar and the spinner follow either. One rule in `app.css` (`.busy-region`, `.field-spinner`) covers every page.
 
 The index itself is in [`config/packages/fuzzphony.yaml`](config/packages/fuzzphony.yaml): it was
-generated by the wizard and then tuned in Tune.
+generated by the wizard and then tuned by hand; its `popular` ranking profile is a starting point in Tune.
 The Languages page searches a separate, hand-written catalogue ([`sql/lang_product.sql`](sql/lang_product.sql),
-30 products per language, seeded by `init` when the table is missing) through five indexes `lang_en` … `lang_hu`
+31 products per language, seeded by `init` when the table is missing) through five indexes `lang_en` … `lang_hu`
 in the same file, each with its own `language:` (stemming, stop words) and accent folding.
 
 Try the sync: change a brand name in psql (`docker compose exec db psql -U fuzzphony -c "UPDATE bench_brand SET name = 'Zebra' WHERE id = 1"`)
@@ -154,7 +167,7 @@ listed there use the library's defaults, shown here with "default".
 
 | Setting | Demo value | |
 |---|---|---|
-| Indexes | `catalog` (500 000 products), `lang_en`, `lang_de`, `lang_fr`, `lang_es`, `lang_hu` (30 products each), `intranet` (24 notes, tenant `company_id`, the Security page) | |
+| Indexes | `catalog` (500 000 products), `lang_en`, `lang_de`, `lang_fr`, `lang_es`, `lang_hu` (31 products each), `intranet` (24 notes, tenant `company_id`, the Security page) | |
 | Schema | `fuzzphony` | every index table, the sync queue, the version table, the functions and the text search configurations; the demo data stays in `public`; sidecar layout 2, applied (and upgraded from an older layout) by `fuzzphony:schema --apply` |
 | Extension schema | `public` (default) | where `pg_trgm` and `unaccent` live |
 | Sync mode | `queue` (default) | database triggers queue the changed ids, the `worker` service refreshes them; a `TRUNCATE` of `bench_brand` or `bench_category` queues one `'*'` full-rebuild job instead of every product id, which the worker runs before the queued ids |
@@ -162,7 +175,7 @@ listed there use the library's defaults, shown here with "default".
 | Watched tables | `catalog`: `bench_product`, `bench_brand`, `bench_category`; `lang_*`: `lang_product` | a brand or category change queues every product that uses it |
 | Worker | `fuzzphony:worker --time-limit=3600`, batch of 500 ids, 1 s sleep when idle (defaults) | recycled hourly by Docker's restart policy; stops after the current batch on SIGTERM |
 | Security (the Security page) | `actor: { tenant: company, user: userIdentifier }`, `authorization: { enabled: true }`, `rate_limit: { limiter: fuzzphony_search, per: user }`; `framework.rate_limiter.fuzzphony_search`: fixed window, 5 in 10 seconds | applies to searches made with `asActor()`, which only the Security page makes; the limiter and the session live in `/tmp` (the container's file system is read-only) |
-| Search log | `search_log: { enabled: true, retention_days: 30, redact: [email], ip: masked }` | every search is recorded after the response, except the live search while typing and the suggestion dropdown (`unlogged()`): a search counts when you click an example (its own request is marked `X-Settled`), press Enter (a full page load) or stop typing for about a second (the live search then repeats its request once, silently, marked `X-Settled`, and sends it at once when the page is left sooner); the half-typed words in between are not logged (`fuzzphony.fuzzphony_search_log`, created by `fuzzphony:schema --apply`); the masked client address is kept in `actor_ip` (added by `fuzzphony:schema --apply`, which the init runs: an older demo volume gets the column on the next `docker compose up`); the Analytics page reads it (on a publicly hosted demo anyone can plant text that other visitors see there: only e-mail addresses are redacted); `fuzzphony:search-log:purge` deletes rows older than 30 days (nothing runs it in this stack: add it to a cron if the demo stays up for long) |
+| Search log | `search_log: { enabled: true, retention_days: 30, redact: [email], ip: masked }` | every search the visitor means is recorded after the response (1.5 seconds without typing, Enter, a chip, a link; the live search and the dropdown are `unlogged()`); the masked client address needs the `actor_ip` column (`fuzzphony:schema --apply`, which the init runs); anyone can plant text that other visitors see on the Analytics page, since only e-mail addresses are redacted; `fuzzphony:search-log:purge` deletes rows older than 30 days (nothing runs it in this stack: add it to a cron if the demo stays up for long) |
 | Synonyms (`demo_synonym_entry`, `demo_synonym_version`) | one list per index (`catalog` and the five languages, [`sql/demo_synonym.sql`](sql/demo_synonym.sql)): `mouse, mice`, `drill => screwdriver`, `tv, television, telly` and their counterparts in each language | expanded on the query, so no reindex; edited on the Synonyms page, shown on the Relevance page |
 | Vocabulary | every index (all have a typo-tolerant field) | the table "did you mean" reads (`fuzzphony.fuzzphony_<index>__vocab`): filled by every full reindex, and by `init` for an index that already existed; the application role may rebuild it (`SELECT, INSERT, DELETE`) |
 | Fields (`catalog`) | `name` A fuzzy, `brand` B fuzzy, `category` C, `description` D | A–D are the full-text weights; fuzzy fields get typo tolerance; each field also has its own `t_<field>` tsvector column (and `z_<field>` normalised text for the fuzzy ones), so a scoped query like `brand:sony` matches that field only |
@@ -198,6 +211,8 @@ are opt-in: `DEMO_ALLOW_ANALYZE=1` enables EXPLAIN ANALYZE in the playground and
 Every setting has a default; override with environment variables or a file:
 `cp .env.example docker.env`, edit, then `docker compose --env-file docker.env up --build`
 (`docker.env` is git-ignored; `demo/.env` belongs to Symfony and is not used by the containers).
+
+Several stacks side by side (a second checkout, a test run): `docker compose -p other up -d --build` with its own `DEMO_PORT` / `DEMO_DB_PORT`. The project name is also the image name (`<project>/php:local`, `<project>/web:local`) and the volume prefix, so stacks never share an image or a database; without `-p` the project is `fuzzphony-demo`. `docker compose -p other down -v` removes that stack and its volume.
 
 | Variable | Default | |
 |---|---|---|
@@ -288,24 +303,11 @@ ports and volume; torn down afterwards) on the same machine as below: 16 cores, 
   `Orphaned documents: none` — every seeded row made it into the index.
 - **`db` memory** right after seeding and indexing (`docker stats`, one-off, no load yet): 406 MiB of its
   1536 MiB limit (26%) — the tuning below leaves comfortable headroom on a ~1.9 GB VM.
-- **ILIKE vs Fuzzphony**, read straight off the running `/benchmark` page's own measurements (PostgreSQL
-  17.11, PHP 8.4.26; cold = first run, warm = median of the next 5):
-
-  | Query | ILIKE cold / warm | hits | Fuzzphony cold / warm | hits |
-  |---|---:|---:|---:|---:|
-  | accent (`creme`) | 413.7 / 405.4 ms | 0 | 24.2 / 13.1 ms | 20 |
-  | typo (`hedphones`) | 449.5 / 426.6 ms | 0 | 34.6 / 32.8 ms | 20 ~ |
-  | stemming (`drills`) | 400.5 / 394.8 ms | 0 | 14.6 / 11.3 ms | 20 |
-  | phrase + exclude (`"noise cancelling" -headphones`) | 541.5 / 495.4 ms | 0 | 28.7 / 24.1 ms | 20 |
-  | field (`category:kitchen kettle`) | 505.4 / 488.6 ms | 0 | 15.8 / 11.9 ms | 20 |
-  | prefix (`ergono*`) | 467.4 / 437.9 ms | 0 | 18.2 / 15.5 ms | 20 |
-  | plain word (`wireless`) | 7.2 / 0.6 ms | 20 | 15.6 / 13.1 ms | 20 |
-  | two words (`wireless mouse`) | 10.2 / 3.0 ms | 20 | 21.0 / 14.0 ms | 20 |
-
-  ~ = typo-tolerant fallback used. ILIKE's 0 hits above are not a bug: `creme`/`hedphones`/`drills` need
-  accent folding, typo tolerance or stemming that `ILIKE '%…%'` does not have, and `category:kitchen
-  kettle` / `ergono*` are Fuzzphony's own field/prefix syntax, which ILIKE just treats as a literal
-  (non-matching) substring — see the note at the top of the Benchmark page itself.
+- **ILIKE vs Fuzzphony**: the table that stood here (PostgreSQL 17.11, an older typo selection) is gone, because a typo on a common word such as
+  `hedphones` is no longer the 30 ms it showed. Run the page's own **Benchmark** (`/under-the-hood/benchmark`) for the nine queries on your machine,
+  `php benchmarks/run.php --markdown` outside the browser, and see [`docs/benchmarks.md`](../docs/benchmarks.md) for the figures of the current
+  build. `ILIKE '%…%'` finds 0 for `creme`, `hedphones` and `drills` (they need accent folding, typo tolerance or stemming), and `category:kitchen kettle`
+  and `ergono*` are Fuzzphony's own syntax, which ILIKE treats as a literal substring.
 
 ### Load test (200 000 rows)
 

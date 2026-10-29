@@ -32,6 +32,8 @@ final class Highlighter
     private const int MAX_HITS = 200;
     /** The runs of words (see TypoMarker::cost()) the typo marks of one page may go through; a hit that would pass it keeps ts_headline's snippet. */
     private const int MAX_RUNS = 100_000;
+    /** A text of at most this many characters (about MaxWords words) is highlighted whole, a longer one as fragments. */
+    private const int WHOLE_TEXT_CHARS = 200;
     private const string TYPO = 'fz_typo';
     private const string TEXT = 'x_';
 
@@ -57,20 +59,28 @@ final class Highlighter
 
         $params = new ParameterBag();
         $config = $this->names->regconfig($index->text);
-        $options = sprintf('StartSel="%s", StopSel="%s", MaxWords=30, MinWords=12, MaxFragments=2, FragmentDelimiter=" … "', self::START, self::STOP);
+        $options = sprintf('StartSel="%s", StopSel="%s", MaxWords=30, MinWords=12, FragmentDelimiter=" … "', self::START, self::STOP);
 
         $columns = ['d.fz_id::text AS id'];
         foreach ($fields as $name) {
-            // native prepared statements cannot reuse a placeholder, so each column binds its own copy
-            $columns[] = sprintf(
-                "ts_headline(%s, translate(coalesce(d.%s::text, ''), %s, ''), to_tsquery(%s, %s), %s) AS %s",
+            // A short text is shown whole (no fragments: ts_headline's fragment mode would cut "Ergonomic mouse 1001" to "Ergonomic mouse"),
+            // a long one as up to two fragments; a typo-found hit is built the same way (TypoMarker). Native prepared statements cannot reuse
+            // a placeholder, so each use binds its own copy.
+            $text = fn(): string => sprintf("translate(coalesce(d.%s::text, ''), %s, '')", Sql::ident('fld_' . $name), $params->add(self::START . self::STOP));
+            $headline = fn(int $fragments): string => sprintf(
+                'ts_headline(%s, %s, to_tsquery(%s, %s), %s)',
                 $config,
-                Sql::ident('fld_' . $name),
-                // the markers are ours: a text that holds them must not be able to draw a <mark>
-                $params->add(self::START . self::STOP),
+                $text(),
                 $config,
                 $params->add($tsquery),
-                $params->add($options),
+                $params->add($options . ', MaxFragments=' . $fragments),
+            );
+            $columns[] = sprintf(
+                "CASE WHEN char_length(coalesce(d.%s::text, '')) <= %d THEN %s ELSE %s END AS %s",
+                Sql::ident('fld_' . $name),
+                self::WHOLE_TEXT_CHARS,
+                $headline(0),
+                $headline(2),
                 Sql::ident('h_' . $name),
             );
         }
@@ -219,7 +229,7 @@ final class Highlighter
             $params->add(Sql::arrayLiteral($ids)),
             $type,
             $this->names->sidecar($index),
-            $this->strictVector($index, $typo->allowedFields),
+            $this->names->visibleVector($index, $typo->allowedFields),
             $this->names->regconfig($index->text),
             $params->add($tsquery),
             Sql::ident(self::TYPO),
@@ -236,29 +246,6 @@ final class Highlighter
         }
 
         return $columns;
-    }
-
-    /**
-     * The vector the strict query is judged on: the whole document, or for a restricted viewer only the fields it may see
-     * (the vector the text rank reads). A hidden field never takes part: it would tell the viewer whether it holds a word.
-     *
-     * @param list<string>|null $allowed
-     */
-    private function strictVector(IndexDefinition $index, ?array $allowed): string
-    {
-        if ($allowed === null) {
-            return 's.tsv';
-        }
-        $parts = array_map(
-            fn(string $name): string => 's.' . $this->names->fieldVector($name),
-            array_values(array_filter($index->fieldNames(), static fn(string $name): bool => in_array($name, $allowed, true))),
-        );
-
-        return match (count($parts)) {
-            0 => "''::tsvector",
-            1 => $parts[0],
-            default => '(' . implode(' || ', $parts) . ')',
-        };
     }
 
     /** Whether the typed words can be marked in this field: it is typo-tolerant, and no word is scoped to another field only. */

@@ -7,6 +7,7 @@ namespace Fuzzphony\Tests\Integration\Bundle\Registry;
 use Fuzzphony\Core\Definition\IndexDefinition;
 use Fuzzphony\Core\Registry\IndexRegistry;
 use Fuzzphony\Tests\Integration\PostgresTestCase;
+use Fuzzphony\Tests\Support\RestoresPhpHandlers;
 use PHPUnit\Framework\TestCase;
 use Psr\Cache\CacheItemPoolInterface;
 use Symfony\Component\Cache\Adapter\PhpFilesAdapter;
@@ -18,6 +19,8 @@ use Symfony\Component\Filesystem\Filesystem;
  */
 final class RegistryCacheKernelTest extends TestCase
 {
+    use RestoresPhpHandlers;
+
     private const string KEY = 'fuzzphony_discovered_indexes';
 
     private string $dir;

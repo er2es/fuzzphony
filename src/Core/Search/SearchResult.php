@@ -84,7 +84,7 @@ final readonly class SearchResult implements \IteratorAggregate, \Countable
 
     /**
      * Whether hits follow this page among the ones the search ranked: false at the last page of the candidates, even when
-     * `totalIsLowerBound` says there are more matches than candidates (a page past them is empty, see
+     * `totalIsLowerBound` says there are more matches than candidates (a page asked for directly past them is served by a wider selection, see
      * Thresholds::$candidateLimit). With exactCounts() the total counts every match, but the hits that can be read end at
      * Thresholds::MAX_CANDIDATE_LIMIT (10 000): there `hasMore()` is false too, and it is false for an empty page.
      */

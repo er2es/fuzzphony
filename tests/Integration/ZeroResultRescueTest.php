@@ -189,7 +189,7 @@ final class ZeroResultRescueTest extends TestCase
     {
         $result = $this->fuzzphony()->in('products')->query('mpuse -wireless')->highlight('name')->get();
 
-        self::assertSame(['name' => '<mark>Mouse</mark>'], $result->hits[0]->highlights);
+        self::assertSame(['name' => '<mark>Mouse</mark> pad'], $result->hits[0]->highlights, 'a short text is shown whole');
     }
 
     public function testItIsSwitchedOffByRescueEmptyAndDependsOnDidYouMean(): void
@@ -292,6 +292,27 @@ final class ZeroResultRescueTest extends TestCase
         $empty = $fuzzphony->in('products')->query('mpuse')->where('price', '>', 1_000_000)->explain();
         self::assertSame(1, count(array_filter(array_column($empty->statements, 'label'), static fn(string $l): bool => $l === 'rescue: full-text')), 'the attempt is listed');
         self::assertNull($empty->result->correctedFrom);
+    }
+
+    /** The corrected search answers with its hits and total only: no relaxation probe, no suggestion, no second rescue to throw away. */
+    public function testTheRunOfARescueHasNoRelaxationNoSuggestionAndNoRescue(): void
+    {
+        $fuzzphony = $this->fuzzphony();
+
+        // each word is one edit from a word of the index, but "mouse green" is in no document: the corrected search finds nothing
+        // (the relaxation it would run, to "mouse" or "green", is never taken: the rescue wants the whole corrected query)
+        $explanation = $fuzzphony->in('products')->query('mpuse grean')->explain();
+        self::assertNull($explanation->result->correctedFrom);
+        $labels = array_column($explanation->statements, 'label');
+        self::assertSame(1, count(array_filter($labels, static fn(string $l): bool => $l === 'relaxation probe')), 'the first run has the probe once');
+        self::assertSame(1, count(array_filter($labels, static fn(string $l): bool => $l === 'did you mean')));
+        $rescueRun = array_values(array_filter($labels, static fn(string $l): bool => str_starts_with($l, 'rescue: ')));
+        self::assertSame(['rescue: full-text', 'rescue: fallback: full-text + fuzzy'], $rescueRun, 'the rescue run is its search alone: no probe, no relaxed search, no suggestion');
+
+        // a rescue that works: the same, and its answer is the corrected search's
+        $rescued = $fuzzphony->in('products')->query('mpuse')->explain();
+        self::assertSame('mpuse', $rescued->result->correctedFrom);
+        self::assertSame(['rescue: full-text', 'rescue: fallback: full-text + fuzzy'], array_values(array_filter(array_column($rescued->statements, 'label'), static fn(string $l): bool => str_starts_with($l, 'rescue: '))), 'the rescue that works is its search alone');
     }
 
     public function testAWordWithADigitIsNotCorrected(): void

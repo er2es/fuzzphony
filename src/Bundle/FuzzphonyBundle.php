@@ -53,6 +53,7 @@ use Fuzzphony\Engine\Postgres\Wizard\PostgresIntrospector;
 use Symfony\Component\Config\Definition\Configurator\DefinitionConfigurator;
 use Symfony\Component\DependencyInjection\ContainerBuilder;
 use Symfony\Component\DependencyInjection\Loader\Configurator\ContainerConfigurator;
+use Symfony\Component\DependencyInjection\Loader\Configurator\DefaultsConfigurator;
 use Symfony\Component\HttpKernel\Bundle\AbstractBundle;
 use Symfony\Component\PropertyAccess\PropertyAccessorInterface;
 use Symfony\Component\RateLimiter\RateLimiterFactory;
@@ -112,22 +113,22 @@ final class FuzzphonyBundle extends AbstractBundle
     {
         $definition->rootNode()
             ->children()
-                ->scalarNode('connection')->defaultValue('default')->info('Doctrine DBAL connection name')->end()
-                ->scalarNode('extension_schema')->defaultValue('public')->info('Schema of the pg_trgm and unaccent extensions')->end()
-                ->scalarNode('schema')->defaultValue('public')->info('Schema of Fuzzphony\'s own tables, functions and text search configurations (created by fuzzphony:schema --apply)')->end()
+                ->scalarNode('connection')->defaultValue(BundleSettings::DEFAULTS['connection'])->info('Doctrine DBAL connection name')->end()
+                ->scalarNode('extension_schema')->defaultValue(BundleSettings::DEFAULTS['extension_schema'])->info('Schema of the pg_trgm and unaccent extensions')->end()
+                ->scalarNode('schema')->defaultValue(BundleSettings::DEFAULTS['schema'])->info('Schema of Fuzzphony\'s own tables, functions and text search configurations (created by fuzzphony:schema --apply)')->end()
                 ->booleanNode('discover_entities')->defaultTrue()->info('Register every Doctrine entity with #[Searchable]')->end()
                 ->arrayNode('worker')
                     ->addDefaultsIfNotSet()
                     ->children()
-                        ->integerNode('batch_size')->defaultValue(500)->min(1)->end()
-                        ->floatNode('idle_sleep')->defaultValue(1.0)->min(0.05)->end()
+                        ->integerNode('batch_size')->defaultValue(BundleSettings::DEFAULTS['worker_batch_size'])->min(1)->end()
+                        ->floatNode('idle_sleep')->defaultValue(BundleSettings::DEFAULTS['worker_idle_sleep'])->min(0.05)->end()
                     ->end()
                 ->end()
                 ->arrayNode('orm_sync')
                     ->addDefaultsIfNotSet()
                     ->children()
                         ->booleanNode('async')->defaultFalse()->info('Dispatch Fuzzphony\\Bundle\\Messenger\\RefreshDocuments instead of refreshing inside the request')->end()
-                        ->integerNode('chunk_size')->defaultValue(500)->min(1)->end()
+                        ->integerNode('chunk_size')->defaultValue(BundleSettings::DEFAULTS['orm_chunk_size'])->min(1)->end()
                     ->end()
                 ->end()
                 ->arrayNode('actor')
@@ -146,7 +147,7 @@ final class FuzzphonyBundle extends AbstractBundle
                     ->addDefaultsIfNotSet()
                     ->children()
                         ->booleanNode('enabled')->defaultFalse()->info('Record every search (who, what, how many hits) in fuzzphony_search_log; run fuzzphony:schema --apply after enabling')->end()
-                        ->integerNode('retention_days')->defaultValue(90)->min(1)->info('fuzzphony:search-log:purge deletes older rows')->end()
+                        ->integerNode('retention_days')->defaultValue(BundleSettings::DEFAULTS['retention_days'])->min(1)->info('fuzzphony:search-log:purge deletes older rows')->end()
                         ->arrayNode('redact')->scalarPrototype()->end()->info('"email" or a regular expression with delimiters: matches are replaced by [redacted] before anything is stored')->end()
                         ->enumNode('ip')->values(['off', 'masked', 'full'])->defaultValue('off')->info('Keep the client IP (Request::getClientIp(), so framework.trusted_proxies applies) with each search: off, masked (IPv4 /24, IPv6 /48) or full; it is personal data. Run fuzzphony:schema --apply after enabling')->end()
                     ->end()
@@ -155,14 +156,14 @@ final class FuzzphonyBundle extends AbstractBundle
                     ->addDefaultsIfNotSet()
                     ->children()
                         ->scalarNode('limiter')->defaultNull()->info('Name of a framework.rate_limiter entry (service limiter.<name>); empty = no rate limit, except per: ip, which then prepends a default entry (600 a minute, sliding window)')->end()
-                        ->enumNode('per')->values(['tenant', 'user', 'ip'])->defaultValue('tenant')->info('Whose searches share one bucket: a tenant, a user or a client IP (Request::getClientIp(), so framework.trusted_proxies applies; an IPv6 address by its /64); an actor without that key is not limited')->end()
+                        ->enumNode('per')->values(['tenant', 'user', 'ip'])->defaultValue(BundleSettings::DEFAULTS['rate_limit_per'])->info('Whose searches share one bucket: a tenant, a user or a client IP (Request::getClientIp(), so framework.trusted_proxies applies; an IPv6 address by its /64); an actor without that key is not limited')->end()
                     ->end()
                 ->end()
                 ->arrayNode('authorization')
                     ->addDefaultsIfNotSet()
                     ->children()
                         ->booleanNode('enabled')->defaultFalse()->info('Check the index and the fields (granted: ...) with Symfony authorization before every search')->end()
-                        ->scalarNode('index_attribute')->defaultValue('FUZZPHONY_SEARCH')->info('Checked with isGranted(attribute, indexName) before every search; write a voter for it, or name an existing attribute such as ROLE_USER')->end()
+                        ->scalarNode('index_attribute')->defaultValue(BundleSettings::DEFAULTS['index_attribute'])->info('Checked with isGranted(attribute, indexName) before every search; write a voter for it, or name an existing attribute such as ROLE_USER')->end()
                     ->end()
                 ->end()
                 ->arrayNode('indexes')
@@ -280,44 +281,33 @@ final class FuzzphonyBundle extends AbstractBundle
         // answer comes from the parameter prependExtension() set on the real one (hasExtension() still serves a direct load()).
         $hasOrm = interface_exists(EntityManagerInterface::class)
             && ($builder->hasExtension('doctrine') || ($builder->hasParameter(self::DOCTRINE_PARAMETER) && $builder->getParameter(self::DOCTRINE_PARAMETER) === true));
+        // configure()'s tree guarantees the shapes; AbstractBundle declares $config as a plain array
+        $settings = BundleSettings::fromConfig($config, self::DEFAULT_IP_LIMITER);
 
-        // configure()'s tree guarantees these shapes/types; narrowed here because AbstractBundle
-        // declares $config as plain array (a stricter @param on the override would violate LSP).
-        $connectionRaw = Coerce::str($config['connection'] ?? null);
-        $connectionName = $connectionRaw !== '' ? $connectionRaw : 'default';
-        $extensionSchemaRaw = Coerce::str($config['extension_schema'] ?? null);
-        $extensionSchema = $extensionSchemaRaw !== '' ? $extensionSchemaRaw : 'public';
-        $schemaRaw = Coerce::str($config['schema'] ?? null);
-        // validated here, so an invalid name fails the container build instead of the first request
-        $names = new Names($extensionSchema, $schemaRaw !== '' ? $schemaRaw : 'public');
-        $discoverEntities = (bool) ($config['discover_entities'] ?? true);
-        $indexes = is_array($config['indexes'] ?? null) ? $config['indexes'] : [];
-        $worker = is_array($config['worker'] ?? null) ? $config['worker'] : [];
-        $workerBatchSizeRaw = Coerce::int($worker['batch_size'] ?? null);
-        $workerBatchSize = $workerBatchSizeRaw !== 0 ? $workerBatchSizeRaw : 500;
-        $workerIdleSleepRaw = Coerce::float($worker['idle_sleep'] ?? null);
-        $workerIdleSleep = $workerIdleSleepRaw !== 0.0 ? $workerIdleSleepRaw : 1.0;
-        $ormSync = is_array($config['orm_sync'] ?? null) ? $config['orm_sync'] : [];
-        $ormSyncAsync = (bool) ($ormSync['async'] ?? false);
-        $ormSyncChunkSizeRaw = Coerce::int($ormSync['chunk_size'] ?? null);
-        $ormSyncChunkSize = $ormSyncChunkSizeRaw !== 0 ? $ormSyncChunkSizeRaw : 500;
-        $searchLog = is_array($config['search_log'] ?? null) ? $config['search_log'] : [];
-        $searchLogEnabled = (bool) ($searchLog['enabled'] ?? false);
-        $retentionDaysRaw = Coerce::int($searchLog['retention_days'] ?? null);
-        $retentionDays = $retentionDaysRaw !== 0 ? $retentionDaysRaw : 90;
-        $redact = array_values(array_map(Coerce::str(...), is_array($searchLog['redact'] ?? null) ? $searchLog['redact'] : []));
-        // the address is only ever stored by the log: with the log off there is nothing to keep it for
-        $ipMode = $searchLogEnabled ? (IpMode::tryFrom(Coerce::str($searchLog['ip'] ?? null)) ?? IpMode::Off) : IpMode::Off;
-        if ($redact !== []) {
-            // built once here so a bad pattern fails the container build (InvalidConfiguration), not the first search
-            PatternQueryRedactor::fromSettings($redact);
+        $this->registerConnection($services, $settings);
+        $this->registerActorResolver($services, $settings);
+        $this->registerGate($services, $settings);
+        $services->set('fuzzphony.engine', PostgresEngine::class)
+            ->args([service('fuzzphony.connection'), $settings->names->extensionSchema, $settings->names->schema, service('fuzzphony.metrics'), $settings->searchLogEnabled, $settings->retentionDays, $settings->ipMode !== IpMode::Off]);
+        $services->alias(Engine::class, 'fuzzphony.engine')->public();
+        $this->registerRegistry($services, $builder, $settings, $hasOrm);
+        $this->registerSync($services, $settings);
+        $this->registerIntegrations($services);
+        if ($hasOrm) {
+            $listener = $services->set('fuzzphony.orm_sync_listener', OrmSyncListener::class)
+                ->args([service('fuzzphony.refresh_dispatcher'), service('fuzzphony.registry')]);
+            foreach (['postPersist', 'postUpdate', 'preRemove', 'postFlush'] as $event) {
+                $listener->tag('doctrine.event_listener', ['event' => $event, 'connection' => $settings->connectionName]);
+            }
         }
-        $applicationSchemaFilter = $builder->hasParameter('fuzzphony.app_schema_filter')
-            ? Coerce::str($builder->getParameter('fuzzphony.app_schema_filter'))
-            : null;
+        $this->registerConsole($services, $builder, $settings);
+    }
 
+    /** The DBAL connection and the metrics collector. */
+    private function registerConnection(DefaultsConfigurator $services, BundleSettings $settings): void
+    {
         $services->set('fuzzphony.connection', DbalConnection::class)
-            ->args([service(sprintf('doctrine.dbal.%s_connection', $connectionName))]);
+            ->args([service(sprintf('doctrine.dbal.%s_connection', $settings->connectionName))]);
         $services->alias(Connection::class, 'fuzzphony.connection');
 
         // Decided when the service is built (MetricsCollectorFactory::create()), not here at
@@ -332,28 +322,21 @@ final class FuzzphonyBundle extends AbstractBundle
             // channel with no way to exclude them.
             ->tag('monolog.logger', ['channel' => 'fuzzphony']);
         $services->alias(MetricsCollector::class, 'fuzzphony.metrics');
+    }
 
-        $actor = is_array($config['actor'] ?? null) ? $config['actor'] : [];
-        $actorResolver = is_string($actor['resolver'] ?? null) ? $actor['resolver'] : null;
-        $tenantPath = is_string($actor['tenant'] ?? null) ? $actor['tenant'] : null;
-        $userPath = is_string($actor['user'] ?? null) ? $actor['user'] : null;
-        $rateLimit = is_array($config['rate_limit'] ?? null) ? $config['rate_limit'] : [];
-        $per = Coerce::str($rateLimit['per'] ?? null);
-        $per = $per !== '' ? $per : 'tenant';
-        $limiterName = Coerce::str($rateLimit['limiter'] ?? null);
-        if ($limiterName === '' && $per === 'ip') {
-            $limiterName = self::DEFAULT_IP_LIMITER;
-        }
+    /** Who searches: the configured resolver, wrapped when the client IP is in use, and the query redactor. */
+    private function registerActorResolver(DefaultsConfigurator $services, BundleSettings $settings): void
+    {
         // with the client IP in use (stored by the log, or the rate-limit key) the configured resolver is wrapped: it adds
         // the address of the request to an actor that has none. What is STORED is decided by the gate (IpMode) alone.
-        $wrapsResolver = $ipMode !== IpMode::Off || $per === 'ip';
+        $wrapsResolver = $settings->ipMode !== IpMode::Off || $settings->per === 'ip';
         $resolverId = $wrapsResolver ? 'fuzzphony.actor_resolver.inner' : 'fuzzphony.actor_resolver';
-        if ($actorResolver !== null) {
-            $services->alias($resolverId, $actorResolver)->public();
-        } elseif ($tenantPath !== null || $userPath !== null) {
+        if ($settings->actorResolver !== null) {
+            $services->alias($resolverId, $settings->actorResolver)->public();
+        } elseif ($settings->tenantPath !== null || $settings->userPath !== null) {
             self::assertActorPackages(interface_exists(TokenStorageInterface::class), interface_exists(PropertyAccessorInterface::class));
             $services->set($resolverId, PropertyPathActorResolver::class)
-                ->args([service('security.token_storage'), service('property_accessor'), $tenantPath, $userPath])
+                ->args([service('security.token_storage'), service('property_accessor'), $settings->tenantPath, $settings->userPath])
                 ->public();
         } else {
             $services->set($resolverId, NullActorResolver::class)->public();
@@ -365,34 +348,36 @@ final class FuzzphonyBundle extends AbstractBundle
         }
         $services->alias(ActorResolver::class, 'fuzzphony.actor_resolver')->public();
 
-        if ($redact !== []) {
+        if ($settings->redact !== []) {
             $services->set('fuzzphony.query_redactor', PatternQueryRedactor::class)
                 ->factory([PatternQueryRedactor::class, 'fromSettings'])
-                ->args([$redact]);
+                ->args([$settings->redact]);
         }
-        $authorization = is_array($config['authorization'] ?? null) ? $config['authorization'] : [];
-        // Authorization first: a search that is denied must not spend a rate-limit token.
+    }
+
+    /** The guards (authorization first: a search that is denied must not spend a rate-limit token) and the gates that run them. */
+    private function registerGate(DefaultsConfigurator $services, BundleSettings $settings): void
+    {
         $guards = [];
-        if ((bool) ($authorization['enabled'] ?? false)) {
+        if ($settings->authorizationEnabled) {
             self::assertAuthorizationPackage(interface_exists(AuthorizationCheckerInterface::class));
-            $indexAttribute = Coerce::str($authorization['index_attribute'] ?? null);
             $services->set('fuzzphony.guard.authorization', AuthorizationGuard::class)
-                ->args([service('security.authorization_checker'), service('security.token_storage'), $indexAttribute !== '' ? $indexAttribute : 'FUZZPHONY_SEARCH']);
+                ->args([service('security.authorization_checker'), service('security.token_storage'), $settings->indexAttribute]);
             $guards[] = service('fuzzphony.guard.authorization');
         }
-        if ($limiterName !== '') {
+        if ($settings->limiterName !== '') {
             self::assertRateLimiterPackage(class_exists(RateLimiterFactory::class));
             $services->set('fuzzphony.guard.rate_limit', RateLimitGuard::class)
-                ->args([service('limiter.' . $limiterName), $per, '%kernel.secret%', service('fuzzphony.metrics'), service('logger')]);
+                ->args([service('limiter.' . $settings->limiterName), $settings->per, '%kernel.secret%', service('fuzzphony.metrics'), service('logger')]);
             $guards[] = service('fuzzphony.guard.rate_limit');
         }
         $gateArguments = static fn(array $guards): array => [
             service('fuzzphony.metrics'),
             service('logger'),
-            $searchLogEnabled ? service('fuzzphony.search_log') : inline_service(NullSearchLog::class),
-            $searchLogEnabled && $redact !== [] ? service('fuzzphony.query_redactor') : null,
+            $settings->searchLogEnabled ? service('fuzzphony.search_log') : inline_service(NullSearchLog::class),
+            $settings->searchLogEnabled && $settings->redact !== [] ? service('fuzzphony.query_redactor') : null,
             $guards,
-            $ipMode,
+            $settings->ipMode,
         ];
         $services->set('fuzzphony.search_gate', SearchGate::class)
             ->args($gateArguments($guards))
@@ -404,11 +389,11 @@ final class FuzzphonyBundle extends AbstractBundle
             ->args($gateArguments([]))
             ->tag('monolog.logger', ['channel' => 'fuzzphony']);
         $services->set('fuzzphony.exception_listener', SearchExceptionListener::class)->tag('kernel.event_listener', ['event' => 'kernel.exception', 'priority' => 64]);
+    }
 
-        $services->set('fuzzphony.engine', PostgresEngine::class)
-            ->args([service('fuzzphony.connection'), $names->extensionSchema, $names->schema, service('fuzzphony.metrics'), $searchLogEnabled, $retentionDays, $ipMode !== IpMode::Off]);
-        $services->alias(Engine::class, 'fuzzphony.engine')->public();
-
+    /** The entity discovery, the index registry, the Fuzzphony services and the introspector. */
+    private function registerRegistry(DefaultsConfigurator $services, ContainerBuilder $builder, BundleSettings $settings, bool $hasOrm): void
+    {
         if ($hasOrm) {
             $services->set('fuzzphony.discovery', DoctrineIndexDiscovery::class)
                 ->args([service('doctrine.orm.entity_manager')]);
@@ -420,11 +405,11 @@ final class FuzzphonyBundle extends AbstractBundle
         $services->set('fuzzphony.registry', IndexRegistry::class)
             ->factory([RegistryFactory::class, 'create'])
             ->args([
-                $indexes,
-                $hasOrm && $discoverEntities ? service('fuzzphony.discovery') : null,
+                $settings->indexes,
+                $hasOrm && $settings->discoverEntities ? service('fuzzphony.discovery') : null,
                 // Prod only: discovery loads the metadata of every entity, so its result is kept in cache.system (cache:clear drops it).
                 // Without kernel.debug (or when it is unknown) nothing is cached and an edited attribute shows up on the next request.
-                $hasOrm && $discoverEntities && $builder->hasParameter('kernel.debug') && $builder->getParameter('kernel.debug') === false ? service('cache.system')->nullOnInvalid() : null,
+                $hasOrm && $settings->discoverEntities && $builder->hasParameter('kernel.debug') && $builder->getParameter('kernel.debug') === false ? service('cache.system')->nullOnInvalid() : null,
                 // Web requests only: a command, a worker or a consumer (PHP_SAPI "cli") always discovers fresh. The parameter is a test seam
                 // (the real-kernel test proves the cache from the command line), not a configuration option.
                 $builder->hasParameter('fuzzphony.registry_cache_in_cli') && $builder->getParameter('fuzzphony.registry_cache_in_cli') === true,
@@ -437,16 +422,20 @@ final class FuzzphonyBundle extends AbstractBundle
         $services->set('fuzzphony.operator', Fuzzphony::class)
             ->args([service('fuzzphony.engine'), service('fuzzphony.registry'), service('fuzzphony.search_gate.operator')]);
 
-        $services->set('fuzzphony.introspector', PostgresIntrospector::class)->args([service('fuzzphony.connection'), $names->schema]);
+        $services->set('fuzzphony.introspector', PostgresIntrospector::class)->args([service('fuzzphony.connection'), $settings->names->schema]);
         $services->alias(SourceIntrospector::class, 'fuzzphony.introspector');
+    }
 
-        if ($ormSyncAsync) {
+    /** How a change of a document reaches the index: in the request, or through Messenger. */
+    private function registerSync(DefaultsConfigurator $services, BundleSettings $settings): void
+    {
+        if ($settings->ormSyncAsync) {
             if (!interface_exists(\Symfony\Component\Messenger\MessageBusInterface::class)) {
                 // symfony/messenger is a dev dependency, so the test run can't reach this line.
                 throw new InvalidConfiguration('fuzzphony.orm_sync.async requires symfony/messenger: composer require symfony/messenger'); // @codeCoverageIgnore
             }
             $services->set('fuzzphony.refresh_dispatcher', MessengerRefreshDispatcher::class)
-                ->args([service('messenger.default_bus'), $ormSyncChunkSize]);
+                ->args([service('messenger.default_bus'), $settings->ormSyncChunkSize]);
         } else {
             $services->set('fuzzphony.refresh_dispatcher', ImmediateRefreshDispatcher::class)->args([service('fuzzphony.engine')]);
         }
@@ -456,7 +445,11 @@ final class FuzzphonyBundle extends AbstractBundle
                 ->args([service('fuzzphony'), service('fuzzphony.metrics')])
                 ->tag('messenger.message_handler');
         }
+    }
 
+    /** The API Platform filter and the Live Component, when their packages are installed. */
+    private function registerIntegrations(DefaultsConfigurator $services): void
+    {
         if (interface_exists(\ApiPlatform\Doctrine\Orm\Filter\FilterInterface::class)) {
             // #[ApiFilter(FuzzphonySearchFilter::class)] creates per-resource copies of this definition
             $services->set(FuzzphonySearchFilter::class)
@@ -470,24 +463,23 @@ final class FuzzphonyBundle extends AbstractBundle
                 ->args([service('fuzzphony'), service('fuzzphony.actor_resolver')])
                 ->autoconfigure();
         }
+    }
 
-        if ($hasOrm) {
-            $listener = $services->set('fuzzphony.orm_sync_listener', OrmSyncListener::class)
-                ->args([service('fuzzphony.refresh_dispatcher'), service('fuzzphony.registry')]);
-            foreach (['postPersist', 'postUpdate', 'preRemove', 'postFlush'] as $event) {
-                $listener->tag('doctrine.event_listener', ['event' => $event, 'connection' => $connectionName]);
-            }
-        }
-
+    /** The console commands, and the search log with its commands when it is enabled. */
+    private function registerConsole(DefaultsConfigurator $services, ContainerBuilder $builder, BundleSettings $settings): void
+    {
+        $applicationSchemaFilter = $builder->hasParameter('fuzzphony.app_schema_filter')
+            ? Coerce::str($builder->getParameter('fuzzphony.app_schema_filter'))
+            : null;
         $commands = [
             SchemaCommand::class => [service('fuzzphony'), service('fuzzphony.connection')],
-            DoctorCommand::class => [service('fuzzphony'), $applicationSchemaFilter, $names->schema],
+            DoctorCommand::class => [service('fuzzphony'), $applicationSchemaFilter, $settings->names->schema],
             ReindexCommand::class => [service('fuzzphony')],
-            WorkerCommand::class => [service('fuzzphony'), $workerBatchSize, $workerIdleSleep, service('fuzzphony.metrics')],
+            WorkerCommand::class => [service('fuzzphony'), $settings->workerBatchSize, $settings->workerIdleSleep, service('fuzzphony.metrics')],
             SearchCommand::class => [service('fuzzphony.operator')],
             WizardCommand::class => [service('fuzzphony.introspector'), service('fuzzphony.engine'), service('fuzzphony.connection')],
         ];
-        if ($searchLogEnabled) {
+        if ($settings->searchLogEnabled) {
             $services->set('fuzzphony.search_log', BufferedSearchLog::class)
                 ->args([service_closure('fuzzphony.engine'), service('fuzzphony.metrics'), service('logger')])
                 ->tag('monolog.logger', ['channel' => 'fuzzphony'])
@@ -497,7 +489,7 @@ final class FuzzphonyBundle extends AbstractBundle
                 ->tag('kernel.event_listener', ['event' => 'kernel.terminate'])
                 ->tag('kernel.event_listener', ['event' => 'console.terminate']);
             $commands[AnalyticsCommand::class] = [service('fuzzphony')];
-            $commands[SearchLogPurgeCommand::class] = [service('fuzzphony'), $retentionDays];
+            $commands[SearchLogPurgeCommand::class] = [service('fuzzphony'), $settings->retentionDays];
         }
         foreach ($commands as $class => $args) {
             $services->set($class)->args($args)->tag('console.command');
