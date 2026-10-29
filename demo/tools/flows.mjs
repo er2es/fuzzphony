@@ -743,6 +743,16 @@ check('footer: links to the documentation, GitHub, the changelog and the licence
     await phone.close();
 }
 
+// 0.9.10: the Relevance page says why each row was found; the Flat 0.3 column's brand-only rows name the brand and the similarity, and the brand is marked
+await go(page, `${BASE}/relevance?q=tv`);
+const flatColumn = page.locator('.two-up > div').nth(1);
+const flatRows = await flatColumn.locator('.hit-row').evaluateAll((rows) => rows.map((r) => ({ why: r.querySelector('.row-why')?.innerText ?? '', marked: [...r.querySelectorAll('.row-sub mark')].map((m) => m.textContent), only: r.querySelector('.flag')?.textContent ?? '' })));
+check('relevance: every row has a Why text, as real text', flatRows.length > 0 && (await page.locator('.two-up .hit-row').evaluateAll((rows) => rows.every((r) => /^Why:\s+\S/.test(r.querySelector('.row-why')?.innerText ?? '')))), JSON.stringify(flatRows.slice(0, 2)));
+check('relevance: the "only here" rows of Flat 0.3 say they matched in the brand by typo tolerance (tefal ~ tv, a similarity and one shared trigram) and the brand is marked',
+    flatRows.some((r) => r.only === 'only here' && /brand by typo tolerance: “tefal” ~ “tv”, similarity 0\.33 \(they share one trigram\)/i.test(r.why) && r.marked.join() === 'Tefal'), JSON.stringify(flatRows.filter((r) => r.only).slice(0, 1)));
+check('relevance: a row found by the word says so, and a synonym row says synonym', /Matched in name \(“tv”\): the word itself/.test(await page.locator('.two-up .row-why').first().innerText()) && /synonym/.test(await page.locator('.two-up').innerText()));
+check('relevance: the caption explains the flat threshold', /single shared trigram/.test(await page.locator('#typos').locator('xpath=..').innerText()));
+
 await secContext.close();
 
 await browser.close();

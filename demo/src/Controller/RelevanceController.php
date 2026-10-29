@@ -6,6 +6,7 @@ namespace App\Controller;
 
 use App\Service\Catalog;
 use App\Service\Examples;
+use App\Service\MatchReason;
 use Fuzzphony\Core\Fuzzphony;
 use Fuzzphony\Core\Search\SearchResult;
 use Symfony\Bundle\FrameworkBundle\Controller\AbstractController;
@@ -23,18 +24,20 @@ final class RelevanceController extends AbstractController
     private const int MAX_QUERY = 100;
 
     #[Route('/relevance', name: 'relevance')]
-    public function __invoke(Request $request, Fuzzphony $fuzzphony, Catalog $catalog): Response
+    public function __invoke(Request $request, Fuzzphony $fuzzphony, Catalog $catalog, MatchReason $reasons): Response
     {
         $q = mb_substr(trim((string) $request->query->get('q', '')), 0, self::MAX_QUERY);
         $byLength = $flat = null;
         if ($q !== '') {
             // always: typo tolerance runs even when exact matching finds plenty, so the two columns differ only by the similarity rule
-            $search = $fuzzphony->in('catalog')->query($q)->highlight('name')->limit(8)->unlogged()->thresholds(['fuzzy_mode' => 'always', 'rescue_empty' => false]); // no zero-result rescue: this page shows what each rule finds, `mpuse` included
+            $search = $fuzzphony->in('catalog')->query($q)->highlight('name', 'brand', 'category')->limit(8)->unlogged()->thresholds(['fuzzy_mode' => 'always', 'rescue_empty' => false]); // no zero-result rescue: this page shows what each rule finds, `mpuse` included
             // unlogged: the page runs several searches of its own (typo tolerance forced on, a flat similarity, the suggestion); none is a search
             // somebody made, and the log would list them as ones that found nothing or as `mpuse` searched twice
             $byLength = $search->get();
             $flat = $search->thresholds(['fuzzy_similarity' => 0.3])->get();
         }
+        // why each row was found, in words: the fields that carry a highlight, and for the typo-found rows the word pair and its similarity
+        $why = [$byLength === null ? [] : $reasons->explain($byLength->hits, $q, $byLength->interpretedAs), $flat === null ? [] : $reasons->explain($flat->hits, $q, $flat->interpretedAs)];
         $rows = $catalog->rows(array_merge($byLength?->ids() ?? [], $flat?->ids() ?? []));
 
         return $this->render('relevance.html.twig', [
@@ -43,6 +46,8 @@ final class RelevanceController extends AbstractController
             'byLength' => $byLength,
             'flat' => $flat,
             'rows' => $rows,
+            'whyByLength' => $why[0],
+            'whyFlat' => $why[1],
             // the rows only one of the two rules finds: that is the point of the page
             'onlyByLength' => array_values(array_diff($byLength?->ids() ?? [], $flat?->ids() ?? [])),
             'onlyFlat' => array_values(array_diff($flat?->ids() ?? [], $byLength?->ids() ?? [])),

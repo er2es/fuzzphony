@@ -69,6 +69,8 @@
     main { display: block; flex: 1 0 auto; transition: opacity var(--t-base) var(--ease); }
     .site-footer { margin-top: auto; border-top: .5px solid var(--hairline); font-size: .8125rem; color: var(--label-2); }
     .footer-inner { max-width: 70rem; margin: 0 auto; padding: 1rem 1.25rem; display: flex; flex-wrap: wrap; align-items: center; justify-content: center; gap: .25rem 1.25rem; text-align: center; }
+    .row-why { margin-top: .2rem; font-size: .8125rem; line-height: 1.35; color: var(--label-2); }
+    .row-why .why-label { font-weight: 600; color: var(--label); }
     .footer-inner p { margin: 0; }
     .footer-inner strong { color: var(--label); font-weight: 600; }
     .footer-links { display: flex; flex-wrap: wrap; justify-content: center; gap: .25rem 1rem; }
