@@ -1,11 +1,5 @@
 # Contributing
 
-[![codecov](https://codecov.io/gh/er2es/fuzzphony/graph/badge.svg)](https://codecov.io/gh/er2es/fuzzphony)
-[![PHPStan level max](https://img.shields.io/badge/PHPStan-level%20max-brightgreen)](https://github.com/er2es/fuzzphony/blob/main/phpstan.neon.dist)
-[![Mutation score](https://img.shields.io/endpoint?style=flat&url=https%3A%2F%2Fbadge-api.stryker-mutator.io%2Fgithub.com%2Fer2es%2Ffuzzphony%2Fmain)](https://dashboard.stryker-mutator.io/reports/github.com/er2es/fuzzphony/main)
-[![OpenSSF Scorecard](https://api.scorecard.dev/projects/github.com/er2es/fuzzphony/badge)](https://scorecard.dev/viewer/?uri=github.com/er2es/fuzzphony)
-[![OpenSSF Best Practices](https://www.bestpractices.dev/projects/14933/badge)](https://www.bestpractices.dev/projects/14933)
-
 Thanks for helping! A few rules keep Fuzzphony predictable:
 
 1. **User input never throws, developer mistakes always do.** Search text degrades with warnings;
