@@ -100,7 +100,7 @@ export default class extends Controller {
                 return;
             }
             this.show(html);
-            history.replaceState(null, '', text === '' ? location.pathname : url);
+            history.replaceState(null, '', this.address(params, text));
             if (html.includes('data-rescue-pending')) {
                 // nothing matched while typing: the rescue is asked for at once (the busy state stays until it is answered)
                 const rescued = await this.fetchRegion(url, { ...headers, 'X-Rescue': '1' }, false);
@@ -117,6 +117,17 @@ export default class extends Controller {
                 this.regionTarget.removeAttribute('aria-busy');
             }
         }
+    }
+
+    /** The address of the settled search: the form's own fields, without `q` when the field is empty (a reload shows the empty page, not the old search). */
+    address(params, text) {
+        const kept = new URLSearchParams(params);
+        if (text === '') {
+            kept.delete('q');
+        }
+        const query = kept.toString();
+
+        return (this.formTarget.getAttribute('action') ?? location.pathname) + (query === '' ? '' : `?${query}`);
     }
 
     /** The old results stay (a failed update is no reason to blank the page); a quiet line says they may be out of date. */

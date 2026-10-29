@@ -11,6 +11,25 @@ and a link. Measurements, proofs and test names belong to the pull request, [doc
 
 ## [Unreleased]
 
+## [0.9.10] - 2026-10-29
+
+Demo-only release: no change to the library.
+
+### Added
+
+- **Demo: an info icon next to every control of the Tune page** opens a tooltip with what the setting does and an example from the catalogue (hover, focus or tap;
+  Escape closes it; usable by keyboard and screen reader, readable in both colour schemes, inside the window on a phone).
+- **Demo: a System / Light / Dark switch, a footer with the version, and a "Why" line on the Relevance page.** The switch is in the toolbar (the choice is kept per visitor and applied before the first paint); the footer shows the Fuzzphony version read at run time (`\Composer\InstalledVersions`, or the newest CHANGELOG release where Composer only knows `dev-main`) with links to the docs, GitHub and this changelog; every Relevance row says which field matched and how, with the word pair and similarity of typo-found rows, and the highlight now also marks the brand and category. See [demo/README.md](demo/README.md).
+
+### Changed
+
+- **Demo: the top menu is centred on the page at every width, and the footer sits at the bottom of the window on short pages** (an empty home page, an error page) and below the content on long ones.
+
+### Fixed
+
+- **Demo: a language switch on the Languages page drops the old query** (the chips link to `?lang=xx` only; the box is empty and shows that language's examples).
+- **Demo: emptying a search box removes `q` from the address on every page with one**, so a reload or a shared link no longer brings the old search back.
+
 ## [0.9.9] - 2026-10-29
 
 The review-fix round before the API round: a restricted viewer's search on words common in hidden fields is fast again (open-class indexes), the typo-tolerant branch is cheap again for everyone (`hedphones` 354 -> 51 ms at 200k), the engine is split into services, and the demo and the CI were reworked. Run `fuzzphony:schema --apply` on indexes with a `granted` field (see [UPGRADE.md](UPGRADE.md#from-098-to-099)); nothing else is required. Strict YAML/array validation, the stricter `granted` check and some result changes for restricted and capped searches are listed under Behaviour change.
@@ -1026,7 +1045,8 @@ on its own:
 - Sync modes: queue (default), trigger, ORM, manual; watches for joined tables.
 - Doctor with fixes; CLI commands for schema, reindex, worker, search and explain.
 
-[Unreleased]: https://github.com/er2es/fuzzphony/compare/v0.9.9...HEAD
+[Unreleased]: https://github.com/er2es/fuzzphony/compare/v0.9.10...HEAD
+[0.9.10]: https://github.com/er2es/fuzzphony/compare/v0.9.9...v0.9.10
 [0.9.9]: https://github.com/er2es/fuzzphony/compare/v0.9.8...v0.9.9
 [0.9.8]: https://github.com/er2es/fuzzphony/compare/v0.9.7...v0.9.8
 [0.9.7]: https://github.com/er2es/fuzzphony/compare/v0.9.6...v0.9.7

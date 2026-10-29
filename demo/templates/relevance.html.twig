@@ -24,20 +24,20 @@
         <section aria-labelledby="typos" class="stack">
             <div>
                 <h2 id="typos">Typos</h2>
-                <p class="muted">A word needs the similarity of the worst typo its length allows: one from four letters, two from eight. <code>mouse</code> is not <code>monitor</code>. A flat 0.3, the rule before 0.7, is on the right.</p>
+                <p class="muted">A word needs the similarity of the worst typo its length allows: one from four letters, two from eight. <code>mouse</code> is not <code>monitor</code>. A flat 0.3, the rule before 0.7, is on the right: a flat threshold lets short words match on a single shared trigram. Under each row, why it was found.</p>
             </div>
             <div class="two-up">
                 <div>
                     <h3 class="list-title">By word length (the default)</h3>
                     <ul class="list">
-                        {% for hit in byLength.hits %}{{ ui.hit_row(hit, rows[hit.id] ?? null, hit.id in onlyByLength ? 'only here') }}{% else %}<li class="row no-lead"><span class="muted">Nothing found.</span></li>{% endfor %}
+                        {% for hit in byLength.hits %}{{ ui.hit_row(hit, rows[hit.id] ?? null, hit.id in onlyByLength ? 'only here', whyByLength[hit.id] ?? null) }}{% else %}<li class="row no-lead"><span class="muted">Nothing found.</span></li>{% endfor %}
                     </ul>
                     <p class="muted caption">{{ byLength.total }}{{ byLength.totalIsLowerBound ? '+' }} hits · <code>{{ byLength.interpretedAs }}</code></p>
                 </div>
                 <div>
                     <h3 class="list-title">Flat 0.3</h3>
                     <ul class="list">
-                        {% for hit in flat.hits %}{{ ui.hit_row(hit, rows[hit.id] ?? null, hit.id in onlyFlat ? 'only here') }}{% else %}<li class="row no-lead"><span class="muted">Nothing found.</span></li>{% endfor %}
+                        {% for hit in flat.hits %}{{ ui.hit_row(hit, rows[hit.id] ?? null, hit.id in onlyFlat ? 'only here', whyFlat[hit.id] ?? null) }}{% else %}<li class="row no-lead"><span class="muted">Nothing found.</span></li>{% endfor %}
                     </ul>
                     <p class="muted caption">{{ flat.total }}{{ flat.totalIsLowerBound ? '+' }} hits · <code>{{ flat.interpretedAs }}</code></p>
                 </div>

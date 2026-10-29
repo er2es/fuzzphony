@@ -664,6 +664,253 @@ check('observability: milliseconds with one decimal and counts in plain words', 
 await go(page, `${BASE}/languages?lang=en&q=telly`);
 check('languages: the merged list shows ranks, not scores of different indexes', (await page.locator('section[aria-labelledby=all] .row-trailing').first().innerText()).trim() === '#1' && /found through its synonyms/.test(await page.locator('aside[aria-labelledby=analysis]').innerText()));
 
+// 0.9.10: a language switch drops the old query: the chips link to ?lang=xx only, the box is empty and that language's examples show
+await go(page, `${BASE}/languages?lang=es&q=canciones`);
+check('languages: the chips do not carry the query', (await page.locator('nav[aria-label=Language] a').evaluateAll((as) => as.every((a) => !a.getAttribute('href').includes('q=')))));
+await page.locator('nav[aria-label=Language] a[lang=hu]').click();
+await page.waitForURL(/lang=hu/);
+check('languages: switching the language empties the box, drops q from the address and shows the examples of that language',
+    !page.url().includes('q=') && (await page.inputValue('input[type=search]')) === '' && /Try, in Hungarian/.test(await page.locator('main').innerText()) && (await page.locator('#contrast').count()) === 0, page.url());
+await go(page, `${BASE}/languages?lang=hu&q=zene`);
+check('languages: ?lang=xx&q=... typed or linked directly still searches', (await page.inputValue('input[type=search]')) === 'zene' && (await page.locator('#contrast').count()) === 1);
+
+// 0.9.10: emptying the box takes q out of the address on every page with a search box (a reload shows the empty page, other parameters stay)
+await go(page, BASE + '/');
+await page.click('input[type=search]');
+await page.keyboard.type('mouse', { delay: 40 });
+await page.waitForFunction(() => location.search.includes('q=mouse'));
+await page.click('.search-field .clear');
+await page.waitForFunction(() => !location.search.includes('q='));
+await go(page, page.url());
+check('home: clearing the box removes q from the address, a reload shows the empty page', !page.url().includes('q=') && (await page.inputValue('input[type=search]')) === '' && (await page.locator('#results .hit-row').count()) === 0, page.url());
+await go(page, BASE + '/?q=mouse&cat=Computers');
+await page.fill('input[type=search]', '');
+await page.waitForFunction(() => !location.search.includes('q='));
+check('home: and the filters stay in the address', page.url().includes('cat=Computers'), page.url());
+for (const [path, keep] of [['/relevance?q=mouse', null], ['/languages?lang=fr&q=chevaux', 'lang=fr'], ['/under-the-hood/synonyms?q=tv', null], ['/under-the-hood/security?as=anonymous&q=salary', 'as=anonymous']]) {
+    await go(page, BASE + path);
+    await page.fill('input[type=search]', '');
+    await page.waitForFunction(() => !new URLSearchParams(location.search).has('q'));
+    await page.waitForLoadState('load');
+    check(`${path.split('?')[0]}: clearing the box removes q from the address${keep ? ' and keeps ' + keep : ''}`, !page.url().includes('q=') && (keep === null || page.url().includes(keep)) && (await page.inputValue('input[type=search]')) === '', page.url());
+}
+// observability always measures something: without q it is the default example, so the box refills but the address has no q
+await go(page, `${BASE}/under-the-hood/observability?q=mouse`);
+await page.fill('input[type=search]', '');
+await page.waitForFunction(() => !location.search.includes('q='));
+check('observability: clearing the box removes q from the address (the page falls back to its default example)', !page.url().includes('q='), page.url());
+await go(page, `${BASE}/tune?query=mouse`);
+await page.fill('input[type=search]', '');
+await page.waitForFunction(() => new URLSearchParams(location.search).get('query') === '');
+await go(page, page.url());
+check('tune: clearing the box empties the address parameter too, and a reload keeps the empty search', (await page.inputValue('input[type=search]')) === '' && !page.url().includes('mouse'), page.url());
+
+// 0.9.10: the footer sits at the bottom of the window on a short page and below the content on a tall one (never fixed or sticky)
+const footerBox = () => page.evaluate(() => {
+    const f = document.querySelector('footer.site-footer');
+    const r = f.getBoundingClientRect();
+    return { bottom: r.bottom + scrollY, top: r.top + scrollY, vh: innerHeight, doc: document.documentElement.scrollHeight, mainBottom: document.querySelector('main').getBoundingClientRect().bottom + scrollY, position: getComputedStyle(f).position };
+});
+for (const path of ['/', '/nope']) {
+    await go(page, BASE + path);
+    const box = await footerBox();
+    check(`footer: ${path === '/' ? 'the empty home page' : 'the error page'} ends with the footer exactly at the bottom of the window`, Math.abs(box.bottom - box.vh) < 1 && box.doc <= box.vh && box.position === 'static', JSON.stringify(box));
+}
+await go(page, BASE + '/?q=mouse');
+await page.waitForSelector('#results .hit-row');
+const tall = await footerBox();
+check('footer: a tall results page has it below the content, at the end of the document', tall.doc > tall.vh && Math.abs(tall.bottom - tall.doc) < 1 && tall.top >= tall.mainBottom - 1 && tall.position === 'static', JSON.stringify(tall));
+const foot = await page.locator('footer.site-footer').evaluate((f) => ({ text: f.innerText, links: [...f.querySelectorAll('a')].map((a) => [a.innerText.trim(), a.href]), role: f.parentElement.tagName }));
+check('footer: a landmark child of <body> with the Fuzzphony version (a release number, not dev-main)', foot.role === 'BODY' && /^Fuzzphony\s+\d+\.\d+\.\d+/.test(foot.text.trim()) && !/dev-/.test(foot.text), foot.text);
+check('footer: links to the documentation, GitHub, the changelog and the licence', ['Documentation', 'GitHub', 'Changelog', 'MIT licence'].every((n) => foot.links.some(([t, h]) => t === n && h.startsWith('https://github.com/er2es/fuzzphony'))), JSON.stringify(foot.links));
+{
+    const phone = await browser.newContext({ viewport: { width: 390, height: 844 }, reducedMotion: 'reduce' });
+    const pp = await phone.newPage();
+    await go(pp, BASE + '/');
+    const m = await pp.evaluate(() => ({ bottom: document.querySelector('footer.site-footer').getBoundingClientRect().bottom, vh: innerHeight, tab: document.querySelector('.nav').getBoundingClientRect().top, foot: document.querySelector('.footer-links').getBoundingClientRect().bottom }));
+    check('footer: on a phone it still ends at the bottom of the window, and its links are above the tab bar', Math.abs(m.bottom - m.vh) < 1 && m.foot <= m.tab, JSON.stringify(m));
+    // the brand and the links are centred on the page at every width
+    for (const width of [1280, 900, 700, 390]) {
+        await pp.setViewportSize({ width, height: 844 });
+        const c = await pp.evaluate(() => {
+            const wm = document.querySelector('.wordmark').getBoundingClientRect();
+            const nav = document.querySelector('.nav').getBoundingClientRect();
+            return { navCentre: (nav.left + nav.right) / 2, wmCentre: (wm.left + wm.right) / 2, vw: document.documentElement.clientWidth, over: document.documentElement.scrollWidth - document.documentElement.clientWidth, wmRight: wm.right, navLeft: nav.left, stacked: nav.top > wm.bottom - 1 };
+        });
+        const fixedNav = width <= 640; // a tab bar at the bottom: centred too, the brand centred above
+        check(`menu: centred on the page at ${width} px, no overflow`, Math.abs(c.navCentre - c.vw / 2) < 2 && c.over <= 0 && (width >= 768 ? c.wmRight <= c.navLeft : Math.abs(c.wmCentre - c.vw / 2) < 2), JSON.stringify(c) + String(fixedNav));
+    }
+    await phone.close();
+}
+
+// 0.9.10: the Relevance page says why each row was found; the Flat 0.3 column's brand-only rows name the brand and the similarity, and the brand is marked
+await go(page, `${BASE}/relevance?q=tv`);
+const flatColumn = page.locator('.two-up > div').nth(1);
+const flatRows = await flatColumn.locator('.hit-row').evaluateAll((rows) => rows.map((r) => ({ why: r.querySelector('.row-why')?.innerText ?? '', marked: [...r.querySelectorAll('.row-sub mark')].map((m) => m.textContent), only: r.querySelector('.flag')?.textContent ?? '' })));
+check('relevance: every row has a Why text, as real text', flatRows.length > 0 && (await page.locator('.two-up .hit-row').evaluateAll((rows) => rows.every((r) => /^Why:\s+\S/.test(r.querySelector('.row-why')?.innerText ?? '')))), JSON.stringify(flatRows.slice(0, 2)));
+check('relevance: the "only here" rows of Flat 0.3 say they matched in the brand by typo tolerance (tefal ~ tv, a similarity and one shared trigram) and the brand is marked',
+    flatRows.some((r) => r.only === 'only here' && /brand by typo tolerance: “tefal” ~ “tv”, similarity 0\.33 \(they share one trigram\)/i.test(r.why) && r.marked.join() === 'Tefal'), JSON.stringify(flatRows.filter((r) => r.only).slice(0, 1)));
+check('relevance: a row found by the word says so, and a synonym row says synonym', /Matched in name \(“tv”\): the word itself/.test(await page.locator('.two-up .row-why').first().innerText()) && /synonym/.test(await page.locator('.two-up').innerText()));
+check('relevance: the caption explains the flat threshold', /single shared trigram/.test(await page.locator('#typos').locator('xpath=..').innerText()));
+
+// 0.9.10: the colour scheme switch (System / Light / Dark): the choice lasts, is applied before the first paint, and System follows the device
+{
+    const lightBg = 'rgb(245, 245, 247)';
+    const darkBg = 'rgb(0, 0, 0)';
+    const bg = (pg) => pg.evaluate(() => getComputedStyle(document.body).backgroundColor);
+    const sw = await browser.newContext({ viewport: { width: 1280, height: 800 }, colorScheme: 'light', reducedMotion: 'reduce' });
+    const tp = await sw.newPage();
+    tp.setDefaultTimeout(8000);
+    await go(tp, BASE + '/relevance');
+    check('theme: a group with three buttons named System, Light and Dark, System pressed first', JSON.stringify(await tp.locator('.theme-switch').evaluate((g) => [g.getAttribute('role'), g.getAttribute('aria-label'), ...[...g.querySelectorAll('button')].map((b) => `${b.getAttribute('aria-label')}:${b.getAttribute('aria-pressed')}`)])) === JSON.stringify(['group', 'Colour scheme', 'System:true', 'Light:false', 'Dark:false']));
+    check('theme: System follows the device (light here)', (await bg(tp)) === lightBg && (await tp.evaluate(() => document.documentElement.dataset.theme)) === undefined);
+    await tp.emulateMedia({ colorScheme: 'dark' });
+    check('theme: and when the device changes to dark', (await bg(tp)) === darkBg);
+    await tp.emulateMedia({ colorScheme: 'light' });
+    await tp.locator('.theme-switch button[aria-label=Dark]').click();
+    check('theme: Dark wins over a light device, is pressed and stored', (await bg(tp)) === darkBg && (await tp.locator('.theme-switch button[aria-label=Dark]').getAttribute('aria-pressed')) === 'true' && (await tp.evaluate(() => localStorage.getItem('fuzzphony-theme'))) === 'dark');
+    await tp.addInitScript(() => document.addEventListener('DOMContentLoaded', () => { window.__themeAtDcl = document.documentElement.dataset.theme; }));
+    await go(tp, BASE + '/');
+    check('theme: a reload keeps it, and the attribute is there before the document has loaded (no flash)', (await bg(tp)) === darkBg && (await tp.evaluate(() => window.__themeAtDcl)) === 'dark' && (await tp.locator('.theme-switch button[aria-label=Dark]').getAttribute('aria-pressed')) === 'true');
+    await tp.locator('.theme-switch button[aria-label=Light]').focus();
+    await tp.keyboard.press('Enter');
+    check('theme: the buttons work with the keyboard (Light)', (await bg(tp)) === lightBg && (await tp.evaluate(() => localStorage.getItem('fuzzphony-theme'))) === 'light');
+    check('theme: a focused button has a visible focus ring', await tp.locator('.theme-switch button[aria-label=Light]').evaluate((b) => { const s = getComputedStyle(b); return s.outlineStyle !== 'none' && parseFloat(s.outlineWidth) >= 2; }));
+    await tp.locator('.theme-switch button[aria-label=System]').click();
+    check('theme: System forgets the choice and follows the device again', (await tp.evaluate(() => localStorage.getItem('fuzzphony-theme'))) === null && (await tp.evaluate(() => document.documentElement.dataset.theme)) === undefined && (await bg(tp)) === lightBg);
+    await tp.evaluate(() => Storage.prototype.getItem = () => { throw new Error('blocked'); });
+    await tp.locator('.theme-switch button[aria-label=Dark]').click();
+    check('theme: storage that throws does not break the switch (it holds for this page view)', (await bg(tp)) === darkBg);
+    await sw.close();
+    const ph = await browser.newContext({ viewport: { width: 390, height: 844 }, colorScheme: 'light', reducedMotion: 'reduce' });
+    const pq = await ph.newPage();
+    await go(pq, BASE + '/');
+    const btn = pq.locator('.theme-switch button[aria-label=Dark]');
+    const box = await btn.boundingBox();
+    check('theme: on a phone the switch is in the bar, inside the window, with targets of 24 px at least', box !== null && box.x >= 0 && box.x + box.width <= 390 && box.width >= 24 && box.height >= 24, JSON.stringify(box));
+    await btn.click();
+    check('theme: and works there', (await bg(pq)) === darkBg);
+    await ph.close();
+}
+
+// the info tooltips of the Tune controls: a button for every control, a custom tooltip that opens on hover, focus and tap, closes on Escape, stays inside a phone
+{
+    const errors = [];
+    const tipCtx = await browser.newContext({ viewport: { width: 1280, height: 800 }, reducedMotion: 'reduce' });
+    const tp = await tipCtx.newPage();
+    tp.on('pageerror', (e) => errors.push(e.message));
+    tp.on('console', (m) => m.type() === 'error' && !m.text().includes('Cross-Origin-Opener-Policy') && errors.push(m.text()));
+    await go(tp, `${BASE}/tune?query=mouse`);
+    await tp.waitForSelector('.hit-row');
+    const btn = (name) => tp.locator(`.tip-btn[aria-label="What does ${name} do?"]`);
+    const shown = () => tp.locator('.tip-bubble:not([hidden])');
+
+    const controls = await tp.evaluate(() => [...document.querySelectorAll('.settings .slider, .settings .setting, .settings .profile-chips')].map((c) => ({
+        hasButton: c.querySelector('button.tip-btn') !== null,
+        described: (() => { const b = c.querySelector('button.tip-btn'); const t = b && document.getElementById(b.getAttribute('aria-describedby') ?? ''); return t?.getAttribute('role') === 'tooltip' && t.textContent.trim().length > 20; })(),
+        named: /^What does .+ do\?$/.test(c.querySelector('button.tip-btn')?.getAttribute('aria-label') ?? ''),
+    })));
+    check('tune tooltips: every control (16) has an info button that names its setting and points at a tooltip', controls.length === 16 && controls.every((c) => c.hasButton && c.described && c.named), JSON.stringify(controls.filter((c) => !(c.hasButton && c.described && c.named))));
+    check('tune tooltips: the buttons are real <button type=button> of 24 px at least, closed at first', await tp.evaluate(() => [...document.querySelectorAll('.tip-btn')].every((b) => { const r = b.getBoundingClientRect(); return b.type === 'button' && r.width >= 24 && r.height >= 24 && b.getAttribute('aria-expanded') === 'false'; })));
+    check('tune tooltips: the icon is an inline sprite drawing, not an icon font', (await tp.locator('.tip-btn svg use[href="#i-info"]').count()) === 16);
+
+    // keyboard: focus opens, Enter keeps it and a second Enter closes, Space opens, Escape closes and the focus stays on the button
+    await btn('Exact title bonus').focus();
+    check('tune tooltips: focus opens the tooltip with its meaning and example', (await shown().count()) === 1 && (await btn('Exact title bonus').getAttribute('aria-expanded')) === 'true' && /whole title equals the query/.test(await shown().innerText()) && /TV Wall Bracket 1003/.test(await shown().innerText()));
+    await tp.keyboard.press('Enter');
+    check('tune tooltips: Enter keeps it open', (await shown().count()) === 1);
+    await tp.keyboard.press('Enter');
+    check('tune tooltips: and a second Enter closes it', (await shown().count()) === 0 && (await btn('Exact title bonus').getAttribute('aria-expanded')) === 'false');
+    await tp.keyboard.press('Space');
+    check('tune tooltips: Space opens it', (await shown().count()) === 1);
+    await tp.keyboard.press('Escape');
+    check('tune tooltips: Escape closes it and the focus stays on the button', (await shown().count()) === 0 && (await tp.evaluate(() => document.activeElement?.getAttribute('aria-label'))) === 'What does Exact title bonus do?' && (await btn('Exact title bonus').getAttribute('aria-expanded')) === 'false');
+    await btn('Exact title bonus').blur();
+
+    // pointer: hover opens, only one at a time, leaving closes (unless the button has the focus), a press outside closes
+    await btn('Prefix bonus').hover();
+    check('tune tooltips: hover opens the tooltip', (await shown().count()) === 1 && /starts with what you typed/.test(await shown().innerText()));
+    await btn('Recency half-life (days)').focus();
+    check('tune tooltips: only one is open at a time', (await shown().count()) === 1 && /halved/.test(await shown().innerText()));
+    await tp.mouse.move(700, 400);
+    await tp.waitForTimeout(300);
+    check('tune tooltips: the pointer leaving does not close the one the keyboard focus is on', (await shown().count()) === 1);
+    await tp.mouse.click(700, 300);
+    check('tune tooltips: a press outside closes it', (await shown().count()) === 0);
+    await btn('Min relevance').click();
+    await tp.mouse.move(700, 400);
+    await tp.waitForTimeout(300);
+    check('tune tooltips: a click keeps it open until the next click', (await shown().count()) === 1);
+    await btn('Min relevance').click();
+    check('tune tooltips: and the next click closes it', (await shown().count()) === 0);
+
+    // a re-render of the Live Component (a slider moves) leaves an open tooltip whole; Escape still closes it; no error
+    const valueOf = (name) => tp.evaluate((l) => [...document.querySelectorAll('.slider')].find((s) => s.innerText.trim().startsWith(l))?.querySelector('input').value, name);
+    await btn('Fuzzy weight').click();
+    const requests = [];
+    tp.on('request', (r) => r.url().includes('/_components/') && requests.push(r.url()));
+    await tp.evaluate(() => { const s = document.querySelector('#in-text'); s.value = '1.55'; s.dispatchEvent(new Event('input', { bubbles: true })); });
+    await tp.waitForTimeout(1800);
+    check('tune tooltips: a slider that moves re-renders the page and the value is kept', requests.length > 0 && (await valueOf('Full-text weight')) === '1.55', requests.length + ' requests');
+    check('tune tooltips: the open tooltip is still whole afterwards', (await shown().count()) === 1 && (await btn('Fuzzy weight').getAttribute('aria-expanded')) === 'true');
+    await tp.keyboard.press('Escape');
+    check('tune tooltips: Escape still closes it after the re-render', (await shown().count()) === 0);
+    // dragging the handle with the mouse: the press closes an open tooltip, nothing stays stuck
+    await btn('Candidate limit').click();
+    await tp.locator('#in-boost').scrollIntoViewIfNeeded();
+    const handle = await tp.locator('#in-boost').boundingBox();
+    await tp.mouse.move(handle.x + 10, handle.y + handle.height / 2);
+    await tp.mouse.down();
+    await tp.mouse.move(handle.x + handle.width / 2, handle.y + handle.height / 2, { steps: 5 });
+    await tp.mouse.up();
+    await tp.waitForTimeout(1800);
+    check('tune tooltips: dragging a slider closes the tooltip, the readout follows and the page has no error', (await shown().count()) === 0 && parseFloat(await valueOf('Popularity boost')) > 0 && errors.length === 0, errors.join(' | '));
+    await btn('Candidate limit').focus();
+    check('tune tooltips: the buttons still work after the slider re-rendered the page', (await shown().count()) === 1);
+    await tipCtx.close();
+
+    // readable in both schemes: the text of the bubble against its background, 4.5:1 at least
+    const contrast = (rgbs) => {
+        const lum = (c) => {
+            const [r, g, b] = c.match(/[\d.]+/g).slice(0, 3).map(Number).map((v) => { v /= 255; return v <= 0.03928 ? v / 12.92 : ((v + 0.055) / 1.055) ** 2.4; });
+            return 0.2126 * r + 0.7152 * g + 0.0722 * b;
+        };
+        const [a, b] = rgbs.map(lum);
+        return (Math.max(a, b) + 0.05) / (Math.min(a, b) + 0.05);
+    };
+    for (const scheme of ['light', 'dark']) {
+        const c = await browser.newContext({ viewport: { width: 1280, height: 800 }, colorScheme: scheme, reducedMotion: 'reduce' });
+        const sp = await c.newPage();
+        await go(sp, `${BASE}/tune?query=mouse`);
+        await sp.locator('.tip-btn').first().focus();
+        const colours = await sp.locator('.tip-bubble:not([hidden])').evaluate((e) => [getComputedStyle(e).color, getComputedStyle(e).backgroundColor]);
+        const ratio = contrast(colours);
+        check(`tune tooltips: the text is readable in the ${scheme} scheme (${ratio.toFixed(1)}:1)`, ratio >= 4.5, colours.join(' on '));
+        await c.close();
+    }
+
+    // a phone: every tooltip opens by tap inside the window, nothing scrolls sideways, and opening one moves nothing
+    const phoneCtx = await browser.newContext({ viewport: { width: 390, height: 844 }, reducedMotion: 'reduce', hasTouch: true, isMobile: true });
+    const pp = await phoneCtx.newPage();
+    await go(pp, `${BASE}/tune?query=mouse`);
+    await pp.waitForSelector('.hit-row');
+    const inside = [];
+    let moved = false;
+    for (let i = 0; i < 16; i++) {
+        const b = pp.locator('.tip-btn').nth(i);
+        await b.scrollIntoViewIfNeeded();
+        const top = await pp.evaluate(() => document.querySelector('.panels').getBoundingClientRect().top + scrollY);
+        await b.tap();
+        const r = await pp.locator('.tip-bubble:not([hidden])').evaluate((e) => { const x = e.getBoundingClientRect(); return { l: x.left, t: x.top, r: x.right, b: x.bottom, w: innerWidth, h: innerHeight, sw: document.documentElement.scrollWidth }; });
+        inside.push(r.l >= 0 && r.t >= 0 && r.r <= r.w && r.b <= r.h && r.sw <= r.w);
+        moved ||= (await pp.evaluate(() => document.querySelector('.panels').getBoundingClientRect().top + scrollY)) !== top;
+        await pp.touchscreen.tap(5, 5); // a press outside
+    }
+    check('tune tooltips: on a 390 px phone each of the 16 tooltips opens by tap inside the window, without sideways scrolling', inside.length === 16 && inside.every(Boolean), inside.join(','));
+    check('tune tooltips: opening one shifts nothing in the layout', !moved);
+    await phoneCtx.close();
+}
+
 await secContext.close();
 
 await browser.close();

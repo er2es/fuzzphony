@@ -65,4 +65,49 @@ final readonly class Catalog
 
         return array_column($rows, null, 'id');
     }
+
+    /**
+     * For the typo-found rows of the Relevance page: which word of which field comes closest to each word of the query, by the same
+     * measure typo tolerance uses (pg_trgm word_similarity) and how many trigrams the two share. Reads only the given rows; the words
+     * are bound parameters (one placeholder each), nothing of them reaches the SQL text.
+     *
+     * @param list<int|string> $ids
+     * @param list<string>     $words lower-case words of the query
+     *
+     * @return array<int|string, array{field: string, word: string, token: string, similarity: float, shared: int}> the best pairing of each row
+     */
+    public function closestWords(array $ids, array $words): array
+    {
+        $words = array_slice(array_values(array_unique($words)), 0, 6);
+        if ($ids === [] || $words === []) {
+            return [];
+        }
+        $values = [];
+        $params = ['ids' => array_map('intval', $ids)];
+        foreach ($words as $i => $word) {
+            $values[] = '(:w' . $i . ')';
+            $params['w' . $i] = $word;
+        }
+        $rows = $this->connection->fetchAllAssociative(
+            'SELECT p.id, f.field, w.word, fw.token, word_similarity(w.word, fw.token) AS similarity,
+                    cardinality(ARRAY(SELECT unnest(show_trgm(w.word)) INTERSECT SELECT unnest(show_trgm(fw.token)))) AS shared
+             FROM ' . self::TABLE . ' p JOIN bench_brand b ON b.id = p.brand_id
+             CROSS JOIN LATERAL (VALUES (\'name\', p.name), (\'brand\', b.name)) f(field, txt)
+             CROSS JOIN LATERAL regexp_split_to_table(lower(f.txt), \'\\W+\') fw(token)
+             CROSS JOIN (VALUES ' . implode(', ', $values) . ') w(word)
+             WHERE p.id IN (:ids) AND fw.token <> \'\'',
+            $params,
+            ['ids' => ArrayParameterType::INTEGER],
+        );
+        $best = [];
+        foreach ($rows as $row) {
+            $row['similarity'] = (float) $row['similarity'];
+            $row['shared'] = (int) $row['shared'];
+            if (!isset($best[$row['id']]) || $row['similarity'] > $best[$row['id']]['similarity']) {
+                $best[$row['id']] = $row;
+            }
+        }
+
+        return array_map(static fn(array $r): array => ['field' => $r['field'], 'word' => $r['word'], 'token' => $r['token'], 'similarity' => $r['similarity'], 'shared' => $r['shared']], $best);
+    }
 }

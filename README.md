@@ -33,7 +33,7 @@ foreach ($result as $hit) {
 }
 ```
 
-Status: v0.9 (pre-1.0). The API may still change before 1.0. Breaking changes are listed in the
+Status: v0.9.10 (pre-1.0). The API may still change before 1.0; 0.10.0 gathers the remaining breaking changes. Breaking changes are listed in the
 [CHANGELOG](https://github.com/er2es/fuzzphony/blob/main/CHANGELOG.md) and explained in
 [UPGRADE.md](https://github.com/er2es/fuzzphony/blob/main/UPGRADE.md).
 
@@ -255,16 +255,18 @@ Details in [docs/limitations.md](https://github.com/er2es/fuzzphony/blob/main/do
 
 ## Roadmap
 
-Current: v0.9 (identity, search log and analytics, rate limit and authorization). Milestones build in
-order, each one a foundation for the next, up to v1.0's stable API and backward-compatibility
-promise. PostgreSQL only before 1.0:
+Current: v0.9.10 (a demo-only patch on the 0.9.9 review-fix round after identity, search log and analytics, rate limit and
+authorization). Breaking changes are gathered in one release so 1.0 can promise stability. PostgreSQL only before 1.0:
 
-- v1.0 Stable: a reviewed public API (a smaller stable surface, the rest `@internal`), the
-  backward-compatibility promise, a mutation-score gate in CI (the full run scores 96% today). The documentation (an index, the
+- v0.10.0: a sturdier engine (`schema --apply` mandatory, a failing document no longer blocks its index, `code` fields for
+  invoice numbers and SKUs), a smaller and safer API (about 60 public types, no forgotten-actor leak), and the additive
+  API a custom frontend needs. Then a release candidate.
+- v0.11.0: several sources, additive: several indexes per entity, multi-source indexes, a combined search with normalised scores.
+- v1.0.0: the stable API and the backward-compatibility promise. The documentation (an index, the
   "Migrating from `LIKE`" guide and three recipes, with a link check in CI) is in place since 0.9.6.
 
-After 1.0: a Laravel Scout driver, and record linkage (matching people and companies across
-records, with explainable match scores). Details in
+After 1.0, in separate projects: a real-world example application (Open Food Facts), and record linkage (matching people and
+companies across records, with explainable match scores); a Laravel Scout driver is also planned. Details in
 [docs/roadmap.md](https://github.com/er2es/fuzzphony/blob/main/docs/roadmap.md).
 
 ## Contributing and license

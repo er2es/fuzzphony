@@ -69,6 +69,7 @@ FROM base AS php
 COPY --from=build /app/src /app/src
 COPY --from=build /app/demo /app/demo
 COPY --from=build --chown=app:app /app/demo/var /app/demo/var
+COPY CHANGELOG.md /app/CHANGELOG.md
 COPY benchmarks/seed.sql /app/benchmarks/seed.sql
 COPY demo/docker/php/fpm.ini /usr/local/etc/php/fpm.d/20-preload.ini
 COPY --chmod=0755 demo/docker/init.sh /usr/local/bin/demo-init
