@@ -20,9 +20,37 @@
         </label>
     </form>
 
+    {# The sample: a complete configuration of the demo catalogue (src/Service/SampleConfig.php), the wizard's output for it, and the same values in Tune. #}
+    <div class="callout sample-offer" role="group" aria-labelledby="sample-title">
+        <div class="callout-body">
+            <strong id="sample-title">{{ sample ? 'The sample configuration is loaded' : 'Or start from a sample' }}</strong>
+            <span class="muted">A complete definition of the demo catalogue: a joined source, weighted fields with typo tolerance, filters, watches, a language, popularity and recency, two ranking profiles and thresholds, with a note on synonyms.</span>
+        </div>
+        {% if sample %}
+            <a class="button primary" href="{{ path('tune', {start: 'sample'}) }}" data-loading-message="Opening Tune…">Tune it</a>
+        {% else %}
+            <a class="button primary" href="{{ path('wizard', {sample: 1}) }}" data-loading-message="Loading the sample…">Load the sample configuration</a>
+        {% endif %}
+    </div>
+
     {% if error %}<p class="callout is-bad" role="alert">{{ error }}</p>{% endif %}
 
-    {% if suggestion %}
+    {% if sample %}
+        <section aria-labelledby="decisions">
+            <h2 id="decisions" class="list-title">What the sample sets, and why</h2>
+            <ul class="list">
+                {% for part, note in sample %}
+                    <li class="row no-lead">
+                        <div class="row-body">
+                            <div class="row-title"><code>{{ part }}</code></div>
+                            <div class="row-sub">{{ note[1] }}</div>
+                        </div>
+                        <span class="flag">{{ note[0] }}</span>
+                    </li>
+                {% endfor %}
+            </ul>
+        </section>
+    {% elseif suggestion %}
         <section aria-labelledby="decisions">
             <h2 id="decisions" class="list-title">What the wizard decided, and why</h2>
             <ul class="list">
@@ -38,25 +66,29 @@
             </ul>
         </section>
         {% for note in suggestion.notes %}<p class="callout is-warn">{{ note }}</p>{% endfor %}
+    {% endif %}
 
-        {% if exports %}
-            <section aria-labelledby="code" class="stack">
-                <h2 id="code" class="list-title">The definition</h2>
-                <details class="disclosure" open>
-                    <summary>config/packages/fuzzphony.yaml<svg class="icon" aria-hidden="true"><use href="#i-chevron"/></svg></summary>
-                    <pre tabindex="0">{{ exports.yaml }}</pre>
-                </details>
-                <details class="disclosure">
-                    <summary>Builder (plain PHP)<svg class="icon" aria-hidden="true"><use href="#i-chevron"/></svg></summary>
-                    <pre tabindex="0">{{ exports.builder }}</pre>
-                </details>
-                <details class="disclosure">
-                    <summary>Attributes<svg class="icon" aria-hidden="true"><use href="#i-chevron"/></svg></summary>
-                    <pre tabindex="0">{{ exports.attributes }}</pre>
-                </details>
+    {% if exports %}
+        <section aria-labelledby="code" class="stack">
+            <h2 id="code" class="list-title">The definition</h2>
+            <details class="disclosure" open>
+                <summary>config/packages/fuzzphony.yaml<svg class="icon" aria-hidden="true"><use href="#i-chevron"/></svg></summary>
+                <pre tabindex="0">{{ exports.yaml }}</pre>
+            </details>
+            <details class="disclosure">
+                <summary>Builder (plain PHP)<svg class="icon" aria-hidden="true"><use href="#i-chevron"/></svg></summary>
+                <pre tabindex="0">{{ exports.builder }}</pre>
+            </details>
+            <details class="disclosure">
+                <summary>Attributes<svg class="icon" aria-hidden="true"><use href="#i-chevron"/></svg></summary>
+                <pre tabindex="0">{{ exports.attributes }}</pre>
+            </details>
+            {% if sample %}
+                <p class="muted">Loaded through the library's own loader, so it is validated like any configuration. The Tune page starts from its default profile and thresholds with <em>Start from: sample</em>.</p>
+            {% else %}
                 <p class="muted">Same in the terminal: <code>bin/console fuzzphony:wizard {{ table }} --try</code></p>
-            </section>
-        {% endif %}
+            {% endif %}
+        </section>
     {% endif %}
 </div>
 {% endblock %}

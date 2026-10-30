@@ -472,6 +472,7 @@
     @media (max-width: 64rem) { .layout { grid-template-columns: 1fr; } }
     .settings { display: grid; gap: 1.5rem; }
     .profile-chips { align-items: center; margin: 0 0 .5rem 1rem; }
+    .example-chips { align-items: center; }
     .settings .list { overflow: visible; }
     .settings .slider { display: block; margin: 0; padding: .75rem 1rem; font-size: .9375rem; }
     .settings .slider + .slider, .settings .setting + .slider, .settings .slider + .setting, .settings .setting + .setting { border-top: .5px solid var(--hairline); }

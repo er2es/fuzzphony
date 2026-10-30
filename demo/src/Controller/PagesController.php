@@ -7,6 +7,8 @@ namespace App\Controller;
 use App\Service\Catalog;
 use App\Service\Examples;
 use App\Service\Measure;
+use App\Service\SampleConfig;
+use Fuzzphony\Core\Definition\IndexDefinition;
 use Fuzzphony\Core\Exception\FuzzphonyException;
 use Fuzzphony\Core\Fuzzphony;
 use Fuzzphony\Core\Inspection\InspectOptions;
@@ -30,13 +32,14 @@ final class PagesController extends AbstractController
     private const array LANGUAGES = ['english', 'german', 'french', 'spanish', 'italian', 'hungarian', 'dutch', 'simple'];
 
     #[Route('/tune', name: 'tune')]
-    public function tune(): Response
+    public function tune(Request $request): Response
     {
-        return $this->render('playground.html.twig');
+        // ?start=sample: the sliders start from the Config wizard's sample configuration (the link on that page)
+        return $this->render('playground.html.twig', ['start' => $request->query->getString('start') === 'sample' ? 'sample' : '']);
     }
 
     #[Route('/under-the-hood/wizard', name: 'wizard')]
-    public function wizard(Request $request, SourceIntrospector $introspector): Response
+    public function wizard(Request $request, SourceIntrospector $introspector, SampleConfig $sample): Response
     {
         $tables = $introspector->tables();
         $table = (string) $request->query->get('table', $tables[0]['table'] ?? '');
@@ -50,19 +53,20 @@ final class PagesController extends AbstractController
         }
         $suggestion = $exports = null;
         $error = null;
+        // ?sample=1: the sample configuration (src/Service/SampleConfig.php) instead of a table's suggestion
+        $isSample = $request->query->getBoolean('sample');
 
-        if ($table !== '') {
+        if ($isSample) {
+            try {
+                $exports = $this->exports($sample->definition());
+            } catch (FuzzphonyException $e) {
+                $error = $e->getMessage();
+            }
+        } elseif ($table !== '') {
             try {
                 $suggestion = (new DefinitionSuggester())->suggest($introspector->describe($table), null, $language);
                 if ($suggestion->definition !== null) {
-                    $attributes = new AttributeExporter();
-                    $exports = [
-                        'yaml' => (new YamlExporter())->export($suggestion->definition),
-                        'builder' => (new BuilderExporter())->export($suggestion->definition),
-                        'attributes' => $attributes->supports($suggestion->definition)
-                            ? $attributes->export($suggestion->definition)
-                            : '// Joined sources cannot be expressed with attributes; use the YAML or builder version.',
-                    ];
+                    $exports = $this->exports($suggestion->definition);
                 }
             } catch (FuzzphonyException $e) {
                 $error = $e->getMessage();
@@ -77,7 +81,22 @@ final class PagesController extends AbstractController
             'suggestion' => $suggestion,
             'exports' => $exports,
             'error' => $error,
+            'sample' => $isSample ? SampleConfig::NOTES : null,
         ]);
+    }
+
+    /** @return array{yaml: string, builder: string, attributes: string} */
+    private function exports(IndexDefinition $definition): array
+    {
+        $attributes = new AttributeExporter();
+
+        return [
+            'yaml' => (new YamlExporter())->export($definition),
+            'builder' => (new BuilderExporter())->export($definition),
+            'attributes' => $attributes->supports($definition)
+                ? $attributes->export($definition)
+                : '// Attributes cannot express this definition (a joined source, extra watches, ranking profiles or thresholds); use the YAML or builder version.',
+        ];
     }
 
     /** The page shell is instant; every row is measured by its own request (see sequence_controller.js). */

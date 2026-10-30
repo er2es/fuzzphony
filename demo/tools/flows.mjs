@@ -293,6 +293,56 @@ await page.click('.facets .chip >> text=out of stock');
 await page.waitForSelector('.facets .chip[aria-pressed=true]');
 check('the out of stock chip is a button that narrows the search', (await page.locator('.facets .chip[aria-pressed=true]').innerText()).startsWith('out of stock') && before > 0);
 
+// Tune starts with a query that every group of settings reacts to (twelve projectors, sql/demo_additions.sql), and the example chips put the other ones in
+await go(page, BASE + '/tune');
+await page.waitForSelector('.panel-results .hit-row');
+const moveSlider = async (id, value) => {
+    const answered = page.waitForResponse((r) => r.url().includes('_components'), { timeout: 20000 });
+    await page.evaluate(([i, v]) => { const el = document.getElementById('in-' + i); el.value = v; el.dispatchEvent(new Event('input', { bubbles: true })); }, [id, value]);
+    await answered;
+    await page.waitForTimeout(500);
+};
+const tuneTitles = async () => (await page.locator('.panel-results .row-title').allInnerTexts()).slice(0, 8).map((t) => t.trim());
+const tuneHits = async () => (await page.locator('.summary .stat-caption').innerText()).replace(/\s+/g, ' ').trim();
+const projectors = await tuneTitles();
+check('tune: starts with `projector`, twelve hits, the plain "Projector" first', (await page.inputValue('input[type=search]')) === 'projector' && /^12 hits/.test(await tuneHits()) && projectors[0] === 'Projector', projectors[0]);
+check('tune: three example chips (title bonuses, typos, a common word)', (await page.locator('.example-chips .chip').allInnerTexts()).map((t) => t.split('\n')[0].trim()).join() === 'projector,hedphones,mouse');
+await moveSlider('boost', 0.2);
+const boosted = await tuneTitles();
+check('tune: the popularity boost reorders the projectors (the most popular one is first)', boosted.join() !== projectors.join() && boosted[0] === 'Laser 4K Home Cinema Projector', boosted.join(' | '));
+await moveSlider('boost', 0);
+await moveSlider('exactBonus', 0);
+check('tune: without the exact title bonus the plain "Projector" falls behind the titles that start with it', (await tuneTitles()).indexOf('Projector') === 4);
+await moveSlider('exactBonus', 0.5);
+await page.click('.example-chips .chip >> text=hedphones');
+await page.waitForFunction(() => document.querySelector('input[type=search]').value === 'hedphones');
+await page.waitForFunction(() => /typo tolerant/.test(document.querySelector('.summary .stat-caption')?.innerText ?? ''), null, { timeout: 20000 });
+check('tune: the typos chip searches `hedphones` and finds the headphones', /2,000\+ hits/.test(await tuneHits()) && (await tuneTitles())[0].includes('headphones'));
+await moveSlider('fuzzy', 0);
+check('tune: Fuzzy weight 0 leaves the typo search without a hit', /^0 hits/.test(await tuneHits()));
+await go(page, BASE + '/tune?query=mouse');
+await page.waitForSelector('.panel-results .hit-row');
+await moveSlider('candidateLimit', 100);
+check('tune: the candidate limit shows in the total ("100+")', /^100\+ hits/.test(await tuneHits()), await tuneHits());
+
+/// the wizard's sample configuration: one button loads a complete definition (validated by the library's loader), shown as YAML, builder and attributes, and Tune starts from it
+await go(page, BASE + '/under-the-hood/wizard');
+check('wizard: a "Load the sample configuration" button is offered', (await page.getByRole('link', { name: 'Load the sample configuration' }).count()) === 1);
+await page.getByRole('link', { name: 'Load the sample configuration' }).click();
+await page.waitForSelector('#code');
+const sampleYaml = await page.locator('#code ~ details pre').first().innerText();
+check('wizard sample: the YAML has the fields, filters, profiles and thresholds', /fields:/.test(sampleYaml) && /fuzzy: true/.test(sampleYaml) && /filters:/.test(sampleYaml) && /exact_bonus: 0\.8/.test(sampleYaml) && /popular:/.test(sampleYaml) && /candidate_limit: 3000/.test(sampleYaml), sampleYaml.slice(0, 120));
+check('wizard sample: the page says what each part does and has no error', (await page.locator('#decisions ~ ul .row').count()) >= 10 && (await page.locator('.callout.is-bad').count()) === 0);
+check('wizard sample: builder and attributes are there too (attributes explain why they cannot express it)', /RankingProfile/.test(await page.locator('details pre').nth(1).textContent()) && /cannot express/.test(await page.locator('details pre').nth(2).textContent()));
+await page.getByRole('link', { name: 'Tune it' }).click();
+await page.waitForSelector('.panel-results .hit-row');
+check('tune: Tune it starts the sliders from the sample (profile and thresholds)', (await sliderValue('Exact title bonus')) === '0.8' && (await sliderValue('Fuzzy weight')) === '0.4' && (await sliderValue('Min relevance')) === '0.02' && (await sliderValue('Candidate limit')) === '3000' && (await sliderValue('Fallback below')) === '8');
+await go(page, BASE + '/tune');
+await page.click('.profile-chips .chip >> text=sample');
+await page.waitForFunction(() => [...document.querySelectorAll('.slider')].find((s) => s.innerText.trim().startsWith('Recency half-life'))?.querySelector('input').value === '45', null, { timeout: 15000 });
+check('tune: the "sample" chip fills the sliders too', (await sliderValue('Popularity boost')) === '0.02' && (await sliderValue('Recency')) === '0.15');
+
+
 // a failing live search keeps the old results and says so in one quiet line, which goes away with the next answer
 await go(page, BASE + '/?q=mouse');
 await page.route('**/*', (route) => (route.request().headers()['x-requested-with'] === 'fetch' && !route.request().headers()['x-settled'] ? route.fulfill({ status: 500, body: 'boom' }) : route.continue()));
@@ -816,7 +866,7 @@ check('relevance: the caption explains the flat threshold', /single shared trigr
 
     // keyboard: focus opens, Enter keeps it and a second Enter closes, Space opens, Escape closes and the focus stays on the button
     await btn('Exact title bonus').focus();
-    check('tune tooltips: focus opens the tooltip with its meaning and example', (await shown().count()) === 1 && (await btn('Exact title bonus').getAttribute('aria-expanded')) === 'true' && /whole title equals the query/.test(await shown().innerText()) && /TV Wall Bracket 1003/.test(await shown().innerText()));
+    check('tune tooltips: focus opens the tooltip with its meaning and example', (await shown().count()) === 1 && (await btn('Exact title bonus').getAttribute('aria-expanded')) === 'true' && /whole title equals the query/.test(await shown().innerText()) && /Projector Screen 100 inch/.test(await shown().innerText()));
     await tp.keyboard.press('Enter');
     check('tune tooltips: Enter keeps it open', (await shown().count()) === 1);
     await tp.keyboard.press('Enter');

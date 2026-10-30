@@ -5,10 +5,13 @@ declare(strict_types=1);
 namespace App\Twig\Components;
 
 use App\Service\Catalog;
+use App\Service\Examples;
 use App\Service\Facets;
+use App\Service\SampleConfig;
 use Fuzzphony\Core\Exception\FuzzphonyException;
 use Fuzzphony\Core\Fuzzphony;
 use Fuzzphony\Core\Ranking\FuzzyMode;
+use Fuzzphony\Core\Ranking\RankingProfile;
 use Fuzzphony\Core\Search\Explanation;
 use Fuzzphony\Core\Search\SearchBuilder;
 use Fuzzphony\Core\Search\SearchResult;
@@ -35,7 +38,7 @@ final class Playground
 {
     use DefaultActionTrait;
 
-    #[LiveProp(writable: true, url: true)] public string $query = 'wireles mouse';
+    #[LiveProp(writable: true, url: true)] public string $query = Examples::TUNE_START;
     #[LiveProp(writable: true)] public bool $analyze = false;
     #[LiveProp(writable: true)] public bool $inStockOnly = false;
     /** The other value of the stock facet; "in stock only" wins when both are set (the checkbox next to the sliders). */
@@ -86,9 +89,16 @@ final class Playground
         private readonly Fuzzphony $fuzzphony,
         private readonly Catalog $catalog,
         private readonly Facets $facets,
+        private readonly SampleConfig $sample,
         #[Autowire('%env(bool:DEMO_ALLOW_ANALYZE)%')] private readonly bool $analyzeAllowed = false,
         #[Autowire('%env(bool:DEMO_ALLOW_EXACT)%')] private readonly bool $exactAllowed = false,
     ) {}
+
+    /** @return array<string, string> label => query, for the chips under the search field */
+    public function getExamples(): array
+    {
+        return Examples::TUNE;
+    }
 
     public function isAnalyzeAllowed(): bool
     {
@@ -100,6 +110,16 @@ final class Playground
         return $this->exactAllowed;
     }
 
+    /** An example chip puts its query into the field; only the queries of Examples::TUNE are taken, the sliders stay where they are. */
+    #[LiveAction]
+    public function tryQuery(#[LiveArg] string $text): void
+    {
+        if (in_array($text, Examples::TUNE, true)) {
+            $this->query = $text;
+            $this->category = '';
+        }
+    }
+
     /** The category chosen again lifts the choice. */
     #[LiveAction]
     public function pickCategory(#[LiveArg] string $name): void
@@ -107,17 +127,43 @@ final class Playground
         $this->category = $this->category === $name ? '' : mb_substr($name, 0, 40);
     }
 
+    /** Opened from the Config wizard's sample configuration (/tune?start=sample): the sliders start from it. */
+    public function mount(string $start = ''): void
+    {
+        if ($start === 'sample') {
+            $this->startFrom('sample');
+        }
+    }
+
     /**
      * The ranking sliders take the values of a profile of the catalogue index (`default`, or `popular` in config/packages/fuzzphony.yaml):
-     * the profile is read from the index definition, so the page and the configuration cannot drift apart.
+     * the profile is read from the index definition, so the page and the configuration cannot drift apart. `sample` is the Config wizard's
+     * sample configuration (App\Service\SampleConfig): its default profile and its thresholds.
      */
     #[LiveAction]
     public function startFrom(#[LiveArg] string $name): void
     {
+        if ($name === 'sample') {
+            $definition = $this->sample->definition();
+            $this->applyProfile($definition->profile('default'));
+            $thresholds = $definition->thresholds;
+            $this->minScore = $thresholds->minScore;
+            $this->similarityByLength = $thresholds->fuzzySimilarity === null;
+            $this->similarity = $thresholds->fuzzySimilarity ?? $this->similarity;
+            $this->fuzzyMode = $thresholds->fuzzyMode->value;
+            $this->fallbackBelow = $thresholds->fallbackBelow;
+            $this->candidateLimit = $thresholds->candidateLimit;
+
+            return;
+        }
         if (!in_array($name, ['default', 'popular'], true)) {
             return;
         }
-        $profile = $this->fuzzphony->registry()->get('catalog')->profile($name);
+        $this->applyProfile($this->fuzzphony->registry()->get('catalog')->profile($name));
+    }
+
+    private function applyProfile(RankingProfile $profile): void
+    {
         $this->text = $profile->text;
         $this->fuzzy = $profile->fuzzy;
         $this->exactBonus = $profile->exactBonus;
