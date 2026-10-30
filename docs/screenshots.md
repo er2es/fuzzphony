@@ -55,4 +55,12 @@ Every weight and threshold of the ranking as a control. Move a slider and the re
 where the score comes from: full text, fuzzy, bonuses) and the SQL update at once. The info icon next to each label opens a
 tooltip with what the setting does and an example from the catalogue.
 
+The page starts with `projector`: twelve products that differ in title match, popularity, age, price and stock, so every slider visibly reorders or shrinks the list. The chips under the field add a typo and a common word.
+
 ![Tune: the ranking weights and thresholds as sliders next to the results with their score breakdown](image/tune.png)
+
+## Config wizard
+
+"Load the sample configuration" shows one complete definition of the catalogue (a joined source, weighted fields, filters, watches, profiles, thresholds) as YAML, builder and attributes, with a note on every part; Tune starts from its values.
+
+![Config wizard: the sample configuration with a note per part and the YAML definition](image/wizard-sample.png)

@@ -11,6 +11,17 @@ and a link. Measurements, proofs and test names belong to the pull request, [doc
 
 ## [Unreleased]
 
+## [0.9.12] - 2026-10-30
+
+Demo-only release: no change to the library.
+
+### Changed
+
+- **Demo: Tune starts with `projector`**, twelve products that differ in title match, popularity, age, price and stock, so every ranking slider visibly reorders
+  or shrinks the list; example chips add `hedphones` (typos) and `mouse` (the candidate limit in the total), and the tooltips use the same examples.
+- **Demo: the Config wizard has a sample configuration** ("Load the sample configuration"): a complete definition of the catalogue as YAML, builder and
+  attributes, with a note per part; Tune starts from its profile and thresholds ("Start from: sample").
+
 ## [0.9.11] - 2026-10-29
 
 Patch release: a ranking fix for searches made as you type.
@@ -1058,7 +1069,8 @@ on its own:
 - Sync modes: queue (default), trigger, ORM, manual; watches for joined tables.
 - Doctor with fixes; CLI commands for schema, reindex, worker, search and explain.
 
-[Unreleased]: https://github.com/er2es/fuzzphony/compare/v0.9.11...HEAD
+[Unreleased]: https://github.com/er2es/fuzzphony/compare/v0.9.12...HEAD
+[0.9.12]: https://github.com/er2es/fuzzphony/compare/v0.9.11...v0.9.12
 [0.9.11]: https://github.com/er2es/fuzzphony/compare/v0.9.10...v0.9.11
 [0.9.10]: https://github.com/er2es/fuzzphony/compare/v0.9.9...v0.9.10
 [0.9.9]: https://github.com/er2es/fuzzphony/compare/v0.9.8...v0.9.9

@@ -25,7 +25,7 @@ final class SettingHelp
         ],
         'fuzzy' => [
             'How much a word that matches approximately counts: its similarity to the query word (0 to 1) times this weight. Used only when typo tolerance runs.',
-            '`hedphones` finds "Wireless headphones 6300" with a similarity of 0.62: 0.31 at the default 0.5. At 0 no typo match counts and the search finds nothing.',
+            '`hedphones` finds the headphones with a similarity of 0.62: 0.31 at the default 0.5. At 0 no typo match counts and the search finds nothing.',
         ],
         'exactBonus' => [
             'Added when the whole title equals the query, ignoring case and accents.',
