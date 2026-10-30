@@ -26,6 +26,16 @@ final class Examples
         'Word forms' => self::WORD_FORM,
     ];
 
+    /** The query the Tune page starts with: twelve projectors that differ in everything a setting looks at (sql/demo_additions.sql). */
+    public const string TUNE_START = 'projector';
+
+    /** The chips of the Tune page: label => query. Each one shows a group of settings (see SettingHelp). */
+    public const array TUNE = [
+        'title bonuses, popularity, recency' => self::TUNE_START,
+        'typos' => self::TYPO,
+        'a common word' => 'mouse',
+    ];
+
     /** The Observability page's tokens and the first seven queries of the Benchmark: label => query. */
     public const array CATALOGUE = [
         'accent' => self::ACCENT,

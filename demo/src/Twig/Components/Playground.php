@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace App\Twig\Components;
 
 use App\Service\Catalog;
+use App\Service\Examples;
 use App\Service\Facets;
 use Fuzzphony\Core\Exception\FuzzphonyException;
 use Fuzzphony\Core\Fuzzphony;
@@ -35,7 +36,7 @@ final class Playground
 {
     use DefaultActionTrait;
 
-    #[LiveProp(writable: true, url: true)] public string $query = 'wireles mouse';
+    #[LiveProp(writable: true, url: true)] public string $query = Examples::TUNE_START;
     #[LiveProp(writable: true)] public bool $analyze = false;
     #[LiveProp(writable: true)] public bool $inStockOnly = false;
     /** The other value of the stock facet; "in stock only" wins when both are set (the checkbox next to the sliders). */
@@ -90,6 +91,12 @@ final class Playground
         #[Autowire('%env(bool:DEMO_ALLOW_EXACT)%')] private readonly bool $exactAllowed = false,
     ) {}
 
+    /** @return array<string, string> label => query, for the chips under the search field */
+    public function getExamples(): array
+    {
+        return Examples::TUNE;
+    }
+
     public function isAnalyzeAllowed(): bool
     {
         return $this->analyzeAllowed;
@@ -98,6 +105,16 @@ final class Playground
     public function isExactAllowed(): bool
     {
         return $this->exactAllowed;
+    }
+
+    /** An example chip puts its query into the field; only the queries of Examples::TUNE are taken, the sliders stay where they are. */
+    #[LiveAction]
+    public function tryQuery(#[LiveArg] string $text): void
+    {
+        if (in_array($text, Examples::TUNE, true)) {
+            $this->query = $text;
+            $this->category = '';
+        }
     }
 
     /** The category chosen again lifts the choice. */

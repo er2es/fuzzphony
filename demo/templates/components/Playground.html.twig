@@ -79,6 +79,12 @@
             <span class="field-spinner" aria-hidden="true"></span>
         </div>
         <div class="suggest-panel" data-suggest-target="panel" data-live-ignore hidden></div>
+        <div class="chips example-chips" role="group" aria-label="Example queries">
+            <span class="muted">Try</span>
+            {% for label, text in this.examples %}
+                <button type="button" class="chip" aria-pressed="{{ text == query ? 'true' : 'false' }}" data-action="live#action" data-live-action-param="tryQuery" data-live-text-param="{{ text }}"><code>{{ text }}</code> <small>{{ label }}</small></button>
+            {% endfor %}
+        </div>
 
         <div class="pane-bar">
             {# Results / SQL is pure client state: the radios are never re-rendered (data-live-ignore) and the panels below are

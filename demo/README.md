@@ -87,7 +87,7 @@ Symfony: Twig + Stimulus via AssetMapper (no Node build), Live Components, DBAL.
 | **Search** (`/`) | One search field over the catalogue: results while you type, a typo or a half-typed word found, a calm bar when a typo is rescued (*Showing results for mouse* for `mpuse`), and a **Speed** view next to a plain `ILIKE`. |
 | **Relevance** (`/relevance`) | Why a search finds what was meant: typo tolerance by word length, synonyms, "did you mean". |
 | **Languages** (`/languages`) | One small catalogue in five languages, with the stem PostgreSQL made of every word and ILIKE's count next to Fuzzphony's. |
-| **Tune** (`/tune`) | Every ranking weight and threshold as a control, with a score breakdown per hit and the SQL. An info icon next to each label opens a tooltip: what the setting does and an example. |
+| **Tune** (`/tune`) | Every ranking weight and threshold as a control, with a score breakdown per hit and the SQL. An info icon next to each label opens a tooltip: what the setting does and an example. It starts with `projector`, twelve products (added by `sql/demo_additions.sql`) that differ in title match, popularity, age, price and stock, so every ranking slider visibly reorders or shrinks the list; the chips under the field add `hedphones` (the typo settings) and `mouse` (the candidate limit shows in the total). |
 | **Under the hood** (`/under-the-hood/...`) | The **Config wizard**, **Benchmark**, **Doctor**, **Observability**, the **Synonyms** editor, **Analytics** (what was searched, and who searched what) and **Security** (below). |
 
 The mechanics sit next to the code that does them: the search page's two steps and its logging in

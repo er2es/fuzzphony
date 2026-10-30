@@ -21,35 +21,35 @@ final class SettingHelp
         ],
         'text' => [
             'How much the full-text match counts: its rank (0 to 1, a match in the name counts fully, one in the description a tenth) times this weight.',
-            'At 2 a product named "Wireless mouse 1000" scores twice the text part it scores at 1.',
+            '`projector`: at 2 the "Portable HD Projector" scores a text part of 1.05, at 1 of 0.52. With a popularity boost of 0.1, the description-only "HDMI Cable 3 m" is in the top eight at 0.2 and out of it at 2.',
         ],
         'fuzzy' => [
             'How much a word that matches approximately counts: its similarity to the query word (0 to 1) times this weight. Used only when typo tolerance runs.',
-            '`hedphones` finds "Wireless headphones 1020" through it: the similarity of that match times this weight.',
+            '`hedphones` finds "Wireless headphones 6300" with a similarity of 0.62: 0.31 at the default 0.5. At 0 no typo match counts and the search finds nothing.',
         ],
         'exactBonus' => [
             'Added when the whole title equals the query, ignoring case and accents.',
-            '`tv wall bracket 1003` gives "TV Wall Bracket 1003" the bonus; `tv` gives it to no product, because every title is longer.',
+            '`projector` gives the product named "Projector" the bonus and puts it first; at 0 it drops to fifth. "Projector Screen 100 inch" is longer than the query and never gets it.',
         ],
         'prefixBonus' => [
             'Added when the title starts with what you typed but is longer than it.',
-            '`tv wall` gives "TV Wall Bracket 1003" the bonus because the title starts with it; `bracket` does not, that word is not at the start.',
+            '`projector` gives it to "Projector Screen 100 inch", not to "Portable HD Projector": that word is not at the start. At 1 the four titles that start with it rise above the plain "Projector".',
         ],
         'boost' => [
             'Adds this weight times the product\'s popularity, so popular products rise. It reorders hits, it never adds one.',
-            'At 0.05 the "Smart Television 55 inch 1001" (popularity 8.5) gains 0.43, the "TV Wall Bracket 1003" (6.2) gains 0.31.',
+            '`projector` at 0.2: the "Laser 4K Home Cinema Projector" (popularity 9.6) gains 1.92 and goes from eighth to first place.',
         ],
         'recency' => [
             'Adds up to this much for a newly published product; the bonus halves every half-life.',
-            'At 0.3 a product published today gains 0.3; with a half-life of 30 days, one from last month gains 0.15.',
+            '`projector` at 1: the "Mini Pocket Projector 1016", the newest of the twelve, gains almost the whole 1 and goes from seventh to first place.',
         ],
         'halfLife' => [
             'After this many days a product\'s recency bonus has halved. It does nothing while Recency is 0.',
-            '30 days: a product from last month counts half as much as one from today.',
+            '`projector` with Recency 0.5: at 1 day only the newest projectors keep a bonus; at 365 days every one of them does, and the plain "Projector" climbs from 1.02 to 1.31.',
         ],
         'minScore' => [
             'The relevance (text and fuzzy part, without bonuses and boosts) a hit needs to be listed.',
-            '`hedphones` finds the headphones with a relevance of about 0.31: at 0.5 the search finds nothing.',
+            '`projector` has 12 hits; the three that only mention a projector in their description have a relevance of 0.09, so at 0.1 the list ends at 9. `hedphones` has 0.31: at 0.32 the search finds nothing.',
         ],
         'similarityByLength' => [
             'On: every word needs the similarity its own length requires, so longer words may have more typos (one from 4 letters, two from 8). Off: the Fuzzy similarity slider sets one value for all words.',
@@ -57,7 +57,7 @@ final class SettingHelp
         ],
         'similarity' => [
             'The trigram similarity each word needs to count as a typo of a product word. Lower tolerates more; used only when Similarity by word length is off.',
-            'At 1 a word must match exactly; at 0.3 `hedphones` still reaches "Wireless headphones 1020".',
+            '`hedphones` is 0.62 similar to "headphones": at 0.3 it still finds the headphones, at 0.7 nothing.',
         ],
         'fuzzyMode' => [
             '`fallback`: typo tolerance runs only when exact matching finds fewer hits than "Fallback below". `always`: every search. `never`: never.',
@@ -65,23 +65,23 @@ final class SettingHelp
         ],
         'fallbackBelow' => [
             'In fallback mode: fewer exact hits than this switches typo tolerance on.',
-            'At 5, a search with 3 exact hits also looks for typos; at 1, only a search with no hit does.',
+            '`projector` has 12 exact hits: at 12 the list stays at 12, at 13 typo tolerance also lists words like "Professional", and the total reads 2,012+.',
         ],
         'candidateLimit' => [
             'How many candidates each branch ranks (at most 10 000). A word with more matches is cut to the best of them and the total reads as a lower bound. Higher is more exact and slower.',
-            'On the 500 000-product catalogue `mouse` has more matches than the default 2 000, so the total reads "2 000+".',
+            '`mouse` has more matches than the default 2 000, so the total reads "2,000+"; at 100 it reads "100+", at 10 000 "10,000+".',
         ],
         'inStockOnly' => [
             'Keeps only the products that are in stock.',
-            '`mouse` then lists only the mice that are in stock.',
+            '`projector` then loses the "Projector Lamp 240 W", the one projector that is out of stock: 11 hits.',
         ],
         'maxPrice' => [
             'Keeps only the products that cost this much or less, in Ft. 0 means any price.',
-            '`headphones` with 20 000 hides every pair above 20 000 Ft.',
+            '`projector` with 20 000 keeps 6 of the 12: the ceiling mount, the lamp, the carry case and the three cheap accessories.',
         ],
         'exactCounts' => [
             'Counts every match for the total and the facets, not only the candidates. Exact, but slower on a common word.',
-            '`mouse` then reads its true total instead of "2 000+".',
+            '`mouse` then reads its true total instead of "2,000+".',
         ],
     ];
 
