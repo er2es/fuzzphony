@@ -17,7 +17,7 @@ final class SettingHelp
     private const array HELP = [
         'startFrom' => [
             'Fills the ranking sliders with the values of a ranking profile of the catalogue index in config/packages/fuzzphony.yaml.',
-            '`popular` sets popularity boost 0.03, recency 0.3 and half-life 60 days.',
+            '`popular` sets popularity boost 0.03, recency 0.3 and half-life 60 days. `sample` takes the profile and the thresholds of the sample configuration on the Config wizard page.',
         ],
         'text' => [
             'How much the full-text match counts: its rank (0 to 1, a match in the name counts fully, one in the description a tenth) times this weight.',

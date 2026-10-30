@@ -325,6 +325,24 @@ await page.waitForSelector('.panel-results .hit-row');
 await moveSlider('candidateLimit', 100);
 check('tune: the candidate limit shows in the total ("100+")', /^100\+ hits/.test(await tuneHits()), await tuneHits());
 
+/// the wizard's sample configuration: one button loads a complete definition (validated by the library's loader), shown as YAML, builder and attributes, and Tune starts from it
+await go(page, BASE + '/under-the-hood/wizard');
+check('wizard: a "Load the sample configuration" button is offered', (await page.getByRole('link', { name: 'Load the sample configuration' }).count()) === 1);
+await page.getByRole('link', { name: 'Load the sample configuration' }).click();
+await page.waitForSelector('#code');
+const sampleYaml = await page.locator('#code ~ details pre').first().innerText();
+check('wizard sample: the YAML has the fields, filters, profiles and thresholds', /fields:/.test(sampleYaml) && /fuzzy: true/.test(sampleYaml) && /filters:/.test(sampleYaml) && /exact_bonus: 0\.8/.test(sampleYaml) && /popular:/.test(sampleYaml) && /candidate_limit: 3000/.test(sampleYaml), sampleYaml.slice(0, 120));
+check('wizard sample: the page says what each part does and has no error', (await page.locator('#decisions ~ ul .row').count()) >= 10 && (await page.locator('.callout.is-bad').count()) === 0);
+check('wizard sample: builder and attributes are there too (attributes explain why they cannot express it)', /RankingProfile/.test(await page.locator('details pre').nth(1).textContent()) && /cannot express/.test(await page.locator('details pre').nth(2).textContent()));
+await page.getByRole('link', { name: 'Tune it' }).click();
+await page.waitForSelector('.panel-results .hit-row');
+check('tune: Tune it starts the sliders from the sample (profile and thresholds)', (await sliderValue('Exact title bonus')) === '0.8' && (await sliderValue('Fuzzy weight')) === '0.4' && (await sliderValue('Min relevance')) === '0.02' && (await sliderValue('Candidate limit')) === '3000' && (await sliderValue('Fallback below')) === '8');
+await go(page, BASE + '/tune');
+await page.click('.profile-chips .chip >> text=sample');
+await page.waitForFunction(() => [...document.querySelectorAll('.slider')].find((s) => s.innerText.trim().startsWith('Recency half-life'))?.querySelector('input').value === '45', null, { timeout: 15000 });
+check('tune: the "sample" chip fills the sliders too', (await sliderValue('Popularity boost')) === '0.02' && (await sliderValue('Recency')) === '0.15');
+
+
 // a failing live search keeps the old results and says so in one quiet line, which goes away with the next answer
 await go(page, BASE + '/?q=mouse');
 await page.route('**/*', (route) => (route.request().headers()['x-requested-with'] === 'fetch' && !route.request().headers()['x-settled'] ? route.fulfill({ status: 500, body: 'boom' }) : route.continue()));
