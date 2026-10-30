@@ -4,8 +4,9 @@ declare(strict_types=1);
 
 namespace App\Service;
 
-use Fuzzphony\Core\Definition\ArrayDefinitionLoader;
 use Fuzzphony\Core\Definition\IndexDefinition;
+use Fuzzphony\Core\Ranking\RankingProfile;
+use Fuzzphony\Core\Ranking\Thresholds;
 
 /**
  * The sample configuration of the Config wizard page ("Load the sample configuration"), in one place: a complete, realistic definition of the
@@ -13,7 +14,7 @@ use Fuzzphony\Core\Definition\IndexDefinition;
  * a popularity boost and a recency column, two ranking profiles, thresholds; the synonyms are only explained, see NOTES). The wizard shows it as YAML, builder and attributes
  * (the attribute export has no place for profiles and thresholds and says so); the Tune page can start from its default profile and thresholds.
  *
- * It is loaded through the library's own loader, so it is validated like any configuration: definition() throws an InvalidDefinition for a
+ * It is built with the library's public builder, so it is validated like any definition: definition() throws an InvalidDefinition for a
  * mistake in CONFIG. It is NOT the index the demo searches (config/packages/fuzzphony.yaml): the numbers differ on purpose, so that loading
  * it changes something in Tune.
  */
@@ -74,9 +75,26 @@ final class SampleConfig
         'synonyms' => ['not in the file', 'The demo keeps its lists (tv, television, telly; mouse, mice) in a database table that the Synonyms page edits and hands to Fuzzphony at run time; a configuration can also list them inline or name a file.'],
     ];
 
-    /** Loads CONFIG through the library's loader (shape and definition are validated). */
+    /** Builds CONFIG with the library's public builder (build() validates the definition and reports every problem). */
     public function definition(): IndexDefinition
     {
-        return (new ArrayDefinitionLoader())->load(self::NAME, self::CONFIG);
+        $c = self::CONFIG;
+        $builder = IndexDefinition::builder(self::NAME)->fromQuery($c['source']['query']);
+        foreach ($c['fields'] as $name => $field) {
+            $field = \is_array($field) ? $field : ['weight' => $field];
+            $builder->field($name, $field['weight'], fuzzy: $field['fuzzy'] ?? false);
+        }
+        foreach ($c['filters'] as $name => $type) {
+            $builder->filter($name, $type);
+        }
+        foreach ($c['watch'] as $table => $affectedIds) {
+            $builder->watch($table, $affectedIds);
+        }
+        $builder->language($c['language'])->boostBy($c['boost'])->recencyBy($c['recency']);
+        foreach ($c['profiles'] as $name => $profile) {
+            $builder->profile($name, RankingProfile::fromArray($profile));
+        }
+
+        return $builder->thresholds((new Thresholds())->with($c['thresholds']))->build();
     }
 }
