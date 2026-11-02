@@ -40,8 +40,6 @@ final class PostgresInspector
         /** Whether the engine keeps a search log: only then is its table checked. */
         private readonly bool $searchLog = false,
         private readonly int $searchLogRetentionDays = 90,
-        /** Whether the log is to keep the client IP (search_log.ip is not off): the table then needs its actor_ip column. */
-        private readonly bool $searchLogIp = false,
     ) {
         $this->names = $schema->names();
     }
@@ -121,8 +119,8 @@ final class PostgresInspector
                 sprintf('GRANT SELECT ON %s TO %s;', $table, Sql::ident($role)),
             );
         }
-        if ($this->searchLogIp && !$this->hasColumn($table, 'actor_ip')) {
-            return Check::error('Search log', sprintf('search_log.ip is on, but table %s has no actor_ip column: the addresses are dropped (the rows are kept). After applying the schema restart long-running workers (they look the column up once per process).', $table), self::APPLY);
+        if (!$this->hasColumn($table, 'actor_ip')) {
+            return Check::error('Search log', sprintf('Table %s has no actor_ip column: the schema is not up to date (missing: actor_ip), and writing or reading the log fails.', $table), self::APPLY);
         }
         $stale = $this->connection->fetchValue(
             sprintf('SELECT EXISTS (SELECT 1 FROM %s WHERE at < now() - make_interval(days => :days))', $table),
@@ -467,20 +465,10 @@ final class PostgresInspector
         $extra = array_diff($actual, $expected);
 
         $checks = [];
-        // the capped flag is optional: without it phrases and field-scoped words work, a little slower on a multi-field index
-        $flagMissing = in_array(PostgresSchemaGenerator::CAPPED_COLUMN, $missing, true);
-        $missing = array_diff($missing, [PostgresSchemaGenerator::CAPPED_COLUMN]);
         $checks[] = $missing === []
-            ? Check::ok('Sidecar columns', sprintf('%d column(s) match the definition', count($expected) - ($flagMissing ? 1 : 0)))
-            : Check::error('Sidecar columns', sprintf('Schema drift, missing: %s.', implode(', ', $missing)), self::APPLY);
-        if ($flagMissing) {
-            $checks[] = Check::warning(
-                'Sidecar columns',
-                sprintf('Column %s is missing: phrases and field-scoped words are looked up the slower way on an index with several fields. Apply the schema, then reindex (the column is filled by the reindex) and restart long-running workers (they look the column up once per process).', PostgresSchemaGenerator::CAPPED_COLUMN),
-                self::APPLY,
-            );
-        }
-        if (!$flagMissing && count($index->fields) > 1) {
+            ? Check::ok('Sidecar columns', sprintf('%d column(s) match the definition', count($expected)))
+            : Check::error('Sidecar columns', sprintf('The sidecar of "%s" is not up to date (missing: %s): searches and refreshes fail until the schema is applied.', $index->name, implode(', ', $missing)), self::APPLY);
+        if (!in_array(PostgresSchemaGenerator::CAPPED_COLUMN, $missing, true) && count($index->fields) > 1) {
             array_push($checks, ...$this->unfilledCappedFlags($index));
         }
         if ($extra !== []) {

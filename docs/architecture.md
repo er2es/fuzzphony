@@ -31,7 +31,7 @@ live table and swaps it in ([ADR 0008](adr/0008-shadow-rebuild-with-a-change-log
 and typo-tolerant statements, relaxation, exact total, did-you-mean, rescue, hits), `Search\FacetRunner` counts the facets by one
 path (one statement per group of facets that count under the same conditions), `SearchSession` owns the connection's
 `pg_trgm` settings and the search transaction, `TextConfigCache` the process caches (stop words, synonym stems, the
-`tsv_capped` probe), `VocabularyService` the vocabulary and did-you-mean, `IndexMaintenance` refresh, queue and rebuild records.
+open-class gate), `VocabularyService` the vocabulary and did-you-mean, `IndexMaintenance` refresh, queue and rebuild records.
 A `Statement` carries its `StatementKind` (explain() and the metrics read the kind, never the label) and declares whether it
 reads `pg_trgm.word_similarity_threshold`; the SQL builders (`Sql\SearchSqlBuilder`) say so from the operator they emit.
 
@@ -80,7 +80,7 @@ everything else in `src/` is marked `@internal` and may change in any release.
   `Fuzzphony\Core\Exception\InvalidDefinition`, `Fuzzphony\Core\Exception\InvalidQuery`,
   `Fuzzphony\Core\Exception\ActorRequired`, `Fuzzphony\Core\Exception\AccessDenied`,
   `Fuzzphony\Core\Exception\RateLimited`, `Fuzzphony\Core\Exception\SearchRefused` (implemented by the three refusals),
-  `Fuzzphony\Core\Exception\RebuildAlreadyRunning`,
+  `Fuzzphony\Core\Exception\RebuildAlreadyRunning`, `Fuzzphony\Core\Exception\SchemaNotApplied`,
   `Fuzzphony\Core\Exception\UnknownIndex`
 - Engine SPI (for custom engines): `Fuzzphony\Core\Engine\Engine`, `Fuzzphony\Core\Engine\Capabilities`,
   `Fuzzphony\Core\Engine\Capability`, `Fuzzphony\Core\Engine\Vocabulary`, `Fuzzphony\Core\Engine\SynonymStems`, `Fuzzphony\Core\Engine\Suggestions` and `Fuzzphony\Core\Engine\SearchLogStore` and `Fuzzphony\Core\Engine\RecentSearchStore` (all optional); the PostgreSQL engine: `Fuzzphony\Engine\Postgres\PostgresEngine`

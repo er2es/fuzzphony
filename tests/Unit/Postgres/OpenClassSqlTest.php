@@ -141,7 +141,7 @@ final class OpenClassSqlTest extends TestCase
     {
         $builder = self::builder(['name', 'category'], static fn(): bool => true);
         $probe = $builder->probe([new Term('mouse'), new Term('cable')], true, [], new Thresholds())['sql'];
-        $probes = (new FuzzyQueryCompiler(self::index(), new Thresholds(), new Names(), [], ['name', 'category'], false, null, static fn(): bool => true))->probes(self::parse('mouse'), 100);
+        $probes = (new FuzzyQueryCompiler(self::index(), new Thresholds(), new Names(), [], ['name', 'category'], false, static fn(): bool => true))->probes(self::parse('mouse'), 100);
 
         self::assertStringContainsString(self::OPEN_VECTOR . ' @@ q.ft0', $probe);
         self::assertStringContainsString('OPERATOR("public".<%) ' . self::OPEN_TRIGRAM, $probe);

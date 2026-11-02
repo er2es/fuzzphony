@@ -299,14 +299,13 @@ What still does not work, because the data is not in the index in a usable form:
 
 A phrase or scoped word is looked up by the words alone and then read from `tsv`, and, only for a document whose `tsv` was
 capped, from the vectors of the later fields: the sidecar column `tsv_capped` (filled by `fuzzphony:reindex`, added by
-`fuzzphony:schema --apply`) says which. Without the column, or for a document written before it (NULL, "not known"), the
-later fields are read for every candidate that `tsv` does not match as a phrase: the same results, slower on an index with many
-fields (see [UPGRADE](../UPGRADE.md#from-097-to-098)). The flag is true when a position reached 16 383, and also when a lexeme
+`fuzzphony:schema --apply`) says which. The column is required: a search or refresh without it fails with one `SchemaNotApplied`
+exception ("missing: tsv_capped"; the doctor reports it too), and applying the schema is the whole remedy. For a document written
+before the column (NULL, "not known") the later fields are read for every candidate that `tsv` does not match as a phrase: the same
+results, slower on an index with many fields until `fuzzphony:reindex` fills it. The flag is true when a position reached 16 383, and also when a lexeme
 has 256 or more positions (PostgreSQL keeps at most 256 per lexeme and drops the later field's positions of one that has them:
 without this sign a phrase after a field that repeats one of its words would be lost). The doctor warns while the flag is NULL;
-after a downgrade to a release without the column and back, reindex (an old refresh function does not touch the flag); the engine
-looks the column up once per process, so restart long-running workers after adding or dropping it
-(`fuzzphony:schema --apply` says so when it added the column to an existing table).
+after a downgrade to a release without the column and back, reindex (an old refresh function does not touch the flag).
 
 What to do: do not index the whole of a very long text. Put an excerpt (the first few thousand words, a summary) in the
 searched field, or list the long field last (nothing follows it). The limits above hold for a restricted viewer too

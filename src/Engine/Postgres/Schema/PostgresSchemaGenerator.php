@@ -36,8 +36,9 @@ final class PostgresSchemaGenerator
      * field. `tsv` is the fields' vectors joined with `||`, and the join loses information in two ways: positions are capped at
      * 16 383 (after a field of more than about 16 000 words every later word sits at one position, and only the highest weight of
      * the lexemes there is kept), and a lexeme keeps at most 256 positions (the later vector's positions of a lexeme that has them
-     * already are dropped, with no position anywhere near 16 383). It is optional: a searcher that does not find it, and a document
-     * with NULL in it (written before the column, or by an older refresh function: reindex fills it), take the slow way.
+     * already are dropped, with no position anywhere near 16 383). schema --apply adds it (a search or
+     * refresh without it fails with SchemaNotApplied); a document with NULL in it (written before the column, or by an older
+     * refresh function: reindex fills it) takes the slow way.
      */
     public const string CAPPED_COLUMN = 'tsv_capped';
 

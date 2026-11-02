@@ -11,6 +11,12 @@ and a link. Measurements, proofs and test names belong to the pull request, [doc
 
 ## [Unreleased]
 
+### Breaking
+
+- **`fuzzphony:schema --apply` is mandatory after an upgrade.** A missing `tsv_capped` or `actor_ip` column makes the first search, refresh
+  or log write fail with one `SchemaNotApplied` exception; the no-column fallbacks and their per-process lookups are gone
+  (`search_log.ip_dropped` too). See [UPGRADE](UPGRADE.md#from-0913-to-0100).
+
 ## [0.9.13] - 2026-11-02
 
 Demo-only release: no change to the library behaviour (documentation of the bundle defaults only).

@@ -10,13 +10,13 @@ use Fuzzphony\Core\Analytics\SearchAnalytics;
 use Fuzzphony\Core\Analytics\SearchRecord;
 use Fuzzphony\Core\Database\Connection;
 use Fuzzphony\Core\Exception\EngineFailure;
+use Fuzzphony\Core\Exception\SchemaNotApplied;
 use Fuzzphony\Core\Registry\IndexRegistry;
 use Fuzzphony\Engine\Postgres\PostgresEngine;
 use Fuzzphony\Tests\Fixtures\Indexes;
-use Fuzzphony\Tests\Unit\Core\Observability\RecordingMetricsCollector;
 use PHPUnit\Framework\TestCase;
 
-/** The optional client IP column of the search log: written only when a record has one, read only when the table has it. */
+/** The client IP column of the search log: the schema adds it (an install without it fails with SchemaNotApplied). */
 final class SearchLogIpTest extends TestCase
 {
     private Connection $connection;
@@ -57,7 +57,7 @@ final class SearchLogIpTest extends TestCase
     {
         $engine = new PostgresEngine($this->connection, searchLog: true);
         $this->dropIpColumn();
-        $engine->writeSearchLog([$this->record('before the upgrade', user: 'ada')]);
+        $this->connection->execute("INSERT INTO fuzzphony_search_log (at, index_name, actor_user, query, query_norm, hits, took_ms, used_fuzzy, status) VALUES (now(), 'products', 'ada', 'before the upgrade', 'before the upgrade', 1, 1.5, false, 'ok')");
         self::assertFalse($this->hasColumn());
 
         $engine->globalSchema()->apply($this->connection);
@@ -107,7 +107,7 @@ final class SearchLogIpTest extends TestCase
         self::assertSame(['v6' => '2001:db8:abcd::', 'without ip' => null, 'with ip' => '203.0.113.0'], $byQuery);
     }
 
-    public function testABatchWithoutAnyAddressNeverNamesTheColumn(): void
+    public function testABatchWithoutAnyAddressStoresNullAddresses(): void
     {
         $spy = new InterceptingConnection($this->connection);
 
@@ -115,8 +115,9 @@ final class SearchLogIpTest extends TestCase
 
         $inserts = array_values(array_filter($spy->log, static fn(array $call): bool => str_starts_with($call[0], 'INSERT')));
         self::assertCount(1, $inserts);
-        self::assertStringNotContainsString('actor_ip', $inserts[0][0]);
-        self::assertSame([], array_filter(array_keys($inserts[0][1]), static fn(string $k): bool => str_starts_with($k, 'ip')), 'and binds no address');
+        self::assertSame(1, substr_count($inserts[0][0], 'actor_ip'));
+        self::assertNull($inserts[0][1]['ip0']);
+        self::assertNull($inserts[0][1]['ip1']);
     }
 
     public function testABatchWithAnAddressNamesTheColumnOnce(): void
@@ -132,55 +133,23 @@ final class SearchLogIpTest extends TestCase
         self::assertSame('203.0.113.0', $inserts[0][1]['ip1']);
     }
 
-    public function testAnInstallWithoutTheColumnKeepsLoggingAndReporting(): void
+    public function testAnInstallWithoutTheColumnFailsWithOneClearException(): void
     {
         $this->dropIpColumn();
         $engine = new PostgresEngine($this->connection, searchLog: true);
 
-        $written = $engine->writeSearchLog([$this->record('plain', user: 'ada'), $this->record('other', user: 'bob')]);
-
-        self::assertSame(2, $written);
-        $found = $this->recent();
-        self::assertSame(['other', 'plain'], array_map(static fn(LoggedSearch $s): string => $s->query, $found));
-        self::assertSame([null, null], array_map(static fn(LoggedSearch $s): ?string => $s->ip, $found));
-        $top = $engine->topQueries(Indexes::products(), $this->now->modify('-1 hour'), null, 10, null, false);
-        self::assertCount(2, $top, 'the other reports do not care');
-    }
-
-    public function testAnAddressOnAnInstallWithoutTheColumnKeepsTheRowsAndDropsTheAddresses(): void
-    {
-        $this->dropIpColumn();
-        $metrics = new RecordingMetricsCollector();
-        $engine = new PostgresEngine($this->connection, searchLog: true, metrics: $metrics);
-
-        $written = $engine->writeSearchLog([$this->record('with ip', '203.0.113.0', 'ada'), $this->record('without ip', null, 'bob'), $this->record('v6', '2001:db8::', 'cy')]);
-
-        self::assertSame(3, $written);
-        self::assertSame(['v6', 'without ip', 'with ip'], array_map(static fn(LoggedSearch $s): string => $s->query, $this->recent()), 'every row is kept');
-        $dropped = array_values(array_filter($metrics->calls, static fn(array $c): bool => $c[1] === 'fuzzphony.search_log.ip_dropped'));
-        self::assertSame([['increment', 'fuzzphony.search_log.ip_dropped', 2.0, []]], $dropped, 'the two addresses that were dropped are counted, once');
-    }
-
-    public function testTheRetryHappensOnceForABatchOfSeveralChunks(): void
-    {
-        $this->dropIpColumn();
-        $spy = new InterceptingConnection($this->connection);
-        $metrics = new RecordingMetricsCollector();
-        $records = [];
-        for ($i = 0; $i < 2001; ++$i) {
-            $records[] = $this->record('q' . $i, $i === 0 ? '203.0.113.0' : null);
+        foreach ([
+            'write' => static fn() => $engine->writeSearchLog([new SearchRecord(new \DateTimeImmutable(), 'products', null, null, 'plain', 1, 1.5, false, RecordStatus::Ok)]),
+            'report' => fn() => $this->recent(),
+        ] as $what => $call) {
+            try {
+                $call();
+                self::fail($what . ' must not run without the column');
+            } catch (SchemaNotApplied $e) {
+                self::assertStringContainsString('missing: actor_ip', $e->getMessage(), $what);
+                self::assertStringContainsString('fuzzphony:schema --apply', $e->getMessage(), $what);
+            }
         }
-
-        $written = (new PostgresEngine($spy, searchLog: true, metrics: $metrics))->writeSearchLog($records);
-
-        self::assertSame(2001, $written);
-        $inserts = array_values(array_filter($spy->log, static fn(array $c): bool => str_starts_with($c[0], 'INSERT')));
-        self::assertCount(4, $inserts, 'the first chunk with the column (failed), then three chunks without it');
-        self::assertStringContainsString('actor_ip', $inserts[0][0]);
-        foreach (array_slice($inserts, 1) as $insert) {
-            self::assertStringNotContainsString('actor_ip', $insert[0]);
-        }
-        self::assertSame(1, count(array_filter($metrics->calls, static fn(array $c): bool => $c[1] === 'fuzzphony.search_log.ip_dropped')));
     }
 
     public function testAnotherFailureOfAnAddressBatchIsNotRetried(): void
@@ -195,26 +164,6 @@ final class SearchLogIpTest extends TestCase
         }
 
         self::assertCount(1, array_filter($spy->log, static fn(array $c): bool => str_starts_with($c[0], 'INSERT')), 'a missing table is not a missing column');
-    }
-
-    public function testARoleWithoutPrivilegeOnTheAddressColumnGetsNullAddressesNotAnError(): void
-    {
-        (new PostgresEngine($this->connection, searchLog: true))->writeSearchLog([$this->record('secret place', '203.0.113.0', 'ada')]);
-        $role = 'fz_noip_reader_' . getmypid();
-        $this->connection->execute('DROP ROLE IF EXISTS ' . $role);
-        $this->connection->execute('CREATE ROLE ' . $role);
-        try {
-            $this->connection->execute('GRANT SELECT (id, at, index_name, tenant, actor_user, query, query_norm, hits, took_ms, used_fuzzy, status) ON fuzzphony_search_log TO ' . $role);
-            $this->connection->execute('SET ROLE ' . $role);
-            $found = $this->recent();
-        } finally {
-            $this->connection->execute('RESET ROLE');
-            $this->connection->execute('DROP OWNED BY ' . $role);
-            $this->connection->execute('DROP ROLE ' . $role);
-        }
-
-        self::assertSame(['secret place'], array_map(static fn(LoggedSearch $s): string => $s->query, $found));
-        self::assertNull($found[0]->ip);
     }
 
     public function testATenantReportShowsOnlyItsOwnAddresses(): void

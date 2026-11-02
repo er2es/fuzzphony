@@ -602,26 +602,21 @@ final class PostgresInspectorChecksTest extends TestCase
         );
     }
 
-    public function testTheIpColumnIsWantedOnlyWhenTheIpIsOn(): void
+    public function testAMissingIpColumnIsASchemaError(): void
     {
         $this->connection->execute('DROP TABLE IF EXISTS fuzzphony_search_log CASCADE');
         $index = Indexes::products('manual');
-        $registry = new IndexRegistry([$index]);
-        $setup = new Fuzzphony(new PostgresEngine($this->connection, searchLog: true), $registry);
-        $setup->schema()->apply($this->connection);
-        $setup->reindex('products');
-        $ipOn = new Fuzzphony(new PostgresEngine($this->connection, searchLog: true, searchLogIp: true), $registry);
-        $ipOff = new Fuzzphony(new PostgresEngine($this->connection, searchLog: true), $registry);
-        $ok = [Check::ok('Search log', 'Table exists, nothing older than the retention.')];
+        $fuzzphony = new Fuzzphony(new PostgresEngine($this->connection, searchLog: true), new IndexRegistry([$index]));
+        $fuzzphony->schema()->apply($this->connection);
+        $fuzzphony->reindex('products');
 
-        self::assertEquals($ok, self::named($ipOn, 'products', 'Search log'), 'the column is there');
+        self::assertEquals([Check::ok('Search log', 'Table exists, nothing older than the retention.')], self::named($fuzzphony, 'products', 'Search log'), 'the column is there');
 
         $this->connection->execute('ALTER TABLE fuzzphony_search_log DROP COLUMN actor_ip');
 
-        self::assertEquals($ok, self::named($ipOff, 'products', 'Search log'), 'nobody wants the column');
         self::assertEquals(
-            [Check::error('Search log', 'search_log.ip is on, but table "public"."fuzzphony_search_log" has no actor_ip column: the addresses are dropped (the rows are kept). After applying the schema restart long-running workers (they look the column up once per process).', 'bin/console fuzzphony:schema --apply')],
-            self::named($ipOn, 'products', 'Search log'),
+            [Check::error('Search log', 'Table "public"."fuzzphony_search_log" has no actor_ip column: the schema is not up to date (missing: actor_ip), and writing or reading the log fails.', 'bin/console fuzzphony:schema --apply')],
+            self::named($fuzzphony, 'products', 'Search log'),
         );
     }
 

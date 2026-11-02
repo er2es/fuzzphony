@@ -16,7 +16,7 @@ One row per search in `fuzzphony_search_log` (in [Fuzzphony's schema](configurat
 | `index_name` | the index searched |
 | `tenant` | the tenant the search ran for, as text: the tenant of the query on a tenant-scoped index, else the tenant of the actor, else null |
 | `actor_user` | the user of the [actor](multi-tenancy.md#the-actor-who-is-searching), or null (anonymous) |
-| `actor_ip` | the client IP of the actor, masked or whole, only when [`search_log.ip`](#the-client-ip) is not `off`; null otherwise. The column is nullable and only needed when you use the IP |
+| `actor_ip` | the client IP of the actor, masked or whole, only when [`search_log.ip`](#the-client-ip) is not `off`; null otherwise. The column is nullable and part of the table `fuzzphony:schema --apply` creates |
 | `query` | the text the visitor typed, after [redaction](#redaction), cut at 255 characters |
 | `query_norm` | `query` lower-cased, whitespace collapsed and trimmed: the key the reports group by |
 | `hits` | the total of the search (a lower bound when the search hit `candidate_limit`) |
@@ -78,8 +78,8 @@ idempotent):
 bin/console fuzzphony:schema --apply
 ```
 
-`fuzzphony:doctor` has a "Search log" check: an **error** when the table is missing, or when [`ip`](#the-client-ip) is on and the
-`actor_ip` column is not (both fixed by the command above), a warning when it holds rows older than the retention (fixed by the purge command below), otherwise it
+`fuzzphony:doctor` has a "Search log" check: an **error** when the table is missing, or when the
+`actor_ip` column is not there (both fixed by the command above), a warning when it holds rows older than the retention (fixed by the purge command below), otherwise it
 reports that the table exists (it never counts the rows: the table can be big). A role that only searches needs
 `INSERT` on the table and nothing else (the `id` is an identity column, which needs no privilege on its hidden
 sequence); the reports need `SELECT`, the purge `DELETE`. See [Fuzzphony's schema](configuration.md#fuzzphonys-schema) for the
@@ -155,14 +155,10 @@ works on a table that already exists):
 bin/console fuzzphony:schema --apply
 ```
 
-A deployment that never enables the IP does not need the column: the `INSERT` names `actor_ip` only when at least one
-record of the batch has an address, and the report reads the column only if the table has it (the address of every row
-is then null). Turning `ip` on **without** applying the schema makes the batches that carry an address fail like any other
-log write would: so the log keeps its rows. A write that finds no `actor_ip` column (SQLSTATE `42703`) is repeated **once**
-without it: the rows are kept, the addresses of that batch are dropped, and the metric `fuzzphony.search_log.ip_dropped` counts
-the dropped addresses (the metrics collector logs it like any event). `fuzzphony:doctor` reports an **error** in its "Search
-log" check while `ip` is on and the column is missing, so run `fuzzphony:schema --apply` before (or together with) the
-deploy that turns `ip` on; the searches themselves are never affected. The role that applies the schema
+The column is part of the log table whether `ip` is on or not, and the schema must be applied after an upgrade: a write or a report
+that finds no `actor_ip` column fails with one `SchemaNotApplied` exception ("missing: actor_ip, run: bin/console fuzzphony:schema --apply");
+the log write is caught like any other log failure (counted in `fuzzphony.search_log.failed`, the search itself is never affected).
+`fuzzphony:doctor` reports an **error** in its "Search log" check while the column is missing. The role that applies the schema
 must own the table (it is an `ALTER TABLE`). The [retention purge](#retention) deletes whole rows, so it covers the IP.
 
 **Where the address comes from.** The Core knows nothing of HTTP: the address belongs to the

@@ -22,7 +22,7 @@ tenant scope, the log's user). Its searches are counted but **not written to the
 (with `--tenant` and `--user` a test search would otherwise look like that user searching, and pollute the zero-result report).
 
 `fuzzphony:schema` without `--apply` only prints the SQL, so you can review it first. An index with a `granted` field gets two more
-indexes (`..._open_fz_<hash>`, `..._open_tsv_<hash>`, over its open fields; the hash follows their definition, so when the `granted` fields change the apply builds the new ones `CONCURRENTLY` and drops the old with `DROP INDEX CONCURRENTLY`, found by the end of the name at any length; a failed drop is a warning, run the apply again; `--dump-migration` leaves it out; the doctor reports an old one as stale until then); when the apply built a column or one
+indexes (`..._open_fz_<hash>`, `..._open_tsv_<hash>`, over its open fields; the hash follows their definition, so when the `granted` fields change the apply builds the new ones `CONCURRENTLY` and drops the old with `DROP INDEX CONCURRENTLY`, found by the end of the name at any length; a failed drop is a warning, run the apply again; `--dump-migration` leaves it out; the doctor reports an old one as stale until then); when the apply built one
 of them on a table that was there, the command asks you to restart long-running workers (they look these up once per process). See
 [Reindexing and orphan pruning](sync.md#reindexing-and-orphan-pruning) for what `--no-prune` and
 `--prune-empty` are for.

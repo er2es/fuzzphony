@@ -6,9 +6,10 @@ namespace Fuzzphony\Engine\Postgres;
 
 use Fuzzphony\Core\Exception\EngineFailure;
 use Fuzzphony\Core\Exception\FuzzphonyException;
+use Fuzzphony\Core\Exception\SchemaNotApplied;
 use Fuzzphony\Core\Observability\MetricsCollector;
 
-/** @internal Times an operation, counts its errors and turns a database failure into an EngineFailure with a remedy. */
+/** @internal Times an operation, counts its errors and turns a database failure into an EngineFailure with a remedy (a column the schema has not added yet: SchemaNotApplied). */
 final readonly class EngineGuard
 {
     public function __construct(private MetricsCollector $metrics) {}
@@ -33,7 +34,7 @@ final readonly class EngineGuard
             throw $e;
         } catch (\Throwable $e) {
             $this->metrics->increment('fuzzphony.' . $name . '.errors');
-            throw EngineFailure::wrap($name, $e, $hint);
+            throw SchemaNotApplied::from($e) ?? EngineFailure::wrap($name, $e, $hint);
         }
     }
 

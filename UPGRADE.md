@@ -3,6 +3,17 @@
 Before 1.0, a minor version may contain breaking changes. Each section lists what to change,
 and the [CHANGELOG](CHANGELOG.md) has the full list of changes.
 
+## From 0.9.13 to 0.10.0
+
+### Breaking
+
+- **Run `fuzzphony:schema --apply` before the new code serves traffic.** The columns `tsv_capped` (sidecar tables) and `actor_ip` (search log) are
+  required. A search, refresh or log write that finds one missing throws `Fuzzphony\Core\Exception\SchemaNotApplied` ("The Fuzzphony schema is
+  not up to date (missing: ...). Run: bin/console fuzzphony:schema --apply"); `fuzzphony:doctor` reports the same as an error. The slower
+  no-column statements, the per-process catalog lookups for these columns, the retry of a log batch without `actor_ip`, the metric
+  `fuzzphony.search_log.ip_dropped` and the `searchLogIp` constructor argument of `PostgresEngine` are removed. Long-running workers need no
+  restart for these columns any more (only the open-class indexes of `granted` fields are still looked up once per process).
+
 ## From 0.9.10 to 0.9.11
 
 **What you must do.** Nothing. The rankings of searches made with `asYouType()` (the Twig search component, `--as-you-type`) may change: the

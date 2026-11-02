@@ -63,13 +63,13 @@ final class FuzzyQueryCompilerTest extends TestCase
         ];
         yield 'nested groups' => [
             'wireless (mouse | "usb receiver")',
-            "(fz['wireless'|wireless] AND (fz['mouse'|mouse] OR fz[('usb' <-> 'receiver')|usb receiver]))",
-            "((sim[wireless|'wireless'] + GREATEST(sim[mouse|'mouse'], sim[usb receiver|('usb' <-> 'receiver')])) / 2)",
+            "(fz['wireless'|wireless] AND (fz['mouse'|mouse] OR ((ts[('usb' & 'receiver')] AND (ts[('usb' <-> 'receiver')] OR (s.tsv_capped IS NOT FALSE AND EXISTS (SELECT 1 FROM \"public\".\"fuzzphony_products\" AS c WHERE c.id = s.id AND ((c.\"t_brand\" || c.\"t_description\") @@ {('usb' <-> 'receiver')} OR (c.\"t_description\") @@ {('usb' <-> 'receiver')}))))) OR {usb receiver} OPERATOR(\"public\".<%) s.fz)))",
+            "((sim[wireless|'wireless'] + GREATEST(sim[mouse|'mouse'], GREATEST(\"public\".word_similarity({usb receiver}, s.fz), guard[(ts[('usb' & 'receiver')] AND (ts[('usb' <-> 'receiver')] OR (s.tsv_capped IS NOT FALSE AND EXISTS (SELECT 1 FROM \"public\".\"fuzzphony_products\" AS c WHERE c.id = s.id AND ((c.\"t_brand\" || c.\"t_description\") @@ {('usb' <-> 'receiver')} OR (c.\"t_description\") @@ {('usb' <-> 'receiver')}))))) => 1.0]))) / 2)",
         ];
         yield 'phrase is one needle' => [
             '"noise cancelling"',
-            "fz[('noise' <-> 'cancelling')|noise cancelling]",
-            "sim[noise cancelling|('noise' <-> 'cancelling')]",
+            "((ts[('noise' & 'cancelling')] AND (ts[('noise' <-> 'cancelling')] OR (s.tsv_capped IS NOT FALSE AND EXISTS (SELECT 1 FROM \"public\".\"fuzzphony_products\" AS c WHERE c.id = s.id AND ((c.\"t_brand\" || c.\"t_description\") @@ {('noise' <-> 'cancelling')} OR (c.\"t_description\") @@ {('noise' <-> 'cancelling')}))))) OR {noise cancelling} OPERATOR(\"public\".<%) s.fz)",
+            "GREATEST(\"public\".word_similarity({noise cancelling}, s.fz), guard[(ts[('noise' & 'cancelling')] AND (ts[('noise' <-> 'cancelling')] OR (s.tsv_capped IS NOT FALSE AND EXISTS (SELECT 1 FROM \"public\".\"fuzzphony_products\" AS c WHERE c.id = s.id AND ((c.\"t_brand\" || c.\"t_description\") @@ {('noise' <-> 'cancelling')} OR (c.\"t_description\") @@ {('noise' <-> 'cancelling')}))))) => 1.0])",
         ];
         yield 'prefix keeps :* on the exact side, the prefix text is the needle' => [
             'ergnoo*',
@@ -118,8 +118,8 @@ final class FuzzyQueryCompilerTest extends TestCase
         ];
         yield 'hyphenated word' => [
             'e-mail',
-            "fz[('e' <-> 'mail')|e mail]",
-            "sim[e mail|('e' <-> 'mail')]",
+            "((ts[('e' & 'mail')] AND (ts[('e' <-> 'mail')] OR (s.tsv_capped IS NOT FALSE AND EXISTS (SELECT 1 FROM \"public\".\"fuzzphony_products\" AS c WHERE c.id = s.id AND ((c.\"t_brand\" || c.\"t_description\") @@ {('e' <-> 'mail')} OR (c.\"t_description\") @@ {('e' <-> 'mail')}))))) OR {e mail} OPERATOR(\"public\".<%) s.fz)",
+            "GREATEST(\"public\".word_similarity({e mail}, s.fz), guard[(ts[('e' & 'mail')] AND (ts[('e' <-> 'mail')] OR (s.tsv_capped IS NOT FALSE AND EXISTS (SELECT 1 FROM \"public\".\"fuzzphony_products\" AS c WHERE c.id = s.id AND ((c.\"t_brand\" || c.\"t_description\") @@ {('e' <-> 'mail')} OR (c.\"t_description\") @@ {('e' <-> 'mail')}))))) => 1.0])",
         ];
     }
 
