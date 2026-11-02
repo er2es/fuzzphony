@@ -24,6 +24,22 @@ and the [CHANGELOG](CHANGELOG.md) has the full list of changes.
   no-column statements, the per-process catalog lookups for these columns, the retry of a log batch without `actor_ip`, the metric
   `fuzzphony.search_log.ip_dropped` and the `searchLogIp` constructor argument of `PostgresEngine` are removed. Long-running workers need no
   restart for these columns any more (only the open-class indexes of `granted` fields are still looked up once per process).
+- **One trigger set and one change log per watched table (`queue` sync, statement-level triggers).** `fuzzphony:schema --apply` replaces the four
+  triggers per index and table (`fuzzphony_sync_<index>__<table>_ins|upd|del|trn`) by one set per table (`fuzzphony_watch__<table>__ins|upd|del|trn`)
+  in the same transaction, registers the index in `fuzzphony_watches` and creates `fuzzphony_drain_<index>()`; ids already in the queue stay and are
+  processed as before, nothing is lost during the swap. `sync: trigger` and `trigger_level: row` are unchanged. Deploy: apply the schema, then restart the
+  workers. What changes for you:
+  - The queue rows of a change appear when the worker takes a batch (it drains the log first), not in the writing statement; a `TRUNCATE` of a
+    table-sourced index's own table empties the index at that drain. Anything that read `fuzzphony_queue` directly (a monitoring query) misses
+    what is still in `fuzzphony_watch_log`: use `fuzzphony:doctor` ("Sync queue" counts both) or `queueSize()`.
+  - Roles: the role that writes a watched table needs `INSERT` on `fuzzphony_watch_log` (it was `INSERT` on `fuzzphony_queue`); the worker's role needs
+    `SELECT`, `DELETE` on the log, `SELECT`, `UPDATE` on `fuzzphony_watches`, the usual rights on the queue, and `SELECT` on every table a `watch` query
+    reads (the query now runs in the worker, not in the writing statement).
+  - A transaction that wrote and stays open delays the processing of everything committed after it until it ends ([limitations](docs/limitations.md#a-long-writing-transaction-delays-the-sync-of-every-index)).
+  - Doctrine's `schema_filter` must let the new tables through the same way it does for `fuzzphony_queue` (`SchemaAssetFilter::regex()` already does).
+- **A batch the worker cannot refresh because of the data is split.** Only the ids that fail on their own stay queued, with `attempts`, `last_error`
+  (exception class and SQLSTATE) and `failed_at` (three columns the apply adds to `fuzzphony_queue`) and a back-off from 60 s to an hour; the doctor names them. The
+  worker's stderr shows the exception class and SQLSTATE only (the driver message used to be printed: a log scraper that matched it needs the SQLSTATE).
 
 ## From 0.9.10 to 0.9.11
 
@@ -45,7 +61,7 @@ indexes without a `granted` field change nothing.
 roles, `false` and an empty string used to load (as an open field, or one that is always hidden) and now throw an `InvalidDefinition` that
 names the field. Fix the key the message names, or remove it to leave the field open.
 
-**Good to know (not new, now documented).** One document the source cannot read (a failing cast) keeps the whole queue of its index from draining; the worker retries it with a back-off and the other indexes go on. The failure message printed to stderr can contain a value from the source row, so treat worker logs as sensitive ([limitations](docs/limitations.md#one-unreadable-document-stops-its-indexs-queue)).
+**Good to know (not new, now documented).** One document the source cannot read (a failing cast) keeps the whole queue of its index from draining; the worker retries it with a back-off and the other indexes go on. The failure message printed to stderr can contain a value from the source row, so treat worker logs as sensitive ([limitations](docs/limitations.md#one-unreadable-document-does-not-stop-its-indexs-queue)).
 
 **Results that change.**
 

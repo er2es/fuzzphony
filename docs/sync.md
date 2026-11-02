@@ -119,8 +119,8 @@ In `trigger` and `queue` mode a `TRUNCATE` is followed by a separate statement-l
 - Truncating any other watched table (a joined table, a query source's tables), or a source that
   still returns rows afterwards (`TRUNCATE ONLY` on a table-inheritance parent), needs a full
   resync: the removed rows can no longer tell which documents they belonged to.
-  - In `queue` mode the trigger queues one full-rebuild job, so the `TRUNCATE` itself stays cheap.
-    The worker runs it before the queued ids, as a zero-downtime rebuild (see
+  - In `queue` mode one full-rebuild job is queued (by the trigger at row level, by the worker's drain of the change log at statement
+    level), so the `TRUNCATE` itself stays cheap. The worker runs it before the queued ids, as a zero-downtime rebuild (see
     [Reindexing](#reindexing-and-orphan-pruning)); a worker role that cannot build next to the live
     index runs it in place. Like `fuzzphony:reindex`, the rebuild reads the source in the worker's
     session, so that session must see the source tables on its `search_path`. The doctor's queue

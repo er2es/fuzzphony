@@ -390,10 +390,11 @@ but a few things take more writing than with one entity per index.
   followed, and a watch without `columns` refreshes on every `UPDATE` of the table, also of columns the index does not
   use. What to do: list each joined table with an `ids` query (or `key`), and add `columns` where the table is written
   often ([Column-aware filtering](sync.md#column-aware-filtering)).
-- **Overlapping indexes multiply triggers.** What happens: each index adds four triggers to every table it watches, and
-  one `UPDATE` of a shared table refreshes all the indexes that watch it (in `trigger` mode inside the writing
-  transaction, in `queue` mode as one queue row per index and document). What to do: for a hot table prefer `sync: queue`
-  and `columns`, and keep the number of indexes over it small.
+- **Overlapping indexes share the triggers of a table (`queue` sync, statement-level triggers).** What happens: a table has
+  one set of four triggers and one change log whatever the number of indexes watching it, so one `UPDATE` costs one log
+  `INSERT`; each index turns the log into its own queue rows when its worker takes a batch ([Sync](sync.md#one-trigger-per-table-one-change-log)).
+  `sync: trigger` and `trigger_level: row` keep four triggers per index and table, and refresh every index inside the writing
+  statement. What to do: for a hot table prefer `sync: queue` and `columns`.
 - **One `#[Searchable]` per class.** What happens: a second attribute is a PHP error. What to do: define further indexes
   over the same table or entity in YAML or the builder, under another name.
 - **A federated search merges by rank only.** What happens: the scores of different indexes are not comparable, so the best
@@ -409,13 +410,23 @@ A document is identified by one column (`id` by default) of an integer, UUID or 
 `*` is reserved. A table with a composite key needs a source query that builds one id (a string id type, for
 example `a || '-' || b AS id`).
 
-### One unreadable document stops its index's queue
+### One unreadable document does not stop its index's queue
 
-The worker processes a queue batch as a unit: all or nothing. One document the source cannot read (a cast that fails on one row, for
-example) keeps the whole queue of its index from draining. The batch is retried with a back-off (60 s, doubling to 3600 s) while the other
-indexes go on; the doctor's "Sync queue" check shows the queue growing, not which id fails. The failure message the worker prints to
-stderr can contain a value from the source row, so treat worker logs as sensitive. What to do: find the bad row with the message, fix the
-source (or the cast), or run `fuzzphony:reindex <index>`, which rebuilds the documents from the source.
+What happens: a document the source cannot read (a cast that fails on one row, a value too big for the index) makes the batch it is in
+fail. The worker then retries the batch in halves down to single ids, refreshes everything else and keeps only the failing ids queued, each
+with its attempt count and the error class and SQLSTATE; a failing id is tried again after a back-off (60 s, doubling to an hour).
+The doctor's "Sync queue" check names the failing ids (up to five, never the row values) and the worker prints only the exception class and
+SQLSTATE, because the driver's message can carry the source row. Why: a data error is about one document; a connection or schema problem
+(any other SQLSTATE) still stops the index's queue for the back-off, as it would for every id. What to do: fix the source row or the cast;
+the id leaves the queue at its next try (`fuzzphony:reindex <index>` rebuilds the documents too).
+
+### A long writing transaction delays the sync of every index
+
+What happens: with `queue` sync at statement level the triggers append to a shared change log, and an index reads an entry only once its
+transaction and every older one have ended (so a transaction that commits late is never skipped). A transaction that wrote something and
+stays open (a long import in one transaction, a forgotten `BEGIN` after a write) holds back the processing of changes committed after it, for
+every index, until it ends; nothing is lost. What to do: keep writing transactions short, import in batches; the doctor shows the waiting
+entries and their age. `sync: trigger` is not affected.
 
 ### A full reindex needs room and a session connection
 

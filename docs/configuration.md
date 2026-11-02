@@ -107,12 +107,14 @@ Each index has its own sidecar table, triggers and queue rows, so indexes can sh
         customer: 'SELECT id FROM invoice WHERE customer_id = :id'
 ```
 
-- `customer` is now watched by `people`, `companies` and `invoices`. `fuzzphony:schema --apply` creates four triggers per
-  index and table (`fuzzphony_sync_<index>__<table>_ins|upd|del|trn`), so there is no name clash, and applying it twice
-  changes nothing. Every extra index that watches a table adds four triggers on it and one more queue row (in `trigger`
-  mode, one more refresh) per changed document: one `UPDATE` of a customer queued rows for `people`, `companies` and
-  `invoices` (and for a fourth index over the same table, below).
-- Dropping one index (`fuzzphony:schema people --drop --apply`) removes its triggers only; the other indexes keep theirs.
+- `customer` is now watched by `people`, `companies` and `invoices`. With `queue` sync (the default) `fuzzphony:schema --apply` puts
+  ONE set of four triggers on the table (`fuzzphony_watch__customer__ins|upd|del|trn`) and the three indexes read the one change log
+  through their own positions, so one `UPDATE` of a customer writes one log row per changed customer and each index turns it into its
+  queue rows with its own watch query when its worker runs ([Sync](sync.md#one-trigger-per-table-one-change-log)). Applying it twice
+  changes nothing. With `sync: trigger` (or `trigger_level: row`) each index keeps four triggers of its own on the table
+  (`fuzzphony_sync_<index>__<table>_ins|upd|del|trn`) and one more refresh per changed document.
+- Dropping one index (`fuzzphony:schema people --drop --apply`) removes its part only; the other indexes keep the triggers and the log, which
+  go with the last index that watches the table.
 - **One `#[Searchable]` per class.** The attribute is not repeatable (a second one is a PHP error). To index the same table
   or entity twice (a public and an admin index, with other fields, language or `sync`), define the second one under
   another name in YAML or the builder, with `source.table`; it needs no class:
