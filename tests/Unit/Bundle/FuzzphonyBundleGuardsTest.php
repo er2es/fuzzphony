@@ -27,7 +27,9 @@ final class FuzzphonyBundleGuardsTest extends TestCase
     {
         $arguments = $this->gateArguments($this->buildContainer());
 
-        self::assertCount(6, $arguments);
+        self::assertCount(8, $arguments);
+        self::assertEquals(new Reference('fuzzphony.actor_resolver'), $arguments[6], 'the gate asks the actor resolver when the code names no actor');
+        self::assertTrue($arguments[7], 'asSystem() is honoured by default');
         self::assertSame(IpMode::Off, $arguments[5], 'the client IP is off by default');
         self::assertEquals(new Reference('fuzzphony.metrics'), $arguments[0]);
         self::assertEquals(new Reference('logger'), $arguments[1]);
@@ -110,7 +112,7 @@ final class FuzzphonyBundleGuardsTest extends TestCase
         $mainGate = $this->gateArguments($container);
         self::assertEquals([new Reference('fuzzphony.guard.authorization'), new Reference('fuzzphony.guard.rate_limit')], $mainGate[4], 'the main gate runs both guards');
         self::assertEquals(
-            [...array_slice($mainGate, 0, 4), [], IpMode::Off],
+            [...array_slice($mainGate, 0, 4), [], IpMode::Off, null, true],
             $operatorGate->getArguments(),
             'the operator gate counts and logs like the main one (metrics, logger, search log, redactor) but has no guard',
         );

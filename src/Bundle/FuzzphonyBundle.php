@@ -38,6 +38,7 @@ use Fuzzphony\Core\Analytics\PatternQueryRedactor;
 use Fuzzphony\Core\Database\Connection;
 use Fuzzphony\Core\Engine\Engine;
 use Fuzzphony\Core\Exception\InvalidConfiguration;
+use Fuzzphony\Core\Exception\InvalidDefinition;
 use Fuzzphony\Core\Fuzzphony;
 use Fuzzphony\Core\Observability\MetricsCollector;
 use Fuzzphony\Core\Registry\IndexRegistry;
@@ -91,6 +92,7 @@ use function Symfony\Component\DependencyInjection\Loader\Configurator\service_c
  *     authorization:               # opt-in: who may search which index and which fields
  *       enabled: false             # asks isGranted(index_attribute, indexName) and isGranted(field role, indexName)
  *       index_attribute: FUZZPHONY_SEARCH  # write a voter for it, or name an existing attribute such as ROLE_USER
+ *       allow_system: true         # false refuses SearchBuilder::asSystem() (a search that skips the guards)
  *     indexes:
  *       products:              # overrides for an attribute index, or a pure YAML index
  *         thresholds: { relevance: { min_score: 0.05 } }
@@ -165,6 +167,7 @@ final class FuzzphonyBundle extends AbstractBundle
                     ->addDefaultsIfNotSet()
                     ->children()
                         ->booleanNode('enabled')->defaultFalse()->info('Check the index and the fields (granted: ...) with Symfony authorization before every search')->end()
+                        ->booleanNode('allow_system')->defaultTrue()->info('Honour SearchBuilder::asSystem() (a search that skips the guards and sees every field, logged as "(system)"); false refuses it with AccessDenied')->end()
                         ->scalarNode('index_attribute')->defaultValue(BundleSettings::DEFAULTS['index_attribute'])->info('Checked with isGranted(attribute, indexName) before every search; write a voter for it, or name an existing attribute such as ROLE_USER')->end()
                     ->end()
                 ->end()
@@ -275,6 +278,31 @@ final class FuzzphonyBundle extends AbstractBundle
         }
     }
 
+    /**
+     * A field with `granted` is only hidden from a viewer by the authorization guard: without `fuzzphony.authorization.enabled` every
+     * viewer would see it, so the container does not build (an index found by attributes is checked when the registry is built, see RegistryFactory).
+     *
+     * @param array<array-key, mixed> $indexes the `indexes:` of the configuration
+     *
+     * @throws InvalidDefinition
+     *
+     * @internal
+     */
+    public static function assertGrantedNeedsAuthorization(array $indexes, bool $authorizationEnabled): void
+    {
+        if ($authorizationEnabled) {
+            return;
+        }
+        foreach ($indexes as $name => $definition) {
+            $fields = is_array($definition) && is_array($definition['fields'] ?? null) ? $definition['fields'] : [];
+            foreach ($fields as $options) {
+                if (is_array($options) && isset($options['granted'])) {
+                    throw new InvalidDefinition((string) $name, [RegistryFactory::GRANTED_WITHOUT_AUTHORIZATION]);
+                }
+            }
+        }
+    }
+
     /** @param array<array-key, mixed> $config */
     public function loadExtension(array $config, ContainerConfigurator $container, ContainerBuilder $builder): void
     {
@@ -285,6 +313,7 @@ final class FuzzphonyBundle extends AbstractBundle
             && ($builder->hasExtension('doctrine') || ($builder->hasParameter(self::DOCTRINE_PARAMETER) && $builder->getParameter(self::DOCTRINE_PARAMETER) === true));
         // configure()'s tree guarantees the shapes; AbstractBundle declares $config as a plain array
         $settings = BundleSettings::fromConfig($config, self::DEFAULT_IP_LIMITER);
+        self::assertGrantedNeedsAuthorization($settings->indexes, $settings->authorizationEnabled);
 
         $this->registerConnection($services, $settings);
         $this->registerActorResolver($services, $settings);
@@ -373,22 +402,24 @@ final class FuzzphonyBundle extends AbstractBundle
                 ->args([service('limiter.' . $settings->limiterName), $settings->per, '%kernel.secret%', service('fuzzphony.metrics'), service('logger')]);
             $guards[] = service('fuzzphony.guard.rate_limit');
         }
-        $gateArguments = static fn(array $guards): array => [
+        $gateArguments = static fn(array $guards, mixed $actors): array => [
             service('fuzzphony.metrics'),
             service('logger'),
             $settings->searchLogEnabled ? service('fuzzphony.search_log') : inline_service(NullSearchLog::class),
             $settings->searchLogEnabled && $settings->redact !== [] ? service('fuzzphony.query_redactor') : null,
             $guards,
             $settings->ipMode,
+            $actors,
+            $settings->allowSystem,
         ];
         $services->set('fuzzphony.search_gate', SearchGate::class)
-            ->args($gateArguments($guards))
+            ->args($gateArguments($guards, service('fuzzphony.actor_resolver')))
             ->tag('monolog.logger', ['channel' => 'fuzzphony']); // its log line goes to the same channel as the metrics
         $services->alias(SearchGate::class, 'fuzzphony.search_gate');
         // fuzzphony:search is an operator tool with database access: it runs no guard (a console has no Security
         // token, so authorization would deny it). Its searches are still counted and, with the log on, logged.
         $services->set('fuzzphony.search_gate.operator', SearchGate::class)
-            ->args($gateArguments([]))
+            ->args($gateArguments([], null))
             ->tag('monolog.logger', ['channel' => 'fuzzphony']);
         $services->set('fuzzphony.exception_listener', SearchExceptionListener::class)->tag('kernel.event_listener', ['event' => 'kernel.exception', 'priority' => 64]);
     }
@@ -416,6 +447,7 @@ final class FuzzphonyBundle extends AbstractBundle
                 // (the real-kernel test proves the cache from the command line), not a configuration option.
                 $builder->hasParameter('fuzzphony.registry_cache_in_cli') && $builder->getParameter('fuzzphony.registry_cache_in_cli') === true,
                 $builder->hasParameter('kernel.project_dir') && is_string($builder->getParameter('kernel.project_dir')) ? $builder->getParameter('kernel.project_dir') : null,
+                $settings->authorizationEnabled,
             ]);
         $services->alias(IndexRegistry::class, 'fuzzphony.registry');
 
@@ -476,7 +508,7 @@ final class FuzzphonyBundle extends AbstractBundle
             : null;
         $commands = [
             SchemaCommand::class => [service('fuzzphony'), service('fuzzphony.connection')],
-            DoctorCommand::class => [service('fuzzphony'), $applicationSchemaFilter, $settings->names->schema],
+            DoctorCommand::class => [service('fuzzphony'), $applicationSchemaFilter, $settings->names->schema, $settings->authorizationEnabled],
             ReindexCommand::class => [service('fuzzphony')],
             WorkerCommand::class => [service('fuzzphony'), $settings->workerBatchSize, $settings->workerIdleSleep, service('fuzzphony.metrics')],
             SearchCommand::class => [service('fuzzphony.operator')],

@@ -16,6 +16,7 @@ use Fuzzphony\Core\Definition\Synonyms;
 use Fuzzphony\Core\Engine\Engine;
 use Fuzzphony\Core\Exception\AccessDenied;
 use Fuzzphony\Core\Exception\InvalidArgument;
+use Fuzzphony\Core\Exception\InvalidDefinition;
 use Fuzzphony\Core\Exception\RateLimited;
 use Fuzzphony\Core\Inspection\InspectionReport;
 use Fuzzphony\Core\Inspection\InspectOptions;
@@ -25,6 +26,7 @@ use Fuzzphony\Core\Query\SynonymExpander;
 use Fuzzphony\Core\Registry\IndexRegistry;
 use Fuzzphony\Core\Schema\SchemaPlan;
 use Fuzzphony\Core\Search\Actor;
+use Fuzzphony\Core\Search\ActorResolver;
 use Fuzzphony\Core\Search\FederatedSearch;
 use Fuzzphony\Core\Search\SearchBuilder;
 use Fuzzphony\Core\Search\SearchGate;
@@ -50,6 +52,11 @@ final readonly class Fuzzphony
      * @param SearchLog|null        $log             your own sink for the search records (instead of the table of $searchLog)
      * @param list<string>          $redact          "email" or a regular expression with delimiters: matches are cut out of the query text before it is logged
      * @param IpMode                $ipMode          whether the log keeps the client IP of the actor, and how much of it
+     * @param ActorResolver|null    $actors          who searches when the code names no actor (asActor()): the application's current user. Without it a search that
+     *                                               names no actor runs no guard. With it every search is guarded as that actor (anonymous when it has none)
+     * @param bool                  $allowSystem     false refuses asSystem() (AccessDenied)
+     *
+     * @throws InvalidDefinition an index has a field with `granted` and there is no guard to check it (a granted field is only hidden by a guard)
      */
     public static function postgres(
         Connection $connection,
@@ -64,12 +71,19 @@ final readonly class Fuzzphony
         array $redact = [],
         IpMode $ipMode = IpMode::Off,
         ?LoggerInterface $logger = null,
+        ?ActorResolver $actors = null,
+        bool $allowSystem = true,
     ): self {
+        foreach ($indexes as $index) {
+            if ($guards === [] && $index->hasGrantedField()) {
+                throw new InvalidDefinition($index->name, ['a field has "granted" but no guard is configured: pass guards: [...] to Fuzzphony::postgres() (without one every viewer sees the field).']);
+            }
+        }
         $metrics ??= new NullMetricsCollector();
         $engine = new PostgresEngine($connection, $extensionSchema, $schema, $metrics, $searchLog, $searchLogRetentionDays);
         $log ??= $searchLog ? new EngineSearchLog($engine) : null;
-        $gate = $guards !== [] || $log !== null || $redact !== [] || $ipMode !== IpMode::Off
-            ? new SearchGate($metrics, $logger, $log ?? new NullSearchLog(), $redact === [] ? null : PatternQueryRedactor::fromSettings($redact), $guards, $ipMode)
+        $gate = $guards !== [] || $log !== null || $redact !== [] || $ipMode !== IpMode::Off || $actors !== null || !$allowSystem
+            ? new SearchGate($metrics, $logger, $log ?? new NullSearchLog(), $redact === [] ? null : PatternQueryRedactor::fromSettings($redact), $guards, $ipMode, $actors, $allowSystem)
             : null;
 
         return new self($engine, new IndexRegistry($indexes), $gate);
@@ -171,10 +185,11 @@ final readonly class Fuzzphony
      * is new since the last rebuild is not suggested yet. A tenant-scoped index, an index without a
      * typo-tolerant field, and an engine without a vocabulary give an empty list.
      *
-     * A search made as an actor runs the guards: a viewer who may not see every field of the index gets no
+     * Made as the actor you name, else as the application's current user (anonymous when there is none), the guards run: a viewer who may not see every field of the index gets no
      * completions (the vocabulary holds the words of every field).
      *
      * @param int  $limit  1 to 20
+     * @param bool $system as SearchBuilder::asSystem(): no guard runs (a completion lists the words of every field)
      * @param bool $charge a search made as an actor spends a rate-limit token; pass false only when the same request
      *                     already charged a search (the Live Component renders its result and its completions in one request)
      *
@@ -184,7 +199,7 @@ final readonly class Fuzzphony
      * @throws AccessDenied    when a guard refuses the actor
      * @throws RateLimited     when the actor searched too often
      */
-    public function complete(string $index, string $text, int $limit = 8, ?Actor $actor = null, bool $charge = true): array
+    public function complete(string $index, string $text, int $limit = 8, ?Actor $actor = null, bool $system = false, bool $charge = true): array
     {
         if ($limit < 1 || $limit > 20) {
             throw new InvalidArgument(sprintf('The suggestion limit must be between 1 and 20, got %d.', $limit));
@@ -192,8 +207,15 @@ final readonly class Fuzzphony
         $definition = $this->registry->get($index);
         // cut where a search is cut (max_query_length of the index), not at a number of its own
         $text = mb_substr(ltrim($text), 0, $definition->thresholds->limits->maxQueryLength);
-        if ($actor !== null && $this->gate !== null && !$this->gate->accessCounted($definition, $actor, $charge, $text)->isAll()) {
-            return [];
+        if ($this->gate !== null) {
+            if ($system) {
+                $this->gate->assertSystemAllowed($definition);
+            } else {
+                $actor ??= $this->gate->ambientActor();
+                if ($actor !== null && !$this->gate->accessCounted($definition, $actor, $charge, $text)->isAll()) {
+                    return [];
+                }
+            }
         }
         if (preg_match('/^(.*?)([\p{L}\p{N}]+)$/su', $text, $m) !== 1) {
             return [];

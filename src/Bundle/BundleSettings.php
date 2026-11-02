@@ -53,6 +53,7 @@ final readonly class BundleSettings
         public string $limiterName,
         public bool $authorizationEnabled,
         public string $indexAttribute,
+        public bool $allowSystem = true,
     ) {}
 
     /**
@@ -98,6 +99,7 @@ final readonly class BundleSettings
             $limiterName === '' && $per === 'ip' ? $defaultIpLimiter : $limiterName,
             (bool) ($authorization['enabled'] ?? false),
             self::text($authorization['index_attribute'] ?? null, self::DEFAULTS['index_attribute']),
+            ($authorization['allow_system'] ?? true) !== false,
         );
     }
 

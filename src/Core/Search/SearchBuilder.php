@@ -4,7 +4,6 @@ declare(strict_types=1);
 
 namespace Fuzzphony\Core\Search;
 
-use Fuzzphony\Core\Definition\FilterType;
 use Fuzzphony\Core\Definition\IndexDefinition;
 use Fuzzphony\Core\Engine\Engine;
 use Fuzzphony\Core\Exception\InvalidDefinition;
@@ -70,16 +69,28 @@ final readonly class SearchBuilder
      */
     public function asActor(Actor $actor): self
     {
-        $query = $this->query->withActor($actor);
-        if ($this->index->tenant !== null && $actor->tenant !== null) {
-            $tenant = $actor->tenant;
-            if (is_int($tenant) && $this->index->filter($this->index->tenant)->type === FilterType::String) {
-                $tenant = (string) $tenant;
-            }
-            $query = $query->forTenant($tenant);
-        }
+        return $this->with(SearchGate::withActor($this->index, $this->query, $actor));
+    }
 
-        return $this->with($query);
+    /**
+     * Searches as the system: no guard runs (every field is searched and shown), and the search log records the search as
+     * made by "(system)". For jobs and commands that are allowed to see everything; a web request should name its actor with
+     * asActor() or leave it out (the application's current user is used). An index with a tenant still needs one
+     * (forTenant()). Refused with AccessDenied when `fuzzphony.authorization.allow_system` is false. The last of asActor() /
+     * asSystem() wins.
+     */
+    public function asSystem(): self
+    {
+        return $this->with($this->query->asSystem());
+    }
+
+    /**
+     * Adds, for the hits of the returned page, which word of which field matched and how (Hit::$matches). It costs one more
+     * statement over the ids of the page, only when asked for, and shows no field the viewer may not see.
+     */
+    public function explainMatches(bool $explain = true): self
+    {
+        return $this->with($this->query->explainMatches($explain));
     }
 
     public function profile(string $profile): self

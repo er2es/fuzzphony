@@ -100,6 +100,12 @@ final readonly class IndexDefinition
         return $this->profiles[$name] ?? throw InvalidQuery::unknownProfile($this->name, $name, array_keys($this->profiles));
     }
 
+    /** Whether a field names a role that unlocks it (`granted`): such a field is only hidden by a guard. */
+    public function hasGrantedField(): bool
+    {
+        return array_any($this->fields, static fn(FieldDefinition $f): bool => $f->granted !== null);
+    }
+
     /** @return list<string> */
     public function fieldNames(): array
     {

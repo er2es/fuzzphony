@@ -46,6 +46,10 @@ final readonly class SearchQuery
         public bool $log = true,
         /** Searches, ranks and highlights only these fields (SearchBuilder::restrictedToFields()); null = every field. */
         public ?array $allowedFields = null,
+        /** Searched as the system (SearchBuilder::asSystem()): no guard runs, the search log records it as such. Never together with an actor. */
+        public bool $system = false,
+        /** Explain which word matched where, for the returned page (SearchBuilder::explainMatches()). */
+        public bool $explainMatches = false,
     ) {
         if ($facetValues < 1 || $facetValues > 100) {
             throw new \Fuzzphony\Core\Exception\InvalidQuery(sprintf('Facet values must be between 1 and 100, got %d.', $facetValues));
@@ -104,7 +108,18 @@ final readonly class SearchQuery
 
     public function withActor(\Fuzzphony\Core\Search\Actor $actor): self
     {
-        return $this->copy(actor: $actor);
+        return $this->copy(actor: $actor, system: false);
+    }
+
+    /** Searched as the system: no actor (the last of asActor() / asSystem() wins). */
+    public function asSystem(): self
+    {
+        return $this->copy(actor: null, system: true);
+    }
+
+    public function explainMatches(bool $explain = true): self
+    {
+        return $this->copy(explainMatches: $explain);
     }
 
     public function profile(string $profile): self
@@ -191,6 +206,8 @@ final readonly class SearchQuery
         $actor = array_key_exists('actor', $changes) ? $changes['actor'] : $this->actor;
         $log = $changes['log'] ?? null;
         $allowedFields = array_key_exists('allowedFields', $changes) ? self::stringList($changes['allowedFields']) : $this->allowedFields;
+        $system = $changes['system'] ?? null;
+        $explainMatches = $changes['explainMatches'] ?? null;
 
         return new self(
             text: is_string($text) ? $text : $this->text,
@@ -209,6 +226,8 @@ final readonly class SearchQuery
             actor: $actor instanceof \Fuzzphony\Core\Search\Actor ? $actor : null,
             log: is_bool($log) ? $log : $this->log,
             allowedFields: $allowedFields,
+            system: is_bool($system) ? $system : $this->system,
+            explainMatches: is_bool($explainMatches) ? $explainMatches : $this->explainMatches,
         );
     }
 
