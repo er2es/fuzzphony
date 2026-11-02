@@ -84,6 +84,9 @@ final class ScriptedConnection implements Connection, TransactionAware
     {
         return array_map(static fn(string $sql): string => match (true) {
             in_array($sql, ['BEGIN', 'COMMIT', 'ROLLBACK'], true) => $sql,
+            str_starts_with($sql, 'SAVEPOINT') => 'SAVEPOINT',
+            str_starts_with($sql, 'RELEASE SAVEPOINT') => 'RELEASE',
+            str_starts_with($sql, 'ROLLBACK TO SAVEPOINT') => 'ROLLBACK TO',
             str_contains($sql, 'set_config') => 'set_config',
             str_contains($sql, 'to_regclass') => 'vocabulary check',
             str_contains($sql, 'LEFT JOIN LATERAL') => 'did you mean',

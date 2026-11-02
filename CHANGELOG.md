@@ -11,6 +11,23 @@ and a link. Measurements, proofs and test names belong to the pull request, [doc
 
 ## [Unreleased]
 
+### Fixed
+
+- **`fuzzphony:schema --apply` no longer locks tables it does not change:** a column is added only when the catalog says it is missing (it used to
+  take an `ACCESS EXCLUSIVE` lock on the sidecar, the meta table and the log on every apply, queueing behind long readers).
+
+### Breaking
+
+- **A search inside your own transaction runs under one savepoint** (`fuzzphony_search`), sets each `pg_trgm` threshold once and puts your values back
+  once (it did this per statement: up to five round trips each). A failure after the first threshold now leaves your transaction usable on PDO too,
+  as it did on DBAL ([limitations](docs/limitations.md#a-search-inside-your-own-transaction)).
+- **Index objects are named `fuzzphony_<index>__<kind>`** (`__tsv`, `__fz`, `__f_<filter>`, `__pkey`, `__open_...`): an index named `products_open` no longer collides
+  with an object of `products` (the reindex swap failed with `42P07`). Run `fuzzphony:schema --apply`, then `fuzzphony:reindex`
+  ([UPGRADE](UPGRADE.md#from-0913-to-0100)).
+- **`fuzzphony:schema --apply` is mandatory after an upgrade.** A missing `tsv_capped` or `actor_ip` column makes the first search, refresh
+  or log write fail with one `SchemaNotApplied` exception; the no-column fallbacks and their per-process lookups are gone
+  (`search_log.ip_dropped` too). See [UPGRADE](UPGRADE.md#from-0913-to-0100).
+
 ## [0.9.13] - 2026-11-02
 
 Demo-only release: no change to the library behaviour (documentation of the bundle defaults only).

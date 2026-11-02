@@ -26,14 +26,15 @@ final class PostgresEngineTransactionAwareTest extends TestCase
         self::assertSame(1, self::setConfigCalls($connection));
     }
 
-    public function testAnOuterTransactionKeepsBothRoundTrips(): void
+    public function testAnOuterTransactionSetsOnceAndPutsTheValueBackOnce(): void
     {
         $connection = self::connection(inTransaction: true);
         $engine = new Fuzzphony(new PostgresEngine($connection), new IndexRegistry([Indexes::products()]));
 
         $engine->in('products')->query('mouse')->get();
 
-        self::assertSame(4, self::setConfigCalls($connection));
+        // the setting is made once (the second statement wants the same value) and put back once, at the end of the search
+        self::assertSame(2, self::setConfigCalls($connection));
     }
 
     public function testAConnectionWithoutTheCapabilityAlwaysKeepsBothRoundTrips(): void

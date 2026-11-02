@@ -163,7 +163,7 @@ final class SearchSqlBuilderTest extends TestCase
         self::assertSame(['p0' => "'razr':B", 'p1' => "'razr'", 'p2' => 'razr', 'p3' => "'razr':B", 'p4' => "'razr'", 'p5' => "'razr':B", 'p6' => "'razr'", 'p7' => 'razr'], $statement['params']);
         self::assertStringContainsString('WHERE s.tsv @@ q.tsp AND (s.tsv @@ q.sfl1 AND s."t_brand" @@ q.sft0) AND TRUE', $statement['sql'], 'the lookup has no weight: tsv keeps only the highest one at a clamped position');
         self::assertStringContainsString('WHERE ((s.tsv @@ q.fl1 AND s."t_brand" @@ q.ft0) OR (q.fn2 OPERATOR("public".<%) s.fz AND q.fn2 OPERATOR("public".<%) s."z_brand")) AND TRUE', $statement['sql']);
-        self::assertStringContainsString("CASE WHEN s.tsv @@ q.tsq THEN ts_rank_cd('{0.1,0.2,0.4,1}'::real[], s.tsv, q.tsq, 32) ELSE GREATEST(", $statement['sql'], 'a document tsv matches keeps its rank on tsv');
+        self::assertStringContainsString("ELSE ts_rank_cd('{0.1,0.2,0.4,1}'::real[], s.tsv, q.tsq, 32) END", $statement['sql'], 'a document tsv matches keeps its rank on tsv');
     }
 
     public function testWithoutAScopeTheFullTextBranchIsUnchanged(): void

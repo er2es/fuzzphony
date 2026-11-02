@@ -72,11 +72,11 @@ final class OpenClassSchemaTest extends TestCase
     {
         $fuzzphony = $this->fuzzphony(true);
         $plan = $fuzzphony->schema();
-        $statements = array_values(array_filter(array_map(static fn($s): string => $s->sql, $plan->statements), static fn(string $sql): bool => preg_match('/^CREATE INDEX CONCURRENTLY IF NOT EXISTS "fuzzphony_open_docs_open_(fz|tsv)_/', $sql) === 1));
+        $statements = array_values(array_filter(array_map(static fn($s): string => $s->sql, $plan->statements), static fn(string $sql): bool => preg_match('/^CREATE INDEX CONCURRENTLY IF NOT EXISTS "fuzzphony_open_docs__open_(fz|tsv)_/', $sql) === 1));
 
         self::assertCount(2, $statements);
-        self::assertMatchesRegularExpression('/^CREATE INDEX CONCURRENTLY IF NOT EXISTS "fuzzphony_open_docs_open_fz_[0-9a-f]{8}" ON "public"."fuzzphony_open_docs" USING gin \(\("z_name"\) "public".gin_trgm_ops\)$/', $statements[0]);
-        self::assertMatchesRegularExpression('/^CREATE INDEX CONCURRENTLY IF NOT EXISTS "fuzzphony_open_docs_open_tsv_[0-9a-f]{8}" ON "public"."fuzzphony_open_docs" USING gin \(\("t_name"\)\)$/', $statements[1]);
+        self::assertMatchesRegularExpression('/^CREATE INDEX CONCURRENTLY IF NOT EXISTS "fuzzphony_open_docs__open_fz_[0-9a-f]{8}" ON "public"."fuzzphony_open_docs" USING gin \(\("z_name"\) "public".gin_trgm_ops\)$/', $statements[0]);
+        self::assertMatchesRegularExpression('/^CREATE INDEX CONCURRENTLY IF NOT EXISTS "fuzzphony_open_docs__open_tsv_[0-9a-f]{8}" ON "public"."fuzzphony_open_docs" USING gin \(\("t_name"\)\)$/', $statements[1]);
         $fuzzphony->schema()->apply($this->connection);
         $fuzzphony->schema()->apply($this->connection);
         self::assertCount(2, $this->openIndexes());
@@ -118,7 +118,7 @@ final class OpenClassSchemaTest extends TestCase
         $checks = self::checks($granted);
 
         self::assertSame(CheckStatus::Error, $checks['Definition']->status, 'the definition hash follows which fields are granted');
-        $missing = array_filter($checks, static fn($check): bool => preg_match('/^Index fuzzphony_open_docs_open_(fz|tsv)_/', $check->name) === 1 && $check->status === CheckStatus::Error && $check->message === 'missing');
+        $missing = array_filter($checks, static fn($check): bool => preg_match('/^Index fuzzphony_open_docs__open_(fz|tsv)_/', $check->name) === 1 && $check->status === CheckStatus::Error && $check->message === 'missing');
         self::assertCount(2, $missing);
 
         $granted->schema()->apply($this->connection);
@@ -193,7 +193,7 @@ final class OpenClassSchemaTest extends TestCase
             self::assertStringContainsString('STALE', $checks['Index ' . $name]->message);
             self::assertStringContainsString('DROP INDEX CONCURRENTLY', (string) $checks['Index ' . $name]->fix);
         }
-        $missing = array_filter($checks, static fn($check): bool => preg_match('/^Index fuzzphony_open_docs_open_(fz|tsv)_/', $check->name) === 1 && $check->message === 'missing');
+        $missing = array_filter($checks, static fn($check): bool => preg_match('/^Index fuzzphony_open_docs__open_(fz|tsv)_/', $check->name) === 1 && $check->message === 'missing');
         self::assertCount(2, $missing, 'the indexes the definition needs now are not there');
         self::assertFalse($this->usesOpenClass($after, 'secret'), 'the gate is false: today\'s statements');
 

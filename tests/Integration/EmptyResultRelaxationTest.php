@@ -85,8 +85,8 @@ final class EmptyResultRelaxationTest extends TestCase
             $this->connection->fetchAll('EXPLAIN ' . $probe['sql'], $probe['params']),
         ));
 
-        self::assertStringContainsString('Bitmap Index Scan on fuzzphony_products_tsv', $plan);
-        self::assertStringContainsString('Bitmap Index Scan on fuzzphony_products_fz', $plan);
+        self::assertStringContainsString('Bitmap Index Scan on fuzzphony_products__tsv', $plan);
+        self::assertStringContainsString('Bitmap Index Scan on fuzzphony_products__fz', $plan);
         self::assertStringNotContainsString('Seq Scan on fuzzphony_products', $plan);
         self::assertStringNotContainsString('Index Scan using', $plan);
     }

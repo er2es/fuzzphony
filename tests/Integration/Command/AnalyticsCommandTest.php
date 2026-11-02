@@ -325,16 +325,17 @@ final class AnalyticsCommandTest extends TestCase
         self::assertEqualsCanonicalizing(['a secret', 'b secret'], $across);
     }
 
-    public function testRecentWorksOnAnInstallWithoutTheIpColumn(): void
+    public function testRecentOnAnInstallWithoutTheIpColumnSaysToApplyTheSchema(): void
     {
         $this->connection->execute('ALTER TABLE fuzzphony_search_log DROP COLUMN actor_ip');
-        $this->engine->writeSearchLog([$this->recentRecord('plain', 'ada')]);
         $tester = $this->tester();
 
-        $status = $tester->execute(['index' => 'products', '--recent' => true, '--format' => 'json']);
-
-        self::assertSame(Command::SUCCESS, $status);
-        self::assertSame([null], array_column(self::json($tester), 'ip'));
+        try {
+            $tester->execute(['index' => 'products', '--recent' => true, '--format' => 'json']);
+            self::fail('SchemaNotApplied expected');
+        } catch (\Fuzzphony\Core\Exception\SchemaNotApplied $e) {
+            self::assertStringContainsString('missing: actor_ip', $e->getMessage());
+        }
     }
 
     public function testRecentWithALimitOutOfRangeIsReportedWithoutAStackTrace(): void

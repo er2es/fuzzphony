@@ -147,7 +147,7 @@ final class PostgresEngineTest extends TestCase
     public function testDoctorFindsDriftMissingIndexesAndDisabledTriggers(): void
     {
         $fuzzphony = $this->fuzzphony('queue');
-        $this->connection->execute('DROP INDEX fuzzphony_products_fz');
+        $this->connection->execute('DROP INDEX fuzzphony_products__fz');
         $this->connection->execute('ALTER TABLE fuzzphony_products DROP COLUMN f_price');
         $this->connection->execute('ALTER TABLE fz_brand DISABLE TRIGGER fuzzphony_sync_products__fz_brand_upd');
 
@@ -157,7 +157,7 @@ final class PostgresEngineTest extends TestCase
         }
 
         self::assertStringContainsString('f_price', $problems['Sidecar columns']->message);
-        self::assertStringContainsString('CREATE INDEX CONCURRENTLY', (string) $problems['Index fuzzphony_products_fz']->fix);
+        self::assertStringContainsString('CREATE INDEX CONCURRENTLY', (string) $problems['Index fuzzphony_products__fz']->fix);
         self::assertStringContainsString('ENABLE TRIGGER', (string) $problems['Sync trigger on fz_brand']->fix);
 
         $fuzzphony->schema()->apply($this->connection); // idempotent repair (except the trigger state, which is deliberate)

@@ -96,12 +96,12 @@ final class PostgresInspectorChecksTest extends TestCase
                 ['Boost column', CheckStatus::Ok, 'popularity (real)', null],
                 ['Recency column', CheckStatus::Ok, 'published_at (timestamp with time zone)', null],
                 ['Sidecar columns', CheckStatus::Ok, '17 column(s) match the definition', null],
-                ['Index fuzzphony_products_tsv', CheckStatus::Ok, 'valid', null],
-                ['Index fuzzphony_products_fz', CheckStatus::Ok, 'valid', null],
-                ['Index fuzzphony_products_f_price', CheckStatus::Ok, 'valid', null],
-                ['Index fuzzphony_products_f_in_stock', CheckStatus::Ok, 'valid', null],
-                ['Index fuzzphony_products_f_published_at', CheckStatus::Ok, 'valid', null],
-                ['Index fuzzphony_products_f_brand_id', CheckStatus::Ok, 'valid', null],
+                ['Index fuzzphony_products__tsv', CheckStatus::Ok, 'valid', null],
+                ['Index fuzzphony_products__fz', CheckStatus::Ok, 'valid', null],
+                ['Index fuzzphony_products__f_price', CheckStatus::Ok, 'valid', null],
+                ['Index fuzzphony_products__f_in_stock', CheckStatus::Ok, 'valid', null],
+                ['Index fuzzphony_products__f_published_at', CheckStatus::Ok, 'valid', null],
+                ['Index fuzzphony_products__f_brand_id', CheckStatus::Ok, 'valid', null],
                 ['Refresh function', CheckStatus::Ok, '"public"."fuzzphony_refresh_products"(bigint[])', null],
                 ['Rebuild refresh function', CheckStatus::Ok, '"public"."fuzzphony_refresh_products__next"(bigint[])', null],
                 ['Rebuild change log function', CheckStatus::Ok, '"public"."fuzzphony_track_products"()', null],
@@ -349,27 +349,27 @@ final class PostgresInspectorChecksTest extends TestCase
     {
         $fuzzphony = $this->fuzzphony(Indexes::products('manual'));
         // what an interrupted CREATE INDEX CONCURRENTLY leaves: the index exists, flagged invalid
-        $this->connection->execute('DROP INDEX fuzzphony_products_f_price');
+        $this->connection->execute('DROP INDEX fuzzphony_products__f_price');
         $this->connection->execute('UPDATE fuzzphony_products SET f_price = 1');
         try {
-            $this->connection->execute('CREATE UNIQUE INDEX CONCURRENTLY fuzzphony_products_f_price ON fuzzphony_products (f_price)');
+            $this->connection->execute('CREATE UNIQUE INDEX CONCURRENTLY fuzzphony_products__f_price ON fuzzphony_products (f_price)');
             self::fail('the unique build must fail on the duplicate values');
         } catch (\PDOException) {
         }
 
-        $check = self::named($fuzzphony, 'products', 'Index fuzzphony_products_f_price')[0];
+        $check = self::named($fuzzphony, 'products', 'Index fuzzphony_products__f_price')[0];
 
         self::assertSame(CheckStatus::Error, $check->status);
         self::assertSame('INVALID (an interrupted concurrent build); it is ignored by the planner', $check->message);
-        self::assertStringStartsWith('DROP INDEX CONCURRENTLY "public"."fuzzphony_products_f_price"; CREATE INDEX CONCURRENTLY IF NOT EXISTS "fuzzphony_products_f_price" ON ', (string) $check->fix);
+        self::assertStringStartsWith('DROP INDEX CONCURRENTLY "public"."fuzzphony_products__f_price"; CREATE INDEX CONCURRENTLY IF NOT EXISTS "fuzzphony_products__f_price" ON ', (string) $check->fix);
     }
 
     public function testAMissingIndexIsReportedByName(): void
     {
         $fuzzphony = $this->fuzzphony(Indexes::products('manual'));
-        $this->connection->execute('DROP INDEX fuzzphony_products_fz');
+        $this->connection->execute('DROP INDEX fuzzphony_products__fz');
 
-        $check = self::named($fuzzphony, 'products', 'Index fuzzphony_products_fz')[0];
+        $check = self::named($fuzzphony, 'products', 'Index fuzzphony_products__fz')[0];
 
         self::assertSame(CheckStatus::Error, $check->status);
         self::assertSame('missing', $check->message);
@@ -602,26 +602,21 @@ final class PostgresInspectorChecksTest extends TestCase
         );
     }
 
-    public function testTheIpColumnIsWantedOnlyWhenTheIpIsOn(): void
+    public function testAMissingIpColumnIsASchemaError(): void
     {
         $this->connection->execute('DROP TABLE IF EXISTS fuzzphony_search_log CASCADE');
         $index = Indexes::products('manual');
-        $registry = new IndexRegistry([$index]);
-        $setup = new Fuzzphony(new PostgresEngine($this->connection, searchLog: true), $registry);
-        $setup->schema()->apply($this->connection);
-        $setup->reindex('products');
-        $ipOn = new Fuzzphony(new PostgresEngine($this->connection, searchLog: true, searchLogIp: true), $registry);
-        $ipOff = new Fuzzphony(new PostgresEngine($this->connection, searchLog: true), $registry);
-        $ok = [Check::ok('Search log', 'Table exists, nothing older than the retention.')];
+        $fuzzphony = new Fuzzphony(new PostgresEngine($this->connection, searchLog: true), new IndexRegistry([$index]));
+        $fuzzphony->schema()->apply($this->connection);
+        $fuzzphony->reindex('products');
 
-        self::assertEquals($ok, self::named($ipOn, 'products', 'Search log'), 'the column is there');
+        self::assertEquals([Check::ok('Search log', 'Table exists, nothing older than the retention.')], self::named($fuzzphony, 'products', 'Search log'), 'the column is there');
 
         $this->connection->execute('ALTER TABLE fuzzphony_search_log DROP COLUMN actor_ip');
 
-        self::assertEquals($ok, self::named($ipOff, 'products', 'Search log'), 'nobody wants the column');
         self::assertEquals(
-            [Check::error('Search log', 'search_log.ip is on, but table "public"."fuzzphony_search_log" has no actor_ip column: the addresses are dropped (the rows are kept). After applying the schema restart long-running workers (they look the column up once per process).', 'bin/console fuzzphony:schema --apply')],
-            self::named($ipOn, 'products', 'Search log'),
+            [Check::error('Search log', 'Table "public"."fuzzphony_search_log" has no actor_ip column: the schema is not up to date (missing: actor_ip), and writing or reading the log fails.', 'bin/console fuzzphony:schema --apply')],
+            self::named($fuzzphony, 'products', 'Search log'),
         );
     }
 

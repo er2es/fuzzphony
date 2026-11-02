@@ -83,7 +83,7 @@ a `BEGIN` / `COMMIT`. Since 0.9.7 a typo-tolerant search runs everything from it
 threshold (the per-word candidate probes, the ranked statement, the relaxation, the facets and the did-you-mean lookup) in
 one transaction that the engine opens, instead of one per statement (0.9.6 measured: 14, 18, 14, `always` 13, relaxed 18). The
 threshold is still set per statement, once when two statements want the same value, and the check that the vocabulary table
-is readable is asked once per process. Inside a transaction of your own nothing changes. Multiply the difference by your network latency to know what it saves: on a local database
+is readable is asked once per process. Inside a transaction of your own the statements share one savepoint and your values are put back once ([limitations](limitations.md#a-search-inside-your-own-transaction)). Multiply the difference by your network latency to know what it saves: on a local database
 the time per search was a little lower in every run we made (a plain word 11.6 to 8.5 ms, `wireles mose` 85.8 to
 74.7 ms on one laptop; single runs of 5 repetitions, so treat them as indications, not as a promise). On a database
 1 ms away the saved round trips alone are 4 ms for a plain word and 12 ms for the word with two facets.

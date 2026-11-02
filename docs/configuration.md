@@ -299,8 +299,9 @@ class Product
 [search log](analytics.md#keeping-a-search-or-an-index-out-of-the-log)).
 
 An index name matches `[a-z_][a-z0-9_]*`, at most 48 characters, and must not contain `__` (two
-underscores): that is reserved for the objects of an index's rebuild (`fuzzphony_<index>__next`,
-`fuzzphony_<index>__changes`).
+underscores): that is reserved for the objects of an index: its secondary indexes (`fuzzphony_<index>__tsv`, `__fz`, `__f_<filter>`,
+`__pkey`, `__open_...`) and the objects of its rebuild (`fuzzphony_<index>__next`, `fuzzphony_<index>__changes`), so that an index called
+`products_open` never collides with an object of `products`.
 
 Filter and field names are always snake_case, even when the attribute is on a camelCase property:
 `bool $inStock` becomes the filter `in_stock`. Names follow the property name through

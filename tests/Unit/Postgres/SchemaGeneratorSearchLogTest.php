@@ -40,7 +40,7 @@ final class SchemaGeneratorSearchLogTest extends TestCase
         self::assertStringStartsWith('CREATE TABLE IF NOT EXISTS "public"."fuzzphony_search_log"', $statements[0]->sql);
         self::assertSame('Search log (opt-in)', $statements[0]->description);
         self::assertSame(
-            'DO $fuzzphony$ BEGIN IF NOT EXISTS (SELECT 1 FROM pg_attribute WHERE attrelid = to_regclass(\'"public"."fuzzphony_search_log"\') AND attname = \'actor_ip\' AND NOT attisdropped) THEN ALTER TABLE "public"."fuzzphony_search_log" ADD COLUMN actor_ip text; END IF; END $fuzzphony$',
+            'DO $fuzzphony$ BEGIN IF NOT EXISTS (SELECT 1 FROM pg_attribute WHERE attrelid = to_regclass(\'"public"."fuzzphony_search_log"\') AND attname = \'actor_ip\' AND NOT attisdropped) THEN ALTER TABLE "public"."fuzzphony_search_log" ADD COLUMN "actor_ip" text; END IF; END $fuzzphony$',
             $statements[1]->sql,
             'an existing table gets the nullable client IP column from the plan, and only when it is missing (no lock otherwise)',
         );
@@ -74,7 +74,7 @@ final class SchemaGeneratorSearchLogTest extends TestCase
         $sql = array_values(array_filter($plan->statements, static fn(Statement $s): bool => str_contains($s->sql, 'actor_ip')))[0]->sql;
 
         self::assertStringContainsString('to_regclass(\'"fz"."fuzzphony_search_log"\')', $sql);
-        self::assertStringContainsString('ALTER TABLE "fz"."fuzzphony_search_log" ADD COLUMN actor_ip text', $sql);
+        self::assertStringContainsString('ALTER TABLE "fz"."fuzzphony_search_log" ADD COLUMN "actor_ip" text', $sql);
     }
 
     public function testTheTableFollowsTheConfiguredSchema(): void

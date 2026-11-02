@@ -13,7 +13,6 @@ use Fuzzphony\Core\Ranking\Thresholds;
 use Fuzzphony\Core\Support\Coerce;
 use Fuzzphony\Engine\Postgres\Schema\Names;
 use Fuzzphony\Engine\Postgres\Schema\OpenClass;
-use Fuzzphony\Engine\Postgres\Schema\PostgresSchemaGenerator;
 use Fuzzphony\Engine\Postgres\Sql\Sql;
 
 /**
@@ -44,8 +43,6 @@ final class TextConfigCache
     private array $stems = [];
     /** @var array<string, array<string, bool>> text configuration => leaf tsquery => whether it reduces to nothing (a stop word) */
     private array $emptyAnswers = [];
-    /** @var array<string, bool> sidecar table => whether it has the tsv_capped column (see cappedColumn()) */
-    private array $cappedColumns = [];
     /** @var array<string, bool> sidecar table => whether a restricted viewer's lookup may use the open-class indexes (see openClass()) */
     private array $openClasses = [];
     /** @var \WeakMap<Synonyms, string>|null the content digest of each Synonyms object (immutable), made once; see expandSynonyms() */
@@ -63,29 +60,8 @@ final class TextConfigCache
         $this->expanders = [];
         $this->stems = [];
         $this->emptyAnswers = [];
-        $this->cappedColumns = [];
         $this->openClasses = [];
         $this->synonymDigests = null;
-    }
-
-    /**
-     * Whether the sidecar has the optional tsv_capped column (it comes with fuzzphony:schema --apply; PostgresSchemaGenerator::CAPPED_COLUMN):
-     * asked only by a statement that needs it (a phrase or a field-scoped word on an index with several fields), once per table, the answer
-     * kept until reset(). A role that may not read the column counts as "no column". Without it those statements read the later fields'
-     * vectors for every document tsv does not match: right, and slower.
-     *
-     * @return \Closure(): bool
-     */
-    public function cappedColumn(IndexDefinition $index): \Closure
-    {
-        return function () use ($index): bool {
-            $table = $this->names->sidecar($index);
-
-            return $this->cappedColumns[$table] ??= $this->connection->fetchValue(
-                "SELECT EXISTS (SELECT 1 FROM pg_attribute WHERE attrelid = to_regclass(:table) AND attname = :column AND NOT attisdropped AND has_column_privilege(attrelid, attname, 'SELECT'))",
-                ['table' => $table, 'column' => PostgresSchemaGenerator::CAPPED_COLUMN],
-            ) === true;
-        };
     }
 
     /**

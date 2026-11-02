@@ -37,7 +37,7 @@ final class NamesTest extends TestCase
         self::assertSame('"public"."fuzzphony_sync_products__fz_brand"', $names->syncFunction($index, $brand));
         self::assertSame('fuzzphony_sync_products__fz_brand', $names->triggerName($index, $brand));
         self::assertSame('fuzzphony_sync_products__fz_brand_ins', $names->triggerName($index, $brand, '_ins'));
-        self::assertSame('fuzzphony_products_tsv', $names->indexName($index, 'tsv'));
+        self::assertSame('fuzzphony_products__tsv', $names->indexName($index, 'tsv'));
         self::assertSame('t_brand', $names->fieldVectorName('brand'));
         self::assertSame('"t_brand"', $names->fieldVector('brand'));
         self::assertSame('z_brand', $names->fieldFuzzyName('brand'));
@@ -50,8 +50,8 @@ final class NamesTest extends TestCase
         self::assertSame('"public"."fuzzphony_refresh_products__next"', $names->shadowRefreshFunction($index));
         self::assertSame('fuzzphony_track_products', $names->trackFunctionName($index));
         self::assertSame('"public"."fuzzphony_track_products"', $names->trackFunction($index));
-        self::assertSame('fuzzphony_products_tsv__next', $names->shadowIndexName('fuzzphony_products_tsv'));
-        self::assertSame('"public"."fuzzphony_products_tsv"', $names->index('fuzzphony_products_tsv'));
+        self::assertSame('fuzzphony_products__tsv__next', $names->shadowIndexName('fuzzphony_products__tsv'));
+        self::assertSame('"public"."fuzzphony_products__tsv"', $names->index('fuzzphony_products__tsv'));
         self::assertSame('fuzzphony:public.products', $names->rebuildLockKey($index));
         self::assertSame('fuzzphony:fz.products', (new Names(schema: 'fz'))->rebuildLockKey($index));
     }
@@ -125,7 +125,7 @@ final class NamesTest extends TestCase
         self::assertSame('"Fuzzphony"."fuzzphony_products"', $names->sidecar($index));
         self::assertSame('"Fuzzphony"."fuzzphony_queue"', $names->queue());
         self::assertSame('"public"', $names->extension(), 'the extensions stay where they are');
-        self::assertSame('fuzzphony_products_tsv', $names->indexName($index, 'tsv'), 'an index lives in its table\'s schema');
+        self::assertSame('fuzzphony_products__tsv', $names->indexName($index, 'tsv'), 'an index lives in its table\'s schema');
         self::assertSame('fuzzphony_sync_products__fz_brand_trn', $names->triggerName($index, new Watch('fz_brand'), '_trn'), 'a trigger lives on its table');
     }
 

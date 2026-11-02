@@ -144,7 +144,6 @@ final class FuzzphonyBundleIpLimitTest extends TestCase
 
         self::assertSame(IpMode::Off, $container->getDefinition('fuzzphony.search_gate')->getArgument(5), 'the gate stores no address');
         self::assertSame(IpMode::Off, $container->getDefinition('fuzzphony.search_gate.operator')->getArgument(5));
-        self::assertFalse($container->getDefinition('fuzzphony.engine')->getArgument(6), 'and the doctor does not ask for the actor_ip column');
     }
 
     public function testTheOperatorGateRunsNoGuardEvenForPerIp(): void

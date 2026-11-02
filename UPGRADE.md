@@ -3,6 +3,28 @@
 Before 1.0, a minor version may contain breaking changes. Each section lists what to change,
 and the [CHANGELOG](CHANGELOG.md) has the full list of changes.
 
+## From 0.9.13 to 0.10.0
+
+### Breaking
+
+- **Searches in a caller's transaction.** A typo-tolerant search inside a transaction you opened sends `SAVEPOINT fuzzphony_search` at its first
+  threshold and `RELEASE SAVEPOINT fuzzphony_search` at its end (or `ROLLBACK TO` and `RELEASE` when it fails), instead of a nested transaction
+  per statement. With `PdoConnection` a search that fails after its first threshold no longer leaves your transaction aborted (the DBAL bridge already
+  behaved so). A query log or a test that counted the old per-statement `SET`/restore round trips needs the new numbers.
+- **Index objects have new names.** The secondary indexes and the primary key of a sidecar table are now `fuzzphony_<index>__<kind>`
+  (`fuzzphony_products__tsv`, `__fz`, `__f_<filter>`, `__pkey`, `__open_fz_<hash>`, `__open_tsv_<hash>`; `__` cannot occur in an index name), where they were
+  `fuzzphony_<index>_<kind>`: an index named `products_open` collided with the open-class objects of `products`. `fuzzphony:schema --apply` builds the indexes
+  under the new names (`CREATE INDEX CONCURRENTLY`, the table stays writable) and then drops the old ones (`DROP INDEX CONCURRENTLY`); the doctor
+  reports an old one as `OLD NAME` until then. The primary key keeps its old name until the next `fuzzphony:reindex` renames it. Until the apply, the
+  doctor reports the indexes missing and searches run as before. Anything of yours that names these indexes (a monitoring query, a `REINDEX`
+  script, an `EXPLAIN` assertion) needs the new names.
+- **Run `fuzzphony:schema --apply` before the new code serves traffic.** The columns `tsv_capped` (sidecar tables) and `actor_ip` (search log) are
+  required. A search, refresh or log write that finds one missing throws `Fuzzphony\Core\Exception\SchemaNotApplied` ("The Fuzzphony schema is
+  not up to date (missing: ...). Run: bin/console fuzzphony:schema --apply"); `fuzzphony:doctor` reports the same as an error. The slower
+  no-column statements, the per-process catalog lookups for these columns, the retry of a log batch without `actor_ip`, the metric
+  `fuzzphony.search_log.ip_dropped` and the `searchLogIp` constructor argument of `PostgresEngine` are removed. Long-running workers need no
+  restart for these columns any more (only the open-class indexes of `granted` fields are still looked up once per process).
+
 ## From 0.9.10 to 0.9.11
 
 **What you must do.** Nothing. The rankings of searches made with `asYouType()` (the Twig search component, `--as-you-type`) may change: the

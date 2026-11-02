@@ -290,7 +290,7 @@ final class FuzzphonyBundle extends AbstractBundle
         $this->registerActorResolver($services, $settings);
         $this->registerGate($services, $settings);
         $services->set('fuzzphony.engine', PostgresEngine::class)
-            ->args([service('fuzzphony.connection'), $settings->names->extensionSchema, $settings->names->schema, service('fuzzphony.metrics'), $settings->searchLogEnabled, $settings->retentionDays, $settings->ipMode !== IpMode::Off]);
+            ->args([service('fuzzphony.connection'), $settings->names->extensionSchema, $settings->names->schema, service('fuzzphony.metrics'), $settings->searchLogEnabled, $settings->retentionDays]);
         $services->alias(Engine::class, 'fuzzphony.engine')->public();
         $this->registerRegistry($services, $builder, $settings, $hasOrm);
         $this->registerSync($services, $settings);

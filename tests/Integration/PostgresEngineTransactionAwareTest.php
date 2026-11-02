@@ -41,7 +41,7 @@ final class PostgresEngineTransactionAwareTest extends TestCase
         self::assertSame(1, $recorder->setConfigCalls());
     }
 
-    public function testAnOuterTransactionKeepsBothRoundTripsAndLeavesTheSettingUnchanged(): void
+    public function testAnOuterTransactionSetsOnceAndLeavesTheSettingUnchanged(): void
     {
         $this->seed();
         $recorder = new RecordingPdoConnection($this->connection);
@@ -56,7 +56,7 @@ final class PostgresEngineTransactionAwareTest extends TestCase
             self::assertSame($before, $after, "the caller's own transaction must see the setting unchanged after the search returns");
         });
 
-        self::assertSame(4, $recorder->setConfigCalls());
+        self::assertSame(2, $recorder->setConfigCalls(), 'set once, put back once');
     }
 
     /** Schema + reindex through a plain, unrecorded engine/connection — only the search itself is recorded. */

@@ -36,8 +36,9 @@ final class PostgresSchemaGenerator
      * field. `tsv` is the fields' vectors joined with `||`, and the join loses information in two ways: positions are capped at
      * 16 383 (after a field of more than about 16 000 words every later word sits at one position, and only the highest weight of
      * the lexemes there is kept), and a lexeme keeps at most 256 positions (the later vector's positions of a lexeme that has them
-     * already are dropped, with no position anywhere near 16 383). It is optional: a searcher that does not find it, and a document
-     * with NULL in it (written before the column, or by an older refresh function: reindex fills it), take the slow way.
+     * already are dropped, with no position anywhere near 16 383). schema --apply adds it (a search or
+     * refresh without it fails with SchemaNotApplied); a document with NULL in it (written before the column, or by an older
+     * refresh function: reindex fills it) takes the slow way.
      */
     public const string CAPPED_COLUMN = 'tsv_capped';
 
@@ -99,10 +100,7 @@ final class PostgresSchemaGenerator
             ), 'Layout and definition each index was built from'),
         );
         foreach (['rebuild_failed_at' => 'timestamptz', 'rebuild_failures' => 'integer', 'rebuild_error' => 'text'] as $column => $type) {
-            $statements[] = new Statement(
-                sprintf('ALTER TABLE %s ADD COLUMN IF NOT EXISTS %s %s', $this->names->meta(), $column, $type),
-                'The last failure of the full rebuild a TRUNCATE queued (the doctor reports it)',
-            );
+            $statements[] = $this->addColumn($this->names->meta(), $column, $type, 'The last failure of the full rebuild a TRUNCATE queued (the doctor reports it)');
         }
 
         if ($this->searchLog) {
@@ -124,12 +122,7 @@ final class PostgresSchemaGenerator
 )",
                     $this->names->searchLog(),
                 ), 'Search log (opt-in)'),
-                // only when the column is missing: ADD COLUMN IF NOT EXISTS takes an ACCESS EXCLUSIVE lock even when it exists, and every apply would queue behind the log's writers
-                new Statement(sprintf(
-                    'DO ' . self::TAG . ' BEGIN IF NOT EXISTS (SELECT 1 FROM pg_attribute WHERE attrelid = to_regclass(%s) AND attname = \'actor_ip\' AND NOT attisdropped) THEN ALTER TABLE %s ADD COLUMN actor_ip text; END IF; END ' . self::TAG,
-                    Sql::string($this->names->searchLog()),
-                    $this->names->searchLog(),
-                ), 'Search log: the client IP (search_log.ip; stays empty when it is off, and an existing table gets the column here)'),
+                $this->addColumn($this->names->searchLog(), 'actor_ip', 'text', 'Search log: the client IP (search_log.ip; stays empty when it is off, and an existing table gets the column here)'),
                 new Statement(sprintf('CREATE INDEX IF NOT EXISTS %s ON %s (index_name, at)', $this->names->searchLogIndexName('index_at'), $this->names->searchLog()), 'Search log by index and time'),
                 new Statement(sprintf('CREATE INDEX IF NOT EXISTS %s ON %s (index_name, query_norm)', $this->names->searchLogIndexName('index_norm'), $this->names->searchLog()), 'Search log grouped by query'),
                 new Statement(sprintf('CREATE INDEX IF NOT EXISTS %s ON %s (at)', $this->names->searchLogIndexName('at'), $this->names->searchLog()), 'Search log by time alone (the purge and the doctor look at the oldest rows)'),
@@ -161,26 +154,9 @@ final class PostgresSchemaGenerator
             new Statement(sprintf("CREATE TABLE IF NOT EXISTS %s (\n%s\n)", $table, implode(",\n", $definitions)), sprintf('Sidecar index table of "%s"', $index->name)),
         ];
         foreach (array_slice($columns, 1, null, true) as $name => $type) {
-            if ($name === self::CAPPED_COLUMN) {
-                // only when the column is missing: ADD COLUMN IF NOT EXISTS takes an ACCESS EXCLUSIVE lock even when it exists
-                $statements[] = new Statement(
-                    sprintf(
-                        'DO ' . self::TAG . ' BEGIN IF NOT EXISTS (SELECT 1 FROM pg_attribute WHERE attrelid = to_regclass(%s) AND attname = %s AND NOT attisdropped) THEN ALTER TABLE %s ADD COLUMN %s %s; END IF; END ' . self::TAG,
-                        Sql::string($table),
-                        Sql::string($name),
-                        $table,
-                        Sql::ident($name),
-                        $type,
-                    ),
-                    sprintf('Keep column "%s" in sync with the definition (phrases and scoped words of a document that is not capped need no extra check; reindex fills it)', $name),
-                );
-
-                continue;
-            }
-            $statements[] = new Statement(
-                sprintf('ALTER TABLE %s ADD COLUMN IF NOT EXISTS %s %s', $table, Sql::ident($name), $type),
-                sprintf('Keep column "%s" in sync with the definition', $name),
-            );
+            $statements[] = $this->addColumn($table, $name, $type, $name === self::CAPPED_COLUMN
+                ? sprintf('Keep column "%s" in sync with the definition (phrases and scoped words of a document that is not capped need no extra check; reindex fills it)', $name)
+                : sprintf('Keep column "%s" in sync with the definition', $name));
         }
         if ($index->hasFuzzy()) {
             $statements[] = new Statement(
@@ -239,13 +215,14 @@ final class PostgresSchemaGenerator
         // behind the drop); a drop that fails is a warning and the apply is safe to run again
         $statements[] = new Statement(
             'DROP INDEX CONCURRENTLY IF EXISTS {name}',
-            'Drop an open-class index built for other granted fields',
+            'Drop an open-class index built for other granted fields, or an index under the name an earlier release gave it',
             transactional: false,
             forEach: sprintf(
-                'SELECT quote_ident(n.nspname) || \'.\' || quote_ident(c.relname) AS name FROM pg_index AS i JOIN pg_class AS c ON c.oid = i.indexrelid JOIN pg_namespace AS n ON n.oid = c.relnamespace WHERE i.indrelid = to_regclass(%1$s) AND c.relname ~ %2$s AND c.relname <> ALL (%3$s)',
+                'SELECT quote_ident(n.nspname) || \'.\' || quote_ident(c.relname) AS name FROM pg_index AS i JOIN pg_class AS c ON c.oid = i.indexrelid JOIN pg_namespace AS n ON n.oid = c.relnamespace WHERE i.indrelid = to_regclass(%1$s) AND (c.relname ~ %2$s OR c.relname = ANY (%4$s)) AND c.relname <> ALL (%3$s)',
                 Sql::string($table),
                 Sql::string('_' . OpenClass::NAME_TAIL . '$'),
                 'ARRAY[' . implode(', ', array_map(Sql::string(...), [...OpenClass::expectedNames($index, $this->names), ''])) . ']::text[]',
+                'ARRAY[' . implode(', ', array_map(Sql::string(...), ['', ...$this->legacyIndexNames($index)])) . ']::text[]',
             ),
         );
         foreach ($this->layoutSteps($index) as $target => [$step, $why]) {
@@ -262,6 +239,28 @@ final class PostgresSchemaGenerator
         $statements[] = $this->recordApply($index->name, Fingerprint::definition($index), sprintf('Record the layout and definition "%s" was built from', $index->name));
 
         return new SchemaPlan($statements);
+    }
+
+    /**
+     * Adds a column only when it is missing. `ADD COLUMN IF NOT EXISTS` takes an ACCESS EXCLUSIVE lock on the table even when the
+     * column is there, so every apply would queue behind (and stall) the table's long readers and writers; the catalog check
+     * before it takes no lock on the table.
+     *
+     * @param string $table the quoted table name
+     */
+    private function addColumn(string $table, string $column, string $type, string $description): Statement
+    {
+        return new Statement(
+            sprintf(
+                'DO ' . self::TAG . ' BEGIN IF NOT EXISTS (SELECT 1 FROM pg_attribute WHERE attrelid = to_regclass(%s) AND attname = %s AND NOT attisdropped) THEN ALTER TABLE %s ADD COLUMN %s %s; END IF; END ' . self::TAG,
+                Sql::string($table),
+                Sql::string($column),
+                $table,
+                Sql::ident($column),
+                $type,
+            ),
+            $description,
+        );
     }
 
     /**
@@ -350,7 +349,7 @@ ON CONFLICT (index_name) DO UPDATE SET layout_version = EXCLUDED.layout_version,
      * step for an index whose stored layout (fuzzphony_meta) is older, in the apply transaction,
      * before the meta upsert records the new layout; a missing version table or row runs none.
      * The check is SQL (a DO block), so the plan stays database-free and --dump-migration contains
-     * the steps. New columns come from the plan's ADD COLUMN IF NOT EXISTS, not from a step. The
+     * the steps. New columns come from the plan's guarded ADD COLUMN, not from a step. The
      * SELECT sits in its own IF: plpgsql plans an IF expression as a whole, so
      * "to_regclass(...) IS NOT NULL AND (SELECT ...)" would fail on a missing table.
      *
@@ -380,7 +379,7 @@ ON CONFLICT (index_name) DO UPDATE SET layout_version = EXCLUDED.layout_version,
     public function columns(IndexDefinition $index): array
     {
         $columns = [
-            'id' => Types::id($index->idType) . ' PRIMARY KEY',
+            'id' => Types::id($index->idType) . sprintf(' CONSTRAINT %s PRIMARY KEY', Sql::ident($this->names->indexName($index, 'pkey'))),
             'tsv' => 'tsvector NOT NULL',
             // NULL = not known (a document written before the column existed): treated as capped, see cappedExpression()
             self::CAPPED_COLUMN => 'boolean',
@@ -439,6 +438,19 @@ ON CONFLICT (index_name) DO UPDATE SET layout_version = EXCLUDED.layout_version,
         }
 
         return array_values(array_unique($columns));
+    }
+
+    /**
+     * The names the secondary indexes had before 0.10 (`<sidecar>_<suffix>`, see Names::indexName()), without the primary key (it
+     * cannot be dropped alone and the rebuild renames it): an index that still has one is dropped by the apply, once the new one exists.
+     *
+     * @return list<string>
+     */
+    public function legacyIndexNames(IndexDefinition $index): array
+    {
+        $suffixes = ['tsv', ...($index->hasFuzzy() ? ['fz'] : []), ...array_map(static fn($filter): string => 'f_' . $filter->name, $index->filters)];
+
+        return array_map(fn(string $suffix): string => $this->names->legacyIndexName($index, $suffix), $suffixes);
     }
 
     /**

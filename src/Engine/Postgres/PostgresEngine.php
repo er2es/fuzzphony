@@ -56,7 +56,6 @@ final class PostgresEngine implements Engine, Vocabulary, SynonymStems, Suggesti
      * @param string $schema          schema of Fuzzphony's own tables, functions and text search configurations
      * @param bool   $searchLog       whether the schema includes the search log table (and the doctor checks it)
      * @param int    $searchLogRetentionDays the age after which the doctor suggests purging log rows
-     * @param bool   $searchLogIp     whether the log is to keep the client IP: the doctor then wants the actor_ip column
      */
     public function __construct(
         private readonly Connection $connection,
@@ -65,7 +64,6 @@ final class PostgresEngine implements Engine, Vocabulary, SynonymStems, Suggesti
         private readonly MetricsCollector $metrics = new NullMetricsCollector(),
         bool $searchLog = false,
         private readonly int $searchLogRetentionDays = 90,
-        private readonly bool $searchLogIp = false,
     ) {
         $this->names = new Names($extensionSchema, $schema);
         $this->searchLogEnabled = $searchLog;
@@ -245,17 +243,13 @@ final class PostgresEngine implements Engine, Vocabulary, SynonymStems, Suggesti
     {
         return $this->guard->run(
             'inspection',
-            fn(): InspectionReport => (new PostgresInspector($this->connection, $this->schema, $this->searchLogEnabled, $this->searchLogRetentionDays, $this->searchLogIp))->inspect($index, $options),
+            fn(): InspectionReport => (new PostgresInspector($this->connection, $this->schema, $this->searchLogEnabled, $this->searchLogRetentionDays))->inspect($index, $options),
             'Check that this connection can read the catalog and the source.',
         );
     }
 
     private function searchLog(): SearchLogRepository
     {
-        return new SearchLogRepository(
-            $this->connection,
-            $this->names,
-            fn(int $dropped) => $this->metrics->increment('fuzzphony.search_log.ip_dropped', [], $dropped),
-        );
+        return new SearchLogRepository($this->connection, $this->names);
     }
 }

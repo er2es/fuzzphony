@@ -357,8 +357,7 @@ self::assertSame([], $this->fuzzphony()->suggest('tickets', 'invo', actor: $acto
   the limiter's lock (`lock_factory`) while it reads and writes the state.
 - **`fuzzphony:search` runs no guard** (a console has no token): it takes `--tenant` and `--user`, and its searches
   are logged with that user.
-- **The doctor checks the log:** `fuzzphony:doctor` reports an error if the table, or the `actor_ip` column when `ip`
-  is on, is missing.
+- **The doctor checks the log:** `fuzzphony:doctor` reports an error if the table, or its `actor_ip` column, is missing.
 
 ## Reference
 
