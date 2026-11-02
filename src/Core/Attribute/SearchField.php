@@ -16,5 +16,7 @@ final readonly class SearchField
         public ?string $column = null,
         /** The role a viewer needs to search and see this field (see FieldDefinition::$granted). */
         public ?string $granted = null,
+        /** A code or identifier field (see FieldDefinition::$code). */
+        public bool $code = false,
     ) {}
 }

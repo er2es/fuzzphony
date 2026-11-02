@@ -41,6 +41,15 @@ and the [CHANGELOG](CHANGELOG.md) has the full list of changes.
   (exception class and SQLSTATE) and `failed_at` (three columns the apply adds to `fuzzphony_queue`) and a back-off from 60 s to an hour; the doctor names them. The
   worker's stderr shows the exception class and SQLSTATE only (the driver message used to be printed: a log scraper that matched it needs the SQLSTATE).
 
+### Added
+
+- **`code: true` on a field.** A code or identifier field (`INV-001`, `AB-12/3`, `INV.007`) is indexed with every run of non-alphanumeric characters as one space
+  (`inv`, `001`) plus the code without separators (`inv001`), in the index's own text configuration, so what is typed reaches what is stored. Nothing changes for a
+  field without the flag. After adding it: `fuzzphony:schema --apply` and `fuzzphony:reindex` (the doctor reports the definition as changed until then). A code whose parts are
+  stop words of the language (`IT-5` in English) also finds other rows with the same remaining parts; the exact match ranks first. Replaces the `regexp_replace` workaround in the source query.
+- **`source: { query_file: ... }`** / `fromQueryFile($path, ?$baseDir = null)`: the SQL of the source query read from a file, relative to the project root (the bundle) or to `$baseDir`
+  (default: the working directory); `..` escapes and absolute paths outside it are refused. The file is read when the definition loads, so editing it changes the definition fingerprint.
+
 ## From 0.9.10 to 0.9.11
 
 **What you must do.** Nothing. The rankings of searches made with `asYouType()` (the Twig search component, `--as-you-type`) may change: the

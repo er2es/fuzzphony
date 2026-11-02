@@ -7,7 +7,7 @@ How to describe an index, set up the Symfony bundle, and build the index. Back t
 An index definition has:
 
 - a source: a table, or any `SELECT` with joins;
-- searchable fields, each with a weight A–D and an optional `fuzzy` flag (typo tolerance);
+- searchable fields, each with a weight A–D, an optional `fuzzy` flag (typo tolerance) and an optional `code` flag (invoice numbers and SKUs, see [Codes and numbers](searching.md#codes-and-numbers));
 - typed filters;
 - optional boost and recency columns;
 - ranking profiles and thresholds (see [Ranking and thresholds](ranking.md)).
@@ -374,6 +374,14 @@ search; `did_you_mean: false` turns both off (the rescue uses the suggestion's v
       thresholds:
         rescue_empty: false     # suggest a correction, but never search it for the visitor
 ```
+
+### The source query from a file
+
+A long query can live in an SQL file: `source: { query_file: sql/catalog.sql }` (YAML) or `->fromQueryFile('sql/catalog.sql', $baseDir)` (builder). The path is relative to the project
+root (`kernel.project_dir` in the bundle) or to `$baseDir` (builder; default the current working directory) and must stay inside it: a `..` that leaves it, an absolute path elsewhere (symbolic
+links are resolved), a missing, unreadable or empty file is refused with the path in the message. `query` and `query_file` (or `table`) together are refused. The file is read when the
+definition loads, so its content is the source query and part of the definition fingerprint: after an edit the doctor reports "definition changed", run `fuzzphony:schema --apply` and
+`fuzzphony:reindex`. The same rules as for `query` apply (a trusted file, no `$fuzzphony$`).
 
 ## Synonyms
 
