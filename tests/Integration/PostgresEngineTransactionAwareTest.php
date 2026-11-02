@@ -5,7 +5,6 @@ declare(strict_types=1);
 namespace Fuzzphony\Tests\Integration;
 
 use Fuzzphony\Core\Database\Connection;
-use Fuzzphony\Core\Database\TransactionAware;
 use Fuzzphony\Core\Fuzzphony;
 use Fuzzphony\Core\Registry\IndexRegistry;
 use Fuzzphony\Engine\Postgres\PostgresEngine;
@@ -34,7 +33,7 @@ final class PostgresEngineTransactionAwareTest extends TestCase
         $recorder = new RecordingPdoConnection($this->connection);
         $search = new Fuzzphony(new PostgresEngine($recorder), new IndexRegistry([Indexes::products('manual')]));
 
-        $search->in('products')->query('mouse')->thresholds(['fuzzy_mode' => 'always', 'did_you_mean' => false])->get();
+        $search->in('products')->query('mouse')->thresholds(['typo' => ['mode' => 'always'], 'rescue' => ['did_you_mean' => false, 'correct_when_empty' => false]])->get();
 
         // the word is probed on its own, then the search runs, both in one transaction that this engine owns: the setting is made
         // once (the second statement wants the same value) and the previous value is not put back, the COMMIT drops it
@@ -50,7 +49,7 @@ final class PostgresEngineTransactionAwareTest extends TestCase
         $recorder->transactional(function (Connection $c) use ($search): void {
             $before = $c->fetchValue("SELECT current_setting('pg_trgm.word_similarity_threshold', true)");
 
-            $search->in('products')->query('mouse')->thresholds(['fuzzy_mode' => 'always', 'did_you_mean' => false])->get();
+            $search->in('products')->query('mouse')->thresholds(['typo' => ['mode' => 'always'], 'rescue' => ['did_you_mean' => false, 'correct_when_empty' => false]])->get();
 
             $after = $c->fetchValue("SELECT current_setting('pg_trgm.word_similarity_threshold', true)");
             self::assertSame($before, $after, "the caller's own transaction must see the setting unchanged after the search returns");
@@ -70,7 +69,7 @@ final class PostgresEngineTransactionAwareTest extends TestCase
 }
 
 /** @internal Delegates everything to a real PdoConnection, recording every statement passed through it. */
-final class RecordingPdoConnection implements Connection, TransactionAware
+final class RecordingPdoConnection implements Connection
 {
     /** @var list<string> */
     private array $sql = [];
@@ -105,7 +104,7 @@ final class RecordingPdoConnection implements Connection, TransactionAware
 
     public function inTransaction(): bool
     {
-        return $this->delegate instanceof TransactionAware && $this->delegate->inTransaction();
+        return $this->delegate->inTransaction();
     }
 
     public function setConfigCalls(): int

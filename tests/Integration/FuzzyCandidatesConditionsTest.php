@@ -35,7 +35,7 @@ final class FuzzyCandidatesConditionsTest extends TestCase
 
     public function testAnExplainOnATenantScopedIndexBindsNoIdOfAnotherTenant(): void
     {
-        $explanation = $this->fuzzphony(true)->in('products')->query('mousse')->thresholds(['fuzzy_mode' => 'always'])->asActor(new Actor(tenant: 1))->explain();
+        $explanation = $this->fuzzphony(true)->in('products')->query('mousse')->thresholds(['typo' => ['mode' => 'always']])->asActor(new Actor(tenant: 1))->explain();
 
         self::assertEqualsCanonicalizing([1, 4], $explanation->result->ids());
         self::assertSame(['1', '4'], self::boundIds($explanation), 'product 2 (brand 2) matches the word, but is another tenant\'s');
@@ -43,7 +43,7 @@ final class FuzzyCandidatesConditionsTest extends TestCase
 
     public function testAFilteredSearchProbesOnlyTheDocumentsThatPassTheFilter(): void
     {
-        $explanation = $this->fuzzphony(false)->in('products')->query('mousse')->where('price', '<', 5_000)->thresholds(['fuzzy_mode' => 'always'])->explain();
+        $explanation = $this->fuzzphony(false)->in('products')->query('mousse')->where('price', '<', 5_000)->thresholds(['typo' => ['mode' => 'always']])->explain();
 
         self::assertEqualsCanonicalizing([1, 4], $explanation->result->ids());
         self::assertSame(['1', '4'], self::boundIds($explanation));
@@ -51,7 +51,7 @@ final class FuzzyCandidatesConditionsTest extends TestCase
 
     public function testWithoutConditionsEveryMatchIsACandidate(): void
     {
-        $explanation = $this->fuzzphony(false)->in('products')->query('mousse')->thresholds(['fuzzy_mode' => 'always'])->explain();
+        $explanation = $this->fuzzphony(false)->in('products')->query('mousse')->thresholds(['typo' => ['mode' => 'always']])->explain();
 
         self::assertSame(['1', '2', '4'], self::boundIds($explanation));
     }
@@ -59,7 +59,7 @@ final class FuzzyCandidatesConditionsTest extends TestCase
     public function testAFacetLeavingItsFilterOutStillCountsEveryValue(): void
     {
         // the candidates passed in_stock = false; the in_stock facet leaves that condition out
-        $result = $this->fuzzphony(false)->in('products')->query('mousse')->where('in_stock', false)->thresholds(['fuzzy_mode' => 'always'])->facets('in_stock')->get();
+        $result = $this->fuzzphony(false)->in('products')->query('mousse')->where('in_stock', false)->thresholds(['typo' => ['mode' => 'always']])->facets('in_stock')->get();
 
         self::assertSame([], $result->ids());
         self::assertSame([[true, 3]], array_map(static fn($v): array => [$v->value, $v->count], $result->facets['in_stock']));

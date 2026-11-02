@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Fuzzphony\Core\Wizard;
 
+/** @internal */
 final readonly class ForeignKey
 {
     public function __construct(

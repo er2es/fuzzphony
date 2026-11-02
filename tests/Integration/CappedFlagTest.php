@@ -57,7 +57,7 @@ final class CappedFlagTest extends TestCase
         $found = [];
         foreach (self::QUERIES as $text) {
             $ids = function (string $mode) use ($fuzzphony, $text): array {
-                $hits = array_map(static fn($hit): int|string => $hit->id, $fuzzphony->in('cap_docs')->query($text)->thresholds(['fuzzy_mode' => $mode])->get()->hits);
+                $hits = array_map(static fn($hit): int|string => $hit->id, $fuzzphony->in('cap_docs')->query($text)->thresholds(['typo' => ['mode' => $mode]])->get()->hits);
                 sort($hits);
 
                 return $hits;
@@ -167,7 +167,7 @@ final class CappedFlagTest extends TestCase
 
     public function testTheFastStatementReadsTheLaterFieldsOnlyForACappedDocument(): void
     {
-        $sql = (string) preg_replace('/\s+/', ' ', $this->fuzzphony->in('cap_docs')->query('"word1 word2"')->thresholds(['fuzzy_mode' => 'never'])->explain()->statements[0]['sql']);
+        $sql = (string) preg_replace('/\s+/', ' ', $this->fuzzphony->in('cap_docs')->query('"word1 word2"')->thresholds(['typo' => ['mode' => 'never']])->explain()->statements[0]['sql']);
 
         self::assertStringContainsString('s.tsv @@ q.sft0 OR (s.tsv_capped IS NOT FALSE AND EXISTS (SELECT 1 FROM "public"."fuzzphony_cap_docs" AS c WHERE c.id = s.id AND ((c."t_title" || c."t_body" || c."t_secret") @@ q.sft0 OR ', $sql);
         self::assertStringContainsString('CASE WHEN s.tsv_capped IS NOT FALSE AND NOT (s.tsv @@ q.tsq) THEN (SELECT GREATEST(', $sql);
@@ -188,7 +188,7 @@ final class CappedFlagTest extends TestCase
     /** @return list<int|string> */
     private function ids(Fuzzphony $fuzzphony, string $text, string $mode = 'never'): array
     {
-        $ids = array_map(static fn($hit): int|string => $hit->id, $fuzzphony->in('cap_docs')->query($text)->thresholds(['fuzzy_mode' => $mode])->get()->hits);
+        $ids = array_map(static fn($hit): int|string => $hit->id, $fuzzphony->in('cap_docs')->query($text)->thresholds(['typo' => ['mode' => $mode]])->get()->hits);
         sort($ids);
 
         return $ids;
@@ -229,7 +229,7 @@ final class CappedFlagTest extends TestCase
     {
         $this->load([[1, str_repeat('foo ', 300), 'foo baz foo bar'], [2, 'x', 'foo baz foo bar']]);
         $rank = [];
-        foreach ($this->fuzzphony->in('cap_docs')->query('title:"foo bar"')->thresholds(['fuzzy_mode' => 'never'])->get()->hits as $hit) {
+        foreach ($this->fuzzphony->in('cap_docs')->query('title:"foo bar"')->thresholds(['typo' => ['mode' => 'never']])->get()->hits as $hit) {
             $rank[$hit->id] = round($hit->breakdown->textRank, 6);
         }
         ksort($rank);

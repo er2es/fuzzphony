@@ -24,6 +24,11 @@ final class SchemaPlanTest extends TestCase
     public function testADatabaseErrorNamesTheFailingStatement(bool $transactional): void
     {
         $connection = new class implements Connection {
+            public function inTransaction(): bool
+            {
+                return false;
+            }
+
             /** @var list<string> */
             public array $executed = [];
 
@@ -73,6 +78,11 @@ final class SchemaPlanTest extends TestCase
         /** @var \ArrayObject<int, string> $log */
         $log = new \ArrayObject();
         $connection = new class ($log) implements Connection {
+            public function inTransaction(): bool
+            {
+                return false;
+            }
+
             /** @param \ArrayObject<int, string> $log */
             public function __construct(private readonly \ArrayObject $log) {}
 

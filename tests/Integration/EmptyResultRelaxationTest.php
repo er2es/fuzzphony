@@ -7,6 +7,7 @@ namespace Fuzzphony\Tests\Integration;
 use Fuzzphony\Bridge\Doctrine\DbalConnection;
 use Fuzzphony\Core\Database\Connection;
 use Fuzzphony\Core\Fuzzphony;
+use Fuzzphony\Core\Ranking\RescueThresholds;
 use Fuzzphony\Core\Ranking\Thresholds;
 use Fuzzphony\Core\Registry\IndexRegistry;
 use Fuzzphony\Core\Search\SearchResult;
@@ -30,7 +31,7 @@ final class EmptyResultRelaxationTest extends TestCase
             // enough rows for the planner to prefer the indexes over a sequential scan
             $connection->execute("INSERT INTO fz_product SELECT 100 + n, 'Filler item ' || n, 'Lorem ipsum dolor ' || (n % 97), 1, 1000 + n, true, 0, now() FROM generate_series(1, :n) AS n", ['n' => $filler]);
         }
-        $fuzzphony = new Fuzzphony(new PostgresEngine($connection), new IndexRegistry([Indexes::products('manual', tenant: $tenant)->withThresholds(new Thresholds(didYouMean: false))]));
+        $fuzzphony = new Fuzzphony(new PostgresEngine($connection), new IndexRegistry([Indexes::products('manual', tenant: $tenant)->withThresholds(new Thresholds(rescue: new RescueThresholds(didYouMean: false, correctWhenEmpty: false)))]));
         $fuzzphony->schema()->apply($connection);
         $fuzzphony->reindex('products');
         if ($filler > 0) {
@@ -62,7 +63,7 @@ final class EmptyResultRelaxationTest extends TestCase
     {
         $search = $this->fuzzphony()->in('products');
         $labels = static fn(string $q, bool $relax = true, string $fuzzyMode = 'fallback'): array => array_column(
-            $search->query($q)->thresholds(['relax_when_empty' => $relax, 'fuzzy_mode' => $fuzzyMode])->explain()->statements,
+            $search->query($q)->thresholds(['rescue' => ['drop_unmatched' => $relax], 'typo' => ['mode' => $fuzzyMode]])->explain()->statements,
             'label',
         );
 
@@ -170,7 +171,7 @@ final class EmptyResultRelaxationTest extends TestCase
         $this->fuzzphony();
         $log = new \ArrayObject();
         $recording = self::recording($this->connection, $log);
-        $search = (new Fuzzphony(new PostgresEngine($recording), new IndexRegistry([Indexes::products('manual')->withThresholds(new Thresholds(didYouMean: false))])))->in('products');
+        $search = (new Fuzzphony(new PostgresEngine($recording), new IndexRegistry([Indexes::products('manual')->withThresholds(new Thresholds(rescue: new RescueThresholds(didYouMean: false, correctWhenEmpty: false)))])))->in('products');
 
         $result = $search->query('wireless mouse offfice')->get();
 
@@ -258,10 +259,10 @@ final class EmptyResultRelaxationTest extends TestCase
     {
         $this->fuzzphony();
         $log = new \ArrayObject();
-        $search = (new Fuzzphony(new PostgresEngine(self::recording($this->connection, $log)), new IndexRegistry([Indexes::products('manual')->withThresholds(new Thresholds(didYouMean: false))])))->in('products');
+        $search = (new Fuzzphony(new PostgresEngine(self::recording($this->connection, $log)), new IndexRegistry([Indexes::products('manual')->withThresholds(new Thresholds(rescue: new RescueThresholds(didYouMean: false, correctWhenEmpty: false)))])))->in('products');
 
         self::assertSame([2], $search->query('brand:razr')->get()->ids(), 'found by the fuzzy fallback');
-        self::assertSame([2], $search->query('brand:razr')->thresholds(['fuzzy_mode' => 'always'])->get()->ids());
+        self::assertSame([2], $search->query('brand:razr')->thresholds(['typo' => ['mode' => 'always']])->get()->ids());
         $lookups = array_filter($log->getArrayCopy(), static fn(string $sql): bool => str_contains($sql, 'numnode('));
         // fetched up front for the recheck, reused by the fuzzy branch and by the second search (the same word)
         self::assertCount(1, $lookups);
@@ -271,6 +272,11 @@ final class EmptyResultRelaxationTest extends TestCase
     private static function recording(Connection $inner, \ArrayObject $log): Connection
     {
         return new class ($inner, $log) implements Connection {
+            public function inTransaction(): bool
+            {
+                return false;
+            }
+
             /** @param \ArrayObject<int, string> $log */
             public function __construct(private readonly Connection $inner, private readonly \ArrayObject $log) {}
 

@@ -41,7 +41,7 @@ final class DidYouMeanTest extends TestCase
     {
         $builder = $fuzzphony->in('products');
         if ($thresholds !== '') {
-            $builder = $builder->thresholds(['fallback_below' => (int) $thresholds]);
+            $builder = $builder->thresholds(['typo' => ['fallback_below' => (int) $thresholds]]);
         }
 
         return $builder->query($query)->get()->didYouMean;
@@ -89,7 +89,7 @@ final class DidYouMeanTest extends TestCase
 
         self::assertSame('wireless', $this->mean($fuzzphony, 'wireles'));
         self::assertSame('wireless', $this->mean($fuzzphony, 'wireles', '1'), 'fallback_below 1 does not matter: typo tolerance had to run');
-        self::assertNull($fuzzphony->in('products')->query('hedphones')->thresholds(['did_you_mean' => false])->get()->didYouMean);
+        self::assertNull($fuzzphony->in('products')->query('hedphones')->thresholds(['rescue' => ['did_you_mean' => false, 'correct_when_empty' => false]])->get()->didYouMean);
     }
 
     public function testNearerWinsThenTheWordInMoreDocuments(): void
@@ -227,7 +227,7 @@ final class DidYouMeanTest extends TestCase
         $this->connection->execute("INSERT INTO \"fuzzphony_products__vocab\" VALUES ('abc', 1)");
 
         self::assertSame('abc', $this->mean($fuzzphony, 'abx'), 'three letters is the index minimum');
-        self::assertNull($fuzzphony->in('products')->query('ab')->thresholds(['fuzzy_min_length' => 1])->get()->didYouMean, 'shorter words were never put in the vocabulary');
+        self::assertNull($fuzzphony->in('products')->query('ab')->thresholds(['typo' => ['min_length' => 1]])->get()->didYouMean, 'shorter words were never put in the vocabulary');
     }
 
     public function testASessionSimilarityThresholdDoesNotChangeTheCandidates(): void

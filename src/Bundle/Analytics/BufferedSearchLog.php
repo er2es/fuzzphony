@@ -6,7 +6,7 @@ namespace Fuzzphony\Bundle\Analytics;
 
 use Fuzzphony\Core\Analytics\SearchLog;
 use Fuzzphony\Core\Analytics\SearchRecord;
-use Fuzzphony\Core\Engine\SearchLogStore;
+use Fuzzphony\Core\Engine\Engine;
 use Fuzzphony\Core\Observability\MetricsCollector;
 use Psr\Log\LoggerInterface;
 use Symfony\Contracts\Service\ResetInterface;
@@ -27,12 +27,12 @@ final class BufferedSearchLog implements SearchLog, ResetInterface
     /** @var list<SearchRecord> */
     private array $buffer = [];
 
-    /** @var SearchLogStore|null the resolved store (null until the first write when $store is a closure) */
-    private ?SearchLogStore $resolved = null;
+    /** @var Engine|null the resolved store (null until the first write when $store is a closure) */
+    private ?Engine $resolved = null;
 
-    /** @param SearchLogStore|\Closure(): SearchLogStore $store a closure is called on the first write, so a request that logged nothing never builds the engine behind it */
+    /** @param Engine|\Closure(): Engine $store a closure is called on the first write, so a request that logged nothing never builds the engine behind it */
     public function __construct(
-        private readonly SearchLogStore|\Closure $store,
+        private readonly Engine|\Closure $store,
         private readonly MetricsCollector $metrics,
         private readonly ?LoggerInterface $logger = null,
     ) {}
@@ -67,8 +67,8 @@ final class BufferedSearchLog implements SearchLog, ResetInterface
         }
     }
 
-    private function store(): SearchLogStore
+    private function store(): Engine
     {
-        return $this->resolved ??= $this->store instanceof SearchLogStore ? $this->store : ($this->store)();
+        return $this->resolved ??= $this->store instanceof Engine ? $this->store : ($this->store)();
     }
 }

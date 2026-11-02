@@ -27,6 +27,13 @@ and a link. Measurements, proofs and test names belong to the pull request, [doc
 
 ### Breaking
 
+- **Thresholds are four named groups** (`relevance`, `typo`, `rescue`, `limits`): `new Thresholds(typo: new TypoThresholds(mode: FuzzyMode::Always))`,
+  `thresholds: { typo: { mode: always } }`, `->thresholds(['typo' => ['mode' => 'always']])`, `--threshold typo.mode=always`; the flat names fail with the new key in the message,
+  `fallback_below` splits into `typo.fallback_below` and `rescue.did_you_mean_below` ([UPGRADE](UPGRADE.md#from-0913-to-0100)).
+- **`Fuzzphony::suggest()` is `complete()`, `useSuggestion` is `useDidYouMean`, `--suggest` is `--complete`** (no aliases).
+- **The public API is 76 types:** the engine contract, the wizard's parts, the registry and the container types are `@internal`; `Fuzzphony::postgres()` builds the service without
+  a framework (guards, search log, redaction, IP mode as options), `Fuzzphony::wizard()` is the wizard, `Fuzzphony::resetCaches()` replaces `PostgresEngine::resetCaches()`; the optional `Engine` interfaces, `Capabilities` and `TransactionAware` are folded into `Engine` and `Connection`
+  (`Connection::inTransaction()`). ([Public API](docs/architecture.md#public-api), [UPGRADE](UPGRADE.md#from-0913-to-0100)).
 - **One trigger set and one change log per watched table** (`queue` sync, statement level): a table watched by N indexes has four triggers, not 4N,
   and an `UPDATE` writes one log row per changed row instead of N queue rows (bulk `UPDATE` of 20 000 rows on 4 indexes: 734 ms to 120 ms). Queue rows
   appear when the worker drains the log, a `TRUNCATE` is acted on then, and a long writing transaction delays every index ([Sync](docs/sync.md#one-trigger-per-table-one-change-log)).

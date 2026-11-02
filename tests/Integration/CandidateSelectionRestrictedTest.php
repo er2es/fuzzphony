@@ -103,7 +103,7 @@ final class CandidateSelectionRestrictedTest extends TestCase
             foreach ($queries as $text => $modes) {
                 foreach ($modes as $mode) {
                     foreach ([[5, 0], [5, 90]] as [$limit, $offset]) {
-                        $explained = $fuzzphony->in('cs_docs')->query($text)->thresholds(['fuzzy_mode' => $mode, 'candidate_limit' => 100])
+                        $explained = $fuzzphony->in('cs_docs')->query($text)->thresholds(['typo' => ['mode' => $mode], 'limits' => ['candidates' => 100]])
                             ->restrictedToFields(...$allowed)->facets('cat')->limit($limit, $offset)->explain();
                         $result = $explained->result;
                         $capped = $capped || $result->totalIsLowerBound;
@@ -126,7 +126,7 @@ final class CandidateSelectionRestrictedTest extends TestCase
             }
             if ($order[0] === 'title' && in_array('title', $allowed, true)) {
                 // the late best document (the title is exactly the word) wins although the first candidates the index returns do not hold it
-                $best = $fuzzphony->in('cs_docs')->query('common')->thresholds(['fuzzy_mode' => 'never', 'candidate_limit' => 100])->restrictedToFields(...$allowed)->limit(3)->get();
+                $best = $fuzzphony->in('cs_docs')->query('common')->thresholds(['typo' => ['mode' => 'never'], 'limits' => ['candidates' => 100]])->restrictedToFields(...$allowed)->limit(3)->get();
                 self::assertSame(90000, $best->hits[0]->id, 'the best candidate of a viewer who sees the title is chosen, not the first ones found (' . $variant . ')');
             }
         }
@@ -170,14 +170,14 @@ final class CandidateSelectionRestrictedTest extends TestCase
 
         foreach ([[1, 900, 61], [2, 2900, 202]] as [$tenant, $best, $matches]) {
             foreach ([0, 15, 60] as $offset) {
-                $result = $fuzzphony->in('cs_docs')->forTenant($tenant)->query('common')->thresholds(['fuzzy_mode' => $mode, 'candidate_limit' => 10])->facets('cat')->limit(5, $offset)->get();
+                $result = $fuzzphony->in('cs_docs')->forTenant($tenant)->query('common')->thresholds(['typo' => ['mode' => $mode], 'limits' => ['candidates' => 10]])->facets('cat')->limit(5, $offset)->get();
                 foreach ($result->ids() as $id) {
                     $own = $tenant === 1 ? ($id <= 60 || $id === 900) : $id >= 1000;
                     self::assertTrue($own, sprintf('tenant %d got the document %s of another tenant (offset %d)', $tenant, $id, $offset));
                 }
                 self::assertLessThanOrEqual($matches, $result->total);
             }
-            $first = $fuzzphony->in('cs_docs')->forTenant($tenant)->query('common')->thresholds(['fuzzy_mode' => $mode, 'candidate_limit' => 10])->limit(3)->get();
+            $first = $fuzzphony->in('cs_docs')->forTenant($tenant)->query('common')->thresholds(['typo' => ['mode' => $mode], 'limits' => ['candidates' => 10]])->limit(3)->get();
             self::assertSame($best, $first->hits[0]->id, sprintf('tenant %d: its own best document is found first', $tenant));
         }
     }
@@ -186,9 +186,9 @@ final class CandidateSelectionRestrictedTest extends TestCase
     {
         $fuzzphony = $this->tenantIndex('common', 'common');
 
-        $result = $fuzzphony->in('cs_docs')->forTenant(1)->query('common')->thresholds(['fuzzy_mode' => 'never', 'candidate_limit' => 10])->restrictedToFields('title', 'body')->where('cat', 'b')->limit(5)->get();
+        $result = $fuzzphony->in('cs_docs')->forTenant(1)->query('common')->thresholds(['typo' => ['mode' => 'never'], 'limits' => ['candidates' => 10]])->restrictedToFields('title', 'body')->where('cat', 'b')->limit(5)->get();
         self::assertSame([900], $result->ids());
-        $result = $fuzzphony->in('cs_docs')->forTenant(1)->query('common')->thresholds(['fuzzy_mode' => 'never', 'candidate_limit' => 10])->restrictedToFields('title', 'body')->limit(5)->get();
+        $result = $fuzzphony->in('cs_docs')->forTenant(1)->query('common')->thresholds(['typo' => ['mode' => 'never'], 'limits' => ['candidates' => 10]])->restrictedToFields('title', 'body')->limit(5)->get();
         self::assertSame(900, $result->hits[0]->id);
         foreach ($result->ids() as $id) {
             self::assertTrue($id <= 60 || $id === 900, "only the tenant's own documents");

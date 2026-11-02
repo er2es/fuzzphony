@@ -50,7 +50,7 @@ final class TypoWorkBudgetTest extends TestCase
         $fuzzphony->reindex('wb_docs');
         $this->connection->execute('ANALYZE fuzzphony_wb_docs');
 
-        $explained = $fuzzphony->in('wb_docs')->query('comon')->thresholds(['fuzzy_mode' => 'always', 'candidate_limit' => self::LIMIT])->restrictedToFields('title')->limit(5)->explain();
+        $explained = $fuzzphony->in('wb_docs')->query('comon')->thresholds(['typo' => ['mode' => 'always'], 'limits' => ['candidates' => self::LIMIT]])->restrictedToFields('title')->limit(5)->explain();
         self::assertTrue($explained->result->totalIsLowerBound);
         $statement = array_values(array_filter($explained->statements, static fn(array $s): bool => $s['label'] === 'full-text + fuzzy'))[0] ?? self::fail('no typo statement');
         // the scan limit is an expression of the first matches' stored size: evaluate it over the same CTEs
@@ -76,7 +76,7 @@ final class TypoWorkBudgetTest extends TestCase
         self::assertLessThan(self::MATCHES, $scan, 'a tenth of the visible titles hold 17 000 words: the scan stops before the end');
         self::assertGreaterThanOrEqual(self::LIMIT, $scan);
         // the answer is still a page of the viewer's own matches, found within the bound
-        $result = $fuzzphony->in('wb_docs')->query('comon')->thresholds(['fuzzy_mode' => 'always', 'candidate_limit' => self::LIMIT])->restrictedToFields('title')->limit(5)->get();
+        $result = $fuzzphony->in('wb_docs')->query('comon')->thresholds(['typo' => ['mode' => 'always'], 'limits' => ['candidates' => self::LIMIT]])->restrictedToFields('title')->limit(5)->get();
         self::assertCount(5, $result->hits);
         self::assertTrue($result->totalIsLowerBound);
     }

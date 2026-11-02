@@ -325,8 +325,8 @@ final class TypoHighlightTest extends TestCase
     public function testASearchWithoutTypoToleranceHasTheStrictHeadlineStatementOnly(): void
     {
         $strict = fn(bool $highlight): SearchBuilder => $highlight
-            ? $this->fuzzphony->in('typo_docs')->query('mouse')->thresholds(['fuzzy_mode' => 'never'])->highlight('title')
-            : $this->fuzzphony->in('typo_docs')->query('mouse')->thresholds(['fuzzy_mode' => 'never']);
+            ? $this->fuzzphony->in('typo_docs')->query('mouse')->thresholds(['typo' => ['mode' => 'never']])->highlight('title')
+            : $this->fuzzphony->in('typo_docs')->query('mouse')->thresholds(['typo' => ['mode' => 'never']]);
         $strict(false)->get();
         $without = $this->statementsOf(static fn(): mixed => $strict(false)->get());
         $with = $this->statementsOf(static fn(): mixed => $strict(true)->get());
@@ -352,7 +352,7 @@ final class TypoHighlightTest extends TestCase
     /** @param list<string> $fields */
     private function search(string $query, array $fields, string $mode = 'fallback'): SearchBuilder
     {
-        return $this->fuzzphony->in('typo_docs')->query($query)->limit(50)->highlight(...$fields)->thresholds(['fuzzy_mode' => $mode]);
+        return $this->fuzzphony->in('typo_docs')->query($query)->limit(50)->highlight(...$fields)->thresholds(['typo' => ['mode' => $mode]]);
     }
 
     private function hit(int $id, SearchBuilder $search): \Fuzzphony\Core\Search\Hit

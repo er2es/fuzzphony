@@ -213,7 +213,7 @@ final class MultiTenantTest extends KernelTestCase
 
         // a tenant-scoped index never suggests a spelling or a completion: its vocabulary is every tenant's words
         self::assertNull($this->fuzzphony()->in('tickets')->asActor($actor)->query('invoise')->get()->didYouMean);
-        self::assertSame([], $this->fuzzphony()->suggest('tickets', 'invo', actor: $actor));
+        self::assertSame([], $this->fuzzphony()->complete('tickets', 'invo', actor: $actor));
         // endregion
         $tokens->setToken(null);
     }

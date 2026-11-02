@@ -28,7 +28,7 @@ use Fuzzphony\Core\Support\Closest;
  *     synonyms: [[tv, television], 'laptop => notebook']
  *     log: true                  # false keeps the index out of the search log
  *     profiles: { default: { text: 1, fuzzy: 0.5 } }
- *     thresholds: { min_score: 0.05, fuzzy_mode: fallback }
+ *     thresholds: { relevance: { min_score: 0.05 }, typo: { mode: fallback } }
  *
  * The shape is checked as a whole before anything is built: unknown keys at every level, a list where a map
  * belongs, a string where a boolean belongs (the string "false" is not false) are InvalidDefinition problems.
@@ -201,7 +201,8 @@ final class ArrayDefinitionLoader
         try {
             return $part();
         } catch (InvalidDefinition $e) {
-            throw new InvalidDefinition($index, array_map(static fn(string $violation): string => sprintf('%s: %s', $place, $violation), $e->violations));
+            $where = str_starts_with($e->index, $place) ? $e->index : $place;
+            throw new InvalidDefinition($index, array_map(static fn(string $violation): string => sprintf('%s: %s', $where, $violation), $e->violations));
         }
     }
 
@@ -287,7 +288,7 @@ final class ArrayDefinitionLoader
         $this->assertEntries($problems, 'watch', $config['watch'] ?? null, 'a query returning the affected ids', self::WATCH_KEYS, 'watch', 'watch: { product: "SELECT :id" }');
         $this->assertProfiles($problems, $config['profiles'] ?? null);
         if (isset($config['thresholds']) && !self::isMap($config['thresholds'])) {
-            $problems[] = sprintf('"thresholds" must be a map of options (e.g. thresholds: { min_score: 0.1 }), got %s.', self::shape($config['thresholds']));
+            $problems[] = sprintf('"thresholds" must be a map of options (e.g. thresholds: { relevance: { min_score: 0.1 } }), got %s.', self::shape($config['thresholds']));
         }
         if ($problems !== []) {
             throw new InvalidDefinition($name, $problems);

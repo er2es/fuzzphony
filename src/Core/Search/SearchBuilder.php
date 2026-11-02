@@ -23,6 +23,7 @@ use Fuzzphony\Core\Query\Typeahead;
  */
 final readonly class SearchBuilder
 {
+    /** @internal */
     public function __construct(
         private Engine $engine,
         private IndexDefinition $index,
@@ -93,7 +94,7 @@ final readonly class SearchBuilder
         return $this->with($this->query->highlight(...$fields));
     }
 
-    /** @param array<string, mixed> $overrides e.g. ['min_score' => 0.1, 'fuzzy_mode' => 'always'] */
+    /** @param array<string, mixed> $overrides e.g. ['relevance' => ['min_score' => 0.1], 'typo' => ['mode' => 'always']] */
     public function thresholds(array $overrides): self
     {
         try {
@@ -227,6 +228,7 @@ final readonly class SearchBuilder
         return new Explanation($explanation->interpretedAs, $explanation->statements, $explanation->plan, $explanation->result->withDidYouMean(Typeahead::withoutPrefixAlternative($didYouMean)));
     }
 
+    /** @internal */
     public function toQuery(): SearchQuery
     {
         return $this->query;

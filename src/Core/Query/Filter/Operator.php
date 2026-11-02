@@ -6,6 +6,7 @@ namespace Fuzzphony\Core\Query\Filter;
 
 use Fuzzphony\Core\Exception\InvalidQuery;
 
+/** @internal */
 enum Operator: string
 {
     case Eq = '=';

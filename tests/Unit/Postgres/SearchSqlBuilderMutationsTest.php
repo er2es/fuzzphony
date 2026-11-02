@@ -24,7 +24,7 @@ final class SearchSqlBuilderMutationsTest extends TestCase
 
     public function testSharedFacetsReadTheCandidatesOnceAndKeepEachFacetsOrderAndLimit(): void
     {
-        $min = (new Thresholds())->minScore;
+        $min = (new Thresholds())->relevance->minScore;
         $sql = (new SearchSqlBuilder(Indexes::products()))->facets(['brand_id', 'in_stock'], "'mouse'", 'mouse', new Term('mouse'), [], new RankingProfile(), new Thresholds(), 7, false)['sql'];
 
         self::assertSame(1, substr_count($sql, 'cand AS ('), 'one candidate stage');
@@ -53,12 +53,12 @@ ORDER BY f, rk", $sql);
         $capped = $builder->browseFacets(['brand_id', 'in_stock'], [], $thresholds, 5, false)['sql'];
         self::assertStringContainsString('SELECT s."f_brand_id" AS v0, s."f_in_stock" AS v1 FROM ', $capped);
         self::assertStringContainsString("
-    LIMIT " . $thresholds->candidateLimit . "
+    LIMIT " . $thresholds->limits->candidates . "
 )", $capped);
         self::assertSame(1, substr_count($capped, 'AS v0'), 'the sidecar is read once');
 
         $exact = $builder->browseFacets(['brand_id', 'in_stock'], [], $thresholds, 5, true)['sql'];
-        self::assertStringNotContainsString('LIMIT ' . $thresholds->candidateLimit, $exact);
+        self::assertStringNotContainsString('LIMIT ' . $thresholds->limits->candidates, $exact);
         self::assertStringContainsString('LIMIT 5) AS g', $exact);
     }
 }

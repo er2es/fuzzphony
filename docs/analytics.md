@@ -19,7 +19,7 @@ One row per search in `fuzzphony_search_log` (in [Fuzzphony's schema](configurat
 | `actor_ip` | the client IP of the actor, masked or whole, only when [`search_log.ip`](#the-client-ip) is not `off`; null otherwise. The column is nullable and part of the table `fuzzphony:schema --apply` creates |
 | `query` | the text the visitor typed, after [redaction](#redaction), cut at 255 characters |
 | `query_norm` | `query` lower-cased, whitespace collapsed and trimmed: the key the reports group by |
-| `hits` | the total of the search (a lower bound when the search hit `candidate_limit`) |
+| `hits` | the total of the search (a lower bound when the search hit `limits.candidates`) |
 | `took_ms` | the time the engine took |
 | `used_fuzzy` | whether the typo-tolerant search ran |
 | `status` | `ok`; `denied` (a refusal, for example an actor without a tenant on a tenant-scoped index); `rate_limited` |
@@ -30,7 +30,7 @@ visitor **typed** (`mpuse`), and `hits`, `used_fuzzy` and `took_ms` are those of
 zero-result report below (`zeroResultQueries()`, `--zero`, the demo's "found nothing" list); it appears among the top queries
 with hits. Typos that the rescue could not answer (no unique correction, a tenant-scoped index, a restricted viewer) still show
 as zero-result searches. If you want the typos the catalogue could not answer on its own to stay visible there, set
-`rescue_empty: false` (the visitor then sees "no results" and, when there is one, the did-you-mean suggestion). A way to see the
+`rescue.correct_when_empty: false` (the visitor then sees "no results" and, when there is one, the did-you-mean suggestion). A way to see the
 rescued searches in the report is open for the API round (a flag or a status in the log).
 
 Indexes on `(index_name, at)` and `(index_name, query_norm)` keep the reports fast. The "who searched what" report
@@ -52,10 +52,10 @@ What is recorded, precisely:
   [`unlogged()`](#keeping-a-search-out-of-the-log) if you do not want the rows.
 - every refusal, as a `denied` row, so a refused visitor leaves a trace. A refusal is recorded even for an
   [unlogged](#keeping-a-search-out-of-the-log) search.
-- not recorded: a successful `explain()`, `suggest()` and `facets()` calls on their own, and a search that failed in
+- not recorded: a successful `explain()`, `complete()` and `facets()` calls on their own, and a search that failed in
   the engine (an exception). An `explain()` the gate refuses (an actor without a tenant) is a refusal like any other
-  and is recorded as a `denied` row, with the text that was typed; so is a `suggest()` the guards refuse (the typed text, cut at
-  `max_query_length`).
+  and is recorded as a `denied` row, with the text that was typed; so is a `complete()` the guards refuse (the typed text, cut at
+  `limits.max_query_length`).
 
 The reports count only the searches that ran (`status = ok`); the other rows are there for you to query.
 
@@ -434,26 +434,21 @@ See also [SECURITY.md](../SECURITY.md).
 
 ## Without Symfony
 
-The core needs three things: an engine that keeps the log, a `SearchLog` to write to, and a gate:
+With `searchLog: true` the factory keeps the log in Fuzzphony's own table, writing each record at once, with the redaction and the IP mode you name:
 
 ```php
-use Fuzzphony\Core\Analytics\{IpMode, PatternQueryRedactor, SearchLog, SearchRecord};
-use Fuzzphony\Core\Search\SearchGate;
+use Fuzzphony\Core\Analytics\IpMode;
+use Fuzzphony\Core\Fuzzphony;
 
-$engine = new PostgresEngine($connection, searchLog: true, searchLogRetentionDays: 90);
-
-// the simplest log writes each record at once; buffer and write at the end of the request if you prefer
-$log = new class($engine) implements SearchLog {
-    public function __construct(private PostgresEngine $engine) {}
-    public function record(SearchRecord $record): void { $this->engine->writeSearchLog([$record]); }
-};
-
-$fuzzphony = new Fuzzphony(
-    $engine,
-    new IndexRegistry([$products]),
-    new SearchGate(log: $log, redactor: PatternQueryRedactor::fromSettings(['email']), ipMode: IpMode::Masked),
+$fuzzphony = Fuzzphony::postgres(
+    $connection,
+    [$products],
+    searchLog: true,
+    searchLogRetentionDays: 90,
+    redact: ['email'],          // "email" or a regular expression with delimiters, as search_log.redact
+    ipMode: IpMode::Masked,
 );
-$fuzzphony->schema()->apply($connection);   // creates the table: the engine was built with searchLog: true
+$fuzzphony->schema()->apply($connection);   // creates the table: the service was built with searchLog: true
 ```
 
 `ipMode:` is optional (`IpMode::Off`, the default, keeps no address); the address comes from the actor you give to
@@ -470,8 +465,8 @@ better default.
 `SearchLog` is one method, `record(SearchRecord $record): void`. The `SearchRecord` is final and readonly: `at`,
 `index`, `tenant`, `user`, `query` (already redacted and cut), `hits`, `tookMs`, `usedFuzzy`, `status`
 (`RecordStatus::Ok`, `Denied`, `RateLimited`) and `ip` (what the log is to store: masked as `search_log.ip` says, or null). To send the records somewhere else (Monolog, a queue, Elasticsearch,
-an analytics service), implement it and pass it to the `SearchGate` (plain PHP). The bundle has no setting for it:
-leave `search_log` off and define the `fuzzphony.search_gate` service yourself, as a `SearchGate` built with your log.
+an analytics service), implement it and pass it as `Fuzzphony::postgres(..., log: $yourLog)` (plain PHP). The bundle has no setting for it:
+leave `search_log` off and define the `fuzzphony.search_gate` service yourself, as a `SearchGate` built with your log (the gate is `@internal`, its constructor may change).
 The gate takes care of redaction, the 255-character cut, the per-index `log: false`, `unlogged()` and of a log that
 throws (counted and logged, the search goes on).
 

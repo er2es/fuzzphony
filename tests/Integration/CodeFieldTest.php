@@ -122,6 +122,6 @@ final class CodeFieldTest extends TestCase
     /** @return list<int|string> */
     private function ids(string $index, string $query): array
     {
-        return $this->fuzzphony->in($index)->query($query)->thresholds(['fuzzy_mode' => 'never'])->get()->ids();
+        return $this->fuzzphony->in($index)->query($query)->thresholds(['typo' => ['mode' => 'never']])->get()->ids();
     }
 }

@@ -167,7 +167,7 @@ final class OpenClassSchemaTest extends TestCase
     /** Whether a statement of a viewer who holds none of the granted fields looks its words up in the open-class index over `$column`. */
     private function usesOpenClass(Fuzzphony $fuzzphony, string $column): bool
     {
-        $explained = $fuzzphony->in('open_docs')->query('kettle')->thresholds(['fuzzy_mode' => 'always'])->restrictedToFields($column)->explain();
+        $explained = $fuzzphony->in('open_docs')->query('kettle')->thresholds(['typo' => ['mode' => 'always']])->restrictedToFields($column)->explain();
 
         $sql = implode(' ', array_column($explained->statements, 'sql'));
 

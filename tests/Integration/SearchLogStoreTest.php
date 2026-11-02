@@ -9,7 +9,6 @@ use Fuzzphony\Core\Analytics\RecordStatus;
 use Fuzzphony\Core\Analytics\SearchRecord;
 use Fuzzphony\Core\Database\Connection;
 use Fuzzphony\Core\Definition\IndexDefinition;
-use Fuzzphony\Core\Engine\SearchLogStore;
 use Fuzzphony\Core\Exception\EngineFailure;
 use Fuzzphony\Core\Fuzzphony;
 use Fuzzphony\Core\Registry\IndexRegistry;
@@ -55,11 +54,6 @@ final class SearchLogStoreTest extends TestCase
     private static function queries(array $stats): array
     {
         return array_map(static fn(QueryStat $s): string => $s->query, $stats);
-    }
-
-    public function testTheEngineIsASearchLogStore(): void
-    {
-        self::assertInstanceOf(SearchLogStore::class, $this->store());
     }
 
     public function testRecordsAreWrittenInOneBatchAndReportedByNormalisedQuery(): void

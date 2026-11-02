@@ -147,12 +147,12 @@ final class Playground
             $definition = $this->sample->definition();
             $this->applyProfile($definition->profile('default'));
             $thresholds = $definition->thresholds;
-            $this->minScore = $thresholds->minScore;
-            $this->similarityByLength = $thresholds->fuzzySimilarity === null;
-            $this->similarity = $thresholds->fuzzySimilarity ?? $this->similarity;
-            $this->fuzzyMode = $thresholds->fuzzyMode->value;
-            $this->fallbackBelow = $thresholds->fallbackBelow;
-            $this->candidateLimit = $thresholds->candidateLimit;
+            $this->minScore = $thresholds->relevance->minScore;
+            $this->similarityByLength = $thresholds->typo->similarity === null;
+            $this->similarity = $thresholds->typo->similarity ?? $this->similarity;
+            $this->fuzzyMode = $thresholds->typo->mode->value;
+            $this->fallbackBelow = $thresholds->typo->fallbackBelow;
+            $this->candidateLimit = $thresholds->limits->candidates;
 
             return;
         }
@@ -274,13 +274,7 @@ final class Playground
                 'recency' => $this->recency,
                 'recency_half_life_days' => $this->halfLife,
             ])
-            ->thresholds([
-                'min_score' => $this->minScore,
-                'fuzzy_similarity' => $this->similarityByLength ? null : $this->similarity,
-                'fuzzy_mode' => $this->fuzzyMode,
-                'fallback_below' => $this->fallbackBelow,
-                'candidate_limit' => $this->candidateLimit,
-            ]);
+            ->thresholds(['relevance' => ['min_score' => $this->minScore], 'typo' => ['similarity' => $this->similarityByLength ? null : $this->similarity, 'mode' => $this->fuzzyMode, 'fallback_below' => $this->fallbackBelow], 'limits' => ['candidates' => $this->candidateLimit]]);
         if ($this->inStockOnly) {
             $search = $search->where('in_stock', true);
         } elseif ($this->outOfStockOnly) {

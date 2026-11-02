@@ -111,8 +111,8 @@ final class SharedFacetsTest extends TestCase
             'two words' => static fn(SearchBuilder $b): SearchBuilder => $b->query('mouse wireless'),
             'excluded word' => static fn(SearchBuilder $b): SearchBuilder => $b->query('mouse -wired'),
             'typo, candidates' => static fn(SearchBuilder $b): SearchBuilder => $b->query('wireles mose'),
-            'typo always' => static fn(SearchBuilder $b): SearchBuilder => $b->query('hedphones')->thresholds(['fuzzy_mode' => 'always']),
-            'fuzzy never' => static fn(SearchBuilder $b): SearchBuilder => $b->query('cable')->thresholds(['fuzzy_mode' => 'never']),
+            'typo always' => static fn(SearchBuilder $b): SearchBuilder => $b->query('hedphones')->thresholds(['typo' => ['mode' => 'always']]),
+            'fuzzy never' => static fn(SearchBuilder $b): SearchBuilder => $b->query('cable')->thresholds(['typo' => ['mode' => 'never']]),
             'relaxed' => static fn(SearchBuilder $b): SearchBuilder => $b->query('mouse zzzzzz'),
             'field scoped word' => static fn(SearchBuilder $b): SearchBuilder => $b->query('name:keyboard'),
             'restricted viewer' => static fn(SearchBuilder $b): SearchBuilder => $b->query('cable')->restrictedToFields('name'),
@@ -122,8 +122,8 @@ final class SharedFacetsTest extends TestCase
             'browse + int range' => static fn(SearchBuilder $b): SearchBuilder => $b->whereBetween('size', 2, 100),
             'browse + null filter' => static fn(SearchBuilder $b): SearchBuilder => $b->whereNull('color'),
             'text + whereIn' => static fn(SearchBuilder $b): SearchBuilder => $b->query('keyboard')->whereIn('size', [2, 9]),
-            'candidate limit' => static fn(SearchBuilder $b): SearchBuilder => $b->query('mouse')->thresholds(['candidate_limit' => 10, 'fuzzy_mode' => 'never']),
-            'candidate limit, browse' => static fn(SearchBuilder $b): SearchBuilder => $b->thresholds(['candidate_limit' => 10]),
+            'candidate limit' => static fn(SearchBuilder $b): SearchBuilder => $b->query('mouse')->thresholds(['limits' => ['candidates' => 10], 'typo' => ['mode' => 'never']]),
+            'candidate limit, browse' => static fn(SearchBuilder $b): SearchBuilder => $b->thresholds(['limits' => ['candidates' => 10]]),
             'text, nothing found' => static fn(SearchBuilder $b): SearchBuilder => $b->query('qqqqqqq'),
         ];
     }
@@ -155,7 +155,7 @@ final class SharedFacetsTest extends TestCase
 
     public function testTheCandidateLimitCutsTheSharedFacetsLikeTheOthers(): void
     {
-        $search = static fn(SearchBuilder $b): SearchBuilder => $b->query('mouse')->thresholds(['candidate_limit' => 10, 'fuzzy_mode' => 'never']);
+        $search = static fn(SearchBuilder $b): SearchBuilder => $b->query('mouse')->thresholds(['limits' => ['candidates' => 10], 'typo' => ['mode' => 'never']]);
         $all = $search($this->fuzzphony->in('facet_docs'))->facets('color', 'size')->get();
         self::assertTrue($all->totalIsLowerBound);
         self::assertSame(10, array_sum(array_map(static fn(FacetValue $v): int => $v->count, $all->facets['size'])), 'the ten candidates only (a null value is counted too)');

@@ -11,7 +11,9 @@ use Fuzzphony\Core\Fuzzphony;
 use Fuzzphony\Core\Inspection\Check;
 use Fuzzphony\Core\Inspection\CheckStatus;
 use Fuzzphony\Core\Inspection\InspectOptions;
+use Fuzzphony\Core\Ranking\LimitThresholds;
 use Fuzzphony\Core\Ranking\Thresholds;
+use Fuzzphony\Core\Ranking\TypoThresholds;
 use Fuzzphony\Core\Registry\IndexRegistry;
 use Fuzzphony\Engine\Postgres\Inspection\PostgresInspector;
 use Fuzzphony\Engine\Postgres\PostgresEngine;
@@ -412,7 +414,7 @@ final class PostgresInspectorChecksTest extends TestCase
 
     public function testACandidateLimitAboveFiveThousandWarns(): void
     {
-        $index = static fn(int $limit): IndexDefinition => Indexes::products('manual')->withThresholds(new Thresholds(candidateLimit: $limit));
+        $index = static fn(int $limit): IndexDefinition => Indexes::products('manual')->withThresholds(new Thresholds(limits: new LimitThresholds(candidates: $limit)));
         $this->fuzzphony($index(5_000));
 
         $inspect = fn(int $limit): array => self::byName(new Fuzzphony(new PostgresEngine($this->connection), new IndexRegistry([$index($limit)])), 'products');
@@ -421,7 +423,7 @@ final class PostgresInspectorChecksTest extends TestCase
         self::assertArrayNotHasKey('Candidate limit', $atLimit);
         self::assertSame('fuzzy=fallback, similarity=by word length, min_score=0.00, candidates=5000', $atLimit['Configuration']->message);
         $over = $inspect(5_001);
-        self::assertEquals(Check::warning('Candidate limit', 'candidate_limit 5001 may make frequent words slow to rank.'), $over['Candidate limit']);
+        self::assertEquals(Check::warning('Candidate limit', 'limits.candidates 5001 may make frequent words slow to rank.'), $over['Candidate limit']);
         self::assertArrayNotHasKey('Configuration', $over);
     }
 
@@ -494,12 +496,12 @@ final class PostgresInspectorChecksTest extends TestCase
     {
         $noFuzzy = static fn(string $mode): IndexDefinition => IndexDefinition::builder('products')
             ->fromQuery('SELECT p.id, p.name FROM fz_product p')->field('name', 'A')->sync('manual')
-            ->thresholds(new Thresholds(fuzzyMode: \Fuzzphony\Core\Ranking\FuzzyMode::from($mode)))->build();
+            ->thresholds(new Thresholds(typo: new TypoThresholds(mode: \Fuzzphony\Core\Ranking\FuzzyMode::from($mode))))->build();
         $configuration = fn(IndexDefinition $index): array => array_column($this->inspector($this->connection)->inspect($index, new InspectOptions())->checks, null, 'name');
 
         $always = $configuration($noFuzzy('always'));
         self::assertEquals(
-            Check::warning('Typo tolerance', 'fuzzy_mode is enabled but no field is marked fuzzy, so it has no effect.', 'Mark the most important field fuzzy: #[SearchField("A", fuzzy: true)]'),
+            Check::warning('Typo tolerance', 'typo.mode is enabled but no field is marked fuzzy, so it has no effect.', 'Mark the most important field fuzzy: #[SearchField("A", fuzzy: true)]'),
             $always['Typo tolerance'],
         );
         self::assertArrayNotHasKey('Configuration', $always);

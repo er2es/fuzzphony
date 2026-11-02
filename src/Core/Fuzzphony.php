@@ -4,17 +4,23 @@ declare(strict_types=1);
 
 namespace Fuzzphony\Core;
 
+use Fuzzphony\Core\Analytics\EngineSearchLog;
+use Fuzzphony\Core\Analytics\IpMode;
+use Fuzzphony\Core\Analytics\NullSearchLog;
+use Fuzzphony\Core\Analytics\PatternQueryRedactor;
 use Fuzzphony\Core\Analytics\SearchAnalytics;
+use Fuzzphony\Core\Analytics\SearchLog;
+use Fuzzphony\Core\Database\Connection;
+use Fuzzphony\Core\Definition\IndexDefinition;
 use Fuzzphony\Core\Definition\Synonyms;
 use Fuzzphony\Core\Engine\Engine;
-use Fuzzphony\Core\Engine\SearchLogStore;
-use Fuzzphony\Core\Engine\Suggestions;
-use Fuzzphony\Core\Engine\SynonymStems;
 use Fuzzphony\Core\Exception\AccessDenied;
 use Fuzzphony\Core\Exception\InvalidArgument;
 use Fuzzphony\Core\Exception\RateLimited;
 use Fuzzphony\Core\Inspection\InspectionReport;
 use Fuzzphony\Core\Inspection\InspectOptions;
+use Fuzzphony\Core\Observability\MetricsCollector;
+use Fuzzphony\Core\Observability\NullMetricsCollector;
 use Fuzzphony\Core\Query\SynonymExpander;
 use Fuzzphony\Core\Registry\IndexRegistry;
 use Fuzzphony\Core\Schema\SchemaPlan;
@@ -22,13 +28,54 @@ use Fuzzphony\Core\Search\Actor;
 use Fuzzphony\Core\Search\FederatedSearch;
 use Fuzzphony\Core\Search\SearchBuilder;
 use Fuzzphony\Core\Search\SearchGate;
+use Fuzzphony\Core\Search\SearchGuard;
 use Fuzzphony\Core\Sync\Reindexer;
 use Fuzzphony\Core\Sync\ReindexOptions;
 use Fuzzphony\Core\Sync\ReindexResult;
+use Fuzzphony\Core\Wizard\Wizard;
+use Fuzzphony\Engine\Postgres\PostgresEngine;
+use Psr\Log\LoggerInterface;
 
 /** The one service applications talk to. */
 final readonly class Fuzzphony
 {
+    /**
+     * Builds the service on PostgreSQL without a framework: the connection and the index definitions, nothing else to wire.
+     *
+     * @param list<IndexDefinition> $indexes
+     * @param string                $schema          the schema of Fuzzphony's own tables
+     * @param string                $extensionSchema the schema that holds the pg_trgm and unaccent extensions
+     * @param bool                  $searchLog       keep the search log in Fuzzphony's table (the reports of analytics()); each record is written at once
+     * @param list<SearchGuard>     $guards          run, in order, for a search made as an actor; what they allow is intersected
+     * @param SearchLog|null        $log             your own sink for the search records (instead of the table of $searchLog)
+     * @param list<string>          $redact          "email" or a regular expression with delimiters: matches are cut out of the query text before it is logged
+     * @param IpMode                $ipMode          whether the log keeps the client IP of the actor, and how much of it
+     */
+    public static function postgres(
+        Connection $connection,
+        array $indexes,
+        string $schema = 'public',
+        string $extensionSchema = 'public',
+        ?MetricsCollector $metrics = null,
+        bool $searchLog = false,
+        int $searchLogRetentionDays = 90,
+        array $guards = [],
+        ?SearchLog $log = null,
+        array $redact = [],
+        IpMode $ipMode = IpMode::Off,
+        ?LoggerInterface $logger = null,
+    ): self {
+        $metrics ??= new NullMetricsCollector();
+        $engine = new PostgresEngine($connection, $extensionSchema, $schema, $metrics, $searchLog, $searchLogRetentionDays);
+        $log ??= $searchLog ? new EngineSearchLog($engine) : null;
+        $gate = $guards !== [] || $log !== null || $redact !== [] || $ipMode !== IpMode::Off
+            ? new SearchGate($metrics, $logger, $log ?? new NullSearchLog(), $redact === [] ? null : PatternQueryRedactor::fromSettings($redact), $guards, $ipMode)
+            : null;
+
+        return new self($engine, new IndexRegistry($indexes), $gate);
+    }
+
+    /** @internal */
     public function __construct(
         private Engine $engine,
         private IndexRegistry $registry,
@@ -45,6 +92,22 @@ final readonly class Fuzzphony
     public function federated(): FederatedSearch
     {
         return new FederatedSearch($this->engine, $this->registry, gate: $this->gate);
+    }
+
+    /**
+     * Forgets what the engine remembered for the life of the process (the words a text search configuration reduces to nothing, the stems
+     * of the synonyms, the vocabulary tables found readable): call it in a long-running process after a text search configuration or a
+     * dictionary changed, or after `fuzzphony:schema --apply` created the open-class indexes; a PHP-FPM request starts clean.
+     */
+    public function resetCaches(): void
+    {
+        $this->engine->resetCaches();
+    }
+
+    /** The configuration wizard over the database of the connection. */
+    public function wizard(): Wizard
+    {
+        return new Wizard($this->engine->introspector());
     }
 
     public function schema(?string $index = null): SchemaPlan
@@ -121,18 +184,18 @@ final readonly class Fuzzphony
      * @throws AccessDenied    when a guard refuses the actor
      * @throws RateLimited     when the actor searched too often
      */
-    public function suggest(string $index, string $text, int $limit = 8, ?Actor $actor = null, bool $charge = true): array
+    public function complete(string $index, string $text, int $limit = 8, ?Actor $actor = null, bool $charge = true): array
     {
         if ($limit < 1 || $limit > 20) {
             throw new InvalidArgument(sprintf('The suggestion limit must be between 1 and 20, got %d.', $limit));
         }
         $definition = $this->registry->get($index);
         // cut where a search is cut (max_query_length of the index), not at a number of its own
-        $text = mb_substr(ltrim($text), 0, $definition->thresholds->maxQueryLength);
+        $text = mb_substr(ltrim($text), 0, $definition->thresholds->limits->maxQueryLength);
         if ($actor !== null && $this->gate !== null && !$this->gate->accessCounted($definition, $actor, $charge, $text)->isAll()) {
             return [];
         }
-        if (!$this->engine instanceof Suggestions || preg_match('/^(.*?)([\p{L}\p{N}]+)$/su', $text, $m) !== 1) {
+        if (preg_match('/^(.*?)([\p{L}\p{N}]+)$/su', $text, $m) !== 1) {
             return [];
         }
 
@@ -154,14 +217,9 @@ final readonly class Fuzzphony
      * for an application that caches them: stem once when the list changes, keep the result (it
      * serializes) in a cache, and hand it to useSynonyms() on every request. Without it the first search
      * of each request stems every member, which costs about 50 microseconds per entry.
-     *
-     * @throws InvalidArgument when the engine cannot prepare synonyms
      */
     public function stemSynonyms(string $index, Synonyms $synonyms): Synonyms
     {
-        if (!$this->engine instanceof SynonymStems) {
-            throw new InvalidArgument(sprintf('The "%s" engine does not prepare synonyms; useSynonyms() works without it.', $this->engine->name()));
-        }
         $prepared = $this->engine->stemSynonyms($this->registry->get($index), $synonyms);
 
         // the prepared object also carries the lookup table, so a cache of it holds everything a search needs
@@ -170,23 +228,19 @@ final readonly class Fuzzphony
 
     /**
      * The reports over the search log, and its purge.
-     *
-     * @throws InvalidArgument when the engine keeps no search log
      */
     public function analytics(): SearchAnalytics
     {
-        if (!$this->engine instanceof SearchLogStore) {
-            throw new InvalidArgument(sprintf('The "%s" engine keeps no search log.', $this->engine->name()));
-        }
-
         return new SearchAnalytics($this->engine, $this->registry);
     }
 
+    /** @internal */
     public function registry(): IndexRegistry
     {
         return $this->registry;
     }
 
+    /** @internal */
     public function engine(): Engine
     {
         return $this->engine;

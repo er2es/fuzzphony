@@ -5,9 +5,10 @@ declare(strict_types=1);
 namespace Fuzzphony\Core\Ranking;
 
 use Fuzzphony\Core\Exception\InvalidDefinition;
+use Fuzzphony\Core\Support\Closest;
 
 /**
- * Tolerance and cost limits. Every value has a safe default; override per index or per query.
+ * Tolerance and cost limits in four named groups: relevance, typo, rescue and limits. Every value has a safe default; override per index or per query.
  */
 final readonly class Thresholds
 {
@@ -22,153 +23,77 @@ final readonly class Thresholds
     /** The default of maxQueryLength; the query parser and the synonym expander cut a text at the same length. */
     public const int DEFAULT_MAX_QUERY_LENGTH = 256;
 
-    public function __construct(
-        /** Minimum relevance (0..~1.5) a hit needs; bonuses are not counted. */
-        public float $minScore = 0.0,
-        /**
-         * Minimum trigram word similarity (0..1) for a typo-tolerant match. Lower = more tolerant.
-         * Null (the default): by word length (see TypoCurve). A number applies to every word.
-         */
-        public ?float $fuzzySimilarity = null,
-        /** Typo tolerance is skipped for shorter queries: trigrams of 1-2 letters are noise. */
-        public int $fuzzyMinLength = 3,
-        public FuzzyMode $fuzzyMode = FuzzyMode::Fallback,
-        /** In fallback mode fuzzy matching kicks in when exact matching found fewer hits than this. */
-        public int $fallbackBelow = 5,
-        /**
-         * Candidates ranked per branch; protects against "match half the table" queries. At most MAX_CANDIDATE_LIMIT. A word with
-         * more matches than this is ranked over its best matches in the full-text branch (and in a restricted viewer's typo-tolerant one, within a smaller work
-         * budget); the typo-tolerant branch of everyone else takes the first matches of its trigram index, a lower bound. A page past it selects `offset + limit`
-         * candidates in both, up to MAX_CANDIDATE_LIMIT.
-         */
-        public int $candidateLimit = 2000,
-        /** Longer search text is truncated (with a warning). At most MAX_QUERY_LENGTH. */
-        public int $maxQueryLength = self::DEFAULT_MAX_QUERY_LENGTH,
-        /** Queries with more terms are truncated (with a warning). At most MAX_TERMS. */
-        public int $maxTerms = 16,
-        /**
-         * A multi-word query that finds nothing is searched once more without the words that match
-         * nothing on their own, and the result names them in a warning.
-         */
-        public bool $relaxWhenEmpty = true,
-        /**
-         * A search that finds fewer hits than fallbackBelow, or had to use typo tolerance, with a word that
-         * the index does not know, suggests the spelling it probably meant (SearchResult::$didYouMean).
-         */
-        public bool $didYouMean = true,
-        /**
-         * A search that found nothing, and has a word with a unique one-edit spelling in the did-you-mean vocabulary
-         * (`mpuse` -> `mouse`), runs once more with the corrected words and returns that result, flagged
-         * (SearchResult::$correctedFrom). It uses the did-you-mean lookup, so it needs didYouMean too.
-         */
-        public bool $rescueEmpty = true,
-    ) {
-        $violations = [];
-        if ($minScore < 0.0) {
-            $violations[] = '"minScore" must be >= 0.';
-        }
-        if ($fuzzySimilarity !== null && ($fuzzySimilarity <= 0.0 || $fuzzySimilarity > 1.0)) {
-            $violations[] = '"fuzzySimilarity" must be in (0, 1]. Typical values: 0.3 (tolerant) .. 0.6 (strict).';
-        }
-        if ($fuzzyMinLength < 1) {
-            $violations[] = '"fuzzyMinLength" must be >= 1.';
-        }
-        if ($fallbackBelow < 1) {
-            $violations[] = '"fallbackBelow" must be >= 1.';
-        }
-        if ($candidateLimit < 10) {
-            $violations[] = '"candidateLimit" must be >= 10.';
-        }
-        if ($candidateLimit > self::MAX_CANDIDATE_LIMIT) {
-            $violations[] = sprintf('"candidateLimit" must be <= %d.', self::MAX_CANDIDATE_LIMIT);
-        }
-        if ($maxQueryLength < 1 || $maxTerms < 1) {
-            $violations[] = '"maxQueryLength" and "maxTerms" must be >= 1.';
-        }
-        if ($maxQueryLength > self::MAX_QUERY_LENGTH) {
-            $violations[] = sprintf('"maxQueryLength" must be <= %d.', self::MAX_QUERY_LENGTH);
-        }
-        if ($maxTerms > self::MAX_TERMS) {
-            $violations[] = sprintf('"maxTerms" must be <= %d.', self::MAX_TERMS);
-        }
-        if ($violations !== []) {
-            throw new InvalidDefinition('thresholds', $violations);
-        }
-    }
+    /** The flat names of 0.9: refused with the key that replaces them. */
+    private const array RENAMED = [
+        'min_score' => 'relevance.min_score',
+        'fuzzy_similarity' => 'typo.similarity',
+        'fuzzy_min_length' => 'typo.min_length',
+        'fuzzy_mode' => 'typo.mode',
+        'fallback_below' => 'typo.fallback_below (the did-you-mean trigger: rescue.did_you_mean_below)',
+        'relax_when_empty' => 'rescue.drop_unmatched',
+        'did_you_mean' => 'rescue.did_you_mean',
+        'rescue_empty' => 'rescue.correct_when_empty',
+        'candidate_limit' => 'limits.candidates',
+        'max_query_length' => 'limits.max_query_length',
+        'max_terms' => 'limits.max_terms',
+    ];
 
-    /** @param array<string, mixed> $overrides snake_case keys, e.g. ['min_score' => 0.1, 'fuzzy_mode' => 'always'] */
+    public function __construct(
+        public RelevanceThresholds $relevance = new RelevanceThresholds(),
+        public TypoThresholds $typo = new TypoThresholds(),
+        public RescueThresholds $rescue = new RescueThresholds(),
+        public LimitThresholds $limits = new LimitThresholds(),
+    ) {}
+
+    /**
+     * Applies overrides given per group.
+     *
+     * @param array<array-key, mixed> $overrides e.g. ['typo' => ['mode' => 'always'], 'limits' => ['candidates' => 1000]]
+     */
     public function with(array $overrides): self
     {
-        $map = [
-            'min_score' => 'minScore',
-            'fuzzy_similarity' => 'fuzzySimilarity',
-            'fuzzy_min_length' => 'fuzzyMinLength',
-            'fuzzy_mode' => 'fuzzyMode',
-            'fallback_below' => 'fallbackBelow',
-            'candidate_limit' => 'candidateLimit',
-            'max_query_length' => 'maxQueryLength',
-            'max_terms' => 'maxTerms',
-            'relax_when_empty' => 'relaxWhenEmpty',
-            'did_you_mean' => 'didYouMean',
-            'rescue_empty' => 'rescueEmpty',
-        ];
-        $unknown = array_diff(array_keys($overrides), array_keys($map));
-        if ($unknown !== []) {
-            throw new InvalidDefinition('thresholds', [sprintf('Unknown threshold option(s): %s. Allowed: %s.', implode(', ', $unknown), implode(', ', array_keys($map)))]);
-        }
-
-        $minScore = $this->minScore;
-        $fuzzySimilarity = $this->fuzzySimilarity;
-        $fuzzyMinLength = $this->fuzzyMinLength;
-        $fuzzyMode = $this->fuzzyMode;
-        $fallbackBelow = $this->fallbackBelow;
-        $candidateLimit = $this->candidateLimit;
-        $maxQueryLength = $this->maxQueryLength;
-        $maxTerms = $this->maxTerms;
-        $relaxWhenEmpty = $this->relaxWhenEmpty;
-        $didYouMean = $this->didYouMean;
-        $rescueEmpty = $this->rescueEmpty;
-
+        $problems = [];
         foreach ($overrides as $key => $value) {
-            $property = $map[$key];
-            match ($property) {
-                'minScore' => $minScore = is_numeric($value) ? (float) $value : throw new InvalidDefinition('thresholds', [sprintf('"%s" must be a number.', $key)]),
-                'fuzzySimilarity' => $fuzzySimilarity = $value === null ? null : (is_numeric($value) ? (float) $value : throw new InvalidDefinition('thresholds', [sprintf('"%s" must be a number.', $key)])),
-                'fuzzyMinLength' => $fuzzyMinLength = is_int($value) ? $value : throw new InvalidDefinition('thresholds', [sprintf('"%s" must be an integer.', $key)]),
-                'fuzzyMode' => $fuzzyMode = $value instanceof FuzzyMode ? $value : (FuzzyMode::tryFrom(is_string($value) ? $value : '') ?? throw new InvalidDefinition('thresholds', [sprintf('"%s" must be one of: %s.', $key, implode(', ', array_map(static fn(FuzzyMode $m): string => $m->value, FuzzyMode::cases())))])),
-                'fallbackBelow' => $fallbackBelow = is_int($value) ? $value : throw new InvalidDefinition('thresholds', [sprintf('"%s" must be an integer.', $key)]),
-                'candidateLimit' => $candidateLimit = is_int($value) ? $value : throw new InvalidDefinition('thresholds', [sprintf('"%s" must be an integer.', $key)]),
-                'maxQueryLength' => $maxQueryLength = is_int($value) ? $value : throw new InvalidDefinition('thresholds', [sprintf('"%s" must be an integer.', $key)]),
-                'relaxWhenEmpty' => $relaxWhenEmpty = self::bool($value) ?? throw new InvalidDefinition('thresholds', [sprintf('"%s" must be a boolean.', $key)]),
-                'didYouMean' => $didYouMean = self::bool($value) ?? throw new InvalidDefinition('thresholds', [sprintf('"%s" must be a boolean.', $key)]),
-                'rescueEmpty' => $rescueEmpty = self::bool($value) ?? throw new InvalidDefinition('thresholds', [sprintf('"%s" must be a boolean.', $key)]),
-                default => $maxTerms = is_int($value) ? $value : throw new InvalidDefinition('thresholds', [sprintf('"%s" must be an integer.', $key)]),
-            };
+            $key = (string) $key;
+            if (isset(self::RENAMED[$key])) {
+                $problems[] = sprintf('"%s" was renamed: use "%s" (thresholds are grouped: relevance, typo, rescue, limits).', $key, self::RENAMED[$key]);
+            } elseif (!in_array($key, ['relevance', 'typo', 'rescue', 'limits'], true)) {
+                $suggestion = Closest::of($key, ['relevance', 'typo', 'rescue', 'limits']);
+                $problems[] = sprintf('Unknown threshold group "%s".%s Allowed: relevance, typo, rescue, limits.', $key, $suggestion !== null ? sprintf(' Did you mean "%s"?', $suggestion) : '');
+            } elseif (!is_array($value)) {
+                $problems[] = sprintf('"%s" must be a map of options, e.g. %s: { %s }.', $key, $key, ['relevance' => 'min_score: 0.1', 'typo' => 'mode: always', 'rescue' => 'did_you_mean: false, correct_when_empty: false', 'limits' => 'candidates: 1000'][$key]);
+            }
+        }
+        if ($problems !== []) {
+            throw new InvalidDefinition('thresholds', $problems);
         }
 
         return new self(
-            minScore: $minScore,
-            fuzzySimilarity: $fuzzySimilarity,
-            fuzzyMinLength: $fuzzyMinLength,
-            fuzzyMode: $fuzzyMode,
-            fallbackBelow: $fallbackBelow,
-            candidateLimit: $candidateLimit,
-            maxQueryLength: $maxQueryLength,
-            maxTerms: $maxTerms,
-            relaxWhenEmpty: $relaxWhenEmpty,
-            didYouMean: $didYouMean,
-            rescueEmpty: $rescueEmpty,
+            relevance: isset($overrides['relevance']) && is_array($overrides['relevance']) ? $this->relevance->with($overrides['relevance']) : $this->relevance,
+            typo: isset($overrides['typo']) && is_array($overrides['typo']) ? $this->typo->with($overrides['typo']) : $this->typo,
+            rescue: isset($overrides['rescue']) && is_array($overrides['rescue']) ? $this->rescue->with($overrides['rescue']) : $this->rescue,
+            limits: isset($overrides['limits']) && is_array($overrides['limits']) ? $this->limits->with($overrides['limits']) : $this->limits,
         );
     }
 
-    /** true / false, also as 1 / 0 or "true" / "false" / "yes" / "no" (command-line overrides are strings). */
-    private static function bool(mixed $value): ?bool
+    /**
+     * @internal Every option by group, with the key it has in a configuration.
+     *
+     * @return array<string, array<string, float|int|bool|FuzzyMode|null>>
+     */
+    public function toArray(): array
     {
-        return match (true) {
-            is_bool($value) => $value,
-            $value === '' => null, // filter_var() reads an empty string as false
-            is_int($value), is_string($value) => filter_var($value, FILTER_VALIDATE_BOOL, FILTER_NULL_ON_FAILURE),
-            default => null,
-        };
+        return [
+            'relevance' => ['min_score' => $this->relevance->minScore],
+            'typo' => ['similarity' => $this->typo->similarity, 'min_length' => $this->typo->minLength, 'mode' => $this->typo->mode, 'fallback_below' => $this->typo->fallbackBelow],
+            'rescue' => ['drop_unmatched' => $this->rescue->dropUnmatched, 'did_you_mean' => $this->rescue->didYouMean, 'correct_when_empty' => $this->rescue->correctWhenEmpty, 'did_you_mean_below' => $this->rescue->didYouMeanBelow],
+            'limits' => ['candidates' => $this->limits->candidates, 'max_query_length' => $this->limits->maxQueryLength, 'max_terms' => $this->limits->maxTerms],
+        ];
+    }
+
+    /** @internal Fewer hits than this trigger the did-you-mean lookup. */
+    public function didYouMeanBelow(): int
+    {
+        return $this->rescue->didYouMeanBelow ?? $this->typo->fallbackBelow;
     }
 }

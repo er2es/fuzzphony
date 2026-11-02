@@ -7,7 +7,6 @@ namespace Fuzzphony\Tests\Unit\Bundle\Command;
 use Fuzzphony\Bundle\Command\ReindexCommand;
 use Fuzzphony\Core\Definition\IndexDefinition;
 use Fuzzphony\Core\Engine\Engine;
-use Fuzzphony\Core\Engine\Vocabulary;
 use Fuzzphony\Core\Fuzzphony;
 use Fuzzphony\Core\Registry\IndexRegistry;
 use Fuzzphony\Tests\Fixtures\Indexes;
@@ -66,13 +65,12 @@ final class ReindexCommandOptionsTest extends TestCase
     public function testTheVocabularyOfEveryIndexIsRebuiltAndOneWithoutFuzzyFieldsDoesNotStopTheRest(): void
     {
         $rebuilt = [];
-        $engine = self::createStubForIntersectionOfInterfaces([Engine::class, Vocabulary::class]);
+        $engine = self::createStub(Engine::class);
         $engine->method('rebuildVocabulary')->willReturnCallback(static function (IndexDefinition $index) use (&$rebuilt): int {
             $rebuilt[] = $index->name;
 
             return 1234;
         });
-        assert($engine instanceof Engine);
         $tester = $this->tester($engine, [$this->index('plain', fuzzy: false), Indexes::products('manual'), $this->index('articles')]);
 
         $status = $tester->execute(['--vocabulary' => true], ['interactive' => false]);

@@ -43,7 +43,7 @@ final class RestrictedNormalisationLengthTest extends TestCase
                 $this->connection->execute('INSERT INTO fz_norm_doc VALUES (:id, :name, :secret)', ['id' => $id, 'name' => 'filler item ' . $id, 'secret' => 'other']);
             }
             $fuzzphony->reindex('norm_docs');
-            $result = $fuzzphony->in('norm_docs')->query('ßßßab')->thresholds(['fuzzy_mode' => 'always'])->restrictedToFields('name')->get();
+            $result = $fuzzphony->in('norm_docs')->query('ßßßab')->thresholds(['typo' => ['mode' => 'always']])->restrictedToFields('name')->get();
             $found[$variant] = $result->ids();
         }
 

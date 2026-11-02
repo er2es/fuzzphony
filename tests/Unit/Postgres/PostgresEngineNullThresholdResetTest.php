@@ -46,7 +46,7 @@ final class PostgresEngineNullThresholdResetTest extends TestCase
 
         $search = new Fuzzphony(new PostgresEngine($connection), new IndexRegistry([Indexes::products()]));
         // "ab" and "cd" are shorter than typo tolerance needs: the relaxed query has no typo-tolerant word and runs strict
-        $result = $search->in('products')->query('mouze ab cd')->thresholds(['did_you_mean' => false, 'candidate_limit' => 10])->facets('in_stock')->get();
+        $result = $search->in('products')->query('mouze ab cd')->thresholds(['rescue' => ['did_you_mean' => false, 'correct_when_empty' => false], 'limits' => ['candidates' => 10]])->facets('in_stock')->get();
 
         self::assertSame(0, $result->total);
         self::assertSame([], $result->warnings, 'the relaxed search found nothing: the original answer stands, nothing was relaxed');

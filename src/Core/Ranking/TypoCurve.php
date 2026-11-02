@@ -6,7 +6,7 @@ namespace Fuzzphony\Core\Ranking;
 
 /**
  * @internal The default typo tolerance: how similar (trigram word similarity) a word must be, by its
- * length, when no explicit fuzzy_similarity is set. One typo is tolerated from 4 letters and two
+ * length, when no explicit typo.similarity is set. One typo is tolerated from 4 letters and two
  * from 8. A typo changes at most three of a word's n + 1 trigrams, so t typos leave a similarity of
  * (n + 1 - 3t) / (n + 1 + 3t) in the worst case; a word needs that plus SLACK, which keeps a
  * different word at exactly the worst case out (`mouse` / `monitor`). The PostgreSQL engine

@@ -37,7 +37,7 @@ final class PostgresEngineSearchScopeTest extends TestCase
         ]) : null);
         $search = new Fuzzphony(new PostgresEngine($connection), new IndexRegistry([Indexes::products()]));
 
-        $search->in('products')->query('mouse')->thresholds(['did_you_mean' => false])->get();
+        $search->in('products')->query('mouse')->thresholds(['rescue' => ['did_you_mean' => false, 'correct_when_empty' => false]])->get();
 
         self::assertNotContains('BEGIN', $connection->kinds());
         self::assertNotContains('set_config', $connection->kinds());

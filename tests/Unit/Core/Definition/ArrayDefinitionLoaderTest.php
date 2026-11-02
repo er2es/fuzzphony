@@ -26,7 +26,7 @@ final class ArrayDefinitionLoaderTest extends TestCase
             'language' => 'german',
             'recency' => 'published_at',
             'profiles' => ['fresh' => ['recency' => 0.5]],
-            'thresholds' => ['min_score' => 0.05, 'fuzzy_mode' => 'always', 'relax_when_empty' => false],
+            'thresholds' => ['relevance' => ['min_score' => 0.05], 'typo' => ['mode' => 'always'], 'rescue' => ['drop_unmatched' => false]],
         ]);
 
         self::assertStringEndsNotWith(';', (string) $definition->source->query);
@@ -35,8 +35,8 @@ final class ArrayDefinitionLoaderTest extends TestCase
         self::assertTrue($definition->text->unaccent);
         self::assertArrayHasKey('default', $definition->profiles);
         self::assertSame(0.5, $definition->profile('fresh')->recency);
-        self::assertSame(FuzzyMode::Always, $definition->thresholds->fuzzyMode);
-        self::assertFalse($definition->thresholds->relaxWhenEmpty);
+        self::assertSame(FuzzyMode::Always, $definition->thresholds->typo->mode);
+        self::assertFalse($definition->thresholds->rescue->dropUnmatched);
     }
 
     public function testYamlOverridesAttributeIndexes(): void
@@ -44,12 +44,12 @@ final class ArrayDefinitionLoaderTest extends TestCase
         $base = (new AttributeDefinitionLoader())->load(Product::class);
         $merged = (new ArrayDefinitionLoader())->override($base, [
             'sync' => 'queue',
-            'thresholds' => ['min_score' => 0.1],
+            'thresholds' => ['relevance' => ['min_score' => 0.1]],
             'profiles' => ['popular' => ['boost' => 0.2]],
         ]);
 
         self::assertSame(SyncMode::Queue, $merged->sync);
-        self::assertSame(0.1, $merged->thresholds->minScore);
+        self::assertSame(0.1, $merged->thresholds->relevance->minScore);
         self::assertSame(0.2, $merged->profile('popular')->boost);
         self::assertSame($base->fields, $merged->fields, 'fields stay defined by attributes');
     }

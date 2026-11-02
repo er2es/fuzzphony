@@ -88,7 +88,7 @@ final class RestrictedHiddenFieldIndependenceTest extends TestCase
             foreach ($queries as $text) {
                 foreach (['never', 'fallback', 'always'] as $mode) {
                     foreach ([[100, false], [10, true]] as [$limit, $exact]) {
-                        $builder = $fuzzphony->in('hidden_docs')->query($text)->thresholds(['fuzzy_mode' => $mode, 'candidate_limit' => $limit])
+                        $builder = $fuzzphony->in('hidden_docs')->query($text)->thresholds(['typo' => ['mode' => $mode], 'limits' => ['candidates' => $limit]])
                             ->restrictedToFields(...$allowed)->facets('cat')->limit(5);
                         $explained = ($exact ? $builder->exactCounts() : $builder)->explain();
                         $result = $explained->result;

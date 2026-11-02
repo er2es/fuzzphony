@@ -35,7 +35,7 @@ it on every push to `main` and publishes the current table in its job summary.
 | filter + text | `kettle` | 2.3 / 1.8 ms | 20 | 20.1 / 15.8 ms | 20 (2000+) |
 
 `~` means the typo-tolerant fallback ran. The first ("cold") run reads the table from disk; a word that matches more
-documents than `candidate_limit` costs one more pass (see [Common words](#common-words)), which is most of the 35 to 45 ms
+documents than `limits.candidates` costs one more pass (see [Common words](#common-words)), which is most of the 35 to 45 ms
 of the rows with a total of `2000+`. The typo-tolerant statement rechecks each word against the similarity of its own length;
 on 200 000 rows the plans keep using the trigram indexes. Single-digit milliseconds on a shared laptop are noise.
 
@@ -56,7 +56,7 @@ copies of the description, about 300 characters of typo-tolerant text a document
 A restricted viewer pays for the ordered selection that keeps hidden fields out of the candidates (see
 [Known limitations](limitations.md#ranking-of-very-common-words)); everyone else's typo search costs what it did. On a database
 where some documents hold thousands of words in a field the viewer cannot see (3 000 documents, 60 of them with 17 000 words,
-`candidate_limit` 100) the restricted `comon` takes about 1 s, 0.1 s in 0.9.8: the work budget counts the text the viewer may see, so a hidden text is
+`limits.candidates` 100) the restricted `comon` takes about 1 s, 0.1 s in 0.9.8: the work budget counts the text the viewer may see, so a hidden text is
 rechecked in full.
 
 ## Round trips
@@ -75,7 +75,7 @@ PostgreSQL 17, a local container (latency about 0), through `PdoConnection`:
 | typo, fallback (`hedphones`) | 35 | 8 |
 | typo, 2 words (`wireles mose`) | 43 | 10 |
 | no hit, did-you-mean (`zzqxy`) | 35 | 8 |
-| `fuzzy_mode: always` (`wireles`) | n/a | 7 |
+| `typo.mode: always` (`wireles`) | n/a | 7 |
 | relaxed empty result (`wireless zzqxyk`) | n/a | 11 |
 
 Before, PDO prepared every statement on the server (Parse, Bind/Execute, `DEALLOCATE`) and every search ran inside
@@ -95,7 +95,7 @@ it is one more round trip). Reset with `ALTER SYSTEM SET log_statement = 'none'`
 
 ## Common words
 
-A word that matches more documents than `candidate_limit` (2000) costs one more pass: the full-text branch scores the
+A word that matches more documents than `limits.candidates` (2000) costs one more pass: the full-text branch scores the
 matches and keeps the best ones by the key the page is ordered by (see [Ranking](ranking.md#which-candidates-are-ranked)),
 over at most 100 000 matches (the scan budget). A word under the limit costs what it always did (planning takes about 0.15 ms
 more). Median of 9 to 15 runs of the warm statement through `PostgresEngine`, 20 hits, one laptop, PostgreSQL 17 in a
@@ -118,7 +118,7 @@ container with the default `shared_buffers`; the catalogue is the benchmark's, w
 
 **Queries that look up many words.** The cost of ranking a document grows with the words of the query, so the scan budget is
 divided by their number (see [Known limitations](limitations.md#ranking-of-very-common-words)) and the excluded words are not
-looked up for the rank. Median of 3 runs, `fuzzy_mode: never`; the columns are 0.9.7, the first 0.9.8 build (a budget of rows, not of work)
+looked up for the rank. Median of 3 runs, `typo.mode: never`; the columns are 0.9.7, the first 0.9.8 build (a budget of rows, not of work)
 and this one:
 
 | query (200 000 / 1 000 000 rows) | 0.9.7 | first 0.9.8 build | now |
@@ -148,10 +148,10 @@ single-digit milliseconds on a shared laptop are noise.
 
 ### Typo words and facets of a capped search
 
-A typo word that matches more documents than `candidate_limit` (`mouss` is 20 000 look-alikes on 200 000 products) contributes
-the first `candidate_limit` matches of its trigram index, cheap and a lower bound ([Known limitations](limitations.md#ranking-of-very-common-words));
+A typo word that matches more documents than `limits.candidates` (`mouss` is 20 000 look-alikes on 200 000 products) contributes
+the first `limits.candidates` matches of its trigram index, cheap and a lower bound ([Known limitations](limitations.md#ranking-of-very-common-words));
 a full-text match that is not among them keeps its typo score. The facets of a capped search count the ids the statement of the
-hits returns. Median of 7 runs, warm, `candidate_limit` 2000, 200 000 products, 0.9.8 -> now:
+hits returns. Median of 7 runs, warm, `limits.candidates` 2000, 200 000 products, 0.9.8 -> now:
 
 | search | 0.9.8 | now |
 |---|---:|---:|
@@ -162,15 +162,15 @@ hits returns. Median of 7 runs, warm, `candidate_limit` 2000, 200 000 products, 
 | `mouss`, restricted viewer (name, brand) | 44 ms | 141 ms |
 | `mouss` with a facet / and an active filter | 68 / 70 ms | 46 / 67 ms |
 | `screwdrivr 1234` (two words, under the limit) | 39 ms | 37 ms |
-| `wireless`, `fuzzy_mode: always` | 73 ms | 94 ms |
-| `ideal`, `fuzzy_mode: always` | 132 ms | 131 ms |
+| `wireless`, `typo.mode: always` | 73 ms | 94 ms |
+| `ideal`, `typo.mode: always` | 132 ms | 131 ms |
 | `wireless` with a facet / and an active filter (strict) | 48 / 47 ms | 46 / 79 ms |
 | a filter-only listing with a facet | 2.1 ms | 2.4 ms |
 | 12 typo-tolerant-field index (`bench12`), `batery` | 189 ms | 208 ms |
 | the same, restricted viewer (name, description) | 218 ms | 487 ms |
 | the same index, the reversed phrase `"office ideal"` | 541 ms | 274 ms |
 
-`wireless` in `fuzzy_mode: always` pays for the typo score of its 2 000 full-text candidates (they are rescored when the typo branch is
+`wireless` in `typo.mode: always` pays for the typo score of its 2 000 full-text candidates (they are rescored when the typo branch is
 capped, about 10 microseconds each); the restricted viewer pays for the ordered selection, about 8 microseconds per scored match for a
 short name and more for a long text (the work budget in the known limitations). The typo statement of a word under the limit is the one
 it always was.
@@ -180,7 +180,7 @@ it always was.
 An index with four typo-tolerant fields: `name` and `category` open, `brand` and `description` granted (`benchmarks/run.php`, the
 `bench_granted` index; the description is full of very common words). A viewer who holds neither granted field looks its words up in
 the two open-class indexes instead of `fz` / `tsv` (see [Known limitations](limitations.md#a-restricted-viewers-very-common-word-in-a-hidden-typo-tolerant-field)).
-Median of five runs after one warm-up in `fuzzy_mode: always` (one run when it takes longer than 8 s), PostgreSQL in a container on a
+Median of five runs after one warm-up in `typo.mode: always` (one run when it takes longer than 8 s), PostgreSQL in a container on a
 shared development machine with the default 128 MB of shared buffers, `synchronize_seqscans` off; indicative, not a benchmark of the hardware.
 
 | viewer and search | 200 000 before | 200 000 after | 1 000 000 before | 1 000 000 after |

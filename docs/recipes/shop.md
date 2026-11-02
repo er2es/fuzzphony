@@ -127,12 +127,12 @@ one, so a search with two facets is three round trips instead of fifteen ([CHANG
 has a chosen value costs one more, and each further facet with a chosen value another one. Cheap: a plain search
 (one statement), `asYouType()` (the same statement, written differently), synonyms (the stems are fetched once and
 kept). Costly: a typo-tolerant search runs a second statement and the did-you-mean lookup a third, and a result
-under `fallback_below` (5 hits) runs both:
+under `typo.fallback_below` (5 hits) runs both:
 
 <!-- tested: tests/Recipes/Shop/ShopTest.php#fallback-cost -->
 ```php
 $labels = array_column($this->fuzzphony()->in('products')->query('wireless')->explain()->statements, 'label');
-self::assertSame(['full-text', 'fallback: full-text + fuzzy', 'did you mean'], $labels);   // 3 hits: fewer than fallback_below (5)
+self::assertSame(['full-text', 'fallback: full-text + fuzzy', 'did you mean'], $labels);   // 3 hits: fewer than typo.fallback_below (5)
 ```
 
 A small catalogue therefore pays the typo-tolerant branch on most searches. `fuzzphony:search products wireless
@@ -159,7 +159,7 @@ public function dropdown(string $text): array
         ->get();
 
     return [
-        'completions' => $this->fuzzphony->suggest('products', $text, 5),   // "wireless hea" -> "wireless headphones"
+        'completions' => $this->fuzzphony->complete('products', $text, 5),   // "wireless hea" -> "wireless headphones"
         'products' => $found->hits,                                         // load name, price and picture by $hit->id
         'categories' => $found->facets['category_id'] ?? [],                // label the ids yourself
     ];
@@ -176,11 +176,11 @@ $whole = $this->fuzzphony()->in('products')->query('wireless mo')->get();
 self::assertSame([1, 2, 3], $whole->ids());                            // "mo" is no word: it is ignored, and the result says so
 self::assertSame(['No results for all words; ignored words that match nothing: "mo".'], $whole->warnings);
 
-self::assertSame(['wireless headphones', 'wireless headset'], $this->fuzzphony()->suggest('products', 'wireless hea'));
+self::assertSame(['wireless headphones', 'wireless headset'], $this->fuzzphony()->complete('products', 'wireless hea'));
 ```
 
 The dropdown (its groups, pictures and prices) is your template, because the pictures and prices are your data.
-`suggest()` completes only the last word, from the vocabulary, most frequent first, and charges a rate-limit token
+`complete()` completes only the last word, from the vocabulary, most frequent first, and charges a rate-limit token
 per call ([Security](../security.md#the-rate-limit)). The completions are plain text: escape them.
 
 ## Synonyms, did you mean, ranking
@@ -257,7 +257,7 @@ That one tag is the search box, the completions, the facet buttons (choosing one
 again lifts it, the other values stay: the test clicks category 2 and category 1 is still offered), the hits with
 `<mark>`, "did you mean" and the count. It searches on every pause in typing, as you type, and keeps those
 searches out of the search log (`log="true"` records them). Each render is one search and, with `suggestions`, one
-`suggest()` that does not charge a second rate-limit token.
+`complete()` that does not charge a second rate-limit token.
 
 What it does not do: it prints the highlighted fields only, so no price or picture, and its facet buttons show the
 raw values (`category_id` 2, not "Peripherals"). Override `templates/bundles/FuzzphonyBundle/components/Search.html.twig`

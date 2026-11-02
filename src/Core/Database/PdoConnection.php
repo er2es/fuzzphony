@@ -4,7 +4,7 @@ declare(strict_types=1);
 
 namespace Fuzzphony\Core\Database;
 
-final class PdoConnection implements Connection, TransactionAware
+final class PdoConnection implements Connection
 {
     /**
      * pdo_pgsql prepares every statement on the server (Parse), executes it and drops it again (DEALLOCATE): three round

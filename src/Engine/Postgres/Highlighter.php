@@ -194,7 +194,7 @@ final class Highlighter
     /**
      * The words (or runs of words) that reach the similarity their term needs, in one statement: the search's own rule,
      * word_similarity() of the normalised typed words in the normalised candidate, against the similarity the typed word's
-     * length needs (or the search's fuzzy_similarity). The normaliser is the search's.
+     * length needs (or the search's typo.similarity). The normaliser is the search's.
      *
      * @param list<string> $words
      *

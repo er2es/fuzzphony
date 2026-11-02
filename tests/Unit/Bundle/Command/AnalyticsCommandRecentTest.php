@@ -9,8 +9,6 @@ use Fuzzphony\Core\Analytics\LoggedSearch;
 use Fuzzphony\Core\Analytics\RecordStatus;
 use Fuzzphony\Core\Definition\IndexDefinition;
 use Fuzzphony\Core\Engine\Engine;
-use Fuzzphony\Core\Engine\RecentSearchStore;
-use Fuzzphony\Core\Engine\SearchLogStore;
 use Fuzzphony\Core\Fuzzphony;
 use Fuzzphony\Core\Registry\IndexRegistry;
 use Fuzzphony\Tests\Fixtures\Indexes;
@@ -191,13 +189,12 @@ final class AnalyticsCommandRecentTest extends TestCase
 
     private function tester(): CommandTester
     {
-        $engine = self::createStubForIntersectionOfInterfaces([Engine::class, SearchLogStore::class, RecentSearchStore::class]);
+        $engine = self::createStub(Engine::class);
         $engine->method('recentSearches')->willReturnCallback(function (IndexDefinition $index, \DateTimeInterface $from, ?\DateTimeInterface $to, int $limit, int|string|null $tenant, bool $allTenants, ?string $user, bool $anonymousOnly, ?RecordStatus $status): array {
             $this->calls[] = ['report' => 'recent', 'from' => $from, 'limit' => $limit, 'tenant' => $tenant, 'allTenants' => $allTenants, 'user' => $user, 'anonymousOnly' => $anonymousOnly, 'status' => $status];
 
             return $this->logged;
         });
-        assert($engine instanceof Engine);
 
         return new CommandTester(new AnalyticsCommand(new Fuzzphony($engine, new IndexRegistry([Indexes::products('manual')]))));
     }

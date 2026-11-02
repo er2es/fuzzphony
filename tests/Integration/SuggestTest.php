@@ -30,38 +30,38 @@ final class SuggestTest extends TestCase
     {
         $fuzzphony = $this->fuzzphony();
 
-        self::assertSame(['mouse'], $fuzzphony->suggest('products', 'mo'));
-        self::assertSame(['wireless'], $fuzzphony->suggest('products', 'wire'));
-        self::assertSame(['wireless headphones'], $fuzzphony->suggest('products', 'wireless hea'), 'the words before it stay as typed');
-        self::assertSame(['mouse'], $fuzzphony->suggest('products', 'MOU'), 'case does not matter');
-        self::assertSame(['-mouse'], $fuzzphony->suggest('products', '-mo'), 'an operator before the word stays');
-        self::assertSame(['razer', 'rgb'], $fuzzphony->suggest('products', 'r'), 'equally frequent words in alphabetical order');
-        self::assertSame(['razer'], $fuzzphony->suggest('products', 'r', 1));
+        self::assertSame(['mouse'], $fuzzphony->complete('products', 'mo'));
+        self::assertSame(['wireless'], $fuzzphony->complete('products', 'wire'));
+        self::assertSame(['wireless headphones'], $fuzzphony->complete('products', 'wireless hea'), 'the words before it stay as typed');
+        self::assertSame(['mouse'], $fuzzphony->complete('products', 'MOU'), 'case does not matter');
+        self::assertSame(['-mouse'], $fuzzphony->complete('products', '-mo'), 'an operator before the word stays');
+        self::assertSame(['razer', 'rgb'], $fuzzphony->complete('products', 'r'), 'equally frequent words in alphabetical order');
+        self::assertSame(['razer'], $fuzzphony->complete('products', 'r', 1));
     }
 
     public function testAccentsAreFoldedAndNothingIsSuggestedWhenThereIsNoWordBeingTyped(): void
     {
         $fuzzphony = $this->fuzzphony();
 
-        self::assertSame(['creme'], $fuzzphony->suggest('products', 'Crè'), 'the vocabulary has the folded word');
-        self::assertSame([], $fuzzphony->suggest('products', 'mouse '), 'the word is finished');
-        self::assertSame([], $fuzzphony->suggest('products', 'mouse*'), 'a symbol ends the text');
-        self::assertSame([], $fuzzphony->suggest('products', ''));
-        self::assertSame([], $fuzzphony->suggest('products', 'qq'));
+        self::assertSame(['creme'], $fuzzphony->complete('products', 'Crè'), 'the vocabulary has the folded word');
+        self::assertSame([], $fuzzphony->complete('products', 'mouse '), 'the word is finished');
+        self::assertSame([], $fuzzphony->complete('products', 'mouse*'), 'a symbol ends the text');
+        self::assertSame([], $fuzzphony->complete('products', ''));
+        self::assertSame([], $fuzzphony->complete('products', 'qq'));
     }
 
     public function testThePrefixIsNeverAPattern(): void
     {
         $fuzzphony = $this->fuzzphony();
 
-        self::assertSame([], $fuzzphony->suggest('products', '%'));
-        self::assertSame([], $fuzzphony->suggest('products', 'm_'), 'an underscore is not a wildcard');
-        self::assertSame([], $fuzzphony->suggest('products', "mouse'; DROP TABLE x; --"));
+        self::assertSame([], $fuzzphony->complete('products', '%'));
+        self::assertSame([], $fuzzphony->complete('products', 'm_'), 'an underscore is not a wildcard');
+        self::assertSame([], $fuzzphony->complete('products', "mouse'; DROP TABLE x; --"));
     }
 
     public function testATenantScopedIndexSuggestsNothing(): void
     {
-        self::assertSame([], $this->fuzzphony(tenant: true)->suggest('products', 'mo'), 'the vocabulary has no tenant column');
+        self::assertSame([], $this->fuzzphony(tenant: true)->complete('products', 'mo'), 'the vocabulary has no tenant column');
     }
 
     public function testAnIndexWithoutAVocabularyYetSuggestsNothing(): void
@@ -69,7 +69,7 @@ final class SuggestTest extends TestCase
         $fuzzphony = $this->fuzzphony();
         PostgresTestCase::connect()->execute('TRUNCATE "fuzzphony_products__vocab"');
 
-        self::assertSame([], $fuzzphony->suggest('products', 'mo'));
+        self::assertSame([], $fuzzphony->complete('products', 'mo'));
     }
 
     public function testTheLimitIsChecked(): void
@@ -78,7 +78,7 @@ final class SuggestTest extends TestCase
 
         foreach ([0, 21] as $limit) {
             try {
-                $fuzzphony->suggest('products', 'mo', $limit);
+                $fuzzphony->complete('products', 'mo', $limit);
                 self::fail('Expected InvalidArgument.');
             } catch (InvalidArgument $e) {
                 self::assertStringContainsString('between 1 and 20', $e->getMessage());
@@ -90,6 +90,6 @@ final class SuggestTest extends TestCase
     {
         $fuzzphony = new Fuzzphony(self::createStub(\Fuzzphony\Core\Engine\Engine::class), new IndexRegistry([Indexes::products('manual')]));
 
-        self::assertSame([], $fuzzphony->suggest('products', 'mo'));
+        self::assertSame([], $fuzzphony->complete('products', 'mo'));
     }
 }

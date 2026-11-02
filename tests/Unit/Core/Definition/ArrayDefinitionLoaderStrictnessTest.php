@@ -136,7 +136,7 @@ final class ArrayDefinitionLoaderStrictnessTest extends TestCase
 
         $merged = (new ArrayDefinitionLoader())->override($base, [
             'sync' => 'queue', 'trigger_level' => 'row', 'language' => 'german', 'unaccent' => false, 'boost' => 'price', 'recency' => 'price',
-            'log' => false, 'profiles' => ['x' => ['boost' => 0.1]], 'thresholds' => ['min_score' => 0.2], 'synonyms' => [['tv', 'television']],
+            'log' => false, 'profiles' => ['x' => ['boost' => 0.1]], 'thresholds' => ['relevance' => ['min_score' => 0.2]], 'synonyms' => [['tv', 'television']],
             'watch' => ['brand' => 'SELECT :id'],
         ]);
 
@@ -157,11 +157,11 @@ final class ArrayDefinitionLoaderStrictnessTest extends TestCase
     public function testAThresholdsTypoNamesTheRealIndex(): void
     {
         try {
-            (new ArrayDefinitionLoader())->load('articles', ['source' => ['table' => 'article'], 'fields' => ['title' => 'A'], 'thresholds' => ['min_scor' => 1]]);
+            (new ArrayDefinitionLoader())->load('articles', ['source' => ['table' => 'article'], 'fields' => ['title' => 'A'], 'thresholds' => ['relevance' => ['min_scor' => 1]]]);
             self::fail('InvalidDefinition expected');
         } catch (InvalidDefinition $e) {
             self::assertSame('articles', $e->index);
-            self::assertStringStartsWith('thresholds: Unknown threshold option(s): min_scor.', $e->violations[0]);
+            self::assertStringStartsWith('thresholds.relevance: Unknown option "min_scor". Did you mean "min_score"?', $e->violations[0]);
             self::assertStringContainsString('Search index "articles" is misconfigured', $e->getMessage());
         }
     }

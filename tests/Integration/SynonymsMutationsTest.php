@@ -6,6 +6,7 @@ namespace Fuzzphony\Tests\Integration;
 
 use Fuzzphony\Core\Definition\Synonyms;
 use Fuzzphony\Core\Fuzzphony;
+use Fuzzphony\Core\Ranking\RescueThresholds;
 use Fuzzphony\Core\Ranking\Thresholds;
 use Fuzzphony\Core\Registry\IndexRegistry;
 use Fuzzphony\Engine\Postgres\PostgresEngine;
@@ -26,7 +27,7 @@ final class SynonymsMutationsTest extends TestCase
                 [3, 'TV', 'The television', 1, 9_990, true, 1.0, 'now'],
             ],
         ]);
-        $thresholds = new Thresholds(didYouMean: false);
+        $thresholds = new Thresholds(rescue: new RescueThresholds(didYouMean: false, correctWhenEmpty: false));
         $entries = [['tv', 'television']];
         $first = Indexes::products('manual')->withThresholds($thresholds)->withSynonyms(Synonyms::fromEntries($entries));
         $second = Indexes::products('manual')->withName('products_b')->withThresholds($thresholds)->withSynonyms(Synonyms::fromEntries($entries));
@@ -41,7 +42,7 @@ final class SynonymsMutationsTest extends TestCase
         $fuzzphony->useSynonyms('products_b', $prepared->withStems($prepared->stemConfig, ['tv' => 'tv', 'television' => 'television']));
 
         $ids = static function (Fuzzphony $fuzzphony, string $index): array {
-            $ids = $fuzzphony->in($index)->thresholds(['fuzzy_mode' => 'never'])->query('television')->get()->ids();
+            $ids = $fuzzphony->in($index)->thresholds(['typo' => ['mode' => 'never']])->query('television')->get()->ids();
             sort($ids);
 
             return $ids;

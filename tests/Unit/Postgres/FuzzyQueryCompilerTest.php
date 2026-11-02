@@ -11,6 +11,7 @@ use Fuzzphony\Core\Query\Ast\Not;
 use Fuzzphony\Core\Query\Ast\Term;
 use Fuzzphony\Core\Query\QueryParser;
 use Fuzzphony\Core\Ranking\Thresholds;
+use Fuzzphony\Core\Ranking\TypoThresholds;
 use Fuzzphony\Engine\Postgres\Sql\FuzzyMatch;
 use Fuzzphony\Engine\Postgres\Sql\FuzzyQueryCompiler;
 use Fuzzphony\Engine\Postgres\Sql\ParameterBag;
@@ -277,7 +278,7 @@ final class FuzzyQueryCompilerTest extends TestCase
         $compiler = $this->compiler();
 
         self::assertSame($stops = ["'to'", "'the'"], $compiler->keepingStopWords(self::parse('to the'), $stops), '"to" must match exactly, which a stop word never does: nothing to run');
-        self::assertSame($stops = ["'the'"], (new FuzzyQueryCompiler(Indexes::products(), new Thresholds(fuzzyMinLength: 6)))->keepingStopWords(self::parse('the'), $stops));
+        self::assertSame($stops = ["'the'"], (new FuzzyQueryCompiler(Indexes::products(), new Thresholds(typo: new TypoThresholds(minLength: 6))))->keepingStopWords(self::parse('the'), $stops));
         self::assertSame([], $compiler->keepingStopWords(self::parse('abc'), ["'abc'"]), 'exactly the minimum length is long enough');
     }
 
@@ -314,7 +315,7 @@ final class FuzzyQueryCompilerTest extends TestCase
         self::assertFalse($compiler->hasFuzzyLeaf(self::parse('ab cd')), 'every word is below fuzzyMinLength');
         self::assertFalse($compiler->hasFuzzyLeaf(self::parse('ab -mouse')), 'negated words never match fuzzily');
         self::assertFalse($compiler->hasFuzzyLeaf(self::parse('for ab'), ["'for'"]), 'stop words are dropped');
-        self::assertFalse((new FuzzyQueryCompiler(Indexes::products(), new Thresholds(fuzzyMinLength: 6)))->hasFuzzyLeaf(self::parse('mouse')));
+        self::assertFalse((new FuzzyQueryCompiler(Indexes::products(), new Thresholds(typo: new TypoThresholds(minLength: 6))))->hasFuzzyLeaf(self::parse('mouse')));
         self::assertTrue($compiler->hasFuzzyLeaf(self::parse('abc')), 'exactly fuzzyMinLength is long enough');
         self::assertFalse($compiler->hasFuzzyLeaf(self::parse('"a b"')), 'the length counts letters, not the spaces of a phrase');
         self::assertFalse($compiler->hasFuzzyLeaf(self::parse('éé')), 'the length counts characters, not bytes');
@@ -496,7 +497,7 @@ final class FuzzyQueryCompilerTest extends TestCase
     public function testAFlatSimilarityNeverAddsARecheck(): void
     {
         foreach ([0.3, 0.5] as $flat) {
-            $match = (new FuzzyQueryCompiler(Indexes::products(), new Thresholds(fuzzySimilarity: $flat)))->compile(self::parse('mouse'), new ParameterBag());
+            $match = (new FuzzyQueryCompiler(Indexes::products(), new Thresholds(typo: new TypoThresholds(similarity: $flat))))->compile(self::parse('mouse'), new ParameterBag());
 
             self::assertNotNull($match);
             self::assertSame('(s.tsv @@ q.ft0 OR q.fn1 OPERATOR("public".<%) s.fz)', $match->predicate, "flat $flat");
@@ -544,13 +545,13 @@ final class FuzzyQueryCompilerTest extends TestCase
 
     public function testAFlatSimilarityIsTheSessionSimilarity(): void
     {
-        self::assertSame(0.5, (new FuzzyQueryCompiler(Indexes::products(), new Thresholds(fuzzySimilarity: 0.5)))->lowestSimilarity(self::parse('mouse headphones')));
+        self::assertSame(0.5, (new FuzzyQueryCompiler(Indexes::products(), new Thresholds(typo: new TypoThresholds(similarity: 0.5))))->lowestSimilarity(self::parse('mouse headphones')));
     }
 
     private function compiler(): FuzzyQueryCompiler
     {
         // flat: these tests are about the structure; the length-aware SQL has its own tests
-        return new FuzzyQueryCompiler(Indexes::products(), new Thresholds(fuzzySimilarity: 0.3));
+        return new FuzzyQueryCompiler(Indexes::products(), new Thresholds(typo: new TypoThresholds(similarity: 0.3)));
     }
 
     private static function lengthAware(): FuzzyQueryCompiler

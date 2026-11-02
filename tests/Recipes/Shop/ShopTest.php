@@ -146,7 +146,7 @@ final class ShopTest extends KernelTestCase
     {
         // region: fallback-cost
         $labels = array_column($this->fuzzphony()->in('products')->query('wireless')->explain()->statements, 'label');
-        self::assertSame(['full-text', 'fallback: full-text + fuzzy', 'did you mean'], $labels);   // 3 hits: fewer than fallback_below (5)
+        self::assertSame(['full-text', 'fallback: full-text + fuzzy', 'did you mean'], $labels);   // 3 hits: fewer than typo.fallback_below (5)
         // endregion
     }
 
@@ -171,7 +171,7 @@ final class ShopTest extends KernelTestCase
         self::assertSame([1, 2, 3], $whole->ids());                            // "mo" is no word: it is ignored, and the result says so
         self::assertSame(['No results for all words; ignored words that match nothing: "mo".'], $whole->warnings);
 
-        self::assertSame(['wireless headphones', 'wireless headset'], $this->fuzzphony()->suggest('products', 'wireless hea'));
+        self::assertSame(['wireless headphones', 'wireless headset'], $this->fuzzphony()->complete('products', 'wireless hea'));
         // endregion
 
         $dropdown = $this->storefront()->dropdown('wireless hea');

@@ -192,7 +192,7 @@ final class TextConfigCache
         $this->fetchStems($config, $missing);
         $this->expanders[$key] ??= new SynonymExpander($index->synonyms, $prepared ? $index->synonyms->stems : array_intersect_key($this->stems[$config] ?? [], array_flip($memberWords)));
         $truncated = false;
-        $expanded = $this->expanders[$key]->expand($root, array_intersect_key($this->stems[$config] ?? [], array_flip($queryWords)), $thresholds->maxTerms * 4, $truncated);
+        $expanded = $this->expanders[$key]->expand($root, array_intersect_key($this->stems[$config] ?? [], array_flip($queryWords)), $thresholds->limits->maxTerms * 4, $truncated);
         if ($truncated) {
             $warnings[] = 'Synonyms were expanded for part of the query only (too many alternatives).';
         }

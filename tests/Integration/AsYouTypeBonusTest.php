@@ -9,7 +9,9 @@ use Fuzzphony\Core\Fuzzphony;
 use Fuzzphony\Core\Query\Ast\NodeInspector;
 use Fuzzphony\Core\Query\QueryParser;
 use Fuzzphony\Core\Ranking\FuzzyMode;
+use Fuzzphony\Core\Ranking\RescueThresholds;
 use Fuzzphony\Core\Ranking\Thresholds;
+use Fuzzphony\Core\Ranking\TypoThresholds;
 use Fuzzphony\Core\Registry\IndexRegistry;
 use Fuzzphony\Core\Search\SearchBuilder;
 use Fuzzphony\Engine\Postgres\PostgresEngine;
@@ -43,7 +45,7 @@ final class AsYouTypeBonusTest extends TestCase
             ],
         ]);
         $index = Indexes::products('manual')
-            ->withThresholds(new Thresholds(didYouMean: false, fuzzyMode: FuzzyMode::Never))
+            ->withThresholds(new Thresholds(rescue: new RescueThresholds(didYouMean: false, correctWhenEmpty: false), typo: new TypoThresholds(mode: FuzzyMode::Never)))
             ->withSynonyms(Synonyms::fromEntries([['tv', 'television']]));
         $this->fuzzphony = new Fuzzphony(new PostgresEngine($connection), new IndexRegistry([$index]));
         $this->fuzzphony->schema()->apply($connection);

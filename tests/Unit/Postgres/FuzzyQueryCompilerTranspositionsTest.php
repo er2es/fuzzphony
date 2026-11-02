@@ -10,6 +10,7 @@ use Fuzzphony\Core\Query\Ast\Node;
 use Fuzzphony\Core\Query\Ast\Term;
 use Fuzzphony\Core\Query\QueryParser;
 use Fuzzphony\Core\Ranking\Thresholds;
+use Fuzzphony\Core\Ranking\TypoThresholds;
 use Fuzzphony\Engine\Postgres\Schema\Names;
 use Fuzzphony\Engine\Postgres\Sql\FuzzyMatch;
 use Fuzzphony\Engine\Postgres\Sql\FuzzyQueryCompiler;
@@ -72,7 +73,7 @@ final class FuzzyQueryCompilerTranspositionsTest extends TestCase
         self::assertStringContainsString('THEN q.th2 ELSE 0.0 END)', $match->score);
         self::assertStringContainsString('THEN 1.0 ELSE 0.0 END', $match->score);
 
-        [$flat] = self::compile(self::compiler(thresholds: new Thresholds(fuzzySimilarity: 0.3)), 'mosue');
+        [$flat] = self::compile(self::compiler(thresholds: new Thresholds(typo: new TypoThresholds(similarity: 0.3))), 'mosue');
         self::assertStringContainsString('THEN 0.3 ELSE 0.0 END)', $flat->score);
     }
 

@@ -15,6 +15,7 @@ use Fuzzphony\Core\Definition\AttributeDefinitionLoader;
 use Fuzzphony\Core\Definition\IndexDefinition;
 use Fuzzphony\Core\Definition\SyncMode;
 use Fuzzphony\Core\Fuzzphony;
+use Fuzzphony\Core\Ranking\LimitThresholds;
 use Fuzzphony\Core\Ranking\Thresholds;
 use Fuzzphony\Core\Registry\IndexRegistry;
 use Fuzzphony\Core\Search\SearchResult;
@@ -155,7 +156,7 @@ final class LikeGuideTest extends TestCase
             'exact' => <<<'PHP'
                 $result = $fuzzphony->in('products')
                     ->query($text)
-                    ->thresholds(['fuzzy_mode' => 'never'])   // no typo tolerance: only the words that are really there
+                    ->thresholds(['typo' => ['mode' => 'never']])   // no typo tolerance: only the words that are really there
                     ->get();
                 PHP,
             'joined-yaml' => <<<'YAML'
@@ -576,7 +577,7 @@ final class LikeGuideTest extends TestCase
             self::assertSame(self::sorted($expected['likeNames']), self::sorted($this->likeNames($like[1])), 'ILIKE: ' . $text[1]);
 
             $builder = $this->fuzzphony->in('products')->query($text[1]);
-            $result = isset($expected['never']) ? $builder->thresholds(['fuzzy_mode' => 'never'])->get() : $builder->get();
+            $result = isset($expected['never']) ? $builder->thresholds(['typo' => ['mode' => 'never']])->get() : $builder->get();
             $found = $this->hitNames($result);
             if (isset($expected['names'])) {
                 self::assertSame(self::sorted($expected['names']), self::sorted($found), 'Fuzzphony: ' . $text[1]);
@@ -594,7 +595,7 @@ final class LikeGuideTest extends TestCase
     public function testASuffixPatternIsNotASearchAndAPercentSignIsNotAWildcard(): void
     {
         $this->boot();
-        $never = ['fuzzy_mode' => 'never'];
+        $never = ['typo' => ['mode' => 'never']];
         // the leading * is dropped: `*phones` is the word "phones" (and its stem), not "anything ending in phones"
         self::assertSame('phones', $this->fuzzphony->in('products')->query('*phones')->get()->interpretedAs);
         self::assertSame(['Phone case'], $this->hitNames($this->fuzzphony->in('products')->query('*phones')->thresholds($never)->get()));
@@ -732,7 +733,7 @@ final class LikeGuideTest extends TestCase
 
     public function testPaginationAndTheLowerBound(): void
     {
-        $this->boot(thresholds: new Thresholds(candidateLimit: 30), cables: 60);
+        $this->boot(thresholds: new Thresholds(limits: new LimitThresholds(candidates: 30)), cables: 60);
 
         $out = self::runSnippet('pagination', ['fuzzphony' => $this->fuzzphony, 'text' => 'cable', 'page' => 1]);
         self::assertSame('1-20 of 30+', $out['label'], 'candidate_limit reached: the total is a lower bound');
@@ -770,7 +771,7 @@ final class LikeGuideTest extends TestCase
     {
         $this->boot();
         $search = fn(string $text, bool $exact = false): SearchResult => $exact
-            ? $this->fuzzphony->in('products')->query($text)->thresholds(['fuzzy_mode' => 'never'])->get()
+            ? $this->fuzzphony->in('products')->query($text)->thresholds(['typo' => ['mode' => 'never']])->get()
             : $this->fuzzphony->in('products')->query($text)->get();
 
         // a fragment inside a word: ILIKE finds it, an exact search does not, typo tolerance only by similarity
@@ -808,7 +809,7 @@ final class LikeGuideTest extends TestCase
         $fuzzphony = new Fuzzphony(new PostgresEngine($this->connection), new IndexRegistry([$definition]));
         $fuzzphony->schema()->apply($this->connection);
         $fuzzphony->reindex('products');
-        $exact = static fn(string $text): array => $fuzzphony->in('products')->query($text)->thresholds(['fuzzy_mode' => 'never'])->get()->ids();
+        $exact = static fn(string $text): array => $fuzzphony->in('products')->query($text)->thresholds(['typo' => ['mode' => 'never']])->get()->ids();
 
         $drill = $exact('drill');
         sort($drill);

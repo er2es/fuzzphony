@@ -1,11 +1,11 @@
-# Tuning `candidate_limit`
+# Tuning `limits.candidates`
 
 How many candidates a search ranks, and what to set when the indexed texts are long. Back to the [README](../README.md); the
 rule itself is in [Ranking](ranking.md#which-candidates-are-ranked).
 
 ## What it costs
 
-A search ranks at most `candidate_limit` documents per branch (2000 by default, at most 10 000) before it returns the page. The cost
+A search ranks at most `limits.candidates` documents per branch (2000 by default, at most 10 000) before it returns the page. The cost
 of ranking one candidate is the size of the text it reads, so the limit is a time budget:
 
 - **Short texts** (names, titles, a few hundred characters): about 1 microsecond per scanned match for the strict branch and about
@@ -13,10 +13,10 @@ of ranking one candidate is the size of the text it reads, so the limit is a tim
   ([Benchmarks](benchmarks.md#common-words)).
 - **Long texts in a typo-tolerant field** (a description, an article body, a manual: thousands of words): every candidate that holds
   one is rechecked against the whole text, so the cost grows with the text, not with the number of documents. Measured on 3 000
-  documents, 60 of them with a 17 000-word typo-tolerant field (one search for a word that every title has, `fuzzy_mode: always`,
+  documents, 60 of them with a 17 000-word typo-tolerant field (one search for a word that every title has, `typo.mode: always`,
   median of 3, warm, local PostgreSQL):
 
-| `candidate_limit` | `common` (exact word) | `comon` (typo) |
+| `limits.candidates` | `common` (exact word) | `comon` (typo) |
 |---:|---:|---:|
 | 2000 (default) | 3 800 ms | 4 400 ms |
 | 500 | 950 ms | 1 100 ms |
@@ -30,12 +30,12 @@ of ranking one candidate is the size of the text it reads, so the limit is a tim
 ## What to set
 
 1. **Measure first.** `explain()` (or `fuzzphony:search --explain --analyze`) shows the time of the statement; try the limits
-   above with `->thresholds(['candidate_limit' => 200])` on your own data and your most common words.
+   above with `->thresholds(['limits' => ['candidates' => 200]])` on your own data and your most common words.
 2. **Do not make the field typo-tolerant when it need not be.** `fuzzy: true` on a long text keeps a trigram copy of it and
    rechecks it. Typo tolerance on the title and the name, full-text only on the description, is usually what a search needs, and the
    long field then costs nothing extra.
 3. **Lower the limit for an index with long typo-tolerant texts** (100 to 500 is a good range for texts of thousands of words),
-   per index in YAML (`thresholds: { candidate_limit: 200 }`) or per query. The ranking stays exact for what is ranked: the best
+   per index in YAML (`thresholds: { limits: { candidates: 200 } }`) or per query. The ranking stays exact for what is ranked: the best
    candidates by the page's own sort key; only the pages past the limit differ (`total` is `200+`, a page past it is still served,
    up to 10 000 hits, with `offset + limit` candidates).
 4. **Keep the default** for names, titles and short descriptions, and when the common words of your data are not common at all.

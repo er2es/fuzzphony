@@ -78,7 +78,7 @@ final class TruncateSyncTest extends TestCase
     {
         $index = $this->notedIndex($sync, $level);
         $fuzzphony = $this->install($index);
-        $search = static fn(string $text): array => $fuzzphony->in('noted')->query($text)->thresholds(['fuzzy_mode' => 'never'])->get()->ids();
+        $search = static fn(string $text): array => $fuzzphony->in('noted')->query($text)->thresholds(['typo' => ['mode' => 'never']])->get()->ids();
         self::assertEqualsCanonicalizing([1, 3], $search('fragile'));
 
         $this->connection->execute('TRUNCATE fz_note');
@@ -121,7 +121,7 @@ final class TruncateSyncTest extends TestCase
     {
         $index = $this->notedIndex($sync, $level);
         $fuzzphony = $this->install($index);
-        $search = static fn(string $text): array => $fuzzphony->in('noted')->query($text)->thresholds(['fuzzy_mode' => 'never'])->get()->ids();
+        $search = static fn(string $text): array => $fuzzphony->in('noted')->query($text)->thresholds(['typo' => ['mode' => 'never']])->get()->ids();
 
         $this->connection->execute("INSERT INTO fz_note VALUES (4, 2, 'discontinued')");
         $this->connection->execute("UPDATE fz_note SET note = 'refurbished' WHERE id = 1");
@@ -218,7 +218,7 @@ final class TruncateSyncTest extends TestCase
     {
         $index = $this->notedIndex('queue', TriggerLevel::Statement);
         $fuzzphony = $this->install($index);
-        $search = static fn(string $text): array => $fuzzphony->in('noted')->query($text)->thresholds(['fuzzy_mode' => 'never'])->get()->ids();
+        $search = static fn(string $text): array => $fuzzphony->in('noted')->query($text)->thresholds(['typo' => ['mode' => 'never']])->get()->ids();
 
         $this->connection->execute("UPDATE fz_note SET note = 'refurbished' WHERE id = 1"); // queues product 1
         $this->connection->execute('TRUNCATE fz_hidden'); // one job

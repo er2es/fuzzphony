@@ -23,6 +23,8 @@ final readonly class IndexDefinition
      * @param list<Watch>                   $watches  Extra tables whose changes affect documents (joins).
      * @param array<string, RankingProfile> $profiles Must contain "default".
      * @param class-string|null             $entityClass
+     *
+     * @internal
      */
     public function __construct(
         public string $name,

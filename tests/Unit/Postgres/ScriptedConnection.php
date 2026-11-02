@@ -5,14 +5,13 @@ declare(strict_types=1);
 namespace Fuzzphony\Tests\Unit\Postgres;
 
 use Fuzzphony\Core\Database\Connection;
-use Fuzzphony\Core\Database\TransactionAware;
 
 /**
  * @internal A scripted connection that knows about transactions: it records every statement and BEGIN / COMMIT / ROLLBACK,
  * joins a transaction the "caller" has open ($callerTransaction) the way PdoConnection does, and answers statements from
  * closures (which may throw). Without a script every query returns no rows and every value is null.
  */
-final class ScriptedConnection implements Connection, TransactionAware
+final class ScriptedConnection implements Connection
 {
     /** @var list<string> the SQL of every statement, and BEGIN / COMMIT / ROLLBACK */
     public array $log = [];

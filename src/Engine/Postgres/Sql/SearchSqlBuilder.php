@@ -101,7 +101,7 @@ final class SearchSqlBuilder
      */
     public static function window(Thresholds $thresholds, int $limit, int $offset): int
     {
-        return min(Thresholds::MAX_CANDIDATE_LIMIT, max($thresholds->candidateLimit, $offset + $limit));
+        return min(Thresholds::MAX_CANDIDATE_LIMIT, max($thresholds->limits->candidates, $offset + $limit));
     }
 
     /**
@@ -127,7 +127,7 @@ final class SearchSqlBuilder
         // what the fast selection found: it hit its limit exactly when the matches were cut off, whatever the ordered one kept
         $counts[] = $tsquery !== null ? sprintf('(SELECT count(*) FROM %s) AS fts_n', $fast) : '0 AS fts_n';
         $counts[] = $fuzzy !== null ? sprintf('(SELECT count(*) FROM %s) AS fuzzy_n', $fuzzyFast) : '0 AS fuzzy_n';
-        $minScore = Sql::float($thresholds->minScore);
+        $minScore = Sql::float($thresholds->relevance->minScore);
         if ($withCandidates) {
             $counts[] = sprintf('(SELECT json_agg(id ORDER BY id) FROM scored WHERE relevance >= %s) AS cand_ids', $minScore);
         }
@@ -180,7 +180,7 @@ final class SearchSqlBuilder
         $table = $this->names->sidecar($this->index);
         $config = $this->names->regconfig($this->index->text);
         // an exact count reads every match; a search and its approximate counts stop at the window (the candidate limit, or more for a page past it)
-        $limit = $window ?? $thresholds->candidateLimit;
+        $limit = $window ?? $thresholds->limits->candidates;
         $cap = $uncapped ? '' : "\n    LIMIT " . $limit;
 
         $q = [];
@@ -270,7 +270,7 @@ final class SearchSqlBuilder
             $rank = $this->textRank($profile, $positional, $rankQuery) . '::double precision';
             $where = implode(' AND ', $strict) . ' AND ' . $filterSql;
             $n = (int) $window;
-            $min = $fuzzy === null && $thresholds->minScore > 0.0 ? sprintf(' AND %s * w.r_text >= %s', Sql::float($profile->text), Sql::float($thresholds->minScore)) : '';
+            $min = $fuzzy === null && $thresholds->relevance->minScore > 0.0 ? sprintf(' AND %s * w.r_text >= %s', Sql::float($profile->text), Sql::float($thresholds->relevance->minScore)) : '';
             if ($ordered && $wide !== null && $fuzzy === null) {
                 $selection = $this->wideSelection($wide, $strict, $rank, $bonuses, $table, $where, $conditions, $filters, $params, $profile, $thresholds, $n, self::scanLimit($this->scanBudget, $operands, $n), $min);
                 array_push($ctes, ...$selection['ctes']);
@@ -293,7 +293,7 @@ final class SearchSqlBuilder
                     $n = (int) $window;
                     // a minimum relevance keeps the documents under it out of the slots; with typo tolerance in the same statement a
                     // document may pass on its typo similarity, so the fast selection's rule (no cut here) stands
-                    $min = $fuzzy === null && $thresholds->minScore > 0.0 ? sprintf(' AND %s * w.r_text >= %s', Sql::float($profile->text), Sql::float($thresholds->minScore)) : '';
+                    $min = $fuzzy === null && $thresholds->relevance->minScore > 0.0 ? sprintf(' AND %s * w.r_text >= %s', Sql::float($profile->text), Sql::float($thresholds->relevance->minScore)) : '';
                     $ctes[] = sprintf(
                         "fts AS (
     SELECT id, r_text FROM fts_fast WHERE (SELECT count(*) FROM fts_fast) < %1\$d
@@ -445,7 +445,7 @@ final class SearchSqlBuilder
      */
     public function facets(array $filters, ?string $tsquery, string $plain, ?Node $fuzzyRoot, array $conditions, RankingProfile $profile, Thresholds $thresholds, int $values, bool $exact, array $emptyQueries = [], ?Node $scopedRoot = null): array
     {
-        ['ctes' => $ctes, 'params' => $params, 'fuzzy' => $fuzzy] = $this->scored($tsquery, $plain, $fuzzyRoot, $conditions, $profile, $thresholds, $emptyQueries, $scopedRoot, $exact, $thresholds->candidateLimit);
+        ['ctes' => $ctes, 'params' => $params, 'fuzzy' => $fuzzy] = $this->scored($tsquery, $plain, $fuzzyRoot, $conditions, $profile, $thresholds, $emptyQueries, $scopedRoot, $exact, $thresholds->limits->candidates);
         $ctes[] = sprintf(
             "fc AS (
     SELECT %s
@@ -454,7 +454,7 @@ final class SearchSqlBuilder
 )",
             self::facetColumns($filters),
             $this->names->sidecar($this->index),
-            Sql::float($thresholds->minScore),
+            Sql::float($thresholds->relevance->minScore),
         );
 
         return ['sql' => $this->facetBranches($ctes, $filters, $values), 'params' => $params->all(), 'readsWordThreshold' => $fuzzy?->readsWordThreshold === true];
@@ -505,7 +505,7 @@ final class SearchSqlBuilder
             self::facetColumns($filters),
             $this->names->sidecar($this->index),
             (new FilterCompiler($this->index))->compile($conditions, $params),
-            $exact ? '' : self::firstById($thresholds->candidateLimit),
+            $exact ? '' : self::firstById($thresholds->limits->candidates),
         )];
 
         return ['sql' => $this->facetBranches($ctes, $filters, $values), 'params' => $params->all()];
@@ -631,7 +631,7 @@ final class SearchSqlBuilder
                 "wf AS (\n    SELECT w.v0 FROM wfts AS f JOIN wide AS w ON w.id = f.id\n    WHERE %s * f.r_text + %s * 0::double precision >= %s\n)",
                 Sql::float($profile->text),
                 Sql::float($profile->fuzzy),
-                Sql::float($thresholds->minScore),
+                Sql::float($thresholds->relevance->minScore),
             ),
         ];
         $branch = $this->facetBranch(0, $wide['filter'], $wide['values'], 'wf');
@@ -686,7 +686,7 @@ UNION ALL
     public function exactTotal(?string $tsquery, string $plain, ?Node $fuzzyRoot, array $conditions, RankingProfile $profile, Thresholds $thresholds, array $emptyQueries = [], ?Node $scopedRoot = null): array
     {
         ['ctes' => $ctes, 'params' => $params, 'fuzzy' => $fuzzy] = $this->scored($tsquery, $plain, $fuzzyRoot, $conditions, $profile, $thresholds, $emptyQueries, $scopedRoot, true);
-        $sql = sprintf("WITH %s\nSELECT count(*) AS total FROM scored WHERE relevance >= %s", implode(",\n", $ctes), Sql::float($thresholds->minScore));
+        $sql = sprintf("WITH %s\nSELECT count(*) AS total FROM scored WHERE relevance >= %s", implode(",\n", $ctes), Sql::float($thresholds->relevance->minScore));
 
         return ['sql' => $sql, 'params' => $params->all(), 'readsWordThreshold' => $fuzzy?->readsWordThreshold === true];
     }

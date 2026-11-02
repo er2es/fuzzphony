@@ -67,11 +67,11 @@ final class TypoBranchCandidatesTest extends TestCase
 
         $first = null;
         foreach ([100, 500] as $limit) {
-            $result = $fuzzphony->in('tb_docs')->query('gadgetrun')->thresholds(['fuzzy_mode' => $mode, 'candidate_limit' => $limit])->limit(20)->facets('cat')->get();
+            $result = $fuzzphony->in('tb_docs')->query('gadgetrun')->thresholds(['typo' => ['mode' => $mode], 'limits' => ['candidates' => $limit]])->limit(20)->facets('cat')->get();
             self::assertTrue($result->totalIsLowerBound, 'the typo word matches more documents than the candidate limit');
             self::assertCount(20, $result->hits);
             self::assertSame(20, count(array_unique($result->ids())));
-            $again = $fuzzphony->in('tb_docs')->query('gadgetrun')->thresholds(['fuzzy_mode' => $mode, 'candidate_limit' => $limit])->limit(20)->facets('cat')->get();
+            $again = $fuzzphony->in('tb_docs')->query('gadgetrun')->thresholds(['typo' => ['mode' => $mode], 'limits' => ['candidates' => $limit]])->limit(20)->facets('cat')->get();
             self::assertSame($result->ids(), $again->ids(), 'the same candidates on every run');
             $first ??= $result->ids();
         }
@@ -89,7 +89,7 @@ final class TypoBranchCandidatesTest extends TestCase
         $this->connection->execute("INSERT INTO fz_tb_doc VALUES (90000, 'mousse cake', 'plain', 'x', 'a', 1), (90001, 'mousse cake', 'plain', 'x', 'a', 1), (90002, 'mousse cake', 'plain', 'x', 'a', 1)");
         $fuzzphony = $this->index();
 
-        $result = $fuzzphony->in('tb_docs')->query('mousse')->thresholds(['fuzzy_mode' => $mode, 'candidate_limit' => 100])->limit(10)->get();
+        $result = $fuzzphony->in('tb_docs')->query('mousse')->thresholds(['typo' => ['mode' => $mode], 'limits' => ['candidates' => 100]])->limit(10)->get();
 
         self::assertTrue($result->usedFuzzy, 'the typo branch ran');
         self::assertSame([90000, 90001, 90002], array_slice($result->ids(), 0, 3), 'the exact matches come first');
@@ -105,7 +105,7 @@ final class TypoBranchCandidatesTest extends TestCase
         $this->connection->execute("INSERT INTO fz_tb_doc VALUES (90000, 'gadgetrunn widget', 'plain', 'x', 'a', 1)");
         $fuzzphony = $this->index();
 
-        $result = $fuzzphony->in('tb_docs')->query('gadgetrun')->thresholds(['fuzzy_mode' => $mode, 'candidate_limit' => 100])->restrictedToFields('title')->limit(20)->get();
+        $result = $fuzzphony->in('tb_docs')->query('gadgetrun')->thresholds(['typo' => ['mode' => $mode], 'limits' => ['candidates' => 100]])->restrictedToFields('title')->limit(20)->get();
         self::assertTrue($result->totalIsLowerBound);
         self::assertSame(90000, $result->hits[0]->id, 'the closest spelling in a field the viewer sees comes first');
     }
@@ -120,7 +120,7 @@ final class TypoBranchCandidatesTest extends TestCase
         $this->connection->execute("INSERT INTO fz_tb_doc VALUES (90000, 'gadgetron', 'plain', 'x', 'a', 1, 5)");
         $fuzzphony = $this->index();
 
-        $result = $fuzzphony->in('tb_docs')->query('gadgetrun')->thresholds(['fuzzy_mode' => 'always', 'candidate_limit' => 100])->ranking(['boost' => 0.5])->restrictedToFields('title')->limit(5)->get();
+        $result = $fuzzphony->in('tb_docs')->query('gadgetrun')->thresholds(['typo' => ['mode' => 'always'], 'limits' => ['candidates' => 100]])->ranking(['boost' => 0.5])->restrictedToFields('title')->limit(5)->get();
         self::assertSame(90000, $result->hits[0]->id);
     }
 
@@ -160,7 +160,7 @@ final class TypoBranchCandidatesTest extends TestCase
             $this->connection->execute("INSERT INTO fz_tb_doc VALUES (90000, 'gadgetrunn widget', 'plain', 'x', 'a', 1)");
             $fuzzphony = $this->index(true);
             foreach ([1] as $tenant) {
-                $explained = $fuzzphony->in('tb_docs')->forTenant($tenant)->query($text)->thresholds(['fuzzy_mode' => $mode, 'candidate_limit' => 100])->facets('cat')->limit(20)->explain();
+                $explained = $fuzzphony->in('tb_docs')->forTenant($tenant)->query($text)->thresholds(['typo' => ['mode' => $mode], 'limits' => ['candidates' => 100]])->facets('cat')->limit(20)->explain();
                 $result = $explained->result;
                 self::assertTrue($result->totalIsLowerBound, 'the tenant matches more documents than the candidate limit');
                 $outcomes[$tenant][$variant] = [

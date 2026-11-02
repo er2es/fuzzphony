@@ -95,7 +95,7 @@ UI depends on:
 | `SearchResult` | What it is | Rendering |
 |---|---|---|
 | `hits` | `Hit` objects in rank order: `id`, `score`, `highlights` (field => snippet) | Load your own rows by `id` (`ids()` gives the list) |
-| `total`, `totalIsLowerBound` | The number of matches; a lower bound when the search hit `candidate_limit` | Show `2000+` when `totalIsLowerBound` is true |
+| `total`, `totalIsLowerBound` | The number of matches; a lower bound when the search hit `limits.candidates` | Show `2000+` when `totalIsLowerBound` is true |
 | `hasMore()`, `limit`, `offset`, `page()` | Paging | A pager follows `hasMore()` |
 | `facets` | `filter => list<FacetValue>` (`value`, `count`) for the filters named in `facets()` | Counts are lower bounds when `totalIsLowerBound` |
 | `didYouMean` | A spelling suggestion, or `null` | Plain text; search it by passing it to `query()` |
@@ -116,7 +116,7 @@ A framework-free endpoint (the index is defined as in [Builder (plain PHP)](conf
 ```php
 // search.php
 $pdo = new PDO('pgsql:host=localhost;dbname=shop', 'user', 'secret');
-$fuzzphony = new Fuzzphony(new PostgresEngine(new PdoConnection($pdo)), new IndexRegistry([
+$fuzzphony = Fuzzphony::postgres(new PdoConnection($pdo), [
     IndexDefinition::builder('products')
         ->fromQuery('SELECT id, name, category FROM product')
         ->watch('product')
@@ -124,7 +124,7 @@ $fuzzphony = new Fuzzphony(new PostgresEngine(new PdoConnection($pdo)), new Inde
         ->filter('category', 'string')
         ->language('english')
         ->build(),
-]));
+]);
 
 $result = $fuzzphony->in('products')
     ->query(trim((string) ($_GET['q'] ?? '')))

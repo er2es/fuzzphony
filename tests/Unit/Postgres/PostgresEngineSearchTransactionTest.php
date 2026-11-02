@@ -18,7 +18,7 @@ final class PostgresEngineSearchTransactionTest extends TestCase
         $connection = new RecordingConnection(static fn(): null => null);
         $search = new Fuzzphony(new PostgresEngine($connection), new IndexRegistry([Indexes::products()]));
 
-        $search->in('products')->query('mouse')->thresholds(['fuzzy_mode' => 'never', 'did_you_mean' => false])->get();
+        $search->in('products')->query('mouse')->thresholds(['typo' => ['mode' => 'never'], 'rescue' => ['did_you_mean' => false, 'correct_when_empty' => false]])->get();
 
         self::assertCount(1, $connection->log);
         self::assertStringStartsWith('WITH q AS', $connection->log[0][0]);
@@ -29,7 +29,7 @@ final class PostgresEngineSearchTransactionTest extends TestCase
         $connection = new RecordingConnection(static fn(): null => null);
         $search = new Fuzzphony(new PostgresEngine($connection), new IndexRegistry([Indexes::products()]));
 
-        $search->in('products')->query('mouse')->thresholds(['fuzzy_mode' => 'always', 'did_you_mean' => false])->get();
+        $search->in('products')->query('mouse')->thresholds(['typo' => ['mode' => 'always'], 'rescue' => ['did_you_mean' => false, 'correct_when_empty' => false]])->get();
 
         $sequence = array_map(
             static fn(array $entry): string => match (true) {
