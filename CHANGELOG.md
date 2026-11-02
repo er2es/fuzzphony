@@ -11,6 +11,11 @@ and a link. Measurements, proofs and test names belong to the pull request, [doc
 
 ## [Unreleased]
 
+### Fixed
+
+- **`fuzzphony:schema --apply` no longer locks tables it does not change:** a column is added only when the catalog says it is missing (it used to
+  take an `ACCESS EXCLUSIVE` lock on the sidecar, the meta table and the log on every apply, queueing behind long readers).
+
 ### Breaking
 
 - **`fuzzphony:schema --apply` is mandatory after an upgrade.** A missing `tsv_capped` or `actor_ip` column makes the first search, refresh

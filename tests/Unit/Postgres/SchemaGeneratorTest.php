@@ -49,8 +49,9 @@ final class SchemaGeneratorTest extends TestCase
     {
         $sql = (new PostgresSchemaGenerator())->index(Indexes::products())->toSql();
 
-        self::assertStringContainsString('ALTER TABLE "public"."fuzzphony_products" ADD COLUMN IF NOT EXISTS "t_brand" tsvector NOT NULL DEFAULT \'\'', $sql);
-        self::assertStringContainsString('ALTER TABLE "public"."fuzzphony_products" ADD COLUMN IF NOT EXISTS "z_brand" text NOT NULL DEFAULT \'\'', $sql);
+        self::assertStringContainsString('THEN ALTER TABLE "public"."fuzzphony_products" ADD COLUMN "t_brand" tsvector NOT NULL DEFAULT \'\'', $sql);
+        self::assertStringContainsString('THEN ALTER TABLE "public"."fuzzphony_products" ADD COLUMN "z_brand" text NOT NULL DEFAULT \'\'', $sql);
+        self::assertStringNotContainsString('ADD COLUMN IF NOT EXISTS', $sql, 'it takes an ACCESS EXCLUSIVE lock even when nothing changes');
         self::assertStringNotContainsString('"z_description"', $sql, 'description is not fuzzy');
         self::assertStringContainsString(
             'INSERT INTO "public"."fuzzphony_products" AS s ("id", "tsv", "tsv_capped", "fz", "exact", "t_name", "z_name", "t_brand", "z_brand", "t_description", "boost", "recency_at", "f_price", "f_in_stock", "f_published_at", "f_brand_id", "indexed_at")',
@@ -655,7 +656,8 @@ final class SchemaGeneratorTest extends TestCase
             $sql,
         );
         foreach (['rebuild_failed_at timestamptz', 'rebuild_failures integer', 'rebuild_error text'] as $column) {
-            self::assertStringContainsString('ALTER TABLE "public"."fuzzphony_meta" ADD COLUMN IF NOT EXISTS ' . $column . "\n", $sql . "\n", 'the last failure of a rebuild job, for the doctor');
+            [$name, $type] = explode(' ', $column);
+            self::assertStringContainsString('THEN ALTER TABLE "public"."fuzzphony_meta" ADD COLUMN "' . $name . '" ' . $type . '; END IF;', $sql, 'the last failure of a rebuild job, for the doctor');
         }
         self::assertFalse($last->transactional, 'after everything else');
         self::assertSame(self::upsert('*', Fingerprint::shared(new Names())), $last->sql);
