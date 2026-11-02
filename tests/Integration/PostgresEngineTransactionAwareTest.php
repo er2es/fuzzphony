@@ -5,7 +5,6 @@ declare(strict_types=1);
 namespace Fuzzphony\Tests\Integration;
 
 use Fuzzphony\Core\Database\Connection;
-use Fuzzphony\Core\Database\TransactionAware;
 use Fuzzphony\Core\Fuzzphony;
 use Fuzzphony\Core\Registry\IndexRegistry;
 use Fuzzphony\Engine\Postgres\PostgresEngine;
@@ -70,7 +69,7 @@ final class PostgresEngineTransactionAwareTest extends TestCase
 }
 
 /** @internal Delegates everything to a real PdoConnection, recording every statement passed through it. */
-final class RecordingPdoConnection implements Connection, TransactionAware
+final class RecordingPdoConnection implements Connection
 {
     /** @var list<string> */
     private array $sql = [];
@@ -105,7 +104,7 @@ final class RecordingPdoConnection implements Connection, TransactionAware
 
     public function inTransaction(): bool
     {
-        return $this->delegate instanceof TransactionAware && $this->delegate->inTransaction();
+        return $this->delegate->inTransaction();
     }
 
     public function setConfigCalls(): int

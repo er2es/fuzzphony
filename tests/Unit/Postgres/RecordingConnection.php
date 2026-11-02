@@ -9,6 +9,11 @@ use Fuzzphony\Core\Database\Connection;
 /** @internal Records every statement and transaction boundary; fetchValue() / execute() answer from a script (which may throw). */
 final class RecordingConnection implements Connection
 {
+    public function inTransaction(): bool
+    {
+        return false;
+    }
+
     /** @var list<array{string, array<string, scalar|null>}> */
     public array $log = [];
 

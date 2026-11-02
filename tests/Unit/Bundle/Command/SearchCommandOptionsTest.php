@@ -8,7 +8,6 @@ use Fuzzphony\Bundle\Command\SearchCommand;
 use Fuzzphony\Core\Definition\FilterType;
 use Fuzzphony\Core\Definition\IndexDefinition;
 use Fuzzphony\Core\Engine\Engine;
-use Fuzzphony\Core\Engine\Suggestions;
 use Fuzzphony\Core\Exception\AccessDenied;
 use Fuzzphony\Core\Exception\InvalidQuery;
 use Fuzzphony\Core\Fuzzphony;
@@ -53,13 +52,12 @@ final class SearchCommandOptionsTest extends TestCase
     public function testSuggestClampsTheLimitToOneToTwenty(string $limit, int $expected): void
     {
         $passed = null;
-        $engine = self::createStubForIntersectionOfInterfaces([Engine::class, Suggestions::class]);
+        $engine = self::createStub(Engine::class);
         $engine->method('suggestWords')->willReturnCallback(static function (IndexDefinition $index, string $prefix, int $limit) use (&$passed): array {
             $passed = $limit;
 
             return ['headphones'];
         });
-        assert($engine instanceof Engine);
 
         $tester = $this->tester($engine);
         $status = $tester->execute(['index' => 'products', 'query' => 'wireless hea', '--complete' => true, '--limit' => $limit], ['interactive' => false]);
@@ -72,9 +70,8 @@ final class SearchCommandOptionsTest extends TestCase
 
     public function testSuggestionsAreEscapedAndAnEmptyListIsSaid(): void
     {
-        $engine = self::createStubForIntersectionOfInterfaces([Engine::class, Suggestions::class]);
+        $engine = self::createStub(Engine::class);
         $engine->method('suggestWords')->willReturnCallback(static fn(IndexDefinition $index, string $prefix): array => $prefix === 'hea' ? ['headphones'] : []);
-        assert($engine instanceof Engine);
         $tester = $this->tester($engine);
 
         $tester->execute(['index' => 'products', 'query' => '<info>x hea', '--complete' => true], ['interactive' => false]);

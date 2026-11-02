@@ -5,7 +5,6 @@ declare(strict_types=1);
 namespace Fuzzphony\Tests\Conformance;
 
 use Fuzzphony\Core\Database\Connection;
-use Fuzzphony\Core\Engine\Capability;
 use Fuzzphony\Core\Engine\Engine;
 use Fuzzphony\Core\Fuzzphony;
 use Fuzzphony\Core\Registry\IndexRegistry;
@@ -57,19 +56,16 @@ abstract class EngineConformanceTestCase extends TestCase
 
     public function testStemming(): void
     {
-        $this->requireCapability(Capability::Stemming);
         self::assertContains(1, $this->ids($this->fuzzphony->in('products')->query('mice OR mouses')->get()));
     }
 
     public function testAccentFolding(): void
     {
-        $this->requireCapability(Capability::AccentFolding);
         self::assertSame([5], $this->ids($this->fuzzphony->in('products')->query('creme brulee')->get()));
     }
 
     public function testTypoTolerance(): void
     {
-        $this->requireCapability(Capability::Fuzzy);
         $result = $this->fuzzphony->in('products')->query('headphnoes')->get();
 
         self::assertTrue($result->usedFuzzy);
@@ -87,7 +83,6 @@ abstract class EngineConformanceTestCase extends TestCase
 
     public function testATypoOnOneWordStillRequiresTheOtherWord(): void
     {
-        $this->requireCapability(Capability::Fuzzy);
         // "wireles" alone is close enough to product 1 ("Wireless mouse"), but product 1 has no headphones
         $result = $this->fuzzphony->in('products')->query('wireles headphones')->get();
 
@@ -97,7 +92,6 @@ abstract class EngineConformanceTestCase extends TestCase
 
     public function testTypoTolerantOrGroup(): void
     {
-        $this->requireCapability(Capability::Fuzzy);
         $result = $this->fuzzphony->in('products')->query('headphnoes | torhc')->get();
 
         self::assertTrue($result->usedFuzzy);
@@ -106,7 +100,6 @@ abstract class EngineConformanceTestCase extends TestCase
 
     public function testTypoTolerantMatchingHonoursANegationNestedInAGroup(): void
     {
-        $this->requireCapability(Capability::Fuzzy);
         // product 1 is a wireless mouse, but a "silent" one
         $result = $this->fuzzphony->in('products')->query('wireles (headphones | mouse -silent)')->get();
 
@@ -116,8 +109,6 @@ abstract class EngineConformanceTestCase extends TestCase
 
     public function testTypoTolerantPhrase(): void
     {
-        $this->requireCapability(Capability::Fuzzy);
-        $this->requireCapability(Capability::Phrase);
         $result = $this->fuzzphony->in('products')->query('"wireles headphones"')->get();
 
         self::assertTrue($result->usedFuzzy);
@@ -135,7 +126,6 @@ abstract class EngineConformanceTestCase extends TestCase
 
     public function testAnOrBranchScoresOnlyWhenItMatches(): void
     {
-        $this->requireCapability(Capability::Fuzzy);
         // 3 matches the AND group in full (1.0). 1, 2 and 4 match through the typo "mouze" alone;
         // 1 also has "wireless" (half of the group), which must not count: its branch does not match.
         $result = $this->fuzzphony->in('products')->query('mouze | (wireless headphones)')
@@ -153,7 +143,6 @@ abstract class EngineConformanceTestCase extends TestCase
 
     public function testTypoTolerantScoreFollowsTheQueryStructure(): void
     {
-        $this->requireCapability(Capability::Fuzzy);
         // both need "mouse"; 1 also matches "wireles" (closer than "logitek"), 4 only "logitek";
         // 2 (no wireless / logitech) and 3 (no mouse) must not appear at all
         $result = $this->fuzzphony->in('products')->query('(wireles | logitek) mouse')->ranking(['exact_bonus' => 0, 'prefix_bonus' => 0])->get();
@@ -163,8 +152,6 @@ abstract class EngineConformanceTestCase extends TestCase
 
     public function testStopWordsDoNotBlockTypoTolerance(): void
     {
-        $this->requireCapability(Capability::Fuzzy);
-        $this->requireCapability(Capability::Stemming);
         $result = $this->fuzzphony->in('products')->query('headphnoes for')->get();
         $alone = $this->fuzzphony->in('products')->query('headphnoes')->get();
 
@@ -241,13 +228,11 @@ abstract class EngineConformanceTestCase extends TestCase
 
     public function testPhrase(): void
     {
-        $this->requireCapability(Capability::Phrase);
         self::assertSame([3], $this->ids($this->fuzzphony->in('products')->query('"noise cancelling"')->thresholds(['typo' => ['mode' => 'never']])->get()));
     }
 
     public function testFieldScope(): void
     {
-        $this->requireCapability(Capability::FieldScopedQueries);
         self::assertEqualsCanonicalizing([2], $this->ids($this->fuzzphony->in('products')->query('brand:razer')->thresholds(['typo' => ['mode' => 'never']])->get()));
     }
 
@@ -342,13 +327,6 @@ abstract class EngineConformanceTestCase extends TestCase
         $full = (new Reindexer($this->engine))->run($index, new ReindexOptions());
         self::assertTrue($full->swapped || $full->pruned === 1, 'swapped in without the orphan, or pruned in place');
         self::assertNotContains(4, $this->ids($this->fuzzphony->in('products')->get()));
-    }
-
-    protected function requireCapability(Capability $capability): void
-    {
-        if (!$this->engine->capabilities()->supports($capability)) {
-            self::markTestSkipped(sprintf('%s does not support %s.', $this->engine->name(), $capability->value));
-        }
     }
 
     /**

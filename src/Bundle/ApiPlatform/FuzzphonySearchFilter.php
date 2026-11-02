@@ -23,6 +23,7 @@ use Fuzzphony\Core\Search\ActorResolver;
  */
 final class FuzzphonySearchFilter implements FilterInterface
 {
+    /** @internal */
     public function __construct(
         private readonly Fuzzphony $fuzzphony,
         private readonly string $parameterName = 'q',

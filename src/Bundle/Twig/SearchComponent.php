@@ -27,6 +27,8 @@ use Symfony\UX\LiveComponent\DefaultActionTrait;
  *
  * Override the look by copying templates/components/Search.html.twig to
  * templates/bundles/FuzzphonyBundle/components/Search.html.twig.
+ *
+ * @internal
  */
 #[AsLiveComponent('Fuzzphony:Search', template: '@Fuzzphony/components/Search.html.twig')]
 final class SearchComponent

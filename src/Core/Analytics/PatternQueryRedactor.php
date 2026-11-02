@@ -6,7 +6,7 @@ namespace Fuzzphony\Core\Analytics;
 
 use Fuzzphony\Core\Exception\InvalidConfiguration;
 
-/** Replaces whatever matches one of the regular expressions with a placeholder. */
+/** @internal Replaces whatever matches one of the regular expressions with a placeholder. */
 final readonly class PatternQueryRedactor implements QueryRedactor
 {
     public const string EMAIL = '/[\p{L}\p{N}._%+\-]+@[\p{L}\p{N}.\-]+\.\p{L}{2,}/u';

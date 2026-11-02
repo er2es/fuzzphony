@@ -7,6 +7,7 @@ namespace Fuzzphony\Core\Analytics;
 /** One line of the search log: who searched what, where, and how it went. The ip is what the log is to store (already masked), or null. */
 final readonly class SearchRecord
 {
+    /** @internal */
     public function __construct(
         public \DateTimeImmutable $at,
         public string $index,

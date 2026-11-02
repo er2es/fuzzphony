@@ -12,11 +12,7 @@ use Fuzzphony\Core\Definition\IndexDefinition;
 use Fuzzphony\Core\Exception\FuzzphonyException;
 use Fuzzphony\Core\Fuzzphony;
 use Fuzzphony\Core\Inspection\InspectOptions;
-use Fuzzphony\Core\Wizard\DefinitionSuggester;
-use Fuzzphony\Core\Wizard\Export\AttributeExporter;
-use Fuzzphony\Core\Wizard\Export\BuilderExporter;
-use Fuzzphony\Core\Wizard\Export\YamlExporter;
-use Fuzzphony\Core\Wizard\SourceIntrospector;
+use Fuzzphony\Core\Wizard\Wizard;
 use Symfony\Bundle\FrameworkBundle\Controller\AbstractController;
 use Symfony\Component\DependencyInjection\Attribute\Autowire;
 use Symfony\Component\HttpFoundation\Request;
@@ -39,9 +35,10 @@ final class PagesController extends AbstractController
     }
 
     #[Route('/under-the-hood/wizard', name: 'wizard')]
-    public function wizard(Request $request, SourceIntrospector $introspector, SampleConfig $sample): Response
+    public function wizard(Request $request, Fuzzphony $fuzzphony, SampleConfig $sample): Response
     {
-        $tables = $introspector->tables();
+        $wizard = $fuzzphony->wizard();
+        $tables = $wizard->tables();
         $table = (string) $request->query->get('table', $tables[0]['table'] ?? '');
         $language = (string) $request->query->get('language', 'english');
         // Only the introspector's own list (user tables, never pg_catalog or other system relations) is described.
@@ -58,15 +55,15 @@ final class PagesController extends AbstractController
 
         if ($isSample) {
             try {
-                $exports = $this->exports($sample->definition());
+                $exports = $this->exports($wizard, $sample->definition());
             } catch (FuzzphonyException $e) {
                 $error = $e->getMessage();
             }
         } elseif ($table !== '') {
             try {
-                $suggestion = (new DefinitionSuggester())->suggest($introspector->describe($table), null, $language);
+                $suggestion = $wizard->suggest($table, null, $language);
                 if ($suggestion->definition !== null) {
-                    $exports = $this->exports($suggestion->definition);
+                    $exports = $this->exports($wizard, $suggestion->definition);
                 }
             } catch (FuzzphonyException $e) {
                 $error = $e->getMessage();
@@ -86,16 +83,13 @@ final class PagesController extends AbstractController
     }
 
     /** @return array{yaml: string, builder: string, attributes: string} */
-    private function exports(IndexDefinition $definition): array
+    private function exports(Wizard $wizard, IndexDefinition $definition): array
     {
-        $attributes = new AttributeExporter();
-
         return [
-            'yaml' => (new YamlExporter())->export($definition),
-            'builder' => (new BuilderExporter())->export($definition),
-            'attributes' => $attributes->supports($definition)
-                ? $attributes->export($definition)
-                : '// Attributes cannot express this definition (a joined source, extra watches, ranking profiles or thresholds); use the YAML or builder version.',
+            'yaml' => $wizard->yaml($definition),
+            'builder' => $wizard->builder($definition),
+            'attributes' => $wizard->attributes($definition)
+                ?? '// Attributes cannot express this definition (a joined source, extra watches, ranking profiles or thresholds); use the YAML or builder version.',
         ];
     }
 

@@ -56,8 +56,8 @@ final class LengthAwareTypoToleranceTest extends TestCase
         $always = ['typo' => ['mode' => 'always']];
 
         self::assertSame([1, 2], self::ids($search->query('mouse')->thresholds($always)->get()), 'not the monitor, not the mower');
-        self::assertSame([1, 2, 3, 4], self::ids($search->query('mouse')->thresholds(array_replace_recursive($always, ['typo' => ['similarity' => 0.3]]))->get()), 'a flat 0.3 keeps the lenient behaviour');
-        self::assertSame([1, 2], self::ids($search->query('mouse')->thresholds(array_replace_recursive($always, ['typo' => ['similarity' => null]]))->get()), 'null goes back to by length');
+        self::assertSame([1, 2, 3, 4], self::ids($search->query('mouse')->thresholds(['typo' => ['mode' => 'always', 'similarity' => 0.3]])->get()), 'a flat 0.3 keeps the lenient behaviour');
+        self::assertSame([1, 2], self::ids($search->query('mouse')->thresholds(['typo' => ['mode' => 'always', 'similarity' => null]])->get()), 'null goes back to by length');
     }
 
     public function testTyposStillMatchWithinTheirBand(): void

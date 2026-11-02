@@ -7,7 +7,6 @@ namespace Fuzzphony\Tests\Unit\Core\Sync;
 use Fuzzphony\Core\Definition\FieldDefinition;
 use Fuzzphony\Core\Definition\Weight;
 use Fuzzphony\Core\Engine\Engine;
-use Fuzzphony\Core\Engine\Vocabulary;
 use Fuzzphony\Core\Exception\EngineFailure;
 use Fuzzphony\Core\Exception\InvalidArgument;
 use Fuzzphony\Core\Sync\Reindexer;
@@ -280,8 +279,7 @@ final class ReindexerTest extends TestCase
      */
     private function vocabularyEngine(array $batches): Engine
     {
-        $engine = $this->createMockForIntersectionOfInterfaces([Engine::class, Vocabulary::class]);
-        assert($engine instanceof Engine);
+        $engine = $this->createMock(Engine::class);
         $engine->method('sourceIds')->willReturnOnConsecutiveCalls(...$batches);
         $engine->method('refresh')->willReturn(1);
         $engine->method('pruneOrphans')->willReturn(0);
@@ -316,17 +314,12 @@ final class ReindexerTest extends TestCase
         self::assertNull($result->vocabulary);
     }
 
-    public function testAnIndexWithoutFuzzyFieldsAndAnEngineWithoutAVocabularyAreSkipped(): void
+    public function testAnIndexWithoutFuzzyFieldsIsSkipped(): void
     {
         $noFuzzy = Indexes::products()->withFields([new FieldDefinition('name', Weight::A)]);
         $engine = $this->vocabularyEngine([[1]]);
         $engine->expects(self::never())->method('rebuildVocabulary');
         self::assertNull((new Reindexer($engine))->run($noFuzzy, new ReindexOptions())->vocabulary);
-
-        $plain = $this->engine([[1]]);
-        $plain->method('refresh')->willReturn(1);
-        $plain->expects(self::once())->method('recordReindex');
-        self::assertNull((new Reindexer($plain))->run(Indexes::products(), new ReindexOptions())->vocabulary);
     }
 
     public function testAVocabularyFailureIsReportedAndDoesNotUndoTheDocuments(): void
@@ -356,16 +349,8 @@ final class ReindexerTest extends TestCase
         (new Reindexer($failing))->vocabulary(Indexes::products());
     }
 
-    public function testRebuildingOnlyTheVocabularyNeedsAnEngineAndAnIndexThatHaveOne(): void
+    public function testRebuildingOnlyTheVocabularyNeedsAnIndexWithAFuzzyField(): void
     {
-        try {
-            $plain = $this->engine([]);
-            $plain->expects(self::never())->method('sourceIds');
-            (new Reindexer($plain))->vocabulary(Indexes::products());
-            self::fail('Expected InvalidArgument.');
-        } catch (InvalidArgument $e) {
-            self::assertStringContainsString('keeps no vocabulary', $e->getMessage());
-        }
         $this->expectException(InvalidArgument::class);
         $this->expectExceptionMessage('has no fuzzy field');
         $engine = $this->vocabularyEngine([]);

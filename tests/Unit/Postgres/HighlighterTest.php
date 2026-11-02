@@ -241,6 +241,11 @@ final class HighlighterTest extends TestCase
     private function neverCalledConnection(): Connection
     {
         return new class implements Connection {
+            public function inTransaction(): bool
+            {
+                return false;
+            }
+
             public function fetchAll(string $sql, array $params = []): array
             {
                 throw new \LogicException('must not be called');

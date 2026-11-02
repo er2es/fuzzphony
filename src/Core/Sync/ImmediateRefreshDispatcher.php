@@ -7,6 +7,7 @@ namespace Fuzzphony\Core\Sync;
 use Fuzzphony\Core\Definition\IndexDefinition;
 use Fuzzphony\Core\Engine\Engine;
 
+/** @internal */
 final readonly class ImmediateRefreshDispatcher implements RefreshDispatcher
 {
     public function __construct(private Engine $engine) {}

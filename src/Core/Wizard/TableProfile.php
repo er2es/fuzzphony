@@ -4,7 +4,7 @@ declare(strict_types=1);
 
 namespace Fuzzphony\Core\Wizard;
 
-/** What an engine knows about a table: columns, key, relations and rough statistics. */
+/** @internal What an engine knows about a table: columns, key, relations and rough statistics. */
 final readonly class TableProfile
 {
     /**

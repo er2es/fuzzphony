@@ -25,6 +25,8 @@ use Psr\Log\LoggerInterface;
  * What every search passes through when Fuzzphony is built with a gate: the refusals are counted and logged
  * here, and every search and refusal is recorded in the search log. A search made as an actor also runs the guards:
  * they may refuse it (AccessDenied, RateLimited) or limit the fields it searches.
+ *
+ * @internal
  */
 final readonly class SearchGate
 {

@@ -10,6 +10,8 @@ use Fuzzphony\Core\Query\Filter\Operator;
 /**
  * Immutable search request. Every with*() / where*() call returns a new instance,
  * so a base query can be safely reused and extended.
+ *
+ * @internal
  */
 final readonly class SearchQuery
 {
@@ -125,7 +127,7 @@ final readonly class SearchQuery
         return $this->copy(highlight: array_unique([...$this->highlight, ...$fields]));
     }
 
-    /** @param array<string, mixed> $overrides e.g. ['relevance' => ['relevance' => ['min_score' => 0.1]], 'typo' => ['mode' => 'always']] */
+    /** @param array<string, mixed> $overrides e.g. ['relevance' => ['min_score' => 0.1], 'typo' => ['mode' => 'always']] */
     public function thresholds(array $overrides): self
     {
         return $this->copy(thresholdOverrides: array_replace_recursive($this->thresholdOverrides, $overrides));

@@ -8,7 +8,6 @@ use Fuzzphony\Bundle\Command\AnalyticsCommand;
 use Fuzzphony\Core\Analytics\QueryStat;
 use Fuzzphony\Core\Definition\IndexDefinition;
 use Fuzzphony\Core\Engine\Engine;
-use Fuzzphony\Core\Engine\SearchLogStore;
 use Fuzzphony\Core\Fuzzphony;
 use Fuzzphony\Core\Registry\IndexRegistry;
 use Fuzzphony\Tests\Fixtures\Indexes;
@@ -149,7 +148,7 @@ final class AnalyticsCommandMutationsTest extends TestCase
 
     private function tester(): CommandTester
     {
-        $engine = self::createStubForIntersectionOfInterfaces([Engine::class, SearchLogStore::class]);
+        $engine = self::createStub(Engine::class);
         $engine->method('topQueries')->willReturnCallback(function (IndexDefinition $index, \DateTimeInterface $from, ?\DateTimeInterface $to, int $limit, int|string|null $tenant, bool $allTenants): array {
             $this->calls[] = ['top', $from, $limit, $tenant, $allTenants];
 
@@ -160,7 +159,6 @@ final class AnalyticsCommandMutationsTest extends TestCase
 
             return $this->stats;
         });
-        assert($engine instanceof Engine);
 
         return new CommandTester(new AnalyticsCommand(new Fuzzphony($engine, new IndexRegistry([Indexes::products('manual')]))));
     }

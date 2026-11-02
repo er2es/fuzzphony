@@ -10,6 +10,8 @@ use Fuzzphony\Core\Support\IpAddress;
  * Whether the search log keeps the client IP of an actor, and how much of it: nothing (the default), the address with
  * its host part cut off, or the whole address. An IP address is personal data: Masked is the mode the documentation
  * recommends. apply() is the one place that decides what is stored.
+ *
+ * @internal
  */
 enum IpMode: string
 {

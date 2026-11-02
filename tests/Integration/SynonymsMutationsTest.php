@@ -6,8 +6,8 @@ namespace Fuzzphony\Tests\Integration;
 
 use Fuzzphony\Core\Definition\Synonyms;
 use Fuzzphony\Core\Fuzzphony;
-use Fuzzphony\Core\Ranking\Thresholds;
 use Fuzzphony\Core\Ranking\RescueThresholds;
+use Fuzzphony\Core\Ranking\Thresholds;
 use Fuzzphony\Core\Registry\IndexRegistry;
 use Fuzzphony\Engine\Postgres\PostgresEngine;
 use Fuzzphony\Tests\Fixtures\Indexes;

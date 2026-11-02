@@ -14,10 +14,10 @@ use Fuzzphony\Core\Fuzzphony;
 use Fuzzphony\Core\Inspection\Check;
 use Fuzzphony\Core\Inspection\CheckStatus;
 use Fuzzphony\Core\Inspection\InspectOptions;
+use Fuzzphony\Core\Ranking\LimitThresholds;
+use Fuzzphony\Core\Ranking\RescueThresholds;
 use Fuzzphony\Core\Ranking\Thresholds;
 use Fuzzphony\Core\Ranking\TypoThresholds;
-use Fuzzphony\Core\Ranking\RescueThresholds;
-use Fuzzphony\Core\Ranking\LimitThresholds;
 use Fuzzphony\Core\Registry\IndexRegistry;
 use Fuzzphony\Core\Support\Coerce;
 use Fuzzphony\Core\Sync\Worker;
@@ -445,6 +445,11 @@ final class PostgresEngineTest extends TestCase
     public function testGuardRethrowsAFuzzphonyExceptionUnwrapped(): void
     {
         $failing = new class ($this->connection) implements Connection {
+            public function inTransaction(): bool
+            {
+                return false;
+            }
+
             public function __construct(private readonly Connection $inner) {}
 
             public function fetchAll(string $sql, array $params = []): array

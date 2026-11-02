@@ -37,10 +37,14 @@ reads `pg_trgm.word_similarity_threshold`; the SQL builders (`Sql\SearchSqlBuild
 
 ## Public API
 
-From 1.0 the backward-compatibility promise covers exactly these classes, interfaces and enums;
-everything else in `src/` is marked `@internal` and may change in any release.
+From 1.0 the backward-compatibility promise covers exactly these 75 classes, interfaces and enums; everything else in
+`src/` is marked `@internal` and may change in any release. The engine contract (`Core\Engine\Engine`), the wizard's
+building blocks, the index registry, the search gate and the other container types are `@internal`: build the service
+with `Fuzzphony::postgres()` (or the bundle) and read the wizard through `Fuzzphony::wizard()`. The constructor of an
+output type (`SearchResult`, `ScoreBreakdown`, `SearchAnalytics`, `ReindexResult`, ...) is `@internal` too: a field
+added to a result is not a breaking change.
 
-- Entry point: `Fuzzphony\Core\Fuzzphony`
+- Entry point: `Fuzzphony\Core\Fuzzphony` (`postgres()` builds it without a framework, `wizard()` returns the wizard)
 - Attributes: `Fuzzphony\Core\Attribute\Searchable`, `Fuzzphony\Core\Attribute\SearchField`,
   `Fuzzphony\Core\Attribute\SearchFilter`
 - Definitions: `Fuzzphony\Core\Definition\IndexDefinition`, `Fuzzphony\Core\Definition\IndexBuilder`,
@@ -53,28 +57,23 @@ everything else in `src/` is marked `@internal` and may change in any release.
 - Searching: `Fuzzphony\Core\Search\SearchBuilder`, `Fuzzphony\Core\Search\SearchResult`,
   `Fuzzphony\Core\Search\Hit`, `Fuzzphony\Core\Search\ScoreBreakdown`,
   `Fuzzphony\Core\Search\Explanation`, `Fuzzphony\Core\Search\FacetValue`,
-  `Fuzzphony\Core\Search\Actor`, `Fuzzphony\Core\Search\ActorResolver`, `Fuzzphony\Core\Search\SearchGate`,
+  `Fuzzphony\Core\Search\Actor`, `Fuzzphony\Core\Search\ActorResolver`,
   `Fuzzphony\Core\Search\SearchGuard`, `Fuzzphony\Core\Search\Access`,
-  `Fuzzphony\Core\Search\FederatedSearch`, `Fuzzphony\Core\Search\FederatedResult`, `Fuzzphony\Core\Search\FederatedHit`,
-  `Fuzzphony\Core\Query\SearchQuery`,
-  `Fuzzphony\Core\Query\Filter\Condition`, `Fuzzphony\Core\Query\Filter\Operator`
+  `Fuzzphony\Core\Search\FederatedSearch`, `Fuzzphony\Core\Search\FederatedResult`, `Fuzzphony\Core\Search\FederatedHit`
 - Search log: `Fuzzphony\Core\Analytics\SearchLog`, `Fuzzphony\Core\Analytics\SearchRecord`,
   `Fuzzphony\Core\Analytics\RecordStatus`, `Fuzzphony\Core\Analytics\QueryRedactor`,
-  `Fuzzphony\Core\Analytics\PatternQueryRedactor`, `Fuzzphony\Core\Analytics\SearchAnalytics`,
-  `Fuzzphony\Core\Analytics\QueryStat`, `Fuzzphony\Core\Analytics\LoggedSearch`, `Fuzzphony\Core\Analytics\IpMode`
-- Ranking: `Fuzzphony\Core\Ranking\RankingProfile`, `Fuzzphony\Core\Ranking\Thresholds`,
+  `Fuzzphony\Core\Analytics\SearchAnalytics`,
+  `Fuzzphony\Core\Analytics\QueryStat`, `Fuzzphony\Core\Analytics\LoggedSearch`
+- Ranking and thresholds: `Fuzzphony\Core\Ranking\RankingProfile`, `Fuzzphony\Core\Ranking\Thresholds`,
+  `Fuzzphony\Core\Ranking\RelevanceThresholds`, `Fuzzphony\Core\Ranking\TypoThresholds`,
+  `Fuzzphony\Core\Ranking\RescueThresholds`, `Fuzzphony\Core\Ranking\LimitThresholds`,
   `Fuzzphony\Core\Ranking\FuzzyMode`
-- Database: `Fuzzphony\Core\Database\Connection`, `Fuzzphony\Core\Database\PdoConnection`,
-  `Fuzzphony\Core\Database\TransactionAware`
-- Registry and schema: `Fuzzphony\Core\Registry\IndexRegistry`, `Fuzzphony\Core\Schema\SchemaPlan`,
-  `Fuzzphony\Core\Schema\Statement`
-- Sync: `Fuzzphony\Core\Sync\ReindexOptions`, `Fuzzphony\Core\Sync\ReindexResult`,
-  `Fuzzphony\Core\Sync\RefreshDispatcher`, `Fuzzphony\Core\Sync\ImmediateRefreshDispatcher`
+- Database: `Fuzzphony\Core\Database\Connection`, `Fuzzphony\Core\Database\PdoConnection`
+- Schema: `Fuzzphony\Core\Schema\SchemaPlan`, `Fuzzphony\Core\Schema\Statement`
+- Sync: `Fuzzphony\Core\Sync\ReindexOptions`, `Fuzzphony\Core\Sync\ReindexResult`
 - Doctor: `Fuzzphony\Core\Inspection\InspectOptions`, `Fuzzphony\Core\Inspection\InspectionReport`,
   `Fuzzphony\Core\Inspection\Check`, `Fuzzphony\Core\Inspection\CheckStatus`
-- Observability: `Fuzzphony\Core\Observability\MetricsCollector`,
-  `Fuzzphony\Core\Observability\NullMetricsCollector`,
-  `Fuzzphony\Core\Observability\LoggingMetricsCollector`
+- Observability: `Fuzzphony\Core\Observability\MetricsCollector`
 - Exceptions: `Fuzzphony\Core\Exception\FuzzphonyException`, `Fuzzphony\Core\Exception\EngineFailure`,
   `Fuzzphony\Core\Exception\InvalidArgument`, `Fuzzphony\Core\Exception\InvalidConfiguration`,
   `Fuzzphony\Core\Exception\InvalidDefinition`, `Fuzzphony\Core\Exception\InvalidQuery`,
@@ -82,22 +81,9 @@ everything else in `src/` is marked `@internal` and may change in any release.
   `Fuzzphony\Core\Exception\RateLimited`, `Fuzzphony\Core\Exception\SearchRefused` (implemented by the three refusals),
   `Fuzzphony\Core\Exception\RebuildAlreadyRunning`, `Fuzzphony\Core\Exception\SchemaNotApplied`,
   `Fuzzphony\Core\Exception\UnknownIndex`
-- Engine SPI (for custom engines): `Fuzzphony\Core\Engine\Engine`, `Fuzzphony\Core\Engine\Capabilities`,
-  `Fuzzphony\Core\Engine\Capability`, `Fuzzphony\Core\Engine\Vocabulary`, `Fuzzphony\Core\Engine\SynonymStems`, `Fuzzphony\Core\Engine\Suggestions` and `Fuzzphony\Core\Engine\SearchLogStore` and `Fuzzphony\Core\Engine\RecentSearchStore` (all optional); the PostgreSQL engine: `Fuzzphony\Engine\Postgres\PostgresEngine`
-- Wizard: `Fuzzphony\Core\Wizard\DefinitionSuggester`, `Fuzzphony\Core\Wizard\SourceIntrospector`,
-  `Fuzzphony\Core\Wizard\Suggestion`, `Fuzzphony\Core\Wizard\Decision`,
-  `Fuzzphony\Core\Wizard\TableProfile`, `Fuzzphony\Core\Wizard\ColumnProfile`,
-  `Fuzzphony\Core\Wizard\ColumnKind`, `Fuzzphony\Core\Wizard\ForeignKey`,
-  `Fuzzphony\Core\Wizard\Export\YamlExporter`, `Fuzzphony\Core\Wizard\Export\BuilderExporter`,
-  `Fuzzphony\Core\Wizard\Export\AttributeExporter`
-- Doctrine: `Fuzzphony\Bridge\Doctrine\DbalConnection`, `Fuzzphony\Bridge\Doctrine\EntityLoader`,
-  `Fuzzphony\Bridge\Doctrine\OrmSyncListener`
-- Symfony: `Fuzzphony\Bundle\FuzzphonyBundle`, `Fuzzphony\Bundle\ApiPlatform\FuzzphonySearchFilter`,
-  `Fuzzphony\Bundle\Twig\SearchComponent`, `Fuzzphony\Bundle\Messenger\RefreshDocuments`
-
-The console commands' names, arguments and options are public too; their classes are not.
-`tests/Unit/PublicApiTest.php` keeps this list, the `@internal` tags and the demo's imports in
-step.
+- Wizard: `Fuzzphony\Core\Wizard\Wizard`, `Fuzzphony\Core\Wizard\Suggestion`, `Fuzzphony\Core\Wizard\Decision`
+- Doctrine: `Fuzzphony\Bridge\Doctrine\DbalConnection`, `Fuzzphony\Bridge\Doctrine\EntityLoader`
+- Symfony: `Fuzzphony\Bundle\FuzzphonyBundle`, `Fuzzphony\Bundle\ApiPlatform\FuzzphonySearchFilter`
 
 ## Sidecar table
 

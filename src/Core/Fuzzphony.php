@@ -5,16 +5,17 @@ declare(strict_types=1);
 namespace Fuzzphony\Core;
 
 use Fuzzphony\Core\Analytics\SearchAnalytics;
+use Fuzzphony\Core\Database\Connection;
+use Fuzzphony\Core\Definition\IndexDefinition;
 use Fuzzphony\Core\Definition\Synonyms;
 use Fuzzphony\Core\Engine\Engine;
-use Fuzzphony\Core\Engine\SearchLogStore;
-use Fuzzphony\Core\Engine\Suggestions;
-use Fuzzphony\Core\Engine\SynonymStems;
 use Fuzzphony\Core\Exception\AccessDenied;
 use Fuzzphony\Core\Exception\InvalidArgument;
 use Fuzzphony\Core\Exception\RateLimited;
 use Fuzzphony\Core\Inspection\InspectionReport;
 use Fuzzphony\Core\Inspection\InspectOptions;
+use Fuzzphony\Core\Observability\MetricsCollector;
+use Fuzzphony\Core\Observability\NullMetricsCollector;
 use Fuzzphony\Core\Query\SynonymExpander;
 use Fuzzphony\Core\Registry\IndexRegistry;
 use Fuzzphony\Core\Schema\SchemaPlan;
@@ -25,10 +26,35 @@ use Fuzzphony\Core\Search\SearchGate;
 use Fuzzphony\Core\Sync\Reindexer;
 use Fuzzphony\Core\Sync\ReindexOptions;
 use Fuzzphony\Core\Sync\ReindexResult;
+use Fuzzphony\Core\Wizard\Wizard;
+use Fuzzphony\Engine\Postgres\PostgresEngine;
 
 /** The one service applications talk to. */
 final readonly class Fuzzphony
 {
+    /**
+     * Builds the service on PostgreSQL without a framework: the connection and the index definitions, nothing else to wire.
+     *
+     * @param list<IndexDefinition> $indexes
+     * @param string                $schema          the schema of Fuzzphony's own tables
+     * @param string                $extensionSchema the schema that holds the pg_trgm and unaccent extensions
+     */
+    public static function postgres(
+        Connection $connection,
+        array $indexes,
+        string $schema = 'public',
+        string $extensionSchema = 'public',
+        ?MetricsCollector $metrics = null,
+        bool $searchLog = false,
+        int $searchLogRetentionDays = 90,
+    ): self {
+        return new self(
+            new PostgresEngine($connection, $extensionSchema, $schema, $metrics ?? new NullMetricsCollector(), $searchLog, $searchLogRetentionDays),
+            new IndexRegistry($indexes),
+        );
+    }
+
+    /** @internal */
     public function __construct(
         private Engine $engine,
         private IndexRegistry $registry,
@@ -45,6 +71,12 @@ final readonly class Fuzzphony
     public function federated(): FederatedSearch
     {
         return new FederatedSearch($this->engine, $this->registry, gate: $this->gate);
+    }
+
+    /** The configuration wizard over the database of the connection. */
+    public function wizard(): Wizard
+    {
+        return new Wizard($this->engine->introspector());
     }
 
     public function schema(?string $index = null): SchemaPlan
@@ -132,7 +164,7 @@ final readonly class Fuzzphony
         if ($actor !== null && $this->gate !== null && !$this->gate->accessCounted($definition, $actor, $charge, $text)->isAll()) {
             return [];
         }
-        if (!$this->engine instanceof Suggestions || preg_match('/^(.*?)([\p{L}\p{N}]+)$/su', $text, $m) !== 1) {
+        if (preg_match('/^(.*?)([\p{L}\p{N}]+)$/su', $text, $m) !== 1) {
             return [];
         }
 
@@ -154,14 +186,9 @@ final readonly class Fuzzphony
      * for an application that caches them: stem once when the list changes, keep the result (it
      * serializes) in a cache, and hand it to useSynonyms() on every request. Without it the first search
      * of each request stems every member, which costs about 50 microseconds per entry.
-     *
-     * @throws InvalidArgument when the engine cannot prepare synonyms
      */
     public function stemSynonyms(string $index, Synonyms $synonyms): Synonyms
     {
-        if (!$this->engine instanceof SynonymStems) {
-            throw new InvalidArgument(sprintf('The "%s" engine does not prepare synonyms; useSynonyms() works without it.', $this->engine->name()));
-        }
         $prepared = $this->engine->stemSynonyms($this->registry->get($index), $synonyms);
 
         // the prepared object also carries the lookup table, so a cache of it holds everything a search needs
@@ -170,23 +197,19 @@ final readonly class Fuzzphony
 
     /**
      * The reports over the search log, and its purge.
-     *
-     * @throws InvalidArgument when the engine keeps no search log
      */
     public function analytics(): SearchAnalytics
     {
-        if (!$this->engine instanceof SearchLogStore) {
-            throw new InvalidArgument(sprintf('The "%s" engine keeps no search log.', $this->engine->name()));
-        }
-
         return new SearchAnalytics($this->engine, $this->registry);
     }
 
+    /** @internal */
     public function registry(): IndexRegistry
     {
         return $this->registry;
     }
 
+    /** @internal */
     public function engine(): Engine
     {
         return $this->engine;

@@ -35,7 +35,11 @@ final readonly class FederatedSearch
     /** @internal The most hits (offset + limit) a federated search reads from every index. */
     public const int MAX_READ = 1000;
 
-    /** @param array<string, array{weight: float, configure: (\Closure(SearchBuilder): SearchBuilder)|null}> $indexes */
+    /**
+     * @internal
+     *
+     * @param array<string, array{weight: float, configure: (\Closure(SearchBuilder): SearchBuilder)|null}> $indexes
+     */
     public function __construct(
         private Engine $engine,
         private IndexRegistry $registry,

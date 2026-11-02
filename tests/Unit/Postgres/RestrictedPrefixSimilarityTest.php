@@ -6,8 +6,8 @@ namespace Fuzzphony\Tests\Unit\Postgres;
 
 use Fuzzphony\Core\Query\QueryParser;
 use Fuzzphony\Core\Ranking\Thresholds;
-use Fuzzphony\Core\Ranking\TypoThresholds;
 use Fuzzphony\Core\Ranking\TypoCurve;
+use Fuzzphony\Core\Ranking\TypoThresholds;
 use Fuzzphony\Engine\Postgres\Schema\Names;
 use Fuzzphony\Engine\Postgres\Sql\FuzzyQueryCompiler;
 use Fuzzphony\Tests\Fixtures\Indexes;

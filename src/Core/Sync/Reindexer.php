@@ -6,7 +6,6 @@ namespace Fuzzphony\Core\Sync;
 
 use Fuzzphony\Core\Definition\IndexDefinition;
 use Fuzzphony\Core\Engine\Engine;
-use Fuzzphony\Core\Engine\Vocabulary;
 use Fuzzphony\Core\Exception\FuzzphonyException;
 use Fuzzphony\Core\Exception\InvalidArgument;
 
@@ -76,7 +75,7 @@ final class Reindexer
     /** The vocabulary after a full run: a failure is reported, it does not undo the documents. */
     private function withVocabulary(IndexDefinition $index, ReindexResult $result): ReindexResult
     {
-        if (!$this->engine instanceof Vocabulary || !$index->hasFuzzy()) {
+        if (!$index->hasFuzzy()) {
             return $result;
         }
         try {
@@ -89,9 +88,6 @@ final class Reindexer
     /** Rebuilds only the vocabulary (Fuzzphony::rebuildVocabulary()), from the documents already indexed. */
     public function vocabulary(IndexDefinition $index): int
     {
-        if (!$this->engine instanceof Vocabulary) {
-            throw new InvalidArgument(sprintf('The "%s" engine keeps no vocabulary.', $this->engine->name()));
-        }
         if (!$index->hasFuzzy()) {
             throw new InvalidArgument(sprintf('Index "%s" has no fuzzy field, so it has no vocabulary.', $index->name));
         }

@@ -7,8 +7,8 @@ namespace Fuzzphony\Tests\Integration;
 use Fuzzphony\Bridge\Doctrine\DbalConnection;
 use Fuzzphony\Core\Database\Connection;
 use Fuzzphony\Core\Fuzzphony;
-use Fuzzphony\Core\Ranking\Thresholds;
 use Fuzzphony\Core\Ranking\RescueThresholds;
+use Fuzzphony\Core\Ranking\Thresholds;
 use Fuzzphony\Core\Registry\IndexRegistry;
 use Fuzzphony\Core\Search\SearchResult;
 use Fuzzphony\Core\Support\Coerce;
@@ -272,6 +272,11 @@ final class EmptyResultRelaxationTest extends TestCase
     private static function recording(Connection $inner, \ArrayObject $log): Connection
     {
         return new class ($inner, $log) implements Connection {
+            public function inTransaction(): bool
+            {
+                return false;
+            }
+
             /** @param \ArrayObject<int, string> $log */
             public function __construct(private readonly Connection $inner, private readonly \ArrayObject $log) {}
 

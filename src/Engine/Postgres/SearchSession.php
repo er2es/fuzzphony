@@ -5,7 +5,6 @@ declare(strict_types=1);
 namespace Fuzzphony\Engine\Postgres;
 
 use Fuzzphony\Core\Database\Connection;
-use Fuzzphony\Core\Database\TransactionAware;
 use Fuzzphony\Core\Exception\EngineFailure;
 use Fuzzphony\Core\Exception\FuzzphonyException;
 use Fuzzphony\Core\Support\Coerce;
@@ -61,7 +60,7 @@ final class SearchSession
      */
     public function callerMayHoldTransaction(): bool
     {
-        return !($this->connection instanceof TransactionAware) || $this->connection->inTransaction();
+        return $this->connection->inTransaction();
     }
 
     /**
@@ -79,7 +78,7 @@ final class SearchSession
      */
     public function inTransaction(\Closure $work): mixed
     {
-        if ($this->settings !== null || !$this->connection instanceof TransactionAware) {
+        if ($this->settings !== null) {
             return $work();
         }
         if ($this->connection->inTransaction()) {

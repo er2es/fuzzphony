@@ -89,7 +89,7 @@ final class SearchCommand extends Command
                 };
                 $search = $search->where($m[1], $m[2], $value);
             }
-            $overrides = [];
+            $overrides = $groups = [];
             foreach ((array) $input->getOption('threshold') as $pair) {
                 [$key, $value] = array_pad(explode('=', Coerce::str($pair), 2), 2, '');
                 // "null" goes back to the default (typo.similarity: by word length)
@@ -99,8 +99,9 @@ final class SearchCommand extends Command
                     continue;
                 }
                 [$group, $option] = explode('.', $key, 2);
-                $overrides[$group][$option] = $value;
+                $groups[$group][$option] = $value;
             }
+            $overrides = [...$overrides, ...$groups];
             if ($overrides !== []) {
                 $search = $search->thresholds($overrides);
             }

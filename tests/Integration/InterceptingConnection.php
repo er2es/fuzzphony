@@ -5,13 +5,12 @@ declare(strict_types=1);
 namespace Fuzzphony\Tests\Integration;
 
 use Fuzzphony\Core\Database\Connection;
-use Fuzzphony\Core\Database\TransactionAware;
 
 /**
  * @internal A real connection whose answers a test can replace (fetchAll / fetchValue / execute
  * hooks return null to let the statement through) and whose statements it records.
  */
-final class InterceptingConnection implements Connection, TransactionAware
+final class InterceptingConnection implements Connection
 {
     /** @var list<array{string, array<string, scalar|null>}> */
     public array $log = [];
@@ -61,7 +60,7 @@ final class InterceptingConnection implements Connection, TransactionAware
 
     public function inTransaction(): bool
     {
-        return $this->inner instanceof TransactionAware && $this->inner->inTransaction();
+        return $this->inner->inTransaction();
     }
 
     public function reset(): void

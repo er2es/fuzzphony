@@ -7,7 +7,6 @@ namespace Fuzzphony\Tests\Unit\Bundle\Twig;
 use Fuzzphony\Bundle\Twig\SearchComponent;
 use Fuzzphony\Core\Definition\IndexDefinition;
 use Fuzzphony\Core\Engine\Engine;
-use Fuzzphony\Core\Engine\Suggestions;
 use Fuzzphony\Core\Fuzzphony;
 use Fuzzphony\Core\Query\SearchQuery;
 use Fuzzphony\Core\Registry\IndexRegistry;
@@ -83,7 +82,7 @@ final class SearchComponentActorTest extends TestCase
 
     private function component(Access $access, ?ActorResolver $resolver = null, ?SearchGuard $guard = null): SearchComponent
     {
-        $engine = self::createStubForIntersectionOfInterfaces([Engine::class, Suggestions::class]);
+        $engine = self::createStub(Engine::class);
         $engine->method('search')->willReturnCallback(function (IndexDefinition $index, SearchQuery $query): SearchResult {
             $this->queries[] = $query;
 
@@ -94,7 +93,6 @@ final class SearchComponentActorTest extends TestCase
 
             return ['keyboard'];
         });
-        assert($engine instanceof Engine);
 
         if ($guard === null) {
             $guard = self::createStub(SearchGuard::class);

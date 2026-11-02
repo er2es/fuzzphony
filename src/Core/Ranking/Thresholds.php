@@ -43,8 +43,7 @@ final readonly class Thresholds
         public TypoThresholds $typo = new TypoThresholds(),
         public RescueThresholds $rescue = new RescueThresholds(),
         public LimitThresholds $limits = new LimitThresholds(),
-    ) {
-    }
+    ) {}
 
     /**
      * Applies overrides given per group.
@@ -75,6 +74,21 @@ final readonly class Thresholds
             rescue: isset($overrides['rescue']) && is_array($overrides['rescue']) ? $this->rescue->with($overrides['rescue']) : $this->rescue,
             limits: isset($overrides['limits']) && is_array($overrides['limits']) ? $this->limits->with($overrides['limits']) : $this->limits,
         );
+    }
+
+    /**
+     * @internal Every option by group, with the key it has in a configuration.
+     *
+     * @return array<string, array<string, float|int|bool|FuzzyMode|null>>
+     */
+    public function toArray(): array
+    {
+        return [
+            'relevance' => ['min_score' => $this->relevance->minScore],
+            'typo' => ['similarity' => $this->typo->similarity, 'min_length' => $this->typo->minLength, 'mode' => $this->typo->mode, 'fallback_below' => $this->typo->fallbackBelow],
+            'rescue' => ['drop_unmatched' => $this->rescue->dropUnmatched, 'did_you_mean' => $this->rescue->didYouMean, 'correct_when_empty' => $this->rescue->correctWhenEmpty, 'did_you_mean_below' => $this->rescue->didYouMeanBelow],
+            'limits' => ['candidates' => $this->limits->candidates, 'max_query_length' => $this->limits->maxQueryLength, 'max_terms' => $this->limits->maxTerms],
+        ];
     }
 
     /** @internal Fewer hits than this trigger the did-you-mean lookup. */

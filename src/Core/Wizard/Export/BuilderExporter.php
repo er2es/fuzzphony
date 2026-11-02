@@ -11,7 +11,7 @@ use Fuzzphony\Core\Ranking\FuzzyMode;
 use Fuzzphony\Core\Ranking\RankingProfile;
 use Fuzzphony\Core\Ranking\Thresholds;
 
-/** Emits the equivalent fluent builder code (plain PHP projects, tests). */
+/** @internal Emits the equivalent fluent builder code (plain PHP projects, tests). */
 final class BuilderExporter
 {
     public function export(IndexDefinition $index): string
@@ -124,24 +124,18 @@ final class BuilderExporter
     /** @return list<string> the named constructor arguments of the thresholds that differ from the default, one object per group */
     private function thresholds(Thresholds $t): array
     {
-        $d = new Thresholds();
-        $groups = [
-            'relevance' => ['RelevanceThresholds', ['minScore']],
-            'typo' => ['TypoThresholds', ['similarity', 'minLength', 'mode', 'fallbackBelow']],
-            'rescue' => ['RescueThresholds', ['dropUnmatched', 'didYouMean', 'correctWhenEmpty', 'didYouMeanBelow']],
-            'limits' => ['LimitThresholds', ['candidates', 'maxQueryLength', 'maxTerms']],
-        ];
+        $default = (new Thresholds())->toArray();
+        $classes = ['relevance' => 'RelevanceThresholds', 'typo' => 'TypoThresholds', 'rescue' => 'RescueThresholds', 'limits' => 'LimitThresholds'];
         $args = [];
-        foreach ($groups as $group => [$class, $properties]) {
+        foreach ($t->toArray() as $group => $options) {
             $inner = [];
-            foreach ($properties as $property) {
-                $value = $t->{$group}->{$property};
-                if ($value !== $d->{$group}->{$property}) {
-                    $inner[] = sprintf('%s: %s', $property, $value instanceof FuzzyMode ? 'FuzzyMode::' . $value->name : var_export($value, true));
+            foreach ($options as $key => $value) {
+                if ($value !== $default[$group][$key]) {
+                    $inner[] = sprintf('%s: %s', lcfirst(str_replace('_', '', ucwords($key, '_'))), $value instanceof FuzzyMode ? 'FuzzyMode::' . $value->name : var_export($value, true));
                 }
             }
             if ($inner !== []) {
-                $args[] = sprintf('%s: new %s(%s)', $group, $class, implode(', ', $inner));
+                $args[] = sprintf('%s: new %s(%s)', $group, $classes[$group], implode(', ', $inner));
             }
         }
 

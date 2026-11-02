@@ -5,15 +5,15 @@ declare(strict_types=1);
 namespace Fuzzphony\Core\Analytics;
 
 use Fuzzphony\Core\Definition\IndexDefinition;
-use Fuzzphony\Core\Engine\RecentSearchStore;
-use Fuzzphony\Core\Engine\SearchLogStore;
+use Fuzzphony\Core\Engine\Engine;
 use Fuzzphony\Core\Exception\InvalidArgument;
 use Fuzzphony\Core\Registry\IndexRegistry;
 
 /** Reports over the search log, and its purge. Get it from Fuzzphony::analytics(). */
 final readonly class SearchAnalytics
 {
-    public function __construct(private SearchLogStore $store, private IndexRegistry $registry) {}
+    /** @internal */
+    public function __construct(private Engine $store, private IndexRegistry $registry) {}
 
     /**
      * The most searched texts of an index since $from (until $to), most searched first.
@@ -56,8 +56,7 @@ final readonly class SearchAnalytics
      *
      * @return list<LoggedSearch>
      *
-     * @throws InvalidArgument as topQueries(), for an empty user or a user together with anonymousOnly, and when the
-     *                         search log store does not implement RecentSearchStore
+     * @throws InvalidArgument as topQueries(), for an empty user or a user together with anonymousOnly
      */
     public function recentSearches(string $index, \DateTimeInterface $from, ?\DateTimeInterface $to = null, int $limit = 50, int|string|null $tenant = null, bool $allTenants = false, ?string $user = null, bool $anonymousOnly = false, ?RecordStatus $status = null): array
     {
@@ -68,9 +67,6 @@ final readonly class SearchAnalytics
             throw new InvalidArgument('Name a user or pass anonymousOnly: true, not both.');
         }
 
-        if (!$this->store instanceof RecentSearchStore) {
-            throw new InvalidArgument(sprintf('This search log store cannot list single searches: it does not implement %s.', RecentSearchStore::class));
-        }
         [$definition, $from, $to, $limit, $tenant, $allTenants] = $this->arguments($index, $from, $to, $limit, $tenant, $allTenants);
 
         // positionally: an implementation may name its parameters differently

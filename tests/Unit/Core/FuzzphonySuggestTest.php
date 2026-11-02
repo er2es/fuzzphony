@@ -6,11 +6,10 @@ namespace Fuzzphony\Tests\Unit\Core;
 
 use Fuzzphony\Core\Definition\IndexDefinition;
 use Fuzzphony\Core\Engine\Engine;
-use Fuzzphony\Core\Engine\Suggestions;
 use Fuzzphony\Core\Exception\InvalidArgument;
 use Fuzzphony\Core\Fuzzphony;
-use Fuzzphony\Core\Ranking\Thresholds;
 use Fuzzphony\Core\Ranking\LimitThresholds;
+use Fuzzphony\Core\Ranking\Thresholds;
 use Fuzzphony\Core\Registry\IndexRegistry;
 use Fuzzphony\Tests\Fixtures\Indexes;
 use PHPUnit\Framework\Attributes\DataProvider;
@@ -24,8 +23,7 @@ final class FuzzphonySuggestTest extends TestCase
     private function fuzzphony(bool $withVocabulary = true): Fuzzphony
     {
         if ($withVocabulary) {
-            $engine = self::createStubForIntersectionOfInterfaces([Engine::class, Suggestions::class]);
-            assert($engine instanceof Engine);
+            $engine = self::createStub(Engine::class);
             $engine->method('suggestWords')->willReturnCallback(function (IndexDefinition $index, string $prefix, int $limit): array {
                 $this->asked[] = [$prefix, $limit];
 
@@ -81,8 +79,7 @@ final class FuzzphonySuggestTest extends TestCase
 
     public function testTheCutFollowsTheIndexsMaxQueryLength(): void
     {
-        $engine = self::createStubForIntersectionOfInterfaces([Engine::class, Suggestions::class]);
-        assert($engine instanceof Engine);
+        $engine = self::createStub(Engine::class);
         $asked = [];
         $engine->method('suggestWords')->willReturnCallback(static function (IndexDefinition $index, string $prefix, int $limit) use (&$asked): array {
             $asked[] = $prefix;

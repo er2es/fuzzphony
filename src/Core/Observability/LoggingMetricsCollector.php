@@ -6,7 +6,7 @@ namespace Fuzzphony\Core\Observability;
 
 use Psr\Log\LoggerInterface;
 
-/** The always-available default: one structured log line per call (event, by/value, the labels). */
+/** @internal The always-available default: one structured log line per call (event, by/value, the labels). */
 final readonly class LoggingMetricsCollector implements MetricsCollector
 {
     public function __construct(

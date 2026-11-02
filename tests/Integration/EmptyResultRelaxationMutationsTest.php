@@ -5,8 +5,8 @@ declare(strict_types=1);
 namespace Fuzzphony\Tests\Integration;
 
 use Fuzzphony\Core\Fuzzphony;
-use Fuzzphony\Core\Ranking\Thresholds;
 use Fuzzphony\Core\Ranking\RescueThresholds;
+use Fuzzphony\Core\Ranking\Thresholds;
 use Fuzzphony\Core\Registry\IndexRegistry;
 use Fuzzphony\Engine\Postgres\PostgresEngine;
 use Fuzzphony\Tests\Conformance\EngineConformanceTestCase;

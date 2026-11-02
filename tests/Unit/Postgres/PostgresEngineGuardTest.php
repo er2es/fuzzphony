@@ -123,6 +123,11 @@ final class PostgresEngineGuardTest extends TestCase
         // *other* catch branch, never wrapped into EngineFailure.
         $metrics = new RecordingMetricsCollector();
         $connection = new class implements Connection {
+            public function inTransaction(): bool
+            {
+                return false;
+            }
+
             public function fetchAll(string $sql, array $params = []): array
             {
                 return [];
@@ -185,6 +190,11 @@ final class PostgresEngineGuardTest extends TestCase
     private static function connection(\Closure $failsOn): Connection
     {
         return new class ($failsOn) implements Connection {
+            public function inTransaction(): bool
+            {
+                return false;
+            }
+
             /** @param \Closure(string): bool $failsOn */
             public function __construct(private readonly \Closure $failsOn) {}
 

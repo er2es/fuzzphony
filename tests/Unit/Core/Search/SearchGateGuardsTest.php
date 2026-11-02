@@ -7,7 +7,6 @@ namespace Fuzzphony\Tests\Unit\Core\Search;
 use Fuzzphony\Core\Analytics\RecordStatus;
 use Fuzzphony\Core\Definition\IndexDefinition;
 use Fuzzphony\Core\Engine\Engine;
-use Fuzzphony\Core\Engine\Suggestions;
 use Fuzzphony\Core\Exception\AccessDenied;
 use Fuzzphony\Core\Exception\RateLimited;
 use Fuzzphony\Core\Fuzzphony;
@@ -469,9 +468,8 @@ final class SearchGateGuardsTest extends TestCase
 
     private function suggestingEngine(): Engine
     {
-        $engine = self::createStubForIntersectionOfInterfaces([Engine::class, Suggestions::class]);
+        $engine = self::createStub(Engine::class);
         $engine->method('suggestWords')->willReturn(['wireless']);
-        assert($engine instanceof Engine);
 
         return $engine;
     }

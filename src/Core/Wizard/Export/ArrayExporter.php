@@ -7,8 +7,8 @@ namespace Fuzzphony\Core\Wizard\Export;
 use Fuzzphony\Core\Definition\IndexDefinition;
 use Fuzzphony\Core\Definition\SyncMode;
 use Fuzzphony\Core\Definition\TriggerLevel;
-use Fuzzphony\Core\Ranking\RankingProfile;
 use Fuzzphony\Core\Ranking\FuzzyMode;
+use Fuzzphony\Core\Ranking\RankingProfile;
 use Fuzzphony\Core\Ranking\Thresholds;
 
 /**
@@ -17,14 +17,6 @@ use Fuzzphony\Core\Ranking\Thresholds;
  */
 final class ArrayExporter
 {
-    /** The thresholds groups: key in the config => property of the group. */
-    private const array GROUPS = [
-        'relevance' => ['min_score' => 'minScore'],
-        'typo' => ['similarity' => 'similarity', 'min_length' => 'minLength', 'mode' => 'mode', 'fallback_below' => 'fallbackBelow'],
-        'rescue' => ['drop_unmatched' => 'dropUnmatched', 'did_you_mean' => 'didYouMean', 'correct_when_empty' => 'correctWhenEmpty', 'did_you_mean_below' => 'didYouMeanBelow'],
-        'limits' => ['candidates' => 'candidates', 'max_query_length' => 'maxQueryLength', 'max_terms' => 'maxTerms'],
-    ];
-
     /** @return array<string, mixed> */
     public function export(IndexDefinition $index): array
     {
@@ -108,12 +100,11 @@ final class ArrayExporter
     /** @return array<string, mixed> only the options that differ from the default, per group */
     private function thresholds(Thresholds $t): array
     {
-        $d = new Thresholds();
+        $default = (new Thresholds())->toArray();
         $out = [];
-        foreach (self::GROUPS as $group => $options) {
-            foreach ($options as $key => $property) {
-                $value = $t->{$group}->{$property};
-                if ($value !== $d->{$group}->{$property}) {
+        foreach ($t->toArray() as $group => $options) {
+            foreach ($options as $key => $value) {
+                if ($value !== $default[$group][$key]) {
                     $out[$group][$key] = $value instanceof FuzzyMode ? $value->value : $value;
                 }
             }
