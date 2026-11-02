@@ -106,7 +106,7 @@ final class UnrestrictedLongFieldTest extends TestCase
             foreach (self::QUERIES as $text) {
                 foreach (['never', 'fallback', 'always'] as $mode) {
                     foreach ([[100, false], [10, true]] as [$limit, $exact]) {
-                        $search = $fuzzphony->in('long_docs')->query($text)->thresholds(['fuzzy_mode' => $mode, 'candidate_limit' => $limit])->facets('cat')->highlight('title', 'body', 'secret')->limit(50);
+                        $search = $fuzzphony->in('long_docs')->query($text)->thresholds(['typo' => ['mode' => $mode], 'limits' => ['candidates' => $limit]])->facets('cat')->highlight('title', 'body', 'secret')->limit(50);
                         $result = ($exact ? $search->exactCounts() : $search)->get();
                         $ids = array_map(static fn($hit): int|string => $hit->id, $result->hits);
                         sort($ids);

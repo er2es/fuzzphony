@@ -14,7 +14,7 @@ use Fuzzphony\Core\Query\Ast\Term;
 
 /**
  * @internal Empty-result relaxation, the engine-agnostic part: when a multi-word query finds nothing, an
- * engine may drop the words that match nothing on their own (Thresholds::$relaxWhenEmpty) and
+ * engine may drop the words that match nothing on their own (RescueThresholds::$dropUnmatched) and
  * search once more. A removed word behaves like a dropped stop word: it disappears from its
  * AND / OR group; negations are left alone.
  */

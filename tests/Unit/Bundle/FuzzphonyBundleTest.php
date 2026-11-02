@@ -57,7 +57,7 @@ final class FuzzphonyBundleTest extends TestCase
             'connection' => 'default',
             'extension_schema' => 'public',
             'worker' => ['batch_size' => 250, 'idle_sleep' => 0.5],
-            'indexes' => ['products' => ['thresholds' => ['min_score' => 0.05]]],
+            'indexes' => ['products' => ['thresholds' => ['relevance' => ['min_score' => 0.05]]]],
         ]);
 
         self::assertTrue($container->hasDefinition('fuzzphony'));

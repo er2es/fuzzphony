@@ -10,6 +10,7 @@ use Fuzzphony\Core\Query\Ast\Term;
 use Fuzzphony\Core\Query\QueryParser;
 use Fuzzphony\Core\Ranking\RankingProfile;
 use Fuzzphony\Core\Ranking\Thresholds;
+use Fuzzphony\Core\Ranking\TypoThresholds;
 use Fuzzphony\Engine\Postgres\Schema\Names;
 use Fuzzphony\Engine\Postgres\Schema\OpenClass;
 use Fuzzphony\Engine\Postgres\Schema\PostgresSchemaGenerator;
@@ -261,7 +262,7 @@ final class OpenClassSqlTest extends TestCase
         $tsquery = (new TsQueryCompiler(self::index()))->compile($root);
         $builder = self::builder($allowed, $gate ?? ($open ? static fn(): bool => true : null));
 
-        return $builder->ranked($tsquery, 'mouse', $root, [], new RankingProfile(), new Thresholds(fuzzySimilarity: 0.3), 10, 0, [], $root)['sql'];
+        return $builder->ranked($tsquery, 'mouse', $root, [], new RankingProfile(), new Thresholds(typo: new TypoThresholds(similarity: 0.3)), 10, 0, [], $root)['sql'];
     }
 
     private static function parse(string $input): Node

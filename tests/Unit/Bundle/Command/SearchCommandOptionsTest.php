@@ -177,10 +177,10 @@ final class SearchCommandOptionsTest extends TestCase
     {
         $tester = $this->tester();
 
-        $tester->execute(['index' => 'products', 'query' => 'mouse', '--threshold' => ['min_score=0.25', 'fuzzy_mode=always', 'fuzzy_similarity=NULL', 'candidate_limit=500']], ['interactive' => false]);
+        $tester->execute(['index' => 'products', 'query' => 'mouse', '--threshold' => ['relevance.min_score=0.25', 'typo.mode=always', 'typo.similarity=NULL', 'limits.candidates=500']], ['interactive' => false]);
 
         self::assertSame(
-            ['min_score' => 0.25, 'fuzzy_mode' => 'always', 'fuzzy_similarity' => null, 'candidate_limit' => 500],
+            ['relevance' => ['min_score' => 0.25], 'typo' => ['mode' => 'always', 'similarity' => null], 'limits' => ['candidates' => 500]],
             $this->query()->thresholdOverrides,
         );
     }
@@ -188,8 +188,8 @@ final class SearchCommandOptionsTest extends TestCase
     /** @return iterable<string, array{string, string}> */
     public static function malformedThresholds(): iterable
     {
-        yield 'the value is everything after the first equals sign' => ['fuzzy_similarity=0.5=1', '"fuzzy_similarity" must be a number.'];
-        yield 'a missing value is empty' => ['fuzzy_mode', '"fuzzy_mode" must be one of'];
+        yield 'the value is everything after the first equals sign' => ['typo.similarity=0.5=1', '"similarity" must be a number.'];
+        yield 'a missing value is empty' => ['typo.mode', '"mode" must be one of'];
     }
 
     #[DataProvider('malformedThresholds')]
@@ -212,7 +212,7 @@ final class SearchCommandOptionsTest extends TestCase
 
         self::assertSame(1, $status);
         $display = (string) preg_replace('/\s+/', ' ', $tester->getDisplay(true));
-        self::assertStringContainsString('Index "products": invalid thresholds for this query: Unknown threshold option(s): min_scor.', $display);
+        self::assertStringContainsString('Index "products": invalid thresholds for this query: Unknown threshold group "min_scor"', $display);
         self::assertNull($this->query, 'nothing was searched');
     }
 

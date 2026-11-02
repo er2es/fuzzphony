@@ -55,15 +55,15 @@ final class SearchTransactionScopeTest extends TestCase
     {
         return [
             'typo, fallback' => [static fn(SearchBuilder $s): SearchBuilder => $s->query('mouze'), true, true],
-            'typo, always' => [static fn(SearchBuilder $s): SearchBuilder => $s->query('wireles mouse')->thresholds(['fuzzy_mode' => 'always']), true, true],
-            'typo, did you mean' => [static fn(SearchBuilder $s): SearchBuilder => $s->query('hedphones')->thresholds(['did_you_mean' => true]), true, true],
+            'typo, always' => [static fn(SearchBuilder $s): SearchBuilder => $s->query('wireles mouse')->thresholds(['typo' => ['mode' => 'always']]), true, true],
+            'typo, did you mean' => [static fn(SearchBuilder $s): SearchBuilder => $s->query('hedphones')->thresholds(['rescue' => ['did_you_mean' => true]]), true, true],
             'typo, facets' => [static fn(SearchBuilder $s): SearchBuilder => $s->query('mouze')->facets('in_stock'), true, true],
             'typo, facet with its own condition' => [static fn(SearchBuilder $s): SearchBuilder => $s->query('mouze')->where('in_stock', true)->facets('in_stock'), true, true],
             'typo, two facets' => [static fn(SearchBuilder $s): SearchBuilder => $s->query('mouze')->facets('in_stock', 'price'), true, true],
             'relaxed' => [static fn(SearchBuilder $s): SearchBuilder => $s->query('wireless mouse offfice'), true, true],
             'relaxed, facets' => [static fn(SearchBuilder $s): SearchBuilder => $s->query('wireless mouse offfice')->facets('in_stock'), true, true],
-            'strict only' => [static fn(SearchBuilder $s): SearchBuilder => $s->query('mouse')->thresholds(['fallback_below' => 1, 'did_you_mean' => false]), false, true],
-            'strict, facets' => [static fn(SearchBuilder $s): SearchBuilder => $s->query('mouse')->thresholds(['fallback_below' => 1])->facets('in_stock'), false, true],
+            'strict only' => [static fn(SearchBuilder $s): SearchBuilder => $s->query('mouse')->thresholds(['typo' => ['fallback_below' => 1], 'rescue' => ['did_you_mean' => false, 'correct_when_empty' => false]]), false, true],
+            'strict, facets' => [static fn(SearchBuilder $s): SearchBuilder => $s->query('mouse')->thresholds(['typo' => ['fallback_below' => 1]])->facets('in_stock'), false, true],
             'nothing found' => [static fn(SearchBuilder $s): SearchBuilder => $s->query('zzzzzzzz'), true, false],
         ];
     }

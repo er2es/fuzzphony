@@ -128,7 +128,7 @@ final readonly class Fuzzphony
         }
         $definition = $this->registry->get($index);
         // cut where a search is cut (max_query_length of the index), not at a number of its own
-        $text = mb_substr(ltrim($text), 0, $definition->thresholds->maxQueryLength);
+        $text = mb_substr(ltrim($text), 0, $definition->thresholds->limits->maxQueryLength);
         if ($actor !== null && $this->gate !== null && !$this->gate->accessCounted($definition, $actor, $charge, $text)->isAll()) {
             return [];
         }

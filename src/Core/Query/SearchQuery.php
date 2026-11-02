@@ -16,7 +16,7 @@ final readonly class SearchQuery
     /**
      * @param list<Condition>      $conditions
      * @param list<string>         $highlight           field names
-     * @param array<string, mixed> $thresholdOverrides snake_case keys, see Thresholds::with()
+     * @param array<string, mixed> $thresholdOverrides per group, see Thresholds::with()
      * @param array<string, mixed> $rankingOverrides   snake_case keys, see RankingProfile::with()
      * @param list<string>         $facets             filters to count the values of among the matches
      * @param list<string>|null    $allowedFields      field names the search is limited to; null = every field
@@ -34,7 +34,7 @@ final readonly class SearchQuery
         public array $facets = [],
         /** The most values listed per facet. */
         public int $facetValues = 20,
-        /** Count every match: an exact total and exact facets, not only the candidates (see Thresholds::$candidateLimit). */
+        /** Count every match: an exact total and exact facets, not only the candidates (see LimitThresholds::$candidates). */
         public bool $exactCounts = false,
         /** The last word of the text also matches as a prefix (search-as-you-type), see Typeahead. */
         public bool $asYouType = false,
@@ -125,10 +125,10 @@ final readonly class SearchQuery
         return $this->copy(highlight: array_unique([...$this->highlight, ...$fields]));
     }
 
-    /** @param array<string, mixed> $overrides e.g. ['min_score' => 0.1, 'fuzzy_mode' => 'always'] */
+    /** @param array<string, mixed> $overrides e.g. ['relevance' => ['relevance' => ['min_score' => 0.1]], 'typo' => ['mode' => 'always']] */
     public function thresholds(array $overrides): self
     {
-        return $this->copy(thresholdOverrides: [...$this->thresholdOverrides, ...$overrides]);
+        return $this->copy(thresholdOverrides: array_replace_recursive($this->thresholdOverrides, $overrides));
     }
 
     /** @param array<string, mixed> $overrides e.g. ['fuzzy' => 0.8, 'boost' => 0.1] applied on top of the chosen profile */

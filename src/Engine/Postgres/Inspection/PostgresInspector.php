@@ -835,17 +835,17 @@ final class PostgresInspector
     {
         $checks = [];
         $t = $index->thresholds;
-        if ($t->fuzzyMode !== FuzzyMode::Never && !$index->hasFuzzy()) {
-            $checks[] = Check::warning('Typo tolerance', 'fuzzy_mode is enabled but no field is marked fuzzy, so it has no effect.', 'Mark the most important field fuzzy: #[SearchField("A", fuzzy: true)]');
+        if ($t->typo->mode !== FuzzyMode::Never && !$index->hasFuzzy()) {
+            $checks[] = Check::warning('Typo tolerance', 'typo.mode is enabled but no field is marked fuzzy, so it has no effect.', 'Mark the most important field fuzzy: #[SearchField("A", fuzzy: true)]');
         }
-        if ($t->fuzzySimilarity !== null && $t->fuzzySimilarity < 0.2) {
-            $checks[] = Check::warning('Typo tolerance', sprintf('fuzzy_similarity %.2f is very tolerant; expect noisy matches.', $t->fuzzySimilarity));
+        if ($t->typo->similarity !== null && $t->typo->similarity < 0.2) {
+            $checks[] = Check::warning('Typo tolerance', sprintf('typo.similarity %.2f is very tolerant; expect noisy matches.', $t->typo->similarity));
         }
-        if ($t->candidateLimit > 5_000) {
-            $checks[] = Check::warning('Candidate limit', sprintf('candidate_limit %d may make frequent words slow to rank.', $t->candidateLimit));
+        if ($t->limits->candidates > 5_000) {
+            $checks[] = Check::warning('Candidate limit', sprintf('limits.candidates %d may make frequent words slow to rank.', $t->limits->candidates));
         }
         if ($checks === []) {
-            $checks[] = Check::ok('Configuration', sprintf('fuzzy=%s, similarity=%s, min_score=%.2f, candidates=%d', $t->fuzzyMode->value, $t->fuzzySimilarity === null ? 'by word length' : sprintf('%.2f', $t->fuzzySimilarity), $t->minScore, $t->candidateLimit));
+            $checks[] = Check::ok('Configuration', sprintf('fuzzy=%s, similarity=%s, min_score=%.2f, candidates=%d', $t->typo->mode->value, $t->typo->similarity === null ? 'by word length' : sprintf('%.2f', $t->typo->similarity), $t->relevance->minScore, $t->limits->candidates));
         }
 
         return $checks;

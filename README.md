@@ -251,8 +251,8 @@ Details in [docs/limitations.md](https://github.com/er2es/fuzzphony/blob/main/do
 - [Attaching or detaching a partition is not followed](https://github.com/er2es/fuzzphony/blob/main/docs/limitations.md#attaching-or-detaching-a-partition-is-not-followed):
   PostgreSQL fires no trigger for it; run `fuzzphony:reindex` afterwards.
 - [Ranking of very common words](https://github.com/er2es/fuzzphony/blob/main/docs/limitations.md#ranking-of-very-common-words):
-  a word with more matches than `candidate_limit` is ranked over its best matches (exact up to 100 000 matches,
-  and for pages up to 10 000 hits; the typo-tolerant branch takes the first `candidate_limit` matches of its trigram index, a lower
+  a word with more matches than `limits.candidates` is ranked over its best matches (exact up to 100 000 matches,
+  and for pages up to 10 000 hits; the typo-tolerant branch takes the first `limits.candidates` matches of its trigram index, a lower
   bound, and a restricted viewer's the best within a work budget; the facets of a capped search count the same candidates), and `total` is then a lower bound; `exactCounts()` makes the total and the facet counts exact.
 
 ## Roadmap

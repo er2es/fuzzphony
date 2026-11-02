@@ -9,6 +9,7 @@ use Fuzzphony\Core\Query\Ast\Node;
 use Fuzzphony\Core\Query\QueryParser;
 use Fuzzphony\Core\Ranking\RankingProfile;
 use Fuzzphony\Core\Ranking\Thresholds;
+use Fuzzphony\Core\Ranking\TypoThresholds;
 use Fuzzphony\Engine\Postgres\Schema\Names;
 use Fuzzphony\Engine\Postgres\Sql\FuzzyQueryCompiler;
 use Fuzzphony\Engine\Postgres\Sql\ParameterBag;
@@ -67,7 +68,7 @@ final class PositionClampingTest extends TestCase
     public function testAPhraseIsLookedUpByItsWordsAndReadFromTsvOrTheLaterFields(): void
     {
         $params = new ParameterBag();
-        $match = (new FuzzyQueryCompiler(Indexes::products(), new Thresholds(fuzzySimilarity: 0.3)))->compile(self::parse('"usb receiver"'), $params);
+        $match = (new FuzzyQueryCompiler(Indexes::products(), new Thresholds(typo: new TypoThresholds(similarity: 0.3))))->compile(self::parse('"usb receiver"'), $params);
 
         self::assertNotNull($match);
         self::assertSame([
@@ -85,7 +86,7 @@ final class PositionClampingTest extends TestCase
 
     public function testAScopedPhraseIsDecidedByItsFieldAlone(): void
     {
-        $compiler = new FuzzyQueryCompiler(Indexes::products(), new Thresholds(fuzzySimilarity: 0.3));
+        $compiler = new FuzzyQueryCompiler(Indexes::products(), new Thresholds(typo: new TypoThresholds(similarity: 0.3)));
         $params = new ParameterBag();
         $scope = $compiler->scope(self::parse('brand:"usb receiver"'), $params);
 
@@ -96,7 +97,7 @@ final class PositionClampingTest extends TestCase
 
     public function testAnExcludedPhraseIsReadTheSameWay(): void
     {
-        $match = (new FuzzyQueryCompiler(Indexes::products(), new Thresholds(fuzzySimilarity: 0.3)))->compile(self::parse('mouse -"usb receiver"'), new ParameterBag());
+        $match = (new FuzzyQueryCompiler(Indexes::products(), new Thresholds(typo: new TypoThresholds(similarity: 0.3))))->compile(self::parse('mouse -"usb receiver"'), new ParameterBag());
 
         self::assertNotNull($match);
         self::assertStringContainsString('NOT ((s.tsv @@ q.fl3 AND (s.tsv @@ q.ft2 OR (s.tsv_capped IS NOT FALSE AND EXISTS (SELECT 1 FROM "public"."fuzzphony_products" AS c WHERE c.id = s.id AND ((c."t_brand" || c."t_description") @@ q.ft2 OR (c."t_description") @@ q.ft2))))))', $match->predicate);
@@ -104,7 +105,7 @@ final class PositionClampingTest extends TestCase
 
     public function testAWordWithoutAWeightKeepsItsCondition(): void
     {
-        $compiler = new FuzzyQueryCompiler(Indexes::products(), new Thresholds(fuzzySimilarity: 0.3));
+        $compiler = new FuzzyQueryCompiler(Indexes::products(), new Thresholds(typo: new TypoThresholds(similarity: 0.3)));
 
         foreach (['mouse' => '(s.tsv @@ q.ft0 OR q.fn1 OPERATOR("public".<%) s.fz)', 'mouse -cable' => '((s.tsv @@ q.ft0 OR q.fn1 OPERATOR("public".<%) s.fz) AND NOT (s.tsv @@ q.ft2))'] as $text => $predicate) {
             $match = $compiler->compile(self::parse($text), new ParameterBag());
@@ -115,7 +116,7 @@ final class PositionClampingTest extends TestCase
 
     public function testAnIndexWithOneFieldHasNoLaterFieldToLose(): void
     {
-        $match = (new FuzzyQueryCompiler(self::singleField(), new Thresholds(fuzzySimilarity: 0.3)))->compile(self::parse('"usb receiver"'), new ParameterBag());
+        $match = (new FuzzyQueryCompiler(self::singleField(), new Thresholds(typo: new TypoThresholds(similarity: 0.3))))->compile(self::parse('"usb receiver"'), new ParameterBag());
 
         self::assertNotNull($match);
         self::assertSame('(s.tsv @@ q.ft0 OR q.fn1 OPERATOR("public".<%) s.fz)', $match->predicate);
@@ -147,7 +148,7 @@ final class PositionClampingTest extends TestCase
     public function testTheLaterFieldsAreReadOnlyForACappedDocument(): void
     {
         $params = new ParameterBag();
-        $match = (new FuzzyQueryCompiler(Indexes::products(), new Thresholds(fuzzySimilarity: 0.3)))->compile(self::parse('"usb receiver"'), $params);
+        $match = (new FuzzyQueryCompiler(Indexes::products(), new Thresholds(typo: new TypoThresholds(similarity: 0.3))))->compile(self::parse('"usb receiver"'), $params);
 
         self::assertNotNull($match);
         self::assertSame(

@@ -105,28 +105,44 @@ final class BuilderExporter
         $lines[] = '    ->build();';
 
         $uses = ['Definition\\IndexDefinition'];
-        if ($index->thresholds->fuzzyMode !== (new Thresholds())->fuzzyMode) {
+        if ($index->thresholds->typo->mode !== (new Thresholds())->typo->mode) {
             $uses[] = 'Ranking\\FuzzyMode';
         }
         $uses[] = 'Ranking\\RankingProfile';
         if ($thresholds !== []) {
             $uses[] = 'Ranking\\Thresholds';
+            foreach (['limits' => 'LimitThresholds', 'relevance' => 'RelevanceThresholds', 'rescue' => 'RescueThresholds', 'typo' => 'TypoThresholds'] as $group => $class) {
+                if (array_filter($thresholds, static fn(string $arg): bool => str_starts_with($arg, $group . ': ')) !== []) {
+                    $uses[] = 'Ranking\\' . $class;
+                }
+            }
         }
 
         return implode('', array_map(static fn(string $use): string => sprintf("use Fuzzphony\\Core\\%s;\n", $use), $uses)) . "\n" . implode("\n", $lines) . "\n";
     }
 
-    /** @return list<string> the named constructor arguments of the thresholds that differ from the default */
+    /** @return list<string> the named constructor arguments of the thresholds that differ from the default, one object per group */
     private function thresholds(Thresholds $t): array
     {
         $d = new Thresholds();
+        $groups = [
+            'relevance' => ['RelevanceThresholds', ['minScore']],
+            'typo' => ['TypoThresholds', ['similarity', 'minLength', 'mode', 'fallbackBelow']],
+            'rescue' => ['RescueThresholds', ['dropUnmatched', 'didYouMean', 'correctWhenEmpty', 'didYouMeanBelow']],
+            'limits' => ['LimitThresholds', ['candidates', 'maxQueryLength', 'maxTerms']],
+        ];
         $args = [];
-        foreach (['minScore', 'fuzzySimilarity', 'fuzzyMinLength', 'fuzzyMode', 'fallbackBelow', 'candidateLimit', 'maxQueryLength', 'maxTerms', 'relaxWhenEmpty', 'didYouMean', 'rescueEmpty'] as $property) {
-            if ($t->{$property} === $d->{$property}) {
-                continue;
+        foreach ($groups as $group => [$class, $properties]) {
+            $inner = [];
+            foreach ($properties as $property) {
+                $value = $t->{$group}->{$property};
+                if ($value !== $d->{$group}->{$property}) {
+                    $inner[] = sprintf('%s: %s', $property, $value instanceof FuzzyMode ? 'FuzzyMode::' . $value->name : var_export($value, true));
+                }
             }
-            $value = $t->{$property};
-            $args[] = sprintf('%s: %s', $property, $value instanceof FuzzyMode ? 'FuzzyMode::' . $value->name : var_export($value, true));
+            if ($inner !== []) {
+                $args[] = sprintf('%s: new %s(%s)', $group, $class, implode(', ', $inner));
+            }
         }
 
         return $args;

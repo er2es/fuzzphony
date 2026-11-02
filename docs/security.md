@@ -347,7 +347,7 @@ a covert-channel proof:
   its own documents (the tenant condition is part of the statement), so the size of another tenant's rows does not change them: a
   test compares a tenant's hits, totals and facets over corpora whose other tenant takes four different sizes.
 - **The candidates of a very common word are chosen by the fields the viewer may see only.** When a word matches more
-  documents than `candidate_limit`, the best candidates are selected by the page's own sort key; for a restricted
+  documents than `limits.candidates`, the best candidates are selected by the page's own sort key; for a restricted
   viewer that key is the text rank of the allowed fields' vectors and the exact and prefix bonuses only when the primary
   field is allowed, with the same lookup, recheck, tenant and filter conditions as the cheap selection, so neither which
   documents are candidates nor their order depends on a hidden field (the tests compare corpora that differ only in a

@@ -33,7 +33,7 @@ final class AttributeExporter
             }
         }
 
-        return (array) $index->thresholds !== (array) new Thresholds();
+        return serialize($index->thresholds) !== serialize(new Thresholds());
     }
 
     public function export(IndexDefinition $index, string $className = 'Product'): string

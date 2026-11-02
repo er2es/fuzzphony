@@ -41,7 +41,7 @@ final class SearchCommand extends Command
             // through a real FrameworkBundle console app (a bare CommandTester never surfaces it).
             ->addOption('rank-profile', 'p', InputOption::VALUE_REQUIRED, 'Ranking profile', 'default')
             ->addOption('limit', 'l', InputOption::VALUE_REQUIRED, 'Hits to show', '10')
-            ->addOption('threshold', null, InputOption::VALUE_REQUIRED | InputOption::VALUE_IS_ARRAY, 'Override a threshold, e.g. --threshold fuzzy_mode=always')
+            ->addOption('threshold', null, InputOption::VALUE_REQUIRED | InputOption::VALUE_IS_ARRAY, 'Override a threshold as group.key=value, e.g. --threshold typo.mode=always (groups: relevance, typo, rescue, limits)')
             ->addOption('facet', 'f', InputOption::VALUE_REQUIRED | InputOption::VALUE_IS_ARRAY, 'Count the values of a filter among the matches, e.g. -f in_stock -f category_id')
             ->addOption('exact', null, InputOption::VALUE_NONE, 'Count every match (an exact total and exact facets), not only the candidates: can be slow on a large index')
             ->addOption('as-you-type', null, InputOption::VALUE_NONE, 'Search-as-you-type: the last word also matches as the beginning of a longer one')
@@ -92,8 +92,14 @@ final class SearchCommand extends Command
             $overrides = [];
             foreach ((array) $input->getOption('threshold') as $pair) {
                 [$key, $value] = array_pad(explode('=', Coerce::str($pair), 2), 2, '');
-                // "null" goes back to the default (fuzzy_similarity: by word length)
-                $overrides[$key] = strtolower($value) === 'null' ? null : (is_numeric($value) ? $value + 0 : $value);
+                // "null" goes back to the default (typo.similarity: by word length)
+                $value = strtolower($value) === 'null' ? null : (is_numeric($value) ? $value + 0 : $value);
+                if (!str_contains($key, '.')) {
+                    $overrides[$key] = $value; // a flat 0.9 name or a typo: Thresholds::with() names the replacement
+                    continue;
+                }
+                [$group, $option] = explode('.', $key, 2);
+                $overrides[$group][$option] = $value;
             }
             if ($overrides !== []) {
                 $search = $search->thresholds($overrides);

@@ -6,6 +6,7 @@ namespace Fuzzphony\Tests\Integration;
 
 use Fuzzphony\Core\Fuzzphony;
 use Fuzzphony\Core\Ranking\Thresholds;
+use Fuzzphony\Core\Ranking\RescueThresholds;
 use Fuzzphony\Core\Registry\IndexRegistry;
 use Fuzzphony\Engine\Postgres\PostgresEngine;
 use Fuzzphony\Tests\Conformance\EngineConformanceTestCase;
@@ -20,12 +21,12 @@ final class EmptyResultRelaxationMutationsTest extends TestCase
     {
         $connection = PostgresTestCase::connect();
         PostgresTestCase::createFixtures($connection, EngineConformanceTestCase::fixtureRows());
-        $fuzzphony = new Fuzzphony(new PostgresEngine($connection), new IndexRegistry([Indexes::products('manual')->withThresholds(new Thresholds(didYouMean: false))]));
+        $fuzzphony = new Fuzzphony(new PostgresEngine($connection), new IndexRegistry([Indexes::products('manual')->withThresholds(new Thresholds(rescue: new RescueThresholds(didYouMean: false, correctWhenEmpty: false)))]));
         $fuzzphony->schema()->apply($connection);
         $fuzzphony->reindex('products');
 
         return static fn(string $query): array => array_column(
-            $fuzzphony->in('products')->query($query)->thresholds(['fuzzy_mode' => 'never'])->explain()->statements,
+            $fuzzphony->in('products')->query($query)->thresholds(['typo' => ['mode' => 'never']])->explain()->statements,
             'label',
         );
     }

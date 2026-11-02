@@ -206,8 +206,8 @@ So a typo in one word never lets through documents that lack the other words.
   Two letters swapped (a swap changes four trigrams) is handled separately, see the next point. Measured on
   generated typos of 24 common words, a 5 to 7 letter word finds about 70 to 80% of its
   single-letter typos (a flat 0.3: 92 to 100%) while it lists about five times fewer look-alikes.
-  Set `fuzzy_similarity` to a number (per index or per query) to use that value for every word,
-  for example `0.3` for the pre-0.7 behaviour, or to `null` (`--threshold fuzzy_similarity=null` on
+  Set `typo.similarity` to a number (per index or per query) to use that value for every word,
+  for example `0.3` for the pre-0.7 behaviour, or to `null` (`--threshold typo.similarity=null` on
   the command line) to go back to by length.
 - **Two neighbouring letters swapped** (`mosue` for `mouse`, `hedaphones`): a swap shares too few trigrams for a
   word of 4 to 7 letters, so on the typo-tolerant branch a typed word of 4 to 15 letters also matches each of its
@@ -216,13 +216,13 @@ So a typo in one word never lets through documents that lack the other words.
   looked up in the typo-tolerant fields only, like every typo-tolerant word. No vocabulary is involved, so it works on
   tenant-scoped indexes. A hit found only through a swap scores the lowest similarity an ordinary typo of that word
   may score (see [Ranking](ranking.md#swapped-letters)), so an exact hit always ranks above it. It applies only where
-  typo tolerance already runs (when exact matching finds fewer than `fallback_below` hits, or with `fuzzy_mode: always`);
+  typo tolerance already runs (when exact matching finds fewer than `typo.fallback_below` hits, or with `typo.mode: always`);
   a search with enough exact hits is unchanged. Not swapped: words with a digit (a code such as `rtx4090`), prefixes
   (`mosu*`), phrases, the alternatives a synonym adds, and words shorter than 4 or longer than 15 letters (a long
   word keeps most of its trigrams under a swap and is found by similarity anyway). Bounded: at most 14 variants per
   word and 48 per query (a word whose variants do not fit the budget gets none; a query has to be long for that), and
   they cost one more index condition per word, not a statement.
-- Words shorter than `fuzzy_min_length` must match exactly.
+- Words shorter than `typo.min_length` must match exactly.
 - Stop words of the index language ("for", "the") are ignored, as in the full-text query, except in a query of
   nothing else: `the who` is searched as it is, on the typo-tolerant fields (see
   [Known limitations](limitations.md#stop-words-are-ignored-and-only-a-query-of-nothing-else-finds-them)).
@@ -260,7 +260,7 @@ $result->interpretedAs;   // "((tv OR television) AND NOT bracket)"
 - The exact-title and prefix bonuses compare with the words the user typed, never with the
   alternatives. The empty-result relaxation treats a word and its alternatives as one word: it
   ignores it only when none of them matches, and names it as typed.
-- A query gets at most four times `max_terms` alternatives, so a large group cannot make a
+- A query gets at most four times `limits.max_terms` alternatives, so a large group cannot make a
   statement huge; a word whose alternatives do not fit stays as typed, with a warning.
 - `$result->interpretedAs` shows the expansion.
 - Only the PostgreSQL engine applies synonyms: a custom `Engine` gets no expansion.
@@ -280,9 +280,9 @@ $result->didYouMean;   // "headphones -cable": the query with the word replaced,
 - It is a suggestion: Fuzzphony does not search it for the visitor, except for a search that found nothing at all and has
   a unique one-edit correction (the [zero-result rescue](#zero-result-rescue) below). Show it as a link that searches
   `$result->didYouMean`. It is plain text made of the user's own words: escape it when you render it.
-- When: fewer hits than `fallback_below` (5), or typo tolerance had to run (so it also appears next to the
-  results typo tolerance found: `hedphones` finds headphones and still suggests the word). It is not computed for a browse, a search with enough hits, or when `did_you_mean` is `false`.
-- Which words: whole words of at least `fuzzy_min_length` letters (the index's own minimum) that the
+- When: fewer hits than `typo.fallback_below` (5), or typo tolerance had to run (so it also appears next to the
+  results typo tolerance found: `hedphones` finds headphones and still suggests the word). It is not computed for a browse, a search with enough hits, or when `rescue.did_you_mean` is `false`.
+- Which words: whole words of at least `typo.min_length` letters (the index's own minimum) that the
   index does not know: not in the vocabulary, not a stop word, and no document of the index matches
   them (so a word of a field that is not typo-tolerant, an inflection such as `headphone`, `wi-fi`, or a
   word added since the last full reindex is never "corrected"). Not corrected either: prefixes
@@ -298,7 +298,7 @@ $result->didYouMean;   // "headphones -cable": the query with the word replaced,
 - Tenants and filters: the vocabulary is the words of the whole index, whatever a search's filters
   say, so a suggestion could reveal that a word exists in documents the search may not see.
   Therefore a tenant-scoped index never suggests anything. On any other index with visibility filters
-  (unpublished or private rows whose words must stay secret), switch it off: `did_you_mean: false`.
+  (unpublished or private rows whose words must stay secret), switch it off: `rescue.did_you_mean: false` (with `rescue.correct_when_empty: false`).
 - The role that searches needs `SELECT` on the vocabulary table; without it, or before the table exists,
   there is simply no suggestion (never an error).
 - The vocabulary is the words of the index's typo-tolerant fields and in how many documents each
@@ -335,12 +335,12 @@ $result->didYouMean;      // null: the suggestion was taken
 ```
 
 Show it as a bar ("Showing results for mouse", with a link that searches the typed text again as it is, for example
-with `thresholds(['rescue_empty' => false])`). `correctedFrom` is the visitor's own text: escape it when you render it.
+with `thresholds(['rescue' => ['correct_when_empty' => false]])`). `correctedFrom` is the visitor's own text: escape it when you render it.
 
 - **When**: the search found nothing after everything else (strict match, typo tolerance, the empty-result
-  relaxation: a search that found something, however few hits, is never rescued), `rescue_empty` is on (the
-  default) and so is `did_you_mean` (the rescue uses its vocabulary lookup, the same statement: no extra lookup), typo
-  tolerance is not switched off (`fuzzy_mode: never` or a profile with `fuzzy: 0` never rescue), and the text is not a
+  relaxation: a search that found something, however few hits, is never rescued), `rescue.correct_when_empty` is on (the
+  default) and so is `rescue.did_you_mean` (the rescue uses its vocabulary lookup, the same statement: no extra lookup), typo
+  tolerance is not switched off (`typo.mode: never` or a profile with `fuzzy: 0` never rescue), and the text is not a
   search-as-you-type one (`asYouType()`: its last word is not finished, nothing is wrong with it).
 - **Which words**: the words did-you-mean may correct (whole words that the index does not know; not prefixes,
   excluded words, synonyms or words with a digit). A word is corrected only when the vocabulary has **exactly one word
@@ -358,7 +358,7 @@ with `thresholds(['rescue_empty' => false])`). `correctedFrom` is the visitor's 
   corrected search is the same `SearchQuery` with other text.
 - **Never**: on a tenant-scoped index or for a restricted viewer (the vocabulary holds the words of every tenant's and every
   field's documents; as for did-you-mean there is no lookup, so no rescue, and what a viewer finds never depends on a hidden
-  field or another tenant), with `did_you_mean: false`, or with `rescue_empty: false`. On an index whose filters hide rows
+  field or another tenant), with `rescue.did_you_mean: false` (with `rescue.correct_when_empty: false`), or with `rescue.correct_when_empty: false`. On an index whose filters hide rows
   whose words must stay secret, switch both off, as for did-you-mean: the rescued results honour the filters, but the choice
   of the corrected word is made from the whole vocabulary.
 - **Observability**: `explain()` lists the rescue's statements with the label prefix `rescue: ` (`rescue: full-text`,
@@ -384,14 +384,14 @@ prices are your data, not the index's:
 | groups: categories, products with price and picture | `facets()` and the hits of the same search | the grouped dropdown, see [A rich dropdown](#a-rich-dropdown) |
 
 There is **no separate "suggest list" to configure**: the completions come from the index's vocabulary, which is
-made of the words of the **typo-tolerant fields** (`fuzzy: true`) with at least `fuzzy_min_length` letters. To
+made of the words of the **typo-tolerant fields** (`fuzzy: true`) with at least `typo.min_length` letters. To
 suggest a field's words, make the field fuzzy (see [Configuration](configuration.md)); which words come first is
 their frequency. Nothing else: how many (`$limit`), the grouping and the looks are per call and per page.
 
 ### Matching the word being typed
 
 By default a word is a whole word: `cr` finds nothing where `creme` is, and a word of fewer than
-`fuzzy_min_length` letters is not typo-tolerant either. `asYouType()` is for a box that searches while the
+`typo.min_length` letters is not typo-tolerant either. `asYouType()` is for a box that searches while the
 visitor types:
 
 ```php
@@ -424,7 +424,7 @@ $fuzzphony->complete('products', 'wireless hea');   // ["wireless headphones", "
   (`$limit`, 1 to 20, default 8).
 - The completions are in the index's normalised form (lowercase, accents folded: `Crè` gives `creme`)
   and are **plain text, not HTML**: escape them when you render them.
-- Only words of the typo-tolerant fields are in the vocabulary, with at least `fuzzy_min_length`
+- Only words of the typo-tolerant fields are in the vocabulary, with at least `typo.min_length`
   letters, and it is filled by a full reindex (`fuzzphony:reindex --vocabulary` rebuilds just it): a word
   that is new since the last rebuild is not suggested yet. Schedule that rebuild, see [Did you
   mean](#did-you-mean). A **tenant-scoped index** gives no completions (the vocabulary has no tenant
@@ -474,7 +474,7 @@ foreach ($result->facets['category_id'] as $facet) {   // FacetValue: ->value, -
   would find (the usual shop behaviour): after `where('category_id', 3)` the category facet still lists
   the other categories, with the counts they would have; the other conditions, and the tenant, count.
 - **Counts are over the candidates**: when the search hit its candidate limit
-  (`$result->totalIsLowerBound`), the counts are lower bounds ("120+"), taken over the very candidates the hits come from (the best `candidate_limit` documents, whatever the order of the table; [limitation](limitations.md#facet-counts-are-over-the-candidates)). `exactCounts()` counts every
+  (`$result->totalIsLowerBound`), the counts are lower bounds ("120+"), taken over the very candidates the hits come from (the best `limits.candidates` documents, whatever the order of the table; [limitation](limitations.md#facet-counts-are-over-the-candidates)). `exactCounts()` counts every
   match instead, for the total and for the facets:
 
   ```php
@@ -483,7 +483,7 @@ foreach ($result->facets['category_id'] as $facet) {   // FacetValue: ->value, -
 
   It reads everything the query matches, so it can take seconds on a large index (the page of hits is
   still the ranked candidates). It is deliberately a method of its own, not a threshold: **never wire it to
-  request input**, as an override of `candidate_limit` can only tighten the limit. It costs nothing when
+  request input**, as an override of `limits.candidates` can only tighten the limit. It costs nothing when
   the candidates were not cut off (the total is exact already).
 - The facets without a condition on their own filter share one statement (listed by `explain()` as
   `facet: category_id, in_stock`) that evaluates the search's candidates once, however many facets there
@@ -552,8 +552,8 @@ empty result without a warning.
 
 Cost: one probe statement, a possible stop-word lookup, and one or two relaxed search statements
 (strict, then fuzzy), only for empty multi-word results. Turn it off with
-`relax_when_empty: false`. The probe checks whether a word matches any document at all, so it does
-not apply `min_score` or the candidate limit. A word can count as matching through documents the
+`rescue.drop_unmatched: false`. The probe checks whether a word matches any document at all, so it does
+not apply `relevance.min_score` or the candidate limit. A word can count as matching through documents the
 search would reject; it is then kept, not dropped. The relaxation errs on the side of doing less.
 
 ## Codes and numbers
@@ -579,7 +579,7 @@ query is split at every non-alphanumeric character, so the two never meet (a fuz
 
 ## Limits and errors
 
-`max_query_length`, `max_terms` and a nesting depth of 8 keep hostile input cheap (see
+`limits.max_query_length`, `limits.max_terms` and a nesting depth of 8 keep hostile input cheap (see
 [thresholds](ranking.md#thresholds) for defaults and hard caps).
 
 Developer mistakes, such as an unknown filter or a wrong value type, do throw, with a suggestion:

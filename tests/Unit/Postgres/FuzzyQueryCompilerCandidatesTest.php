@@ -9,6 +9,7 @@ use Fuzzphony\Core\Definition\IndexDefinition;
 use Fuzzphony\Core\Query\Ast\Node;
 use Fuzzphony\Core\Query\QueryParser;
 use Fuzzphony\Core\Ranking\Thresholds;
+use Fuzzphony\Core\Ranking\TypoThresholds;
 use Fuzzphony\Engine\Postgres\Schema\Names;
 use Fuzzphony\Engine\Postgres\Sql\FuzzyQueryCompiler;
 use Fuzzphony\Engine\Postgres\Sql\ParameterBag;
@@ -37,7 +38,7 @@ final class FuzzyQueryCompilerCandidatesTest extends TestCase
 
     public function testAFlatSimilarityIsTheSessionsAndNeedsNoRecheck(): void
     {
-        $probes = (new FuzzyQueryCompiler(Indexes::products(), new Thresholds(fuzzySimilarity: 0.3), new Names()))->probes(self::parse('mouse'), 10);
+        $probes = (new FuzzyQueryCompiler(Indexes::products(), new Thresholds(typo: new TypoThresholds(similarity: 0.3)), new Names()))->probes(self::parse('mouse'), 10);
 
         self::assertCount(1, $probes);
         $probe = array_values($probes)[0];
@@ -48,7 +49,7 @@ final class FuzzyQueryCompilerCandidatesTest extends TestCase
     public function testAProbeAppliesTheSearchsConditions(): void
     {
         $conditions = (new \Fuzzphony\Core\Query\SearchQuery())->where('brand_id', '=', 1)->where('price', '<', 5000)->conditions;
-        $probe = array_values((new FuzzyQueryCompiler(Indexes::products(), new Thresholds(fuzzySimilarity: 0.3), new Names()))->probes(self::parse('mouse'), 10, [], $conditions))[0];
+        $probe = array_values((new FuzzyQueryCompiler(Indexes::products(), new Thresholds(typo: new TypoThresholds(similarity: 0.3)), new Names()))->probes(self::parse('mouse'), 10, [], $conditions))[0];
 
         self::assertSame("SELECT s.id\nFROM \"public\".\"fuzzphony_products\" AS s\nWHERE \"public\".\"fuzzphony_norm\"(:p0) OPERATOR(\"public\".<%) s.fz AND s.\"f_brand_id\" = :p1 AND s.\"f_price\" < :p2\nLIMIT 11", $probe['sql']);
         self::assertSame(['p0' => 'mouse', 'p1' => 1, 'p2' => 5000], $probe['params']);

@@ -82,7 +82,7 @@ final class LayoutUpgradeTest extends TestCase
         $this->context->fuzzphony->reindex('products');
 
         self::assertSame('razer', $connection->fetchValue('SELECT z_brand FROM fuzzphony_products WHERE id = 2'));
-        self::assertSame([2], $this->context->fuzzphony->in('products')->query('brand:razer')->thresholds(['fuzzy_mode' => 'never'])->get()->ids());
+        self::assertSame([2], $this->context->fuzzphony->in('products')->query('brand:razer')->thresholds(['typo' => ['mode' => 'never']])->get()->ids());
     }
 
     /** @return array<string, mixed> */

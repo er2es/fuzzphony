@@ -53,11 +53,11 @@ final class LengthAwareTypoToleranceTest extends TestCase
     public function testACorrectlySpelledShortWordNoLongerMatchesSimilarWords(): void
     {
         $search = $this->fuzzphony()->in('products');
-        $always = ['fuzzy_mode' => 'always'];
+        $always = ['typo' => ['mode' => 'always']];
 
         self::assertSame([1, 2], self::ids($search->query('mouse')->thresholds($always)->get()), 'not the monitor, not the mower');
-        self::assertSame([1, 2, 3, 4], self::ids($search->query('mouse')->thresholds($always + ['fuzzy_similarity' => 0.3])->get()), 'a flat 0.3 keeps the lenient behaviour');
-        self::assertSame([1, 2], self::ids($search->query('mouse')->thresholds($always + ['fuzzy_similarity' => null])->get()), 'null goes back to by length');
+        self::assertSame([1, 2, 3, 4], self::ids($search->query('mouse')->thresholds(array_replace_recursive($always, ['typo' => ['similarity' => 0.3]]))->get()), 'a flat 0.3 keeps the lenient behaviour');
+        self::assertSame([1, 2], self::ids($search->query('mouse')->thresholds(array_replace_recursive($always, ['typo' => ['similarity' => null]]))->get()), 'null goes back to by length');
     }
 
     public function testTyposStillMatchWithinTheirBand(): void
@@ -79,7 +79,7 @@ final class LengthAwareTypoToleranceTest extends TestCase
 
     public function testTheLengthIsThatOfTheNormalisedWord(): void
     {
-        $search = $this->fuzzphony()->in('products')->query('straßen')->thresholds(['fuzzy_mode' => 'always']);
+        $search = $this->fuzzphony()->in('products')->query('straßen')->thresholds(['typo' => ['mode' => 'always']]);
 
         // "straßen" has 7 characters but is "strassen" (8) once PostgreSQL folds it, and 8 letters tolerate two typos:
         // "strand" is 0.44 similar, which the 7-letter threshold (0.48) would reject
@@ -88,7 +88,7 @@ final class LengthAwareTypoToleranceTest extends TestCase
 
     public function testEveryWordIsCheckedAgainstItsOwnLength(): void
     {
-        $result = $this->fuzzphony()->in('products')->query('wireles mouse')->thresholds(['fuzzy_mode' => 'always'])->get();
+        $result = $this->fuzzphony()->in('products')->query('wireles mouse')->thresholds(['typo' => ['mode' => 'always']])->get();
 
         self::assertSame([1], self::ids($result), 'the typo in the long word is tolerated, the monitor is not a mouse');
     }
@@ -139,8 +139,8 @@ final class LengthAwareTypoToleranceTest extends TestCase
         $search = $this->fuzzphony()->in('products');
 
         // a letter replaced in the middle of a five-letter word leaves 0.33, as close as "monitor" is to "mouse", so it cannot be told from a different word; documented
-        self::assertSame([], self::ids($search->query('mpuse')->thresholds(['rescue_empty' => false])->get()));
+        self::assertSame([], self::ids($search->query('mpuse')->thresholds(['rescue' => ['correct_when_empty' => false]])->get()));
         self::assertSame([1, 2], self::ids($search->query('mpuse')->get()), 'only the zero-result rescue (one edit from "mouse") finds it');
-        self::assertSame([1, 2], self::ids($search->query('mpuse')->thresholds(['fuzzy_similarity' => 0.3])->get()), 'a flat 0.3 tolerates it');
+        self::assertSame([1, 2], self::ids($search->query('mpuse')->thresholds(['typo' => ['similarity' => 0.3]])->get()), 'a flat 0.3 tolerates it');
     }
 }

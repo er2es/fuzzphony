@@ -10,6 +10,7 @@ use Fuzzphony\Core\Engine\Suggestions;
 use Fuzzphony\Core\Exception\InvalidArgument;
 use Fuzzphony\Core\Fuzzphony;
 use Fuzzphony\Core\Ranking\Thresholds;
+use Fuzzphony\Core\Ranking\LimitThresholds;
 use Fuzzphony\Core\Registry\IndexRegistry;
 use Fuzzphony\Tests\Fixtures\Indexes;
 use PHPUnit\Framework\Attributes\DataProvider;
@@ -88,7 +89,7 @@ final class FuzzphonySuggestTest extends TestCase
 
             return [];
         });
-        $index = Indexes::products()->withThresholds(new Thresholds(maxQueryLength: 20));
+        $index = Indexes::products()->withThresholds(new Thresholds(limits: new LimitThresholds(maxQueryLength: 20)));
 
         (new Fuzzphony($engine, new IndexRegistry([$index])))->complete('products', 'wireless ' . str_repeat('m', 30));
 

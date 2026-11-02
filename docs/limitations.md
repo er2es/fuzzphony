@@ -41,9 +41,9 @@ typo from a different word that looks alike:
   letters swapped that are not neighbours (`moues` is a swap, `muoes` is not), a swap together with another typo in a
   short word, a swap in a code with digits, and any word of a field that is not typo-tolerant.
 - It reaches only the words of fuzzy fields (`fuzzy: true`): a misspelled word that occurs only in a
-  description or another non-fuzzy field finds nothing. Words shorter than `fuzzy_min_length` (3) must match
+  description or another non-fuzzy field finds nothing. Words shorter than `typo.min_length` (3) must match
   exactly.
-- By default (`fuzzy_mode: fallback`) it runs only when exact matching finds fewer than `fallback_below` (5)
+- By default (`typo.mode: fallback`) it runs only when exact matching finds fewer than `typo.fallback_below` (5)
   hits, so a typo next to enough exact hits is not corrected. `always` runs it every time, `never` switches
   it off.
 - A letter replaced in the middle of a 5 to 7 letter word (`mpuse`) is **not** added to the results of a search. Only the
@@ -55,7 +55,7 @@ typo from a different word that looks alike:
   on a tenant-scoped index or for a restricted viewer `mpuse` still finds nothing. A rescued search is logged as a search
   that found hits ([details](#a-rescued-search-is-not-a-zero-result-search-in-the-log)).
 
-What to do: set `fuzzy_similarity` to a number to use one value for every word. That trades the other way: it
+What to do: set `typo.similarity` to a number to use one value for every word. That trades the other way: it
 finds more typos and lists more look-alikes (the measured trade-off is in
 [Typo tolerance](searching.md#typo-tolerance)). Irregular word forms are not typos at all (see
 [languages](#stemming-covers-regular-forms-one-language-per-index)).
@@ -65,7 +65,7 @@ finds more typos and lists more look-alikes (the measured trade-off is in
 `LIKE '%phone%'` finds `smartphone`. Fuzzphony matches whole words (after stemming), the beginning of a word
 (`phon*`, or `asYouType()`), and a fragment from the middle of a word only through typo tolerance: `phone`
 does find `smartphone` and `headphones` that way, but only in a fuzzy field, only while exact matching finds
-fewer than `fallback_below` hits, and as a look-alike ranked by similarity, never as a guarantee.
+fewer than `typo.fallback_below` hits, and as a look-alike ranked by similarity, never as a guarantee.
 
 What to do: if one column needs a guaranteed substring match (a part-number fragment), keep a `LIKE` (with a
 trigram index) on that column next to Fuzzphony.
@@ -93,22 +93,22 @@ limits:
   leave out the documents that have `rock`. A query with an OR at the top level, or an OR or an exclusion inside a positive group (`the OR -rock`,
   `(the -rock) OR who`, `(the OR who) -rock`), is as it always was. An excluded stop word (`the who -the`, `the -who`)
   is dropped, it excludes nothing. Where the stop-word search does not apply (no typo-tolerant search, more than three
-  words, a word shorter than `fuzzy_min_length`) such a query is as it always was: `the who -rock` with
-  `fuzzy_mode: never` is still "everything but rock".
-- Only with typo tolerance: the index has a typo-tolerant field and `fuzzy_mode` is not `never` (the ranking
+  words, a word shorter than `typo.min_length`) such a query is as it always was: `the who -rock` with
+  `typo.mode: never` is still "everything but rock".
+- Only with typo tolerance: the index has a typo-tolerant field and `typo.mode` is not `never` (the ranking
   profile's `fuzzy` weight is not 0). Without it nothing changes and the query finds nothing.
 - Only in the typo-tolerant fields, and as a look-alike, like every typo-tolerant word: `who` ranks "Who" and
-  "The Who" first and also lists `whole`. Each word must be at least `fuzzy_min_length` (3) letters long: a
+  "The Who" first and also lists `whole`. Each word must be at least `typo.min_length` (3) letters long: a
   shorter stop word has to match exactly, which a stop word never does, so `to be or not to be` without
   quotes finds nothing (the quoted phrase is one word of 14 letters and finds it).
 - At most three stop words are searched; a query of four or more finds nothing, as it always did. It costs a
-  typo-tolerant search, one probe per word with at most `candidate_limit` candidates each, and every word that
+  typo-tolerant search, one probe per word with at most `limits.candidates` candidates each, and every word that
   is in most documents keeps all its matches, so the cost grows quickly with the number of words: with
   `the and were there those` all in the title of every one of 100 000 documents, five words took 15 s for a viewer
   restricted to some fields (0.7 s unrestricted). Measured on the same data with the cap: one word 0.12 s (restricted)
   and 0.2 s (unrestricted), two 0.23 and 0.27 s, three 0.36 and 0.42 s (`wireless` alone: 8 ms on another
   catalogue); with `the` in half of the names of 100 000 products, `the` takes 43 ms and three stop words that no
-  document has together 80 ms, the empty-result relaxation included. `candidate_limit` applies as always (the total is
+  document has together 80 ms, the empty-result relaxation included. `limits.candidates` applies as always (the total is
   a lower bound).
 - The empty-result relaxation works as for any words.
 
@@ -123,7 +123,7 @@ locale. See [Languages](languages.md#limits).
 
 ### Ranking of very common words
 
-A search collects at most `candidate_limit` candidates per branch (2000 by default, at most 10 000) and ranks
+A search collects at most `limits.candidates` candidates per branch (2000 by default, at most 10 000) and ranks
 only those, so `total` is a lower bound when a word matches more documents (`totalIsLowerBound`, shown as
 `2000+`; so is the `hits` of the [search log](analytics.md) row). What the candidates are depends on the branch.
 
@@ -138,12 +138,12 @@ the viewer may see only, so a hidden field never decides which documents are can
 the same cheap selection as before and returns the same hits.
 
 - **A page past the candidates is exact too.** The search selects the best `offset + limit` candidates when that
-  is more than `candidate_limit`, up to 10 000 hits: page 3 of 20 at `candidate_limit: 10` works, and page 400
+  is more than `limits.candidates`, up to 10 000 hits: page 3 of 20 at `limits.candidates: 10` works, and page 400
   of 20 is the last one that does. The total of such a page is `offset + limit` (`+`), so it grows with the page.
   `hasMore()` is **false at the last page of the candidates** (`offset + limit` reaches the candidate window):
-  a pager that follows `hasMore()` stops at `candidate_limit` hits (2000 by default); a page asked for directly
-  still works. `candidate_limit` is a lower bound of the window, not an upper one: a page of 20 with
-  `candidate_limit: 10` selects 20.
+  a pager that follows `hasMore()` stops at `limits.candidates` hits (2000 by default); a page asked for directly
+  still works. `limits.candidates` is a lower bound of the window, not an upper one: a page of 20 with
+  `limits.candidates: 10` selects 20.
 - **The scan budget: 100 000 matches for a one-word query** (a constant of the library, not a setting: it bounds
   the cost of a search, and every setting would be one more way to switch it off). The ranking is exact among the
   first 100 000 matches in index order; a word with more matches than that is ranked among those only, so the
@@ -160,18 +160,18 @@ the same cheap selection as before and returns the same hits.
 - **A word under the limit costs what it did** (a rare word: 0.15 ms more to plan, never executed); a word
   over it costs one more pass over its matches: 10 to 38 ms for `wireless` (20 000 matches) on 200 000 products,
   up to 105 ms for the most common word there.
-- `min_score` keeps the documents under it out of the candidate slots (the strict branch), so a query that
+- `relevance.min_score` keeps the documents under it out of the candidate slots (the strict branch), so a query that
   needs it still finds its best documents; `total` stays flagged as a lower bound.
 
 **Typo-tolerant branch: the first matches of the trigram index; exact only while a word has no more matches than the limit.**
-The typo branch (a word that is misspelled, `fuzzy_mode: always`, or a search that found too little) takes, for each typo-tolerant
-word, the documents the trigram index returns, at most `candidate_limit` (the window of the page when that is larger) of them.
+The typo branch (a word that is misspelled, `typo.mode: always`, or a search that found too little) takes, for each typo-tolerant
+word, the documents the trigram index returns, at most `limits.candidates` (the window of the page when that is larger) of them.
 
 - **Under the limit it is exact.** Every match of the typo-tolerant words is a candidate. A document the full-text branch finds
   also keeps the typo score it would have had: an exact word is never ranked below its look-alikes because it fell outside the
   first typo candidates (three documents titled `mousse cake` at the end of 3 000 titles with `mouse` come first for `mousse`).
 - **Over the limit it is a lower bound.** A typo word that matches more documents than the limit (a spelling like `mouss` is close
-  to 20 000 titles of a 200 000-row catalogue) contributes the first `candidate_limit` of its matches in the table's physical
+  to 20 000 titles of a 200 000-row catalogue) contributes the first `limits.candidates` of its matches in the table's physical
   order, ranked by the page's sort key. A closer spelling further down the table may not be among them: the page is a full page of
   matches of the word, the same on every run on the same data, but not guaranteed to be the closest ones. That order shows an
   unrestricted viewer nothing it could not read (it may see every field), and a tenant's candidates are chosen among its own
@@ -188,7 +188,7 @@ word, the documents the trigram index returns, at most `candidate_limit` (the wi
   physical order, as above ([Security](security.md#the-limits-stated-honestly)). The cost of a document of this branch is about 8
   microseconds for a short name and grows with the text that is rechecked.
 - **A page past the candidates** selects the window `offset + limit` in this branch too (up to 10 000), like the strict one.
-- **Cost.** A typo search costs what the trigram index and the recheck of up to `candidate_limit` matches cost: 25 to 75 ms on
+- **Cost.** A typo search costs what the trigram index and the recheck of up to `limits.candidates` matches cost: 25 to 75 ms on
   200 000 products for a typo word that matches 15 000 of them, whatever the limit does to the other branch. A restricted viewer pays
   one more selection (about 0.15 s for `hedphones` restricted to two fields, `batery` on a 12-field index 0.5 s)
   ([Benchmarks](benchmarks.md#typo-words-and-facets-of-a-capped-search)).
@@ -204,19 +204,19 @@ still the ranked candidates ([Facets](searching.md#facets)).
 Why: it keeps the latency of a search bounded however common its words are
 ([ADR 0005](adr/0005-candidate-limit.md)).
 
-What to do: make the query more specific (more words, a filter, a field scope), or raise `candidate_limit`
+What to do: make the query more specific (more words, a filter, a field scope), or raise `limits.candidates`
 (per index or per query, up to the cap of 10 000). Use `exactCounts()` only on queries you control (never wire
 it to request input): it reads every match and can take seconds on a large index.
 
 ### Facet counts are over the candidates
 
 When the search hit its candidate limit the counts of `facets()` are taken over the very candidates the hits come from (the best
-`candidate_limit` documents of the strict branch and, with typo tolerance, the typo branch's candidates; the statement that finds the hits
+`limits.candidates` documents of the strict branch and, with typo tolerance, the typo branch's candidates; the statement that finds the hits
 returns their ids and the facets count them), so a facet shows the documents the page was chosen from, and does not depend on the
 order of the table. They are still lower bounds ("120+"; the Live Component prints the `+`) while `total` is a lower bound too, and a
 page past the limit (which selects more hits) does not count more facet candidates. A facet that leaves a condition out
 (the disjunctive facet of an active filter) selects its own candidates, by the same rule. A filter-only listing with no text counts the
-first `candidate_limit` documents by id. With `exactCounts()` every match is counted: in the example above, a limit of 10 gave
+first `limits.candidates` documents by id. With `exactCounts()` every match is counted: in the example above, a limit of 10 gave
 4, 3 and 3 for three categories, and the exact counts were 1 001, 1 000 and 1 000. See [Facets](searching.md#facets).
 
 ### A restricted viewer's very common word in a hidden typo-tolerant field
@@ -319,13 +319,13 @@ in the data, gave 1.997, 1.923 and 1.860 for the same document. It also depends 
 and can change when Fuzzphony's ranking is tuned. Scores of different indexes cannot be compared (a
 [federated search](searching.md#federated-search) merges by rank for that reason).
 
-What to do: do not store a score, compare scores across queries, or threshold on one. `min_score` applies to
+What to do: do not store a score, compare scores across queries, or threshold on one. `relevance.min_score` applies to
 relevance only, which has no bonus or recency in it (see [Ranking](ranking.md)).
 
 ### Long queries are cut
 
-Text longer than `max_query_length` (256 characters, at most 1 024) is cut, in the middle of a word if need be;
-words beyond `max_terms` (16, at most 64) are ignored; parentheses nested deeper than 8 are flattened. Every
+Text longer than `limits.max_query_length` (256 characters, at most 1 024) is cut, in the middle of a word if need be;
+words beyond `limits.max_terms` (16, at most 64) are ignored; parentheses nested deeper than 8 are flattened. Every
 cut is a warning in `$result->warnings`, and the search runs on what is left: for an AND query the dropped
 words simply stop narrowing it, so a pasted sentence is searched by its first 16 words.
 
@@ -340,7 +340,7 @@ rebuild is not suggested yet. A tenant-scoped index never suggests anything, and
 restricted to some fields. Words with a digit, prefixes, excluded words and words a synonym expands are not
 corrected.
 
-What to do: schedule `fuzzphony:reindex --vocabulary` (nightly is plenty), and set `did_you_mean: false` on an
+What to do: schedule `fuzzphony:reindex --vocabulary` (nightly is plenty), and set `rescue.did_you_mean: false` (with `rescue.correct_when_empty: false`) on an
 index whose visibility filters make the existence of a word a secret. See
 [Did you mean](searching.md#did-you-mean).
 
@@ -490,7 +490,7 @@ corrected spelling, and the [search log](analytics.md#what-is-logged) records th
 the answer it got. So a typo such as `mpuse` is no longer in the zero-result report (`SearchAnalytics::zeroResultQueries()`,
 `fuzzphony:analytics --zero`) while the rescue is on: it counts as a search that found hits. The log has no flag or status for a
 rescued search (the schema is unchanged). Typos the rescue cannot answer still appear there. To see every text that found nothing
-on its own, set `rescue_empty: false`; the counter `fuzzphony.search.rescued` ([Observability](observability.md#instrumentation-points))
+on its own, set `rescue.correct_when_empty: false`; the counter `fuzzphony.search.rescued` ([Observability](observability.md#instrumentation-points))
 counts the rescued searches without their text.
 
 ### The search log is best-effort
@@ -499,7 +499,7 @@ The [search log](analytics.md) is for trends, not an audit trail. Its rows are w
 response; a write that fails (the table is missing, the database is down) is counted in
 `fuzzphony.search_log.failed`, logged and dropped, never retried. A long-running worker writes its buffer every
 1000 records and on every container reset (between two messages or requests), but a process killed with
-`SIGKILL` loses the (at most 1000) records it still holds. The `hits` of a search that hit `candidate_limit` is a
+`SIGKILL` loses the (at most 1000) records it still holds. The `hits` of a search that hit `limits.candidates` is a
 lower bound (see [above](#ranking-of-very-common-words)). Redaction removes what a regular
 expression can describe, nothing more, and the live search of the Live Component is not logged unless you ask
 for it. The user and the IP of a row exist only for searches made with an actor (`asActor()`; the integrations

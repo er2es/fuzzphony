@@ -127,12 +127,12 @@ one, so a search with two facets is three round trips instead of fifteen ([CHANG
 has a chosen value costs one more, and each further facet with a chosen value another one. Cheap: a plain search
 (one statement), `asYouType()` (the same statement, written differently), synonyms (the stems are fetched once and
 kept). Costly: a typo-tolerant search runs a second statement and the did-you-mean lookup a third, and a result
-under `fallback_below` (5 hits) runs both:
+under `typo.fallback_below` (5 hits) runs both:
 
 <!-- tested: tests/Recipes/Shop/ShopTest.php#fallback-cost -->
 ```php
 $labels = array_column($this->fuzzphony()->in('products')->query('wireless')->explain()->statements, 'label');
-self::assertSame(['full-text', 'fallback: full-text + fuzzy', 'did you mean'], $labels);   // 3 hits: fewer than fallback_below (5)
+self::assertSame(['full-text', 'fallback: full-text + fuzzy', 'did you mean'], $labels);   // 3 hits: fewer than typo.fallback_below (5)
 ```
 
 A small catalogue therefore pays the typo-tolerant branch on most searches. `fuzzphony:search products wireless

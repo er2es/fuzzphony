@@ -8,6 +8,7 @@ use Fuzzphony\Core\Analytics\SearchRecord;
 use Fuzzphony\Core\Definition\IndexDefinition;
 use Fuzzphony\Core\Fuzzphony;
 use Fuzzphony\Core\Ranking\Thresholds;
+use Fuzzphony\Core\Ranking\RescueThresholds;
 use Fuzzphony\Core\Registry\IndexRegistry;
 use Fuzzphony\Core\Search\SearchGate;
 use Fuzzphony\Engine\Postgres\PostgresEngine;
@@ -118,7 +119,7 @@ final class ZeroResultRescueTest extends TestCase
         self::assertSame([2], $relaxedFirst->ids());
         self::assertNull($relaxedFirst->correctedFrom);
         self::assertContains('mouse pad', [$relaxedFirst->didYouMean]);
-        $ok = $search->query('mpuse pad')->thresholds(['relax_when_empty' => false])->get();
+        $ok = $search->query('mpuse pad')->thresholds(['rescue' => ['drop_unmatched' => false]])->get();
         self::assertSame([2], $ok->ids());
         self::assertSame('mpuse pad', $ok->correctedFrom);
         self::assertSame('(mouse AND pad)', $ok->interpretedAs);
@@ -194,22 +195,22 @@ final class ZeroResultRescueTest extends TestCase
 
     public function testItIsSwitchedOffByRescueEmptyAndDependsOnDidYouMean(): void
     {
-        $off = $this->fuzzphony()->in('products')->query('mpuse')->thresholds(['rescue_empty' => false])->get();
+        $off = $this->fuzzphony()->in('products')->query('mpuse')->thresholds(['rescue' => ['correct_when_empty' => false]])->get();
         self::assertSame([], $off->ids());
         self::assertNull($off->correctedFrom);
         self::assertSame('mouse', $off->didYouMean, 'the suggestion stays');
 
-        $indexOff = $this->fuzzphony(thresholds: new Thresholds(rescueEmpty: false))->in('products');
+        $indexOff = $this->fuzzphony(thresholds: new Thresholds(rescue: new RescueThresholds(correctWhenEmpty: false)))->in('products');
         self::assertSame([], $indexOff->query('mpuse')->get()->ids());
-        self::assertSame([1, 2], $this->sorted($indexOff->query('mpuse')->thresholds(['rescue_empty' => true])->get()->ids()), 'a query turns it back on');
+        self::assertSame([1, 2], $this->sorted($indexOff->query('mpuse')->thresholds(['rescue' => ['correct_when_empty' => true]])->get()->ids()), 'a query turns it back on');
 
         // typo tolerance switched off (the mode, or a profile without fuzzy weight): the rescue is a typo correction too
         $never = $this->fuzzphony()->in('products');
-        self::assertSame([], $never->query('mpuse')->thresholds(['fuzzy_mode' => 'never'])->get()->ids());
+        self::assertSame([], $never->query('mpuse')->thresholds(['typo' => ['mode' => 'never']])->get()->ids());
         self::assertSame([], $never->query('mpuse')->ranking(['fuzzy' => 0.0])->get()->ids());
-        self::assertSame([1, 2], $this->sorted($never->query('mpuse')->thresholds(['fuzzy_mode' => 'always'])->get()->ids()), 'always: rescued like fallback');
+        self::assertSame([1, 2], $this->sorted($never->query('mpuse')->thresholds(['typo' => ['mode' => 'always']])->get()->ids()), 'always: rescued like fallback');
 
-        $noMean = $this->fuzzphony()->in('products')->query('mpuse')->thresholds(['did_you_mean' => false])->get();
+        $noMean = $this->fuzzphony()->in('products')->query('mpuse')->thresholds(['rescue' => ['did_you_mean' => false, 'correct_when_empty' => false]])->get();
         self::assertSame([], $noMean->ids(), 'it uses the did-you-mean lookup, so it needs did_you_mean');
         self::assertNull($noMean->correctedFrom);
         self::assertNull($noMean->didYouMean);

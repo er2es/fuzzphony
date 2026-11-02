@@ -15,6 +15,9 @@ use Fuzzphony\Core\Inspection\Check;
 use Fuzzphony\Core\Inspection\CheckStatus;
 use Fuzzphony\Core\Inspection\InspectOptions;
 use Fuzzphony\Core\Ranking\Thresholds;
+use Fuzzphony\Core\Ranking\TypoThresholds;
+use Fuzzphony\Core\Ranking\RescueThresholds;
+use Fuzzphony\Core\Ranking\LimitThresholds;
 use Fuzzphony\Core\Registry\IndexRegistry;
 use Fuzzphony\Core\Support\Coerce;
 use Fuzzphony\Core\Sync\Worker;
@@ -42,7 +45,7 @@ final class PostgresEngineTest extends TestCase
     private function fuzzphony(string $sync): Fuzzphony
     {
         // these tests read the statements of the search itself: the suggestion lookup has its own tests
-        $fuzzphony = new Fuzzphony($this->engine, new IndexRegistry([Indexes::products($sync)->withThresholds(new Thresholds(didYouMean: false))]));
+        $fuzzphony = new Fuzzphony($this->engine, new IndexRegistry([Indexes::products($sync)->withThresholds(new Thresholds(rescue: new RescueThresholds(didYouMean: false, correctWhenEmpty: false)))]));
         $fuzzphony->schema()->apply($this->connection);
         $fuzzphony->reindex('products');
 
@@ -79,7 +82,7 @@ final class PostgresEngineTest extends TestCase
         self::assertSame(4, (new Worker($this->engine))->runOnce([$index]));
         self::assertSame(0, $this->drainedQueueSize($index));
 
-        self::assertEqualsCanonicalizing([1, 4, 6], $fuzzphony->in('products')->query('brand:"logitech g"')->thresholds(['fuzzy_mode' => 'never'])->get()->ids());
+        self::assertEqualsCanonicalizing([1, 4, 6], $fuzzphony->in('products')->query('brand:"logitech g"')->thresholds(['typo' => ['mode' => 'never']])->get()->ids());
         self::assertNotContains(2, $fuzzphony->in('products')->query('gaming')->get()->ids());
     }
 
@@ -96,11 +99,11 @@ final class PostgresEngineTest extends TestCase
         self::assertSame(1000, $this->drainedQueueSize($index));
 
         (new Worker($this->engine))->runOnce([$index], 250);
-        self::assertSame(1000, $fuzzphony->in('products')->query('bulk')->thresholds(['fuzzy_mode' => 'never'])->get()->total);
+        self::assertSame(1000, $fuzzphony->in('products')->query('bulk')->thresholds(['typo' => ['mode' => 'never']])->get()->total);
 
         $this->connection->execute('DELETE FROM fz_product WHERE id >= 100');
         (new Worker($this->engine))->runOnce([$index]);
-        self::assertSame(0, $fuzzphony->in('products')->query('bulk')->thresholds(['fuzzy_mode' => 'never'])->get()->total);
+        self::assertSame(0, $fuzzphony->in('products')->query('bulk')->thresholds(['typo' => ['mode' => 'never']])->get()->total);
     }
 
     public function testSwitchingTriggerLevelLeavesNoDuplicates(): void
@@ -333,18 +336,18 @@ final class PostgresEngineTest extends TestCase
     {
         $search = $this->fuzzphony('manual')->in('products');
 
-        $never = $search->query('headphnoes')->thresholds(['fuzzy_mode' => 'never'])->explain();
+        $never = $search->query('headphnoes')->thresholds(['typo' => ['mode' => 'never']])->explain();
         self::assertSame(['full-text'], array_column($never->statements, 'label'));
         self::assertSame([], $never->result->ids());
 
-        $enough = $search->query('mouse')->thresholds(['fallback_below' => 1])->explain();
+        $enough = $search->query('mouse')->thresholds(['typo' => ['fallback_below' => 1]])->explain();
         self::assertSame(['full-text'], array_column($enough->statements, 'label'), 'enough strict hits: no fallback');
 
-        $fallback = $search->query('headphnoes')->thresholds(['fallback_below' => 1])->explain();
+        $fallback = $search->query('headphnoes')->thresholds(['typo' => ['fallback_below' => 1]])->explain();
         self::assertSame(['full-text', 'fallback: full-text + fuzzy'], array_column($fallback->statements, 'label'));
         self::assertSame([3], $fallback->result->ids());
 
-        $always = $search->query('wireless mouse')->thresholds(['fuzzy_mode' => 'always'])->explain();
+        $always = $search->query('wireless mouse')->thresholds(['typo' => ['mode' => 'always']])->explain();
         self::assertSame(['full-text + fuzzy'], array_column($always->statements, 'label'));
         self::assertSame([1], $always->result->ids(), 'every word must match, also in always mode');
         self::assertEqualsWithDelta(1.0, $always->result->hits[0]->breakdown->fuzzySimilarity, 1e-9, 'both words match exactly');
@@ -358,10 +361,10 @@ final class PostgresEngineTest extends TestCase
         $fuzzphony->reindex('products');
         $search = $fuzzphony->in('products');
 
-        $search->query('mouse')->thresholds(['fallback_below' => 1])->get();
+        $search->query('mouse')->thresholds(['typo' => ['fallback_below' => 1]])->get();
         self::assertCount(0, array_filter($metrics->calls, static fn(array $c): bool => $c[1] === 'fuzzphony.search.fallback'), 'enough strict hits: no fallback');
 
-        $search->query('headphnoes')->thresholds(['fallback_below' => 1])->get();
+        $search->query('headphnoes')->thresholds(['typo' => ['fallback_below' => 1]])->get();
         $fallbacks = array_values(array_filter($metrics->calls, static fn(array $c): bool => $c[1] === 'fuzzphony.search.fallback'));
         self::assertCount(1, $fallbacks);
         self::assertSame(['index' => 'products'], $fallbacks[0][3], 'the search text is never a metric label');
@@ -475,7 +478,7 @@ final class PostgresEngineTest extends TestCase
         $this->expectException(InvalidQuery::class);
         $this->expectExceptionMessage('synthetic failure for the guard test'); // unwrapped: not "Fuzzphony search failed: ..."
 
-        $fuzzphony->in('products')->query('headphnoes')->thresholds(['fallback_below' => 1])->get();
+        $fuzzphony->in('products')->query('headphnoes')->thresholds(['typo' => ['fallback_below' => 1]])->get();
     }
 
     public function testDoctorReportsAMissingRequiredExtension(): void
@@ -649,20 +652,20 @@ final class PostgresEngineTest extends TestCase
 
     public function testDoctorWarnsAboutVeryTolerantFuzzySimilarityAndAHighCandidateLimit(): void
     {
-        $index = Indexes::products('manual')->withThresholds(new Thresholds(fuzzySimilarity: 0.1, candidateLimit: 6_000));
+        $index = Indexes::products('manual')->withThresholds(new Thresholds(typo: new TypoThresholds(similarity: 0.1), limits: new LimitThresholds(candidates: 6_000)));
         $fuzzphony = new Fuzzphony($this->engine, new IndexRegistry([$index]));
         $fuzzphony->schema()->apply($this->connection);
         $fuzzphony->reindex('products');
 
         $problems = array_column($fuzzphony->inspect('products')->problems(), 'message', 'name');
 
-        self::assertStringContainsString('fuzzy_similarity 0.10 is very tolerant', $problems['Typo tolerance'] ?? '');
-        self::assertSame('candidate_limit 6000 may make frequent words slow to rank.', $problems['Candidate limit'] ?? null);
+        self::assertStringContainsString('typo.similarity 0.10 is very tolerant', $problems['Typo tolerance'] ?? '');
+        self::assertSame('limits.candidates 6000 may make frequent words slow to rank.', $problems['Candidate limit'] ?? null);
     }
 
     public function testDoctorDoesNotWarnAboutASimilarityOfExactlyTwoTenths(): void
     {
-        $index = Indexes::products('manual')->withThresholds(new Thresholds(fuzzySimilarity: 0.2));
+        $index = Indexes::products('manual')->withThresholds(new Thresholds(typo: new TypoThresholds(similarity: 0.2)));
         $fuzzphony = new Fuzzphony($this->engine, new IndexRegistry([$index]));
         $fuzzphony->schema()->apply($this->connection);
 

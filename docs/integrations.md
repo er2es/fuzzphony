@@ -95,7 +95,7 @@ UI depends on:
 | `SearchResult` | What it is | Rendering |
 |---|---|---|
 | `hits` | `Hit` objects in rank order: `id`, `score`, `highlights` (field => snippet) | Load your own rows by `id` (`ids()` gives the list) |
-| `total`, `totalIsLowerBound` | The number of matches; a lower bound when the search hit `candidate_limit` | Show `2000+` when `totalIsLowerBound` is true |
+| `total`, `totalIsLowerBound` | The number of matches; a lower bound when the search hit `limits.candidates` | Show `2000+` when `totalIsLowerBound` is true |
 | `hasMore()`, `limit`, `offset`, `page()` | Paging | A pager follows `hasMore()` |
 | `facets` | `filter => list<FacetValue>` (`value`, `count`) for the filters named in `facets()` | Counts are lower bounds when `totalIsLowerBound` |
 | `didYouMean` | A spelling suggestion, or `null` | Plain text; search it by passing it to `query()` |

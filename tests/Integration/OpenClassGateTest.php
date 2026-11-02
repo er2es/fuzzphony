@@ -88,7 +88,7 @@ final class OpenClassGateTest extends TestCase
      */
     private function search(Fuzzphony $fuzzphony, string $text, ?array $allowed = ['name', 'category']): array
     {
-        $builder = $fuzzphony->in('gate_items')->query($text)->thresholds(['fuzzy_mode' => 'always']);
+        $builder = $fuzzphony->in('gate_items')->query($text)->thresholds(['typo' => ['mode' => 'always']]);
         $explained = ($allowed === null ? $builder : $builder->restrictedToFields(...$allowed))->explain();
         $open = false;
         foreach ($explained->statements as $statement) {

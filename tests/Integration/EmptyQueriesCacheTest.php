@@ -8,6 +8,7 @@ use Fuzzphony\Core\Database\Connection;
 use Fuzzphony\Core\Definition\Synonyms;
 use Fuzzphony\Core\Fuzzphony;
 use Fuzzphony\Core\Ranking\Thresholds;
+use Fuzzphony\Core\Ranking\RescueThresholds;
 use Fuzzphony\Core\Registry\IndexRegistry;
 use Fuzzphony\Engine\Postgres\PostgresEngine;
 use Fuzzphony\Engine\Postgres\TextConfigCache;
@@ -32,7 +33,7 @@ final class EmptyQueriesCacheTest extends TestCase
     {
         $this->connection = PostgresTestCase::connect();
         PostgresTestCase::createFixtures($this->connection, EngineConformanceTestCase::fixtureRows());
-        $index = Indexes::products('manual')->withThresholds(new Thresholds(didYouMean: false));
+        $index = Indexes::products('manual')->withThresholds(new Thresholds(rescue: new RescueThresholds(didYouMean: false, correctWhenEmpty: false)));
         $setup = new Fuzzphony(new PostgresEngine($this->connection), new IndexRegistry([$index]));
         $setup->schema()->apply($this->connection);
         $setup->reindex('products');
@@ -44,7 +45,7 @@ final class EmptyQueriesCacheTest extends TestCase
     /** @return list<int|string> */
     private function ids(string $query): array
     {
-        return $this->fuzzphony->in('products')->query($query)->thresholds(['fuzzy_mode' => 'always'])->get()->ids();
+        return $this->fuzzphony->in('products')->query($query)->thresholds(['typo' => ['mode' => 'always']])->get()->ids();
     }
 
     public function testTheSameSearchAgainDoesNotAskPostgreSqlAgain(): void
@@ -84,10 +85,10 @@ final class EmptyQueriesCacheTest extends TestCase
     public function testAnotherEngineStartsWithoutAnswers(): void
     {
         $this->ids('wireles mose');
-        $other = new Fuzzphony(new PostgresEngine($this->spy), new IndexRegistry([Indexes::products('manual')->withThresholds(new Thresholds(didYouMean: false))]));
+        $other = new Fuzzphony(new PostgresEngine($this->spy), new IndexRegistry([Indexes::products('manual')->withThresholds(new Thresholds(rescue: new RescueThresholds(didYouMean: false, correctWhenEmpty: false)))]));
         $this->spy->reset();
 
-        $other->in('products')->query('wireles mose')->thresholds(['fuzzy_mode' => 'always'])->get();
+        $other->in('products')->query('wireles mose')->thresholds(['typo' => ['mode' => 'always']])->get();
 
         self::assertCount(1, $this->spy->statements(self::LOOKUP));
     }
@@ -105,7 +106,7 @@ final class EmptyQueriesCacheTest extends TestCase
 
     public function testResetCachesForgetsTheSynonymStemsExpandersAndDigests(): void
     {
-        $index = Indexes::products('manual')->withSynonyms(Synonyms::fromEntries([['tv', 'television']]))->withThresholds(new Thresholds(didYouMean: false));
+        $index = Indexes::products('manual')->withSynonyms(Synonyms::fromEntries([['tv', 'television']]))->withThresholds(new Thresholds(rescue: new RescueThresholds(didYouMean: false, correctWhenEmpty: false)));
         $fuzzphony = new Fuzzphony($this->engine, new IndexRegistry([$index]));
         $fuzzphony->in('products')->query('tv')->get();
 

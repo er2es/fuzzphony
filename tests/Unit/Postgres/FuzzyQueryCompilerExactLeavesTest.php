@@ -9,6 +9,7 @@ use Fuzzphony\Core\Query\Ast\Node;
 use Fuzzphony\Core\Query\Ast\Term;
 use Fuzzphony\Core\Query\QueryParser;
 use Fuzzphony\Core\Ranking\Thresholds;
+use Fuzzphony\Core\Ranking\TypoThresholds;
 use Fuzzphony\Engine\Postgres\Sql\FuzzyQueryCompiler;
 use Fuzzphony\Engine\Postgres\Sql\ParameterBag;
 use Fuzzphony\Tests\Fixtures\Indexes;
@@ -19,7 +20,7 @@ final class FuzzyQueryCompilerExactLeavesTest extends TestCase
 {
     private static function compiler(): FuzzyQueryCompiler
     {
-        return new FuzzyQueryCompiler(Indexes::products(), new Thresholds(fuzzySimilarity: 0.3));
+        return new FuzzyQueryCompiler(Indexes::products(), new Thresholds(typo: new TypoThresholds(similarity: 0.3)));
     }
 
     private static function parse(string $input): Node

@@ -11,6 +11,7 @@ use Fuzzphony\Core\Definition\Synonyms;
 use Fuzzphony\Core\Exception\InvalidArgument;
 use Fuzzphony\Core\Ranking\RankingProfile;
 use Fuzzphony\Core\Ranking\Thresholds;
+use Fuzzphony\Core\Ranking\RelevanceThresholds;
 use Fuzzphony\Core\Wizard\Export\ArrayExporter;
 use Fuzzphony\Core\Wizard\Export\AttributeExporter;
 use Fuzzphony\Core\Wizard\Export\BuilderExporter;
@@ -24,7 +25,7 @@ final class ExportersTest extends TestCase
 {
     public function testArrayExportRoundTripsThroughTheLoader(): void
     {
-        $original = Indexes::products()->withThresholds((new Thresholds())->with(['min_score' => 0.05, 'fuzzy_mode' => 'always']));
+        $original = Indexes::products()->withThresholds((new Thresholds())->with(['relevance' => ['min_score' => 0.05], 'typo' => ['mode' => 'always']]));
 
         $reloaded = (new ArrayDefinitionLoader())->load('products', (new ArrayExporter())->export($original));
 
@@ -33,40 +34,41 @@ final class ExportersTest extends TestCase
 
     public function testRelaxWhenEmptyRoundTripsAndIsOnlyExportedWhenChanged(): void
     {
-        $original = Indexes::products()->withThresholds((new Thresholds())->with(['relax_when_empty' => false]));
+        $original = Indexes::products()->withThresholds((new Thresholds())->with(['rescue' => ['drop_unmatched' => false]]));
         $exported = (new ArrayExporter())->export($original);
 
-        self::assertSame(['relax_when_empty' => false], $exported['thresholds'] ?? null);
+        self::assertSame(['rescue' => ['drop_unmatched' => false]], $exported['thresholds'] ?? null);
         self::assertEquals($original, (new ArrayDefinitionLoader())->load('products', $exported));
         self::assertStringContainsString("    thresholds:
-        relax_when_empty: false
+        rescue:
+          drop_unmatched: false
 ", (new YamlExporter())->export($original));
         self::assertArrayNotHasKey('thresholds', (new ArrayExporter())->export(Indexes::products()));
     }
 
     public function testDidYouMeanIsExportedOnlyWhenSwitchedOff(): void
     {
-        $off = Indexes::products()->withThresholds((new Thresholds())->with(['did_you_mean' => false]));
+        $off = Indexes::products()->withThresholds((new Thresholds())->with(['rescue' => ['did_you_mean' => false, 'correct_when_empty' => false]]));
 
-        self::assertSame(['did_you_mean' => false], (new ArrayExporter())->export($off)['thresholds'] ?? null);
+        self::assertSame(['rescue' => ['did_you_mean' => false, 'correct_when_empty' => false]], (new ArrayExporter())->export($off)['thresholds'] ?? null);
         self::assertArrayNotHasKey('thresholds', (new ArrayExporter())->export(Indexes::products()));
-        self::assertFalse((new ArrayDefinitionLoader())->load('products', (new ArrayExporter())->export($off))->thresholds->didYouMean);
+        self::assertFalse((new ArrayDefinitionLoader())->load('products', (new ArrayExporter())->export($off))->thresholds->rescue->didYouMean);
     }
 
     public function testRescueEmptyIsExportedOnlyWhenSwitchedOff(): void
     {
-        $off = Indexes::products()->withThresholds((new Thresholds())->with(['rescue_empty' => false]));
+        $off = Indexes::products()->withThresholds((new Thresholds())->with(['rescue' => ['correct_when_empty' => false]]));
 
-        self::assertSame(['rescue_empty' => false], (new ArrayExporter())->export($off)['thresholds'] ?? null);
-        self::assertFalse((new ArrayDefinitionLoader())->load('products', (new ArrayExporter())->export($off))->thresholds->rescueEmpty);
+        self::assertSame(['rescue' => ['correct_when_empty' => false]], (new ArrayExporter())->export($off)['thresholds'] ?? null);
+        self::assertFalse((new ArrayDefinitionLoader())->load('products', (new ArrayExporter())->export($off))->thresholds->rescue->correctWhenEmpty);
     }
 
     public function testFuzzySimilarityIsExportedOnlyWhenExplicit(): void
     {
         self::assertArrayNotHasKey('thresholds', (new ArrayExporter())->export(Indexes::products()), 'the default is by word length');
 
-        $flat = Indexes::products()->withThresholds((new Thresholds())->with(['fuzzy_similarity' => 0.3]));
-        self::assertSame(['fuzzy_similarity' => 0.3], (new ArrayExporter())->export($flat)['thresholds'] ?? null);
+        $flat = Indexes::products()->withThresholds((new Thresholds())->with(['typo' => ['similarity' => 0.3]]));
+        self::assertSame(['typo' => ['similarity' => 0.3]], (new ArrayExporter())->export($flat)['thresholds'] ?? null);
     }
 
     public function testSynonymsRoundTripThroughEveryExporter(): void
@@ -248,7 +250,7 @@ final class ExportersTest extends TestCase
 
         $withProfile = IndexDefinition::builder('gadgets')->fromTable('gadget')->field('title', 'A')->profile('popular', new RankingProfile(fuzzy: 0.2))->build();
         $withLabels = IndexDefinition::builder('gadgets')->fromTable('gadget')->field('title', 'A')->profile('default', new RankingProfile(labelWeights: ['B' => 0.9]))->build();
-        $withThresholds = $plain->withThresholds(new Thresholds(minScore: 0.1));
+        $withThresholds = $plain->withThresholds(new Thresholds(relevance: new RelevanceThresholds(minScore: 0.1)));
 
         foreach ([$withProfile, $withLabels, $withThresholds] as $index) {
             self::assertFalse($exporter->supports($index));

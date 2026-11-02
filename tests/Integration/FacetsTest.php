@@ -119,7 +119,7 @@ final class FacetsTest extends TestCase
             $products[] = [$i, 'Mouse model ' . $i, 'A mouse', 1 + $i % 2, 1_000 + $i, true, 1.0, 'now'];
         }
         $fuzzphony = $this->fuzzphony(['brands' => [[1, 'Acme'], [2, 'Globex']], 'products' => $products]);
-        $search = $fuzzphony->in('products')->query('mouse')->thresholds(['candidate_limit' => 10, 'fuzzy_mode' => 'never'])->facets('brand_id')->limit(10);
+        $search = $fuzzphony->in('products')->query('mouse')->thresholds(['limits' => ['candidates' => 10], 'typo' => ['mode' => 'never']])->facets('brand_id')->limit(10);
 
         $approximate = $search->get();
         self::assertTrue($approximate->totalIsLowerBound);
@@ -155,7 +155,7 @@ final class FacetsTest extends TestCase
             $products[] = [$i, 'Item ' . $i, 'x', 1, 100 + $i, $i % 3 !== 0, 1.0, 'now'];
         }
         $fuzzphony = $this->fuzzphony(['brands' => [[1, 'Acme']], 'products' => $products]);
-        $browse = $fuzzphony->in('products')->thresholds(['candidate_limit' => 10])->facets('in_stock');
+        $browse = $fuzzphony->in('products')->thresholds(['limits' => ['candidates' => 10]])->facets('in_stock');
 
         self::assertSame(10, array_sum(self::counts($browse->get()->facets['in_stock'])));
         $exact = $browse->exactCounts()->get();

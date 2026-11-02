@@ -9,6 +9,9 @@ use Fuzzphony\Core\Query\QueryParser;
 use Fuzzphony\Core\Query\SearchQuery;
 use Fuzzphony\Core\Ranking\RankingProfile;
 use Fuzzphony\Core\Ranking\Thresholds;
+use Fuzzphony\Core\Ranking\TypoThresholds;
+use Fuzzphony\Core\Ranking\RelevanceThresholds;
+use Fuzzphony\Core\Ranking\LimitThresholds;
 use Fuzzphony\Engine\Postgres\Schema\Names;
 use Fuzzphony\Engine\Postgres\Sql\SearchSqlBuilder;
 use Fuzzphony\Engine\Postgres\Sql\TsQueryCompiler;
@@ -35,12 +38,12 @@ final class SearchSqlBuilderCandidatesTest extends TestCase
     #[DataProvider('windows')]
     public function testTheWindowIsTheCandidateLimitOrTheEndOfThePageAtMostTheHardCap(int $candidateLimit, int $limit, int $offset, int $expected): void
     {
-        self::assertSame($expected, SearchSqlBuilder::window(new Thresholds(candidateLimit: $candidateLimit), $limit, $offset));
+        self::assertSame($expected, SearchSqlBuilder::window(new Thresholds(limits: new LimitThresholds(candidates: $candidateLimit)), $limit, $offset));
     }
 
     public function testTheStrictBranchIsTheFastSelectionAndAGuardedOrderedOne(): void
     {
-        $sql = self::statement(new Thresholds(candidateLimit: 500), 20, 0);
+        $sql = self::statement(new Thresholds(limits: new LimitThresholds(candidates: 500)), 20, 0);
 
         // the fast CTE is the statement of the limit, only named
         self::assertStringContainsString("fts_fast AS (\n    SELECT s.id, ts_rank_cd('{0.1,0.2,0.4,1}'::real[], s.tsv, q.tsq, 32)::double precision AS r_text\n    FROM \"public\".\"fuzzphony_products\" AS s CROSS JOIN q\n    WHERE s.tsv @@ q.tsq AND TRUE\n    LIMIT 500\n)", $sql);
@@ -103,13 +106,13 @@ final class SearchSqlBuilderCandidatesTest extends TestCase
 
     public function testMinScoreIsAConditionOfTheOrderedSelectOnlyWithoutTypoTolerance(): void
     {
-        $strict = self::statement(new Thresholds(minScore: 0.15), 20, 0);
+        $strict = self::statement(new Thresholds(relevance: new RelevanceThresholds(minScore: 0.15)), 20, 0);
         self::assertStringContainsString('(SELECT count(*) FROM fts_fast) >= 2000 AND 1 * w.r_text >= 0.15', $strict);
         self::assertStringNotContainsString('w.r_text >= ', self::statement(new Thresholds(), 20, 0));
 
         // a typo-tolerant statement: a document may pass on its similarity, the strict selection does not cut by the text rank alone
         $root = self::parse('mouse');
-        $fuzzy = (new SearchSqlBuilder(Indexes::products()))->ranked("'mouse'", 'mouse', $root, [], new RankingProfile(), new Thresholds(minScore: 0.15, fuzzySimilarity: 0.3), 20, 0, [], $root)['sql'];
+        $fuzzy = (new SearchSqlBuilder(Indexes::products()))->ranked("'mouse'", 'mouse', $root, [], new RankingProfile(), new Thresholds(relevance: new RelevanceThresholds(minScore: 0.15), typo: new TypoThresholds(similarity: 0.3)), 20, 0, [], $root)['sql'];
         self::assertStringContainsString('fts_fast', $fuzzy);
         self::assertStringNotContainsString('w.r_text >= ', $fuzzy);
     }
@@ -173,7 +176,7 @@ final class SearchSqlBuilderCandidatesTest extends TestCase
     public function testTheScannedMatchesOfAQueryShrinkWithItsWords(): void
     {
         $builder = new SearchSqlBuilder(Indexes::products(), new Names(), [], null, false, 400_000);
-        $statement = static fn(string $tsquery): string => $builder->ranked($tsquery, 'mouse', null, [], new RankingProfile(), new Thresholds(candidateLimit: 100), 20, 0)['sql'];
+        $statement = static fn(string $tsquery): string => $builder->ranked($tsquery, 'mouse', null, [], new RankingProfile(), new Thresholds(limits: new LimitThresholds(candidates: 100)), 20, 0)['sql'];
 
         self::assertStringContainsString("            LIMIT 400000\n        ) AS w", $statement("'mouse'"));
         self::assertStringContainsString("            LIMIT 100000\n        ) AS w", $statement("('mouse' | 'cable' | 'usb' | 'hub')"));
@@ -217,7 +220,7 @@ final class SearchSqlBuilderCandidatesTest extends TestCase
 
     public function testADeepPageSelectsTheWholeWindowInBothSelections(): void
     {
-        $sql = self::statement(new Thresholds(candidateLimit: 100), 20, 380);
+        $sql = self::statement(new Thresholds(limits: new LimitThresholds(candidates: 100)), 20, 380);
 
         self::assertStringContainsString("WHERE s.tsv @@ q.tsq AND TRUE\n    LIMIT 400\n)", $sql);
         self::assertStringContainsString('(SELECT count(*) FROM fts_fast) >= 400', $sql);
@@ -238,7 +241,7 @@ final class SearchSqlBuilderCandidatesTest extends TestCase
     {
         $root = self::parse('mouse');
 
-        return $builder->ranked("'mouse'", 'mouse', $root, [], new RankingProfile(), new Thresholds(candidateLimit: 500, fuzzySimilarity: 0.3), $limit, $offset, [], $root)['sql'];
+        return $builder->ranked("'mouse'", 'mouse', $root, [], new RankingProfile(), new Thresholds(limits: new LimitThresholds(candidates: 500), typo: new TypoThresholds(similarity: 0.3)), $limit, $offset, [], $root)['sql'];
     }
 
     public function testTheTypoBranchOfAnUnrestrictedViewerIsTheCheapSelection(): void
@@ -270,11 +273,11 @@ final class SearchSqlBuilderCandidatesTest extends TestCase
 
     public function testAStrictOnlyStatementAndAnExactCountAreNotRescored(): void
     {
-        $strictOnly = (new SearchSqlBuilder(Indexes::products()))->ranked("'mouse'", 'mouse', null, [], new RankingProfile(), new Thresholds(candidateLimit: 500), 20, 0)['sql'];
+        $strictOnly = (new SearchSqlBuilder(Indexes::products()))->ranked("'mouse'", 'mouse', null, [], new RankingProfile(), new Thresholds(limits: new LimitThresholds(candidates: 500)), 20, 0)['sql'];
         self::assertStringNotContainsString('FROM fts AS t JOIN', $strictOnly);
 
         $root = self::parse('mouse');
-        $exact = (new SearchSqlBuilder(Indexes::products()))->exactTotal("'mouse'", 'mouse', $root, [], new RankingProfile(), new Thresholds(candidateLimit: 500, fuzzySimilarity: 0.3), [], $root)['sql'];
+        $exact = (new SearchSqlBuilder(Indexes::products()))->exactTotal("'mouse'", 'mouse', $root, [], new RankingProfile(), new Thresholds(limits: new LimitThresholds(candidates: 500), typo: new TypoThresholds(similarity: 0.3)), [], $root)['sql'];
         self::assertStringNotContainsString('FROM fts AS t JOIN', $exact, 'an exact count reads every typo match');
     }
 
@@ -297,7 +300,7 @@ final class SearchSqlBuilderCandidatesTest extends TestCase
     public function testTheTypoWorkBudgetIsDividedByTheWordsAndNeverUnderTheWindow(): void
     {
         $root = self::parse('mouse wireless');
-        $sql = (new SearchSqlBuilder(Indexes::products(), allowedFields: ['name']))->ranked("'mouse' & 'wireless'", 'mouse wireless', $root, [], new RankingProfile(), new Thresholds(candidateLimit: 500, fuzzySimilarity: 0.3), 20, 0, [], $root)['sql'];
+        $sql = (new SearchSqlBuilder(Indexes::products(), allowedFields: ['name']))->ranked("'mouse' & 'wireless'", 'mouse wireless', $root, [], new RankingProfile(), new Thresholds(limits: new LimitThresholds(candidates: 500), typo: new TypoThresholds(similarity: 0.3)), 20, 0, [], $root)['sql'];
 
         self::assertStringContainsString('LIMIT greatest(500, least(15000, (1500000 / (100 + coalesce((SELECT avg(w) FROM fuzzy_fast), 0)) / 2)::bigint))', $sql);
     }
@@ -334,7 +337,7 @@ final class SearchSqlBuilderCandidatesTest extends TestCase
     public function testACappedListingCountsTheFirstDocumentsById(): void
     {
         $builder = new SearchSqlBuilder(Indexes::products());
-        $thresholds = new Thresholds(candidateLimit: 300);
+        $thresholds = new Thresholds(limits: new LimitThresholds(candidates: 300));
 
         self::assertStringContainsString("ORDER BY s.id
     LIMIT 300", $builder->browseFacets(['in_stock'], [], $thresholds, 10, false)['sql']);

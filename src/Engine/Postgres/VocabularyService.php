@@ -73,7 +73,7 @@ final class VocabularyService
                     "INSERT INTO %s (word, freq) SELECT w, count(*)::integer FROM (SELECT DISTINCT s.id, w FROM %s AS s CROSS JOIN LATERAL unnest(string_to_array(s.fz, ' ')) AS w WHERE char_length(w) >= :min) AS t GROUP BY w",
                     $vocabulary,
                     $this->names->sidecar($index),
-                ), ['min' => $index->thresholds->fuzzyMinLength]);
+                ), ['min' => $index->thresholds->typo->minLength]);
 
                 return Coerce::int($c->fetchValue(sprintf('SELECT count(*) FROM %s', $vocabulary)));
             });
@@ -133,11 +133,11 @@ final class VocabularyService
             $lower = mb_strtolower($word);
             // the index's own minimum, whatever this query set: shorter words were never put in the vocabulary;
             // a word with a digit is a code (rtx4090), and the nearest code is not what the user meant
-            if (mb_strlen($lower) >= max($thresholds->fuzzyMinLength, $index->thresholds->fuzzyMinLength) && preg_match('/\d/u', $lower) !== 1 && !in_array($lower, $skip, true)) {
+            if (mb_strlen($lower) >= max($thresholds->typo->minLength, $index->thresholds->typo->minLength) && preg_match('/\d/u', $lower) !== 1 && !in_array($lower, $skip, true)) {
                 $words[$lower] = true;
             }
         }
-        $words = array_slice(array_keys($words), 0, $thresholds->maxTerms);
+        $words = array_slice(array_keys($words), 0, $thresholds->limits->maxTerms);
         if ($words === []) {
             return Suggestion::none();
         }

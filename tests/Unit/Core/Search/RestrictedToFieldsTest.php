@@ -69,7 +69,7 @@ final class RestrictedToFieldsTest extends TestCase
         self::assertSame(['name'], $query->limit(5, 5)->allowedFields);
         self::assertSame(['name'], $query->page(2)->allowedFields);
         self::assertSame(['name'], $query->highlight('name')->allowedFields);
-        self::assertSame(['name'], $query->thresholds(['min_score' => 0.1])->allowedFields);
+        self::assertSame(['name'], $query->thresholds(['relevance' => ['min_score' => 0.1]])->allowedFields);
         self::assertSame(['name'], $query->ranking(['fuzzy' => 0.8])->allowedFields);
         self::assertSame(['name'], $query->facets('brand_id')->allowedFields);
         self::assertSame(['name'], $query->facetValues(5)->allowedFields);

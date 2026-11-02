@@ -93,7 +93,7 @@ use function Symfony\Component\DependencyInjection\Loader\Configurator\service_c
  *       index_attribute: FUZZPHONY_SEARCH  # write a voter for it, or name an existing attribute such as ROLE_USER
  *     indexes:
  *       products:              # overrides for an attribute index, or a pure YAML index
- *         thresholds: { min_score: 0.05 }
+ *         thresholds: { relevance: { min_score: 0.05 } }
  *         profiles: { popular: { boost: 0.05, recency: 0.3 } }
  */
 final class FuzzphonyBundle extends AbstractBundle

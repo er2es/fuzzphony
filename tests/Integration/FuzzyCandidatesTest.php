@@ -6,6 +6,8 @@ namespace Fuzzphony\Tests\Integration;
 
 use Fuzzphony\Core\Fuzzphony;
 use Fuzzphony\Core\Ranking\Thresholds;
+use Fuzzphony\Core\Ranking\RescueThresholds;
+use Fuzzphony\Core\Ranking\LimitThresholds;
 use Fuzzphony\Core\Registry\IndexRegistry;
 use Fuzzphony\Core\Search\SearchResult;
 use Fuzzphony\Engine\Postgres\PostgresEngine;
@@ -22,10 +24,10 @@ final class FuzzyCandidatesTest extends TestCase
     {
         $search = $this->fuzzphony(2000)->in('products');
 
-        $result = $search->query('wireles mouse')->thresholds(['fuzzy_mode' => 'always'])->limit(5)->get();
+        $result = $search->query('wireles mouse')->thresholds(['typo' => ['mode' => 'always']])->limit(5)->get();
 
         self::assertSame([1, 2, 3, 4, 5], self::ids($result));
-        $sql = $search->query('wireles mouse')->thresholds(['fuzzy_mode' => 'always'])->limit(5)->explain()->statements[0]['sql'];
+        $sql = $search->query('wireles mouse')->thresholds(['typo' => ['mode' => 'always']])->limit(5)->explain()->statements[0]['sql'];
         self::assertStringContainsString('s.id = ANY(q.id', $sql, 'the words are asked for first');
         self::assertStringNotContainsString('OPERATOR("public".<%)', $sql);
     }
@@ -34,10 +36,10 @@ final class FuzzyCandidatesTest extends TestCase
     {
         $search = $this->fuzzphony(10)->in('products');
 
-        $result = $search->query('wireles mouse')->thresholds(['fuzzy_mode' => 'always'])->limit(5)->get();
+        $result = $search->query('wireles mouse')->thresholds(['typo' => ['mode' => 'always']])->limit(5)->get();
 
         self::assertSame([1, 2, 3, 4, 5], self::ids($result), 'the same documents either way');
-        $sql = $search->query('wireles mouse')->thresholds(['fuzzy_mode' => 'always'])->limit(5)->explain()->statements[0]['sql'];
+        $sql = $search->query('wireles mouse')->thresholds(['typo' => ['mode' => 'always']])->limit(5)->explain()->statements[0]['sql'];
         self::assertStringNotContainsString('ANY(q.id', $sql);
         self::assertStringContainsString('OPERATOR("public".<%)', $sql);
     }
@@ -46,14 +48,14 @@ final class FuzzyCandidatesTest extends TestCase
     {
         $search = $this->fuzzphony(2000)->in('products');
 
-        $result = $search->query('qzxwvu')->thresholds(['fuzzy_mode' => 'always'])->get();
+        $result = $search->query('qzxwvu')->thresholds(['typo' => ['mode' => 'always']])->get();
 
         self::assertSame([], self::ids($result));
     }
 
     public function testTheFacetsOfASearchUseTheSameIds(): void
     {
-        $result = $this->fuzzphony(2000)->in('products')->query('wireles mouse')->thresholds(['fuzzy_mode' => 'always'])->facets('in_stock')->limit(5)->get();
+        $result = $this->fuzzphony(2000)->in('products')->query('wireles mouse')->thresholds(['typo' => ['mode' => 'always']])->facets('in_stock')->limit(5)->get();
 
         self::assertSame(['in_stock'], array_keys($result->facets));
         self::assertSame(12, $result->facets['in_stock'][0]->count);
@@ -67,7 +69,7 @@ final class FuzzyCandidatesTest extends TestCase
             $products[] = [$i, 'Wireless mouse ' . $i, 'Silent mouse', 1, 3_990, true, 2.0, 'now'];
         }
         PostgresTestCase::createFixtures($connection, ['brands' => [[1, 'Acme']], 'products' => $products]);
-        $index = Indexes::products('manual')->withThresholds(new Thresholds(candidateLimit: $candidateLimit, didYouMean: false));
+        $index = Indexes::products('manual')->withThresholds(new Thresholds(limits: new LimitThresholds(candidates: $candidateLimit), rescue: new RescueThresholds(didYouMean: false, correctWhenEmpty: false)));
         $fuzzphony = new Fuzzphony(new PostgresEngine($connection), new IndexRegistry([$index]));
         $fuzzphony->schema()->apply($connection);
         $fuzzphony->reindex('products');

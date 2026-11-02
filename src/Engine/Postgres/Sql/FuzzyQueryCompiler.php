@@ -146,7 +146,7 @@ final class FuzzyQueryCompiler
             }
             $params = new ParameterBag();
             $norm = sprintf('%s(%s)', $this->names->normFunction(), $params->add($needle));
-            $threshold = $this->thresholds->fuzzySimilarity === null ? self::similaritySql($norm, $this->isPrefix($leaf)) : null;
+            $threshold = $this->thresholds->typo->similarity === null ? self::similaritySql($norm, $this->isPrefix($leaf)) : null;
             $where = $this->trigram($leaf, $norm, $threshold)['condition'];
             if (($this->variants[$key] ?? []) !== []) {
                 // the swapped-letter variants are found in the same probe: one more way for a document to be a candidate of this word
@@ -266,8 +266,8 @@ final class FuzzyQueryCompiler
     {
         $hides = $this->hidesTypoTolerantText();
         $length = self::length($needle) - ($hides && $this->isPrefix($leaf) ? 1 : 0);
-        if ($this->thresholds->fuzzySimilarity !== null) {
-            return $this->thresholds->fuzzySimilarity;
+        if ($this->thresholds->typo->similarity !== null) {
+            return $this->thresholds->typo->similarity;
         }
         $ascii = preg_match('/^[ -~]*$/', $needle) === 1;
         // a restricted viewer: the length after normalisation can be anything a non-ASCII letter folds to (a double s, a ligature), and a lookup
@@ -529,7 +529,7 @@ final class FuzzyQueryCompiler
         // "<%" uses the session's similarity (the lowest any word of the statement needs, so GIN finds every
         // candidate). By default each word is also rechecked against the similarity of its own length, which
         // PostgreSQL measures on the normalised word (q.th<n>); a word below it does not score either.
-        $threshold = $this->thresholds->fuzzySimilarity === null
+        $threshold = $this->thresholds->typo->similarity === null
             ? $this->column('th', self::similaritySql(sprintf('%s(%s)', $this->names->normFunction(), $params->add($needle)), $this->isPrefix($node)))
             : null;
         $trigram = $this->trigram($node, $norm, $threshold);
@@ -548,7 +548,7 @@ final class FuzzyQueryCompiler
             // ordinary typo match of the word; a candidate id list (probes()) already holds the documents it finds.
             $variants = $this->column('tv', $this->variantQuery($params->add($this->variantsTsquery($this->variants[$key]))));
             $match = $this->variantMatch($node, static fn(): string => $variants);
-            $scores[] = sprintf('CASE WHEN %s THEN %s ELSE 0.0 END', $match, $threshold ?? Sql::float((float) $this->thresholds->fuzzySimilarity));
+            $scores[] = sprintf('CASE WHEN %s THEN %s ELSE 0.0 END', $match, $threshold ?? Sql::float((float) $this->thresholds->typo->similarity));
             if ($ids === null) {
                 $predicates[] = $match;
             }
@@ -662,7 +662,7 @@ final class FuzzyQueryCompiler
             $similarity = count($similarities) === 1 ? $similarities[0] : 'GREATEST(' . implode(', ', $similarities) . ')';
 
             return [
-                'condition' => sprintf('(%s OPERATOR(%s.<%%) %s AND %s >= %s)', $norm, $schema, $this->trigramColumn(), $similarity, $threshold ?? Sql::float((float) $this->thresholds->fuzzySimilarity)),
+                'condition' => sprintf('(%s OPERATOR(%s.<%%) %s AND %s >= %s)', $norm, $schema, $this->trigramColumn(), $similarity, $threshold ?? Sql::float((float) $this->thresholds->typo->similarity)),
                 'similarity' => $similarity,
             ];
         }
@@ -748,7 +748,7 @@ final class FuzzyQueryCompiler
             return null; // no field the viewer may see is typo-tolerant (for a scoped word: its own field)
         }
 
-        return $this->index->hasFuzzy() && ($field === null || $field->fuzzy) && self::length($needle) >= $this->thresholds->fuzzyMinLength ? $needle : null;
+        return $this->index->hasFuzzy() && ($field === null || $field->fuzzy) && self::length($needle) >= $this->thresholds->typo->minLength ? $needle : null;
     }
 
     /**

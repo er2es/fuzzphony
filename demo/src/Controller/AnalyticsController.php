@@ -24,7 +24,7 @@ final class AnalyticsController extends AbstractController
     private const array INDEXES = ['catalog', 'intranet'];
     private const int RECENT = 20;
 
-    /** A search counts at most this many matches (the default `candidate_limit`): a total at the cap is shown as "2,000+". */
+    /** A search counts at most this many matches (the default `limits.candidates`): a total at the cap is shown as "2,000+". */
     private const int CAP = 2000;
 
     #[Route('/under-the-hood/analytics', name: 'analytics')]

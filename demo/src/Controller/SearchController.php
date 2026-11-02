@@ -32,7 +32,7 @@ final class SearchController extends AbstractController
     /** A live answer for fewer letters is "Nothing found" at once: one letter always finds something, and the settle (live_search_controller.js) starts at two. */
     private const int RESCUE_MIN = 2;
 
-    /** What a total or a facet counts at most: the default `candidate_limit`, which the page names where it shows a count as "2,000+". */
+    /** What a total or a facet counts at most: the default `limits.candidates`, which the page names where it shows a count as "2,000+". */
     private const int CANDIDATE_CAP = 2000;
 
     #[Route('/', name: 'search')]
@@ -70,7 +70,7 @@ final class SearchController extends AbstractController
             $search = $facets->narrow($asYouType ? $search->asYouType() : $search, $category, $stock);
             $search = $log ? $search : $search->unlogged();
 
-            return $exact ? $search->thresholds(['rescue_empty' => false]) : $search;
+            return $exact ? $search->thresholds(['rescue' => ['correct_when_empty' => false]]) : $search;
         };
 
         $result = null;

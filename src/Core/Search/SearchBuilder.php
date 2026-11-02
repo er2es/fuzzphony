@@ -93,7 +93,7 @@ final readonly class SearchBuilder
         return $this->with($this->query->highlight(...$fields));
     }
 
-    /** @param array<string, mixed> $overrides e.g. ['min_score' => 0.1, 'fuzzy_mode' => 'always'] */
+    /** @param array<array-key, mixed> $overrides e.g. ['relevance' => ['relevance' => ['min_score' => 0.1]], 'typo' => ['mode' => 'always']] */
     public function thresholds(array $overrides): self
     {
         try {
@@ -105,7 +105,7 @@ final readonly class SearchBuilder
         return $this->with($this->query->thresholds($overrides));
     }
 
-    /** @param array<string, mixed> $overrides e.g. ['fuzzy' => 0.8, 'boost' => 0.1] on top of the chosen profile */
+    /** @param array<array-key, mixed> $overrides e.g. ['fuzzy' => 0.8, 'boost' => 0.1] on top of the chosen profile */
     public function ranking(array $overrides): self
     {
         try {

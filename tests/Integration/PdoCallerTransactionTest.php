@@ -98,7 +98,7 @@ final class PdoCallerTransactionTest extends TestCase
             $this->spy->log = [];
 
             try {
-                $this->fuzzphony->in('products')->query('mouze')->thresholds(['fuzzy_mode' => 'always'])->get();
+                $this->fuzzphony->in('products')->query('mouze')->thresholds(['typo' => ['mode' => 'always']])->get();
                 self::fail('the statement fails');
             } catch (EngineFailure) {
             }
@@ -119,7 +119,7 @@ final class PdoCallerTransactionTest extends TestCase
         $this->pdo->beginTransaction();
         $this->spy->log = [];
 
-        $this->fuzzphony->in('products')->query('mouse')->thresholds(['fallback_below' => 1, 'did_you_mean' => false])->get();
+        $this->fuzzphony->in('products')->query('mouse')->thresholds(['typo' => ['fallback_below' => 1], 'rescue' => ['did_you_mean' => false, 'correct_when_empty' => false]])->get();
 
         self::assertSame([], $this->boundaries(), 'no setting, no savepoint');
     }

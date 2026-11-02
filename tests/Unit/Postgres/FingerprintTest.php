@@ -18,6 +18,7 @@ use Fuzzphony\Core\Definition\Watch;
 use Fuzzphony\Core\Definition\Weight;
 use Fuzzphony\Core\Ranking\RankingProfile;
 use Fuzzphony\Core\Ranking\Thresholds;
+use Fuzzphony\Core\Ranking\RelevanceThresholds;
 use Fuzzphony\Engine\Postgres\Schema\Fingerprint;
 use Fuzzphony\Engine\Postgres\Schema\Names;
 use Fuzzphony\Tests\Fixtures\Indexes;
@@ -40,7 +41,7 @@ final class FingerprintTest extends TestCase
         yield 'sync' => [static fn(IndexDefinition $d): IndexDefinition => $d->withSync(SyncMode::Trigger), true, false];
         yield 'trigger level' => [static fn(IndexDefinition $d): IndexDefinition => $d->withTriggerLevel(TriggerLevel::Row), true, false];
         yield 'tenant' => [static fn(IndexDefinition $d): IndexDefinition => $d->withTenant('brand_id'), true, false];
-        yield 'thresholds' => [static fn(IndexDefinition $d): IndexDefinition => $d->withThresholds(new Thresholds(minScore: 0.3)), false, false];
+        yield 'thresholds' => [static fn(IndexDefinition $d): IndexDefinition => $d->withThresholds(new Thresholds(relevance: new RelevanceThresholds(minScore: 0.3))), false, false];
         yield 'synonyms' => [static fn(IndexDefinition $d): IndexDefinition => $d->withSynonyms(Synonyms::fromEntries([['tv', 'television']])), false, false];
         yield 'log flag' => [static fn(IndexDefinition $d): IndexDefinition => $d->withLog(false), false, false];
         // a field becoming granted adds the open-class indexes (OpenClass): the DDL changes; which role it names does not

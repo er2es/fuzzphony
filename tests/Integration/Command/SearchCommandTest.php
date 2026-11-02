@@ -93,7 +93,7 @@ final class SearchCommandTest extends TestCase
         $status = $this->tester->execute([
             'index' => 'products',
             'query' => 'mouse',
-            '--threshold' => ['min_score=99'],
+            '--threshold' => ['relevance.min_score=99'],
         ], ['interactive' => false]);
 
         self::assertSame(Command::SUCCESS, $status);
@@ -104,14 +104,14 @@ final class SearchCommandTest extends TestCase
     {
         // the typo-tolerant statement measures the word's length in SQL only when the similarity is by word length
         $sql = function (string $threshold): string {
-            $this->tester->execute(['index' => 'products', 'query' => 'mouse', '--explain' => true, '--threshold' => ['fuzzy_mode=always', $threshold]], ['interactive' => false]);
+            $this->tester->execute(['index' => 'products', 'query' => 'mouse', '--explain' => true, '--threshold' => ['typo.mode=always', $threshold]], ['interactive' => false]);
 
             return $this->tester->getDisplay(true);
         };
 
-        self::assertStringNotContainsString('char_length(replace(', $sql('fuzzy_similarity=0.3'), 'a number is flat');
-        self::assertStringContainsString('char_length(replace(', $sql('fuzzy_similarity=null'));
-        self::assertStringContainsString('char_length(replace(', $sql('fuzzy_similarity=NULL'), 'case does not matter');
+        self::assertStringNotContainsString('char_length(replace(', $sql('typo.similarity=0.3'), 'a number is flat');
+        self::assertStringContainsString('char_length(replace(', $sql('typo.similarity=null'));
+        self::assertStringContainsString('char_length(replace(', $sql('typo.similarity=NULL'), 'case does not matter');
     }
 
     public function testCompletesIndexNames(): void

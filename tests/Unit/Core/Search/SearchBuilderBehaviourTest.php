@@ -49,7 +49,7 @@ final class SearchBuilderBehaviourTest extends TestCase
     {
         $this->expectException(InvalidQuery::class);
         $this->expectExceptionMessage('Index "products": invalid thresholds for this query: "min_score" must be a number.');
-        $this->builder()->thresholds(['min_score' => 'not a number']);
+        $this->builder()->thresholds(['relevance' => ['min_score' => 'not a number']]);
     }
 
     public function testATypoInAPerQueryThresholdOrRankingIsAnInvalidQueryNamingTheIndex(): void

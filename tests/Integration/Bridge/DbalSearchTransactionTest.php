@@ -68,7 +68,7 @@ final class DbalSearchTransactionTest extends TestCase
     {
         return [
             'fallback' => [static fn(Fuzzphony $f): SearchBuilder => $f->in('products')->query('mouze')],
-            'always' => [static fn(Fuzzphony $f): SearchBuilder => $f->in('products')->query('wireles mouse')->thresholds(['fuzzy_mode' => 'always'])],
+            'always' => [static fn(Fuzzphony $f): SearchBuilder => $f->in('products')->query('wireles mouse')->thresholds(['typo' => ['mode' => 'always']])],
             'relaxed when empty' => [static fn(Fuzzphony $f): SearchBuilder => $f->in('products')->query('wireless mouse offfice')],
             'facets' => [static fn(Fuzzphony $f): SearchBuilder => $f->in('products')->query('mouze')->facets('brand_id', 'in_stock')],
             'one facet' => [static fn(Fuzzphony $f): SearchBuilder => $f->in('products')->query('mouze')->where('in_stock', true)->facets('brand_id')],
@@ -109,7 +109,7 @@ final class DbalSearchTransactionTest extends TestCase
         $this->setSessionThresholds();
         $this->log->reset();
 
-        $result = $this->viaDbal->in('products')->query('mouse')->thresholds(['fallback_below' => 1, 'did_you_mean' => false])->facets('brand_id')->get();
+        $result = $this->viaDbal->in('products')->query('mouse')->thresholds(['typo' => ['fallback_below' => 1], 'rescue' => ['did_you_mean' => false, 'correct_when_empty' => false]])->facets('brand_id')->get();
 
         self::assertEqualsCanonicalizing([1, 2, 4], $result->ids());
         self::assertFalse($result->usedFuzzy);
@@ -181,7 +181,7 @@ final class DbalSearchTransactionTest extends TestCase
     public function testAFailingStatementOfTheSearchTransactionRollsItBackAndTheConnectionIsUsable(string $column, string $text, string $mode): void
     {
         $this->setSessionThresholds();
-        $search = fn(Fuzzphony $f): SearchBuilder => $f->in('products')->query($text)->thresholds(['fuzzy_mode' => $mode])->facets('in_stock');
+        $search = fn(Fuzzphony $f): SearchBuilder => $f->in('products')->query($text)->thresholds(['typo' => ['mode' => $mode]])->facets('in_stock');
         $expected = ResultSnapshot::of($search($this->viaPdo)->get());
         $this->rename($column, $column . '_gone');
         $this->log->reset();
@@ -214,7 +214,7 @@ final class DbalSearchTransactionTest extends TestCase
         $this->log->reset();
 
         try {
-            $this->viaDbal->in('products')->query('mouze')->thresholds(['fuzzy_mode' => 'always'])->get();
+            $this->viaDbal->in('products')->query('mouze')->thresholds(['typo' => ['mode' => 'always']])->get();
             self::fail('the statement fails');
         } catch (EngineFailure) {
         }
@@ -236,12 +236,12 @@ final class DbalSearchTransactionTest extends TestCase
     public function testAFailingStrictStatementInTheCallersTransactionAbortsItAsItAlwaysDid(): void
     {
         $this->setSessionThresholds();
-        $expected = ResultSnapshot::of($this->viaPdo->in('products')->query('mouse')->thresholds(['fuzzy_mode' => 'never'])->get());
+        $expected = ResultSnapshot::of($this->viaPdo->in('products')->query('mouse')->thresholds(['typo' => ['mode' => 'never']])->get());
         $this->rename('tsv', 'tsv_gone');
         $this->dbal->beginTransaction();
 
         try {
-            $this->viaDbal->in('products')->query('mouse')->thresholds(['fuzzy_mode' => 'never'])->get();
+            $this->viaDbal->in('products')->query('mouse')->thresholds(['typo' => ['mode' => 'never']])->get();
             self::fail('the statement fails');
         } catch (EngineFailure) {
         }
@@ -258,7 +258,7 @@ final class DbalSearchTransactionTest extends TestCase
         $this->dbal->rollBack();
         self::assertSame(0, $this->dbal->getTransactionNestingLevel());
         $this->rename('tsv_gone', 'tsv');
-        self::assertSame($expected, ResultSnapshot::of($this->viaDbal->in('products')->query('mouse')->thresholds(['fuzzy_mode' => 'never'])->get()), 'the connection works after the rollback');
+        self::assertSame($expected, ResultSnapshot::of($this->viaDbal->in('products')->query('mouse')->thresholds(['typo' => ['mode' => 'never']])->get()), 'the connection works after the rollback');
     }
 
     /** The only thing Fuzzphony does about transactions inside the caller's: one savepoint around the search, released at the end. */

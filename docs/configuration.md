@@ -349,7 +349,7 @@ fuzzphony:
       profiles:
         popular: { boost: 0.03, recency: 0.3, recency_half_life_days: 60 }
       thresholds:
-        min_score: 0.01
+        relevance: { min_score: 0.01 }
 ```
 
 Other keys: `sync`, `trigger_level`, `unaccent`, `tenant`, `synonyms`, `id_type`, and `source: { table: … }`
@@ -363,16 +363,18 @@ belongs (`fields: [name, body]`), a string where a boolean belongs (`fuzzy: "fal
 `watch`; `fields`, `filters`, `source`, `id_type` and `class` describe the index itself and are refused with a message
 that names the index (change the attributes).
 
-`thresholds` takes the options of [Ranking and thresholds](ranking.md#thresholds). Two of them are switches for what a
-search that found little or nothing does by itself, both on by default: `did_you_mean` (a suggestion next to the result,
-[Did you mean](searching.md#did-you-mean)) and `rescue_empty` (a search that found nothing and has a word with exactly
+`thresholds` takes the four groups of [Ranking and thresholds](ranking.md#thresholds): `relevance`, `typo`, `rescue` and `limits`, each a
+map of options (an unknown group or option is refused with a "did you mean", one error per group). Two options of `rescue` are switches for what a
+search that found little or nothing does by itself, both on by default: `rescue.did_you_mean` (a suggestion next to the result,
+[Did you mean](searching.md#did-you-mean)) and `rescue.correct_when_empty` (a search that found nothing and has a word with exactly
 one one-edit correction in the vocabulary is run again with it and says so,
-[Zero-result rescue](searching.md#zero-result-rescue)). `rescue_empty: false` keeps the suggestion and drops the second
-search; `did_you_mean: false` turns both off (the rescue uses the suggestion's vocabulary lookup):
+[Zero-result rescue](searching.md#zero-result-rescue)). `rescue.correct_when_empty: false` keeps the suggestion and drops the second
+search; `rescue.did_you_mean: false` turns both off (the rescue uses the suggestion's vocabulary lookup, so `correct_when_empty` must be `false` too):
 
 ```yaml
       thresholds:
-        rescue_empty: false     # suggest a correction, but never search it for the visitor
+        rescue:
+          correct_when_empty: false     # suggest a correction, but never search it for the visitor
 ```
 
 ### The source query from a file

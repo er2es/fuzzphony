@@ -8,6 +8,7 @@ use Fuzzphony\Core\Definition\IndexDefinition;
 use Fuzzphony\Core\Definition\SyncMode;
 use Fuzzphony\Core\Definition\TriggerLevel;
 use Fuzzphony\Core\Ranking\RankingProfile;
+use Fuzzphony\Core\Ranking\FuzzyMode;
 use Fuzzphony\Core\Ranking\Thresholds;
 
 /**
@@ -16,6 +17,14 @@ use Fuzzphony\Core\Ranking\Thresholds;
  */
 final class ArrayExporter
 {
+    /** The thresholds groups: key in the config => property of the group. */
+    private const array GROUPS = [
+        'relevance' => ['min_score' => 'minScore'],
+        'typo' => ['similarity' => 'similarity', 'min_length' => 'minLength', 'mode' => 'mode', 'fallback_below' => 'fallbackBelow'],
+        'rescue' => ['drop_unmatched' => 'dropUnmatched', 'did_you_mean' => 'didYouMean', 'correct_when_empty' => 'correctWhenEmpty', 'did_you_mean_below' => 'didYouMeanBelow'],
+        'limits' => ['candidates' => 'candidates', 'max_query_length' => 'maxQueryLength', 'max_terms' => 'maxTerms'],
+    ];
+
     /** @return array<string, mixed> */
     public function export(IndexDefinition $index): array
     {
@@ -96,18 +105,18 @@ final class ArrayExporter
         return $out;
     }
 
-    /** @return array<string, mixed> */
+    /** @return array<string, mixed> only the options that differ from the default, per group */
     private function thresholds(Thresholds $t): array
     {
         $d = new Thresholds();
         $out = [];
-        foreach (['min_score' => 'minScore', 'fuzzy_similarity' => 'fuzzySimilarity', 'fuzzy_min_length' => 'fuzzyMinLength', 'fallback_below' => 'fallbackBelow', 'candidate_limit' => 'candidateLimit', 'max_query_length' => 'maxQueryLength', 'max_terms' => 'maxTerms', 'relax_when_empty' => 'relaxWhenEmpty', 'did_you_mean' => 'didYouMean', 'rescue_empty' => 'rescueEmpty'] as $key => $property) {
-            if ($t->{$property} !== $d->{$property}) {
-                $out[$key] = $t->{$property};
+        foreach (self::GROUPS as $group => $options) {
+            foreach ($options as $key => $property) {
+                $value = $t->{$group}->{$property};
+                if ($value !== $d->{$group}->{$property}) {
+                    $out[$group][$key] = $value instanceof FuzzyMode ? $value->value : $value;
+                }
             }
-        }
-        if ($t->fuzzyMode !== $d->fuzzyMode) {
-            $out['fuzzy_mode'] = $t->fuzzyMode->value;
         }
 
         return $out;

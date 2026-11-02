@@ -10,6 +10,7 @@ use Fuzzphony\Core\Definition\Synonyms;
 use Fuzzphony\Core\Definition\TextConfig;
 use Fuzzphony\Core\Fuzzphony;
 use Fuzzphony\Core\Ranking\Thresholds;
+use Fuzzphony\Core\Ranking\TypoThresholds;
 use Fuzzphony\Core\Registry\IndexRegistry;
 use Fuzzphony\Core\Search\SearchResult;
 use Fuzzphony\Engine\Postgres\PostgresEngine;
@@ -61,7 +62,7 @@ final class PostgresEngineSuggestionDetailsTest extends TestCase
     {
         $spy = $this->spy();
         $fuzzphony = $this->fuzzphony(new PostgresEngine($spy));
-        $suggest = static fn(): ?string => $fuzzphony->in('products')->query('hedphones')->thresholds(['fuzzy_mode' => 'never'])->get()->didYouMean;
+        $suggest = static fn(): ?string => $fuzzphony->in('products')->query('hedphones')->thresholds(['typo' => ['mode' => 'never']])->get()->didYouMean;
 
         self::assertSame('headphones', $suggest());
         self::assertSame(1, self::setConfigStatements($spy), 'no transaction of the caller: the setting dies with the lookup\'s own');
@@ -75,7 +76,7 @@ final class PostgresEngineSuggestionDetailsTest extends TestCase
     {
         $spy = $this->spy();
         $fuzzphony = $this->fuzzphony(new PostgresEngine($spy));
-        $explain = static fn(): int => count($fuzzphony->in('products')->query('wireless mouse')->thresholds(['fuzzy_mode' => 'always', 'did_you_mean' => false])->explain()->plan);
+        $explain = static fn(): int => count($fuzzphony->in('products')->query('wireless mouse')->thresholds(['typo' => ['mode' => 'always'], 'rescue' => ['did_you_mean' => false, 'correct_when_empty' => false]])->explain()->plan);
 
         self::assertGreaterThan(0, $explain());
         self::assertSame(4, self::setConfigStatements($spy), 'each of the two words is probed, the search sets the threshold, explain() sets it again');
@@ -146,7 +147,7 @@ final class PostgresEngineSuggestionDetailsTest extends TestCase
 
     public function testAShortWordMayBeOneEditAwayFromTheWordTheIndexHas(): void
     {
-        $index = $this->index->withThresholds(new Thresholds(fuzzyMinLength: 2));
+        $index = $this->index->withThresholds(new Thresholds(typo: new TypoThresholds(minLength: 2)));
         $this->vocabulary('abc');
 
         self::assertSame('abc', $this->fuzzphony(new PostgresEngine($this->connection), $index)->in('products')->query('ab')->get()->didYouMean);
@@ -157,7 +158,7 @@ final class PostgresEngineSuggestionDetailsTest extends TestCase
         $spy = $this->spy();
         $index = $this->index->withSynonyms(Synonyms::fromEntries([['tv', 'television']]));
 
-        $this->fuzzphony(new PostgresEngine($spy), $index)->in('products')->query('tv')->thresholds(['did_you_mean' => false])->get();
+        $this->fuzzphony(new PostgresEngine($spy), $index)->in('products')->query('tv')->thresholds(['rescue' => ['did_you_mean' => false, 'correct_when_empty' => false]])->get();
 
         $words = explode(chr(31), (string) ($spy->params('SELECT w, CASE WHEN w')[0]['words'] ?? ''));
         sort($words);
@@ -169,7 +170,7 @@ final class PostgresEngineSuggestionDetailsTest extends TestCase
         $spy = $this->spy();
         $index = $this->index->withSynonyms(Synonyms::fromEntries([['tv', 'television']]));
 
-        $this->fuzzphony(new PostgresEngine($spy), $index)->in('products')->query('mou*')->thresholds(['did_you_mean' => false])->get();
+        $this->fuzzphony(new PostgresEngine($spy), $index)->in('products')->query('mou*')->thresholds(['rescue' => ['did_you_mean' => false, 'correct_when_empty' => false]])->get();
 
         self::assertSame([], $spy->statements('SELECT w, CASE WHEN w'), 'a prefix is not expanded');
     }
@@ -201,7 +202,7 @@ final class PostgresEngineSuggestionDetailsTest extends TestCase
     {
         $spy = $this->spy(static fn(string $sql): ?array => str_contains($sql, ' AS l0') ? [['l0' => 0, 'l1' => 1]] : null);
 
-        $result = $this->fuzzphony(new PostgresEngine($spy))->in('products')->query('qqqq mouse')->thresholds(['did_you_mean' => false])->get();
+        $result = $this->fuzzphony(new PostgresEngine($spy))->in('products')->query('qqqq mouse')->thresholds(['rescue' => ['did_you_mean' => false, 'correct_when_empty' => false]])->get();
 
         self::assertSame(['No results for all words; ignored words that match nothing: "qqqq".'], $result->warnings);
         self::assertSame('mouse', $result->interpretedAs);
@@ -263,7 +264,7 @@ final class PostgresEngineSuggestionDetailsTest extends TestCase
         $synonyms = $engine->stemSynonyms($this->index, Synonyms::fromEntries([['tv', 'television']]));
         $spy->reset();
 
-        $result = $this->fuzzphony($engine, $this->index->withSynonyms($synonyms))->in('products')->query('mouse')->thresholds(['did_you_mean' => false])->get();
+        $result = $this->fuzzphony($engine, $this->index->withSynonyms($synonyms))->in('products')->query('mouse')->thresholds(['rescue' => ['did_you_mean' => false, 'correct_when_empty' => false]])->get();
 
         self::assertNotSame([], $result->hits);
         self::assertSame([['words' => 'mouse']], $spy->params('SELECT w, CASE WHEN w'), 'only the word of the query');
@@ -281,7 +282,7 @@ final class PostgresEngineSuggestionDetailsTest extends TestCase
         $index = $this->index->withSynonyms(Synonyms::fromEntries($groups));
         $spy = $this->spy();
         $fuzzphony = $this->fuzzphony(new PostgresEngine($spy), $index);
-        $search = static fn(): SearchResult => $fuzzphony->in('products')->query('mouse')->thresholds(['did_you_mean' => false])->get();
+        $search = static fn(): SearchResult => $fuzzphony->in('products')->query('mouse')->thresholds(['rescue' => ['did_you_mean' => false, 'correct_when_empty' => false]])->get();
 
         $search();
         $spy->reset();

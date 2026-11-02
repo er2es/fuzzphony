@@ -39,7 +39,7 @@ final class PostgresEngineGuardTest extends TestCase
         yield 'queue size' => ['queue size', 'Run "fuzzphony:schema --apply" to create the queue table.', $always, static fn(PostgresEngine $e): mixed => $e->queueSize(Indexes::products())];
         yield 'inspection' => ['inspection', 'Check that this connection can read the catalog and the source.', $always, static fn(PostgresEngine $e): mixed => $e->inspect(Indexes::products())];
         yield 'explain' => ['explain', self::DOCTOR, static fn(string $sql): bool => str_starts_with($sql, 'EXPLAIN'), static fn(PostgresEngine $e): mixed => self::fuzzphony($e)->in('products')->query('mouse')->explain()];
-        yield 'plain search' => ['search', self::DOCTOR, static fn(string $sql): bool => str_starts_with($sql, 'WITH q AS'), static fn(PostgresEngine $e): mixed => self::fuzzphony($e)->in('products')->query('mouse')->thresholds(['fuzzy_mode' => 'never', 'did_you_mean' => false])->get()];
+        yield 'plain search' => ['search', self::DOCTOR, static fn(string $sql): bool => str_starts_with($sql, 'WITH q AS'), static fn(PostgresEngine $e): mixed => self::fuzzphony($e)->in('products')->query('mouse')->thresholds(['typo' => ['mode' => 'never'], 'rescue' => ['did_you_mean' => false, 'correct_when_empty' => false]])->get()];
         yield 'highlighting' => ['highlighting', self::DOCTOR, static fn(string $sql): bool => str_contains($sql, 'ts_headline'), static fn(PostgresEngine $e): mixed => self::fuzzphony($e)->in('products')->query('mouse')->highlight('name')->get()];
     }
 
@@ -163,7 +163,7 @@ final class PostgresEngineGuardTest extends TestCase
         $metrics = new RecordingMetricsCollector();
         $engine = self::fuzzphony(new PostgresEngine(self::connection(static fn(string $sql): bool => false), metrics: $metrics));
 
-        $engine->in('products')->query('mouse')->thresholds(['fuzzy_mode' => 'never'])->get();
+        $engine->in('products')->query('mouse')->thresholds(['typo' => ['mode' => 'never']])->get();
 
         $tookMsCalls = array_values(array_filter($metrics->calls, static fn(array $c): bool => $c[1] === 'fuzzphony.search.took_ms'));
         self::assertCount(1, $tookMsCalls);

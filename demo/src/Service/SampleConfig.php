@@ -56,7 +56,7 @@ final class SampleConfig
             'default' => ['fuzzy' => 0.4, 'exact_bonus' => 0.8, 'prefix_bonus' => 0.3, 'boost' => 0.02, 'recency' => 0.15, 'recency_half_life_days' => 45],
             'popular' => ['boost' => 0.05, 'recency' => 0.3, 'recency_half_life_days' => 30],
         ],
-        'thresholds' => ['min_score' => 0.02, 'fallback_below' => 8, 'candidate_limit' => 3000],
+        'thresholds' => ['relevance' => ['min_score' => 0.02], 'typo' => ['fallback_below' => 8], 'limits' => ['candidates' => 3000]],
     ];
 
     /** The reading guide next to the export: part => [role, why]. */

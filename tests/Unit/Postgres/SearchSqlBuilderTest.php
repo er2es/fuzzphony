@@ -9,6 +9,9 @@ use Fuzzphony\Core\Query\QueryParser;
 use Fuzzphony\Core\Query\SearchQuery;
 use Fuzzphony\Core\Ranking\RankingProfile;
 use Fuzzphony\Core\Ranking\Thresholds;
+use Fuzzphony\Core\Ranking\TypoThresholds;
+use Fuzzphony\Core\Ranking\RelevanceThresholds;
+use Fuzzphony\Core\Ranking\LimitThresholds;
 use Fuzzphony\Engine\Postgres\Sql\SearchSqlBuilder;
 use Fuzzphony\Tests\Fixtures\Indexes;
 use PHPUnit\Framework\TestCase;
@@ -18,7 +21,7 @@ final class SearchSqlBuilderTest extends TestCase
     public function testOnlyUserInputIsBound(): void
     {
         $conditions = (new SearchQuery())->where('price', '<', 500)->conditions;
-        $statement = (new SearchSqlBuilder(Indexes::products()))->ranked("'mouse'", 'mouse', new Term('mouse'), $conditions, new RankingProfile(), new Thresholds(minScore: 0.1, fuzzySimilarity: 0.3), 20, 40);
+        $statement = (new SearchSqlBuilder(Indexes::products()))->ranked("'mouse'", 'mouse', new Term('mouse'), $conditions, new RankingProfile(), new Thresholds(relevance: new RelevanceThresholds(minScore: 0.1), typo: new TypoThresholds(similarity: 0.3)), 20, 40);
 
         // q.tsq, q.norm, the per-word fuzzy values (q.ft0, q.fn1), the filter (one value for every selection that applies it)
         self::assertSame(['p0' => "'mouse'", 'p1' => 'mouse', 'p2' => "'mouse'", 'p3' => 'mouse', 'p4' => 500], $statement['params']);
@@ -78,7 +81,7 @@ final class SearchSqlBuilderTest extends TestCase
 
     public function testTheRelaxationProbeUsesTheFuzzyLeafConditionWhenTheFuzzyBranchIsEligible(): void
     {
-        $statement = (new SearchSqlBuilder(Indexes::products()))->probe([new Term('wireless'), new Term('aluminum')], true, [], new Thresholds(fuzzySimilarity: 0.3), []);
+        $statement = (new SearchSqlBuilder(Indexes::products()))->probe([new Term('wireless'), new Term('aluminum')], true, [], new Thresholds(typo: new TypoThresholds(similarity: 0.3)), []);
 
         self::assertStringContainsString('m0 AS MATERIALIZED (SELECT 1 FROM "public"."fuzzphony_products" AS s CROSS JOIN q WHERE (s.tsv @@ q.ft0 OR q.fn1 OPERATOR("public".<%) s.fz) AND TRUE)', $statement['sql']);
         self::assertStringContainsString('(s.tsv @@ q.ft2 OR q.fn3 OPERATOR("public".<%) s.fz)', $statement['sql']);
@@ -105,7 +108,7 @@ final class SearchSqlBuilderTest extends TestCase
 
     public function testBrowseIsBoundedByTheCandidateLimit(): void
     {
-        $statement = (new SearchSqlBuilder(Indexes::products()))->browse([], new RankingProfile(), new Thresholds(candidateLimit: 100), 10, 0);
+        $statement = (new SearchSqlBuilder(Indexes::products()))->browse([], new RankingProfile(), new Thresholds(limits: new LimitThresholds(candidates: 100)), 10, 0);
 
         self::assertStringContainsString('LIMIT 100', $statement['sql']);
         self::assertSame([], $statement['params']);
@@ -113,7 +116,7 @@ final class SearchSqlBuilderTest extends TestCase
 
     public function testBrowseSelectsTheWindowOfAPagePastTheCandidateLimit(): void
     {
-        $statement = (new SearchSqlBuilder(Indexes::products()))->browse([], new RankingProfile(), new Thresholds(candidateLimit: 100), 20, 380);
+        $statement = (new SearchSqlBuilder(Indexes::products()))->browse([], new RankingProfile(), new Thresholds(limits: new LimitThresholds(candidates: 100)), 20, 380);
 
         self::assertStringContainsString("LIMIT 400
 ), page AS", $statement['sql']);
@@ -157,7 +160,7 @@ final class SearchSqlBuilderTest extends TestCase
     {
         $root = (new QueryParser())->parse('brand:razr')->root;
         self::assertNotNull($root);
-        $statement = (new SearchSqlBuilder(Indexes::products()))->ranked("'razr':B", 'razr', $root, [], new RankingProfile(), new Thresholds(fuzzySimilarity: 0.3), 10, 0, [], $root);
+        $statement = (new SearchSqlBuilder(Indexes::products()))->ranked("'razr':B", 'razr', $root, [], new RankingProfile(), new Thresholds(typo: new TypoThresholds(similarity: 0.3)), 10, 0, [], $root);
 
         // q.tsq, the lookup without the weight (q.tsp), q.norm, the recheck (q.sft0, q.sfl1), then the fuzzy branch's own values (q.ft0, q.fl1, q.fn2)
         self::assertSame(['p0' => "'razr':B", 'p1' => "'razr'", 'p2' => 'razr', 'p3' => "'razr':B", 'p4' => "'razr'", 'p5' => "'razr':B", 'p6' => "'razr'", 'p7' => 'razr'], $statement['params']);

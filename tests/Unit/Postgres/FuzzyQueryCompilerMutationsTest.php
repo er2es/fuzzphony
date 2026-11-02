@@ -10,6 +10,7 @@ use Fuzzphony\Core\Query\Ast\Node;
 use Fuzzphony\Core\Query\Ast\Term;
 use Fuzzphony\Core\Query\QueryParser;
 use Fuzzphony\Core\Ranking\Thresholds;
+use Fuzzphony\Core\Ranking\TypoThresholds;
 use Fuzzphony\Engine\Postgres\Schema\Names;
 use Fuzzphony\Engine\Postgres\Sql\FuzzyQueryCompiler;
 use Fuzzphony\Engine\Postgres\Sql\ParameterBag;
@@ -21,7 +22,7 @@ final class FuzzyQueryCompilerMutationsTest extends TestCase
 {
     public function testSeveralAllowedFuzzyFieldsScoreByTheBestOfThem(): void
     {
-        $compiler = new FuzzyQueryCompiler(Indexes::products(), new Thresholds(fuzzySimilarity: 0.3), new Names(), [], ['name', 'brand']);
+        $compiler = new FuzzyQueryCompiler(Indexes::products(), new Thresholds(typo: new TypoThresholds(similarity: 0.3)), new Names(), [], ['name', 'brand']);
         $match = $compiler->compile(self::parse('mouse'), new ParameterBag());
 
         self::assertNotNull($match);
@@ -42,7 +43,7 @@ final class FuzzyQueryCompilerMutationsTest extends TestCase
             ->field('name', 'A', fuzzy: true)
             ->sync('manual')
             ->build();
-        $compiler = new FuzzyQueryCompiler($index, new Thresholds(fuzzySimilarity: 0.3), new Names(), [], ['description', 'name']);
+        $compiler = new FuzzyQueryCompiler($index, new Thresholds(typo: new TypoThresholds(similarity: 0.3)), new Names(), [], ['description', 'name']);
 
         $match = $compiler->compile(self::parse('mouse'), new ParameterBag());
 
@@ -53,7 +54,7 @@ final class FuzzyQueryCompilerMutationsTest extends TestCase
 
     public function testARepeatedWordIsProbedOnceAndTheNextWordStillIs(): void
     {
-        $compiler = new FuzzyQueryCompiler(Indexes::products(), new Thresholds(fuzzySimilarity: 0.3));
+        $compiler = new FuzzyQueryCompiler(Indexes::products(), new Thresholds(typo: new TypoThresholds(similarity: 0.3)));
 
         $probes = $compiler->probes(self::parse('mouse mouse keyboard'), 10);
 
@@ -62,7 +63,7 @@ final class FuzzyQueryCompilerMutationsTest extends TestCase
 
     public function testTheRelaxationLeavesAfterAnExpansionAreCompiledToo(): void
     {
-        $compiler = new FuzzyQueryCompiler(Indexes::products(), new Thresholds(fuzzySimilarity: 0.3));
+        $compiler = new FuzzyQueryCompiler(Indexes::products(), new Thresholds(typo: new TypoThresholds(similarity: 0.3)));
         $expansion = new AnyOf([new Term('mouse'), new Term('rodent', false, true)], expansion: true);
 
         $compiled = $compiler->leafConditions([$expansion, new Term('cable')], new ParameterBag(), [], false);

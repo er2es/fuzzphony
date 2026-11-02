@@ -12,6 +12,8 @@ use Fuzzphony\Core\Query\Filter\Operator;
 use Fuzzphony\Core\Ranking\FuzzyMode;
 use Fuzzphony\Core\Ranking\RankingProfile;
 use Fuzzphony\Core\Ranking\Thresholds;
+use Fuzzphony\Core\Ranking\TypoThresholds;
+use Fuzzphony\Core\Ranking\LimitThresholds;
 use Fuzzphony\Core\Registry\IndexRegistry;
 use Fuzzphony\Core\Search\SearchBuilder;
 use Fuzzphony\Core\Support\Coerce;
@@ -70,7 +72,7 @@ final class CandidateSelectionTest extends TestCase
     /** @param (callable(SearchBuilder): SearchBuilder)|null $configure */
     private function search(string $text, int $limit = 20, int $offset = 0, int $candidates = self::LIMIT, ?callable $configure = null): SearchBuilder
     {
-        $builder = $this->fuzzphony->in('cand')->query($text)->thresholds(['candidate_limit' => $candidates, 'fuzzy_mode' => 'never'])->limit($limit, $offset);
+        $builder = $this->fuzzphony->in('cand')->query($text)->thresholds(['limits' => ['candidates' => $candidates], 'typo' => ['mode' => 'never']])->limit($limit, $offset);
 
         return $configure === null ? $builder : $configure($builder);
     }
@@ -155,7 +157,7 @@ final class CandidateSelectionTest extends TestCase
     public function testMinScoreKeepsTheDocumentsUnderItOutOfTheSlots(): void
     {
         $this->loadCorpus();
-        $scores = $this->fuzzphony->in('cand')->query('common')->thresholds(['candidate_limit' => 10000, 'fuzzy_mode' => 'never'])->limit(500)->get();
+        $scores = $this->fuzzphony->in('cand')->query('common')->thresholds(['limits' => ['candidates' => 10000], 'typo' => ['mode' => 'never']])->limit(500)->get();
         $byId = [];
         foreach ($scores->hits as $hit) {
             $byId[$hit->id] = $hit->breakdown->relevance;
@@ -163,8 +165,8 @@ final class CandidateSelectionTest extends TestCase
         // between the relevance of a filler (one `common`) and of the documents with the word repeated
         $min = ($byId[400] + $byId[900002]) / 2;
         self::assertGreaterThan($byId[400], $min);
-        $with = static fn(SearchBuilder $b): SearchBuilder => $b->thresholds(['min_score' => $min, 'candidate_limit' => self::LIMIT, 'fuzzy_mode' => 'never']);
-        $oracle = static fn(SearchBuilder $b): SearchBuilder => $b->thresholds(['min_score' => $min, 'candidate_limit' => 10000, 'fuzzy_mode' => 'never']);
+        $with = static fn(SearchBuilder $b): SearchBuilder => $b->thresholds(['relevance' => ['min_score' => $min], 'limits' => ['candidates' => self::LIMIT], 'typo' => ['mode' => 'never']]);
+        $oracle = static fn(SearchBuilder $b): SearchBuilder => $b->thresholds(['relevance' => ['min_score' => $min], 'limits' => ['candidates' => 10000], 'typo' => ['mode' => 'never']]);
 
         $found = $with($this->fuzzphony->in('cand')->query('common')->limit(20))->get();
         $expected = $oracle($this->fuzzphony->in('cand')->query('common')->limit(20))->get();
@@ -223,8 +225,8 @@ final class CandidateSelectionTest extends TestCase
         $this->connection->execute("INSERT INTO fz_other VALUES (9000, 'common')");
         $this->fuzzphony->reindex('other');
         $federated = fn(int $limit, int $offset) => $this->fuzzphony->federated()
-            ->index('cand', configure: static fn(SearchBuilder $b): SearchBuilder => $b->thresholds(['candidate_limit' => self::LIMIT, 'fuzzy_mode' => 'never']))
-            ->index('other', configure: static fn(SearchBuilder $b): SearchBuilder => $b->thresholds(['candidate_limit' => self::LIMIT, 'fuzzy_mode' => 'never']))
+            ->index('cand', configure: static fn(SearchBuilder $b): SearchBuilder => $b->thresholds(['limits' => ['candidates' => self::LIMIT], 'typo' => ['mode' => 'never']]))
+            ->index('other', configure: static fn(SearchBuilder $b): SearchBuilder => $b->thresholds(['limits' => ['candidates' => self::LIMIT], 'typo' => ['mode' => 'never']]))
             ->query('common')->limit($limit, $offset)->get();
 
         $result = $federated(20, 0);
@@ -237,7 +239,7 @@ final class CandidateSelectionTest extends TestCase
 
         // one capped index alone: the last page of its candidates ends the list
         $single = fn(int $limit, int $offset) => $this->fuzzphony->federated()
-            ->index('cand', configure: static fn(SearchBuilder $b): SearchBuilder => $b->thresholds(['candidate_limit' => self::LIMIT, 'fuzzy_mode' => 'never']))
+            ->index('cand', configure: static fn(SearchBuilder $b): SearchBuilder => $b->thresholds(['limits' => ['candidates' => self::LIMIT], 'typo' => ['mode' => 'never']]))
             ->query('common')->limit($limit, $offset)->get();
         self::assertTrue($single(20, 20)->hasMore());
         $end = $single(20, 40);
@@ -296,7 +298,7 @@ final class CandidateSelectionTest extends TestCase
     {
         $this->connection->execute("INSERT INTO fz_cand SELECT i, 'gadgetron n' || i, 'plain', CASE WHEN i % 2 = 0 THEN 'a' ELSE 'b' END, true, 0 FROM generate_series(1, 300) AS i");
         $this->fuzzphony->reindex('cand');
-        $page = static fn(SearchBuilder $b): SearchBuilder => $b->thresholds(['fuzzy_mode' => 'always']);
+        $page = static fn(SearchBuilder $b): SearchBuilder => $b->thresholds(['typo' => ['mode' => 'always']]);
 
         // 50 candidates, a page at 100..120: the window is offset + limit, not the candidate limit
         $strict = $this->search('gadgetron', 20, 100)->get();
@@ -314,11 +316,11 @@ final class CandidateSelectionTest extends TestCase
         self::assertSame(range(101, 120), $typo->ids());
 
         // a typo search of a restricted viewer is the ordered selection with the same window
-        $restricted = $this->search('gadgetrun', 20, 100, 50, static fn(SearchBuilder $b): SearchBuilder => $b->thresholds(['fuzzy_mode' => 'always'])->restrictedToFields('title'))->get();
+        $restricted = $this->search('gadgetrun', 20, 100, 50, static fn(SearchBuilder $b): SearchBuilder => $b->thresholds(['typo' => ['mode' => 'always']])->restrictedToFields('title'))->get();
         self::assertSame(range(101, 120), $restricted->ids());
 
         // browsing: filter only (150 documents have cat a)
-        $browse = fn(int $offset): SearchBuilder => $this->fuzzphony->in('cand')->query('')->where('cat', 'a')->thresholds(['candidate_limit' => 50])->limit(20, $offset);
+        $browse = fn(int $offset): SearchBuilder => $this->fuzzphony->in('cand')->query('')->where('cat', 'a')->thresholds(['limits' => ['candidates' => 50]])->limit(20, $offset);
         $deep = $browse(100)->get();
         self::assertCount(20, $deep->hits, 'browsing selects the window too');
         self::assertSame(120, $deep->total);
@@ -333,7 +335,7 @@ final class CandidateSelectionTest extends TestCase
         $profile = new RankingProfile();
         $run = function (int $budget) use ($profile): array {
             $statement = (new SearchSqlBuilder($this->index, new Names(), [], null, false, max(1, $budget)))
-                ->ranked("'common'", 'common', null, [], $profile, new Thresholds(candidateLimit: 10, fuzzyMode: FuzzyMode::Never), 5, 0);
+                ->ranked("'common'", 'common', null, [], $profile, new Thresholds(limits: new LimitThresholds(candidates: 10), typo: new TypoThresholds(mode: FuzzyMode::Never)), 5, 0);
 
             return $this->connection->fetchAll($statement['sql'], $statement['params']);
         };
@@ -356,7 +358,7 @@ final class CandidateSelectionTest extends TestCase
         $this->loadCorpus();
         $run = function (string $tsquery, int $budget): array {
             $statement = (new SearchSqlBuilder($this->index, new Names(), [], null, false, max(1, $budget)))
-                ->ranked($tsquery, 'common', null, [], new RankingProfile(), new Thresholds(candidateLimit: 10, fuzzyMode: FuzzyMode::Never), 5, 0);
+                ->ranked($tsquery, 'common', null, [], new RankingProfile(), new Thresholds(limits: new LimitThresholds(candidates: 10), typo: new TypoThresholds(mode: FuzzyMode::Never)), 5, 0);
 
             return array_map(static fn(array $r): int => Coerce::int($r['id']), $this->connection->fetchAll($statement['sql'], $statement['params']));
         };
@@ -405,7 +407,7 @@ final class CandidateSelectionTest extends TestCase
     {
         $this->loadCorpus();
         $profile = new RankingProfile();
-        $thresholds = new Thresholds(candidateLimit: 50, fuzzyMode: FuzzyMode::Never);
+        $thresholds = new Thresholds(limits: new LimitThresholds(candidates: 50), typo: new TypoThresholds(mode: FuzzyMode::Never));
         $conditions = [new Condition('in_stock', Operator::Eq, true)];
         $builder = new SearchSqlBuilder($this->index, new Names(), [], null, false, max(1, $budget));
 

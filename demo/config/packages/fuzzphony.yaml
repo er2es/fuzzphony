@@ -50,7 +50,7 @@ fuzzphony:
       profiles:
         popular: { boost: 0.03, recency: 0.3, recency_half_life_days: 60 }
       thresholds:
-        min_score: 0.01
+        relevance: { min_score: 0.01 }
       # No synonyms here: they live in the demo_synonym_entry table (sql/demo_synonym.sql). The /synonyms page edits them
       # and a request listener hands the prepared lists to Fuzzphony at run time (Fuzzphony::useSynonyms). They could just as well
       # come from a file: `synonyms: { file: '%kernel.project_dir%/config/synonyms/catalog.txt' }`.
@@ -72,7 +72,7 @@ fuzzphony:
         public.demo_note: 'SELECT :id'
       language: english
       # typo tolerance only when nothing matches exactly (as on the Languages page): a few notes, clean examples
-      thresholds: { fallback_below: 1 }
+      thresholds: { typo: { fallback_below: 1 } }
 
     # The /languages page: one small hand-written catalogue (sql/lang_product.sql), one index per language.
     # Each index stems and removes stop words with its own language and folds accents (fuzzphony.fuzzphony_<language>).
@@ -88,7 +88,7 @@ fuzzphony:
       language: english
       # typo tolerance only when nothing matches exactly: on 31 products the default (fewer than 5 exact hits) would
       # mix typo matches into every stemming example
-      thresholds: { fallback_below: 1 }
+      thresholds: { typo: { fallback_below: 1 } }
     lang_de:
       <<: *lang
       source:

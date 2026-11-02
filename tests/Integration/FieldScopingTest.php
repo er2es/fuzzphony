@@ -100,7 +100,7 @@ final class FieldScopingTest extends TestCase
 
     public function testAnUnknownFieldStillSearchesEverywhereWithAWarning(): void
     {
-        $result = $this->fuzzphony->in('products')->query('colour:mouse')->thresholds(['fuzzy_mode' => 'never'])->get();
+        $result = $this->fuzzphony->in('products')->query('colour:mouse')->thresholds(['typo' => ['mode' => 'never']])->get();
 
         self::assertEqualsCanonicalizing([1, 2, 4], $result->ids());
         self::assertContains('Unknown field "colour"; searched in all fields instead.', $result->warnings);
@@ -108,8 +108,8 @@ final class FieldScopingTest extends TestCase
 
     public function testAScopedWordRanksLikeTheSameUnscopedWord(): void
     {
-        $scoped = $this->fuzzphony->in('products')->query('brand:razer')->thresholds(['fuzzy_mode' => 'never'])->get()->hits[0] ?? self::fail('no hit');
-        $plain = $this->fuzzphony->in('products')->query('razer')->thresholds(['fuzzy_mode' => 'never'])->get()->hits[0] ?? self::fail('no hit');
+        $scoped = $this->fuzzphony->in('products')->query('brand:razer')->thresholds(['typo' => ['mode' => 'never']])->get()->hits[0] ?? self::fail('no hit');
+        $plain = $this->fuzzphony->in('products')->query('razer')->thresholds(['typo' => ['mode' => 'never']])->get()->hits[0] ?? self::fail('no hit');
 
         self::assertSame(2, $scoped->id);
         self::assertSame($plain->breakdown->textRank, $scoped->breakdown->textRank);
@@ -118,7 +118,7 @@ final class FieldScopingTest extends TestCase
     /** @return list<int|string> */
     private function ids(string $index, string $query, string $fuzzyMode = 'fallback'): array
     {
-        return $this->fuzzphony->in($index)->query($query)->thresholds(['fuzzy_mode' => $fuzzyMode])->get()->ids();
+        return $this->fuzzphony->in($index)->query($query)->thresholds(['typo' => ['mode' => $fuzzyMode]])->get()->ids();
     }
 
     /**
@@ -129,7 +129,7 @@ final class FieldScopingTest extends TestCase
      */
     private function fuzzyIds(string $index, string $query): array
     {
-        $result = $this->fuzzphony->in($index)->query($query)->thresholds(['fuzzy_mode' => 'fallback'])->get();
+        $result = $this->fuzzphony->in($index)->query($query)->thresholds(['typo' => ['mode' => 'fallback']])->get();
         self::assertTrue($result->usedFuzzy, sprintf('"%s" used the typo-tolerant branch', $query));
 
         return $result->ids();

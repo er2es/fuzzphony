@@ -69,7 +69,7 @@ final class RestrictedPhraseTest extends TestCase
 
     private function search(string $text, string $mode = 'never'): SearchBuilder
     {
-        return $this->fuzzphony->in('phrase_docs')->query($text)->thresholds(['fuzzy_mode' => $mode]);
+        return $this->fuzzphony->in('phrase_docs')->query($text)->thresholds(['typo' => ['mode' => $mode]]);
     }
 
     /**

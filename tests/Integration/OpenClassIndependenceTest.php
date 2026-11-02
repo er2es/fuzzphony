@@ -114,7 +114,7 @@ final class OpenClassIndependenceTest extends TestCase
         $open = false;
         foreach (self::QUERIES as $text) {
             foreach (['fallback', 'always', 'never'] as $mode) {
-                $builder = $fuzzphony->in('oc_items')->query($text)->thresholds(['fuzzy_mode' => $mode])->facets('cat')->limit(5);
+                $builder = $fuzzphony->in('oc_items')->query($text)->thresholds(['typo' => ['mode' => $mode]])->facets('cat')->limit(5);
                 $explained = ($allowed === null ? $builder : $builder->restrictedToFields(...$allowed))->explain();
                 $outcomes[$text . ' | ' . $mode] = ResultSnapshot::of($explained->result);
                 foreach ($explained->statements as $statement) {
@@ -184,7 +184,7 @@ final class OpenClassIndependenceTest extends TestCase
     /** @return list<int|string> */
     private function ids(Fuzzphony $fuzzphony, string $text, string ...$allowed): array
     {
-        return array_map(static fn($hit): int|string => $hit->id, $fuzzphony->in('oc_items')->query($text)->thresholds(['fuzzy_mode' => 'never'])->restrictedToFields(...$allowed)->get()->hits);
+        return array_map(static fn($hit): int|string => $hit->id, $fuzzphony->in('oc_items')->query($text)->thresholds(['typo' => ['mode' => 'never']])->restrictedToFields(...$allowed)->get()->hits);
     }
 
     public function testAWordOnlyAGrantedFieldHoldsIsNotFoundByAViewerWhoHoldsNoneOfThem(): void
@@ -192,7 +192,7 @@ final class OpenClassIndependenceTest extends TestCase
         $fuzzphony = $this->fuzzphony();
         $fuzzphony->schema()->apply($this->connection);
         $this->load($fuzzphony, 'base', []);
-        $total = static fn(string $text, string ...$allowed): int => $fuzzphony->in('oc_items')->query($text)->thresholds(['fuzzy_mode' => 'never'])->restrictedToFields(...$allowed)->get()->total;
+        $total = static fn(string $text, string ...$allowed): int => $fuzzphony->in('oc_items')->query($text)->thresholds(['typo' => ['mode' => 'never']])->restrictedToFields(...$allowed)->get()->total;
 
         self::assertSame([], $this->ids($fuzzphony, 'zorbaxx', 'name', 'category'), 'a brand');
         // 'makita' is a brand: the AND of an open and a granted word finds nothing for the viewer who holds no brand, and the search then

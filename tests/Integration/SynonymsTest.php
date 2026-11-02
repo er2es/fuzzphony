@@ -8,6 +8,7 @@ use Fuzzphony\Core\Definition\Synonyms;
 use Fuzzphony\Core\Fuzzphony;
 use Fuzzphony\Core\Query\SynonymExpander;
 use Fuzzphony\Core\Ranking\Thresholds;
+use Fuzzphony\Core\Ranking\RescueThresholds;
 use Fuzzphony\Core\Registry\IndexRegistry;
 use Fuzzphony\Core\Search\SearchResult;
 use Fuzzphony\Engine\Postgres\PostgresEngine;
@@ -47,7 +48,7 @@ final class SynonymsTest extends TestCase
         ]);
         $this->metrics = new RecordingMetricsCollector();
         // the suggestion lookup is another statement of explain(): these tests read the search's own
-        $index = Indexes::products('manual')->withThresholds(new Thresholds(didYouMean: false));
+        $index = Indexes::products('manual')->withThresholds(new Thresholds(rescue: new RescueThresholds(didYouMean: false, correctWhenEmpty: false)));
         if ($entries !== []) {
             $index = $index->withSynonyms(Synonyms::fromEntries($entries ?? [['tv', 'television'], ['ssd', 'solid state drive'], 'laptop => notebook']));
         }
@@ -61,7 +62,7 @@ final class SynonymsTest extends TestCase
 
     private function search(): \Fuzzphony\Core\Search\SearchBuilder
     {
-        return $this->fuzzphony()->in('products')->thresholds(['fuzzy_mode' => 'never']);
+        return $this->fuzzphony()->in('products')->thresholds(['typo' => ['mode' => 'never']]);
     }
 
     /** @return list<int|string> */
@@ -85,13 +86,13 @@ final class SynonymsTest extends TestCase
         self::assertSame([1, 2, 8], self::ids($search->query('tv')->get()), 'the television and the TVs');
         self::assertSame([1, 2, 8], self::ids($search->query('television')->get()));
         // without the synonyms the same search only knows the word itself
-        self::assertSame([2, 8], self::ids($this->fuzzphony([])->in('products')->thresholds(['fuzzy_mode' => 'never'])->query('tv')->get()));
+        self::assertSame([2, 8], self::ids($this->fuzzphony([])->in('products')->thresholds(['typo' => ['mode' => 'never']])->query('tv')->get()));
     }
 
     public function testSynonymsCanBeReplacedAtRunTime(): void
     {
         $fuzzphony = $this->fuzzphony([]);
-        $search = static fn(string $q): array => self::ids($fuzzphony->in('products')->thresholds(['fuzzy_mode' => 'never'])->query($q)->get());
+        $search = static fn(string $q): array => self::ids($fuzzphony->in('products')->thresholds(['typo' => ['mode' => 'never']])->query($q)->get());
         self::assertSame([2, 8], $search('tv'));
 
         $fuzzphony->useSynonyms('products', Synonyms::fromText("tv, television
@@ -106,7 +107,7 @@ final class SynonymsTest extends TestCase
     public function testTheSameSynonymsGivenAgainShareTheExpanderAndAChangedListDoesNot(): void
     {
         $fuzzphony = $this->fuzzphony();
-        $search = static fn(): array => self::ids($fuzzphony->in('products')->thresholds(['fuzzy_mode' => 'never'])->query('tv')->get());
+        $search = static fn(): array => self::ids($fuzzphony->in('products')->thresholds(['typo' => ['mode' => 'never']])->query('tv')->get());
         $found = $search();
         self::assertSame($found, $search());
         self::assertSame(1, $this->roundTrips());
@@ -138,13 +139,13 @@ laptop => notebook
         self::assertSame(SynonymExpander::tableOf($prepared, $prepared->stems), $cached->table);
         $fuzzphony->useSynonyms('products', $cached);
         $before = $this->roundTrips();
-        self::assertSame([1, 2, 8], self::ids($fuzzphony->in('products')->thresholds(['fuzzy_mode' => 'never'])->query('tv')->get()));
+        self::assertSame([1, 2, 8], self::ids($fuzzphony->in('products')->thresholds(['typo' => ['mode' => 'never']])->query('tv')->get()));
         self::assertSame($before + 1, $this->roundTrips(), 'only the query word is stemmed, not the members');
 
         // stems made for another text configuration are ignored, the members are stemmed as before
         $other = $prepared->withStems('some_other_config', ['bogus' => 'x']);
         $fuzzphony->useSynonyms('products', $other);
-        self::assertSame([1, 2, 8], self::ids($fuzzphony->in('products')->thresholds(['fuzzy_mode' => 'never'])->query('television')->get()));
+        self::assertSame([1, 2, 8], self::ids($fuzzphony->in('products')->thresholds(['typo' => ['mode' => 'never']])->query('television')->get()));
     }
 
     public function testAnEngineThatCannotPrepareSynonymsSaysSo(): void
@@ -167,7 +168,7 @@ laptop => notebook
         $search = $this->search();
 
         self::assertSame([], self::ids($search->query('screen -tv')->get()), 'the television has the screen, and "television" is excluded');
-        self::assertSame([1], self::ids($this->fuzzphony([])->in('products')->thresholds(['fuzzy_mode' => 'never'])->query('screen -tv')->get()));
+        self::assertSame([1], self::ids($this->fuzzphony([])->in('products')->thresholds(['typo' => ['mode' => 'never']])->query('screen -tv')->get()));
     }
 
     public function testAOneWayRuleWorksOneWayOnly(): void
@@ -204,7 +205,7 @@ laptop => notebook
     public function testRelaxationDoesNotNameAnAlternativeTheUserDidNotType(): void
     {
         $fuzzphony = $this->fuzzphony(['unicorn => pegasus']);
-        $result = $fuzzphony->in('products')->query('mouse unicorn')->thresholds(['fuzzy_mode' => 'never'])->get();
+        $result = $fuzzphony->in('products')->query('mouse unicorn')->thresholds(['typo' => ['mode' => 'never']])->get();
 
         self::assertSame([3], self::ids($result));
         self::assertSame(['No results for all words; ignored words that match nothing: "unicorn".'], $result->warnings);
@@ -231,12 +232,12 @@ laptop => notebook
     {
         $fuzzphony = $this->fuzzphony([["o'brien", 'obrien']]);
 
-        self::assertSame([9], self::ids($fuzzphony->in('products')->thresholds(['fuzzy_mode' => 'never'])->query('obrien')->get()));
+        self::assertSame([9], self::ids($fuzzphony->in('products')->thresholds(['typo' => ['mode' => 'never']])->query('obrien')->get()));
     }
 
     public function testHyphenatedAndSymbolWordsAreNotConfusedWithTheirParts(): void
     {
-        $shown = fn(array $entries, string $query): string => (string) $this->fuzzphony($entries)->in('products')->thresholds(['fuzzy_mode' => 'never'])->query($query)->get()->interpretedAs;
+        $shown = fn(array $entries, string $query): string => (string) $this->fuzzphony($entries)->in('products')->thresholds(['typo' => ['mode' => 'never']])->query($query)->get()->interpretedAs;
 
         // "wi-fi" is one word: "fi" is another and must not be expanded to it, nor the reverse
         self::assertSame('(wi-fi OR wireless)', $shown([['wi-fi', 'wireless']], 'wi-fi'));
@@ -251,7 +252,7 @@ laptop => notebook
     public function testAWordThatMatchesNothingIsReportedOnceWhileItsSynonymsFindDocuments(): void
     {
         $fuzzphony = $this->fuzzphony([['telly', 'television']]);
-        $search = $fuzzphony->in('products')->thresholds(['fuzzy_mode' => 'never']);
+        $search = $fuzzphony->in('products')->thresholds(['typo' => ['mode' => 'never']]);
 
         $result = $search->query('telly xyzzy')->get();
         self::assertSame([1, 8], self::ids($result));
@@ -261,7 +262,7 @@ laptop => notebook
         // a word with synonyms is one unit: it is not probed again for every alternative
         self::assertSame(['full-text', 'relaxation probe', 'relaxed: full-text'], array_column($search->query('telly xyzzy')->explain()->statements, 'label'));
         self::assertSame(['full-text'], array_column($search->query('telly')->explain()->statements, 'label'), 'a single word is never probed');
-        self::assertSame(['full-text'], array_column($this->fuzzphony([['zzzz', 'yyyy']])->in('products')->thresholds(['fuzzy_mode' => 'never'])->query('zzzz')->explain()->statements, 'label'));
+        self::assertSame(['full-text'], array_column($this->fuzzphony([['zzzz', 'yyyy']])->in('products')->thresholds(['typo' => ['mode' => 'never']])->query('zzzz')->explain()->statements, 'label'));
     }
 
     public function testTypoToleranceAppliesToTheAlternatives(): void
@@ -269,18 +270,18 @@ laptop => notebook
         $fuzzphony = $this->fuzzphony([['tv', 'television']]);
         $search = $fuzzphony->in('products');
 
-        self::assertSame([1, 2, 8], self::ids($search->query('tv')->thresholds(['fuzzy_mode' => 'never'])->get()));
+        self::assertSame([1, 2, 8], self::ids($search->query('tv')->thresholds(['typo' => ['mode' => 'never']])->get()));
         // the product that says "televsion" (a typo of the alternative) is found by the typo-tolerant search for "tv"
-        self::assertSame([1, 2, 8, 14], self::ids($search->query('tv')->thresholds(['fuzzy_mode' => 'always'])->get()));
+        self::assertSame([1, 2, 8, 14], self::ids($search->query('tv')->thresholds(['typo' => ['mode' => 'always']])->get()));
         // a typo of the word the user typed is not a synonym of anything; the description is not a typo-tolerant field, so not product 8
-        self::assertSame([1, 14], self::ids($search->query('televison')->thresholds(['fuzzy_mode' => 'always'])->get()));
+        self::assertSame([1, 14], self::ids($search->query('televison')->thresholds(['typo' => ['mode' => 'always']])->get()));
     }
 
     public function testAPluralAbbreviationHasToBeListed(): void
     {
         // English leaves "tvs" as it is (no vowel to cut an "s" after), so it is not "tv" unless listed
         self::assertSame([], self::ids($this->search()->query('tvs')->get()));
-        self::assertSame([1, 2, 8], self::ids($this->fuzzphony([['tv', 'tvs', 'television']])->in('products')->thresholds(['fuzzy_mode' => 'never'])->query('tvs')->get()));
+        self::assertSame([1, 2, 8], self::ids($this->fuzzphony([['tv', 'tvs', 'television']])->in('products')->thresholds(['typo' => ['mode' => 'never']])->query('tvs')->get()));
     }
 
     public function testAFieldScopedWordExpandsInsideItsField(): void
@@ -293,7 +294,7 @@ laptop => notebook
         $members = array_map(static fn(int $i): string => 'word' . $i, range(0, 29));
         $fuzzphony = $this->fuzzphony([$members]);
 
-        $result = $fuzzphony->in('products')->thresholds(['fuzzy_mode' => 'always'])->query(implode(' ', array_slice($members, 0, 12)))->get();
+        $result = $fuzzphony->in('products')->thresholds(['typo' => ['mode' => 'always']])->query(implode(' ', array_slice($members, 0, 12)))->get();
 
         self::assertSame([], $result->ids());
         self::assertContains('Synonyms were expanded for part of the query only (too many alternatives).', $result->warnings);
@@ -302,7 +303,7 @@ laptop => notebook
     public function testTheStemsAreFetchedOnceAndOnlyNewWordsAskAgain(): void
     {
         $fuzzphony = $this->fuzzphony();
-        $search = $fuzzphony->in('products')->thresholds(['fuzzy_mode' => 'never']);
+        $search = $fuzzphony->in('products')->thresholds(['typo' => ['mode' => 'never']]);
 
         $search->query('tv')->get();
         self::assertSame(1, $this->roundTrips(), 'the synonyms and the word, together');
@@ -325,14 +326,14 @@ laptop => notebook
     public function testTheStemCacheIsBoundedAndStartsOverWhenFull(): void
     {
         $fuzzphony = $this->fuzzphony();
-        $fuzzphony->in('products')->thresholds(['fuzzy_mode' => 'never'])->query('tv')->get();
+        $fuzzphony->in('products')->thresholds(['typo' => ['mode' => 'never']])->query('tv')->get();
         $property = new \ReflectionProperty(TextConfigCache::class, 'stems');
         /** @var array<string, array<string, string>> $cached */
         $cached = $property->getValue($this->cache());
         $config = (string) array_key_first($cached);
         $property->setValue($this->cache(), [$config => array_fill_keys(array_map(static fn(int $i): string => 'filler' . $i, range(1, 5_001)), 'x')]);
 
-        $result = $fuzzphony->in('products')->thresholds(['fuzzy_mode' => 'never'])->query('tv')->get();
+        $result = $fuzzphony->in('products')->thresholds(['typo' => ['mode' => 'never']])->query('tv')->get();
 
         self::assertSame([1, 2, 8], self::ids($result));
         /** @var array<string, array<string, string>> $after */
@@ -344,7 +345,7 @@ laptop => notebook
     {
         $fuzzphony = $this->fuzzphony([['w0', 'w1', 'w2', 'w3', 'w4', 'w5']]);
         $warning = 'Synonyms were expanded for part of the query only (too many alternatives).';
-        $run = fn(string $query, int $maxTerms): array => $fuzzphony->in('products')->thresholds(['fuzzy_mode' => 'never', 'max_terms' => $maxTerms])->query($query)->get()->warnings;
+        $run = fn(string $query, int $maxTerms): array => $fuzzphony->in('products')->thresholds(['typo' => ['mode' => 'never'], 'limits' => ['max_terms' => $maxTerms]])->query($query)->get()->warnings;
 
         // each word has five alternatives: with max_terms 2 the budget is 8, so one word fits and a second does not
         self::assertNotContains($warning, $run('w0', 2));

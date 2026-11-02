@@ -227,7 +227,7 @@ both. PostgreSQL has no `FIELD()`, so there is nothing to translate `ORDER BY FI
 
 ### 5. Pagination and the total
 
-`page($n, perPage: 20)` (or `limit($limit, $offset)`) replaces `LIMIT`/`OFFSET`. Only the best `candidate_limit` matches
+`page($n, perPage: 20)` (or `limit($limit, $offset)`) replaces `LIMIT`/`OFFSET`. Only the best `limits.candidates` matches
 are ranked (2000 by default, at most 10 000), so for a very common word the total is a **lower bound** ("2000+").
 `hasMore()` is true while hits follow the page among the candidates and **false at the last page of the candidates**: a pager
 that follows it stops at 2000 hits. A page asked for directly past them is still served and exact (the best `offset + limit`
@@ -280,7 +280,7 @@ fixture, so "finds" means on that data.
 | `name ILIKE '%wireless%' AND name ILIKE '%mouse%'` | `wireless mouse` | both words, any order, any field |
 | `name ILIKE 'wire%mouse'` | `wire* mouse` | `%` is not a wildcard, see below |
 | `name ILIKE '%noise cancelling%'` | `"noise cancelling"` | a phrase: the words next to each other |
-| `name ILIKE 'wireless mouse'` | `"wireless mouse"` | with `fuzzy_mode: never`: titles that contain the phrase, the equal one first; not equality |
+| `name ILIKE 'wireless mouse'` | `"wireless mouse"` | with `typo.mode: never`: titles that contain the phrase, the equal one first; not equality |
 | `name ILIKE '%mouse%' OR name ILIKE '%keyboard%'` | `mouse OR keyboard` | either word |
 | `name ILIKE '%headphones%' AND name NOT ILIKE '%wireless%'` | `headphones -wireless` | exclusion; also finds "Headphone stand" (stemming) |
 | `name ILIKE '%mouse%'` | `name:mouse` | only that field |
@@ -291,7 +291,7 @@ fixture, so "finds" means on that data.
 
 - **Contains is not substring.** Fuzzphony matches whole words, stemmed and without accents, in every searchable
   field. A fragment inside a word is not a word: `ILIKE '%eadphon%'` finds headphones, `eadphon` only through typo
-  tolerance, and nothing with `fuzzy_mode: never`. `head*` is any word that starts with `head`, not "the name starts
+  tolerance, and nothing with `typo.mode: never`. `head*` is any word that starts with `head`, not "the name starts
   with" (a name that does ranks first).
 - **`%x` (ends with) and `%x%` inside a word are not supported.** A leading `*` is dropped: `*phones` is the word
   `phones` and its stem (it finds "Phone case"). With typo tolerance on, look-alike words make it look as if it worked
@@ -305,14 +305,14 @@ fixture, so "finds" means on that data.
 ## What you gain, and what changes
 
 **Ranked, tolerant, and exact when you want it.** `$hit->breakdown` says why a hit is first. By default typo tolerance
-runs only when the exact search finds fewer than 5 hits (`fallback_below`), and `$result->usedFuzzy` tells which it was. For exact
+runs only when the exact search finds fewer than 5 hits (`typo.fallback_below`), and `$result->usedFuzzy` tells which it was. For exact
 matching only, per query or per index (`thresholds:` in YAML):
 
 <!-- tested: exact -->
 ```php
 $result = $fuzzphony->in('products')
     ->query($text)
-    ->thresholds(['fuzzy_mode' => 'never'])   // no typo tolerance: only the words that are really there
+    ->thresholds(['typo' => ['mode' => 'never']])   // no typo tolerance: only the words that are really there
     ->get();
 ```
 
@@ -326,7 +326,7 @@ To search a joined value, put it in the index (the YAML with a `SELECT`; a one-t
 column, because a document is one row), and conditions can only use declared filters. The rest of the row you load by
 id, as in step 4.
 
-**The total can be a lower bound**, and the ranking of a word with more matches than `candidate_limit` has limits
+**The total can be a lower bound**, and the ranking of a word with more matches than `limits.candidates` has limits
 ([limitations](limitations.md#ranking-of-very-common-words)).
 
 **The index is a sidecar table** in Fuzzphony's schema (`public` by default, [or its own](configuration.md#fuzzphonys-schema)).

@@ -21,7 +21,7 @@ scores 1.0 when it matches exactly, and its trigram `word_similarity` against th
 otherwise. AND averages its words, OR takes the best one, negations do not score. So a document
 that matches both words of `wireles mouse` well outranks one that barely matches one of them. The
 fuzzy weight only applies when the typo-tolerant branch runs. With the by-length default of
-`fuzzy_similarity` a word that does not reach the similarity of its own length scores 0, so it
+`typo.similarity` a word that does not reach the similarity of its own length scores 0, so it
 cannot lift an OR above the words that do match.
 
 The exact bonus is added when the whole title (the primary field) equals the typed words, ignoring case and accents; the prefix
@@ -29,7 +29,7 @@ bonus when the title starts with them and is longer. The bonuses compare the typ
 `popularity`, a number up to 10), and the recency bonus is `recency` on the day a document is published, half of it after
 `recency_half_life_days`, a quarter after twice that.
 
-`min_score` applies to relevance only. Boosts reorder relevant hits but can never pull an
+`relevance.min_score` applies to relevance only. Boosts reorder relevant hits but can never pull an
 irrelevant document into the results ([ADR 0004](adr/0004-min-score-on-relevance.md)).
 
 Every hit carries a `ScoreBreakdown`, so "why is this first?" always has an answer.
@@ -40,7 +40,7 @@ Every hit carries a `ScoreBreakdown`, so "why is this first?" always has an answ
 A typed word of 4 to 15 letters on the typo-tolerant branch also matches its neighbour-swapped variants as whole words
 (`mosue` finds `mouse`; [Typo tolerance](searching.md#typo-tolerance)). Such a hit scores as the **weakest ordinary
 typo hit of that word**: the similarity the word's length needs (0.28 for 4 letters, 0.36 for 5, 0.43 for 6, 0.48 for
-7, 0.23 for 8, and so on, or the fixed `fuzzy_similarity`) instead of the variant's own similarity of 1.0. So it ranks
+7, 0.23 for 8, and so on, or the fixed `typo.similarity`) instead of the variant's own similarity of 1.0. So it ranks
 below every exact hit (1.0 for the word, plus its text rank and the bonuses) and never above an ordinary typo hit of the
 same word; two swap hits tie and are ordered by the other bonuses and by id. The penalty is the difference between 1.0 and
 that floor (0.64 for five letters). In `ScoreBreakdown` it shows as `fuzzySimilarity` at the floor and `textRank` 0.
@@ -76,53 +76,58 @@ $fuzzphony->in('products')->query('mouse')->profile('popular')->ranking(['boost'
 
 ## Thresholds
 
+Four groups: `relevance`, `typo`, `rescue`, `limits`. In YAML and in a per-query array an option is `group: { key: value }`, in the builder a `Thresholds` of
+`RelevanceThresholds`, `TypoThresholds`, `RescueThresholds` and `LimitThresholds` (named arguments in camelCase: `new TypoThresholds(mode: FuzzyMode::Always)`).
+
 | Option | Default | Meaning |
 |---|---|---|
-| `min_score` | `0.0` | minimum relevance a hit needs |
-| `fuzzy_mode` | `fallback` | `always`, `fallback` (only when exact matching finds few hits) or `never` |
-| `fallback_below` | `5` | in fallback mode: fewer exact hits than this triggers typo tolerance |
-| `fuzzy_similarity` | by word length | trigram word similarity each word needs (lower = more tolerant). Unset (`null`): one typo is tolerated from 4 letters and two from 8; the similarity a word needs is that of the worst such typo plus 0.03, `(n + 1 − 3t) / (n + 1 + 3t)` for `n` letters and `t` typos (0.28 for 4 letters, 0.36 for 5, 0.48 for 7, 0.23 for 8, 0.40 for 12), and 0.6 below 4 letters. A number applies to every word; `null` returns to by length. See [Typo tolerance](searching.md#typo-tolerance) |
-| `fuzzy_min_length` | `3` | shorter words must match exactly; a query with no longer word skips typo tolerance |
-| `candidate_limit` | `2000` | candidates ranked per branch. When a word has more matches, the full-text branch ranks the best ones by the page's own key (exact up to a scan budget of 100 000 matches; the typo branch takes the first `candidate_limit` matches of its trigram index, a lower bound for a word with more, and a restricted viewer's the best ones within a work budget: [limitation](limitations.md#ranking-of-very-common-words)); a page past it selects `offset + limit` candidates, up to 10 000; `total` becomes a lower bound (`2000+`) |
-| `max_query_length` / `max_terms` | `256` / `16` | input limits |
-| `did_you_mean` | `true` | a search with fewer than `fallback_below` hits, or one that needed typo tolerance, suggests the spelling of a word the index does not know in `SearchResult::$didYouMean`; never on a tenant-scoped index ([details](searching.md#did-you-mean)) |
-| `rescue_empty` | `true` | a search that finds nothing, with a word that has exactly one vocabulary word one edit away (`mpuse` / `mouse`), is searched again with the corrected words and answers with that, flagged in `SearchResult::$correctedFrom` and a warning; never with `did_you_mean: false`, on a tenant-scoped index, for a restricted viewer, or with typo tolerance off ([details](searching.md#zero-result-rescue)) |
-| `relax_when_empty` | `true` | a multi-word query that finds nothing drops the words that match nothing and says so in `warnings` ([details](searching.md#empty-result-relaxation)); independent of `fuzzy_mode` |
+| `relevance.min_score` | `0.0` | minimum relevance a hit needs |
+| `typo.mode` | `fallback` | `always`, `fallback` (only when exact matching finds few hits) or `never` |
+| `typo.fallback_below` | `5` | in fallback mode: fewer exact hits than this triggers typo tolerance |
+| `typo.similarity` | by word length | trigram word similarity each word needs (lower = more tolerant). Unset (`null`): one typo is tolerated from 4 letters and two from 8; the similarity a word needs is that of the worst such typo plus 0.03, `(n + 1 − 3t) / (n + 1 + 3t)` for `n` letters and `t` typos (0.28 for 4 letters, 0.36 for 5, 0.48 for 7, 0.23 for 8, 0.40 for 12), and 0.6 below 4 letters. A number applies to every word; `null` returns to by length. See [Typo tolerance](searching.md#typo-tolerance) |
+| `typo.min_length` | `3` | shorter words must match exactly; a query with no longer word skips typo tolerance |
+| `limits.candidates` | `2000` | candidates ranked per branch. When a word has more matches, the full-text branch ranks the best ones by the page's own key (exact up to a scan budget of 100 000 matches; the typo branch takes the first `limits.candidates` matches of its trigram index, a lower bound for a word with more, and a restricted viewer's the best ones within a work budget: [limitation](limitations.md#ranking-of-very-common-words)); a page past it selects `offset + limit` candidates, up to 10 000; `total` becomes a lower bound (`2000+`) |
+| `limits.max_query_length` / `limits.max_terms` | `256` / `16` | input limits |
+| `rescue.did_you_mean` | `true` | a search with fewer than `typo.fallback_below` hits, or one that needed typo tolerance, suggests the spelling of a word the index does not know in `SearchResult::$didYouMean`; never on a tenant-scoped index ([details](searching.md#did-you-mean)) |
+| `rescue.correct_when_empty` | `true` | a search that finds nothing, with a word that has exactly one vocabulary word one edit away (`mpuse` / `mouse`), is searched again with the corrected words and answers with that, flagged in `SearchResult::$correctedFrom` and a warning; never with `did_you_mean: false`, on a tenant-scoped index, for a restricted viewer, or with typo tolerance off ([details](searching.md#zero-result-rescue)) |
+| `rescue.did_you_mean_below` | `typo.fallback_below` | the did-you-mean trigger: fewer hits than this (the same number as `typo.fallback_below` unless set) |
+| `rescue.drop_unmatched` | `true` | a multi-word query that finds nothing drops the words that match nothing and says so in `warnings` ([details](searching.md#empty-result-relaxation)); independent of `typo.mode` |
 
 Set them per index (YAML `thresholds:`) or per query:
 
 <!-- fragment -->
 ```php
-->thresholds(['min_score' => 0.1, 'fuzzy_mode' => 'always'])
+->thresholds(['relevance' => ['min_score' => 0.1], 'typo' => ['mode' => 'always']])
 ```
 
-Invalid keys fail immediately with the list of allowed ones.
+Invalid keys fail immediately with the list of allowed ones of their group, one error per group. `rescue.correct_when_empty` needs `rescue.did_you_mean`: switching
+the latter off means switching both off. On the command line: `fuzzphony:search products mouse --threshold typo.mode=always`.
 
 The cost limits have hard caps that no setting can exceed:
 
 | Limit | Cap | Constant |
 |---|---|---|
-| `candidate_limit` | 10 000 | `Thresholds::MAX_CANDIDATE_LIMIT` |
-| `max_query_length` | 1 024 | `Thresholds::MAX_QUERY_LENGTH` |
-| `max_terms` | 64 | `Thresholds::MAX_TERMS` |
+| `limits.candidates` | 10 000 | `Thresholds::MAX_CANDIDATE_LIMIT` |
+| `limits.max_query_length` | 1 024 | `Thresholds::MAX_QUERY_LENGTH` |
+| `limits.max_terms` | 64 | `Thresholds::MAX_TERMS` |
 
-Larger values, and an unknown `fuzzy_mode`, throw `InvalidDefinition`. Thresholds taken from a
+Larger values, and an unknown `typo.mode`, throw `InvalidDefinition`. Thresholds taken from a
 request can tighten the limits but never remove them.
 
 ### Which candidates are ranked
 
-Every branch collects at most `candidate_limit` candidates before it scores them, so the cost of a search does not
+Every branch collects at most `limits.candidates` candidates before it scores them, so the cost of a search does not
 depend on how common its words are. A word with fewer matches than that costs what it always did. A word with more:
 
 - **Full-text branch:** the candidates are the best matches by the same key the page is ordered by: the text rank
   (of the fields the viewer may see), the exact-title and prefix bonuses, the boost and recency bonuses, then the
   id. One cheap selection runs first; only when it hits the limit a second one scores the matches (the first
-  100 000 of them in index order, fewer for a query of several words: the scan budget, an internal constant) and keeps the best `candidate_limit`. The
-  second selection has the same lookup, filter, tenant and field-recheck conditions and, with `min_score`, leaves the
+  100 000 of them in index order, fewer for a query of several words: the scan budget, an internal constant) and keeps the best `limits.candidates`. The
+  second selection has the same lookup, filter, tenant and field-recheck conditions and, with `relevance.min_score`, leaves the
   documents under it out. So `Wireless` (an exact title) comes before 20 000 other `wireless` documents.
 - **A page past the candidates** selects the best `offset + limit` instead (at most 10 000), so deep pages are exact;
   `SearchResult::hasMore()` is false at the last page of the candidates.
-- **Typo-tolerant branch:** the first `candidate_limit` matches the trigram index returns (the window of the page when that is
+- **Typo-tolerant branch:** the first `limits.candidates` matches the trigram index returns (the window of the page when that is
   larger), cheap and a lower bound for a word with more matches than that. A document the full-text branch finds keeps its typo
   score, so an exact word never ranks below its look-alikes for missing those first matches. A restricted viewer's typo branch
   selects the best by the same key as the full-text branch instead, among the first matches of a work budget (30 000 divided by the
@@ -130,7 +135,7 @@ depend on how common its words are. A word with fewer matches than that costs wh
   broken by the id.
 - **Facets** of a capped search count the very candidates the hits come from (lower bounds); **`exactCounts()`** counts every match.
 
-Texts of thousands of words in a typo-tolerant field make the default expensive: [Tuning `candidate_limit`](tuning-candidate-limit.md).
+Texts of thousands of words in a typo-tolerant field make the default expensive: [Tuning `limits.candidates`](tuning-candidate-limit.md).
 
 See also [ADR 0005](adr/0005-candidate-limit.md) on the candidate limit, and the
-[known limitations](limitations.md#ranking-of-very-common-words) of typo tolerance and `candidate_limit`.
+[known limitations](limitations.md#ranking-of-very-common-words) of typo tolerance and `limits.candidates`.

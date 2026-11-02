@@ -85,7 +85,7 @@ final class DedicatedSchemaTest extends TestCase
         $this->connection->execute('SET search_path TO pg_catalog');
         self::assertSame(2, $engine->queueSize($index));
         self::assertSame(2, (new Worker($engine))->runOnce([$index]));
-        self::assertEqualsCanonicalizing([1, 4], $fuzzphony->in('products')->query('brand:"logitech g"')->thresholds(['fuzzy_mode' => 'never'])->get()->ids());
+        self::assertEqualsCanonicalizing([1, 4], $fuzzphony->in('products')->query('brand:"logitech g"')->thresholds(['typo' => ['mode' => 'never']])->get()->ids());
 
         $this->connection->execute('TRUNCATE public.fz_product');
         // a rebuild job reads the source like a reindex: the source tables must be visible, Fuzzphony's schema need not be
@@ -102,7 +102,7 @@ final class DedicatedSchemaTest extends TestCase
         $this->connection->execute('SET search_path TO pg_catalog');
         $this->connection->execute("UPDATE public.fz_brand SET name = 'Zebra' WHERE id = 1");
 
-        self::assertEqualsCanonicalizing([1, 4], $fuzzphony->in('products')->query('zebra')->thresholds(['fuzzy_mode' => 'never'])->get()->ids());
+        self::assertEqualsCanonicalizing([1, 4], $fuzzphony->in('products')->query('zebra')->thresholds(['typo' => ['mode' => 'never']])->get()->ids());
     }
 
     public function testDropRemovesTheIndexFromTheSchema(): void
