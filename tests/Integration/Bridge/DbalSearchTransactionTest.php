@@ -25,7 +25,7 @@ use PHPUnit\Framework\TestCase;
  * The search transaction (PostgresEngine::inSearchTransaction()) over the application's Doctrine DBAL connection, whose
  * transaction nesting levels and optional savepoints a PDO connection does not have: the same searches as over a PdoConnection
  * must give the same answers, with exactly one BEGIN / COMMIT around the typo-tolerant statements when Fuzzphony owns the
- * transaction, with none (and no savepoint) of its own when the application's transaction is open, and nothing left behind
+ * transaction, with one savepoint (and no transaction) of its own when the application's transaction is open, and nothing left behind
  * (an open transaction, a nesting level, a pg_trgm setting) when a statement fails.
  */
 final class DbalSearchTransactionTest extends TestCase
@@ -120,7 +120,7 @@ final class DbalSearchTransactionTest extends TestCase
 
     /** @param \Closure(Fuzzphony): SearchBuilder $search */
     #[DataProvider('typoSearches')]
-    public function testInTheCallersTransactionFuzzphonyOpensNoTransactionAndLeavesTheSettingsAsTheyWere(\Closure $search): void
+    public function testInTheCallersTransactionTheSearchHoldsOneSavepointAndPutsTheSettingsBackOnce(\Closure $search): void
     {
         $this->setSessionThresholds();
         $expected = ResultSnapshot::of($search($this->viaPdo)->get());
@@ -130,8 +130,8 @@ final class DbalSearchTransactionTest extends TestCase
         $actual = ResultSnapshot::of($search($this->viaDbal)->get());
 
         self::assertSame($expected, $actual);
-        self::assertNotSame([], $this->log->positions('set_config'), 'the per-statement path: every statement sets its setting and puts the previous value back');
-        $this->assertOnlyBalancedSavepoints(2);
+        self::assertNotSame([], $this->log->positions('set_config'));
+        $this->assertOneSavepoint();
         self::assertSame(1, $this->dbal->getTransactionNestingLevel(), "the caller's transaction, and only it");
         self::assertSame(['0.55', '0.22'], $this->sessionThresholds(), "put back, inside the caller's transaction (it would otherwise stay on until the caller commits)");
 
@@ -154,7 +154,7 @@ final class DbalSearchTransactionTest extends TestCase
         $actual = ResultSnapshot::of($search($this->viaDbal)->get());
 
         self::assertSame($expected, $actual);
-        $this->assertOnlyBalancedSavepoints(3);
+        $this->assertOneSavepoint();
         self::assertSame(2, $this->dbal->getTransactionNestingLevel());
         self::assertSame(['0.55', '0.22'], $this->sessionThresholds());
 
@@ -219,10 +219,9 @@ final class DbalSearchTransactionTest extends TestCase
         } catch (EngineFailure) {
         }
 
-        // The statement that sets a setting runs in the savepoint DBAL nests it in: that is rolled back, with its setting, and
-        // the caller's transaction is not aborted. (DBAL >= 4.2 always nests with savepoints; the fallback path is the one that
-        // was always taken inside a caller's transaction.)
-        self::assertSame(['SAVEPOINT DOCTRINE_2', 'ROLLBACK TO SAVEPOINT DOCTRINE_2'], $this->log->boundaries());
+        // The statements of the search run under the savepoint Fuzzphony opened at the first setting: that is rolled back, with the
+        // settings, and the caller's transaction is not aborted (the same on a PdoConnection).
+        self::assertSame(['SAVEPOINT fuzzphony_search', 'ROLLBACK TO SAVEPOINT fuzzphony_search', 'RELEASE SAVEPOINT fuzzphony_search'], $this->log->boundaries());
         self::assertSame(1, $this->dbal->getTransactionNestingLevel());
         self::assertFalse($this->dbal->isRollbackOnly());
         self::assertSame(1, $this->dbal->fetchOne('SELECT 1'));
@@ -247,7 +246,7 @@ final class DbalSearchTransactionTest extends TestCase
         } catch (EngineFailure) {
         }
 
-        // The strict statement sets nothing, so it has no transaction (no savepoint) of its own: PostgreSQL aborts the caller's
+        // The strict statement sets nothing, so it has no savepoint of its own (it opens at the first setting): PostgreSQL aborts the caller's
         // transaction, as it does for any failing statement of the application, and accepts nothing but ROLLBACK from here on.
         self::assertSame(1, $this->dbal->getTransactionNestingLevel());
         try {
@@ -262,16 +261,10 @@ final class DbalSearchTransactionTest extends TestCase
         self::assertSame($expected, ResultSnapshot::of($this->viaDbal->in('products')->query('mouse')->thresholds(['fuzzy_mode' => 'never'])->get()), 'the connection works after the rollback');
     }
 
-    /** The only things Fuzzphony does about transactions inside the caller's: savepoints DBAL nests the per-statement transactions in, all released. */
-    private function assertOnlyBalancedSavepoints(int $level): void
+    /** The only thing Fuzzphony does about transactions inside the caller's: one savepoint around the search, released at the end. */
+    private function assertOneSavepoint(): void
     {
-        $boundaries = $this->log->boundaries();
-        $opened = array_values(array_filter($boundaries, static fn(string $e): bool => str_starts_with($e, 'SAVEPOINT ')));
-        $released = array_values(array_filter($boundaries, static fn(string $e): bool => str_starts_with($e, 'RELEASE SAVEPOINT ')));
-        self::assertCount(count($boundaries), [...$opened, ...$released], 'no BEGIN, COMMIT, ROLLBACK or ROLLBACK TO');
-        self::assertNotSame([], $opened);
-        self::assertSame(array_fill(0, count($opened), 'SAVEPOINT DOCTRINE_' . $level), $opened, "one at a time, one level above the caller's");
-        self::assertSame(array_fill(0, count($opened), 'RELEASE SAVEPOINT DOCTRINE_' . $level), $released, 'each released');
+        self::assertSame(['SAVEPOINT fuzzphony_search', 'RELEASE SAVEPOINT fuzzphony_search'], $this->log->boundaries(), 'no BEGIN, COMMIT, ROLLBACK, and no savepoint per statement');
     }
 
     private function rename(string $from, string $to): void

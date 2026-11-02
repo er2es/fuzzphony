@@ -9,6 +9,7 @@ use Fuzzphony\Core\Definition\IndexDefinition;
 use Fuzzphony\Core\Fuzzphony;
 use Fuzzphony\Core\Registry\IndexRegistry;
 use Fuzzphony\Core\Schema\Statement;
+use Fuzzphony\Core\Support\Coerce;
 use Fuzzphony\Engine\Postgres\PostgresEngine;
 use PHPUnit\Framework\TestCase;
 
@@ -81,6 +82,6 @@ final class SchemaNoLockApplyTest extends TestCase
         $this->fuzzphony->schema()->apply($this->connection);
 
         $present = $this->connection->fetchValue("SELECT count(*) FROM pg_attribute WHERE NOT attisdropped AND ((attrelid = 'fuzzphony_meta'::regclass AND attname = 'rebuild_error') OR (attrelid = 'fuzzphony_nolock'::regclass AND attname = 'tsv_capped'))");
-        self::assertSame(2, (int) $present);
+        self::assertSame(2, Coerce::int($present));
     }
 }

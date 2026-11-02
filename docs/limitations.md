@@ -427,6 +427,20 @@ applies the schema should retry. See [Reindexing](sync.md#reindexing-and-orphan-
 
 ## Operations
 
+### A search inside your own transaction
+
+**What happens.** A typo-tolerant search sets `pg_trgm` thresholds for its statements. Inside a transaction you opened, it runs them under
+one savepoint (`SAVEPOINT fuzzphony_search`, opened at the first threshold), sets each value once, puts your values back once at the end
+and releases the savepoint: three or four extra round trips for the whole search, on `PdoConnection` and on the Doctrine DBAL bridge alike.
+
+**Why.** The thresholds are transaction-local, so without putting them back they would stay on until you commit. The savepoint keeps a
+failing search from aborting your transaction.
+
+**What to do.** Nothing. A search that fails after its first threshold (a missing column, a timeout) rolls back to its savepoint and
+throws `EngineFailure`; your transaction stays usable. A statement that fails before any threshold (the strict full-text statement
+of a plain search, which sets none) aborts your transaction, as any failing statement of yours does. A plain search that finds enough
+sets nothing and costs nothing extra.
+
 ### The registry cache in production needs `cache:clear`
 
 With `kernel.debug` off, the Symfony bundle keeps the `#[Searchable]` definitions it discovered in the

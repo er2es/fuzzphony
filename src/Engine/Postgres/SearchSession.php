@@ -16,8 +16,12 @@ use Fuzzphony\Core\Support\Coerce;
  * Runs the statements of a search in ONE transaction when this engine may own it (inTransaction()), instead of one transaction
  * per statement that sets a setting (BEGIN, the setting, the statement, COMMIT: four round trips for one SELECT). Each statement
  * still sets what it needs (settle()), so none sees another's value, and the settings are transaction-local, so COMMIT leaves the
- * session as it was. When the caller has a transaction open, or the connection cannot say, nothing is opened here: each statement
- * does what it always did (its own setting, and the previous value put back).
+ * session as it was. When the caller has a transaction open, the settings are tracked the same way and the statements of the search
+ * share ONE savepoint (opened at the first setting): the previous values are put back once at the end, and a search that fails after
+ * it made a setting rolls back to the savepoint, so it leaves the caller's transaction usable, on PDO and on DBAL alike (the
+ * savepoint is plain SQL, not the adapter's). A statement that fails before any setting aborts the caller's transaction, as any
+ * failing statement of the application does. A connection that cannot say whether a transaction is open keeps the per-statement
+ * path: each statement sets its own setting and puts the previous value back.
  */
 final class SearchSession
 {
@@ -32,6 +36,14 @@ final class SearchSession
      */
     private ?array $settings = null;
 
+    /** Whether the caller's transaction holds the search (settings are put back at the end, under a savepoint). */
+    private bool $callerHeld = false;
+
+    /** Whether the search's savepoint in the caller's transaction is open (it opens at the first setting). */
+    private bool $savepoint = false;
+
+    private const string SAVEPOINT = 'fuzzphony_search';
+
     public function __construct(
         private readonly Connection $connection,
         private readonly EngineGuard $guard,
@@ -40,7 +52,7 @@ final class SearchSession
     /** Whether this session holds the transaction of a search right now. */
     public function ownsTransaction(): bool
     {
-        return $this->settings !== null;
+        return $this->settings !== null && !$this->callerHeld;
     }
 
     /**
@@ -67,8 +79,11 @@ final class SearchSession
      */
     public function inTransaction(\Closure $work): mixed
     {
-        if ($this->settings !== null || !$this->connection instanceof TransactionAware || $this->connection->inTransaction()) {
+        if ($this->settings !== null || !$this->connection instanceof TransactionAware) {
             return $work();
+        }
+        if ($this->connection->inTransaction()) {
+            return $this->inCallersTransaction($work);
         }
         $state = new \stdClass();
         $state->entered = false;
@@ -98,6 +113,70 @@ final class SearchSession
 
             throw EngineFailure::wrap('search', $e, Hints::INDEX);
         }
+    }
+
+    /**
+     * The statements of a search inside the caller's transaction: the settings are tracked as in a transaction of our own, under one
+     * savepoint that opens at the first of them (settle()); at the end the previous values are put back once and the savepoint released,
+     * on failure the savepoint is rolled back (the settings with it) and the original exception passes.
+     *
+     * @template T
+     *
+     * @param \Closure(): T $work
+     *
+     * @return T
+     */
+    private function inCallersTransaction(\Closure $work): mixed
+    {
+        $this->settings = [];
+        $this->callerHeld = true;
+        try {
+            $result = $work();
+            if ($this->savepoint) {
+                try {
+                    $this->putBackAndRelease();
+                } catch (\Throwable $e) {
+                    $this->guard->metrics()->increment('fuzzphony.search.errors');
+
+                    throw EngineFailure::wrap('search', $e, Hints::INDEX);
+                }
+            }
+
+            return $result;
+        } catch (\Throwable $e) {
+            if ($this->savepoint) {
+                try {
+                    $this->connection->execute('ROLLBACK TO SAVEPOINT ' . self::SAVEPOINT);
+                    $this->connection->execute('RELEASE SAVEPOINT ' . self::SAVEPOINT);
+                } catch (\Throwable) {
+                    // the transaction is gone or aborted for another reason: the search's own failure is the one to report
+                }
+            }
+
+            throw $e;
+        } finally {
+            $this->settings = null;
+            $this->callerHeld = false;
+            $this->savepoint = false;
+        }
+    }
+
+    /** Puts the settings this search changed back to what the caller's transaction had, in one round trip, and releases the savepoint. */
+    private function putBackAndRelease(): void
+    {
+        $sql = [];
+        $params = [];
+        foreach ($this->settings ?? [] as $name => $setting) {
+            if ($setting['current'] !== $setting['original']) {
+                $sql[] = sprintf("set_config('%s', :v%d, true)", $name, count($params));
+                $params['v' . count($params)] = $setting['original'];
+            }
+        }
+        if ($sql !== []) {
+            $this->connection->fetchValue('SELECT ' . implode(', ', $sql), $params);
+        }
+        $this->connection->execute('RELEASE SAVEPOINT ' . self::SAVEPOINT);
+        $this->savepoint = false;
     }
 
     /**
@@ -201,6 +280,10 @@ final class SearchSession
             }
 
             return;
+        }
+        if ($this->callerHeld && !$this->savepoint) {
+            $this->connection->execute('SAVEPOINT ' . self::SAVEPOINT);
+            $this->savepoint = true;
         }
         $text = (string) $value;
         if ($setting === null) {
