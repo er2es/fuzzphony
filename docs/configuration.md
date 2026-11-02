@@ -553,15 +553,26 @@ automatic, see [UPGRADE.md](../UPGRADE.md#moving-to-a-dedicated-schema); the doc
 
 ```yaml
 fuzzphony:
-  connection: default          # Doctrine DBAL connection name
-  extension_schema: public     # schema of the pg_trgm and unaccent extensions
-  schema: public               # Fuzzphony's own schema, e.g. fuzzphony (see below)
-  discover_entities: true      # register every Doctrine entity with #[Searchable]
+  connection: default          # Doctrine DBAL connection name; "default" is Doctrine's own name for the first one
+  extension_schema: public     # schema of pg_trgm and unaccent; "public" is where CREATE EXTENSION puts them unless told otherwise
+  schema: public               # Fuzzphony's own schema, e.g. fuzzphony (see below); public so an upgrade moves nothing, a dedicated one is cleaner
+  discover_entities: true      # register every Doctrine entity with #[Searchable]; false: only what you list
+  # worker: one batch = one transaction and one refresh, so locks stay short and throughput steady.
+  # 500 ids per batch is large enough to amortise the statement, small enough that a failure retries little.
+  # idle_sleep: an empty queue costs one cheap query per second, and a change shows up within a second.
+  # Raise batch_size for bulk imports, lower idle_sleep (minimum 0.05) for a faster refresh, raise it to spare a quiet database.
   worker: { batch_size: 500, idle_sleep: 1.0 }
+  # orm_sync: async is false so nothing else is needed (no Messenger): the refresh runs inside the request's flush.
+  # chunk_size: how many ids one RefreshDocuments message carries (async), the same trade-off as the worker batch.
+  # Set async: true (and route RefreshDocuments to a transport) when writes must not wait for the refresh.
   orm_sync: { async: false, chunk_size: 500 }
-  actor: { }                   # who searches, see below
+  actor: { }                   # who searches, see below; nobody configured = anonymous, the safe choice for an unscoped index
+  # search_log: off, because it stores what people type; 90 days is enough for trends and short enough for a retention policy;
+  # redact empty and ip off because storing personal data is a decision for you (masked is the usual choice).
   search_log: { enabled: false, retention_days: 90, redact: [], ip: off }  # opt-in, see below
+  # rate_limit: no limiter by default; per: tenant because one tenant is the unit that must not starve the others.
   rate_limit: { limiter: ~, per: tenant }                          # opt-in (tenant, user or ip), see below
+  # authorization: off, since a voter is application code; FUZZPHONY_SEARCH is a name of its own that no existing role can clash with.
   authorization: { enabled: false, index_attribute: FUZZPHONY_SEARCH }  # opt-in, see below
   indexes: { }                 # YAML indexes and overrides, see above
 ```
