@@ -82,7 +82,7 @@ final class PostgresEngineSuggestionDetailsTest extends TestCase
 
         $spy->reset();
         $spy->transactional($explain);
-        self::assertSame(8, self::setConfigStatements($spy), 'and each puts the previous value back');
+        self::assertSame(6, self::setConfigStatements($spy), 'the search shares one savepoint (set, put back once); explain() sets its threshold and puts the previous value back');
     }
 
     public function testAWordIsMeasuredInCharactersNotBytes(): void
