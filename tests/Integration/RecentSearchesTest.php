@@ -89,6 +89,21 @@ final class RecentSearchesTest extends TestCase
         self::assertSame(RecordStatus::Ok, $found[0]->status);
     }
 
+    public function testARescuedSearchIsReadBackAsSuchAndStillCountsByItsHits(): void
+    {
+        $this->engine()->writeSearchLog([
+            new SearchRecord($this->now, 'products', null, null, 'mpuse', 2, 1.0, true, RecordStatus::Ok, null, true),
+            new SearchRecord($this->now, 'products', null, null, 'plain', 0, 1.0, false),
+        ]);
+
+        $found = $this->analytics()->recentSearches('products', $this->now->modify('-1 hour'));
+
+        self::assertSame(['plain', 'mpuse'], self::queries($found));
+        self::assertSame([false, true], array_map(static fn(LoggedSearch $s): bool => $s->rescued, $found));
+        $zero = $this->analytics()->zeroResultQueries('products', $this->now->modify('-1 hour'));
+        self::assertSame(['plain'], array_map(static fn($s): string => $s->query, $zero), 'the report of searches that found nothing counts by hits: a rescued search found something');
+    }
+
     public function testNullTenantAndUserAndFalseFuzzyAreReadAsSuch(): void
     {
         $this->engine()->writeSearchLog([$this->record($this->now, 'anon')]);

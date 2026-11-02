@@ -6,6 +6,7 @@ namespace Fuzzphony\Core;
 
 use Fuzzphony\Core\Analytics\EngineSearchLog;
 use Fuzzphony\Core\Analytics\IpMode;
+use Fuzzphony\Core\Analytics\LoggedSearch;
 use Fuzzphony\Core\Analytics\NullSearchLog;
 use Fuzzphony\Core\Analytics\PatternQueryRedactor;
 use Fuzzphony\Core\Analytics\SearchAnalytics;
@@ -15,6 +16,7 @@ use Fuzzphony\Core\Definition\IndexDefinition;
 use Fuzzphony\Core\Definition\Synonyms;
 use Fuzzphony\Core\Engine\Engine;
 use Fuzzphony\Core\Exception\AccessDenied;
+use Fuzzphony\Core\Exception\ActorRequired;
 use Fuzzphony\Core\Exception\InvalidArgument;
 use Fuzzphony\Core\Exception\InvalidDefinition;
 use Fuzzphony\Core\Exception\RateLimited;
@@ -22,6 +24,7 @@ use Fuzzphony\Core\Inspection\InspectionReport;
 use Fuzzphony\Core\Inspection\InspectOptions;
 use Fuzzphony\Core\Observability\MetricsCollector;
 use Fuzzphony\Core\Observability\NullMetricsCollector;
+use Fuzzphony\Core\Query\SearchQuery;
 use Fuzzphony\Core\Query\SynonymExpander;
 use Fuzzphony\Core\Registry\IndexRegistry;
 use Fuzzphony\Core\Schema\SchemaPlan;
@@ -106,6 +109,35 @@ final readonly class Fuzzphony
     public function federated(): FederatedSearch
     {
         return new FederatedSearch($this->engine, $this->registry, gate: $this->gate);
+    }
+
+    /**
+     * Records a search in the search log WITHOUT running it, for a search that was answered elsewhere (a cached page, a front end that
+     * searched on its own, a result you merged yourself). The record follows the rules of a search of this index: the actor (named, else the
+     * application's current user; asSystem() is "(system)"), the redaction and IP mode of the log, the tenant of a tenant-scoped index (the
+     * actor's), the 255 characters of the text. Nothing is searched and no guard runs.
+     *
+     * @param int  $hits    how many hits the search found (the analytics' "found nothing" report counts the records with none)
+     * @param bool $rescued the search was answered by the zero-result rescue (SearchResult::$correctedFrom)
+     * @param bool $system  as SearchBuilder::asSystem()
+     *
+     * @return LoggedSearch what was recorded (the stored, redacted text)
+     *
+     * @throws InvalidArgument when the index is not logged (`log: false`) or the search log is off: the same conditions under which a
+     *                         search is not recorded, here refused so that a call that records nothing is not silent
+     * @throws ActorRequired   a tenant-scoped index needs the tenant of the actor
+     * @throws AccessDenied    asSystem() while `authorization.allow_system` is false
+     */
+    public function logSearch(string $index, string $text, int $hits, float $tookMs = 0.0, ?Actor $actor = null, bool $usedFuzzy = false, bool $rescued = false, bool $system = false): LoggedSearch
+    {
+        $definition = $this->registry->get($index);
+        if ($this->gate === null) {
+            throw new InvalidArgument(SearchGate::LOG_OFF);
+        }
+        $query = new SearchQuery(text: $text);
+        $query = $system ? $query->asSystem() : ($actor === null ? $query : SearchGate::withActor($definition, $query, $actor));
+
+        return $this->gate->logSearch($definition, $query, $hits, $tookMs, $usedFuzzy, $rescued);
     }
 
     /**

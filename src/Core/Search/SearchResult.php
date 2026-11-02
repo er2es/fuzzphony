@@ -7,7 +7,7 @@ namespace Fuzzphony\Core\Search;
 use Fuzzphony\Core\Ranking\Thresholds;
 
 /** @implements \IteratorAggregate<int, Hit> */
-final readonly class SearchResult implements \IteratorAggregate, \Countable
+final readonly class SearchResult implements \IteratorAggregate, \Countable, \JsonSerializable
 {
     /**
      * @param list<Hit>    $hits
@@ -48,12 +48,53 @@ final readonly class SearchResult implements \IteratorAggregate, \Countable
          * escape it when you render it. See RescueThresholds::$correctWhenEmpty.
          */
         public ?string $correctedFrom = null,
+        /**
+         * The text the zero-result rescue actually searched, when it did (`mouse` for `mpuse`); null otherwise. Set exactly when
+         * `correctedFrom` is. Plain text, not HTML: escape it when you render it.
+         */
+        public ?string $correctedTo = null,
     ) {}
+
+    /**
+     * The result as plain data, with these keys (the same ones `json_encode($result)` writes; they are stable):
+     *
+     * - `hits`: list of Hit::toArray() (kind, id, score, breakdown, highlights, mergedScore, matches)
+     * - `total`, `totalIsLowerBound`: the number of matches, and whether it is a lower bound ("$total+")
+     * - `facets`: filter => list of {value, count}
+     * - `didYouMean`, `correctedFrom`, `correctedTo`: the spelling hints (null when there are none); plain text
+     * - `warnings`: list of plain-text corrections applied to the search text
+     * - `tookMs`: the time the search took
+     *
+     * Every string is plain text except the `highlights` of the hits, which are already HTML-escaped with <mark> tags: put those
+     * into HTML as they are, and escape everything else when you render it.
+     *
+     * @return array{hits: list<array<string, mixed>>, total: int, totalIsLowerBound: bool, facets: array<string, list<array{value: bool|int|string|null, count: int}>>, didYouMean: string|null, correctedFrom: string|null, correctedTo: string|null, warnings: list<string>, tookMs: float}
+     */
+    public function toArray(): array
+    {
+        return [
+            'hits' => array_map(static fn(Hit $hit): array => $hit->toArray(), $this->hits),
+            'total' => $this->total,
+            'totalIsLowerBound' => $this->totalIsLowerBound,
+            'facets' => array_map(static fn(array $values): array => array_map(static fn(FacetValue $v): array => $v->toArray(), $values), $this->facets),
+            'didYouMean' => $this->didYouMean,
+            'correctedFrom' => $this->correctedFrom,
+            'correctedTo' => $this->correctedTo,
+            'warnings' => $this->warnings,
+            'tookMs' => $this->tookMs,
+        ];
+    }
+
+    /** @return array{hits: list<array<string, mixed>>, total: int, totalIsLowerBound: bool, facets: array<string, list<array{value: bool|int|string|null, count: int}>>, didYouMean: string|null, correctedFrom: string|null, correctedTo: string|null, warnings: list<string>, tookMs: float} */
+    public function jsonSerialize(): array
+    {
+        return $this->toArray();
+    }
 
     /** The same result with another "did you mean" text. */
     public function withDidYouMean(?string $didYouMean): self
     {
-        return new self($this->hits, $this->total, $this->totalIsLowerBound, $this->tookMs, $this->usedFuzzy, $this->warnings, $this->limit, $this->offset, $this->interpretedAs, $didYouMean, $this->facets, $this->correctedFrom);
+        return new self($this->hits, $this->total, $this->totalIsLowerBound, $this->tookMs, $this->usedFuzzy, $this->warnings, $this->limit, $this->offset, $this->interpretedAs, $didYouMean, $this->facets, $this->correctedFrom, $this->correctedTo);
     }
 
     /** @param list<string> $warnings */
