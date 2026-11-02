@@ -1157,10 +1157,28 @@ ON CONFLICT (index_name) DO UPDATE SET layout_version = EXCLUDED.layout_version,
     private function fieldVectorExpression(IndexDefinition $index, FieldDefinition $field): string
     {
         return sprintf(
-            "setweight(to_tsvector(%s, coalesce(doc.%s::text, '')), '%s')",
+            "setweight(to_tsvector(%s, %s), '%s')",
             $this->names->regconfig($index->text),
-            Sql::ident('fld_' . $field->name),
+            $field->code ? $this->codeText($field) : sprintf("coalesce(doc.%s::text, '')", Sql::ident('fld_' . $field->name)),
             $field->weight->value,
+        );
+    }
+
+    /**
+     * A code field's text as it is indexed: every run of non-alphanumeric characters is one space (the normaliser's rule, which is
+     * the query compiler's: "INV-001" -> "inv 001", "AB-12/3" -> "ab 12 3"), followed by each blank-separated piece that had
+     * separators written without them ("inv001", "ab123"), so "INV001" finds "INV-001" too. The index's own text configuration
+     * then reads it like the query side reads a word, so what is typed always reaches what is stored.
+     */
+    private function codeText(FieldDefinition $field): string
+    {
+        $norm = $this->names->normFunction();
+        $text = sprintf("coalesce(doc.%s::text, '')", Sql::ident('fld_' . $field->name));
+
+        return sprintf(
+            "(%1\$s(%2\$s) || coalesce(' ' || (SELECT string_agg(replace(%1\$s(w.piece), ' ', ''), ' ') FROM regexp_split_to_table(%2\$s, '[[:space:]]+') AS w(piece) WHERE %1\$s(w.piece) LIKE '%% %%'), ''))",
+            $norm,
+            $text,
         );
     }
 

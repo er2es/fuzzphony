@@ -68,10 +68,19 @@ final class IndexBuilder
         return $this;
     }
 
-    public function field(string $name, Weight|string $weight = Weight::B, bool $fuzzy = false, bool $highlight = true, ?string $column = null, ?string $granted = null): self
+    /**
+     * The source query from an SQL file, read now (so its content is part of the definition and its fingerprint). The path is relative
+     * to $baseDir (default: the current working directory; the bundle uses the project root) and must stay inside it.
+     */
+    public function fromQueryFile(string $path, ?string $baseDir = null, string $idColumn = 'id'): self
+    {
+        return $this->fromQuery(QueryFile::read($this->name, $path, $baseDir), $idColumn);
+    }
+
+    public function field(string $name, Weight|string $weight = Weight::B, bool $fuzzy = false, bool $highlight = true, ?string $column = null, ?string $granted = null, bool $code = false): self
     {
         $weight = $weight instanceof Weight ? $weight : EnumOption::parse(Weight::class, strtoupper($weight), $this->name, 'weight', sprintf(' of field "%s"', $name));
-        $this->fields[] = new FieldDefinition($name, $weight, $fuzzy, $highlight, $column, $granted);
+        $this->fields[] = new FieldDefinition($name, $weight, $fuzzy, $highlight, $column, $granted, $code);
 
         return $this;
     }

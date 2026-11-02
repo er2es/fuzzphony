@@ -415,6 +415,7 @@ final class FuzzphonyBundle extends AbstractBundle
                 // Web requests only: a command, a worker or a consumer (PHP_SAPI "cli") always discovers fresh. The parameter is a test seam
                 // (the real-kernel test proves the cache from the command line), not a configuration option.
                 $builder->hasParameter('fuzzphony.registry_cache_in_cli') && $builder->getParameter('fuzzphony.registry_cache_in_cli') === true,
+                $builder->hasParameter('kernel.project_dir') && is_string($builder->getParameter('kernel.project_dir')) ? $builder->getParameter('kernel.project_dir') : null,
             ]);
         $services->alias(IndexRegistry::class, 'fuzzphony.registry');
 

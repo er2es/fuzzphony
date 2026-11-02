@@ -18,6 +18,8 @@ final readonly class FieldDefinition
         public ?string $column = null,
         /** The role (a Symfony security attribute) a viewer needs to search and see this field; null = open to everyone. Not part of the definition hash. */
         public ?string $granted = null,
+        /** A code or identifier field ("INV-001"): indexed with its separators turned into spaces (and the code without them), so every spelling of the code finds it. */
+        public bool $code = false,
     ) {}
 
     public function column(): string

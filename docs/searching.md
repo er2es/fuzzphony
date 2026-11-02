@@ -558,19 +558,24 @@ search would reject; it is then kept, not dropped. The relaxation errs on the si
 
 ## Codes and numbers
 
-Invoice numbers, SKUs and part numbers (`INV-001`, `AB-12/3`, `INV.007`) can find nothing on a field that is not typo tolerant. PostgreSQL's text-search parser indexes a hyphen before digits as a
-sign (`INV-001` becomes `inv` and `-001`) and a dot or a slash between a letter and a digit as one token (`inv.007`, `inv/008`), while the query is always split at every character that is not a letter
-or a digit (`'inv' <-> '001'`), so the two never meet. A field with `fuzzy: true` finds the code through the trigram fallback (`INV-001`, `INV001`, also with a typo, but a loose match that lists
-`INV-002` after it). For an exact match, index the code with its separators turned into spaces, so the index holds exactly what the query is split into:
+Invoice numbers, SKUs and part numbers (`INV-001`, `AB-12/3`, `INV.007`) are found by marking the field as a code:
 
 <!-- fragment -->
 ```php
-->fromQuery("SELECT id, regexp_replace(number, '[^[:alnum:]]+', ' ', 'g') AS number, name FROM invoice")->watch('invoice')
-->field('number', 'A')
+->field('number', 'A', code: true)
 ```
 
-`INV-001`, `inv-001`, `"INV-001"`, `001` and `INV-2024-0042` then find only their invoice; `INV001` (no separator) still needs `fuzzy: true`. Letters joined by a hyphen (`usb-c`, `mouse-pad`)
-are unaffected. See [Limitations](limitations.md#codes-with-a-hyphen-before-digits-a-dot-or-a-slash).
+The same in YAML (`fields: { number: { weight: A, code: true } }`) and as an attribute (`#[SearchField('A', code: true)]`). The field's text is indexed with every run of characters that is not a
+letter or a digit as one space (`INV-001` as `inv`, `001`; `AB-12/3` as `ab`, `12`, `3`), and the code without separators is added (`inv001`, `ab123`), in the index's text configuration, the same
+one the query is read with. `INV-001`, `inv-001`, `"INV-001"`, `001`, `INV-2024-0042`, `AB-12/3`, `INV.007` and `INV001` then find their row, in any case; `number:INV-001` works as for any field, and the whole
+code ranks first (the exact bonus compares normalised forms). Typo tolerance stays the field's own `fuzzy` flag. A highlight marks the whole code in the original text (`<mark>INV-001</mark>`; a query
+written without separators, `INV001`, finds the row but marks nothing). A code with accents inside a word of letters and digits (`Ä12`) is found by the unaccented form only through its separated parts.
+A code whose parts are stop words of the language (`IT-5` in English) also finds rows that have the other parts. The flag is part of the definition: run `fuzzphony:schema --apply` and `fuzzphony:reindex`
+after adding it.
+
+Without the flag, PostgreSQL's text-search parser indexes a hyphen before digits as a sign (`INV-001` becomes `inv` and `-001`) and a dot or a slash between a letter and a digit as one token, while the
+query is split at every non-alphanumeric character, so the two never meet (a fuzzy field finds the code as a look-alike). Before 0.10 the workaround was to index the code from the source query with
+`regexp_replace(number, '[^[:alnum:]]+', ' ', 'g') AS number`; it still works, but `code: true` also finds `INV001`.
 
 ## Limits and errors
 

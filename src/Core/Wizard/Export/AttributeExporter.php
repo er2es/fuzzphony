@@ -80,6 +80,9 @@ final class AttributeExporter
                 $fieldArgs[] = 'highlight: false';
             }
             $fieldArgs[] = sprintf('column: %s', $e($field->column()));
+            if ($field->code) {
+                $fieldArgs[] = 'code: true';
+            }
             if ($field->granted !== null) {
                 $fieldArgs[] = sprintf('granted: %s', $e($field->granted));
             }

@@ -18,6 +18,10 @@ and a link. Measurements, proofs and test names belong to the pull request, [doc
 
 ### Added
 
+- **`code: true` on a field** (`fields: { number: { weight: A, code: true } }`, `#[SearchField('A', code: true)]`, `->field('number', 'A', code: true)`): `INV-001`, `INV001`, `inv-001`, `001`, `AB-12/3`
+  and `INV.007` find their row ([Codes and numbers](docs/searching.md#codes-and-numbers)). Run `fuzzphony:schema --apply` and `fuzzphony:reindex` ([UPGRADE](UPGRADE.md#from-0913-to-0100)).
+- **`source: { query_file: sql/catalog.sql }`** and `->fromQueryFile($path, $baseDir)`: the source query from a file inside the project; its content is part of the
+  definition fingerprint ([Configuration](docs/configuration.md#the-source-query-from-a-file)).
 - **A worker batch that fails on the data is split:** only the ids that fail on their own stay queued (attempt count, error class and SQLSTATE,
   back-off), the others are indexed; the doctor names the failing ids ([limitations](docs/limitations.md#one-unreadable-document-does-not-stop-its-indexs-queue)).
 

@@ -48,6 +48,9 @@ final class BuilderExporter
             if ($field->column !== null) {
                 $args[] = 'column: ' . $e($field->column);
             }
+            if ($field->code) {
+                $args[] = 'code: true';
+            }
             if ($field->granted !== null) {
                 $args[] = 'granted: ' . $e($field->granted);
             }
