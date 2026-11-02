@@ -189,8 +189,10 @@ final readonly class SearchBuilder
     }
 
     /**
-     * Searches, ranks and highlights only these fields (the guards use it for fields a viewer may not see). A word
-     * that exists only in another field finds nothing; calling it again can only narrow the list.
+     * Searches, ranks and highlights only these fields. It can only NARROW: the fields searched are those of the list that the actor
+     * may also see (a guard's answer), so naming a `granted` field the actor does not hold adds nothing, and a list with none of the
+     * allowed fields finds nothing (no exception). A word that exists only in another field finds nothing; calling it again narrows
+     * the list further, never widens it. A name that is no field of the index is an InvalidQuery listing the index's fields.
      */
     public function restrictedToFields(string ...$fields): self
     {

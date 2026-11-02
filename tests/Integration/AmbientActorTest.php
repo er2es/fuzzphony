@@ -10,6 +10,7 @@ use Fuzzphony\Core\Definition\IndexDefinition;
 use Fuzzphony\Core\Exception\AccessDenied;
 use Fuzzphony\Core\Exception\ActorRequired;
 use Fuzzphony\Core\Exception\InvalidDefinition;
+use Fuzzphony\Core\Exception\InvalidQuery;
 use Fuzzphony\Core\Fuzzphony;
 use Fuzzphony\Core\Registry\IndexRegistry;
 use Fuzzphony\Core\Search\Access;
@@ -199,6 +200,40 @@ final class AmbientActorTest extends TestCase
         self::assertSame([], $fz->complete('amb_docs', 'zebraf'), 'the vocabulary holds the words of the granted field');
         self::assertSame(['zebrafish'], $fz->complete('amb_docs', 'zebraf', system: true));
         self::assertSame(['zebrafish'], $fz->complete('amb_docs', 'zebraf', actor: new Actor(user: 'boss')));
+    }
+
+    public function testRestrictedToFieldsOnlyNarrowsWhatTheActorMaySee(): void
+    {
+        $fz = $this->build();
+        $this->current = new Actor(user: 'ada');
+        self::assertSame([2], $this->ids($fz->in('amb_docs')->query('zebrafish')->restrictedToFields('title', 'secret')), 'the granted field the actor does not hold is not added');
+        $none = $fz->in('amb_docs')->query('zebrafish')->restrictedToFields('secret')->get();
+        self::assertSame([], $none->ids(), 'an empty intersection finds nothing');
+        self::assertSame(0, $none->total);
+        self::assertSame([2], $this->ids($fz->in('amb_docs')->query('zebrafish')->restrictedToFields('title')));
+
+        $this->current = new Actor(user: 'boss');
+        self::assertSame([1, 3], $this->ids($fz->in('amb_docs')->query('zebrafish')->restrictedToFields('secret')), 'the role holder is narrowed to the list');
+        self::assertSame([2], $this->ids($fz->in('amb_docs')->query('zebrafish')->restrictedToFields('title', 'secret')->restrictedToFields('title')), 'a second call narrows again');
+        self::assertSame([], $this->ids($fz->in('amb_docs')->query('zebrafish')->restrictedToFields('title')->restrictedToFields('secret')), 'and never widens');
+
+        $this->expectException(InvalidQuery::class);
+        $this->expectExceptionMessage('Known fields: title, secret');
+        $fz->in('amb_docs')->restrictedToFields('title', 'nope');
+    }
+
+    public function testGuardsWithoutAResolverMakeAnUnnamedSearchAnonymous(): void
+    {
+        $guard = new class implements SearchGuard {
+            public function check(IndexDefinition $index, Actor $actor, bool $charge = true): Access
+            {
+                return Access::only(['title']);
+            }
+        };
+        $fz = Fuzzphony::postgres($this->connection, [$this->build()->registry()->get('amb_docs')], guards: [$guard]);
+
+        self::assertSame([2], $this->ids($fz->in('amb_docs')->query('zebrafish')));
+        self::assertSame([1, 2, 3], $this->ids($fz->in('amb_docs')->query('zebrafish')->asSystem()));
     }
 
     public function testAGrantedFieldWithoutAGuardDoesNotBuild(): void

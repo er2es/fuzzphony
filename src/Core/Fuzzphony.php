@@ -52,8 +52,8 @@ final readonly class Fuzzphony
      * @param SearchLog|null        $log             your own sink for the search records (instead of the table of $searchLog)
      * @param list<string>          $redact          "email" or a regular expression with delimiters: matches are cut out of the query text before it is logged
      * @param IpMode                $ipMode          whether the log keeps the client IP of the actor, and how much of it
-     * @param ActorResolver|null    $actors          who searches when the code names no actor (asActor()): the application's current user. Without it a search that
-     *                                               names no actor runs no guard. With it every search is guarded as that actor (anonymous when it has none)
+     * @param ActorResolver|null    $actors          who searches when the code names no actor (asActor()): the application's current user. Without it (and with
+     *                                               guards) a search that names no actor is anonymous. Every search is guarded as that actor
      * @param bool                  $allowSystem     false refuses asSystem() (AccessDenied)
      *
      * @throws InvalidDefinition an index has a field with `granted` and there is no guard to check it (a granted field is only hidden by a guard)

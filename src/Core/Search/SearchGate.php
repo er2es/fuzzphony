@@ -40,8 +40,8 @@ final readonly class SearchGate
     /**
      * @param list<SearchGuard> $guards run, in order, for a search made as an actor; what they allow is intersected
      * @param IpMode            $ipMode whether the search log keeps the client IP of the actor, and how much of it (the default: none)
-     * @param ActorResolver|null $actors who searches when the caller named no actor (the application's current user); null = nobody is looked up and a search
-     *                                   without an actor runs no guard
+     * @param ActorResolver|null $actors who searches when the caller named no actor (the application's current user); null = anonymous when there are guards,
+     *                                   else nobody (no guard runs, as there is none)
      * @param bool              $allowSystem whether asSystem() is honoured; false refuses it (AccessDenied)
      */
     public function __construct(
@@ -61,7 +61,8 @@ final readonly class SearchGate
      */
     public function ambientActor(): ?Actor
     {
-        return $this->actors?->resolve();
+        // guards without a resolver: a search that names no actor is anonymous, never unguarded
+        return $this->actors?->resolve() ?? ($this->guards !== [] ? Actor::anonymous() : null);
     }
 
     /**
@@ -188,8 +189,8 @@ final readonly class SearchGate
         try {
             if ($query->system) {
                 $this->assertSystemAllowed($index);
-            } elseif ($query->actor === null && $this->actors !== null) {
-                $query = self::withActor($index, $query, $this->actors->resolve(), false);
+            } elseif ($query->actor === null && ($ambient = $this->ambientActor()) !== null) {
+                $query = self::withActor($index, $query, $ambient, false);
             }
             $asked = $query; // a refusal is recorded with the actor that was asked
             self::assertActorHasTenant($index, $query);
