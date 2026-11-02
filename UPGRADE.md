@@ -45,7 +45,8 @@ and the [CHANGELOG](CHANGELOG.md) has the full list of changes.
 
   | Was | Now |
   |---|---|
-  | `new Fuzzphony(new PostgresEngine($connection, ...), new IndexRegistry([...]))` | `Fuzzphony::postgres($connection, [$index, ...], schema: ..., metrics: ..., searchLog: ...)` (the bundle wires it for you) |
+  | `new Fuzzphony(new PostgresEngine($connection, ...), new IndexRegistry([...]), new SearchGate(...))` | `Fuzzphony::postgres($connection, [$index, ...], schema: ..., metrics: ..., searchLog: ..., guards: [...], log: ..., redact: [...], ipMode: ...)` (the bundle wires it for you) |
+  | `PostgresEngine::resetCaches()` | `Fuzzphony::resetCaches()` |
   | `new DefinitionSuggester()`, `SourceIntrospector`, `YamlExporter`, `BuilderExporter`, `AttributeExporter` | `$fuzzphony->wizard()`: `tables()`, `suggest($table, $name, $language)`, `yaml($definition)`, `builder($definition)`, `attributes($definition)` (null when attributes cannot express it) |
   | `Fuzzphony::engine()`, `Fuzzphony::registry()`, `new Fuzzphony(...)`, `SearchBuilder::toQuery()`, the constructors of `SearchResult`, `ScoreBreakdown`, `SearchAnalytics`, `SearchRecord`, `ReindexResult`, `FederatedSearch`, `SearchBuilder`, `IndexDefinition`, `FuzzphonySearchFilter` | `@internal` |
   | `Engine`, `PostgresEngine`, `IndexRegistry`, `SearchQuery`, `Condition`, `Operator`, `SearchGate`, `RefreshDispatcher`, `ImmediateRefreshDispatcher`, `RefreshDocuments`, `OrmSyncListener`, `SearchComponent`, `PatternQueryRedactor`, `LoggingMetricsCollector`, `NullMetricsCollector`, `IpMode`, `ColumnKind`, `ColumnProfile`, `DefinitionSuggester`, `ForeignKey`, `SourceIntrospector`, `TableProfile`, the three exporters | `@internal` (not on the public list) |

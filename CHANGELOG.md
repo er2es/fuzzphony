@@ -32,7 +32,7 @@ and a link. Measurements, proofs and test names belong to the pull request, [doc
   `fallback_below` splits into `typo.fallback_below` and `rescue.did_you_mean_below` ([UPGRADE](UPGRADE.md#from-0913-to-0100)).
 - **`Fuzzphony::suggest()` is `complete()`, `useSuggestion` is `useDidYouMean`, `--suggest` is `--complete`** (no aliases).
 - **The public API is 76 types:** the engine contract, the wizard's parts, the registry and the container types are `@internal`; `Fuzzphony::postgres()` builds the service without
-  a framework, `Fuzzphony::wizard()` is the wizard; the optional `Engine` interfaces, `Capabilities` and `TransactionAware` are folded into `Engine` and `Connection`
+  a framework (guards, search log, redaction, IP mode as options), `Fuzzphony::wizard()` is the wizard, `Fuzzphony::resetCaches()` replaces `PostgresEngine::resetCaches()`; the optional `Engine` interfaces, `Capabilities` and `TransactionAware` are folded into `Engine` and `Connection`
   (`Connection::inTransaction()`). ([Public API](docs/architecture.md#public-api), [UPGRADE](UPGRADE.md#from-0913-to-0100)).
 - **One trigger set and one change log per watched table** (`queue` sync, statement level): a table watched by N indexes has four triggers, not 4N,
   and an `UPDATE` writes one log row per changed row instead of N queue rows (bulk `UPDATE` of 20 000 rows on 4 indexes: 734 ms to 120 ms). Queue rows
