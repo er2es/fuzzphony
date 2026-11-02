@@ -218,13 +218,13 @@ final class ShopTest extends KernelTestCase
         $hits = iterator_to_array($result, false);
 
         // region: federated
-        self::assertSame(['products:1', 'products:2', 'categories:5'], array_map(static fn($hit): string => $hit->index . ':' . $hit->hit->id, $hits));
+        self::assertSame(['products:1', 'products:2', 'categories:5'], array_map(static fn($hit): string => $hit->kind . ':' . $hit->id, $hits));
         // product 9 is out of stock and the products index skips those; the headset comes with the typo-tolerant search;
         // the category is last: the products weigh twice
         // endregion
 
         self::assertSame(2, $result->results['products']->total);
-        self::assertGreaterThan($hits[2]->score, $hits[1]->score);
+        self::assertGreaterThan($hits[2]->mergedScore, $hits[1]->mergedScore);
     }
 
     public function testTheLiveComponentIsTheUiAndAFacetKeepsTheOtherValues(): void

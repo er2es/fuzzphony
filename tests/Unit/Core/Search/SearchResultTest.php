@@ -13,7 +13,7 @@ final class SearchResultTest extends TestCase
 {
     private function hit(int $id): Hit
     {
-        return new Hit($id, 1.0, new ScoreBreakdown());
+        return new Hit('products', $id, 1.0, new ScoreBreakdown());
     }
 
     public function testItIsNotCorrectedUnlessTold(): void

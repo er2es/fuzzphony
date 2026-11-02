@@ -147,13 +147,13 @@ final readonly class FederatedSearch
                 $warnings[] = sprintf('[%s] %s', $name, $warning);
             }
             foreach ($result->hits as $i => $hit) {
-                $candidates[] = ['score' => $options['weight'] / (self::RANK_CONSTANT + $i + 1), 'order' => $order, 'rank' => $i, 'index' => $name, 'hit' => $hit];
+                $candidates[] = ['score' => $options['weight'] / (self::RANK_CONSTANT + $i + 1), 'order' => $order, 'rank' => $i, 'hit' => $hit];
             }
             ++$order;
         }
         usort($candidates, static fn(array $a, array $b): int => [$b['score'], $a['order'], $a['rank']] <=> [$a['score'], $b['order'], $b['rank']]);
         $page = array_map(
-            static fn(array $c): FederatedHit => new FederatedHit($c['index'], $c['hit'], $c['score']),
+            static fn(array $c): Hit => $c['hit']->withMergedScore($c['score']),
             array_slice($candidates, $this->offset, $this->limit),
         );
 

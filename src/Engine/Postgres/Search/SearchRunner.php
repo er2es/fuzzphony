@@ -232,7 +232,7 @@ final readonly class SearchRunner
         $hits = [];
         foreach ($rows as $row) {
             $id = $index->idType->cast(Coerce::str($row['id']));
-            $hits[] = new Hit($id, Coerce::float($row['score']), new ScoreBreakdown(
+            $hits[] = new Hit($index->name, $id, Coerce::float($row['score']), new ScoreBreakdown(
                 textRank: Coerce::float($row['r_text']),
                 fuzzySimilarity: Coerce::float($row['r_fuzzy']),
                 relevance: Coerce::float($row['relevance']),

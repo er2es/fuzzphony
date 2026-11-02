@@ -222,6 +222,19 @@ final class AmbientActorTest extends TestCase
         $fz->in('amb_docs')->restrictedToFields('title', 'nope');
     }
 
+    public function testHitsCarryTheirKindAndATypedId(): void
+    {
+        $fz = $this->build();
+        $hit = $fz->in('amb_docs')->query('poster')->asSystem()->get()->hits[0];
+        self::assertSame('amb_docs', $hit->kind);
+        self::assertSame(2, $hit->id, 'an integer key is an int');
+
+        $merged = $fz->federated()->index('amb_docs')->query('poster')->asSystem()->get()->hits[0];
+        self::assertSame('amb_docs', $merged->kind);
+        self::assertSame(2, $merged->id);
+        self::assertSame(1 / (60 + 1), $merged->mergedScore);
+    }
+
     public function testGuardsWithoutAResolverMakeAnUnnamedSearchAnonymous(): void
     {
         $guard = new class implements SearchGuard {

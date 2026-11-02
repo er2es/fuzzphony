@@ -121,7 +121,7 @@ final class EntityLoaderTest extends TestCase
         // A federated (UNION ALL) result can carry string ids such as 'article-1'; an integer key must not turn them into 'invalid input syntax'.
         $real = $this->fuzzphony->in('articles')->query('mouse')->get();
         $hits = [];
-        foreach ([...array_slice($real->hits, 0, 1), new Hit('article-1', 1.0, new ScoreBreakdown()), new Hit('9999999999', 1.0, new ScoreBreakdown()), ...array_slice($real->hits, 1)] as $hit) {
+        foreach ([...array_slice($real->hits, 0, 1), new Hit('products', 'article-1', 1.0, new ScoreBreakdown()), new Hit('products', '9999999999', 1.0, new ScoreBreakdown()), ...array_slice($real->hits, 1)] as $hit) {
             $hits[] = $hit;
         }
         $mixed = new SearchResult($hits, count($hits), false, 0.1, false, [], 20, 0);
@@ -142,7 +142,7 @@ final class EntityLoaderTest extends TestCase
 
         self::assertSame($real->ids(), array_map(static fn(array $row): int => $row['entity']->getId(), $loaded), 'the rest keeps the ranking order');
         self::assertSame(1, $logger->selects, 'still one query');
-        self::assertSame([], $loader->load(new SearchResult([new Hit('article-1', 1.0, new ScoreBreakdown())], 1, false, 0.1, false, [], 20, 0), Article::class));
+        self::assertSame([], $loader->load(new SearchResult([new Hit('products', 'article-1', 1.0, new ScoreBreakdown())], 1, false, 0.1, false, [], 20, 0), Article::class));
     }
 
     public function testEmptyResultLoadsNothingWithoutQuerying(): void

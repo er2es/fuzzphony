@@ -7,7 +7,6 @@ namespace Fuzzphony\Tests\Recipes\MultiTenant;
 use Fuzzphony\Core\Analytics\RecordStatus;
 use Fuzzphony\Core\Exception\ActorRequired;
 use Fuzzphony\Core\Exception\InvalidArgument;
-use Fuzzphony\Core\Exception\InvalidQuery;
 use Fuzzphony\Core\Fuzzphony;
 use Fuzzphony\Core\Search\Actor;
 use Fuzzphony\Tests\Integration\PostgresTestCase;
@@ -165,19 +164,26 @@ final class MultiTenantTest extends KernelTestCase
         );
     }
 
-    public function testInYourOwnCodeTheActorIsExplicit(): void
+    public function testInYourOwnCodeATenantMustBeKnown(): void
     {
         $fuzzphony = $this->fuzzphony();
 
-        try {
-            $fuzzphony->in('tickets')->query('invoice')->get();
-            self::fail('A tenant-scoped index refuses a search without a tenant.');
-        } catch (InvalidQuery $e) {
-            self::assertStringContainsString('requires forTenant()', $e->getMessage());
-            self::assertNotInstanceOf(ActorRequired::class, $e);
+        // no one is signed in: the ambient actor is anonymous and has no tenant; asSystem() does not name one either
+        foreach ([fn() => $fuzzphony->in('tickets')->query('invoice')->get(), fn() => $fuzzphony->in('tickets')->asSystem()->query('invoice')->get(), fn() => $fuzzphony->in('tickets')->asActor(new Actor(user: 'ada'))->query('invoice')->get()] as $search) {
+            try {
+                $search();
+                self::fail('A tenant-scoped index refuses a search without a tenant.');
+            } catch (ActorRequired $e) {
+                self::assertStringContainsString('has no tenant', $e->getMessage());
+            }
         }
-        $this->expectException(ActorRequired::class);
-        $fuzzphony->in('tickets')->asActor(new Actor(user: 'ada'))->query('invoice')->get();
+    }
+
+    public function testAJobThatIsAllowedToSeeEverythingSaysSoAndNamesItsTenant(): void
+    {
+        $fuzzphony = $this->fuzzphony();
+
+        self::assertSame(2, $fuzzphony->in('tickets')->asSystem()->forTenant(1)->query('invoice')->get()->total);
     }
 
     public function testAFieldOnlyTheSupportLeadMaySearchIsNotMatchedForAnyoneElse(): void

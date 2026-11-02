@@ -6,11 +6,15 @@ namespace Fuzzphony\Core\Search;
 
 use Fuzzphony\Core\Ranking\Thresholds;
 
-/** @implements \IteratorAggregate<int, FederatedHit> */
+/**
+ * The merged result of a federated search: its hits are plain Hits (`kind` is the index each comes from, `mergedScore` the fusion score).
+ *
+ * @implements \IteratorAggregate<int, Hit>
+ */
 final readonly class FederatedResult implements \IteratorAggregate, \Countable
 {
     /**
-     * @param list<FederatedHit>          $hits     the requested page of the merged list
+     * @param list<Hit>                   $hits     the requested page of the merged list, each with its `mergedScore`
      * @param array<string, SearchResult> $results  each index's own result (its first offset + limit hits, facets, didYouMean, ...), keyed by index name
      * @param list<string>                $warnings those of every index, each prefixed with the index name. Plain text, not HTML.
      */
@@ -27,7 +31,7 @@ final readonly class FederatedResult implements \IteratorAggregate, \Countable
         public int $offset,
     ) {}
 
-    /** @return \ArrayIterator<int, FederatedHit> */
+    /** @return \ArrayIterator<int, Hit> */
     public function getIterator(): \ArrayIterator
     {
         return new \ArrayIterator($this->hits);

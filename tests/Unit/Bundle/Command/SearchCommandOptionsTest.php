@@ -401,7 +401,7 @@ final class SearchCommandOptionsTest extends TestCase
 
     public function testTheTablePrintsEveryScoreComponent(): void
     {
-        $hit = new Hit('p-7', 1.23456, new ScoreBreakdown(textRank: 0.1234, fuzzySimilarity: 0.5678, exactBonus: 0.5, prefixBonus: 0.25, boostBonus: 0.0123, recencyBonus: 0.0456));
+        $hit = new Hit('products', 'p-7', 1.23456, new ScoreBreakdown(textRank: 0.1234, fuzzySimilarity: 0.5678, exactBonus: 0.5, prefixBonus: 0.25, boostBonus: 0.0123, recencyBonus: 0.0456));
         $tester = $this->tester(result: $this->searchResult(hits: [$hit], total: 1));
 
         $tester->execute(['index' => 'products', 'query' => 'mouse'], ['interactive' => false]);
