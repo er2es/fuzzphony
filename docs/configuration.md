@@ -178,7 +178,7 @@ $people = $fuzzphony->in('people')->query('kovacs')->get();   // ids [1]
 
 $both = $fuzzphony->federated()->index('items')->index('people')->query('debrecen')->get();
 foreach ($both as $hit) {
-    echo $hit->index, ' ', $hit->hit->id, "\n";               // items 2, people 1, people 2
+    echo $hit->kind, ' ', $hit->id, "\n";                    // items 2, people 1, people 2
 }
 ```
 
@@ -199,14 +199,14 @@ $result = $fuzzphony->federated()
     ->get();
 
 foreach ($result as $hit) {
-    echo $hit->index, ' ', $hit->hit->id, ' ', $hit->score; // the index, its own id, the merged score
+    echo $hit->kind, ' ', $hit->id, ' ', $hit->mergedScore; // the index, its own id, the merged score
 }
 ```
 
-A hit carries `index`, the index's own `Hit` (`->hit->id`, its own score and highlights) and the merged score. The scores
+A hit is the index's own `Hit` (`->id`, its own `->score` and highlights) with `->kind`, the index it comes from, and `->mergedScore`. The scores
 of different indexes are not comparable ([limitations](limitations.md#scores-are-not-stable)), so the lists are merged by
 rank: the best hit of each index first. The ids are those of each index (`people` 1 and `companies` 1 are different rows):
-use `$hit->index` to tell them apart and load each kind from its own table.
+use `$hit->kind` to tell them apart and load each kind from its own table.
 
 ### One index over two tables (`UNION ALL`)
 

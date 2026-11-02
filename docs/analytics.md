@@ -15,7 +15,7 @@ One row per search in `fuzzphony_search_log` (in [Fuzzphony's schema](configurat
 | `at` | when the search ran (`timestamptz`) |
 | `index_name` | the index searched |
 | `tenant` | the tenant the search ran for, as text: the tenant of the query on a tenant-scoped index, else the tenant of the actor, else null |
-| `actor_user` | the user of the [actor](multi-tenancy.md#the-actor-who-is-searching), or null (anonymous) |
+| `actor_user` | the user of the [actor](multi-tenancy.md#the-actor-who-is-searching) (named, or the current user the resolver finds), `(system)` for a search made with [`asSystem()`](security.md#searching-as-the-system), or null (anonymous) |
 | `actor_ip` | the client IP of the actor, masked or whole, only when [`search_log.ip`](#the-client-ip) is not `off`; null otherwise. The column is nullable and part of the table `fuzzphony:schema --apply` creates |
 | `query` | the text the visitor typed, after [redaction](#redaction), cut at 255 characters |
 | `query_norm` | `query` lower-cased, whitespace collapsed and trimmed: the key the reports group by |
@@ -23,15 +23,16 @@ One row per search in `fuzzphony_search_log` (in [Fuzzphony's schema](configurat
 | `took_ms` | the time the engine took |
 | `used_fuzzy` | whether the typo-tolerant search ran |
 | `status` | `ok`; `denied` (a refusal, for example an actor without a tenant on a tenant-scoped index); `rate_limited` |
+| `rescued` | `true` when the [zero-result rescue](searching.md#zero-result-rescue) answered the search; `false` otherwise (and for rows written before the column). `fuzzphony:schema --apply` adds it |
 
 A search the [zero-result rescue](searching.md#zero-result-rescue) answered is one row like any other: `query` is what the
 visitor **typed** (`mpuse`), and `hits`, `used_fuzzy` and `took_ms` are those of the **rescued** search (the hits of
-`mouse`, the time of both searches), with status `ok`. The log has no flag for it. So the typo no longer appears in the
+`mouse`, the time of both searches), with status `ok`, and `rescued = true` (`SearchRecord::$rescued`, `LoggedSearch::$rescued`). So the typo no longer appears in the
 zero-result report below (`zeroResultQueries()`, `--zero`, the demo's "found nothing" list); it appears among the top queries
 with hits. Typos that the rescue could not answer (no unique correction, a tenant-scoped index, a restricted viewer) still show
 as zero-result searches. If you want the typos the catalogue could not answer on its own to stay visible there, set
-`rescue.correct_when_empty: false` (the visitor then sees "no results" and, when there is one, the did-you-mean suggestion). A way to see the
-rescued searches in the report is open for the API round (a flag or a status in the log).
+`rescue.correct_when_empty: false` (the visitor then sees "no results" and, when there is one, the did-you-mean suggestion). The reports count by `hits`, as before; to list
+the rescued searches read them with `recentSearches()` and keep those with `rescued`.
 
 Indexes on `(index_name, at)` and `(index_name, query_norm)` keep the reports fast. The "who searched what" report
 ([`recentSearches()`](#who-searched-what)) reads the rows of one index in a time window, newest first, and needs no index of
@@ -272,7 +273,7 @@ use Fuzzphony\Core\Analytics\RecordStatus;
 // the 50 most recent searches of the last 24 hours, newest first
 foreach ($analytics->recentSearches('products', new \DateTimeImmutable('-1 day')) as $s) {
     // $s->at, ->index, ->tenant (?string), ->user (null = anonymous), ->ip (?string), ->query (as stored, redacted),
-    // ->hits, ->tookMs, ->usedFuzzy, ->status (RecordStatus)
+    // ->hits, ->tookMs, ->usedFuzzy, ->status (RecordStatus), ->rescued (bool)
     printf("%s %-12s %-15s %s\n", $s->at->format('H:i:s'), $s->user ?? '(anonymous)', $s->ip ?? '-', $s->query);
 }
 
@@ -460,11 +461,28 @@ the visitor can set. To add the column to an existing table, apply the schema ag
 The code above writes inside the search; the bundle's buffer writes after the response, which is why it is the
 better default.
 
+## Recording a search that ran elsewhere
+
+`Fuzzphony::logSearch()` writes the row of a search without running it: a page served from a cache, a front end that searched through its own
+channel, a merged result you built yourself. Nothing is searched and no guard runs; the row follows the rules of a search of that index (the
+actor, [redaction](#redaction), the [IP mode](#the-client-ip), the tenant of a tenant-scoped index, the 255 characters).
+
+```php
+$logged = $fuzzphony->logSearch(
+    'products', 'wireless mouse', hits: 12, tookMs: 3.5,
+    actor: new Actor(user: 'ada'),   // omitted: the current user; system: true for a job
+    usedFuzzy: false, rescued: false,
+);   // returns the LoggedSearch that was stored (the redacted text)
+```
+
+It throws `InvalidArgument` where a search would not be recorded: the index has `log: false`, or the search log is off, so a call that records
+nothing is not silent. A tenant-scoped index needs the actor's tenant (`ActorRequired`).
+
 ## A custom `SearchLog`
 
 `SearchLog` is one method, `record(SearchRecord $record): void`. The `SearchRecord` is final and readonly: `at`,
 `index`, `tenant`, `user`, `query` (already redacted and cut), `hits`, `tookMs`, `usedFuzzy`, `status`
-(`RecordStatus::Ok`, `Denied`, `RateLimited`) and `ip` (what the log is to store: masked as `search_log.ip` says, or null). To send the records somewhere else (Monolog, a queue, Elasticsearch,
+(`RecordStatus::Ok`, `Denied`, `RateLimited`), `ip` (what the log is to store: masked as `search_log.ip` says, or null) and `rescued` (true when the rescue answered). To send the records somewhere else (Monolog, a queue, Elasticsearch,
 an analytics service), implement it and pass it as `Fuzzphony::postgres(..., log: $yourLog)` (plain PHP). The bundle has no setting for it:
 leave `search_log` off and define the `fuzzphony.search_gate` service yourself, as a `SearchGate` built with your log (the gate is `@internal`, its constructor may change).
 The gate takes care of redaction, the 255-character cut, the per-index `log: false`, `unlogged()` and of a log that

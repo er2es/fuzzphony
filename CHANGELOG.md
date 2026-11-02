@@ -18,6 +18,8 @@ and a link. Measurements, proofs and test names belong to the pull request, [doc
 
 ### Added
 
+- **`SearchResult::$correctedTo`, `rescued` in the search log, `Fuzzphony::logSearch()`** (record a search without running it), **`toArray()`/JSON** for results, hits and facets, and the opt-in
+  **`->explainMatches()`** (`Hit::$matches`: which word matched where and how) ([searching](docs/searching.md#what-matched), [analytics](docs/analytics.md)).
 - **`code: true` on a field** (`fields: { number: { weight: A, code: true } }`, `#[SearchField('A', code: true)]`, `->field('number', 'A', code: true)`): `INV-001`, `INV001`, `inv-001`, `001`, `AB-12/3`
   and `INV.007` find their row ([Codes and numbers](docs/searching.md#codes-and-numbers)). Run `fuzzphony:schema --apply` and `fuzzphony:reindex` ([UPGRADE](UPGRADE.md#from-0913-to-0100)).
 - **`source: { query_file: sql/catalog.sql }`** and `->fromQueryFile($path, $baseDir)`: the source query from a file inside the project; its content is part of the
@@ -27,6 +29,11 @@ and a link. Measurements, proofs and test names belong to the pull request, [doc
 
 ### Breaking
 
+- **A search that names no actor is made as the application's current user** (the Security token, or `Fuzzphony::postgres(actors:)`): a controller that forgot `->asActor()` no longer
+  searches without guards. Anonymous (CLI, worker, no token) hides `granted` fields; full access is the visible `->asSystem()` (logged as `(system)`, `authorization.allow_system: false`
+  switches it off). A `granted` field without `authorization.enabled` fails the build and the doctor ([UPGRADE](UPGRADE.md#from-0913-to-0100)).
+- **`restrictedToFields()` only narrows** (intersection with the actor's fields); **`Hit::$kind`** and a typed `Hit::$id` replace `FederatedHit` (`mergedScore` on the hit);
+  the search log gets a **`rescued`** column (`fuzzphony:schema --apply`); the wizard's YAML writes lists as sequences.
 - **Thresholds are four named groups** (`relevance`, `typo`, `rescue`, `limits`): `new Thresholds(typo: new TypoThresholds(mode: FuzzyMode::Always))`,
   `thresholds: { typo: { mode: always } }`, `->thresholds(['typo' => ['mode' => 'always']])`, `--threshold typo.mode=always`; the flat names fail with the new key in the message,
   `fallback_below` splits into `typo.fallback_below` and `rescue.did_you_mean_below` ([UPGRADE](UPGRADE.md#from-0913-to-0100)).

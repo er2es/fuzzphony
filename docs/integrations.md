@@ -94,14 +94,19 @@ UI depends on:
 
 | `SearchResult` | What it is | Rendering |
 |---|---|---|
-| `hits` | `Hit` objects in rank order: `id`, `score`, `highlights` (field => snippet) | Load your own rows by `id` (`ids()` gives the list) |
+| `hits` | `Hit` objects in rank order: `kind` (the index), `id` (typed: `int` or `string`), `score`, `highlights` (field => snippet), `matches` with `explainMatches()` | Load your own rows by `id` (`ids()` gives the list) |
 | `total`, `totalIsLowerBound` | The number of matches; a lower bound when the search hit `limits.candidates` | Show `2000+` when `totalIsLowerBound` is true |
 | `hasMore()`, `limit`, `offset`, `page()` | Paging | A pager follows `hasMore()` |
 | `facets` | `filter => list<FacetValue>` (`value`, `count`) for the filters named in `facets()` | Counts are lower bounds when `totalIsLowerBound` |
 | `didYouMean` | A spelling suggestion, or `null` | Plain text; search it by passing it to `query()` |
-| `correctedFrom` | The visitor's text when the search found nothing and the result is the one of the corrected text, or `null` | Plain text; say "results for ..., you wrote ..." |
+| `correctedFrom`, `correctedTo` | The visitor's text, and the text searched instead, when the search found nothing and the result is the one of the corrected text; else `null` | Plain text; say "results for `correctedTo`, you wrote `correctedFrom`" |
 | `warnings` | Corrections applied to the text | Plain text |
 | `usedFuzzy`, `interpretedAs`, `tookMs` | Diagnostics | Optional |
+
+**JSON without the glue.** `json_encode($result)` writes the whole result with stable keys (`hits`, `total`, `totalIsLowerBound`, `facets`, `didYouMean`,
+`correctedFrom`, `correctedTo`, `warnings`, `tookMs`; a hit has `kind`, `id`, `score`, `breakdown`, `highlights`, `mergedScore`, `matches`), also `$result->toArray()`: an endpoint can be
+`echo json_encode($fuzzphony->in('products')->query($q)->highlight('name')->get());`. The `highlights` are HTML (below), everything else is plain text. The example
+below builds its own shape on purpose, to show what each part is for.
 
 **The escape rule.** `$hit->highlights['name']` is HTML: Fuzzphony escapes the whole text (`&`, `<`, `>`, quotes) and adds
 `<mark>` and `</mark>` around the matching words, nothing else. Render it as HTML (`innerHTML`, Twig `|raw`), or strip the
