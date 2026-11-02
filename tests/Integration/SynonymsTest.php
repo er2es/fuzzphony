@@ -148,14 +148,6 @@ laptop => notebook
         self::assertSame([1, 2, 8], self::ids($fuzzphony->in('products')->thresholds(['typo' => ['mode' => 'never']])->query('television')->get()));
     }
 
-    public function testAnEngineThatCannotPrepareSynonymsSaysSo(): void
-    {
-        $fuzzphony = new Fuzzphony(self::createStub(\Fuzzphony\Core\Engine\Engine::class), new IndexRegistry([Indexes::products('manual')]));
-
-        $this->expectException(\Fuzzphony\Core\Exception\InvalidArgument::class);
-        $fuzzphony->stemSynonyms('products', new Synonyms());
-    }
-
     public function testAWordIsComparedByItsStem(): void
     {
         // "televisions" and "television" are one stem, so the plural finds the group of "television"

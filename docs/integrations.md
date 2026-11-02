@@ -116,7 +116,7 @@ A framework-free endpoint (the index is defined as in [Builder (plain PHP)](conf
 ```php
 // search.php
 $pdo = new PDO('pgsql:host=localhost;dbname=shop', 'user', 'secret');
-$fuzzphony = new Fuzzphony(new PostgresEngine(new PdoConnection($pdo)), new IndexRegistry([
+$fuzzphony = Fuzzphony::postgres(new PdoConnection($pdo), [
     IndexDefinition::builder('products')
         ->fromQuery('SELECT id, name, category FROM product')
         ->watch('product')
@@ -124,7 +124,7 @@ $fuzzphony = new Fuzzphony(new PostgresEngine(new PdoConnection($pdo)), new Inde
         ->filter('category', 'string')
         ->language('english')
         ->build(),
-]));
+]);
 
 $result = $fuzzphony->in('products')
     ->query(trim((string) ($_GET['q'] ?? '')))

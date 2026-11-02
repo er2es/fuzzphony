@@ -8,7 +8,6 @@ use Fuzzphony\Bundle\Command\AnalyticsCommand;
 use Fuzzphony\Core\Analytics\RecordStatus;
 use Fuzzphony\Core\Analytics\SearchRecord;
 use Fuzzphony\Core\Database\Connection;
-use Fuzzphony\Core\Engine\Engine;
 use Fuzzphony\Core\Fuzzphony;
 use Fuzzphony\Core\Registry\IndexRegistry;
 use Fuzzphony\Engine\Postgres\PostgresEngine;
@@ -346,16 +345,5 @@ final class AnalyticsCommandTest extends TestCase
 
         self::assertSame(Command::FAILURE, $status);
         self::assertStringContainsString('between 1 and 1000', $tester->getDisplay());
-    }
-
-    public function testAnEngineWithoutALogIsReportedWithoutAStackTrace(): void
-    {
-        $engine = self::createStub(Engine::class);
-        $tester = new CommandTester(new AnalyticsCommand(new Fuzzphony($engine, new IndexRegistry([Indexes::products('manual')]))));
-
-        $status = $tester->execute(['index' => 'products']);
-
-        self::assertSame(Command::FAILURE, $status);
-        self::assertStringContainsString('keeps no search log', $tester->getDisplay());
     }
 }

@@ -434,26 +434,21 @@ See also [SECURITY.md](../SECURITY.md).
 
 ## Without Symfony
 
-The core needs three things: an engine that keeps the log, a `SearchLog` to write to, and a gate:
+With `searchLog: true` the factory keeps the log in Fuzzphony's own table, writing each record at once, with the redaction and the IP mode you name:
 
 ```php
-use Fuzzphony\Core\Analytics\{IpMode, PatternQueryRedactor, SearchLog, SearchRecord};
-use Fuzzphony\Core\Search\SearchGate;
+use Fuzzphony\Core\Analytics\IpMode;
+use Fuzzphony\Core\Fuzzphony;
 
-$engine = new PostgresEngine($connection, searchLog: true, searchLogRetentionDays: 90);
-
-// the simplest log writes each record at once; buffer and write at the end of the request if you prefer
-$log = new class($engine) implements SearchLog {
-    public function __construct(private PostgresEngine $engine) {}
-    public function record(SearchRecord $record): void { $this->engine->writeSearchLog([$record]); }
-};
-
-$fuzzphony = new Fuzzphony(
-    $engine,
-    new IndexRegistry([$products]),
-    new SearchGate(log: $log, redactor: PatternQueryRedactor::fromSettings(['email']), ipMode: IpMode::Masked),
+$fuzzphony = Fuzzphony::postgres(
+    $connection,
+    [$products],
+    searchLog: true,
+    searchLogRetentionDays: 90,
+    redact: ['email'],          // "email" or a regular expression with delimiters, as search_log.redact
+    ipMode: IpMode::Masked,
 );
-$fuzzphony->schema()->apply($connection);   // creates the table: the engine was built with searchLog: true
+$fuzzphony->schema()->apply($connection);   // creates the table: the service was built with searchLog: true
 ```
 
 `ipMode:` is optional (`IpMode::Off`, the default, keeps no address); the address comes from the actor you give to
@@ -470,8 +465,8 @@ better default.
 `SearchLog` is one method, `record(SearchRecord $record): void`. The `SearchRecord` is final and readonly: `at`,
 `index`, `tenant`, `user`, `query` (already redacted and cut), `hits`, `tookMs`, `usedFuzzy`, `status`
 (`RecordStatus::Ok`, `Denied`, `RateLimited`) and `ip` (what the log is to store: masked as `search_log.ip` says, or null). To send the records somewhere else (Monolog, a queue, Elasticsearch,
-an analytics service), implement it and pass it to the `SearchGate` (plain PHP). The bundle has no setting for it:
-leave `search_log` off and define the `fuzzphony.search_gate` service yourself, as a `SearchGate` built with your log.
+an analytics service), implement it and pass it as `Fuzzphony::postgres(..., log: $yourLog)` (plain PHP). The bundle has no setting for it:
+leave `search_log` off and define the `fuzzphony.search_gate` service yourself, as a `SearchGate` built with your log (the gate is `@internal`, its constructor may change).
 The gate takes care of redaction, the 255-character cut, the per-index `log: false`, `unlogged()` and of a log that
 throws (counted and logged, the search goes on).
 

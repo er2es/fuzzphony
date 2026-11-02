@@ -240,7 +240,7 @@ with or without them, and an index without a `granted` field has no extra index 
 - A phrase over fields of both classes, or with a synonym alternative, is rechecked on the fields' own columns as before.
 - A viewer restricted by hand (`restrictedToFields()`) on an index with no `granted` field has no open class: as slow as above.
 - The open-class indexes are used only when they exist, are valid and each is smaller than the index it replaces (`fz`, `tsv`); the engine asks once per process, so
-  after `fuzzphony:schema --apply` built them restart long-running workers (or call `PostgresEngine::resetCaches()`). Until then,
+  after `fuzzphony:schema --apply` built them restart long-running workers (or call `Fuzzphony::resetCaches()`). Until then,
   and when the granted fields hold little of the text, the viewer is on the statements it always had.
 - A typo-tolerant search of a word the viewer's own tenant does not have, while other tenants do, can be slow for a restricted viewer (5.8 s on 200 000
   products in one measurement: no match in the tenant, the word in most documents of another). Nothing of the other tenant is returned or counted; the
@@ -474,7 +474,7 @@ RoadRunner, a Messenger consumer) keeps them on purpose: that is what makes its 
 request's. It is right as long as the configuration and its dictionaries do not change while the process runs.
 
 What to do: after an `ALTER TEXT SEARCH CONFIGURATION` or a changed dictionary, restart the long-running
-processes that search, or call `PostgresEngine::resetCaches()` from the application. A PHP-FPM request starts
+processes that search, or call `Fuzzphony::resetCaches()` from the application. A PHP-FPM request starts
 clean.
 
 ### `explain()` and its statement labels are not a stable API

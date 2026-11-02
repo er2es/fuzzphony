@@ -81,7 +81,7 @@ column the index does not use (see [Column-aware filtering](sync.md#column-aware
 
 ### Several indexes
 
-Give `indexes:` several entries (with the builder: build several definitions and give them all to the `IndexRegistry`).
+Give `indexes:` several entries (with the builder: build several definitions and give them all to `Fuzzphony::postgres()`).
 Each index has its own sidecar table, triggers and queue rows, so indexes can share tables:
 
 ```yaml
@@ -260,7 +260,7 @@ the key (`key: "(order_no || '/' || line_no)"`) is refused with "is not a valid 
 ### A database where Fuzzphony may not create triggers
 
 Tried with a role that has `SELECT` on the source tables, `CREATE` on the database and a schema of its own
-(`new PostgresEngine($connection, schema: 'fz')`, see [Fuzzphony's schema](#fuzzphonys-schema)). With `sync: manual`,
+(`Fuzzphony::postgres($connection, $indexes, schema: 'fz')`, see [Fuzzphony's schema](#fuzzphonys-schema)). With `sync: manual`,
 `schema --apply`, `reindex`, search, `refresh()` and the doctor worked, and nothing was installed on the source tables.
 With `sync: queue` the apply stopped with `permission denied for table …` and created nothing: triggers need ownership of
 (or `TRIGGER` on) the source tables. Without that right, run `fuzzphony:reindex` from cron or after an import, and call
@@ -496,8 +496,7 @@ declared.
 Without Symfony, use the builder and a PDO connection:
 
 ```php
-use Fuzzphony\Core\{Fuzzphony, Registry\IndexRegistry, Database\PdoConnection, Definition\IndexDefinition};
-use Fuzzphony\Engine\Postgres\PostgresEngine;
+use Fuzzphony\Core\{Fuzzphony, Database\PdoConnection, Definition\IndexDefinition};
 
 $connection = PdoConnection::fromDsn('pgsql:host=localhost;dbname=shop', 'user', 'secret');
 
@@ -513,7 +512,7 @@ $products = IndexDefinition::builder('products')
     ->language('english')
     ->build();                                  // validates, reporting ALL problems at once
 
-$fuzzphony = new Fuzzphony(new PostgresEngine($connection), new IndexRegistry([$products]));
+$fuzzphony = Fuzzphony::postgres($connection, [$products]);
 $fuzzphony->schema()->apply($connection);
 $fuzzphony->reindex('products');
 ```
@@ -522,7 +521,7 @@ $fuzzphony->reindex('products');
 
 Every object Fuzzphony creates (sidecar tables, the sync queue, the version table, the helper
 functions, the text search configurations and their stop-word dictionaries) lives in one schema,
-`public` by default. `new PostgresEngine($connection, schema: 'fuzzphony')` (bundle:
+`public` by default. `Fuzzphony::postgres($connection, $indexes, schema: 'fuzzphony')` (bundle:
 `fuzzphony.schema`) puts them in their own schema instead; `fuzzphony:schema --apply` creates it.
 Triggers stay on your tables, since PostgreSQL attaches a trigger to its table; they call the
 schema-qualified sync function.

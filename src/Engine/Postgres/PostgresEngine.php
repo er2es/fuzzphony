@@ -83,8 +83,6 @@ final class PostgresEngine implements Engine
      * otherwise be paid again on every request), so nothing calls this by itself: an application that changes the text
      * search configuration or a dictionary while its process runs calls it, or restarts the process. It also forgets which
      * vocabulary tables the did-you-mean lookup has found readable, so a table created or dropped since is looked at again.
-     *
-     * @internal
      */
     public function resetCaches(): void
     {

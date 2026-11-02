@@ -28,6 +28,13 @@ interface Engine
 {
     public function name(): string;
 
+    /**
+     * Forgets what the engine remembered for the life of the process (which words a text search configuration reduces to nothing,
+     * the stems of the synonyms, which vocabulary tables are readable). A long-lived process calls it after a text search
+     * configuration or a dictionary changed, or is restarted.
+     */
+    public function resetCaches(): void;
+
     /** The reader of table structures behind the configuration wizard. */
     public function introspector(): SourceIntrospector;
 

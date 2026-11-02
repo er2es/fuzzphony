@@ -5,7 +5,7 @@ the [README](../README.md).
 
 ## The three collectors
 
-Every metrics call site (`PostgresEngine`, `Worker`, `RefreshDocumentsHandler`) takes an optional
+Every metrics call site (the engine, `Worker`, `RefreshDocumentsHandler`) takes an optional
 `Fuzzphony\Core\Observability\MetricsCollector` — `increment()`, `observe()`, `gauge()`, matching
 Prometheus's own data model. Nothing is required; pick one:
 
@@ -21,10 +21,11 @@ Prometheus's own data model. Nothing is required; pick one:
 ### Plain PHP
 
 ```php
-use Fuzzphony\Core\Observability\LoggingMetricsCollector;
+use Fuzzphony\Core\Observability\MetricsCollector;
 
-$engine = new PostgresEngine($connection, metrics: new LoggingMetricsCollector($logger));
-$worker = new Worker($engine, metrics: new LoggingMetricsCollector($logger));
+// MetricsCollector is the extension point: implement increment(), gauge() and timing() for your metrics library
+
+$fuzzphony = Fuzzphony::postgres($connection, $indexes, metrics: new MyMetricsCollector());
 ```
 
 ### Symfony bundle

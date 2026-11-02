@@ -40,6 +40,64 @@ and the [CHANGELOG](CHANGELOG.md) has the full list of changes.
 - **A batch the worker cannot refresh because of the data is split.** Only the ids that fail on their own stay queued, with `attempts`, `last_error`
   (exception class and SQLSTATE) and `failed_at` (three columns the apply adds to `fuzzphony_queue`) and a back-off from 60 s to an hour; the doctor names them. The
   worker's stderr shows the exception class and SQLSTATE only (the driver message used to be printed: a log scraper that matched it needs the SQLSTATE).
+- **The public API is smaller (76 types, [list](docs/architecture.md#public-api)).** Everything that is not on the list is tagged `@internal` and may change in any
+  release. If your code imports one of these, change it:
+
+  | Was | Now |
+  |---|---|
+  | `new Fuzzphony(new PostgresEngine($connection, ...), new IndexRegistry([...]))` | `Fuzzphony::postgres($connection, [$index, ...], schema: ..., metrics: ..., searchLog: ...)` (the bundle wires it for you) |
+  | `new DefinitionSuggester()`, `SourceIntrospector`, `YamlExporter`, `BuilderExporter`, `AttributeExporter` | `$fuzzphony->wizard()`: `tables()`, `suggest($table, $name, $language)`, `yaml($definition)`, `builder($definition)`, `attributes($definition)` (null when attributes cannot express it) |
+  | `Fuzzphony::engine()`, `Fuzzphony::registry()`, `new Fuzzphony(...)`, `SearchBuilder::toQuery()`, the constructors of `SearchResult`, `ScoreBreakdown`, `SearchAnalytics`, `SearchRecord`, `ReindexResult`, `FederatedSearch`, `SearchBuilder`, `IndexDefinition`, `FuzzphonySearchFilter` | `@internal` |
+  | `Engine`, `PostgresEngine`, `IndexRegistry`, `SearchQuery`, `Condition`, `Operator`, `SearchGate`, `RefreshDispatcher`, `ImmediateRefreshDispatcher`, `RefreshDocuments`, `OrmSyncListener`, `SearchComponent`, `PatternQueryRedactor`, `LoggingMetricsCollector`, `NullMetricsCollector`, `IpMode`, `ColumnKind`, `ColumnProfile`, `DefinitionSuggester`, `ForeignKey`, `SourceIntrospector`, `TableProfile`, the three exporters | `@internal` (not on the public list) |
+  | `Capabilities`, `Capability`, `Vocabulary`, `SynonymStems`, `Suggestions`, `SearchLogStore`, `RecentSearchStore` (optional `Engine` interfaces) | removed: `Engine` has the methods (`rebuildVocabulary()`, `stemSynonyms()`, `suggestWords()`, `writeSearchLog()`, `purgeSearchLog()`, `topQueries()`, `zeroResultQueries()`, `recentSearches()`, `introspector()`) and `capabilities()` is gone |
+  | `TransactionAware` | removed: `Connection::inTransaction()` is part of the `Connection` interface. A `Connection` of your own must implement it (`return false;` when it cannot tell: the engine then treats the connection as outside a transaction) |
+  | `Fuzzphony::analytics()` throwing "the engine keeps no search log", `stemSynonyms()` throwing "the engine does not prepare synonyms" | the PostgreSQL engine supports both: nothing to catch |
+- **`Fuzzphony::suggest()` is `complete()`, `useSuggestion` is `useDidYouMean`, `fuzzphony:search --suggest` is `--complete`.** No aliases: the old names fail. In your
+  Twig overrides of `Search.html.twig` change `data-live-action-param="useSuggestion"` to `useDidYouMean`.
+- **Thresholds are four named groups.** The 11 flat options of `Thresholds` (constructor, `->thresholds([...])` per query, `thresholds:` in the YAML/array configuration,
+  `fuzzphony:search --threshold`) are split into `relevance`, `typo`, `rescue` and `limits`. The old flat names are refused with a message that names the new key.
+
+  | Was | Now |
+  |---|---|
+  | `min_score` / `minScore` | `relevance.min_score` / `RelevanceThresholds(minScore:)` |
+  | `fuzzy_similarity` / `fuzzySimilarity` | `typo.similarity` / `TypoThresholds(similarity:)` |
+  | `fuzzy_min_length` / `fuzzyMinLength` | `typo.min_length` / `TypoThresholds(minLength:)` |
+  | `fuzzy_mode` / `fuzzyMode` | `typo.mode` / `TypoThresholds(mode:)` |
+  | `fallback_below` / `fallbackBelow` | `typo.fallback_below` (typo tolerance) and `rescue.did_you_mean_below` (the did-you-mean trigger; unset: the same number) |
+  | `relax_when_empty` / `relaxWhenEmpty` | `rescue.drop_unmatched` / `RescueThresholds(dropUnmatched:)` |
+  | `did_you_mean` / `didYouMean` | `rescue.did_you_mean` / `RescueThresholds(didYouMean:)` |
+  | `rescue_empty` / `rescueEmpty` | `rescue.correct_when_empty` / `RescueThresholds(correctWhenEmpty:)` |
+  | `candidate_limit` / `candidateLimit` | `limits.candidates` / `LimitThresholds(candidates:)` |
+  | `max_query_length` / `maxQueryLength` | `limits.max_query_length` / `LimitThresholds(maxQueryLength:)` |
+  | `max_terms` / `maxTerms` | `limits.max_terms` / `LimitThresholds(maxTerms:)` |
+
+  ```yaml
+  # before                              # after
+  thresholds:                           thresholds:
+    fuzzy_mode: always                    typo: { mode: always, similarity: 0.4 }
+    fuzzy_similarity: 0.4                 rescue: { correct_when_empty: false }
+    rescue_empty: false                   limits: { candidates: 1000 }
+    candidate_limit: 1000
+  ```
+
+  ```php
+  // before
+  $builder->thresholds(new Thresholds(fuzzyMode: FuzzyMode::Always, fuzzySimilarity: 0.4, rescueEmpty: false, candidateLimit: 1000));
+  $fuzzphony->in('products')->query('mpuse')->thresholds(['fuzzy_mode' => 'always'])->get();
+  // after
+  $builder->thresholds(new Thresholds(
+      typo: new TypoThresholds(mode: FuzzyMode::Always, similarity: 0.4),
+      rescue: new RescueThresholds(correctWhenEmpty: false),
+      limits: new LimitThresholds(candidates: 1000),
+  ));
+  $fuzzphony->in('products')->query('mpuse')->thresholds(['typo' => ['mode' => 'always']])->get();
+  // command line: fuzzphony:search products mpuse --threshold typo.mode=always
+  ```
+
+  What else changes: an error names its group (`thresholds.typo`, one error per group, with a "did you mean" for a misspelled option and the allowed options of the group);
+  numeric strings (`"0.1"`, `"500"`) are accepted for every number; `rescue.correct_when_empty` needs `rescue.did_you_mean`, so switching the suggestion off now means
+  `rescue: { did_you_mean: false, correct_when_empty: false }` (the combination `did_you_mean: false` alone is refused at configuration time instead of being ignored).
+  Thresholds in a stored configuration, an environment-specific YAML or a Live Component of yours need the new keys; `fuzzphony:wizard` prints the grouped form.
 
 ### Added
 

@@ -4,7 +4,12 @@ declare(strict_types=1);
 
 namespace Fuzzphony\Core;
 
+use Fuzzphony\Core\Analytics\EngineSearchLog;
+use Fuzzphony\Core\Analytics\IpMode;
+use Fuzzphony\Core\Analytics\NullSearchLog;
+use Fuzzphony\Core\Analytics\PatternQueryRedactor;
 use Fuzzphony\Core\Analytics\SearchAnalytics;
+use Fuzzphony\Core\Analytics\SearchLog;
 use Fuzzphony\Core\Database\Connection;
 use Fuzzphony\Core\Definition\IndexDefinition;
 use Fuzzphony\Core\Definition\Synonyms;
@@ -23,11 +28,13 @@ use Fuzzphony\Core\Search\Actor;
 use Fuzzphony\Core\Search\FederatedSearch;
 use Fuzzphony\Core\Search\SearchBuilder;
 use Fuzzphony\Core\Search\SearchGate;
+use Fuzzphony\Core\Search\SearchGuard;
 use Fuzzphony\Core\Sync\Reindexer;
 use Fuzzphony\Core\Sync\ReindexOptions;
 use Fuzzphony\Core\Sync\ReindexResult;
 use Fuzzphony\Core\Wizard\Wizard;
 use Fuzzphony\Engine\Postgres\PostgresEngine;
+use Psr\Log\LoggerInterface;
 
 /** The one service applications talk to. */
 final readonly class Fuzzphony
@@ -38,6 +45,11 @@ final readonly class Fuzzphony
      * @param list<IndexDefinition> $indexes
      * @param string                $schema          the schema of Fuzzphony's own tables
      * @param string                $extensionSchema the schema that holds the pg_trgm and unaccent extensions
+     * @param bool                  $searchLog       keep the search log in Fuzzphony's table (the reports of analytics()); each record is written at once
+     * @param list<SearchGuard>     $guards          run, in order, for a search made as an actor; what they allow is intersected
+     * @param SearchLog|null        $log             your own sink for the search records (instead of the table of $searchLog)
+     * @param list<string>          $redact          "email" or a regular expression with delimiters: matches are cut out of the query text before it is logged
+     * @param IpMode                $ipMode          whether the log keeps the client IP of the actor, and how much of it
      */
     public static function postgres(
         Connection $connection,
@@ -47,11 +59,20 @@ final readonly class Fuzzphony
         ?MetricsCollector $metrics = null,
         bool $searchLog = false,
         int $searchLogRetentionDays = 90,
+        array $guards = [],
+        ?SearchLog $log = null,
+        array $redact = [],
+        IpMode $ipMode = IpMode::Off,
+        ?LoggerInterface $logger = null,
     ): self {
-        return new self(
-            new PostgresEngine($connection, $extensionSchema, $schema, $metrics ?? new NullMetricsCollector(), $searchLog, $searchLogRetentionDays),
-            new IndexRegistry($indexes),
-        );
+        $metrics ??= new NullMetricsCollector();
+        $engine = new PostgresEngine($connection, $extensionSchema, $schema, $metrics, $searchLog, $searchLogRetentionDays);
+        $log ??= $searchLog ? new EngineSearchLog($engine) : null;
+        $gate = $guards !== [] || $log !== null || $redact !== [] || $ipMode !== IpMode::Off
+            ? new SearchGate($metrics, $logger, $log ?? new NullSearchLog(), $redact === [] ? null : PatternQueryRedactor::fromSettings($redact), $guards, $ipMode)
+            : null;
+
+        return new self($engine, new IndexRegistry($indexes), $gate);
     }
 
     /** @internal */
@@ -71,6 +92,16 @@ final readonly class Fuzzphony
     public function federated(): FederatedSearch
     {
         return new FederatedSearch($this->engine, $this->registry, gate: $this->gate);
+    }
+
+    /**
+     * Forgets what the engine remembered for the life of the process (the words a text search configuration reduces to nothing, the stems
+     * of the synonyms, the vocabulary tables found readable): call it in a long-running process after a text search configuration or a
+     * dictionary changed, or after `fuzzphony:schema --apply` created the open-class indexes; a PHP-FPM request starts clean.
+     */
+    public function resetCaches(): void
+    {
+        $this->engine->resetCaches();
     }
 
     /** The configuration wizard over the database of the connection. */

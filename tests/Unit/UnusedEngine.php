@@ -22,6 +22,11 @@ use Fuzzphony\Core\Wizard\SourceIntrospector;
 /** @internal An engine whose every method throws: a test double extends it and overrides what the test uses. */
 abstract class UnusedEngine implements Engine
 {
+    public function resetCaches(): void
+    {
+        throw new \LogicException('not used by this test');
+    }
+
     public function name(): string
     {
         throw new \LogicException('not used by this test');

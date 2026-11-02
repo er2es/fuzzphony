@@ -54,9 +54,7 @@ runs no guard, so the only refusal it can show is `ActorRequired`, as its error 
 Without Symfony, pass your own guards to the gate:
 
 ```php
-use Fuzzphony\Core\Search\SearchGate;
-
-$fuzzphony = new Fuzzphony($engine, $registry, new SearchGate(guards: [new MyGuard()]));
+$fuzzphony = Fuzzphony::postgres($connection, $indexes, guards: [new MyGuard()]);
 ```
 
 ## The rate limit
