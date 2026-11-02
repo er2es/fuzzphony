@@ -214,8 +214,8 @@ final class ExportersOutputTest extends TestCase
         $yaml = (new YamlExporter())->export($index);
 
         self::assertStringContainsString("        table: 'NO'\n", $yaml, 'a word YAML reads as a boolean is quoted whatever its case');
-        self::assertStringContainsString("          0: 'it''s'\n", $yaml, 'quotes are doubled');
-        self::assertStringContainsString("          0: 'TRUE'\n", $yaml);
+        self::assertStringContainsString("        - ['it''s', it is]\n", $yaml, 'quotes are doubled, a group is a list');
+        self::assertStringContainsString("        - ['TRUE', yes please]\n", $yaml);
         self::assertStringContainsString("          candidates: 500\n", $yaml);
         self::assertStringContainsString("          min_score: 1\n", $yaml, 'a whole float has no trailing dot');
         self::assertStringContainsString("          similarity: 0.25\n", $yaml);
@@ -242,6 +242,6 @@ final class ExportersOutputTest extends TestCase
 
         $yaml = (new YamlExporter())->export($index);
 
-        self::assertStringContainsString("        note: 'SELECT :id'\n        tag: |\n          SELECT note_id\n          FROM note_tag WHERE tag_id = :id\n", $yaml);
+        self::assertStringContainsString("        note: 'SELECT :id'\n        tag: |-\n          SELECT note_id\n          FROM note_tag WHERE tag_id = :id\n", $yaml);
     }
 }
