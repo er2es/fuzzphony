@@ -49,12 +49,12 @@ final class ShadowSwapTest extends TestCase
 
         $this->rebuild($index);
 
-        $expected = [...array_keys((new PostgresSchemaGenerator())->indexes($index)), 'fuzzphony_products_pkey'];
+        $expected = [...array_keys((new PostgresSchemaGenerator())->indexes($index)), 'fuzzphony_products__pkey'];
         sort($expected);
         self::assertSame($expected, array_map(Coerce::str(...), array_column($this->connection->fetchAll(
             "SELECT indexname FROM pg_indexes WHERE schemaname = 'public' AND tablename = 'fuzzphony_products' ORDER BY indexname COLLATE \"C\"",
         ), 'indexname')));
-        self::assertSame('fuzzphony_products_pkey', $this->connection->fetchValue("SELECT conname FROM pg_constraint WHERE conrelid = 'fuzzphony_products'::regclass AND contype = 'p'"));
+        self::assertSame('fuzzphony_products__pkey', $this->connection->fetchValue("SELECT conname FROM pg_constraint WHERE conrelid = 'fuzzphony_products'::regclass AND contype = 'p'"));
         self::assertNull($this->connection->fetchValue("SELECT to_regclass('fuzzphony_products__next')"));
         self::assertNull($this->connection->fetchValue("SELECT to_regclass('fuzzphony_products__changes')"));
         self::assertSame([], $this->connection->fetchAll("SELECT 1 FROM pg_trigger WHERE tgrelid = 'fuzzphony_products'::regclass AND NOT tgisinternal"), 'the change log trigger went with the old table');

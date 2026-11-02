@@ -7,6 +7,13 @@ and the [CHANGELOG](CHANGELOG.md) has the full list of changes.
 
 ### Breaking
 
+- **Index objects have new names.** The secondary indexes and the primary key of a sidecar table are now `fuzzphony_<index>__<kind>`
+  (`fuzzphony_products__tsv`, `__fz`, `__f_<filter>`, `__pkey`, `__open_fz_<hash>`, `__open_tsv_<hash>`; `__` cannot occur in an index name), where they were
+  `fuzzphony_<index>_<kind>`: an index named `products_open` collided with the open-class objects of `products`. `fuzzphony:schema --apply` builds the indexes
+  under the new names (`CREATE INDEX CONCURRENTLY`, the table stays writable) and then drops the old ones (`DROP INDEX CONCURRENTLY`); the doctor
+  reports an old one as `OLD NAME` until then. The primary key keeps its old name until the next `fuzzphony:reindex` renames it. Until the apply, the
+  doctor reports the indexes missing and searches run as before. Anything of yours that names these indexes (a monitoring query, a `REINDEX`
+  script, an `EXPLAIN` assertion) needs the new names.
 - **Run `fuzzphony:schema --apply` before the new code serves traffic.** The columns `tsv_capped` (sidecar tables) and `actor_ip` (search log) are
   required. A search, refresh or log write that finds one missing throws `Fuzzphony\Core\Exception\SchemaNotApplied` ("The Fuzzphony schema is
   not up to date (missing: ...). Run: bin/console fuzzphony:schema --apply"); `fuzzphony:doctor` reports the same as an error. The slower

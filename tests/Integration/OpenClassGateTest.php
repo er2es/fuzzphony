@@ -197,7 +197,7 @@ final class OpenClassGateTest extends TestCase
         foreach ([1, 2, 3, 5, 8, 12, 20] as $words) {
             $fuzzphony = $this->applyAndLoad($this->engine(), descriptionWords: $words, nameWords: 40);
             $sizes = [];
-            foreach (['fz' => 'fuzzphony_gate_items_fz', 'tsv' => 'fuzzphony_gate_items_tsv', 'open_fz' => $this->open('fz'), 'open_tsv' => $this->open('tsv')] as $key => $name) {
+            foreach (['fz' => 'fuzzphony_gate_items__fz', 'tsv' => 'fuzzphony_gate_items__tsv', 'open_fz' => $this->open('fz'), 'open_tsv' => $this->open('tsv')] as $key => $name) {
                 $sizes[$key] = Coerce::int($this->connection->fetchValue(sprintf("SELECT pg_relation_size('%s'::regclass)", $name)));
             }
             if (self::bothSmallerButTheirSumIsNot($sizes + ['fz' => 0, 'tsv' => 0, 'open_fz' => 0, 'open_tsv' => 0])) {

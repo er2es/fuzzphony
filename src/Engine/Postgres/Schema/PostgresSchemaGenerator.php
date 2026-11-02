@@ -215,13 +215,14 @@ final class PostgresSchemaGenerator
         // behind the drop); a drop that fails is a warning and the apply is safe to run again
         $statements[] = new Statement(
             'DROP INDEX CONCURRENTLY IF EXISTS {name}',
-            'Drop an open-class index built for other granted fields',
+            'Drop an open-class index built for other granted fields, or an index under the name an earlier release gave it',
             transactional: false,
             forEach: sprintf(
-                'SELECT quote_ident(n.nspname) || \'.\' || quote_ident(c.relname) AS name FROM pg_index AS i JOIN pg_class AS c ON c.oid = i.indexrelid JOIN pg_namespace AS n ON n.oid = c.relnamespace WHERE i.indrelid = to_regclass(%1$s) AND c.relname ~ %2$s AND c.relname <> ALL (%3$s)',
+                'SELECT quote_ident(n.nspname) || \'.\' || quote_ident(c.relname) AS name FROM pg_index AS i JOIN pg_class AS c ON c.oid = i.indexrelid JOIN pg_namespace AS n ON n.oid = c.relnamespace WHERE i.indrelid = to_regclass(%1$s) AND (c.relname ~ %2$s OR c.relname = ANY (%4$s)) AND c.relname <> ALL (%3$s)',
                 Sql::string($table),
                 Sql::string('_' . OpenClass::NAME_TAIL . '$'),
                 'ARRAY[' . implode(', ', array_map(Sql::string(...), [...OpenClass::expectedNames($index, $this->names), ''])) . ']::text[]',
+                'ARRAY[' . implode(', ', array_map(Sql::string(...), ['', ...$this->legacyIndexNames($index)])) . ']::text[]',
             ),
         );
         foreach ($this->layoutSteps($index) as $target => [$step, $why]) {
@@ -378,7 +379,7 @@ ON CONFLICT (index_name) DO UPDATE SET layout_version = EXCLUDED.layout_version,
     public function columns(IndexDefinition $index): array
     {
         $columns = [
-            'id' => Types::id($index->idType) . ' PRIMARY KEY',
+            'id' => Types::id($index->idType) . sprintf(' CONSTRAINT %s PRIMARY KEY', Sql::ident($this->names->indexName($index, 'pkey'))),
             'tsv' => 'tsvector NOT NULL',
             // NULL = not known (a document written before the column existed): treated as capped, see cappedExpression()
             self::CAPPED_COLUMN => 'boolean',
@@ -437,6 +438,19 @@ ON CONFLICT (index_name) DO UPDATE SET layout_version = EXCLUDED.layout_version,
         }
 
         return array_values(array_unique($columns));
+    }
+
+    /**
+     * The names the secondary indexes had before 0.10 (`<sidecar>_<suffix>`, see Names::indexName()), without the primary key (it
+     * cannot be dropped alone and the rebuild renames it): an index that still has one is dropped by the apply, once the new one exists.
+     *
+     * @return list<string>
+     */
+    public function legacyIndexNames(IndexDefinition $index): array
+    {
+        $suffixes = ['tsv', ...($index->hasFuzzy() ? ['fz'] : []), ...array_map(static fn($filter): string => 'f_' . $filter->name, $index->filters)];
+
+        return array_map(fn(string $suffix): string => $this->names->legacyIndexName($index, $suffix), $suffixes);
     }
 
     /**

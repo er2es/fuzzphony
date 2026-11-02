@@ -529,7 +529,13 @@ final class PostgresInspector
         }
         // an open-class index built for other granted fields (the expected one has another name): never used, and costs every write
         $expected = array_keys($this->schema->indexes($index));
+        $legacy = $this->schema->legacyIndexNames($index);
         foreach (array_keys($valid) as $name) {
+            if (in_array($name, $legacy, true)) {
+                $checks[] = Check::error('Index ' . $name, 'OLD NAME (an earlier release named it so; no search uses it)', sprintf('DROP INDEX CONCURRENTLY %s; or run "bin/console fuzzphony:schema --apply"', $this->names->index($name)));
+
+                continue;
+            }
             if (!in_array($name, $expected, true) && OpenClass::isOpenClassName($name)) {
                 $checks[] = Check::error('Index ' . $name, 'STALE (built for other granted fields; no search uses it)', sprintf('DROP INDEX CONCURRENTLY %s; or run "bin/console fuzzphony:schema --apply"', $this->names->index($name)));
             }

@@ -126,7 +126,7 @@ final class SchemaCommand extends Command
         }
         $io->success(sprintf('%d statement(s) applied. Next: fuzzphony:reindex, then fuzzphony:doctor.', count($plan->statements)));
         if (array_any(array_diff($this->cachedColumns(), $columnsBefore), static fn(string $column): bool => isset($tablesBefore[explode('.', $column)[0]]))) {
-            $io->warning('An open-class index was added (an index with granted fields), which the engine looks up once per process: restart long-running processes (Messenger workers, RoadRunner, FrankenPHP) so that they see it, or call PostgresEngine::resetCaches().');
+            $io->warning('An index was added that the engine looks up once per process (the open-class indexes of an index with granted fields): restart long-running processes (Messenger workers, RoadRunner, FrankenPHP) so that they see it, or call PostgresEngine::resetCaches().');
         }
 
         return Command::SUCCESS;

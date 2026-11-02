@@ -221,16 +221,27 @@ final readonly class Names
         return $suffix === '' ? $function : self::limit($function . $suffix);
     }
 
+    /**
+     * An index of the sidecar table, named `<sidecar>__<suffix>`. The double underscore cannot occur in an index name (the definition
+     * validator refuses it), so no such name is the sidecar (or another object) of an index called `<name>_<suffix>`: `products` with
+     * `tsv` and an index named `products_tsv` stay apart.
+     */
     public function indexName(IndexDefinition $index, string $suffix): string
     {
-        if (preg_match('/^' . OpenClass::NAME_TAIL . '$/', $suffix) === 1 && strlen($this->sidecarName($index) . '_' . $suffix) > self::MAX_IDENTIFIER_BYTES) {
-            // an open-class index keeps its `_open_..._<hash>` tail whatever the length (the apply, the doctor and the restart reminder
+        if (preg_match('/^' . OpenClass::NAME_TAIL . '$/', $suffix) === 1 && strlen($this->sidecarName($index) . '__' . $suffix) > self::MAX_IDENTIFIER_BYTES) {
+            // an open-class index keeps its `__open_..._<hash>` tail whatever the length (the apply, the doctor and the restart reminder
             // find it by that tail): the sidecar part is shortened instead, with its own hash so that two long names stay apart
             $sidecar = $this->sidecarName($index);
 
-            return substr($sidecar, 0, self::MAX_IDENTIFIER_BYTES - strlen($suffix) - 10) . '_' . hash('crc32b', $sidecar) . '_' . $suffix;
+            return substr($sidecar, 0, self::MAX_IDENTIFIER_BYTES - strlen($suffix) - 11) . '_' . hash('crc32b', $sidecar) . '__' . $suffix;
         }
 
+        return self::limit($this->sidecarName($index) . '__' . $suffix);
+    }
+
+    /** The name indexName() gave before 0.10 (`<sidecar>_<suffix>`): the apply drops an index that still has it, the doctor reports it. */
+    public function legacyIndexName(IndexDefinition $index, string $suffix): string
+    {
         return self::limit($this->sidecarName($index) . '_' . $suffix);
     }
 

@@ -96,12 +96,12 @@ final class PostgresInspectorChecksTest extends TestCase
                 ['Boost column', CheckStatus::Ok, 'popularity (real)', null],
                 ['Recency column', CheckStatus::Ok, 'published_at (timestamp with time zone)', null],
                 ['Sidecar columns', CheckStatus::Ok, '17 column(s) match the definition', null],
-                ['Index fuzzphony_products_tsv', CheckStatus::Ok, 'valid', null],
-                ['Index fuzzphony_products_fz', CheckStatus::Ok, 'valid', null],
-                ['Index fuzzphony_products_f_price', CheckStatus::Ok, 'valid', null],
-                ['Index fuzzphony_products_f_in_stock', CheckStatus::Ok, 'valid', null],
-                ['Index fuzzphony_products_f_published_at', CheckStatus::Ok, 'valid', null],
-                ['Index fuzzphony_products_f_brand_id', CheckStatus::Ok, 'valid', null],
+                ['Index fuzzphony_products__tsv', CheckStatus::Ok, 'valid', null],
+                ['Index fuzzphony_products__fz', CheckStatus::Ok, 'valid', null],
+                ['Index fuzzphony_products__f_price', CheckStatus::Ok, 'valid', null],
+                ['Index fuzzphony_products__f_in_stock', CheckStatus::Ok, 'valid', null],
+                ['Index fuzzphony_products__f_published_at', CheckStatus::Ok, 'valid', null],
+                ['Index fuzzphony_products__f_brand_id', CheckStatus::Ok, 'valid', null],
                 ['Refresh function', CheckStatus::Ok, '"public"."fuzzphony_refresh_products"(bigint[])', null],
                 ['Rebuild refresh function', CheckStatus::Ok, '"public"."fuzzphony_refresh_products__next"(bigint[])', null],
                 ['Rebuild change log function', CheckStatus::Ok, '"public"."fuzzphony_track_products"()', null],
@@ -349,27 +349,27 @@ final class PostgresInspectorChecksTest extends TestCase
     {
         $fuzzphony = $this->fuzzphony(Indexes::products('manual'));
         // what an interrupted CREATE INDEX CONCURRENTLY leaves: the index exists, flagged invalid
-        $this->connection->execute('DROP INDEX fuzzphony_products_f_price');
+        $this->connection->execute('DROP INDEX fuzzphony_products__f_price');
         $this->connection->execute('UPDATE fuzzphony_products SET f_price = 1');
         try {
-            $this->connection->execute('CREATE UNIQUE INDEX CONCURRENTLY fuzzphony_products_f_price ON fuzzphony_products (f_price)');
+            $this->connection->execute('CREATE UNIQUE INDEX CONCURRENTLY fuzzphony_products__f_price ON fuzzphony_products (f_price)');
             self::fail('the unique build must fail on the duplicate values');
         } catch (\PDOException) {
         }
 
-        $check = self::named($fuzzphony, 'products', 'Index fuzzphony_products_f_price')[0];
+        $check = self::named($fuzzphony, 'products', 'Index fuzzphony_products__f_price')[0];
 
         self::assertSame(CheckStatus::Error, $check->status);
         self::assertSame('INVALID (an interrupted concurrent build); it is ignored by the planner', $check->message);
-        self::assertStringStartsWith('DROP INDEX CONCURRENTLY "public"."fuzzphony_products_f_price"; CREATE INDEX CONCURRENTLY IF NOT EXISTS "fuzzphony_products_f_price" ON ', (string) $check->fix);
+        self::assertStringStartsWith('DROP INDEX CONCURRENTLY "public"."fuzzphony_products__f_price"; CREATE INDEX CONCURRENTLY IF NOT EXISTS "fuzzphony_products__f_price" ON ', (string) $check->fix);
     }
 
     public function testAMissingIndexIsReportedByName(): void
     {
         $fuzzphony = $this->fuzzphony(Indexes::products('manual'));
-        $this->connection->execute('DROP INDEX fuzzphony_products_fz');
+        $this->connection->execute('DROP INDEX fuzzphony_products__fz');
 
-        $check = self::named($fuzzphony, 'products', 'Index fuzzphony_products_fz')[0];
+        $check = self::named($fuzzphony, 'products', 'Index fuzzphony_products__fz')[0];
 
         self::assertSame(CheckStatus::Error, $check->status);
         self::assertSame('missing', $check->message);

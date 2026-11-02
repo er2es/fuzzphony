@@ -354,7 +354,7 @@ final class SchemaGeneratorTest extends TestCase
         self::assertStringContainsString("WHERE c.oid = '\"public\".\"fuzzphony_products\"'::regclass AND a.privilege_type IN ('INSERT', 'UPDATE', 'DELETE') LOOP", $sql);
         self::assertStringContainsString("EXECUTE format('GRANT SELECT, INSERT, UPDATE ON %s TO %s', '\"public\".\"fuzzphony_products__changes\"', CASE WHEN r.grantee = 0 THEN 'PUBLIC' ELSE quote_ident(pg_get_userbyid(r.grantee)) END);", $sql);
         self::assertStringContainsString("CREATE TABLE \"public\".\"fuzzphony_products__next\" (\n    \"id\" bigint NOT NULL,\n    \"tsv\" tsvector NOT NULL,\n", $sql);
-        self::assertStringContainsString("    \"indexed_at\" timestamptz NOT NULL DEFAULT now(),\n    CONSTRAINT \"fuzzphony_products_pkey__next\" PRIMARY KEY (\"id\")\n)", $sql);
+        self::assertStringContainsString("    \"indexed_at\" timestamptz NOT NULL DEFAULT now(),\n    CONSTRAINT \"fuzzphony_products__pkey__next\" PRIMARY KEY (\"id\")\n)", $sql);
         self::assertStringEndsWith(
             "    CREATE OR REPLACE TRIGGER \"fuzzphony_track_products\" AFTER INSERT OR UPDATE OR DELETE ON \"public\".\"fuzzphony_products\" FOR EACH ROW EXECUTE FUNCTION \"public\".\"fuzzphony_track_products\"();\nEND\n\$fuzzphony\$",
             $sql,
@@ -366,9 +366,9 @@ final class SchemaGeneratorTest extends TestCase
         $statements = (new PostgresSchemaGenerator())->shadowIndexes(Indexes::products());
 
         self::assertCount(7, $statements); // tsv, trigram, 4 filters, ANALYZE
-        self::assertSame('CREATE INDEX IF NOT EXISTS "fuzzphony_products_tsv__next" ON "public"."fuzzphony_products__next" USING gin (tsv)', $statements[0]);
-        self::assertSame('CREATE INDEX IF NOT EXISTS "fuzzphony_products_fz__next" ON "public"."fuzzphony_products__next" USING gin (fz "public".gin_trgm_ops)', $statements[1]);
-        self::assertSame('CREATE INDEX IF NOT EXISTS "fuzzphony_products_f_brand_id__next" ON "public"."fuzzphony_products__next" ("f_brand_id")', $statements[5]);
+        self::assertSame('CREATE INDEX IF NOT EXISTS "fuzzphony_products__tsv__next" ON "public"."fuzzphony_products__next" USING gin (tsv)', $statements[0]);
+        self::assertSame('CREATE INDEX IF NOT EXISTS "fuzzphony_products__fz__next" ON "public"."fuzzphony_products__next" USING gin (fz "public".gin_trgm_ops)', $statements[1]);
+        self::assertSame('CREATE INDEX IF NOT EXISTS "fuzzphony_products__f_brand_id__next" ON "public"."fuzzphony_products__next" ("f_brand_id")', $statements[5]);
         self::assertSame('ANALYZE "public"."fuzzphony_products__next"', $statements[6]);
     }
 
@@ -382,13 +382,13 @@ final class SchemaGeneratorTest extends TestCase
         self::assertStringEndsWith(<<<'SQL'
                 DROP TABLE "public"."fuzzphony_products";
                 ALTER TABLE "public"."fuzzphony_products__next" RENAME TO "fuzzphony_products";
-                ALTER TABLE "public"."fuzzphony_products" RENAME CONSTRAINT "fuzzphony_products_pkey__next" TO "fuzzphony_products_pkey";
-                ALTER INDEX "public"."fuzzphony_products_tsv__next" RENAME TO "fuzzphony_products_tsv";
-                ALTER INDEX "public"."fuzzphony_products_fz__next" RENAME TO "fuzzphony_products_fz";
-                ALTER INDEX "public"."fuzzphony_products_f_price__next" RENAME TO "fuzzphony_products_f_price";
-                ALTER INDEX "public"."fuzzphony_products_f_in_stock__next" RENAME TO "fuzzphony_products_f_in_stock";
-                ALTER INDEX "public"."fuzzphony_products_f_published_at__next" RENAME TO "fuzzphony_products_f_published_at";
-                ALTER INDEX "public"."fuzzphony_products_f_brand_id__next" RENAME TO "fuzzphony_products_f_brand_id";
+                ALTER TABLE "public"."fuzzphony_products" RENAME CONSTRAINT "fuzzphony_products__pkey__next" TO "fuzzphony_products__pkey";
+                ALTER INDEX "public"."fuzzphony_products__tsv__next" RENAME TO "fuzzphony_products__tsv";
+                ALTER INDEX "public"."fuzzphony_products__fz__next" RENAME TO "fuzzphony_products__fz";
+                ALTER INDEX "public"."fuzzphony_products__f_price__next" RENAME TO "fuzzphony_products__f_price";
+                ALTER INDEX "public"."fuzzphony_products__f_in_stock__next" RENAME TO "fuzzphony_products__f_in_stock";
+                ALTER INDEX "public"."fuzzphony_products__f_published_at__next" RENAME TO "fuzzphony_products__f_published_at";
+                ALTER INDEX "public"."fuzzphony_products__f_brand_id__next" RENAME TO "fuzzphony_products__f_brand_id";
                 DROP TABLE "public"."fuzzphony_products__changes";
             END
             $fuzzphony$
@@ -435,7 +435,7 @@ final class SchemaGeneratorTest extends TestCase
         $index = Indexes::products();
 
         self::assertSame(
-            ['fuzzphony_products_tsv', 'fuzzphony_products_fz', 'fuzzphony_products_f_price', 'fuzzphony_products_f_in_stock', 'fuzzphony_products_f_published_at', 'fuzzphony_products_f_brand_id'],
+            ['fuzzphony_products__tsv', 'fuzzphony_products__fz', 'fuzzphony_products__f_price', 'fuzzphony_products__f_in_stock', 'fuzzphony_products__f_published_at', 'fuzzphony_products__f_brand_id'],
             array_keys($generator->indexes($index)),
         );
         self::assertSame(
@@ -613,7 +613,7 @@ final class SchemaGeneratorTest extends TestCase
         self::assertStringContainsString('CREATE OR REPLACE FUNCTION "fuzzphony_s"."fuzzphony_norm"(text)', $sql);
         self::assertStringContainsString('CREATE OR REPLACE FUNCTION "fuzzphony_s"."fuzzphony_refresh_products"(p_ids bigint[])', $sql);
         self::assertStringContainsString('EXECUTE FUNCTION "fuzzphony_s"."fuzzphony_sync_products__fz_brand"()', $sql);
-        self::assertStringContainsString('CREATE INDEX CONCURRENTLY IF NOT EXISTS "fuzzphony_products_tsv" ON "fuzzphony_s"."fuzzphony_products"', $sql);
+        self::assertStringContainsString('CREATE INDEX CONCURRENTLY IF NOT EXISTS "fuzzphony_products__tsv" ON "fuzzphony_s"."fuzzphony_products"', $sql);
         self::assertStringContainsString('INSERT INTO "fuzzphony_s"."fuzzphony_queue" (index_name, doc_id)', $sql);
         self::assertStringContainsString("setweight(to_tsvector('\"fuzzphony_s\".\"fuzzphony_english\"'::regconfig", $sql);
         self::assertStringContainsString('"fuzzphony_s"."fuzzphony_norm"(doc."fld_name"::text)', $sql);

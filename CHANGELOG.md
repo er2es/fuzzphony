@@ -18,6 +18,9 @@ and a link. Measurements, proofs and test names belong to the pull request, [doc
 
 ### Breaking
 
+- **Index objects are named `fuzzphony_<index>__<kind>`** (`__tsv`, `__fz`, `__f_<filter>`, `__pkey`, `__open_...`): an index named `products_open` no longer collides
+  with an object of `products` (the reindex swap failed with `42P07`). Run `fuzzphony:schema --apply`, then `fuzzphony:reindex`
+  ([UPGRADE](UPGRADE.md#from-0913-to-0100)).
 - **`fuzzphony:schema --apply` is mandatory after an upgrade.** A missing `tsv_capped` or `actor_ip` column makes the first search, refresh
   or log write fail with one `SchemaNotApplied` exception; the no-column fallbacks and their per-process lookups are gone
   (`search_log.ip_dropped` too). See [UPGRADE](UPGRADE.md#from-0913-to-0100).
