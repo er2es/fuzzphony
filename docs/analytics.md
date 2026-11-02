@@ -52,9 +52,9 @@ What is recorded, precisely:
   [`unlogged()`](#keeping-a-search-out-of-the-log) if you do not want the rows.
 - every refusal, as a `denied` row, so a refused visitor leaves a trace. A refusal is recorded even for an
   [unlogged](#keeping-a-search-out-of-the-log) search.
-- not recorded: a successful `explain()`, `suggest()` and `facets()` calls on their own, and a search that failed in
+- not recorded: a successful `explain()`, `complete()` and `facets()` calls on their own, and a search that failed in
   the engine (an exception). An `explain()` the gate refuses (an actor without a tenant) is a refusal like any other
-  and is recorded as a `denied` row, with the text that was typed; so is a `suggest()` the guards refuse (the typed text, cut at
+  and is recorded as a `denied` row, with the text that was typed; so is a `complete()` the guards refuse (the typed text, cut at
   `max_query_length`).
 
 The reports count only the searches that ran (`status = ok`); the other rows are there for you to query.

@@ -62,7 +62,7 @@ final class SearchCommandOptionsTest extends TestCase
         assert($engine instanceof Engine);
 
         $tester = $this->tester($engine);
-        $status = $tester->execute(['index' => 'products', 'query' => 'wireless hea', '--suggest' => true, '--limit' => $limit], ['interactive' => false]);
+        $status = $tester->execute(['index' => 'products', 'query' => 'wireless hea', '--complete' => true, '--limit' => $limit], ['interactive' => false]);
 
         self::assertSame(Command::SUCCESS, $status);
         self::assertSame($expected, $passed);
@@ -77,10 +77,10 @@ final class SearchCommandOptionsTest extends TestCase
         assert($engine instanceof Engine);
         $tester = $this->tester($engine);
 
-        $tester->execute(['index' => 'products', 'query' => '<info>x hea', '--suggest' => true], ['interactive' => false]);
+        $tester->execute(['index' => 'products', 'query' => '<info>x hea', '--complete' => true], ['interactive' => false]);
         self::assertStringContainsString('<info>x headphones', $tester->getDisplay(true), 'the completion is printed as text, not as console markup');
 
-        $tester->execute(['index' => 'products', 'query' => 'qq', '--suggest' => true], ['interactive' => false]);
+        $tester->execute(['index' => 'products', 'query' => 'qq', '--complete' => true], ['interactive' => false]);
         self::assertStringContainsString('No completions.', $tester->getDisplay(true));
     }
 

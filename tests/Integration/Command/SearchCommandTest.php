@@ -143,12 +143,12 @@ final class SearchCommandTest extends TestCase
 
     public function testSuggestCompletesTheLastWord(): void
     {
-        $status = $this->tester->execute(['index' => 'products', 'query' => 'wireless hea', '--suggest' => true], ['interactive' => false]);
+        $status = $this->tester->execute(['index' => 'products', 'query' => 'wireless hea', '--complete' => true], ['interactive' => false]);
 
         self::assertSame(Command::SUCCESS, $status);
         self::assertStringContainsString('wireless headphones', $this->tester->getDisplay(true));
 
-        $this->tester->execute(['index' => 'products', 'query' => 'qq', '--suggest' => true], ['interactive' => false]);
+        $this->tester->execute(['index' => 'products', 'query' => 'qq', '--complete' => true], ['interactive' => false]);
         self::assertStringContainsString('No completions.', $this->tester->getDisplay(true));
     }
 

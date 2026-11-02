@@ -162,7 +162,7 @@ final class SearchComponentLogicTest extends TestCase
         $this->didYouMean = 'mouse';
         $component = $this->component(query: 'mose', asYouType: false);
 
-        $component->useSuggestion();
+        $component->useDidYouMean();
 
         self::assertSame('mouse', $component->query);
         $component->getResult();
@@ -172,12 +172,12 @@ final class SearchComponentLogicTest extends TestCase
     public function testUseSuggestionDoesNothingWithoutASuggestionOrAQuery(): void
     {
         $blank = $this->component(query: '');
-        $blank->useSuggestion();
+        $blank->useDidYouMean();
         self::assertSame('', $blank->query);
         self::assertSame([], $this->queries);
 
         $none = $this->component(query: 'mouse', asYouType: false);
-        $none->useSuggestion();
+        $none->useDidYouMean();
         self::assertSame('mouse', $none->query);
         self::assertCount(1, $this->queries);
     }

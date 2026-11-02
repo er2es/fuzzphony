@@ -52,7 +52,7 @@ final class Storefront
             ->get();
 
         return [
-            'completions' => $this->fuzzphony->suggest('products', $text, 5),   // "wireless hea" -> "wireless headphones"
+            'completions' => $this->fuzzphony->complete('products', $text, 5),   // "wireless hea" -> "wireless headphones"
             'products' => $found->hits,                                         // load name, price and picture by $hit->id
             'categories' => $found->facets['category_id'] ?? [],                // label the ids yourself
         ];

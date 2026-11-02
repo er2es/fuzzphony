@@ -81,7 +81,7 @@ services:
   counter) labeled `index` and `reason` (`actor_required` or `authorization`); see
   [Multi-tenancy](multi-tenancy.md#a-refusal-is-a-403).
 - `fuzzphony.search.denied` also counts a search refused by the authorization guard (`reason=authorization`,
-  and a refused `suggest()`), and `fuzzphony.search.rate_limited` (a counter, label `index`) a search over the
+  and a refused `complete()`), and `fuzzphony.search.rate_limited` (a counter, label `index`) a search over the
   rate limit; both write a warning log line and a `denied` / `rate_limited` row in the search log. See
   [Security](security.md#refusals-in-metrics-logs-and-the-search-log). `fuzzphony.search.rate_limit_unkeyed`
   (a counter without labels, once per process) says a `per: ip` actor carried an address that is no IP address and

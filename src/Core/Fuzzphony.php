@@ -121,7 +121,7 @@ final readonly class Fuzzphony
      * @throws AccessDenied    when a guard refuses the actor
      * @throws RateLimited     when the actor searched too often
      */
-    public function suggest(string $index, string $text, int $limit = 8, ?Actor $actor = null, bool $charge = true): array
+    public function complete(string $index, string $text, int $limit = 8, ?Actor $actor = null, bool $charge = true): array
     {
         if ($limit < 1 || $limit > 20) {
             throw new InvalidArgument(sprintf('The suggestion limit must be between 1 and 20, got %d.', $limit));

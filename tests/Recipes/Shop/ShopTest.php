@@ -171,7 +171,7 @@ final class ShopTest extends KernelTestCase
         self::assertSame([1, 2, 3], $whole->ids());                            // "mo" is no word: it is ignored, and the result says so
         self::assertSame(['No results for all words; ignored words that match nothing: "mo".'], $whole->warnings);
 
-        self::assertSame(['wireless headphones', 'wireless headset'], $this->fuzzphony()->suggest('products', 'wireless hea'));
+        self::assertSame(['wireless headphones', 'wireless headset'], $this->fuzzphony()->complete('products', 'wireless hea'));
         // endregion
 
         $dropdown = $this->storefront()->dropdown('wireless hea');

@@ -334,7 +334,7 @@ self::assertSame(['open' => 2, 'closed' => 1], array_column(array_map(static fn(
 
 // a tenant-scoped index never suggests a spelling or a completion: its vocabulary is every tenant's words
 self::assertNull($this->fuzzphony()->in('tickets')->asActor($actor)->query('invoise')->get()->didYouMean);
-self::assertSame([], $this->fuzzphony()->suggest('tickets', 'invo', actor: $actor));
+self::assertSame([], $this->fuzzphony()->complete('tickets', 'invo', actor: $actor));
 ```
 
 - **No row-level authorization.** Whoever may search the index finds every ticket of the tenant. For rules per

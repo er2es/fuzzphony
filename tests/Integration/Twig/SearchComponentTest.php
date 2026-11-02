@@ -92,7 +92,7 @@ final class SearchComponentTest extends KernelTestCase
         self::assertStringContainsString('fuzzphony-search__did-you-mean', $html);
         self::assertStringContainsString('>mouse</button>', $html);
 
-        $component->call('useSuggestion');
+        $component->call('useDidYouMean');
         $after = (string) $component->render();
 
         self::assertStringNotContainsString('fuzzphony-search__did-you-mean', $after, 'mouse is a word of the index');

@@ -334,7 +334,7 @@ caps ([thresholds](ranking.md#thresholds)).
 
 ### "Did you mean" and completions come from a vocabulary that ages
 
-The suggestions of `didYouMean` and `suggest()` come from a vocabulary of the words of the typo-tolerant
+The suggestions of `didYouMean` and `complete()` come from a vocabulary of the words of the typo-tolerant
 fields, filled by a full reindex and not touched by single-document changes: a word that is new since the last
 rebuild is not suggested yet. A tenant-scoped index never suggests anything, and neither does a viewer
 restricted to some fields. Words with a digit, prefixes, excluded words and words a synonym expands are not
@@ -573,7 +573,7 @@ address). Its limits:
   on every search.
 - With `authorization` enabled, a request without a Security token is refused before the limit is looked at,
   so `per: ip` is the setting for a public search box, not for a signed-in-only one.
-- `explain()` and `suggest()` spend a token too.
+- `explain()` and `complete()` spend a token too.
 
 What to do: set `trusted_proxies` if you run behind one, raise the limit if your visitors sit behind big NATs,
 use APCu or Redis for the limiter's pool, and keep a limiter of your own in front of the endpoint if you need a

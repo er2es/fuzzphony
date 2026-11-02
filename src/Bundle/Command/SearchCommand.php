@@ -45,7 +45,7 @@ final class SearchCommand extends Command
             ->addOption('facet', 'f', InputOption::VALUE_REQUIRED | InputOption::VALUE_IS_ARRAY, 'Count the values of a filter among the matches, e.g. -f in_stock -f category_id')
             ->addOption('exact', null, InputOption::VALUE_NONE, 'Count every match (an exact total and exact facets), not only the candidates: can be slow on a large index')
             ->addOption('as-you-type', null, InputOption::VALUE_NONE, 'Search-as-you-type: the last word also matches as the beginning of a longer one')
-            ->addOption('suggest', null, InputOption::VALUE_NONE, 'Only complete the last word of the query from the vocabulary of the index (search-as-you-type)')
+            ->addOption('complete', null, InputOption::VALUE_NONE, 'Only complete the last word of the query from the vocabulary of the index (search-as-you-type)')
             ->addOption('log', null, InputOption::VALUE_NONE, 'Write the search to the search log (off by default: with --tenant and --user a test would look like a visitor searching)')
             ->addOption('explain', null, InputOption::VALUE_NONE, 'Print the SQL and the query plan')
             ->addOption('analyze', null, InputOption::VALUE_NONE, 'With --explain: EXPLAIN ANALYZE (executes the query)')
@@ -63,8 +63,8 @@ final class SearchCommand extends Command
                 return Command::INVALID;
             }
         }
-        if ($input->getOption('suggest') === true) {
-            $completions = $this->fuzzphony->suggest(Coerce::str($input->getArgument('index')), Coerce::str($input->getArgument('query')), max(1, min(20, Coerce::int($input->getOption('limit')))));
+        if ($input->getOption('complete') === true) {
+            $completions = $this->fuzzphony->complete(Coerce::str($input->getArgument('index')), Coerce::str($input->getArgument('query')), max(1, min(20, Coerce::int($input->getOption('limit')))));
             $io->writeln($completions === [] ? '<comment>No completions.</comment>' : array_map(static fn(string $c): string => OutputFormatter::escape($c), $completions));
 
             return Command::SUCCESS;

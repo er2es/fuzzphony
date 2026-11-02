@@ -24,7 +24,7 @@ $fuzzphony->in('notes')->asActor($resolver->resolve())->query('salary')->get();
 ```
 
 The core has no ambient actor, so a search you do not make `asActor()` is not guarded: the guards run
-for a search with an actor, in `get()`, in `explain()` and in `suggest()` (with an actor), and, for a
+for a search with an actor, in `get()`, in `explain()` and in `complete()` (with an actor), and, for a
 [federated search](searching.md#federated-search), for each index it searches.
 
 ## The guards and their order
@@ -188,10 +188,10 @@ What is and is not limited:
   user, `per: ip` and an actor without an address) is not limited. A search made without `asActor()` is not
   guarded at all.
 - **One token per search.** `explain()` runs the search, so it **charges** a token too.
-  `Fuzzphony::suggest()` (the completions) charges one token per call, unless you pass `charge: false`
+  `Fuzzphony::complete()` (the completions) charges one token per call, unless you pass `charge: false`
   (only when the same request already charged a search). The Live Component does: a render is a
   search plus its completions, and the search charges, so a render costs one token, and the Live
-  Component debounces its requests, so that is one per pause in typing. `useSuggestion` ("did you
+  Component debounces its requests, so that is one per pause in typing. `useDidYouMean` ("did you
   mean") is a request of its own and can cost one extra token.
 - **A federated search charges once**, on the first index that has an actor; the other indexes run the
   guards but do not charge again. If your `configure` closures set different actors for different
@@ -274,7 +274,7 @@ leaks. A word that exists only in a hidden field is:
 - **not ranked**: the score, the exact and prefix bonuses and the score breakdown ignore the hidden
   field, so two documents that differ only in a hidden field score the same;
 - **not highlighted**: a hit never shows a snippet of a hidden field;
-- **not suggested**: a restricted viewer gets no "did you mean" and `suggest()` returns `[]`, because
+- **not suggested**: a restricted viewer gets no "did you mean" and `complete()` returns `[]`, because
   the vocabulary holds the words of every field; for the same reason a restricted viewer's search that finds nothing is
   never rescued with a corrected spelling ([zero-result rescue](searching.md#zero-result-rescue); a tenant-scoped index
   has none either). The two swapped letters of `mosue` are matched in the fields the viewer may see only;
@@ -380,7 +380,7 @@ Every refusal is recorded, and none is silent:
 - **The search log** ([Search log and analytics](analytics.md)), when it is enabled: a row with the
   status `denied` or `rate_limited`, with the text that was typed (redacted like any other), the
   tenant and the user. It is written **always, also for an unlogged search** (`unlogged()` or
-  `log: false`): a refusal is never silent. A refused `suggest()` is counted and logged, but writes no
+  `log: false`): a refusal is never silent. A refused `complete()` is counted and logged, but writes no
   row (there is no text).
 
 ## A worked example

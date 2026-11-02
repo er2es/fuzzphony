@@ -17,7 +17,7 @@ use Symfony\Component\Routing\Attribute\Route;
 
 /**
  * Search-as-you-type for every search box of the demo (assets/controllers/suggest_controller.js): the same dropdown
- * everywhere, built from three ordinary calls: the completions of the word being typed (suggest()), the first hits of
+ * everywhere, built from three ordinary calls: the completions of the word being typed (complete()), the first hits of
  * the same text matched as you type (asYouType()), and for the catalogue the categories it is found in (a facet).
  * Brand, price and category name are the application's data, loaded for the ids the search returned.
  *
@@ -36,7 +36,7 @@ final class SuggestController extends AbstractController
             throw $this->createNotFoundException(sprintf('Unknown index "%s".', $index));
         }
         $text = mb_substr((string) $request->query->get('q', ''), 0, self::MAX_QUERY);
-        $completions = $fuzzphony->suggest($index, $text, 6);
+        $completions = $fuzzphony->complete($index, $text, 6);
         $categories = $products = [];
 
         if (trim($text) !== '') {

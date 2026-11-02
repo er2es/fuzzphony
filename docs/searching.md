@@ -379,7 +379,7 @@ prices are your data, not the index's:
 
 | What the visitor sees | The call (backend) | What you build (frontend) |
 |---|---|---|
-| the word being completed ("hea" -> "headphones") | `$fuzzphony->suggest($index, $text, $limit)` | a list under the input |
+| the word being completed ("hea" -> "headphones") | `$fuzzphony->complete($index, $text, $limit)` | a list under the input |
 | results while typing ("cr" already finds "Crème") | `->asYouType()` on the search builder | the result list |
 | groups: categories, products with price and picture | `facets()` and the hits of the same search | the grouped dropdown, see [A rich dropdown](#a-rich-dropdown) |
 
@@ -413,10 +413,10 @@ $fuzzphony->in('products')->query('wireless hea')->asYouType()->get();
 
 ### Completing the word
 
-`suggest()` completes the word being typed from the index's vocabulary (the one "did you mean" reads): from the index's vocabulary (the one "did you mean" reads):
+`complete()` completes the word being typed from the index's vocabulary (the one "did you mean" reads): from the index's vocabulary (the one "did you mean" reads):
 
 ```php
-$fuzzphony->suggest('products', 'wireless hea');   // ["wireless headphones", "wireless headset"]
+$fuzzphony->complete('products', 'wireless hea');   // ["wireless headphones", "wireless headset"]
 ```
 
 - Only the **last word** is completed, and only when the text ends with it (not with a space or a
@@ -433,7 +433,7 @@ $fuzzphony->suggest('products', 'wireless hea');   // ["wireless headphones", "w
 - `fuzzphony:schema --apply` adds a prefix index on the vocabulary (`text_pattern_ops`), and the
   trigram index of 0.7 serves prefixes of three letters or more; without them it still works, with a
   scan of the (small) vocabulary table.
-- `fuzzphony:search products 'wireless hea' --suggest` tries it from the terminal.
+- `fuzzphony:search products 'wireless hea' --complete` tries it from the terminal.
 
 The [Live Component](integrations.md#live-component) offers the completions as you type, and the
 demo's search boxes do too (a `<datalist>` filled from a small endpoint).
@@ -444,7 +444,7 @@ The grouped dropdown of a shop (searches, categories, products with price and pi
 calls, composed by your endpoint, because the picture and the price are your data, not the index's:
 
 ```php
-$completions = $fuzzphony->suggest('products', $text, 6);                              // "Searches"
+$completions = $fuzzphony->complete('products', $text, 6);                              // "Searches"
 $found = $fuzzphony->in('products')->query($text . '*')->limit(5)->facets('category_id')->get();
 $categories = $found->facets['category_id'];                                           // "Categories" (label the ids yourself)
 $products = $found->hits;                                                              // "Products": load their rows by $hit->id

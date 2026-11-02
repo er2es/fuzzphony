@@ -2,7 +2,7 @@ import { Controller } from '@hotwired/stimulus';
 
 /**
  * The search-as-you-type dropdown, the same on every search box of the demo. While the visitor types, /suggest answers
- * with what the index knows, and this shows it in groups: the completions of the word being typed (Fuzzphony::suggest()),
+ * with what the index knows, and this shows it in groups: the completions of the word being typed (Fuzzphony::complete()),
  * the categories the text is found in (a facet, catalogue only, when `categories` is set) and the first hits
  * (matched as you type). Arrow keys move, Enter follows the highlighted line (or submits the form), Escape closes the panel and
  * leaves the text in the field. It is the ARIA combobox with a listbox popup: the focus stays in the input, `aria-activedescendant`

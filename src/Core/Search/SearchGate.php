@@ -90,7 +90,7 @@ final readonly class SearchGate
     }
 
     /**
-     * access() for a caller that has no search to run (the completions of Fuzzphony::suggest()): a refusal is counted,
+     * access() for a caller that has no search to run (the completions of Fuzzphony::complete()): a refusal is counted,
      * logged and, with $typed, recorded in the search log like the one of a search.
      *
      * @param bool        $charge as in access()

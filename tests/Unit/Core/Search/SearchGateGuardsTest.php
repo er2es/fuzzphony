@@ -314,7 +314,7 @@ final class SearchGateGuardsTest extends TestCase
 
         foreach ([$denied, $limited] as $fuzzphony) {
             try {
-                $fuzzphony->suggest('products', 'wir', 8, new Actor(user: 'ada'));
+                $fuzzphony->complete('products', 'wir', 8, new Actor(user: 'ada'));
                 self::fail('a refusal expected');
             } catch (AccessDenied|RateLimited) {
             }
@@ -378,14 +378,14 @@ final class SearchGateGuardsTest extends TestCase
         $engine = $this->suggestingEngine();
         $fuzzphony = new Fuzzphony($engine, new IndexRegistry([Indexes::products()]), new SearchGate(guards: [new FixedGuard(Access::only(['name']))]));
 
-        self::assertSame([], $fuzzphony->suggest('products', 'wir', 8, new Actor(user: 'ada')));
+        self::assertSame([], $fuzzphony->complete('products', 'wir', 8, new Actor(user: 'ada')));
     }
 
     public function testSuggestAsAnUnrestrictedActorGivesTheEnginesWords(): void
     {
         $fuzzphony = new Fuzzphony($this->suggestingEngine(), new IndexRegistry([Indexes::products()]), new SearchGate(guards: [new FixedGuard(Access::all())]));
 
-        self::assertSame(['wireless'], $fuzzphony->suggest('products', 'wir', 8, new Actor(user: 'ada')));
+        self::assertSame(['wireless'], $fuzzphony->complete('products', 'wir', 8, new Actor(user: 'ada')));
     }
 
     public function testSuggestWithoutAnActorSkipsTheGuards(): void
@@ -393,7 +393,7 @@ final class SearchGateGuardsTest extends TestCase
         $guard = new CountingGuard();
         $fuzzphony = new Fuzzphony($this->suggestingEngine(), new IndexRegistry([Indexes::products()]), new SearchGate(guards: [$guard]));
 
-        self::assertSame(['wireless'], $fuzzphony->suggest('products', 'wir'));
+        self::assertSame(['wireless'], $fuzzphony->complete('products', 'wir'));
         self::assertSame(0, $guard->calls);
     }
 
@@ -402,10 +402,10 @@ final class SearchGateGuardsTest extends TestCase
         $guard = new CountingGuard();
         $fuzzphony = new Fuzzphony($this->suggestingEngine(), new IndexRegistry([Indexes::products()]), new SearchGate(guards: [$guard]));
 
-        $fuzzphony->suggest('products', 'wir', 8, new Actor(user: 'ada'));
+        $fuzzphony->complete('products', 'wir', 8, new Actor(user: 'ada'));
         self::assertSame([1, 1], [$guard->calls, $guard->charged], 'suggest() charges like a search');
 
-        $fuzzphony->suggest('products', 'wir', 8, new Actor(user: 'ada'), charge: false);
+        $fuzzphony->complete('products', 'wir', 8, new Actor(user: 'ada'), charge: false);
         self::assertSame([2, 1], [$guard->calls, $guard->charged], 'charge: false still runs the guards but spends nothing');
     }
 
@@ -427,7 +427,7 @@ final class SearchGateGuardsTest extends TestCase
     {
         $fuzzphony = new Fuzzphony($this->suggestingEngine(), new IndexRegistry([Indexes::products()]));
 
-        self::assertSame(['wireless'], $fuzzphony->suggest('products', 'wir', 8, new Actor(user: 'ada')));
+        self::assertSame(['wireless'], $fuzzphony->complete('products', 'wir', 8, new Actor(user: 'ada')));
     }
 
     public function testSuggestPropagatesADenialAndARateLimit(): void
@@ -437,12 +437,12 @@ final class SearchGateGuardsTest extends TestCase
         $limited = new Fuzzphony($this->suggestingEngine(), $registry, new SearchGate(guards: [new ThrowingGuard(new RateLimited(9))]));
 
         try {
-            $denied->suggest('products', 'wir', 8, new Actor(user: 'ada'));
+            $denied->complete('products', 'wir', 8, new Actor(user: 'ada'));
             self::fail('AccessDenied expected');
         } catch (AccessDenied) {
         }
         try {
-            $limited->suggest('products', 'wir', 8, new Actor(user: 'ada'));
+            $limited->complete('products', 'wir', 8, new Actor(user: 'ada'));
             self::fail('RateLimited expected');
         } catch (RateLimited $e) {
             self::assertSame(9, $e->retryAfter);
