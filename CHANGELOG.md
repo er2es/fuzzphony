@@ -11,6 +11,17 @@ and a link. Measurements, proofs and test names belong to the pull request, [doc
 
 ## [Unreleased]
 
+## [0.9.13] - 2026-11-02
+
+Demo-only release: no change to the library behaviour (documentation of the bundle defaults only).
+
+### Changed
+
+- **Demo: the benchmark shows hit counts in green, zero in red**, in both the ILIKE and the Fuzzphony column.
+- **Demo: Tune's "Start from" row stays on one line** from 320 px wide; if it ever does not fit, the whole chip group wraps under the label.
+- **Docs: the bundle defaults say why they are what they are** ([Bundle configuration](docs/configuration.md#bundle-configuration)): worker batch and idle sleep,
+  ORM sync, search log, rate limit, authorization.
+
 ## [0.9.12] - 2026-10-30
 
 Demo-only release: no change to the library.
@@ -1069,7 +1080,8 @@ on its own:
 - Sync modes: queue (default), trigger, ORM, manual; watches for joined tables.
 - Doctor with fixes; CLI commands for schema, reindex, worker, search and explain.
 
-[Unreleased]: https://github.com/er2es/fuzzphony/compare/v0.9.12...HEAD
+[Unreleased]: https://github.com/er2es/fuzzphony/compare/v0.9.13...HEAD
+[0.9.13]: https://github.com/er2es/fuzzphony/compare/v0.9.12...v0.9.13
 [0.9.12]: https://github.com/er2es/fuzzphony/compare/v0.9.11...v0.9.12
 [0.9.11]: https://github.com/er2es/fuzzphony/compare/v0.9.10...v0.9.11
 [0.9.10]: https://github.com/er2es/fuzzphony/compare/v0.9.9...v0.9.10

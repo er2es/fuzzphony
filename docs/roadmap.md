@@ -82,6 +82,7 @@ additive work after it (0.11.0) and the stable 1.0.0 do not have to change the A
   definitions, a reworked demo and CI, and documentation for a database that already exists (see
   [Joins, several tables and several indexes](configuration.md#joins-several-tables-and-several-indexes)).
 
+- v0.9.13, demo only (the library behaviour does not change): the benchmark shows hit counts green or red, Tune's "Start from" row fits one line on phones, and the bundle defaults say why they are what they are.
 - v0.9.12, demo only (the library does not change): Tune starts with a query every setting reacts to, with example chips, and the Config wizard has a loadable sample configuration that Tune can start from.
 
 - v0.9.11: the exact-title and prefix bonuses now apply to searches made as you type (`asYouType()`).
