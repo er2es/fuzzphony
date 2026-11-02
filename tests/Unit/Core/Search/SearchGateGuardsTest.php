@@ -45,15 +45,24 @@ final class SearchGateGuardsTest extends TestCase
         self::assertSame([['brand']], $engine->allowedFields);
     }
 
-    public function testASearchWithoutAnActorSkipsTheGuards(): void
+    public function testASearchWithoutAnActorRunsTheGuardsAsAnonymous(): void
     {
         $guard = new CountingGuard();
         $engine = new GuardsRecorder();
 
         (new SearchBuilder($this->fake($engine), Indexes::products(), gate: new SearchGate(guards: [$guard])))->query('mouse')->get();
 
-        self::assertSame(0, $guard->calls);
+        self::assertSame(1, $guard->calls, 'guards and no resolver: an unnamed search is anonymous, never unguarded');
         self::assertSame([null], $engine->allowedFields);
+    }
+
+    public function testASystemSearchSkipsTheGuards(): void
+    {
+        $guard = new CountingGuard();
+
+        (new SearchBuilder($this->fake(new GuardsRecorder()), Indexes::products(), gate: new SearchGate(guards: [$guard])))->query('mouse')->asSystem()->get();
+
+        self::assertSame(0, $guard->calls);
     }
 
     public function testAnActorSearchWithoutGuardsIsUnrestricted(): void
@@ -198,17 +207,19 @@ final class SearchGateGuardsTest extends TestCase
 
         $fuzzphony->federated()->index('products')->index('articles', 1.0, $asAda)->index('pages', 1.0, $asAda)->query('mouse')->get();
 
-        self::assertSame([2, 1], [$guard->calls, $guard->charged]);
+        self::assertSame([3, 1], [$guard->calls, $guard->charged], 'products has no actor of its own: the anonymous one');
     }
 
-    public function testAFederatedSearchWithoutAnActorNeverCallsTheGuards(): void
+    public function testAFederatedSearchWithoutAnActorRunsTheGuardsAsAnonymousAndSystemNever(): void
     {
         $guard = new CountingGuard();
         $fuzzphony = new Fuzzphony($this->fake(new GuardsRecorder()), $this->threeIndexes(), new SearchGate(guards: [$guard]));
 
         $fuzzphony->federated()->index('products')->index('articles')->index('pages')->query('mouse')->get();
+        self::assertSame([3, 1], [$guard->calls, $guard->charged], 'every index is guarded, the actor is charged once');
 
-        self::assertSame([0, 0], [$guard->calls, $guard->charged]);
+        $fuzzphony->federated()->index('products')->index('articles')->index('pages')->query('mouse')->asSystem()->get();
+        self::assertSame([3, 1], [$guard->calls, $guard->charged], 'a system search calls no guard');
     }
 
     public function testARefusedFederatedSearchRethrowsAndIsCountedOnce(): void
@@ -387,13 +398,15 @@ final class SearchGateGuardsTest extends TestCase
         self::assertSame(['wireless'], $fuzzphony->complete('products', 'wir', 8, new Actor(user: 'ada')));
     }
 
-    public function testSuggestWithoutAnActorSkipsTheGuards(): void
+    public function testSuggestWithoutAnActorRunsTheGuardsAsAnonymousAndSystemNever(): void
     {
         $guard = new CountingGuard();
         $fuzzphony = new Fuzzphony($this->suggestingEngine(), new IndexRegistry([Indexes::products()]), new SearchGate(guards: [$guard]));
 
         self::assertSame(['wireless'], $fuzzphony->complete('products', 'wir'));
-        self::assertSame(0, $guard->calls);
+        self::assertSame(1, $guard->calls);
+        self::assertSame(['wireless'], $fuzzphony->complete('products', 'wir', system: true));
+        self::assertSame(1, $guard->calls);
     }
 
     public function testSuggestChargesTheActorUnlessToldNotTo(): void

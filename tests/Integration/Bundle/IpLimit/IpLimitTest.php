@@ -172,20 +172,28 @@ final class IpLimitTest extends TestCase
         self::assertSame(429, $this->get('10.0.0.1', ['HTTP_X_FORWARDED_FOR' => '198.51.100.4'])->getStatusCode(), 'a fourth client, the same bucket');
     }
 
-    public function testASearchWithoutAnActorAndACallWithoutARequestAreNotLimited(): void
+    public function testACallWithoutARequestIsNotLimited(): void
     {
         $this->boot(['limiter' => true]);
 
-        for ($i = 0; $i < 8; ++$i) {
-            self::assertSame(200, $this->get('203.0.113.45', path: '/plain')->getStatusCode(), 'no actor: the library sees no request');
-        }
         $fuzzphony = $this->kernel()->getContainer()->get(Fuzzphony::class);
         self::assertInstanceOf(Fuzzphony::class, $fuzzphony);
         for ($i = 0; $i < 8; ++$i) {
             // a plain PHP call (a command, a worker) as an anonymous actor: no request, no address, no bucket
             self::assertSame(2, $fuzzphony->in('items')->asActor(Actor::anonymous())->query('mouse')->get()->total);
+            self::assertSame(2, $fuzzphony->in('items')->query('mouse')->get()->total, 'and without naming the actor, the ambient one has no request either');
         }
         self::assertSame(200, $this->get('203.0.113.45')->getStatusCode(), 'and none of that spent a token of the address');
+    }
+
+    public function testASearchThatForgotAsActorIsLimitedByTheAddressOfTheRequest(): void
+    {
+        $this->boot(['limiter' => true]);
+
+        for ($i = 0; $i < 3; ++$i) {
+            self::assertSame(200, $this->get('203.0.113.45', path: '/plain')->getStatusCode());
+        }
+        self::assertSame(429, $this->get('203.0.113.45', path: '/plain')->getStatusCode(), 'the ambient actor carries the address of the request');
     }
 
     public function testTheRefusalIsInTheLogAsRateLimitedWithoutAnAddressWhenTheLogKeepsNone(): void
