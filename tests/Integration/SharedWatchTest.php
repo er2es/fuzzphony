@@ -108,9 +108,10 @@ final class SharedWatchTest extends TestCase
         $fuzzphony = $this->install([$a, $b]);
 
         $this->connection->execute("UPDATE fz_product SET name = 'Quokkaname one' WHERE id = 1");
-        self::assertSame(1, $this->work($a));
+        $first = $this->work($a);
         $this->connection->execute("UPDATE fz_product SET name = 'Quokkaname two' WHERE id = 2");
-        self::assertSame(1, $this->work($a));
+        $second = $this->work($a);
+        self::assertSame([1, 1], [$first, $second]);
         self::assertSame(2, $this->int('SELECT count(*) FROM fuzzphony_watch_log'), "index b has not read them: the log keeps them");
 
         self::assertSame(2, $this->work($b), 'b reads both changes now');

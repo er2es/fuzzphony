@@ -147,8 +147,8 @@ The Languages page searches a separate, hand-written catalogue ([`sql/lang_produ
 in the same file, each with its own `language:` (stemming, stop words) and accent folding.
 
 Try the sync: change a brand name in psql (`docker compose exec db psql -U fuzzphony -c "UPDATE bench_brand SET name = 'Zebra' WHERE id = 1"`)
-and search for `zebra` a second later: the statement-level trigger queued every product of that
-brand, and the `worker` service refreshed them (`docker compose logs worker`).
+and search for `zebra` a second later: the statement-level trigger logged the brand, the `worker` service
+queued every product of that brand and refreshed them (`docker compose logs worker`).
 
 Try a zero-downtime rebuild: `DEMO_REINDEX=always docker compose run --rm init` rebuilds every
 index next to the live one while the site keeps answering from the old index, and swaps each one in
@@ -184,7 +184,7 @@ listed there use the library's defaults, shown here with "default".
 | Indexes | `catalog` (500 000 products), `lang_en`, `lang_de`, `lang_fr`, `lang_es`, `lang_hu` (31 products each), `intranet` (24 notes, tenant `company_id`, the Security page) | |
 | Schema | `fuzzphony` | every index table, the sync queue, the version table, the functions and the text search configurations; the demo data stays in `public`; sidecar layout 2, applied (and upgraded from an older layout) by `fuzzphony:schema --apply` |
 | Extension schema | `public` (default) | where `pg_trgm` and `unaccent` live |
-| Sync mode | `queue` (default) | database triggers queue the changed ids, the `worker` service refreshes them; a `TRUNCATE` of `bench_brand` or `bench_category` queues one `'*'` full-rebuild job instead of every product id, which the worker runs before the queued ids |
+| Sync mode | `queue` (default) | one shared trigger per watched table logs the changed keys, the `worker` service turns them into the changed ids and refreshes them; a `TRUNCATE` of `bench_brand` or `bench_category` becomes one `'*'` full-rebuild job instead of every product id, which the worker runs before the queued ids |
 | Trigger level | `statement` (default) | one trigger call per statement, with transition tables; `TRUNCATE` is followed too |
 | Watched tables | `catalog`: `bench_product`, `bench_brand`, `bench_category`; `lang_*`: `lang_product` | a brand or category change queues every product that uses it |
 | Worker | `fuzzphony:worker --time-limit=3600`, batch of 500 ids, 1 s sleep when idle (defaults) | recycled hourly by Docker's restart policy; stops after the current batch on SIGTERM |

@@ -54,7 +54,11 @@ final readonly class SharedWatch
         ];
     }
 
-    /** Records the index's watches and rebuilds the shared trigger of every table it watches, or watched until now. */
+    /**
+     * Records the index's watches and rebuilds the shared trigger of every table it watches, or watched until now.
+     *
+     * @param callable(IndexDefinition, Watch): ?list<string> $columns
+     */
     public function register(IndexDefinition $index, callable $columns): Statement
     {
         $name = Sql::string($index->name);

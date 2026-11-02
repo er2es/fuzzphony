@@ -14,8 +14,9 @@ final class ErrorSummary
     public static function sqlState(\Throwable $e): ?string
     {
         for ($current = $e; $current !== null; $current = $current->getPrevious()) {
-            if ($current instanceof \PDOException && isset($current->errorInfo[0]) && preg_match('/^[0-9A-Z]{5}$/', $current->errorInfo[0]) === 1) {
-                return $current->errorInfo[0];
+            $info = $current instanceof \PDOException ? $current->errorInfo : null;
+            if (is_array($info) && is_string($info[0] ?? null) && preg_match('/^[0-9A-Z]{5}$/', $info[0]) === 1) {
+                return $info[0];
             }
             if (method_exists($current, 'getSQLState')) {
                 $state = $current->getSQLState();
