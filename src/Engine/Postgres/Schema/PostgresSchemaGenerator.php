@@ -63,6 +63,11 @@ final class PostgresSchemaGenerator
         return $this->names;
     }
 
+    private function sharedWatch(): SharedWatch
+    {
+        return new SharedWatch($this->names);
+    }
+
     public function global(IndexDefinition ...$indexes): SchemaPlan
     {
         $schema = $this->names->extensionSchema;
@@ -102,6 +107,10 @@ final class PostgresSchemaGenerator
         foreach (['rebuild_failed_at' => 'timestamptz', 'rebuild_failures' => 'integer', 'rebuild_error' => 'text'] as $column => $type) {
             $statements[] = $this->addColumn($this->names->meta(), $column, $type, 'The last failure of the full rebuild a TRUNCATE queued (the doctor reports it)');
         }
+        foreach (['attempts' => 'integer NOT NULL DEFAULT 0', 'last_error' => 'text', 'failed_at' => 'timestamptz'] as $column => $type) {
+            $statements[] = $this->addColumn($this->names->queue(), $column, $type, 'Queue: how often an item failed, the error class and SQLSTATE of the last failure and when (the worker retries it later; the doctor names it)');
+        }
+        array_push($statements, ...$this->sharedWatch()->shared());
 
         if ($this->searchLog) {
             array_push(
@@ -173,8 +182,12 @@ final class PostgresSchemaGenerator
             foreach ($this->obsoleteTriggerNames($index, $watch) as $obsolete) {
                 $statements[] = new Statement(sprintf('DROP TRIGGER IF EXISTS %s ON %s', Sql::ident($obsolete), $watched), sprintf('Remove trigger not used in "%s" sync / %s level', $index->sync->value, $index->triggerLevel->value));
             }
-            if (!$index->sync->usesTriggers()) {
+            if (!$index->sync->usesTriggers() || SharedWatch::applies($index)) {
                 $statements[] = $this->partitionTriggers($index, $watch, false);
+                if (SharedWatch::applies($index)) {
+                    // the trigger function of an earlier release (one per index and table), once its triggers are gone
+                    $statements[] = new Statement(sprintf('DROP FUNCTION IF EXISTS %s()', $this->names->syncFunction($index, $watch)), 'Remove the per-index sync function: the shared trigger of the table replaces it');
+                }
 
                 continue;
             }
@@ -190,6 +203,12 @@ final class PostgresSchemaGenerator
             }
             $statements[] = $this->partitionTriggers($index, $watch, true);
         }
+        if (SharedWatch::applies($index)) {
+            $statements[] = new Statement($this->sharedWatch()->drainFunction($index, $this->relevantColumns(...), $this->names->sidecar($index), $this->names->changes($index)), 'Moves the changes the shared trigger logged into the index queue');
+        } else {
+            $statements[] = new Statement(sprintf('DROP FUNCTION IF EXISTS %s()', $this->names->drainFunction($index)), 'Remove the function that drains the shared change log (this sync mode does not use it)');
+        }
+        $statements[] = $this->sharedWatch()->register($index, $this->relevantColumns(...));
 
         foreach ($this->indexes($index) as $name => $definition) {
             $statements[] = new Statement(
@@ -283,7 +302,8 @@ final class PostgresSchemaGenerator
 
     public function drop(IndexDefinition $index): SchemaPlan
     {
-        $statements = [$this->rebuildGuard($index)];
+        $statements = [$this->rebuildGuard($index), $this->sharedWatch()->unregister($index)];
+        $statements[] = new Statement(sprintf('DROP FUNCTION IF EXISTS %s()', $this->names->drainFunction($index)), 'Remove the function that drains the shared change log');
         foreach ($index->effectiveWatches() as $watch) {
             foreach ($this->allTriggerNames($index, $watch) as $trigger) {
                 $statements[] = new Statement(sprintf('DROP TRIGGER IF EXISTS %s ON %s', Sql::ident($trigger), Sql::ident($watch->table)), 'Remove sync trigger');
@@ -482,7 +502,7 @@ ON CONFLICT (index_name) DO UPDATE SET layout_version = EXCLUDED.layout_version,
      */
     public function triggerDefinitions(IndexDefinition $index, Watch $watch): array
     {
-        if (!$index->sync->usesTriggers()) {
+        if (!$index->sync->usesTriggers() || SharedWatch::applies($index)) {
             return [];
         }
         // PostgreSQL never runs DELETE triggers for TRUNCATE and only allows TRUNCATE triggers per

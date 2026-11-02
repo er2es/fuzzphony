@@ -60,8 +60,9 @@ final class TruncateSyncTest extends TestCase
         self::assertSame($sync === 'queue' ? 5 : 6, $this->rows('fuzzphony_items'));
 
         $this->connection->execute('TRUNCATE fz_product CASCADE');
+        PostgresTestCase::drain($this->connection, $index); // queue sync at statement level: the worker's drain acts on the logged TRUNCATE
 
-        self::assertSame(0, $this->rows('fuzzphony_items'), 'the index follows the emptied source immediately');
+        self::assertSame(0, $this->rows('fuzzphony_items'), 'the index follows the emptied source');
         self::assertSame(0, $this->engine->queueSize($index), 'nothing left to process for this index');
         self::assertSame(1, $this->rows('fuzzphony_queue'), "other indexes' queued items are kept");
         self::assertSame([], $fuzzphony->in('items')->query('mouse')->get()->ids());
@@ -170,14 +171,16 @@ final class TruncateSyncTest extends TestCase
         $this->install($index);
         $this->connection->execute("INSERT INTO fz_product VALUES (6, 'Trackball', 'Ergonomic trackball', 1, 5990, true, 3, now())");
         $this->connection->execute("INSERT INTO fuzzphony_queue (index_name, doc_id) VALUES ('items', '7')");
-        self::assertSame(2, $this->engine->queueSize($index));
+        self::assertSame(2, $this->drained($index));
 
+        $this->connection->execute('TRUNCATE fz_product CASCADE'); // the trigger only logs it: it never touches the queue
+        // a worker that started after the TRUNCATE holds a queue row (its transaction is newer, so the drain reads the TRUNCATE)
         $worker = new \PDO(PostgresTestCase::dsn(), null, null, [\PDO::ATTR_ERRMODE => \PDO::ERRMODE_EXCEPTION]);
         $worker->beginTransaction();
         $worker->exec("SELECT 1 FROM fuzzphony_queue WHERE index_name = 'items' AND doc_id = '6' FOR UPDATE");
         try {
             $this->connection->execute("SET lock_timeout = '1500ms'");
-            $this->connection->execute('TRUNCATE fz_product CASCADE');
+            PostgresTestCase::drain($this->connection, $index); // the drain skips the queue row the worker holds
         } finally {
             $worker->rollBack();
         }
@@ -335,6 +338,13 @@ final class TruncateSyncTest extends TestCase
         return $fuzzphony;
     }
 
+    private function drained(IndexDefinition $index): int
+    {
+        PostgresTestCase::drain($this->connection, $index);
+
+        return $this->engine->queueSize($index);
+    }
+
     private function converge(IndexDefinition $index): int
     {
         return (new Worker($this->engine))->runOnce([$index]);
@@ -343,6 +353,8 @@ final class TruncateSyncTest extends TestCase
     /** @return list<string> */
     private function queued(IndexDefinition $index): array
     {
+        PostgresTestCase::drain($this->connection, $index); // the shared trigger logs; the queue rows exist after the drain
+
         return array_map(
             static fn(array $row): string => Coerce::str($row['doc_id']),
             $this->connection->fetchAll('SELECT doc_id FROM fuzzphony_queue WHERE index_name = :index', ['index' => $index->name]),

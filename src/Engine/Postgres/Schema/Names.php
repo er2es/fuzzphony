@@ -81,6 +81,57 @@ final readonly class Names
         return self::PREFIX . 'queue_order';
     }
 
+    /** The change log every watched table's shared trigger appends to; the indexes read it through their own cursor (watches()). */
+    public function watchLog(): string
+    {
+        return $this->qualify(self::PREFIX . 'watch_log');
+    }
+
+    public function watchLogIndexName(): string
+    {
+        return self::PREFIX . 'watch_log_tbl_xid';
+    }
+
+    /** Who watches which table: one row per watch of an index, with the shared log position the index has processed up to. */
+    public function watches(): string
+    {
+        return $this->qualify(self::PREFIX . 'watches');
+    }
+
+    /** The function that (re)builds or removes the shared trigger of a watched table from the watches. */
+    public function watchInstallFunction(): string
+    {
+        return $this->qualify(self::PREFIX . 'watch_install');
+    }
+
+    /** The shared trigger function of a watched table (`fuzzphony_watch__<table>`), short enough for the `__ins`, `__upd`, `__del` and `__trn` triggers. */
+    public function watchFunctionName(string $table): string
+    {
+        return self::limit(self::PREFIX . 'watch__' . str_replace('.', '_', $table), self::MAX_IDENTIFIER_BYTES - 5);
+    }
+
+    public function watchFunction(string $table): string
+    {
+        return $this->qualify($this->watchFunctionName($table));
+    }
+
+    /** A trigger of the shared function: "__ins", "__upd", "__del" or "__trn". */
+    public function watchTriggerName(string $table, string $kind): string
+    {
+        return $this->watchFunctionName($table) . '__' . $kind;
+    }
+
+    /** The function that moves the shared log into an index's own queue (queue sync, statement-level triggers). */
+    public function drainFunctionName(IndexDefinition $index): string
+    {
+        return self::limit(self::PREFIX . 'drain_' . $index->name);
+    }
+
+    public function drainFunction(IndexDefinition $index): string
+    {
+        return $this->qualify($this->drainFunctionName($index));
+    }
+
     public function metaName(): string
     {
         return self::PREFIX . 'meta';

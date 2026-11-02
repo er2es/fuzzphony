@@ -114,11 +114,34 @@ final class SchemaGeneratorTest extends TestCase
 
     public function testStatementLevelTriggersUseTransitionTables(): void
     {
-        $sql = (new PostgresSchemaGenerator())->index(Indexes::products('queue'))->toSql();
+        $sql = (new PostgresSchemaGenerator())->index(Indexes::products('trigger'))->toSql();
 
         self::assertStringContainsString('FROM fz_new AS r CROSS JOIN LATERAL (SELECT id FROM fz_product WHERE brand_id = r."id")', $sql);
         self::assertStringContainsString('AFTER UPDATE ON "fz_brand" REFERENCING OLD TABLE AS fz_old NEW TABLE AS fz_new FOR EACH STATEMENT', $sql);
         self::assertStringContainsString('DROP TRIGGER IF EXISTS "fuzzphony_sync_products__fz_brand" ON "fz_brand"', $sql, 'row-level trigger of a previous setup is removed');
+    }
+
+    public function testQueueSyncAtStatementLevelUsesTheSharedTriggerOfTheTable(): void
+    {
+        $generator = new PostgresSchemaGenerator();
+        $sql = $generator->index(Indexes::products('queue'))->toSql();
+
+        self::assertStringNotContainsString('CREATE OR REPLACE TRIGGER "fuzzphony_sync_', $sql, 'no trigger of its own');
+        self::assertStringContainsString('PERFORM "public"."fuzzphony_watch_install"(r.tbl, r.fn)', $sql);
+        self::assertStringContainsString("'\"fz_brand\"', 'fuzzphony_watch__fz_brand', 'id', NULL::jsonb", $sql, 'the unfiltered watch of the joined table');
+        self::assertStringContainsString('CROSS JOIN LATERAL (SELECT id FROM fz_product WHERE brand_id = k."id") AS a(doc_id)', $sql, 'the watch query maps a logged key to documents when the index drains');
+        self::assertStringContainsString('DROP TRIGGER IF EXISTS "fuzzphony_sync_products__fz_brand_upd" ON "fz_brand"', $sql, 'the per-index triggers of an earlier release go');
+        self::assertStringContainsString('DROP FUNCTION IF EXISTS "public"."fuzzphony_sync_products__fz_brand"()', $sql);
+
+        $drop = $generator->drop(Indexes::products('queue'))->toSql();
+        self::assertStringContainsString('DELETE FROM "public"."fuzzphony_watches" WHERE index_name = \'products\'', $drop);
+        self::assertStringContainsString('PERFORM "public"."fuzzphony_watch_install"(r.tbl, r.fn)', $drop, 'the shared trigger of a table goes with the last index that watches it');
+
+        $article = IndexDefinition::builder('articles')->fromTable('article')->field('title')->build();
+        $drain = $generator->index($article)->toSql();
+        self::assertStringContainsString('IF NOT EXISTS (SELECT 1 FROM "article") THEN', $drain);
+        self::assertStringContainsString('DELETE FROM "public"."fuzzphony_articles";', $drain);
+        self::assertStringContainsString("INSERT INTO \"public\".\"fuzzphony_queue\" (index_name, doc_id, queued_at) VALUES ('articles', '*', clock_timestamp())", $drain);
     }
 
     public function testRowLevelTriggers(): void
@@ -136,6 +159,9 @@ final class SchemaGeneratorTest extends TestCase
     {
         foreach ([TriggerLevel::Statement, TriggerLevel::Row] as $level) {
             foreach (['queue', 'trigger'] as $sync) {
+                if ($sync === 'queue' && $level === TriggerLevel::Statement) {
+                    continue; // the shared trigger of the table (testQueueSyncAtStatementLevelUsesTheSharedTriggerOfTheTable())
+                }
                 $sql = (new PostgresSchemaGenerator())->index(Indexes::products($sync)->withTriggerLevel($level))->toSql();
 
                 foreach (['fz_product', 'fz_brand'] as $table) {
@@ -192,7 +218,7 @@ final class SchemaGeneratorTest extends TestCase
         ELSE
             %s";
 
-        $queue = (new PostgresSchemaGenerator())->index($definition)->toSql();
+        $queue = (new PostgresSchemaGenerator())->index($definition->withTriggerLevel(TriggerLevel::Row))->toSql();
         self::assertStringContainsString(
             $guard . "
             IF to_regclass('\"public\".\"fuzzphony_articles__changes\"') IS NULL THEN DELETE FROM \"public\".\"fuzzphony_queue\" WHERE ctid IN (SELECT ctid FROM \"public\".\"fuzzphony_queue\" WHERE index_name = 'articles' FOR UPDATE SKIP LOCKED); END IF;"
@@ -211,7 +237,7 @@ final class SchemaGeneratorTest extends TestCase
         $definition = IndexDefinition::builder('articles')->fromTable('article')->field('title')->watch('comment', 'SELECT article_id FROM comment WHERE id = :id')->build();
         foreach (['queue', 'trigger'] as $sync) {
             $functions = array_values(array_filter(
-                (new PostgresSchemaGenerator())->index($definition->withSync(SyncMode::from($sync)))->statements,
+                (new PostgresSchemaGenerator())->index($definition->withSync(SyncMode::from($sync))->withTriggerLevel(TriggerLevel::Row))->statements,
                 static fn($statement): bool => str_contains($statement->sql, 'CREATE OR REPLACE FUNCTION "public"."fuzzphony_sync_articles__comment"'),
             ));
             self::assertCount(1, $functions);
@@ -224,7 +250,7 @@ final class SchemaGeneratorTest extends TestCase
 
     public function testTruncatingAnotherWatchedTableResyncsEveryDocument(): void
     {
-        $queue = (new PostgresSchemaGenerator())->index(Indexes::products('queue'))->toSql();
+        $queue = (new PostgresSchemaGenerator())->index(Indexes::products('queue')->withTriggerLevel(TriggerLevel::Row))->toSql();
         self::assertStringContainsString(
             "IF TG_OP = 'TRUNCATE' THEN\n        INSERT INTO \"public\".\"fuzzphony_queue\" (index_name, doc_id, queued_at) VALUES ('products', '*', clock_timestamp())\n        ON CONFLICT (index_name, doc_id) DO UPDATE SET queued_at = clock_timestamp();\n        RETURN NULL;\n    END IF;",
             $queue,
@@ -554,7 +580,7 @@ final class SchemaGeneratorTest extends TestCase
         // Regression guard: relevantColumns() is null for every watch on Indexes::products()
         // (query source; no watch has explicit columns), so this must produce exactly what
         // testStatementLevelTriggersUseTransitionTables already asserts.
-        $sql = (new PostgresSchemaGenerator())->index(Indexes::products('queue'))->toSql();
+        $sql = (new PostgresSchemaGenerator())->index(Indexes::products('trigger'))->toSql();
 
         self::assertStringContainsString('FROM fz_new AS r CROSS JOIN LATERAL (SELECT id FROM fz_product WHERE brand_id = r."id")', $sql);
         self::assertStringNotContainsString('LEFT JOIN', $sql);
@@ -568,6 +594,7 @@ final class SchemaGeneratorTest extends TestCase
             ->watch('fz_brand', 'SELECT id FROM fz_product WHERE brand_id = :id', columns: ['name'])
             ->field('name', 'A')
             ->field('brand', 'B')
+            ->sync('trigger')
             ->build();
 
         $sql = (new PostgresSchemaGenerator())->index($definition)->toSql();
@@ -580,7 +607,6 @@ final class SchemaGeneratorTest extends TestCase
         self::assertStringContainsString('fz_old AS r LEFT JOIN fz_new n ON n."id" = r."id"', $sql);
         self::assertStringContainsString('n."id" IS NULL OR (r."name" IS DISTINCT FROM n."name")', $sql);
         // INSERT/DELETE branches never reference the other side's transition table.
-        self::assertStringNotContainsString("IF TG_OP = 'INSERT' THEN\n        PERFORM", $sql); // sanity: this fixture uses queue mode
 
         // Pin the critical property directly, by string, rather than relying on manual code
         // trace: the INSERT-only branch must never mention fz_old (not registered as a
@@ -612,7 +638,8 @@ final class SchemaGeneratorTest extends TestCase
         self::assertStringContainsString('CREATE TABLE IF NOT EXISTS "fuzzphony_s"."fuzzphony_products"', $sql);
         self::assertStringContainsString('CREATE OR REPLACE FUNCTION "fuzzphony_s"."fuzzphony_norm"(text)', $sql);
         self::assertStringContainsString('CREATE OR REPLACE FUNCTION "fuzzphony_s"."fuzzphony_refresh_products"(p_ids bigint[])', $sql);
-        self::assertStringContainsString('EXECUTE FUNCTION "fuzzphony_s"."fuzzphony_sync_products__fz_brand"()', $sql);
+        self::assertStringContainsString('CREATE OR REPLACE FUNCTION "fuzzphony_s"."fuzzphony_watch_install"(p_tbl text, p_fn text)', $sql);
+        self::assertStringContainsString('CREATE OR REPLACE FUNCTION "fuzzphony_s"."fuzzphony_drain_products"()', $sql);
         self::assertStringContainsString('CREATE INDEX CONCURRENTLY IF NOT EXISTS "fuzzphony_products__tsv" ON "fuzzphony_s"."fuzzphony_products"', $sql);
         self::assertStringContainsString('INSERT INTO "fuzzphony_s"."fuzzphony_queue" (index_name, doc_id)', $sql);
         self::assertStringContainsString("setweight(to_tsvector('\"fuzzphony_s\".\"fuzzphony_english\"'::regconfig", $sql);
@@ -622,7 +649,7 @@ final class SchemaGeneratorTest extends TestCase
     public function testGeneratedFunctionsPinTheirSearchPath(): void
     {
         $generator = new PostgresSchemaGenerator();
-        $sql = $generator->global(Indexes::products())->merge($generator->index(Indexes::products()))->toSql();
+        $sql = $generator->global(Indexes::products())->merge($generator->index(Indexes::products('trigger')))->toSql();
 
         self::assertStringContainsString("RETURNS text\nLANGUAGE sql IMMUTABLE PARALLEL SAFE STRICT\nSET search_path = pg_catalog, pg_temp\nAS \$fuzzphony\$", $sql);
         self::assertStringContainsString("RETURNS integer\nLANGUAGE plpgsql SET search_path FROM CURRENT AS \$fuzzphony\$", $sql);
@@ -632,6 +659,11 @@ final class SchemaGeneratorTest extends TestCase
 
         $row = $generator->index(Indexes::products()->withTriggerLevel(TriggerLevel::Row))->toSql();
         self::assertSame(2, substr_count($row, "RETURNS trigger\nLANGUAGE plpgsql SET search_path FROM CURRENT AS \$fuzzphony\$"), 'row-level sync functions too');
+
+        // the shared trigger function of a table is built by fuzzphony_watch_install() and pins the same way; the drain function embeds the watch SQL
+        $shared = $generator->global(Indexes::products())->merge($generator->index(Indexes::products()))->toSql();
+        self::assertStringContainsString('RETURNS trigger LANGUAGE plpgsql SET search_path FROM CURRENT AS $fzb$', $shared);
+        self::assertStringContainsString("RETURNS integer\nLANGUAGE plpgsql SET search_path FROM CURRENT AS \$fuzzphony\$\nDECLARE\n    v_hi bigint", $shared, 'the drain function');
     }
 
     public function testCatalogLookupsCompareTheExactSchemaName(): void
@@ -716,7 +748,7 @@ final class SchemaGeneratorTest extends TestCase
 
     public function testTheTruncateTriggerGoesOnEveryPartitionWhenTheSchemaIsApplied(): void
     {
-        $statements = (new PostgresSchemaGenerator())->index(Indexes::products('queue'))->statements;
+        $statements = (new PostgresSchemaGenerator())->index(Indexes::products('trigger'))->statements;
         $partitions = array_values(array_filter($statements, static fn(Statement $s): bool => $s->description === 'TRUNCATE sync on every partition of fz_brand'));
 
         self::assertCount(1, $partitions);

@@ -106,7 +106,7 @@ final class SchemaCommand extends Command
                 $io->progressAdvance();
             });
         } catch (EngineFailure $e) {
-            $table = $current !== null && stripos($current->sql, 'TRIGGER') !== false ? self::deniedTable($e) : null;
+            $table = $current !== null && (stripos($current->sql, 'TRIGGER') !== false || stripos($current->sql, 'watch_install') !== false) ? self::deniedTable($e) : null;
             if ($table === null) {
                 throw $e;
             }

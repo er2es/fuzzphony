@@ -8,6 +8,7 @@ use Fuzzphony\Core\Definition\SyncMode;
 use Fuzzphony\Core\Fuzzphony;
 use Fuzzphony\Core\Observability\MetricsCollector;
 use Fuzzphony\Core\Observability\NullMetricsCollector;
+use Fuzzphony\Core\Support\ErrorSummary;
 use Fuzzphony\Core\Sync\Worker;
 use Symfony\Component\Console\Attribute\AsCommand;
 use Symfony\Component\Console\Command\Command;
@@ -58,11 +59,11 @@ final class WorkerCommand extends Command implements SignalableCommandInterface
         $errors = $io->getErrorStyle();
         $report = static function () use ($worker, $errors): bool {
             foreach ($worker->rebuildFailures() as $name => $failure) {
-                $errors->writeln(sprintf('<error>The full rebuild of "%s" a TRUNCATE queued failed; the job stays queued: %s</error>', $name, $failure->getMessage()));
+                $errors->writeln(sprintf('<error>The full rebuild of "%s" a TRUNCATE queued failed; the job stays queued (see the doctor): %s</error>', $name, ErrorSummary::describe($failure)));
             }
 
             foreach ($worker->queueFailures() as $name => $failure) {
-                $errors->writeln(sprintf('<error>The queue of "%s" could not be processed; its items stay queued and the other indexes went on: %s</error>', $name, $failure->getMessage()));
+                $errors->writeln(sprintf('<error>The queue of "%s" could not be processed; its items stay queued and the other indexes went on (see the doctor): %s</error>', $name, ErrorSummary::describe($failure)));
             }
 
             return $worker->rebuildFailures() !== [] || $worker->queueFailures() !== [];
