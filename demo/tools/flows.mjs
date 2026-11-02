@@ -700,6 +700,31 @@ const h2s = (await page.locator('main h2').allTextContents()).map((t) => t.trim(
 check('relevance: no two headings of level 2 have the same text', new Set(h2s).size === h2s.length, h2s.join(' | '));
 await go(page, `${BASE}/tune?query=mouse`);
 check('tune: the sliders are 24 px tall at least and the view switch has no frame of its own', (await page.locator('input[type=range]').evaluateAll((els) => els.every((e) => e.getBoundingClientRect().height >= 24))) && (await page.locator('fieldset.segmented').evaluate((f) => getComputedStyle(f).borderTopWidth)) === '0px');
+// benchmark: a non-zero hit count is green (success colour), a 0 is red (danger colour), in both hits columns
+await go(page, `${BASE}/under-the-hood/benchmark`);
+await page.waitForFunction(() => { const r = [...document.querySelectorAll('tbody tr')]; return r.length > 0 && r.every((t) => t.children.length === 7 && /^\d+/.test(t.children[6].textContent.trim())); }, null, { timeout: 180000 }).catch(() => {});
+const hitCols = await page.evaluate(() => {
+    const ok = document.createElement('span'); ok.className = 's-ok'; document.body.append(ok);
+    const bad = document.createElement('span'); bad.className = 's-error'; document.body.append(bad);
+    const okC = getComputedStyle(ok).color, badC = getComputedStyle(bad).color; ok.remove(); bad.remove();
+    const cells = [...document.querySelectorAll('tbody tr')].flatMap((tr) => [tr.children[3], tr.children[6]]).filter(Boolean);
+    return { n: cells.length, bad: cells.filter((c) => { const v = parseInt(c.textContent, 10); return getComputedStyle(c).color !== (v > 0 ? okC : badC); }).length, pos: cells.filter((c) => parseInt(c.textContent, 10) > 0).length };
+});
+check('benchmark: a non-zero hits cell has the success colour and a 0 the danger colour (both hits columns)', hitCols.n >= 2 && hitCols.pos > 0 && hitCols.bad === 0, JSON.stringify(hitCols));
+// tune: "Start from" label, icon and the three chips share one line on narrow phones
+for (const w of [320, 360, 390, 420]) {
+    const ctx = await browser.newContext({ viewport: { width: w, height: 800 }, reducedMotion: 'reduce' });
+    const pg = await ctx.newPage();
+    await go(pg, `${BASE}/tune?query=mouse`);
+    const r = await pg.evaluate(() => {
+        const els = [...document.querySelectorAll('.profile-label, .profile-set .chip, .profile-label .tip-btn')];
+        const tops = new Set(els.map((e) => Math.round(e.getBoundingClientRect().top + e.getBoundingClientRect().height / 2)));
+        const chips = [...document.querySelectorAll('.profile-set .chip')].map((e) => e.getBoundingClientRect());
+        return { lines: tops.size, minH: Math.min(...chips.map((c) => c.height)), minW: Math.min(...chips.map((c) => c.width)), scroll: document.documentElement.scrollWidth > innerWidth };
+    });
+    check(`tune: Start from, its icon and the chips share one line at ${w} px, targets >= 24 px, no sideways scroll`, r.lines === 1 && r.minH >= 24 && r.minW >= 24 && !r.scroll, JSON.stringify(r));
+    await ctx.close();
+}
 await go(page, `${BASE}/under-the-hood/doctor`);
 check('doctor: a skipped check does not wear the disclosure chevron', (await page.locator('.status-dot use[href="#i-chevron"]').count()) === 0);
 await go(p2, `${BASE}/under-the-hood/analytics`);

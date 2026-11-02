@@ -72,8 +72,10 @@ use function Symfony\Component\DependencyInjection\Loader\Configurator\service_c
  *     extension_schema: public     # where pg_trgm / unaccent live
  *     schema: public               # where Fuzzphony's own tables and functions live (e.g. fuzzphony)
  *     discover_entities: true      # pick up #[Searchable] entities automatically
- *     worker: { batch_size: 500, idle_sleep: 1.0 }
- *     orm_sync: { async: false }   # true: refresh through Messenger (route RefreshDocuments to a transport)
+ *     worker: { batch_size: 500, idle_sleep: 1.0 }  # one batch = one transaction and one refresh: short locks, steady throughput;
+ *                                  # an empty queue costs one query per idle_sleep (1 s); raise batch_size for bulk imports
+ *     orm_sync: { async: false, chunk_size: 500 }  # false: no Messenger needed, the refresh runs inside the request's flush;
+ *                                  # true: refresh through Messenger (route RefreshDocuments to a transport); chunk_size: ids per RefreshDocuments message
  *     actor:                       # who searches: the tenant scopes tenant-scoped indexes
  *       resolver: app.my_resolver  # a service implementing Fuzzphony\Core\Search\ActorResolver, or:
  *       tenant: account.id         # property path on the Security user (needs symfony/security-bundle + property-access)

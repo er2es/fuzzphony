@@ -25,11 +25,13 @@
     <aside class="settings" aria-label="Settings">
         <section>
             <h2 class="list-title">Ranking</h2>
-            <div class="chips profile-chips" role="group" aria-label="Start from a ranking profile of the catalogue">
-                <span class="muted">Start from</span>{{ ui.tip('startFrom', 'Start from') }}
+            <div class="profile-chips" role="group" aria-label="Start from a ranking profile of the catalogue">
+                <span class="profile-label"><span class="muted">Start from</span>{{ ui.tip('startFrom', 'Start from') }}</span>
+                <span class="profile-set">
                 <button type="button" class="chip" data-action="live#action" data-live-action-param="startFrom" data-live-name-param="default">default</button>
                 <button type="button" class="chip" data-action="live#action" data-live-action-param="startFrom" data-live-name-param="popular">popular</button>
                 <button type="button" class="chip" data-action="live#action" data-live-action-param="startFrom" data-live-name-param="sample">sample</button>
+                </span>
             </div>
             <div class="list">
                 {{ ui.slider('Full-text weight', 'text', text, 0, 2, 0.05) }}
