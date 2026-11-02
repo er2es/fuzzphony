@@ -75,9 +75,9 @@ final class PostgresEngineTest extends TestCase
         $this->connection->execute("INSERT INTO fz_product VALUES (6, 'Trackball', 'Ergonomic trackball', 1, 5990, true, 3, now())");
         $this->connection->execute('DELETE FROM fz_product WHERE id = 2');
 
-        self::assertSame(4, $this->engine->queueSize($index)); // 1, 4, 6, 2 (deduplicated)
+        self::assertSame(4, $this->drainedQueueSize($index)); // 1, 4, 6, 2 (deduplicated)
         self::assertSame(4, (new Worker($this->engine))->runOnce([$index]));
-        self::assertSame(0, $this->engine->queueSize($index));
+        self::assertSame(0, $this->drainedQueueSize($index));
 
         self::assertEqualsCanonicalizing([1, 4, 6], $fuzzphony->in('products')->query('brand:"logitech g"')->thresholds(['fuzzy_mode' => 'never'])->get()->ids());
         self::assertNotContains(2, $fuzzphony->in('products')->query('gaming')->get()->ids());
@@ -90,10 +90,10 @@ final class PostgresEngineTest extends TestCase
         $this->connection->execute(
             "INSERT INTO fz_product SELECT i, 'Bulk item ' || i, 'generated', 1 + i % 3, 100, true, 0, now() FROM generate_series(100, 1099) AS i",
         );
-        self::assertSame(1000, $this->engine->queueSize($index), 'one statement, 1000 queued ids');
+        self::assertSame(1000, $this->drainedQueueSize($index), 'one statement, 1000 queued ids');
 
         $this->connection->execute("UPDATE fz_product SET description = 'changed' WHERE id >= 100"); // same ids: deduplicated
-        self::assertSame(1000, $this->engine->queueSize($index));
+        self::assertSame(1000, $this->drainedQueueSize($index));
 
         (new Worker($this->engine))->runOnce([$index], 250);
         self::assertSame(1000, $fuzzphony->in('products')->query('bulk')->thresholds(['fuzzy_mode' => 'never'])->get()->total);
@@ -137,6 +137,14 @@ final class PostgresEngineTest extends TestCase
         self::assertStringNotContainsString('<b', $hit->highlights['name']);
     }
 
+    /** The items waiting once the shared change log has been drained into the queue (ids, deduplicated). */
+    private function drainedQueueSize(IndexDefinition $index): int
+    {
+        PostgresTestCase::drain($this->connection, $index);
+
+        return $this->engine->queueSize($index);
+    }
+
     public function testDoctorIsHappyAfterInstall(): void
     {
         $report = $this->fuzzphony('queue')->inspect('products', new InspectOptions(deep: true));
@@ -149,7 +157,7 @@ final class PostgresEngineTest extends TestCase
         $fuzzphony = $this->fuzzphony('queue');
         $this->connection->execute('DROP INDEX fuzzphony_products__fz');
         $this->connection->execute('ALTER TABLE fuzzphony_products DROP COLUMN f_price');
-        $this->connection->execute('ALTER TABLE fz_brand DISABLE TRIGGER fuzzphony_sync_products__fz_brand_upd');
+        $this->connection->execute('ALTER TABLE fz_brand DISABLE TRIGGER fuzzphony_watch__fz_brand__upd');
 
         $problems = [];
         foreach ($fuzzphony->inspect('products')->problems() as $check) {
@@ -161,7 +169,7 @@ final class PostgresEngineTest extends TestCase
         self::assertStringContainsString('ENABLE TRIGGER', (string) $problems['Sync trigger on fz_brand']->fix);
 
         $fuzzphony->schema()->apply($this->connection); // idempotent repair (except the trigger state, which is deliberate)
-        $this->connection->execute('ALTER TABLE fz_brand ENABLE TRIGGER fuzzphony_sync_products__fz_brand_upd');
+        $this->connection->execute('ALTER TABLE fz_brand ENABLE TRIGGER fuzzphony_watch__fz_brand__upd');
         $fuzzphony->reindex('products');
         self::assertTrue($fuzzphony->inspect('products')->isHealthy());
     }
@@ -170,13 +178,13 @@ final class PostgresEngineTest extends TestCase
     {
         $fuzzphony = $this->fuzzphony('queue');
         // what an index whose schema was applied before the TRUNCATE trigger existed looks like
-        $this->connection->execute('DROP TRIGGER fuzzphony_sync_products__fz_brand_trn ON fz_brand');
+        $this->connection->execute('DROP TRIGGER fuzzphony_watch__fz_brand__trn ON fz_brand');
 
         $problems = array_values(array_filter($fuzzphony->inspect('products')->problems(), static fn(Check $c): bool => $c->name === 'Sync trigger on fz_brand'));
 
         self::assertCount(1, $problems);
         self::assertSame(CheckStatus::Error, $problems[0]->status);
-        self::assertSame('missing fuzzphony_sync_products__fz_brand_trn: a TRUNCATE of this table leaves stale documents in the index', $problems[0]->message);
+        self::assertSame('missing fuzzphony_watch__fz_brand__trn: a TRUNCATE of this table leaves stale documents in the index', $problems[0]->message);
         self::assertStringContainsString('fuzzphony:schema --apply', (string) $problems[0]->fix);
 
         $fuzzphony->schema()->apply($this->connection);
@@ -192,7 +200,8 @@ final class PostgresEngineTest extends TestCase
             ->watch('fz_brand', 'SELECT id FROM fz_product WHERE brand_id = :id')
             ->field('name', 'A')
             ->sync('queue')
-            ->build();
+            ->build()
+            ->withTriggerLevel(TriggerLevel::Row); // the shared trigger of a table has a short name; the per-index triggers of the row level hash a long one
         $fuzzphony = new Fuzzphony($this->engine, new IndexRegistry([$index]));
         $fuzzphony->schema()->apply($this->connection);
         $fuzzphony->reindex($index->name);
@@ -623,8 +632,8 @@ final class PostgresEngineTest extends TestCase
 
     public function testDoctorWarnsAboutLeftoverTriggersFromAPreviousSyncLevel(): void
     {
-        $this->fuzzphony('queue'); // installs the default statement-level triggers
-        $rowIndex = Indexes::products('queue')->withTriggerLevel(TriggerLevel::Row);
+        $this->fuzzphony('trigger'); // installs the statement-level triggers of the index
+        $rowIndex = Indexes::products('trigger')->withTriggerLevel(TriggerLevel::Row);
         $rowFuzzphony = new Fuzzphony($this->engine, new IndexRegistry([$rowIndex]));
 
         $leftover = array_values(array_filter(
@@ -634,7 +643,7 @@ final class PostgresEngineTest extends TestCase
 
         self::assertCount(1, $leftover);
         self::assertSame(CheckStatus::Warning, $leftover[0]->status);
-        self::assertStringContainsString('do not match "queue" sync / row level and cause double work', $leftover[0]->message);
+        self::assertStringContainsString('do not match "trigger" sync / row level and cause double work', $leftover[0]->message);
         self::assertStringContainsString('fuzzphony:schema --apply', (string) $leftover[0]->fix);
     }
 

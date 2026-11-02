@@ -54,7 +54,7 @@ final class DedicatedSchemaTest extends TestCase
             'SELECT p.proname FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace WHERE n.nspname = :schema ORDER BY 1',
             ['schema' => self::SCHEMA],
         ), 'proname'));
-        self::assertSame(['fuzzphony_norm', 'fuzzphony_refresh_products', 'fuzzphony_refresh_products__next', 'fuzzphony_sync_products__fz_brand', 'fuzzphony_sync_products__fz_product', 'fuzzphony_track_products'], $functions);
+        self::assertSame(['fuzzphony_drain_products', 'fuzzphony_norm', 'fuzzphony_refresh_products', 'fuzzphony_refresh_products__next', 'fuzzphony_track_products', 'fuzzphony_watch__fz_brand', 'fuzzphony_watch__fz_product', 'fuzzphony_watch_install'], $functions);
         self::assertTrue((bool) $this->connection->fetchValue(
             "SELECT EXISTS (SELECT 1 FROM pg_ts_config c JOIN pg_namespace n ON n.oid = c.cfgnamespace WHERE c.cfgname = 'fuzzphony_english' AND n.nspname = :schema)",
             ['schema' => self::SCHEMA],

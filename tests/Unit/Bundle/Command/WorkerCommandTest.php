@@ -183,7 +183,8 @@ final class WorkerCommandTest extends TestCase
 
         self::assertSame(Command::FAILURE, $status);
         self::assertStringContainsString('The queue of "products" could not be processed', $tester->getDisplay());
-        self::assertStringContainsString('connection lost', $tester->getDisplay());
+        self::assertStringContainsString('RuntimeException', $tester->getDisplay(), 'the class only');
+        self::assertStringNotContainsString('connection lost', $tester->getDisplay(), 'a driver message can carry the source row');
     }
 
     /**

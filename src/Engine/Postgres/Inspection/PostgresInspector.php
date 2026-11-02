@@ -20,6 +20,7 @@ use Fuzzphony\Engine\Postgres\Schema\Fingerprint;
 use Fuzzphony\Engine\Postgres\Schema\Names;
 use Fuzzphony\Engine\Postgres\Schema\OpenClass;
 use Fuzzphony\Engine\Postgres\Schema\PostgresSchemaGenerator;
+use Fuzzphony\Engine\Postgres\Schema\SharedWatch;
 use Fuzzphony\Engine\Postgres\Schema\Types;
 use Fuzzphony\Engine\Postgres\Sql\DocumentSql;
 use Fuzzphony\Engine\Postgres\Sql\Sql;
@@ -556,7 +557,9 @@ final class PostgresInspector
      */
     private function partitions(IndexDefinition $index, Watch $watch): array
     {
-        $trigger = $this->names->triggerName($index, $watch, '_trn');
+        $shared = SharedWatch::applies($index);
+        $trigger = $shared ? $this->names->watchTriggerName($watch->table, 'trn') : $this->names->triggerName($index, $watch, '_trn');
+        $function = $shared ? $this->names->watchFunction($watch->table) : $this->names->syncFunction($index, $watch);
         $table = Sql::ident($watch->table);
         $label = 'Partitions of ' . $watch->table;
         $checks = [];
@@ -597,7 +600,7 @@ final class PostgresInspector
                 'SELECT string_agg(g.tgrelid::regclass::text, \', \' ORDER BY g.tgrelid::regclass::text COLLATE "C") FROM pg_trigger AS g WHERE g.tgname = :trigger AND g.tgfoid = to_regprocedure(:function) AND g.tgrelid IS DISTINCT FROM to_regclass(:table)%s',
                 $index->sync->usesTriggers() ? ' AND g.tgrelid NOT IN (SELECT t.relid FROM pg_partition_tree(to_regclass(:table)) AS t)' : '',
             ),
-            ['trigger' => $trigger, 'function' => $this->names->syncFunction($index, $watch) . '()', 'table' => $table],
+            ['trigger' => $trigger, 'function' => $function . '()', 'table' => $table],
         );
         if ($left !== null) {
             $checks[] = Check::warning($label, sprintf('%s is left on %s: a TRUNCATE there still triggers a full resync of the index.', $trigger, Coerce::str($left)), self::APPLY);
@@ -617,16 +620,19 @@ final class PostgresInspector
             );
             $state = array_column($rows, 'tgenabled', 'tgname');
             $label = 'Sync trigger on ' . $watch->table;
-            $expected = array_keys($this->schema->triggerDefinitions($index, $watch));
+            $shared = SharedWatch::applies($index);
+            $expected = $shared
+                ? array_map(fn(string $kind): string => $this->names->watchTriggerName($watch->table, $kind), ['ins', 'upd', 'del', 'trn'])
+                : array_keys($this->schema->triggerDefinitions($index, $watch));
 
             $missing = array_values(array_filter($expected, static fn(string $t): bool => !isset($state[$t])));
             $disabled = array_values(array_filter($expected, static fn(string $t): bool => ($state[$t] ?? null) === 'D'));
-            $leftover = array_values(array_filter($this->schema->obsoleteTriggerNames($index, $watch), static fn(string $t): bool => isset($state[$t])));
+            $leftover = array_values(array_filter($shared ? $this->schema->allTriggerNames($index, $watch) : $this->schema->obsoleteTriggerNames($index, $watch), static fn(string $t): bool => isset($state[$t])));
 
             if ($missing !== []) {
                 // An index set up before the TRUNCATE trigger existed only lacks that one.
                 // (compared by name: Names::limit() hashes a long name, which then no longer ends in "_trn")
-                $truncateTrigger = $this->names->triggerName($index, $watch, '_trn');
+                $truncateTrigger = $shared ? $this->names->watchTriggerName($watch->table, 'trn') : $this->names->triggerName($index, $watch, '_trn');
                 $truncateOnly = array_all($missing, static fn(string $t): bool => $t === $truncateTrigger);
                 $checks[] = Check::error($label, sprintf(
                     $truncateOnly ? 'missing %s: a TRUNCATE of this table leaves stale documents in the index' : 'missing %s: changes to this table are not indexed',
@@ -638,18 +644,54 @@ final class PostgresInspector
                     $disabled,
                 )));
             } elseif ($expected !== []) {
-                $checks[] = Check::ok($label, sprintf('%d trigger(s), %s mode, %s level', count($expected), $index->sync->value, $index->triggerLevel->value));
+                $checks[] = Check::ok($label, sprintf('%d trigger(s), %s mode, %s level%s', count($expected), $index->sync->value, $index->triggerLevel->value, $shared ? ', shared by the indexes that watch the table' : ''));
             }
             if ($leftover !== []) {
                 $checks[] = Check::warning($label, sprintf('Leftover trigger(s) %s do not match "%s" sync / %s level and cause double work.', implode(', ', $leftover), $index->sync->value, $index->triggerLevel->value), self::APPLY);
             }
             array_push($checks, ...$this->partitions($index, $watch));
         }
+        if (SharedWatch::applies($index)) {
+            array_push($checks, ...$this->sharedWatches($index));
+        }
         if (!$index->sync->usesTriggers()) {
             $checks[] = Check::ok('Sync', sprintf('"%s" mode: no database triggers expected', $index->sync->value));
         }
 
         return $checks;
+    }
+
+    /**
+     * The shared change log: every watch of the index is recorded (with the position the index has read up to) and its drain function exists;
+     * without them the shared trigger logs the changes but nothing turns them into queue rows.
+     *
+     * @return list<Check>
+     */
+    private function sharedWatches(IndexDefinition $index): array
+    {
+        $missing = [];
+        if (!$this->regclass($this->names->watches()) || !$this->regclass($this->names->watchLog())) {
+            return [Check::error('Shared change log', 'The change log or the watches table is missing: nothing turns the changes of a watched table into queue rows.', self::APPLY)];
+        }
+        $known = array_column($this->connection->fetchAll(
+            sprintf('SELECT watch_no, tbl FROM %s WHERE index_name = :index', $this->names->watches()),
+            ['index' => $index->name],
+        ), 'tbl', 'watch_no');
+        foreach ($index->effectiveWatches() as $no => $watch) {
+            if (($known[$no] ?? null) !== Sql::ident($watch->table)) {
+                $missing[] = $watch->table;
+            }
+        }
+        $function = $this->connection->fetchValue('SELECT to_regprocedure(:function) IS NOT NULL', ['function' => $this->names->drainFunction($index) . '()']) === true;
+        if ($missing !== [] || !$function) {
+            return [Check::error(
+                'Shared change log',
+                $missing !== [] ? sprintf('"%s" is not registered as a watcher of %s: its changes are logged by no one for it.', $index->name, implode(', ', $missing)) : 'The function that moves the change log into the queue is missing.',
+                self::APPLY,
+            )];
+        }
+
+        return [Check::ok('Shared change log', sprintf('%d watch(es) registered', count($index->effectiveWatches())))];
     }
 
     private function queue(IndexDefinition $index, InspectOptions $options): Check
@@ -664,10 +706,25 @@ final class PostgresInspector
         $size = Coerce::int($row['n']);
         $age = Coerce::int($row['age']);
         $rebuild = $row['rebuild'] === true;
+        if (SharedWatch::applies($index) && $this->regclass($this->names->watches()) && $this->regclass($this->names->watchLog())) {
+            // what the shared trigger logged and the index has not drained yet is waiting too
+            $pending = $this->connection->fetchAll(
+                sprintf('SELECT count(*) AS n, coalesce(extract(epoch FROM now() - min(l.at)), 0)::bigint AS oldest FROM %s AS w JOIN %s AS l ON l.tbl = w.tbl AND l.xid >= w.cur_xid WHERE w.index_name = :index', $this->names->watches(), $this->names->watchLog()),
+                ['index' => $index->name],
+            )[0];
+            $size += Coerce::int($pending['n']);
+            $age = max($age, Coerce::int($pending['oldest']));
+        }
         $waiting = sprintf('%d %s waiting%s', $size, $size === 1 ? 'item' : 'items', $rebuild ? ', one of them a full rebuild (queued by a TRUNCATE)' : '');
         $failure = $rebuild ? $this->rebuildFailure($index) : null;
+        $failing = $this->failingItems($index);
 
         return match (true) {
+            $failing !== null => Check::warning(
+                'Sync queue',
+                sprintf('%s; %s', $waiting, $failing),
+                'fix the source rows (or the query) of these ids: the worker tries them again with a back-off, the other documents are not held back',
+            ),
             $failure !== null => Check::warning(
                 'Sync queue',
                 sprintf('%s; a full rebuild keeps failing: %s (%d times, last at %s)', $waiting, Coerce::str($failure['rebuild_error']), Coerce::int($failure['rebuild_failures']), Coerce::str($failure['failed_at'])),
@@ -680,6 +737,35 @@ final class PostgresInspector
             ),
             default => Check::ok('Sync queue', $waiting),
         };
+    }
+
+    /**
+     * The ids the worker could not refresh on their own (never the row values, never the driver's message): at most five, with the error class
+     * and SQLSTATE of the last failure. Null without any, or when the queue table has no failure columns yet (an older schema).
+     */
+    private function failingItems(IndexDefinition $index): ?string
+    {
+        if ($this->connection->fetchValue("SELECT EXISTS (SELECT 1 FROM pg_attribute WHERE attrelid = to_regclass(:queue) AND attname = 'attempts' AND NOT attisdropped)", ['queue' => $this->names->queue()]) !== true) {
+            return null;
+        }
+        $rows = $this->connection->fetchAll(
+            sprintf("SELECT doc_id, attempts, last_error, count(*) OVER () AS total FROM %s WHERE index_name = :index AND attempts > 0 AND doc_id <> '*' ORDER BY failed_at DESC, doc_id LIMIT 5", $this->names->queue()),
+            ['index' => $index->name],
+        );
+        if ($rows === []) {
+            return null;
+        }
+        $total = Coerce::int($rows[0]['total']);
+
+        return sprintf(
+            '%d %s fail on their own and stay queued: %s',
+            $total,
+            $total === 1 ? 'document' : 'documents',
+            implode('; ', array_map(
+                static fn(array $row): string => sprintf('id %s (%s, %d %s)', Coerce::str($row['doc_id']), Coerce::str($row['last_error']), Coerce::int($row['attempts']), Coerce::int($row['attempts']) === 1 ? 'attempt' : 'attempts'),
+                $rows,
+            )) . ($total > count($rows) ? sprintf('; and %d more', $total - count($rows)) : ''),
+        );
     }
 
     /**

@@ -12,6 +12,7 @@ use Fuzzphony\Core\Registry\IndexRegistry;
 use Fuzzphony\Core\Support\Coerce;
 use Fuzzphony\Core\Sync\Worker;
 use Fuzzphony\Tests\Fixtures\Indexes;
+use Fuzzphony\Tests\Integration\PostgresTestCase;
 use Fuzzphony\Tests\Unit\Core\Observability\RecordingMetricsCollector;
 use PHPUnit\Framework\TestCase;
 use Symfony\Component\Console\Command\Command;
@@ -58,6 +59,7 @@ final class WorkerCommandTest extends TestCase
         $fuzzphony = $this->queueModeFuzzphony();
         $connection = $this->context->connection;
         $connection->execute('TRUNCATE fz_brand CASCADE'); // fz_product goes too; both are watched: still one job
+        PostgresTestCase::drain($this->context->connection, $fuzzphony->registry()->get('products'));
 
         self::assertSame(['*'], $this->queued());
         $tester = new CommandTester(new WorkerCommand($fuzzphony));
@@ -75,6 +77,7 @@ final class WorkerCommandTest extends TestCase
         $fuzzphony = $this->queueModeFuzzphony();
         $connection = $this->context->connection;
         $connection->execute('TRUNCATE fz_brand CASCADE');
+        PostgresTestCase::drain($this->context->connection, $fuzzphony->registry()->get('products'));
         self::assertSame(['*'], $this->queued());
 
         // PostgreSQL 15+ grants no CREATE on public: a shadow build would fail, the job falls back to in place
@@ -91,6 +94,7 @@ final class WorkerCommandTest extends TestCase
     {
         $fuzzphony = $this->queueModeFuzzphony();
         $this->context->connection->execute('TRUNCATE fz_brand CASCADE');
+        PostgresTestCase::drain($this->context->connection, $fuzzphony->registry()->get('products'));
 
         $tester = new CommandTester(new WorkerCommand($fuzzphony));
         $status = null;
@@ -100,8 +104,8 @@ final class WorkerCommandTest extends TestCase
 
         self::assertSame(Command::FAILURE, $status, 'after processing everything else');
         self::assertStringContainsString('Processed 0 queued item(s).', $tester->getDisplay(true));
-        self::assertStringContainsString('The full rebuild of "products" a TRUNCATE queued failed; the job stays queued: ', $tester->getErrorOutput());
-        self::assertStringContainsString('permission denied', $tester->getErrorOutput());
+        self::assertStringContainsString('The full rebuild of "products" a TRUNCATE queued failed; the job stays queued (see the doctor): PDOException (SQLSTATE 42501)', $tester->getErrorOutput());
+        self::assertStringNotContainsString('permission denied', $tester->getErrorOutput(), 'only the class and the SQLSTATE: the driver message can carry source data');
         self::assertSame(['*'], $this->queued(), 'the next cycle runs it again');
         $check = array_find($fuzzphony->inspect('products')->checks, static fn(Check $c): bool => $c->name === 'Sync queue') ?? self::fail('no queue check');
         self::assertSame(CheckStatus::Warning, $check->status);
@@ -117,6 +121,7 @@ final class WorkerCommandTest extends TestCase
     {
         $fuzzphony = $this->queueModeFuzzphony();
         $this->context->connection->execute('TRUNCATE fz_brand CASCADE');
+        PostgresTestCase::drain($this->context->connection, $fuzzphony->registry()->get('products'));
 
         $tester = new CommandTester(new WorkerCommand($fuzzphony, idleSleep: 0.02));
         $status = null;
@@ -140,7 +145,7 @@ final class WorkerCommandTest extends TestCase
             if ($source) {
                 $connection->execute(sprintf('GRANT SELECT ON fz_product, fz_brand TO %s', $role));
             }
-            $connection->execute(sprintf('GRANT SELECT, INSERT, UPDATE, DELETE ON fuzzphony_products, fuzzphony_meta, fuzzphony_queue TO %s', $role));
+            $connection->execute(sprintf('GRANT SELECT, INSERT, UPDATE, DELETE ON fuzzphony_products, fuzzphony_meta, fuzzphony_queue, fuzzphony_watches, fuzzphony_watch_log TO %s', $role));
             $connection->execute(sprintf('SET ROLE %s', $role));
             try {
                 $work();

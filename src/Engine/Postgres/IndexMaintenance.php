@@ -8,8 +8,10 @@ use Fuzzphony\Core\Database\Connection;
 use Fuzzphony\Core\Definition\IndexDefinition;
 use Fuzzphony\Core\Exception\InvalidArgument;
 use Fuzzphony\Core\Support\Coerce;
+use Fuzzphony\Core\Support\ErrorSummary;
 use Fuzzphony\Engine\Postgres\Schema\Names;
 use Fuzzphony\Engine\Postgres\Schema\PostgresSchemaGenerator;
+use Fuzzphony\Engine\Postgres\Schema\SharedWatch;
 use Fuzzphony\Engine\Postgres\Schema\Types;
 use Fuzzphony\Engine\Postgres\Sql\DocumentSql;
 use Fuzzphony\Engine\Postgres\Sql\Sql;
@@ -116,8 +118,30 @@ final readonly class IndexMaintenance
         );
     }
 
+    /**
+     * The condition under which a queued item is taken: one that failed waits for its back-off (60 s, doubling to an hour per
+     * failure in a row). Unqualified columns, so it fits the batch statement and the claim of the split alike.
+     */
+    private const string DUE = "(failed_at IS NULL OR failed_at + least(3600, 60 * power(2, least(attempts, 10) - 1)) * interval '1 second' <= clock_timestamp())";
+
+    /**
+     * Moves what the shared trigger logged for the index into its queue (queue sync, statement-level triggers); a no-op for the
+     * other modes. Several workers may call it at once.
+     */
+    public function drainChanges(IndexDefinition $index): int
+    {
+        if (!SharedWatch::applies($index)) {
+            return 0;
+        }
+
+        return $this->guard->run('queue processing', fn(): int => Coerce::int($this->connection->fetchValue(
+            sprintf('SELECT %s()', $this->names->drainFunction($index)),
+        )), Hints::SCHEMA_AND_DOCTOR);
+    }
+
     public function processQueue(IndexDefinition $index, int $limit): int
     {
+        $this->drainChanges($index);
         // Taking the batch and refreshing it happen in ONE statement and transaction:
         // if the refresh fails, the ids stay in the queue. SKIP LOCKED lets workers run in parallel.
         $sql = sprintf(
@@ -126,7 +150,7 @@ final readonly class IndexMaintenance
                     DELETE FROM %1$s
                     WHERE (index_name, doc_id) IN (
                         SELECT index_name, doc_id FROM %1$s
-                        WHERE index_name = :index AND doc_id <> '*'
+                        WHERE index_name = :index AND doc_id <> '*' AND %4$s
                         ORDER BY queued_at
                         LIMIT :limit
                         FOR UPDATE SKIP LOCKED
@@ -140,27 +164,132 @@ final readonly class IndexMaintenance
             $this->names->queue(),
             $this->names->refreshFunction($index),
             Types::id($index->idType),
+            self::DUE,
         );
 
         return $this->guard->run(
             'queue processing',
-            fn(): int => Coerce::int($this->connection->transactional(
-                static fn(Connection $c): mixed => $c->fetchValue($sql, ['index' => $index->name, 'limit' => $limit]),
-            )),
+            function () use ($index, $limit, $sql): int {
+                try {
+                    return Coerce::int($this->connection->transactional(
+                        static fn(Connection $c): mixed => $c->fetchValue($sql, ['index' => $index->name, 'limit' => $limit]),
+                    ));
+                } catch (\Throwable $e) {
+                    if (!ErrorSummary::isDataError($e)) {
+                        throw $e;
+                    }
+
+                    // one document the refresh cannot build must not hold the others back
+                    return $this->processSplit($index, $limit);
+                }
+            },
             Hints::SCHEMA_AND_DOCTOR,
         );
     }
 
+    /**
+     * A batch whose refresh failed on the data: takes it again, refreshes it in halves down to single ids, removes what was
+     * refreshed from the queue and keeps only the ids that fail on their own (with the error class and SQLSTATE, never the
+     * driver's message: it can carry the source row). Those wait for a back-off before they are tried again.
+     *
+     * @return int the ids refreshed
+     */
+    private function processSplit(IndexDefinition $index, int $limit): int
+    {
+        return Coerce::int($this->connection->transactional(function (Connection $c) use ($index, $limit): int {
+            $rows = $c->fetchAll(sprintf(
+                "SELECT doc_id FROM %s WHERE index_name = :index AND doc_id <> '*' AND %s ORDER BY queued_at LIMIT :limit FOR UPDATE SKIP LOCKED",
+                $this->names->queue(),
+                self::DUE,
+            ), ['index' => $index->name, 'limit' => $limit]);
+            $ids = array_map(static fn(array $row): string => Coerce::str($row['doc_id']), $rows);
+            $failed = [];
+            $done = $this->refreshHalves($c, $index, $ids, $failed);
+            if ($done !== []) {
+                $c->execute(sprintf('DELETE FROM %s WHERE index_name = :index AND doc_id = ANY (CAST(:ids AS text[]))', $this->names->queue()), ['index' => $index->name, 'ids' => Sql::arrayLiteral($done)]);
+            }
+            foreach ($failed as $id => $error) {
+                $c->execute(
+                    sprintf('UPDATE %s SET attempts = attempts + 1, last_error = :error, failed_at = clock_timestamp() WHERE index_name = :index AND doc_id = :id', $this->names->queue()),
+                    ['index' => $index->name, 'id' => (string) $id, 'error' => $error],
+                );
+            }
+
+            return count($done);
+        }));
+    }
+
+    /**
+     * @param list<string>          $ids
+     * @param array<string, string> $failed the ids that fail on their own, with the error class and SQLSTATE
+     *
+     * @return list<string> the ids refreshed (inside the open transaction)
+     */
+    private function refreshHalves(Connection $c, IndexDefinition $index, array $ids, array &$failed): array
+    {
+        if ($ids === []) {
+            return [];
+        }
+        $c->execute('SAVEPOINT fz_split');
+        try {
+            $c->fetchValue(
+                sprintf('SELECT %s(CAST(:ids AS %s[]))', $this->names->refreshFunction($index), Types::id($index->idType)),
+                ['ids' => Sql::arrayLiteral($ids)],
+            );
+            $c->execute('RELEASE SAVEPOINT fz_split');
+
+            return $ids;
+        } catch (\Throwable $e) {
+            $c->execute('ROLLBACK TO SAVEPOINT fz_split');
+            $c->execute('RELEASE SAVEPOINT fz_split');
+            if (!ErrorSummary::isDataError($e)) {
+                throw $e;
+            }
+            if (count($ids) === 1) {
+                $failed[$ids[0]] = ErrorSummary::describe($e);
+
+                return [];
+            }
+        }
+        $half = intdiv(count($ids), 2);
+
+        return [
+            ...$this->refreshHalves($c, $index, array_slice($ids, 0, $half), $failed),
+            ...$this->refreshHalves($c, $index, array_slice($ids, $half), $failed),
+        ];
+    }
+
+    /** The items waiting: the queue plus what the shared trigger logged and the index has not drained yet. */
     public function queueSize(IndexDefinition $index): int
     {
         return $this->guard->run('queue size', fn(): int => Coerce::int($this->connection->fetchValue(
             sprintf('SELECT count(*) FROM %s WHERE index_name = :index', $this->names->queue()),
             ['index' => $index->name],
-        )), 'Run "fuzzphony:schema --apply" to create the queue table.');
+        )) + $this->pendingChanges($index), 'Run "fuzzphony:schema --apply" to create the queue table.');
+    }
+
+    /** The entries of the shared log the index has not drained yet (they become queue rows at its next drain). */
+    public function pendingChanges(IndexDefinition $index): int
+    {
+        if (!SharedWatch::applies($index)) {
+            return 0;
+        }
+
+        return Coerce::int($this->connection->fetchValue(
+            sprintf('SELECT count(*) FROM %s AS w JOIN %s AS l ON l.tbl = w.tbl AND l.xid >= w.cur_xid WHERE w.index_name = :index', $this->names->watches(), $this->names->watchLog()),
+            ['index' => $index->name],
+        ));
     }
 
     public function rebuildRequested(IndexDefinition $index): bool
     {
+        // a TRUNCATE the shared trigger logged is a queue row only after the drain (a drain that fails is reported by processQueue(), which drains again)
+        try {
+            $this->drainChanges($index);
+        } catch (\Throwable) {
+            // the queue as it is decides
+        }
+
         return $this->guard->run('queue processing', fn(): bool => (bool) $this->connection->fetchValue(
             sprintf("SELECT EXISTS (SELECT 1 FROM %s WHERE index_name = :index AND doc_id = '*')", $this->names->queue()),
             ['index' => $index->name],

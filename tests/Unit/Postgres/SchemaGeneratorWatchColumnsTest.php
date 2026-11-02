@@ -83,6 +83,8 @@ final class SchemaGeneratorWatchColumnsTest extends TestCase
         $descriptions = array_map(static fn(Statement $s): string => $s->description, (new PostgresSchemaGenerator())->index(self::items($sync))->statements);
 
         self::assertContains($description, $descriptions);
-        self::assertContains(str_replace('row', 'statement', $description), array_map(static fn(Statement $s): string => $s->description, (new PostgresSchemaGenerator())->index(self::items($sync, 'statement'))->statements));
+        $statement = array_map(static fn(Statement $s): string => $s->description, (new PostgresSchemaGenerator())->index(self::items($sync, 'statement'))->statements);
+        // queue sync at statement level is the shared trigger of the table
+        self::assertContains($sync === 'queue' ? 'Shared trigger and change log watches of "items"' : str_replace('row', 'statement', $description), $statement);
     }
 }

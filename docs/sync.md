@@ -47,6 +47,29 @@ is idempotent and the doctor flags leftovers. See
 Statement-level triggers cannot be attached to individual partitions (a PostgreSQL rule): see
 [Partitioned tables](#partitioned-tables).
 
+## One trigger per table, one change log
+
+With the defaults (`sync: queue`, statement-level triggers) a watched table has ONE set of triggers
+(`fuzzphony_watch__<table>__ins|upd|del|trn`), however many indexes watch it. A statement appends the key of
+every changed row to one shared log (`fuzzphony_watch_log`; for an `UPDATE` also which of the watched columns
+changed), so the write costs one `INSERT` whatever the number of indexes. Each index keeps its own position in
+the log (`fuzzphony_watches`) and turns the entries after it into queue rows with its own watch query when
+the worker takes a batch (`fuzzphony_drain_<index>()`): changes are neither lost nor processed twice, an index
+whose worker is stopped simply reads on from where it was, and a new index starts at the end of the log (it
+needs the first `fuzzphony:reindex` as before).
+
+- An entry is read once its transaction has ended and every transaction that started earlier has too, so a
+  transaction that commits late is never skipped. A long-running writing transaction (an import in one
+  transaction, a forgotten `BEGIN` after a write) therefore delays the sync of every index until it ends.
+- Dropping an index (`fuzzphony:schema <index> --drop --apply`) removes its part only; the triggers and the log
+  entries of a table go with the last index that watches it.
+- The role that writes to a watched table needs `INSERT` on `fuzzphony_watch_log` (the trigger runs as that role);
+  the worker's role needs `SELECT`, `DELETE` on it, `SELECT`, `UPDATE` on `fuzzphony_watches`, and the usual
+  rights on the queue.
+- `sync: trigger` and `trigger_level: row` keep a trigger set of their own per index and table: their refresh
+  must run inside the writing statement.
+- A `TRUNCATE` is logged like a change and acted on when the worker drains the log (see [TRUNCATE](#truncate)).
+
 ## A database where you cannot create triggers
 
 `queue` and `trigger` sync need triggers on every watched table, and PostgreSQL lets only the table's owner (or a role holding its `TRIGGER` privilege) create them. As a role without that right
@@ -56,9 +79,18 @@ or run `fuzzphony:reindex` (see [Reindexing](#reindexing-and-orphan-pruning)).
 
 ## The worker
 
-The worker takes a batch and refreshes it in one statement, so a failure never loses queued ids.
-`SKIP LOCKED` lets several workers run side by side. Without long-running processes, run
-`fuzzphony:worker --once` from cron.
+The worker moves the shared change log into the index queue, takes a batch and refreshes it in one statement,
+so a failure never loses queued ids. `SKIP LOCKED` lets several workers run side by side. Without long-running
+processes, run `fuzzphony:worker --once` from cron.
+
+**A document that cannot be built.** When a batch fails on the data (a cast that fails on one row, a value
+too big for the index: SQLSTATE class 22, 23, 54 or a raised error), the worker retries it in halves down to single ids,
+refreshes everything that can be refreshed and keeps only the failing ids queued, each with its attempt count and the
+error class and SQLSTATE. A failing id is tried again after a back-off (60 s, doubling to an hour); fixing the source row
+clears it at the next try. The doctor's "Sync queue" check names the failing ids (never the row values), and the
+worker prints only the exception class and SQLSTATE: the driver's message can contain the source row. Other
+failures (a lost connection, a missing function) still stop the index's queue for the back-off and are reported by
+`fuzzphony:worker`.
 
 ## Column-aware filtering
 
@@ -81,14 +113,14 @@ know which of a joined table's columns matter unless you say so.
 In `trigger` and `queue` mode a `TRUNCATE` is followed by a separate statement-level
 `AFTER TRUNCATE` trigger:
 
-- Truncating a table-sourced index's own table empties the index right away when the source is
-  then really empty, and drops its queued ids. A `TRUNCATE` never waits for the queue rows a
-  running worker holds.
+- Truncating a table-sourced index's own table empties the index when the source is then really
+  empty (in `queue` mode at the worker's next drain of the change log, in `trigger` mode inside the
+  `TRUNCATE`), and drops its queued ids. A `TRUNCATE` never waits for the queue rows a running worker holds.
 - Truncating any other watched table (a joined table, a query source's tables), or a source that
   still returns rows afterwards (`TRUNCATE ONLY` on a table-inheritance parent), needs a full
   resync: the removed rows can no longer tell which documents they belonged to.
-  - In `queue` mode the trigger queues one full-rebuild job, so the `TRUNCATE` itself stays cheap.
-    The worker runs it before the queued ids, as a zero-downtime rebuild (see
+  - In `queue` mode one full-rebuild job is queued (by the trigger at row level, by the worker's drain of the change log at statement
+    level), so the `TRUNCATE` itself stays cheap. The worker runs it before the queued ids, as a zero-downtime rebuild (see
     [Reindexing](#reindexing-and-orphan-pruning)); a worker role that cannot build next to the live
     index runs it in place. Like `fuzzphony:reindex`, the rebuild reads the source in the worker's
     session, so that session must see the source tables on its `search_path`. The doctor's queue

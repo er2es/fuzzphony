@@ -223,7 +223,7 @@ final class ShadowSwapTest extends TestCase
         $this->connection->execute(sprintf('CREATE ROLE %s', $writer));
         try {
             $this->connection->execute(sprintf('GRANT SELECT ON fz_product, fz_brand TO %s', $writer));
-            $this->connection->execute(sprintf('GRANT SELECT, INSERT, UPDATE, DELETE ON fuzzphony_products, fuzzphony_queue TO %s', $writer));
+            $this->connection->execute(sprintf('GRANT SELECT, INSERT, UPDATE, DELETE ON fuzzphony_products, fuzzphony_queue, fuzzphony_watches, fuzzphony_watch_log TO %s', $writer));
 
             $this->rebuild($index, function () use ($index, $writer): void {
                 $this->connection->execute("UPDATE fz_product SET name = 'Silent office mouse' WHERE id = 1");

@@ -16,8 +16,18 @@ and a link. Measurements, proofs and test names belong to the pull request, [doc
 - **`fuzzphony:schema --apply` no longer locks tables it does not change:** a column is added only when the catalog says it is missing (it used to
   take an `ACCESS EXCLUSIVE` lock on the sidecar, the meta table and the log on every apply, queueing behind long readers).
 
+### Added
+
+- **A worker batch that fails on the data is split:** only the ids that fail on their own stay queued (attempt count, error class and SQLSTATE,
+  back-off), the others are indexed; the doctor names the failing ids ([limitations](docs/limitations.md#one-unreadable-document-does-not-stop-its-indexs-queue)).
+
 ### Breaking
 
+- **One trigger set and one change log per watched table** (`queue` sync, statement level): a table watched by N indexes has four triggers, not 4N,
+  and an `UPDATE` writes one log row per changed row instead of N queue rows (bulk `UPDATE` of 20 000 rows on 4 indexes: 734 ms to 120 ms). Queue rows
+  appear when the worker drains the log, a `TRUNCATE` is acted on then, and a long writing transaction delays every index ([Sync](docs/sync.md#one-trigger-per-table-one-change-log)).
+  Run `fuzzphony:schema --apply` ([UPGRADE](UPGRADE.md#from-0913-to-0100)).
+- **The worker prints only the exception class and SQLSTATE** of a failed rebuild or queue, never the driver's message (it can carry the source row).
 - **A search inside your own transaction runs under one savepoint** (`fuzzphony_search`), sets each `pg_trgm` threshold once and puts your values back
   once (it did this per statement: up to five round trips each). A failure after the first threshold now leaves your transaction usable on PDO too,
   as it did on DBAL ([limitations](docs/limitations.md#a-search-inside-your-own-transaction)).

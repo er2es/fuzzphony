@@ -321,7 +321,7 @@ final class LikeGuideTest extends TestCase
 
     private static function drop(Connection $connection): void
     {
-        $connection->execute('DROP TABLE IF EXISTS product, supplier, fuzzphony_products, fuzzphony_products__vocab, fuzzphony_products__next, fuzzphony_products__changes, fuzzphony_queue, fuzzphony_meta CASCADE');
+        $connection->execute('DROP TABLE IF EXISTS product, supplier, fuzzphony_products, fuzzphony_products__vocab, fuzzphony_products__next, fuzzphony_products__changes, fuzzphony_queue, fuzzphony_watches, fuzzphony_watch_log, fuzzphony_meta CASCADE');
     }
 
     private static function snippet(string $name): string

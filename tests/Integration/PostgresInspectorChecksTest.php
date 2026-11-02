@@ -105,15 +105,16 @@ final class PostgresInspectorChecksTest extends TestCase
                 ['Refresh function', CheckStatus::Ok, '"public"."fuzzphony_refresh_products"(bigint[])', null],
                 ['Rebuild refresh function', CheckStatus::Ok, '"public"."fuzzphony_refresh_products__next"(bigint[])', null],
                 ['Rebuild change log function', CheckStatus::Ok, '"public"."fuzzphony_track_products"()', null],
-                ['Sync trigger on fz_product', CheckStatus::Ok, '4 trigger(s), queue mode, statement level', null],
-                ['Sync trigger on fz_brand', CheckStatus::Ok, '4 trigger(s), queue mode, statement level', null],
+                ['Sync trigger on fz_product', CheckStatus::Ok, '4 trigger(s), queue mode, statement level, shared by the indexes that watch the table', null],
+                ['Sync trigger on fz_brand', CheckStatus::Ok, '4 trigger(s), queue mode, statement level, shared by the indexes that watch the table', null],
+                ['Shared change log', CheckStatus::Ok, '2 watch(es) registered', null],
                 ['Sync queue', CheckStatus::Ok, '0 items waiting', null],
                 ['Coverage', CheckStatus::Skipped, 'Estimates are not available for query sources; run with --deep for exact counts.', null],
                 ['Orphaned documents', CheckStatus::Skipped, 'Run with --deep to count indexed documents that are no longer in the source.', null],
                 ['Vocabulary', CheckStatus::Ok, '12 words', null],
                 ['Configuration', CheckStatus::Ok, 'fuzzy=fallback, similarity=by word length, min_score=0.00, candidates=2000', null],
             ],
-            array_slice($actual, 0, 31),
+            array_slice($actual, 0, 32),
         );
         $deep = self::byName($fuzzphony, 'products', new InspectOptions(deep: true));
         self::assertSame('5 of 5 documents indexed (100.0%, exact)', $deep['Coverage']->message);
@@ -378,13 +379,13 @@ final class PostgresInspectorChecksTest extends TestCase
     public function testAMissingTriggerOtherThanTheTruncateOneMeansChangesAreNotIndexed(): void
     {
         $fuzzphony = $this->fuzzphony(Indexes::products('queue'));
-        $this->connection->execute('DROP TRIGGER fuzzphony_sync_products__fz_brand_upd ON fz_brand');
-        $this->connection->execute('DROP TRIGGER fuzzphony_sync_products__fz_brand_trn ON fz_brand');
+        $this->connection->execute('DROP TRIGGER fuzzphony_watch__fz_brand__upd ON fz_brand');
+        $this->connection->execute('DROP TRIGGER fuzzphony_watch__fz_brand__trn ON fz_brand');
 
         $check = self::named($fuzzphony, 'products', 'Sync trigger on fz_brand')[0];
 
         self::assertSame(CheckStatus::Error, $check->status);
-        self::assertSame('missing fuzzphony_sync_products__fz_brand_upd, fuzzphony_sync_products__fz_brand_trn: changes to this table are not indexed', $check->message);
+        self::assertSame('missing fuzzphony_watch__fz_brand__upd, fuzzphony_watch__fz_brand__trn: changes to this table are not indexed', $check->message);
     }
 
     public function testTheSyncQueueWarnsAboutAnOldestItemAndNeverAboutAnEmptyQueue(): void

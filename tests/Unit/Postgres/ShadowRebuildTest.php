@@ -44,7 +44,7 @@ final class ShadowRebuildTest extends TestCase
         $connection = new RecordingConnection(static fn(string $sql): mixed => true);
         $generator = new PostgresSchemaGenerator();
 
-        self::assertTrue((new ShadowRebuild($connection, $generator))->begin(Indexes::products(), false));
+        self::assertTrue((new ShadowRebuild($connection, $generator))->begin(Indexes::products('manual'), false));
         self::assertSame([
             ...self::PROBE,
             [self::LOCK, self::KEY],
@@ -52,7 +52,7 @@ final class ShadowRebuildTest extends TestCase
             [self::POSSIBLE, self::POSSIBLE_PARAMS],
             ['BEGIN', []],
             [self::LOCK_TIMEOUT, []],
-            [$generator->beginRebuild(Indexes::products()), []],
+            [$generator->beginRebuild(Indexes::products('manual')), []],
             ['COMMIT', []],
         ], $connection->log, 'the lock is kept for the rest of the run');
     }
@@ -62,7 +62,7 @@ final class ShadowRebuildTest extends TestCase
         $connection = new RecordingConnection(static fn(string $sql): mixed => false);
 
         try {
-            (new ShadowRebuild($connection, new PostgresSchemaGenerator()))->begin(Indexes::products(), false);
+            (new ShadowRebuild($connection, new PostgresSchemaGenerator()))->begin(Indexes::products('manual'), false);
             self::fail('InvalidArgument expected');
         } catch (RebuildAlreadyRunning $e) {
             self::assertSame('A rebuild of "products" is already running.', $e->getMessage());
@@ -75,7 +75,7 @@ final class ShadowRebuildTest extends TestCase
         $connection = new RecordingConnection(static fn(string $sql): mixed => $sql === self::LOCK ? true : null);
         $generator = new PostgresSchemaGenerator();
 
-        self::assertFalse((new ShadowRebuild($connection, $generator))->begin(Indexes::products(), false));
+        self::assertFalse((new ShadowRebuild($connection, $generator))->begin(Indexes::products('manual'), false));
         self::assertSame([
             ...self::PROBE,
             [self::LOCK, self::KEY],
@@ -90,7 +90,7 @@ final class ShadowRebuildTest extends TestCase
         foreach ([false, true] as $resume) {
             $connection = new RecordingConnection(static fn(string $sql): mixed => str_contains($sql, 'current_setting') ? 'on' : true);
 
-            self::assertFalse((new ShadowRebuild($connection, new PostgresSchemaGenerator()))->begin(Indexes::products(), $resume));
+            self::assertFalse((new ShadowRebuild($connection, new PostgresSchemaGenerator()))->begin(Indexes::products('manual'), $resume));
             self::assertSame(self::PROBE, $connection->log);
         }
     }
@@ -98,11 +98,11 @@ final class ShadowRebuildTest extends TestCase
     public function testAResumedRunContinuesALeftOverRebuildOrGoesInPlace(): void
     {
         $leftOver = new RecordingConnection(static fn(string $sql): mixed => true);
-        self::assertTrue((new ShadowRebuild($leftOver, new PostgresSchemaGenerator()))->begin(Indexes::products(), true));
+        self::assertTrue((new ShadowRebuild($leftOver, new PostgresSchemaGenerator()))->begin(Indexes::products('manual'), true));
         self::assertSame([...self::PROBE, [self::LOCK, self::KEY], [self::LEFT_OVER, self::LEFT_OVER_PARAMS]], $leftOver->log, 'nothing is recreated, the lock is kept');
 
         $none = new RecordingConnection(static fn(string $sql): mixed => $sql === self::LOCK);
-        self::assertFalse((new ShadowRebuild($none, new PostgresSchemaGenerator()))->begin(Indexes::products(), true));
+        self::assertFalse((new ShadowRebuild($none, new PostgresSchemaGenerator()))->begin(Indexes::products('manual'), true));
         self::assertSame([...self::PROBE, [self::LOCK, self::KEY], [self::LEFT_OVER, self::LEFT_OVER_PARAMS], [self::UNLOCK, self::KEY]], $none->log);
     }
 
@@ -111,23 +111,23 @@ final class ShadowRebuildTest extends TestCase
         $leftOver = new RecordingConnection(static fn(string $sql): mixed => true);
         $generator = new PostgresSchemaGenerator();
 
-        self::assertTrue((new ShadowRebuild($leftOver, $generator))->discardLeftover(Indexes::products()));
+        self::assertTrue((new ShadowRebuild($leftOver, $generator))->discardLeftover(Indexes::products('manual')));
         self::assertSame([
             [self::CLOCK, []],
             ['BEGIN', []],
             [self::LOCK_TIMEOUT, []],
             [self::XACT_LOCK, self::KEY],
             [self::ANY_LEFT_OVER, self::ANY_LEFT_OVER_PARAMS],
-            [$generator->discardRebuild(Indexes::products()), []],
+            [$generator->discardRebuild(Indexes::products('manual')), []],
             ['COMMIT', []],
         ], $leftOver->log);
 
         $running = new RecordingConnection(static fn(string $sql): mixed => $sql !== self::XACT_LOCK);
-        self::assertFalse((new ShadowRebuild($running, $generator))->discardLeftover(Indexes::products()));
+        self::assertFalse((new ShadowRebuild($running, $generator))->discardLeftover(Indexes::products('manual')));
         self::assertSame([[self::CLOCK, []], ['BEGIN', []], [self::LOCK_TIMEOUT, []], [self::XACT_LOCK, self::KEY], ['COMMIT', []]], $running->log, 'a running rebuild is left alone');
 
         $nothing = new RecordingConnection(static fn(string $sql): mixed => $sql === self::XACT_LOCK);
-        self::assertFalse((new ShadowRebuild($nothing, $generator))->discardLeftover(Indexes::products()));
+        self::assertFalse((new ShadowRebuild($nothing, $generator))->discardLeftover(Indexes::products('manual')));
         self::assertSame([[self::CLOCK, []], ['BEGIN', []], [self::LOCK_TIMEOUT, []], [self::XACT_LOCK, self::KEY], [self::ANY_LEFT_OVER, self::ANY_LEFT_OVER_PARAMS], ['COMMIT', []]], $nothing->log);
     }
 
@@ -135,7 +135,7 @@ final class ShadowRebuildTest extends TestCase
     {
         $generator = new PostgresSchemaGenerator();
         $busy = new RecordingConnection(static function (string $sql) use ($generator): mixed {
-            if ($sql === $generator->discardRebuild(Indexes::products())) {
+            if ($sql === $generator->discardRebuild(Indexes::products('manual'))) {
                 throw new LockNotAvailable();
             }
 
@@ -143,7 +143,7 @@ final class ShadowRebuildTest extends TestCase
         });
 
         try {
-            (new ShadowRebuild($busy, $generator, lockTimeout: '50ms'))->discardLeftover(Indexes::products());
+            (new ShadowRebuild($busy, $generator, lockTimeout: '50ms'))->discardLeftover(Indexes::products('manual'));
             self::fail('EngineFailure expected');
         } catch (EngineFailure $e) {
             self::assertSame('Fuzzphony could not discard the rebuild of "products" a failed run left over: it could not lock "public"."fuzzphony_products" within 50ms (long transactions or autovacuum hold it). Nothing was changed: run it again.', $e->getMessage());
@@ -155,7 +155,7 @@ final class ShadowRebuildTest extends TestCase
     public function testAFullInPlaceRunCompletesTheRequestOnceWhenItEnds(): void
     {
         $generator = new PostgresSchemaGenerator();
-        foreach (['after discarding a leftover rebuild' => static fn(ShadowRebuild $r): mixed => $r->discardLeftover(Indexes::products()), 'after falling back to in place' => static fn(ShadowRebuild $r): mixed => $r->begin(Indexes::products(), false)] as $how => $start) {
+        foreach (['after discarding a leftover rebuild' => static fn(ShadowRebuild $r): mixed => $r->discardLeftover(Indexes::products('manual')), 'after falling back to in place' => static fn(ShadowRebuild $r): mixed => $r->begin(Indexes::products('manual'), false)] as $how => $start) {
             $connection = new RecordingConnection(static fn(string $sql): mixed => match ($sql) {
                 self::CLOCK => self::STARTED,
                 self::LOCK => true,
@@ -165,9 +165,9 @@ final class ShadowRebuildTest extends TestCase
             $start($rebuild);
             $connection->log = [];
 
-            $rebuild->complete(Indexes::products());
-            $rebuild->complete(Indexes::products());
-            self::assertSame([[$generator->completeRebuildRequest(Indexes::products(), self::STARTED), []]], $connection->log, $how);
+            $rebuild->complete(Indexes::products('manual'));
+            $rebuild->complete(Indexes::products('manual'));
+            self::assertSame([[$generator->completeRebuildRequest(Indexes::products('manual'), self::STARTED), []]], $connection->log, $how);
         }
     }
 
@@ -176,14 +176,14 @@ final class ShadowRebuildTest extends TestCase
         $connection = new RecordingConnection(static fn(string $sql): mixed => $sql === self::CLOCK ? self::STARTED : true);
         $rebuild = new ShadowRebuild($connection, new PostgresSchemaGenerator());
 
-        $rebuild->complete(Indexes::products());
-        $rebuild->begin(Indexes::products(), false);
-        $rebuild->abort(Indexes::products(), true);
-        $rebuild->complete(Indexes::products());
-        $rebuild->begin(Indexes::products(), false);
-        $rebuild->begin(Indexes::products(), true); // a resumed run: its rebuild may predate the TRUNCATE
+        $rebuild->complete(Indexes::products('manual'));
+        $rebuild->begin(Indexes::products('manual'), false);
+        $rebuild->abort(Indexes::products('manual'), true);
+        $rebuild->complete(Indexes::products('manual'));
+        $rebuild->begin(Indexes::products('manual'), false);
+        $rebuild->begin(Indexes::products('manual'), true); // a resumed run: its rebuild may predate the TRUNCATE
         $connection->log = [];
-        $rebuild->complete(Indexes::products());
+        $rebuild->complete(Indexes::products('manual'));
 
         self::assertSame([], $connection->log);
     }
@@ -204,15 +204,15 @@ final class ShadowRebuildTest extends TestCase
         });
         $generator = new PostgresSchemaGenerator();
         $rebuild = new ShadowRebuild($connection, $generator, pause: static function (int $microseconds): void {});
-        $rebuild->begin(Indexes::products(), false);
+        $rebuild->begin(Indexes::products('manual'), false);
 
-        $rebuild->finish(Indexes::products());
+        $rebuild->finish(Indexes::products('manual'));
 
-        $complete = $generator->completeRebuildRequest(Indexes::products(), self::STARTED);
-        self::assertSame([[$generator->swap(Indexes::products()), []], [$complete, []], ['COMMIT', []], [self::UNLOCK, self::KEY]], array_slice($connection->log, -4), 'after the retry, in the swap transaction');
+        $complete = $generator->completeRebuildRequest(Indexes::products('manual'), self::STARTED);
+        self::assertSame([[$generator->swap(Indexes::products('manual')), []], [$complete, []], ['COMMIT', []], [self::UNLOCK, self::KEY]], array_slice($connection->log, -4), 'after the retry, in the swap transaction');
         self::assertCount(1, array_keys(array_column($connection->log, 0), $complete, true));
         $connection->log = [];
-        $rebuild->complete(Indexes::products());
+        $rebuild->complete(Indexes::products('manual'));
         self::assertSame([], $connection->log, 'once');
     }
 
@@ -227,7 +227,7 @@ final class ShadowRebuildTest extends TestCase
         });
 
         try {
-            (new ShadowRebuild($connection, new PostgresSchemaGenerator()))->begin(Indexes::products(), false);
+            (new ShadowRebuild($connection, new PostgresSchemaGenerator()))->begin(Indexes::products('manual'), false);
             self::fail('the failure reaches the caller');
         } catch (\RuntimeException $e) {
             self::assertSame('boom', $e->getMessage());
@@ -243,7 +243,7 @@ final class ShadowRebuildTest extends TestCase
         });
         $generator = new PostgresSchemaGenerator();
 
-        (new ShadowRebuild($connection, $generator))->finish(Indexes::products());
+        (new ShadowRebuild($connection, $generator))->finish(Indexes::products('manual'));
 
         $catchUp = static fn(string $where): string => sprintf(
             "WITH batch AS (\n    DELETE FROM \"public\".\"fuzzphony_products__changes\"%s\n    RETURNING id\n), refreshed AS (\n    SELECT \"public\".\"fuzzphony_refresh_products__next\"(ARRAY(SELECT id FROM batch)) AS written\n)\nSELECT (SELECT count(*) FROM batch) FROM refreshed",
@@ -252,14 +252,14 @@ final class ShadowRebuildTest extends TestCase
         // an id a writer holds (it logged it, not committed yet) waits for the final catch-up under the lock
         $limited = $catchUp(' WHERE id IN (SELECT id FROM "public"."fuzzphony_products__changes" ORDER BY id LIMIT :limit FOR UPDATE SKIP LOCKED)');
         self::assertSame([
-            ...array_map(static fn(string $sql): array => [$sql, []], $generator->shadowIndexes(Indexes::products())),
+            ...array_map(static fn(string $sql): array => [$sql, []], $generator->shadowIndexes(Indexes::products('manual'))),
             ['BEGIN', []], [$limited, ['limit' => 5_000]], ['COMMIT', []],
             ['BEGIN', []], [$limited, ['limit' => 5_000]], ['COMMIT', []],
             ['BEGIN', []],
             [self::LOCK_TIMEOUT, []],
             [self::SWAP_LOCK, []],
             [$catchUp(''), []],
-            [$generator->swap(Indexes::products()), []],
+            [$generator->swap(Indexes::products('manual')), []],
             ['COMMIT', []],
             [self::UNLOCK, self::KEY],
         ], $connection->log);
@@ -269,7 +269,7 @@ final class ShadowRebuildTest extends TestCase
     {
         $connection = new RecordingConnection(static fn(string $sql): mixed => str_starts_with($sql, 'WITH batch') ? 5_000 : null);
 
-        (new ShadowRebuild($connection, new PostgresSchemaGenerator()))->finish(Indexes::products());
+        (new ShadowRebuild($connection, new PostgresSchemaGenerator()))->finish(Indexes::products('manual'));
 
         $batches = array_filter($connection->log, static fn(array $entry): bool => $entry[1] === ['limit' => 5_000]);
         self::assertCount(20, $batches, 'a write rate above the catch-up rate cannot keep it looping: the rest is refreshed under the lock');
@@ -290,7 +290,7 @@ final class ShadowRebuildTest extends TestCase
 
         (new ShadowRebuild($connection, new PostgresSchemaGenerator(), pause: static function (int $microseconds) use (&$paused): void {
             $paused[] = $microseconds;
-        }))->finish(Indexes::products());
+        }))->finish(Indexes::products('manual'));
 
         $statements = array_values(array_filter(array_column($connection->log, 0), static fn(string $sql): bool => !str_starts_with($sql, 'CREATE INDEX') && !str_starts_with($sql, 'ANALYZE')));
         $batch = static fn(string $sql): string => str_contains($sql, 'LIMIT :limit') ? 'batch' : (str_starts_with($sql, 'WITH batch') ? 'rest' : $sql);
@@ -300,7 +300,7 @@ final class ShadowRebuildTest extends TestCase
             'BEGIN', 'batch', 'COMMIT', // one more batch outside the lock
             'BEGIN', self::LOCK_TIMEOUT, self::SWAP_LOCK,
             'BEGIN', 'batch', 'COMMIT',
-            'BEGIN', self::LOCK_TIMEOUT, self::SWAP_LOCK, 'rest', (new PostgresSchemaGenerator())->swap(Indexes::products()), 'COMMIT',
+            'BEGIN', self::LOCK_TIMEOUT, self::SWAP_LOCK, 'rest', (new PostgresSchemaGenerator())->swap(Indexes::products('manual')), 'COMMIT',
             self::UNLOCK,
         ], array_map($batch, $statements));
         self::assertCount(2, $paused);
@@ -320,7 +320,7 @@ final class ShadowRebuildTest extends TestCase
         });
 
         try {
-            (new ShadowRebuild($connection, new PostgresSchemaGenerator(), lockTimeout: '50ms', pause: static function (int $microseconds): void {}))->finish(Indexes::products());
+            (new ShadowRebuild($connection, new PostgresSchemaGenerator(), lockTimeout: '50ms', pause: static function (int $microseconds): void {}))->finish(Indexes::products('manual'));
             self::fail('EngineFailure expected');
         } catch (EngineFailure $e) {
             self::assertSame(
@@ -369,7 +369,7 @@ final class ShadowRebuildTest extends TestCase
         $rebuild = new ShadowRebuild($connection, new PostgresSchemaGenerator(), pause: static function (int $microseconds): void {});
 
         try {
-            $rebuild->finish(Indexes::products());
+            $rebuild->finish(Indexes::products('manual'));
             self::assertTrue($retried, 'finished after a retry');
         } catch (\Throwable $e) {
             self::assertFalse($retried);
@@ -389,12 +389,12 @@ final class ShadowRebuildTest extends TestCase
     {
         $generator = new PostgresSchemaGenerator();
         $keep = new RecordingConnection(static fn(string $sql): mixed => true);
-        (new ShadowRebuild($keep, $generator))->abort(Indexes::products(), true);
+        (new ShadowRebuild($keep, $generator))->abort(Indexes::products('manual'), true);
         self::assertSame([[self::UNLOCK, self::KEY]], $keep->log);
 
         $discard = new RecordingConnection(static fn(string $sql): mixed => true);
-        (new ShadowRebuild($discard, $generator))->abort(Indexes::products(), false);
-        self::assertSame([['BEGIN', []], [self::LOCK_TIMEOUT, []], [$generator->discardRebuild(Indexes::products()), []], ['COMMIT', []], [self::UNLOCK, self::KEY]], $discard->log);
+        (new ShadowRebuild($discard, $generator))->abort(Indexes::products('manual'), false);
+        self::assertSame([['BEGIN', []], [self::LOCK_TIMEOUT, []], [$generator->discardRebuild(Indexes::products('manual')), []], ['COMMIT', []], [self::UNLOCK, self::KEY]], $discard->log);
     }
 
     public function testAnAbortThatCannotDiscardTheRebuildStillReleasesTheLock(): void
@@ -403,7 +403,7 @@ final class ShadowRebuildTest extends TestCase
         $boom = new \RuntimeException('boom');
         foreach ([[new LockNotAvailable(), EngineFailure::class], [$boom, null]] as [$failure, $wrapped]) {
             $connection = new RecordingConnection(static function (string $sql) use ($generator, $failure): mixed {
-                if ($sql === $generator->discardRebuild(Indexes::products())) {
+                if ($sql === $generator->discardRebuild(Indexes::products('manual'))) {
                     throw $failure;
                 }
 
@@ -411,7 +411,7 @@ final class ShadowRebuildTest extends TestCase
             });
 
             try {
-                (new ShadowRebuild($connection, $generator, lockTimeout: '50ms'))->abort(Indexes::products(), false);
+                (new ShadowRebuild($connection, $generator, lockTimeout: '50ms'))->abort(Indexes::products('manual'), false);
                 self::fail('the failure reaches the caller');
             } catch (\Throwable $e) {
                 if ($wrapped === null) {
@@ -430,7 +430,7 @@ final class ShadowRebuildTest extends TestCase
     {
         $generator = new PostgresSchemaGenerator();
         $connection = new RecordingConnection(static function (string $sql) use ($generator): mixed {
-            if ($sql === $generator->beginRebuild(Indexes::products())) {
+            if ($sql === $generator->beginRebuild(Indexes::products('manual'))) {
                 throw new LockNotAvailable();
             }
 
@@ -438,13 +438,13 @@ final class ShadowRebuildTest extends TestCase
         });
 
         try {
-            (new ShadowRebuild($connection, $generator, lockTimeout: '50ms'))->begin(Indexes::products(), false);
+            (new ShadowRebuild($connection, $generator, lockTimeout: '50ms'))->begin(Indexes::products('manual'), false);
             self::fail('EngineFailure expected');
         } catch (EngineFailure $e) {
             self::assertSame('Fuzzphony rebuild of "products" did not start: it could not lock "public"."fuzzphony_products" within 50ms (long transactions or autovacuum hold it). Nothing was changed: run it again.', $e->getMessage());
             self::assertInstanceOf(LockNotAvailable::class, $e->getPrevious());
         }
-        self::assertSame([["SET LOCAL lock_timeout = '50ms'", []], [$generator->beginRebuild(Indexes::products()), []], [self::UNLOCK, self::KEY]], array_slice($connection->log, -3));
+        self::assertSame([["SET LOCAL lock_timeout = '50ms'", []], [$generator->beginRebuild(Indexes::products('manual')), []], [self::UNLOCK, self::KEY]], array_slice($connection->log, -3));
     }
 
     public function testRefreshWritesTheRebuildTable(): void
@@ -452,9 +452,9 @@ final class ShadowRebuildTest extends TestCase
         $connection = new RecordingConnection(static fn(string $sql): mixed => '2');
         $rebuild = new ShadowRebuild($connection, new PostgresSchemaGenerator());
 
-        self::assertSame(0, $rebuild->refresh(Indexes::products(), []));
+        self::assertSame(0, $rebuild->refresh(Indexes::products('manual'), []));
         self::assertSame([], $connection->log, 'no ids, no statement');
-        self::assertSame(2, $rebuild->refresh(Indexes::products(), [1, 2]));
+        self::assertSame(2, $rebuild->refresh(Indexes::products('manual'), [1, 2]));
         self::assertSame([['SELECT "public"."fuzzphony_refresh_products__next"(CAST(:ids AS bigint[]))', ['ids' => '{1,2}']]], $connection->log);
     }
 }
