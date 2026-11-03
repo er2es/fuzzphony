@@ -375,6 +375,100 @@ final class WorkerTest extends TestCase
         self::assertSame(2, $calls, 'the other index is skipped once stop() was called');
     }
 
+    public function testAStopInTheLaterPassesEndsTheDrainAtOnceAndAFailingQueueIsCounted(): void
+    {
+        $a = Indexes::products();
+        $b = Indexes::products()->withName('other');
+        $worker = null;
+        $calls = ['products' => 0, 'other' => 0];
+        $engine = self::createStub(Engine::class);
+        $engine->method('processQueue')->willReturnCallback(static function (IndexDefinition $index) use (&$worker, &$calls): int {
+            ++$calls[$index->name];
+            if ($index->name === 'products' && $calls['products'] === 11) {
+                self::assertInstanceOf(Worker::class, $worker);
+                $worker->stop(); // the first batch of the second pass
+            }
+            if (array_sum($calls) > 100) {
+                throw new \LogicException('runOnce() ignored stop().');
+            }
+
+            return 1;
+        });
+        $worker = new Worker($engine);
+
+        $worker->runOnce([$a, $b]);
+
+        self::assertSame(['products' => 11, 'other' => 10], $calls, 'ten batches each in the first pass, then the stop ends the drain before the other index has its second turn');
+    }
+
+    public function testTheDeadlineEndsTheDrainOfTheOtherIndexesToo(): void
+    {
+        $a = Indexes::products();
+        $b = Indexes::products()->withName('other');
+        $now = 100.0;
+        $calls = ['products' => 0, 'other' => 0];
+        $engine = self::createStub(Engine::class);
+        $engine->method('processQueue')->willReturnCallback(static function (IndexDefinition $index) use (&$now, &$calls): int {
+            ++$calls[$index->name];
+            $now = 110.0; // exactly the deadline once the first batch is done
+
+            return 1;
+        });
+        $cycles = [];
+        $worker = new Worker($engine, static function () use (&$now): float {
+            return $now;
+        });
+
+        $total = $worker->run([$a, $b], 10, 0.0, 10, static function (int $processed) use (&$cycles): void {
+            $cycles[] = $processed;
+        });
+
+        self::assertSame(['products' => 1, 'other' => 0], $calls, 'a clock that reached the deadline stops the cycle after the batch in progress');
+        self::assertSame(1, $total);
+        self::assertSame([1], $cycles);
+    }
+
+    public function testARunWhoseClockStandsAtTheDeadlineEndsAfterOneCycle(): void
+    {
+        $engine = self::createStub(Engine::class);
+        $engine->method('processQueue')->willReturn(0);
+        $worker = new Worker($engine, static fn(): float => 50.0);
+        $cycles = 0;
+
+        $worker->run([Indexes::products()], 10, 0.0, 0, static function () use (&$cycles, $worker): void {
+            if (++$cycles >= 3) {
+                $worker->stop(); // a safety net: the loop must not need it
+            }
+        });
+
+        self::assertSame(1, $cycles);
+    }
+
+    public function testAnIdleRunSleepsAboutASecondByDefault(): void
+    {
+        $engine = self::createStub(Engine::class);
+        $engine->method('processQueue')->willReturn(0);
+        $worker = new Worker($engine);
+
+        $start = microtime(true);
+        $worker->run([Indexes::products()], onCycle: static function () use ($worker): void {
+            $worker->stop();
+        });
+
+        self::assertGreaterThan(0.9, microtime(true) - $start, 'the default idle sleep is one second');
+    }
+
+    public function testAFailingQueueIsCountedPerIndex(): void
+    {
+        $engine = self::createStub(Engine::class);
+        $engine->method('processQueue')->willThrowException(new EngineFailure('no'));
+        $metrics = new RecordingMetricsCollector();
+
+        (new Worker($engine, metrics: $metrics))->runOnce([Indexes::products()]);
+
+        self::assertContains(['increment', 'fuzzphony.worker.queue_failures', 1.0, ['index' => 'products']], $metrics->calls);
+    }
+
     public function testARunCycleLooksForRequestedRebuildsEvenWhileAnIndexIsAlwaysBusy(): void
     {
         $a = Indexes::products();
