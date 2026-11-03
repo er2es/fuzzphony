@@ -302,6 +302,17 @@ final class FuzzphonyBundleTest extends TestCase
         self::assertFalse($dedicated->hasParameter('fuzzphony.app_schema_filter'));
     }
 
+    public function testPrependRecordsTheDbalConnectionNamesForTheConnectionsCheck(): void
+    {
+        $named = $this->prepended([], ['dbal' => ['connections' => ['main' => [], 'reports' => []], 'default_connection' => 'main']]);
+        $single = $this->prepended([], ['dbal' => ['url' => 'pgsql://x']]);
+        $none = $this->prepended([], ['orm' => []]);
+
+        self::assertSame(['main', 'reports'], $named->getParameter('fuzzphony.dbal_connections'));
+        self::assertSame(['default'], $single->getParameter('fuzzphony.dbal_connections'));
+        self::assertFalse($none->hasParameter('fuzzphony.dbal_connections'), 'no dbal key: nothing is known, nothing is checked');
+    }
+
     /** @return iterable<string, array{array<string, mixed>}> */
     public static function ownFilters(): iterable
     {
@@ -321,7 +332,7 @@ final class FuzzphonyBundleTest extends TestCase
 
         $extension = $container->getExtension('fuzzphony');
         $extension->load($container->getExtensionConfig('fuzzphony'), $container);
-        self::assertSame(['~^(?!legacy_)~', 'fuzzphony', false], array_slice($container->getDefinition(DoctorCommand::class)->getArguments(), 1));
+        self::assertSame(['~^(?!legacy_)~', 'fuzzphony', false], array_slice($container->getDefinition(DoctorCommand::class)->getArguments(), 1, 3));
     }
 
     public function testAnotherConnectionsFilterDoesNotCount(): void
@@ -369,7 +380,7 @@ final class FuzzphonyBundleTest extends TestCase
         self::assertSame([], $container->getExtensionConfig('doctrine'));
         self::assertFalse($container->hasParameter('fuzzphony.app_schema_filter'));
         $container->getExtension('fuzzphony')->load($container->getExtensionConfig('fuzzphony'), $container);
-        self::assertSame([null, 'public', false], array_slice($container->getDefinition(DoctorCommand::class)->getArguments(), 1));
+        self::assertSame([null, 'public', false], array_slice($container->getDefinition(DoctorCommand::class)->getArguments(), 1, 3));
     }
 
     public function testTheDefaultsOfTheConfigurationTree(): void
@@ -476,7 +487,7 @@ final class FuzzphonyBundleTest extends TestCase
         self::assertEquals([$fuzzphony, 'q', 'default', 500, new Reference('fuzzphony.actor_resolver')], $container->getDefinition(FuzzphonySearchFilter::class)->getArguments());
         self::assertEquals([$fuzzphony, new Reference('fuzzphony.actor_resolver')], $container->getDefinition(SearchComponent::class)->getArguments());
         self::assertEquals([new Reference('fuzzphony.refresh_dispatcher'), new Reference('fuzzphony.registry')], $container->getDefinition('fuzzphony.orm_sync_listener')->getArguments());
-        self::assertEquals([$fuzzphony, $connection], $container->getDefinition(SchemaCommand::class)->getArguments());
+        self::assertEquals([$fuzzphony, $connection], array_slice($container->getDefinition(SchemaCommand::class)->getArguments(), 0, 2));
         self::assertEquals([$fuzzphony], $container->getDefinition(ReindexCommand::class)->getArguments());
         self::assertEquals([new Reference('fuzzphony.operator')], $container->getDefinition(SearchCommand::class)->getArguments());
         self::assertEquals(

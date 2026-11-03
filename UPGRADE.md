@@ -58,7 +58,7 @@ and the [CHANGELOG](CHANGELOG.md) has the full list of changes.
     table-sourced index's own table empties the index at that drain. Anything that read `fuzzphony_queue` directly (a monitoring query) misses
     what is still in `fuzzphony_watch_log`: use `fuzzphony:doctor` ("Sync queue" counts both) or `queueSize()`.
   - Roles: the role that writes a watched table needs `INSERT` on `fuzzphony_watch_log` (it was `INSERT` on `fuzzphony_queue`); the worker's role needs
-    `SELECT`, `DELETE` on the log, `SELECT`, `UPDATE` on `fuzzphony_watches`, the usual rights on the queue, and `SELECT` on every table a `watch` query
+    `SELECT`, `UPDATE`, `DELETE` on the log (`DELETE ... FOR UPDATE` needs `UPDATE`), `SELECT`, `UPDATE` on `fuzzphony_watches`, the usual rights on the queue, and `SELECT` on every table a `watch` query
     reads (the query now runs in the worker, not in the writing statement).
   - A transaction that wrote and stays open delays the processing of everything committed after it until it ends ([limitations](docs/limitations.md#a-long-writing-transaction-delays-the-sync-of-every-index)).
   - Doctrine's `schema_filter` must let the new tables through the same way it does for `fuzzphony_queue` (`SchemaAssetFilter::regex()` already does).
@@ -127,6 +127,10 @@ and the [CHANGELOG](CHANGELOG.md) has the full list of changes.
 
 ### Added
 
+- **Database roles and grants:** `fuzzphony:schema --dump-grants [--role=search|worker|admin] [--to=role]` prints the `GRANT` statements of the least-privilege roles for your real tables;
+  `fuzzphony.connections: { worker, admin }` (each defaults to `connection`, so nothing changes without it) runs `fuzzphony:worker` and the async refresh, and `fuzzphony:schema`,
+  `:reindex`, `:doctor`, `:analytics` and `:search-log:purge`, as other DBAL connections; the doctor has a **Privileges** check (an **error** when a role in use lacks a grant, e.g. the
+  worker's `UPDATE` on `fuzzphony_watch_log`, which the 0.10 drain needs). Nothing to do unless you want separate users: [Database roles](docs/roles.md).
 - **`SearchResult::$correctedTo`**: the text the zero-result rescue ran (`$correctedFrom` is what the visitor typed); both null without a rescue.
 - **`SearchRecord::$rescued` / `LoggedSearch::$rescued`**: the search log marks the searches the rescue answered. The "found nothing" report still counts by hits
   (a rescued search found something). Needs `fuzzphony:schema --apply` (above).

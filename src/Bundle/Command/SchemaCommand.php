@@ -11,7 +11,12 @@ use Fuzzphony\Core\Fuzzphony;
 use Fuzzphony\Core\Schema\SchemaPlan;
 use Fuzzphony\Core\Schema\Statement;
 use Fuzzphony\Core\Support\Coerce;
+use Fuzzphony\Core\Support\Identifier;
+use Fuzzphony\Engine\Postgres\Schema\GrantRole;
+use Fuzzphony\Engine\Postgres\Schema\Grants;
+use Fuzzphony\Engine\Postgres\Schema\Names;
 use Fuzzphony\Engine\Postgres\Schema\OpenClass;
+use Fuzzphony\Engine\Postgres\Sql\Sql;
 use Symfony\Component\Console\Attribute\AsCommand;
 use Symfony\Component\Console\Command\Command;
 use Symfony\Component\Console\Completion\CompletionInput;
@@ -27,9 +32,16 @@ use Symfony\Component\Console\Style\SymfonyStyle;
 #[AsCommand(name: 'fuzzphony:schema', description: 'Show, apply or export the SQL that creates the search indexes', aliases: ['fuzzphony:install'])]
 final class SchemaCommand extends Command
 {
+    private const array PURPOSE = [
+        'search' => 'the application: searches, writes the watched tables (their trigger appends to the shared log) and the search log; no DDL',
+        'worker' => 'fuzzphony:worker: drains the log into the queue and refreshes the sidecar tables; no DDL',
+        'admin' => 'fuzzphony:schema, fuzzphony:reindex, fuzzphony:doctor and the search log commands: DDL, triggers, ownership',
+    ];
+
     public function __construct(
         private readonly Fuzzphony $fuzzphony,
         private readonly Connection $connection,
+        private readonly Grants $grants = new Grants(new Names(), false),
     ) {
         parent::__construct();
     }
@@ -43,12 +55,16 @@ final class SchemaCommand extends Command
             ->addOption('force', null, InputOption::VALUE_NONE, 'Skip the "--drop --apply" confirmation prompt (required in non-interactive runs)')
             ->addOption('dump-migration', null, InputOption::VALUE_REQUIRED, 'Write a Doctrine migration into this directory instead of applying')
             ->addOption('namespace', null, InputOption::VALUE_REQUIRED, 'Namespace of the generated migration', 'DoctrineMigrations')
+            ->addOption('dump-grants', null, InputOption::VALUE_NONE, 'Print the GRANT statements of the least-privilege database roles (docs/roles.md) instead of the schema')
+            ->addOption('role', null, InputOption::VALUE_REQUIRED, 'With --dump-grants: only this role: search, worker or admin (default: all three)')
+            ->addOption('to', null, InputOption::VALUE_REQUIRED, 'With --dump-grants and --role: the name of your PostgreSQL role (default: fuzzphony_<role>)')
             ->setHelp(<<<'HELP'
                 Without options the SQL is printed, so you can review it first:
 
                   <info>bin/console fuzzphony:schema</info>
                   <info>bin/console fuzzphony:schema products --apply</info>
                   <info>bin/console fuzzphony:schema --dump-migration=migrations</info>
+                  <info>bin/console fuzzphony:schema --dump-grants --role=worker --to=my_worker</info>
 
                 Indexes are built with CREATE INDEX CONCURRENTLY, so production tables stay writable.
                 HELP);
@@ -58,6 +74,9 @@ final class SchemaCommand extends Command
     {
         $io = new SymfonyStyle($input, $output);
         $indexes = IndexArgument::resolve($this->fuzzphony, $input);
+        if ($input->getOption('dump-grants') === true) {
+            return $this->dumpGrants($input, $output, $io, $indexes);
+        }
         $engine = $this->fuzzphony->engine();
 
         $plan = new SchemaPlan();
@@ -127,6 +146,48 @@ final class SchemaCommand extends Command
         $io->success(sprintf('%d statement(s) applied. Next: fuzzphony:reindex, then fuzzphony:doctor.', count($plan->statements)));
         if (array_any(array_diff($this->cachedColumns(), $columnsBefore), static fn(string $column): bool => isset($tablesBefore[explode('.', $column)[0]]))) {
             $io->warning('An index was added that the engine looks up once per process (the open-class indexes of an index with granted fields): restart long-running processes (Messenger workers, RoadRunner, FrankenPHP) so that they see it, or call PostgresEngine::resetCaches().');
+        }
+
+        return Command::SUCCESS;
+    }
+
+    /** @param list<IndexDefinition> $indexes */
+    private function dumpGrants(InputInterface $input, OutputInterface $output, SymfonyStyle $io, array $indexes): int
+    {
+        $only = $input->getOption('role');
+        $to = $input->getOption('to');
+        $role = is_string($only) ? GrantRole::tryFrom($only) : null;
+        if (is_string($only) && $role === null) {
+            $io->error(sprintf('Unknown role "%s": use search, worker or admin.', $only));
+
+            return Command::INVALID;
+        }
+        if (is_string($to) && ($role === null || !Identifier::isColumn($to))) {
+            $io->error('--to names one PostgreSQL role (a plain identifier) and needs --role.');
+
+            return Command::INVALID;
+        }
+        $database = Coerce::str($this->connection->fetchValue('SELECT current_database()'));
+        foreach ($role !== null ? [$role] : GrantRole::cases() as $each) {
+            $name = is_string($to) ? $to : 'fuzzphony_' . $each->value;
+            $output->writeln(sprintf('-- %s: %s', $each->value, self::PURPOSE[$each->value]));
+            $output->writeln(sprintf("-- CREATE ROLE %s LOGIN PASSWORD '...' NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION;", Sql::ident($name)));
+            foreach ($this->grants->for($each, $indexes, $database) as $grant) {
+                $line = $grant->sql($name);
+                $output->writeln($this->connection->fetchValue($grant->exists()) === true
+                    ? sprintf("-- %s%s\n%s", $grant->why, $grant->optional ? ' (a table of your application: skip it if it lives elsewhere)' : '', $line)
+                    : sprintf('-- not there yet (run fuzzphony:schema --apply, then this again): %s', $line));
+            }
+            if ($each === GrantRole::Admin) {
+                $output->writeln('-- A GRANT cannot give ownership. Run fuzzphony:schema --apply as this role (it then owns what it creates), or hand over what exists:');
+                foreach ($this->grants->owned($indexes) as $table) {
+                    $output->writeln(sprintf('-- ALTER TABLE %s OWNER TO %s;', $table, Sql::ident($name)));
+                }
+                $output->writeln('-- CREATE EXTENSION needs a superuser (pg_trgm and unaccent are trusted: the owner of the database may create them from PostgreSQL 13).');
+            } else {
+                $output->writeln('-- A table created later (another index, the search log) needs these again: run this after every fuzzphony:schema --apply.');
+            }
+            $output->writeln('');
         }
 
         return Command::SUCCESS;

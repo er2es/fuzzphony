@@ -64,8 +64,8 @@ needs the first `fuzzphony:reindex` as before).
 - Dropping an index (`fuzzphony:schema <index> --drop --apply`) removes its part only; the triggers and the log
   entries of a table go with the last index that watches it.
 - The role that writes to a watched table needs `INSERT` on `fuzzphony_watch_log` (the trigger runs as that role);
-  the worker's role needs `SELECT`, `DELETE` on it, `SELECT`, `UPDATE` on `fuzzphony_watches`, and the usual
-  rights on the queue.
+  the worker's role needs `SELECT`, `UPDATE`, `DELETE` on it (`DELETE ... FOR UPDATE SKIP LOCKED` needs `UPDATE` too), `SELECT`, `UPDATE` on `fuzzphony_watches`, and the usual
+  rights on the queue. `fuzzphony:schema --dump-grants` prints all of them ([Database roles](roles.md)); every function, the drain function included, is `SECURITY INVOKER`.
 - `sync: trigger` and `trigger_level: row` keep a trigger set of their own per index and table: their refresh
   must run inside the writing statement.
 - A `TRUNCATE` is logged like a change and acted on when the worker drains the log (see [TRUNCATE](#truncate)).
