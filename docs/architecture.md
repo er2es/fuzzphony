@@ -85,6 +85,9 @@ added to a result is not a breaking change.
 - Doctrine: `Fuzzphony\Bridge\Doctrine\DbalConnection`, `Fuzzphony\Bridge\Doctrine\EntityLoader` (`load()`, `loadHits()`)
 - Symfony: `Fuzzphony\Bundle\FuzzphonyBundle`, `Fuzzphony\Bundle\ApiPlatform\FuzzphonySearchFilter`
 
+Added to these classes in 0.11 (no new class): `SearchBuilder::with(string ...$fields)` and `Hit::$data` (returned source columns, [Searching](searching.md#returning-source-fields-with)),
+`IndexBuilder::returnable()` and the `returnable:` argument of `IndexBuilder::source()` / `sourceFromTable()`, `IndexDefinition::$returnable` and `IndexSource::$returnable`.
+
 ## Sidecar table
 
 Fuzzphony never alters your tables. Each index lives in its own table, `fuzzphony_<index>`, in

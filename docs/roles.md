@@ -32,6 +32,7 @@ Fuzzphony supports that with **three roles** and prints the exact `GRANT` statem
 | `fuzzphony_meta` | - | S U | owner | the worker records a failed rebuild; the reindex records its run |
 | `fuzzphony_search_log` (when enabled) | I | - | owner | searches write it; the analytics and purge commands run as the admin |
 | the source tables of an index (every source's table and every watched table of a multi-source index) | (the application's own rights) | S | S, `TRIGGER` | the worker runs the watch queries and rebuilds; the admin reindexes and creates the triggers |
+| the source tables of an index with `returnable` columns | S, only for such an index | S | S, `TRIGGER` | `SearchBuilder::with()` reads the returned columns from the source query as the role that searches |
 | `EXECUTE` on `fuzzphony_norm`, `fuzzphony_refresh_<index>`, `fuzzphony_drain_<index>` | norm | all three | owner | functions are `PUBLIC` by default; granted explicitly so a `REVOKE ... FROM PUBLIC` does not break them |
 
 Notes that follow from the code:
@@ -52,6 +53,8 @@ Notes that follow from the code:
   it owns what it creates; for objects that exist already `--dump-grants --role=admin` prints the `ALTER TABLE ... OWNER TO` lines as comments.
 - **`CREATE EXTENSION`** needs a superuser, or, from PostgreSQL 13, `CREATE` on the database for the trusted `pg_trgm` and `unaccent`. If the extensions
   exist, `CREATE EXTENSION IF NOT EXISTS` needs nothing.
+- **Returned fields.** An index that declares `returnable` columns ([Searching](searching.md#returning-source-fields-with)) makes the search role read the source: `--dump-grants --role=search`
+  then prints `SELECT` on the source tables (the table of a `table` source and the watched tables), and only for such indexes. A table the query reads without watching it is yours to grant.
 - **A custom query source** (`source: { query: ... }`, or each of `sources`) lists its tables in `watch`; the grants cover the watched tables and the table of a `table` source. A table the query reads
   without watching it is yours to grant `SELECT` on.
 

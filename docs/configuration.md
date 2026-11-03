@@ -776,6 +776,18 @@ service `security.authorization_checker`" message). With the default attribute a
 search without a Security token. A field is hidden from the viewers who are not granted its `granted:`
 attribute; see [Security](security.md#granted-a-field-only-some-viewers-may-search).
 
+### `returnable`: the columns a search may return
+
+`returnable` is an allow-list of source column names that `SearchBuilder::with()` may return in `Hit::$data` ([Searching](searching.md#returning-source-fields-with)).
+YAML `returnable: [title, slug, price]`, the builder's `->returnable('title', 'slug', 'price')` (definition classes use the builder), and for a
+multi-source index one list per source: `sources.<name>.returnable`, or `source('product', $sql, returnable: ['slug'])` /
+`sourceFromTable('article', 'article', returnable: ['url'])`. Every name must be a column the source query returns: `fuzzphony:schema --apply`
+probes the query (no row is read) and refuses a missing one with `InvalidDefinition` naming the source and the column, and the doctor checks it
+(`Returnable columns`). The list is part of the definition hash (changing it needs `schema --apply`, not a reindex: nothing is stored). Attributes
+cannot express it: use YAML or the builder (a YAML override of an attribute-defined index may set `returnable`; the wizard exports it to YAML and
+the builder, and falls back to YAML for the attribute style, as for profiles). A name that is also a `granted` field is returned only to actors who
+hold it. Without `returnable` an index cannot be asked for `with()`.
+
 ### `granted` on a field
 
 `granted: ROLE_HR` marks a field that only some viewers may search and see. It is set in every definition

@@ -255,6 +255,17 @@ final class ReturnedFieldsTest extends TestCase
         self::assertSame([], array_filter(self::labels($explained->statements), static fn(string $l): bool => str_starts_with($l, 'returned fields')));
     }
 
+    public function testTheDoctorChecksTheReturnableColumns(): void
+    {
+        $fz = $this->build();
+        $messages = static fn(Fuzzphony $f, string $index): array => array_map(static fn(\Fuzzphony\Core\Inspection\Check $c): string => $c->name . ': ' . $c->status->value . ' ' . $c->message, array_values(array_filter($f->inspect($index)->checks, static fn(\Fuzzphony\Core\Inspection\Check $c): bool => str_starts_with($c->name, 'Returnable') || str_contains($c->name, 'Returnable'))));
+        self::assertSame(['Returnable columns: ok 11 column(s) returned by with()'], $messages($fz, 'rf_items'));
+        self::assertSame(['Source "item": Returnable columns: ok 2 column(s) returned by with()', 'Source "article": Returnable columns: ok 1 column(s) returned by with()'], $messages($fz, 'rf_site'));
+
+        $broken = new Fuzzphony(new PostgresEngine($this->connection), new IndexRegistry([IndexDefinition::builder('rf_plain')->fromQuery('SELECT id, title FROM rf_item')->field('title', 'A')->sync('manual')->returnable('title', 'nope')->build()]));
+        self::assertSame(['Returnable columns: error Missing in source: nope. Available: id, title.'], $messages($broken, 'rf_plain'));
+    }
+
     public function testAColumnTheSourceDoesNotReturnFailsTheSchemaApply(): void
     {
         $bad = IndexDefinition::builder('rf_items')->fromQuery('SELECT id, title FROM rf_item')->field('title', 'A')->sync('manual')->returnable('missing_col')->build();
