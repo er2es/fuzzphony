@@ -109,7 +109,7 @@ final class PostgresEngine implements Engine, OperationalStats
 
     public function indexSchema(IndexDefinition $index): SchemaPlan
     {
-        if ($index->isMultiSource()) {
+        if ($index->isMultiSource() || $index->returnable !== []) {
             SourceProbe::assertColumns($this->connection, $index);
         }
 
