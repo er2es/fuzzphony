@@ -8,6 +8,7 @@ use Composer\InstalledVersions;
 use Fuzzphony\Core\Definition\DefinitionValidator;
 use Fuzzphony\Core\Definition\FieldDefinition;
 use Fuzzphony\Core\Definition\IndexDefinition;
+use Fuzzphony\Core\Definition\IndexSource;
 use Fuzzphony\Core\Definition\SyncMode;
 use Fuzzphony\Core\Definition\TextConfig;
 use Fuzzphony\Core\Definition\TriggerLevel;
@@ -407,6 +408,10 @@ ON CONFLICT (index_name) DO UPDATE SET layout_version = EXCLUDED.layout_version,
             'fz' => "text NOT NULL DEFAULT ''",
             'exact' => "text NOT NULL DEFAULT ''",
         ];
+        if ($index->isMultiSource()) {
+            // the key above is the text `<kind>:<id>`; these two say which source a row is from and its raw id
+            $columns = ['id' => $columns['id'], 'kind' => 'text NOT NULL', 'src_id' => 'text NOT NULL'] + $columns;
+        }
         foreach ($index->fields as $field) {
             $columns[$this->names->fieldVectorName($field->name)] = "tsvector NOT NULL DEFAULT ''";
             if ($field->fuzzy) {
@@ -440,7 +445,8 @@ ON CONFLICT (index_name) DO UPDATE SET layout_version = EXCLUDED.layout_version,
         if ($watch->columns !== null) {
             return $watch->columns !== [] ? $watch->columns : null;
         }
-        if ($index->source->table === null || $watch->table !== $index->source->table) {
+        $source = $index->sourceOf($watch);
+        if ($source->table === null || $watch->table !== $source->table) {
             return null;
         }
 
@@ -482,6 +488,9 @@ ON CONFLICT (index_name) DO UPDATE SET layout_version = EXCLUDED.layout_version,
     public function indexes(IndexDefinition $index): array
     {
         $indexes = [$this->names->indexName($index, 'tsv') => 'USING gin (tsv)'];
+        if ($index->isMultiSource()) {
+            $indexes[$this->names->indexName($index, 'kind')] = '(kind)';
+        }
         if ($index->hasFuzzy()) {
             $indexes[$this->names->indexName($index, 'fz')] = sprintf('USING gin (fz %s.gin_trgm_ops)', $this->names->extension());
         }
@@ -621,6 +630,10 @@ ON CONFLICT (index_name) DO UPDATE SET layout_version = EXCLUDED.layout_version,
         $columns = ['id', 'tsv', self::CAPPED_COLUMN, 'fz', 'exact'];
         // the joined vector is computed once (the lateral subquery below) and read twice: it is the column, and the flag is made from it
         $values = ['doc.fz_id', 'v.fz_tsv', self::cappedExpression('v.fz_tsv'), $this->fuzzyExpression($index), $this->exactExpression($index)];
+        if ($index->isMultiSource()) {
+            array_splice($columns, 1, 0, ['kind', 'src_id']);
+            array_splice($values, 1, 0, ['doc.fz_kind', 'doc.fz_src']);
+        }
         foreach ($index->fields as $field) {
             $columns[] = $this->names->fieldVectorName($field->name);
             $values[] = $this->fieldVectorExpression($index, $field);
@@ -648,7 +661,7 @@ ON CONFLICT (index_name) DO UPDATE SET layout_version = EXCLUDED.layout_version,
             static fn(string $c): string => sprintf('%1$s = EXCLUDED.%1$s', Sql::ident($c)),
             array_slice($columns, 1),
         ));
-        $document = DocumentSql::select($index);
+        $document = DocumentSql::select($index, 'p_ids');
 
         return sprintf(
             <<<'SQL'
@@ -908,15 +921,16 @@ ON CONFLICT (index_name) DO UPDATE SET layout_version = EXCLUDED.layout_version,
             $affected = (string) preg_replace('/:id\b/', $record . '.' . Sql::ident($watch->keyColumn), $watch->affectedIds, 1);
             $action = $index->sync === SyncMode::Trigger
                 ? sprintf(
-                    'PERFORM %s(ARRAY(SELECT a.doc_id::%s FROM (%s) AS a(doc_id) WHERE a.doc_id IS NOT NULL));',
+                    'PERFORM %s(ARRAY(SELECT %s FROM (%s) AS a(doc_id) WHERE a.doc_id IS NOT NULL));',
                     $this->names->refreshFunction($index),
-                    Types::id($index->idType),
+                    $this->keyExpression($index, $watch, false),
                     $affected,
                 )
                 : sprintf(
-                    "INSERT INTO %s (index_name, doc_id)\n        SELECT %s, a.doc_id::text FROM (%s) AS a(doc_id) WHERE a.doc_id IS NOT NULL\n        ON CONFLICT (index_name, doc_id) DO NOTHING;",
+                    "INSERT INTO %s (index_name, doc_id)\n        SELECT %s, %s FROM (%s) AS a(doc_id) WHERE a.doc_id IS NOT NULL\n        ON CONFLICT (index_name, doc_id) DO NOTHING;",
                     $this->names->queue(),
                     Sql::string($index->name),
+                    $this->keyExpression($index, $watch, true),
                     $affected,
                 );
             $body[] = sprintf("    IF %s THEN\n        %s\n    END IF;", $condition, $action);
@@ -967,36 +981,46 @@ ON CONFLICT (index_name) DO UPDATE SET layout_version = EXCLUDED.layout_version,
     private function truncateBranch(IndexDefinition $index, Watch $watch): string
     {
         $sidecar = $this->names->sidecar($index);
-        $ids = sprintf(
+        // a multi-source index rebuilds the source of the watch only: its rows (kind) and its documents
+        $kind = $index->isMultiSource() ? $watch->source : null;
+        $ids = $kind === null ? sprintf(
             'SELECT s.id FROM %s AS s UNION SELECT doc.fz_id::%s FROM (%s) AS doc WHERE doc.fz_id IS NOT NULL',
             $sidecar,
             Types::id($index->idType),
             DocumentSql::select($index),
+        ) : sprintf(
+            'SELECT s.id FROM %s AS s WHERE s.kind = %s UNION SELECT doc.fz_id FROM (%s) AS doc WHERE doc.fz_id IS NOT NULL',
+            $sidecar,
+            Sql::string($kind),
+            DocumentSql::select($index->withOnlySource($kind)),
         );
         $resync = $index->sync === SyncMode::Trigger
             ? sprintf('PERFORM %s(ARRAY(%s));', $this->names->refreshFunction($index), $ids)
             : sprintf(
-                "INSERT INTO %s (index_name, doc_id, queued_at) VALUES (%s, '*', clock_timestamp())
+                "INSERT INTO %s (index_name, doc_id, queued_at) VALUES (%s, %s, clock_timestamp())
         ON CONFLICT (index_name, doc_id) DO UPDATE SET queued_at = clock_timestamp();",
                 $this->names->queue(),
                 Sql::string($index->name),
+                Sql::string($kind === null ? '*' : IndexSource::rebuildRequestKey($kind)),
             );
-        if ($index->source->table === null || $watch->table !== $index->source->table) {
+        $ownTable = $index->sourceOf($watch)->table;
+        if ($ownTable === null || $watch->table !== $ownTable) {
             return sprintf("    IF TG_OP = 'TRUNCATE' THEN
         %s
         RETURN NULL;
     END IF;", $resync);
         }
 
-        $wipe = [sprintf('DELETE FROM %s;', $sidecar)];
+        $wipe = [$kind === null ? sprintf('DELETE FROM %s;', $sidecar) : sprintf('DELETE FROM %s WHERE kind = %s;', $sidecar, Sql::string($kind))];
         if ($index->sync === SyncMode::Queue) {
             $wipe[] = sprintf(
                 // not while a full reindex runs: the worker refreshes those ids (which logs them), a
                 // document the rebuild loaded from the queued changes would otherwise survive the swap
-                'IF to_regclass(%3$s) IS NULL THEN DELETE FROM %1$s WHERE ctid IN (SELECT ctid FROM %1$s WHERE index_name = %2$s FOR UPDATE SKIP LOCKED); END IF;',
+                'IF to_regclass(%3$s) IS NULL THEN DELETE FROM %1$s WHERE ctid IN (SELECT ctid FROM %1$s WHERE index_name = %2$s%4$s FOR UPDATE SKIP LOCKED); END IF;',
                 $this->names->queue(),
                 Sql::string($index->name),
                 Sql::string($this->names->changes($index)),
+                $kind === null ? '' : sprintf(' AND starts_with(doc_id, %s)', Sql::string($kind . ':')),
             );
         }
 
@@ -1009,7 +1033,7 @@ ON CONFLICT (index_name) DO UPDATE SET layout_version = EXCLUDED.layout_version,
         END IF;
         RETURN NULL;
     END IF;",
-            Sql::ident($index->source->table),
+            Sql::ident($ownTable),
             implode("\n            ", $wipe),
             str_replace("\n        ", "\n            ", $resync),
         );
@@ -1022,7 +1046,7 @@ ON CONFLICT (index_name) DO UPDATE SET layout_version = EXCLUDED.layout_version,
         foreach (['fz_new' => "TG_OP IN ('INSERT', 'UPDATE')", 'fz_old' => "TG_OP IN ('UPDATE', 'DELETE')"] as $rows => $condition) {
             $affected = (string) preg_replace('/:id\b/', 'r.' . Sql::ident($watch->keyColumn), $watch->affectedIds, 1);
             $source = sprintf('%s AS r CROSS JOIN LATERAL (%s) AS a(doc_id)', $rows, $affected);
-            $body[] = sprintf("    IF %s THEN\n        %s\n    END IF;", $condition, $this->statementAction($index, $source));
+            $body[] = sprintf("    IF %s THEN\n        %s\n    END IF;", $condition, $this->statementAction($index, $watch, $source));
         }
 
         return implode("\n", $body);
@@ -1043,8 +1067,8 @@ ON CONFLICT (index_name) DO UPDATE SET layout_version = EXCLUDED.layout_version,
     {
         $key = Sql::ident($watch->keyColumn);
         $body = [];
-        $body[] = sprintf("    IF TG_OP = 'INSERT' THEN\n        %s\n    END IF;", $this->statementAction($index, $this->statementSource($watch, 'fz_new', 'r')));
-        $body[] = sprintf("    IF TG_OP = 'DELETE' THEN\n        %s\n    END IF;", $this->statementAction($index, $this->statementSource($watch, 'fz_old', 'r')));
+        $body[] = sprintf("    IF TG_OP = 'INSERT' THEN\n        %s\n    END IF;", $this->statementAction($index, $watch, $this->statementSource($watch, 'fz_new', 'r')));
+        $body[] = sprintf("    IF TG_OP = 'DELETE' THEN\n        %s\n    END IF;", $this->statementAction($index, $watch, $this->statementSource($watch, 'fz_old', 'r')));
 
         $diffNew = implode(' OR ', array_map(static fn(string $c): string => sprintf('r.%1$s IS DISTINCT FROM o.%1$s', Sql::ident($c)), $columns));
         $diffOld = implode(' OR ', array_map(static fn(string $c): string => sprintf('r.%1$s IS DISTINCT FROM n.%1$s', Sql::ident($c)), $columns));
@@ -1055,8 +1079,8 @@ ON CONFLICT (index_name) DO UPDATE SET layout_version = EXCLUDED.layout_version,
         $updateOldSource = sprintf('fz_old AS r LEFT JOIN fz_new n ON n.%1$s = r.%1$s CROSS JOIN LATERAL (%2$s) AS a(doc_id)', $key, $affected);
         $body[] = sprintf(
             "    IF TG_OP = 'UPDATE' THEN\n        %s\n        %s\n    END IF;",
-            $this->statementAction($index, $updateNewSource, sprintf('o.%1$s IS NULL OR (%2$s)', $key, $diffNew)),
-            $this->statementAction($index, $updateOldSource, sprintf('n.%1$s IS NULL OR (%2$s)', $key, $diffOld)),
+            $this->statementAction($index, $watch, $updateNewSource, sprintf('o.%1$s IS NULL OR (%2$s)', $key, $diffNew)),
+            $this->statementAction($index, $watch, $updateOldSource, sprintf('n.%1$s IS NULL OR (%2$s)', $key, $diffOld)),
         );
 
         return implode("\n", $body);
@@ -1069,22 +1093,36 @@ ON CONFLICT (index_name) DO UPDATE SET layout_version = EXCLUDED.layout_version,
         return sprintf('%s AS %s CROSS JOIN LATERAL (%s) AS a(doc_id)', $transitionTable, $alias, $affected);
     }
 
-    private function statementAction(IndexDefinition $index, string $source, ?string $extraWhere = null): string
+    /**
+     * The stored key of a document id `a.doc_id` a watch query returned: a single-source index casts it to its id type (the queue
+     * keeps text); a multi-source index builds `<kind>:<id>` of the watch's source.
+     */
+    private function keyExpression(IndexDefinition $index, Watch $watch, bool $queue): string
+    {
+        if ($watch->source !== null && $index->isMultiSource()) {
+            return sprintf('%s || a.doc_id::text', Sql::string($watch->source . ':'));
+        }
+
+        return $queue ? 'a.doc_id::text' : 'a.doc_id::' . Types::id($index->idType);
+    }
+
+    private function statementAction(IndexDefinition $index, Watch $watch, string $source, ?string $extraWhere = null): string
     {
         $where = $extraWhere !== null ? sprintf('a.doc_id IS NOT NULL AND (%s)', $extraWhere) : 'a.doc_id IS NOT NULL';
 
         return $index->sync === SyncMode::Trigger
             ? sprintf(
-                'PERFORM %s(ARRAY(SELECT DISTINCT a.doc_id::%s FROM %s WHERE %s));',
+                'PERFORM %s(ARRAY(SELECT DISTINCT %s FROM %s WHERE %s));',
                 $this->names->refreshFunction($index),
-                Types::id($index->idType),
+                $this->keyExpression($index, $watch, false),
                 $source,
                 $where,
             )
             : sprintf(
-                "INSERT INTO %s (index_name, doc_id)\n        SELECT DISTINCT %s, a.doc_id::text FROM %s WHERE %s\n        ON CONFLICT (index_name, doc_id) DO NOTHING;",
+                "INSERT INTO %s (index_name, doc_id)\n        SELECT DISTINCT %s, %s FROM %s WHERE %s\n        ON CONFLICT (index_name, doc_id) DO NOTHING;",
                 $this->names->queue(),
                 Sql::string($index->name),
+                $this->keyExpression($index, $watch, true),
                 $source,
                 $where,
             );
