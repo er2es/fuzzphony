@@ -42,7 +42,7 @@ foreach ($result as $hit) {
 }
 ```
 
-Status: pre-1.0 (the code in this repository is 0.10.0, being released). The API may still change before 1.0; 0.10.0 gathers the remaining breaking changes. Breaking changes are listed in the
+Status: pre-1.0 (v0.10.0). The API may still change before 1.0; 0.10.0 gathered the remaining breaking changes. Breaking changes are listed in the
 [CHANGELOG](https://github.com/er2es/fuzzphony/blob/main/CHANGELOG.md) and explained in
 [UPGRADE.md](https://github.com/er2es/fuzzphony/blob/main/UPGRADE.md).
 

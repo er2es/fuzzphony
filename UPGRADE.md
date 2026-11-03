@@ -5,6 +5,23 @@ and the [CHANGELOG](CHANGELOG.md) has the full list of changes.
 
 ## From 0.9.13 to 0.10.0
 
+### Checklist (the required steps, in this order)
+
+1. `composer update fuzzphony/fuzzphony` (PHP 8.4, PostgreSQL 14+ as before).
+2. Rename in your code and configuration (the old names fail with a message that names the new one):
+   - `Fuzzphony::suggest()` to `complete()`, `useSuggestion` to `useDidYouMean` (also in a Twig override), `fuzzphony:search --suggest` to `--complete`;
+   - the flat `thresholds:` keys (`fuzzy_mode`, `rescue_empty`, `candidate_limit`, ...) into the groups `relevance`, `typo`, `rescue`, `limits` (also `->thresholds([...])`, `new Thresholds(...)`, `--threshold`);
+   - `FederatedHit` to `Hit` (`$hit->kind`, `$hit->mergedScore`); anything that used an `@internal` class, `Fuzzphony::registry()` or `engine()` (use `Fuzzphony::postgres()`, `wizard()`, `indexes()`, `definition()`).
+3. Searches that must see everything (exports, admin commands, Messenger handlers, tests, public catalogue pages) say `->asSystem()`; every other search now runs as the current user,
+   and an index with a `granted` field needs `fuzzphony.authorization.enabled: true`.
+4. `bin/console fuzzphony:schema --apply` for every index, before the new code serves traffic (new columns, new index names, one trigger set per table; the apply is online).
+5. `bin/console fuzzphony:reindex <index>` only for an index that uses `code: true` (new) or whose primary key you want renamed to the new scheme; nothing else needs a rebuild.
+6. If the application, worker and admin use separate database users, run `fuzzphony:schema --dump-grants` and adjust the grants (the writer needs `INSERT` on `fuzzphony_watch_log`, the worker
+   `UPDATE` on it); optional `fuzzphony.connections: { worker, admin }` ([Database roles](docs/roles.md)).
+7. Restart the workers after the apply, then run `bin/console fuzzphony:doctor`.
+
+The details of each change follow.
+
 ### Breaking
 
 - **A search that names no actor is made as the application's current user.** Until now a search without `->asActor()` ran no guard: a controller that forgot it

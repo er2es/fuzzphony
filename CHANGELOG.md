@@ -11,56 +11,51 @@ and a link. Measurements, proofs and test names belong to the pull request, [doc
 
 ## [Unreleased]
 
-### Fixed
+## [0.10.0] - 2026-11-03
 
-- **`fuzzphony:schema --apply` no longer locks tables it does not change:** a column is added only when the catalog says it is missing (it used to
-  take an `ACCESS EXCLUSIVE` lock on the sidecar, the meta table and the log on every apply, queueing behind long readers).
-
-### Added
-
-- **Database roles:** `fuzzphony:schema --dump-grants` prints the least-privilege `GRANT`s (search, worker, admin), `fuzzphony.connections` gives the worker and the admin their own
-  DBAL connection (default: `connection`), and the doctor checks the privileges of the roles in use ([Database roles](docs/roles.md)).
-- **`SearchResult::$correctedTo`, `rescued` in the search log, `Fuzzphony::logSearch()`** (record a search without running it), **`toArray()`/JSON** for results, hits and facets, and the opt-in
-  **`->explainMatches()`** (`Hit::$matches`: which word matched where and how) ([searching](docs/searching.md#what-matched), [analytics](docs/analytics.md)).
-- **`code: true` on a field** (`fields: { number: { weight: A, code: true } }`, `#[SearchField('A', code: true)]`, `->field('number', 'A', code: true)`): `INV-001`, `INV001`, `inv-001`, `001`, `AB-12/3`
-  and `INV.007` find their row ([Codes and numbers](docs/searching.md#codes-and-numbers)). Run `fuzzphony:schema --apply` and `fuzzphony:reindex` ([UPGRADE](UPGRADE.md#from-0913-to-0100)).
-- **`source: { query_file: sql/catalog.sql }`** and `->fromQueryFile($path, $baseDir)`: the source query from a file inside the project; its content is part of the
-  definition fingerprint ([Configuration](docs/configuration.md#the-source-query-from-a-file)).
-- **A worker batch that fails on the data is split:** only the ids that fail on their own stay queued (attempt count, error class and SQLSTATE,
-  back-off), the others are indexed; the doctor names the failing ids ([limitations](docs/limitations.md#one-unreadable-document-does-not-stop-its-indexs-queue)).
+The breaking release, gathered in one round so that 0.11 and 1.0 do not have to change the API again. The engine is sturdier (a mandatory schema apply, one
+trigger set and one change log per watched table, a worker that isolates unreadable rows), the API is smaller and safer (76 public types, a search always runs
+as someone, grouped thresholds, renamed methods) and a custom frontend gets what it needs (`toArray()`/JSON, `explainMatches()`, `logSearch()`, database roles).
+Start with the checklist in [UPGRADE](UPGRADE.md#from-0913-to-0100). The demo follows the new API and runs on Symfony UX 3.6.
 
 ### Breaking
 
-- **A search that names no actor is made as the application's current user** (the Security token, or `Fuzzphony::postgres(actors:)`): a controller that forgot `->asActor()` no longer
-  searches without guards. Anonymous (CLI, worker, no token) hides `granted` fields; full access is the visible `->asSystem()` (logged as `(system)`, `authorization.allow_system: false`
-  switches it off). A `granted` field without `authorization.enabled` fails the build and the doctor ([UPGRADE](UPGRADE.md#from-0913-to-0100)).
-- **`restrictedToFields()` only narrows** (intersection with the actor's fields); **`Hit::$kind`** and a typed `Hit::$id` replace `FederatedHit` (`mergedScore` on the hit);
-  the search log gets a **`rescued`** column (`fuzzphony:schema --apply`); the wizard's YAML writes lists as sequences.
-- **Thresholds are four named groups** (`relevance`, `typo`, `rescue`, `limits`): `new Thresholds(typo: new TypoThresholds(mode: FuzzyMode::Always))`,
-  `thresholds: { typo: { mode: always } }`, `->thresholds(['typo' => ['mode' => 'always']])`, `--threshold typo.mode=always`; the flat names fail with the new key in the message,
-  `fallback_below` splits into `typo.fallback_below` and `rescue.did_you_mean_below` ([UPGRADE](UPGRADE.md#from-0913-to-0100)).
+- **A search that names no actor runs as the application's current user.** Anonymous (CLI, worker, no token) hides `granted` fields; full access is the visible `->asSystem()`
+  (logged as `(system)`). A `granted` field without `authorization.enabled` fails the build and the doctor ([UPGRADE](UPGRADE.md#from-0913-to-0100)).
+- **`restrictedToFields()` only narrows;** `Hit::$kind` and a typed `Hit::$id` replace `FederatedHit` (`mergedScore` on the hit).
+- **Thresholds are four named groups** (`relevance`, `typo`, `rescue`, `limits`); the flat names fail with the new key in the message ([UPGRADE](UPGRADE.md#from-0913-to-0100)).
 - **`Fuzzphony::suggest()` is `complete()`, `useSuggestion` is `useDidYouMean`, `--suggest` is `--complete`** (no aliases).
-- **The public API is 76 types:** the engine contract, the wizard's parts, the registry and the container types are `@internal`; `Fuzzphony::postgres()` builds the service without
-  a framework (guards, search log, redaction, IP mode as options), `Fuzzphony::wizard()` is the wizard, `Fuzzphony::resetCaches()` replaces `PostgresEngine::resetCaches()`; the optional `Engine` interfaces, `Capabilities` and `TransactionAware` are folded into `Engine` and `Connection`
-  (`Connection::inTransaction()`). ([Public API](docs/architecture.md#public-api), [UPGRADE](UPGRADE.md#from-0913-to-0100)).
-- **One trigger set and one change log per watched table** (`queue` sync, statement level): a table watched by N indexes has four triggers, not 4N,
-  and an `UPDATE` writes one log row per changed row instead of N queue rows (bulk `UPDATE` of 20 000 rows on 4 indexes: 734 ms to 120 ms). Queue rows
-  appear when the worker drains the log, a `TRUNCATE` is acted on then, and a long writing transaction delays every index ([Sync](docs/sync.md#one-trigger-per-table-one-change-log)).
-  Run `fuzzphony:schema --apply` ([UPGRADE](UPGRADE.md#from-0913-to-0100)).
-- **The worker prints only the exception class and SQLSTATE** of a failed rebuild or queue, never the driver's message (it can carry the source row).
-- **A search inside your own transaction runs under one savepoint** (`fuzzphony_search`), sets each `pg_trgm` threshold once and puts your values back
-  once (it did this per statement: up to five round trips each). A failure after the first threshold now leaves your transaction usable on PDO too,
-  as it did on DBAL ([limitations](docs/limitations.md#a-search-inside-your-own-transaction)).
-- **Index objects are named `fuzzphony_<index>__<kind>`** (`__tsv`, `__fz`, `__f_<filter>`, `__pkey`, `__open_...`): an index named `products_open` no longer collides
-  with an object of `products` (the reindex swap failed with `42P07`). Run `fuzzphony:schema --apply`, then `fuzzphony:reindex`
-  ([UPGRADE](UPGRADE.md#from-0913-to-0100)).
-- **`fuzzphony:schema --apply` is mandatory after an upgrade.** A missing `tsv_capped` or `actor_ip` column makes the first search, refresh
-  or log write fail with one `SchemaNotApplied` exception; the no-column fallbacks and their per-process lookups are gone
-  (`search_log.ip_dropped` too). See [UPGRADE](UPGRADE.md#from-0913-to-0100).
+- **The public API is 76 types:** the engine contract, the wizard's parts, the registry and the container types are `@internal`; `Fuzzphony::postgres()`, `wizard()`,
+  `resetCaches()` and the optional `Engine` interfaces folded into `Engine` and `Connection` ([Public API](docs/architecture.md#public-api)).
+- **`fuzzphony:schema --apply` is mandatory after the upgrade:** a missing `tsv_capped`, `actor_ip` or `rescued` column throws `SchemaNotApplied`; the no-column fallbacks are gone.
+- **Index objects are named `fuzzphony_<index>__<kind>`** (no collision between `products_open` and the open-class objects of `products`); the apply renames them online.
+- **One trigger set and one change log per watched table** (`queue` sync): queue rows appear when the worker drains the log; roles need `INSERT` on `fuzzphony_watch_log`
+  ([Sync](docs/sync.md#one-trigger-per-table-one-change-log)).
+- **A search inside your own transaction runs under one savepoint** (`fuzzphony_search`); the worker prints only the exception class and SQLSTATE of a failure.
+- **The wizard's YAML writes lists as sequences** and multi-line texts exactly.
+
+### Added
+
+- **Database roles:** `fuzzphony:schema --dump-grants`, `fuzzphony.connections` (`worker`, `admin`) and a doctor **Privileges** check ([Database roles](docs/roles.md)).
+- **`Fuzzphony::indexes()` and `definition()`:** the registered index names and one `IndexDefinition`, so no code needs the `@internal` registry.
+- **`SearchResult::$correctedTo`, `rescued` in the search log, `Fuzzphony::logSearch()`** (record a search without running it), **`toArray()`/JSON** for results, hits and facets, and the opt-in
+  **`->explainMatches()`** (`Hit::$matches`) ([searching](docs/searching.md#what-matched), [analytics](docs/analytics.md)).
+- **`code: true` on a field:** `INV-001`, `INV001`, `inv-001` and `001` find their row; run `fuzzphony:schema --apply` and `fuzzphony:reindex` ([Codes and numbers](docs/searching.md#codes-and-numbers)).
+- **`source: { query_file: sql/catalog.sql }`** and `->fromQueryFile()`: the source query from a file inside the project ([Configuration](docs/configuration.md#the-source-query-from-a-file)).
+- **A worker batch that fails on the data is split:** only the ids that fail on their own stay queued (attempts, error class, SQLSTATE, back-off); the doctor names them
+  ([limitations](docs/limitations.md#one-unreadable-document-does-not-stop-its-indexs-queue)).
 
 ### Changed
 
-- **Demo:** the catalogue pages search `->asSystem()` (public data), the Security page searches as the signed-in viewer and compares `asActor()`, anonymous and `asSystem()` calls, the home search records its answer with `logSearch()` instead of running it twice, Analytics marks rescued searches, and the Relevance "why" lines come from `explainMatches()`.
+- **Demo:** the catalogue pages search `->asSystem()`, the Security page compares `asActor()`, anonymous and `asSystem()` calls, Analytics marks rescued searches, the Relevance "why" lines come
+  from `explainMatches()`, and the app uses only the public API. Symfony UX Live and Twig Components 3.6.
+- **A bulk `UPDATE` of 20 000 rows on a table watched by 4 indexes takes 120 ms instead of 734 ms** (numbers in [benchmarks](docs/benchmarks.md)).
+
+### Fixed
+
+- **`fuzzphony:schema --apply` no longer locks tables it does not change:** a column is added only when the catalog says it is missing (it took an `ACCESS EXCLUSIVE` lock on the sidecar,
+  the meta table and the log on every apply).
+- **A typo-tolerant search that fails inside your transaction leaves it usable on PDO too** (as on DBAL).
 
 ## [0.9.13] - 2026-11-02
 
@@ -1131,7 +1126,8 @@ on its own:
 - Sync modes: queue (default), trigger, ORM, manual; watches for joined tables.
 - Doctor with fixes; CLI commands for schema, reindex, worker, search and explain.
 
-[Unreleased]: https://github.com/er2es/fuzzphony/compare/v0.9.13...HEAD
+[Unreleased]: https://github.com/er2es/fuzzphony/compare/v0.10.0...HEAD
+[0.10.0]: https://github.com/er2es/fuzzphony/compare/v0.9.13...v0.10.0
 [0.9.13]: https://github.com/er2es/fuzzphony/compare/v0.9.12...v0.9.13
 [0.9.12]: https://github.com/er2es/fuzzphony/compare/v0.9.11...v0.9.12
 [0.9.11]: https://github.com/er2es/fuzzphony/compare/v0.9.10...v0.9.11
