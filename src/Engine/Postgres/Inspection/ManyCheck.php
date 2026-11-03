@@ -6,7 +6,6 @@ namespace Fuzzphony\Engine\Postgres\Inspection;
 
 use Fuzzphony\Core\Database\Connection;
 use Fuzzphony\Core\Definition\FieldDefinition;
-use Fuzzphony\Core\Definition\FilterDefinition;
 use Fuzzphony\Core\Definition\IndexDefinition;
 use Fuzzphony\Core\Definition\ManyValues;
 use Fuzzphony\Core\Inspection\Check;
