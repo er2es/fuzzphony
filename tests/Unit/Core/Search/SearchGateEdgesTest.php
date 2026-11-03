@@ -4,8 +4,13 @@ declare(strict_types=1);
 
 namespace Fuzzphony\Tests\Unit\Core\Search;
 
+use Fuzzphony\Core\Analytics\SearchLog;
+use Fuzzphony\Core\Analytics\SearchRecord;
 use Fuzzphony\Core\Engine\Engine;
 use Fuzzphony\Core\Exception\AccessDenied;
+use Fuzzphony\Core\Exception\ActorRequired;
+use Fuzzphony\Core\Exception\InvalidArgument;
+use Fuzzphony\Core\Observability\MetricsCollector;
 use Fuzzphony\Core\Query\SearchQuery;
 use Fuzzphony\Core\Search\Access;
 use Fuzzphony\Core\Search\Actor;
@@ -15,6 +20,7 @@ use Fuzzphony\Core\Search\SearchResult;
 use Fuzzphony\Tests\Fixtures\Indexes;
 use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\TestCase;
+use Psr\Log\LoggerInterface;
 
 /** The corners of the gate that decide a tenant comparison, a log row and the fields a viewer keeps. */
 final class SearchGateEdgesTest extends TestCase
@@ -86,6 +92,57 @@ final class SearchGateEdgesTest extends TestCase
         } catch (AccessDenied) {
             self::assertSame([], $log->records);
         }
+    }
+
+    public function testAnIndexWithATenantCannotBeLoggedWithoutOne(): void
+    {
+        $log = new RecordingSearchLog();
+        $gate = new SearchGate(log: $log);
+        $query = (new SearchQuery('mouse'))->withActor(new Actor(user: 'ada'));
+
+        try {
+            $gate->logSearch(Indexes::products('queue', tenant: true), $query, 1, 1.0, false, false);
+            self::fail('a search without a tenant was logged');
+        } catch (ActorRequired) {
+            self::assertSame([], $log->records);
+        }
+    }
+
+    public function testAnIndexCannotBeLoggedWhereNoLogIsConfigured(): void
+    {
+        $this->expectException(InvalidArgument::class);
+        (new SearchGate())->logSearch(Indexes::products(), (new SearchQuery('mouse'))->withActor(new Actor(user: 'ada')), 1, 1.0, false, false);
+    }
+
+    public function testALogThatFailsNeverFailsTheCallerAndIsCounted(): void
+    {
+        $log = new class implements SearchLog {
+            public function record(SearchRecord $record): void
+            {
+                throw new \RuntimeException('log store is down');
+            }
+        };
+        $metrics = new class implements MetricsCollector {
+            /** @var list<string> */
+            public array $events = [];
+
+            public function increment(string $event, array $labels = [], int $by = 1): void
+            {
+                $this->events[] = $event;
+            }
+
+            public function observe(string $event, float $value, array $labels = []): void {}
+
+            public function gauge(string $event, float $value, array $labels = []): void {}
+        };
+        $logger = $this->createMock(LoggerInterface::class);
+        $logger->expects(self::once())->method('error')->with(self::stringContains('could not record'), self::anything());
+        $gate = new SearchGate(metrics: $metrics, logger: $logger, log: $log);
+
+        $logged = $gate->logSearch(Indexes::products(), (new SearchQuery('mouse'))->withActor(new Actor(user: 'ada')), 3, 2.0, false, false);
+
+        self::assertSame(3, $logged->hits);
+        self::assertSame(['fuzzphony.search_log.failed'], $metrics->events);
     }
 
     public function testTheLoggedCountsAndTimesAreNeverNegativeNorRounded(): void
