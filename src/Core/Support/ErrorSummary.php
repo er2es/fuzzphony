@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Fuzzphony\Core\Support;
 
 use Fuzzphony\Core\Exception\EngineFailure;
+use Fuzzphony\Core\Exception\FuzzphonyException;
 
 /**
  * @internal What may be shown of a database failure: its exception class and SQLSTATE. The driver's message can carry
@@ -46,7 +47,7 @@ final class ErrorSummary
     /** What an operator may be shown on a console: the message of Fuzzphony's own errors, the summary of a wrapped database failure. */
     public static function forOperator(\Throwable $e, bool $withHint = true): string
     {
-        if ($e->getPrevious() === null) {
+        if ($e->getPrevious() === null && $e instanceof FuzzphonyException) {
             return $e->getMessage();
         }
         if ($e instanceof EngineFailure && $e->operation !== null && $withHint) {
