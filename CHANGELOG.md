@@ -21,6 +21,7 @@ and a link. Measurements, proofs and test names belong to the pull request, [doc
 - **Doctor `Watches` check:** a table the source reads that no watch covers is a warning with a watch to adapt (found through the database's dependency catalog); `fuzzphony:doctor --fail-on=warning` fails CI on it ([Sync](docs/sync.md#the-doctor-finds-the-tables-you-forgot-to-watch)).
 - **Operational metrics:** gauges for the change log (size, age, quarantined rows) and the queue (failing items, oldest age), and `source`-labelled counters for multi-source rebuilds ([Observability](docs/observability.md)).
 - **Federated floors:** `->index('articles', atLeast: 3)` guarantees an index its best hits on the first page, so a heavily weighted index cannot crowd it out; `weight` must be finite ([Federated search](docs/searching.md#federated-search)).
+- **Several values per document:** `many: { from: address, key: customer_id, column: city }` on a field or a string filter reads the values from a child table (one row each, at most `limit`); search finds a customer by any value, filters and facets count documents, `explainMatches()` says which value matched, the doctor names documents over the limit, and the child table's sync is derived. Run `schema --apply` and a reindex for such an index ([Configuration](docs/configuration.md#several-values-per-document-many)).
 - **`FuzzphonySearchFilter`** takes `index:` to search a named index; `fuzzphony:doctor` shows where each definition came from.
 
 ### Changed
