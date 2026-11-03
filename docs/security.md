@@ -338,6 +338,13 @@ deny it). The bundle gives the command its own `Fuzzphony` over a gate without g
 service keeps the guarded one. Its searches are counted in the metrics but not written to the
 [search log](analytics.md) unless you pass `--log` (then with the `--user` you gave). See [Console commands](commands.md).
 
+## Database roles
+
+The guards above decide who may search. The database user decides what the code can do at all: [Database roles and grants](roles.md) has the
+least-privilege matrix for the application (reads the index, no DDL), the worker and the admin, `fuzzphony:schema --dump-grants` to print the
+`GRANT` statements for your tables, the `fuzzphony.connections` setting to use a separate user for each, and the doctor's privilege check. Every Fuzzphony
+function is `SECURITY INVOKER`: none runs with its owner's rights.
+
 ## The limits, stated honestly
 
 The guarantee is about the content of the hidden fields. It is not row-level security, and it is not

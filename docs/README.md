@@ -44,6 +44,8 @@ If you read in order: the README (install and quick start), then [Index definiti
 - [Search log and analytics](analytics.md): how do I log searches, redact them, report the most searched and the
   zero-result texts, and purge old rows?
 - [Security](security.md): who may search, how often, and which fields may a viewer search and see?
+- [Database roles and grants](roles.md): which database user may do what (search, worker, admin), the privilege matrix, `fuzzphony:schema --dump-grants`
+  and the doctor's privilege check.
 - [Observability](observability.md): which metrics exist, and how do I wire them up (Prometheus, the bundle, a
   `/metrics` endpoint)?
 - [Architecture](architecture.md): how is the code organised into layers, and what is the public API?
