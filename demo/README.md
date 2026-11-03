@@ -185,6 +185,27 @@ The tables overlap on purpose: `erp_customer` is read by `people`, `companies`, 
 its customer in `people` and in `site`. The application role gets `SELECT` on the tables (needed for `->with()`); search them with
 `bin/console fuzzphony:search people "kovacs budapest"`.
 
+### The ERP page
+
+`/erp` (the menu entry **ERP**) shows the four indexes at work. It has five sections, one request each:
+
+- **People, Companies, Orders:** three separate admin-style search boxes, each against its own index with its own filters and facets (people: the city facet of the
+  `many` field and a created-in filter; companies: the contact persons as a field, `contact:simon`; orders: the status facet and a total range). The rows are drawn from
+  `with()` (`Hit::$data`: the page loads nothing from the database), the line under a row from `explainMatches()` (*found in the address: Budapest*, *found in the tax number:
+  12345678-2-41 (exact code)*), the link from `Hit::kind` and `Hit::id` to `/erp/{kind}/{id}`, a small read-only detail page (plain SQL).
+- **Combined:** one box and the same query in the multi-source index `site` and in a federated search over `people`, `companies` and `orders` (weights 1.0 / 1.2 / 0.8,
+  floors 2 / 2 / 1), side by side or one at a time; every hit shows its `index` and its `kind`. The difference is the table of
+  [Federated search or a multi-source index?](../docs/searching.md#federated-search-or-a-multi-source-index).
+- **Sync:** the demonstration of a table's triggers. Move the address of one customer (`erp_address` #1) to Sopron, Győr or Zalaegerszeg, or undo it. The panel then reads, with
+  polling and a clear *still syncing* state when the worker is slow, which indexes refreshed the customer and after how many milliseconds (`people` and `site` do, `orders` and
+  `companies` do not: they do not read addresses), the search before and after, and the triggers of the table (*one trigger set for 2 indexes*, from `pg_trigger` and
+  `fuzzphony_watches`).
+
+The sync demonstration is the only write of the demo's ERP data. `docker/init.sh` grants the application role `UPDATE (city) ON erp_address` and nothing more on the ERP tables; the
+endpoint (`POST /erp/sync`) needs a CSRF token, is rate limited (five moves a minute for each client address, `framework.rate_limiter.fuzzphony_erp_sync`), and accepts only a key
+of a fixed list of cities (no free text) for that one row. The Config wizard has a second sample for these tables, `/under-the-hood/wizard?sample=erp` (*Load the ERP sample*): a
+joined source, `many` and `code` fields, `returnable` and column-aware watches, exported as YAML, builder and a definition class (`src/Service/ErpSampleConfig.php`).
+
 ## The stack
 
 | Service | Image | Role |

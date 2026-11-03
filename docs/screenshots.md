@@ -64,3 +64,19 @@ The page starts with `projector`: twelve products that differ in title match, po
 "Load the sample configuration" shows one complete definition of the catalogue (a joined source, weighted fields, filters, watches, profiles, thresholds) as YAML, builder and attributes, with a note on every part; Tune starts from its values.
 
 ![Config wizard: the sample configuration with a note per part and the YAML definition](image/wizard-sample.png)
+
+## ERP
+
+The ERP page searches an ERP-like data set with one box for people, companies and orders (rows from `with()`, the matched value from `explainMatches()`), a combined box (a multi-source index against a federated search) and a sync demonstration.
+
+![ERP: people found by name and city, with the matched address named under each row](image/erp.png)
+
+![ERP, combined: the same query in the multi-source index and in a federated search, each hit with its index and kind](image/erp-combined.png)
+
+Moving one address to another city: which indexes refreshed, after how many milliseconds, the search before and after, and the shared triggers of the table.
+
+![ERP sync: an address moved, the indexes that refreshed and the trigger count](image/erp-sync.png)
+
+The wizard's second sample, for the ERP tables: a joined source, `many` and `code` fields, `returnable`, column-aware watches and a definition class.
+
+![Config wizard: the ERP sample with a note per part](image/wizard-erp.png)

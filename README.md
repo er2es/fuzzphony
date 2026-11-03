@@ -57,6 +57,8 @@ cd fuzzphony/demo && docker compose up --build    # http://localhost:8000
 
 \* The demo, the documentation ([docs/](https://github.com/er2es/fuzzphony/blob/main/docs/README.md)), the tests and the benchmarks live in the Git repository only: `composer require fuzzphony/fuzzphony` installs just the library (`src/`). Clone the repository to run the demo and read the docs offline; the docs are also on [GitHub](https://github.com/er2es/fuzzphony/blob/main/docs/README.md).
 
+The demo also holds an ERP-like data set (people, companies, orders) with separate search boxes, a combined box and a live sync demonstration ([screenshot](docs/screenshots.md#erp)).
+
 The default catalogue has 500 000 products (about a minute to index). Windows (a Docker Compose build privilege prompt) and the
 large profile (1 000 000 products) are in the [demo README](https://github.com/er2es/fuzzphony/blob/main/demo/README.md).
 
