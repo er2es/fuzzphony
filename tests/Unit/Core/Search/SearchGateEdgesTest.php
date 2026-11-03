@@ -1,0 +1,118 @@
+<?php
+
+declare(strict_types=1);
+
+namespace Fuzzphony\Tests\Unit\Core\Search;
+
+use Fuzzphony\Core\Engine\Engine;
+use Fuzzphony\Core\Exception\AccessDenied;
+use Fuzzphony\Core\Query\SearchQuery;
+use Fuzzphony\Core\Search\Access;
+use Fuzzphony\Core\Search\Actor;
+use Fuzzphony\Core\Search\SearchGate;
+use Fuzzphony\Core\Search\SearchGuard;
+use Fuzzphony\Core\Search\SearchResult;
+use Fuzzphony\Tests\Fixtures\Indexes;
+use PHPUnit\Framework\Attributes\DataProvider;
+use PHPUnit\Framework\TestCase;
+
+/** The corners of the gate that decide a tenant comparison, a log row and the fields a viewer keeps. */
+final class SearchGateEdgesTest extends TestCase
+{
+    /** @return iterable<string, array{mixed, mixed, bool}> */
+    public static function tenants(): iterable
+    {
+        $text = static fn(string $s): object => new class ($s) implements \Stringable {
+            public function __construct(private string $s) {}
+
+            public function __toString(): string
+            {
+                return $this->s;
+            }
+        };
+
+        yield 'int and its string' => [3, '3', true];
+        yield 'string and its int' => ['3', 3, true];
+        yield 'two different ints' => [3, 4, false];
+        yield 'stringable and string' => [$text('x'), 'x', true];
+        yield 'string and stringable' => ['x', $text('x'), true];
+        yield 'two stringables' => [$text('x'), $text('x'), true];
+        yield 'int and an array' => [3, [3], false];
+        yield 'empty string and null' => ['', null, false];
+        yield 'null and empty string' => [null, '', false];
+        yield 'two nulls' => [null, null, true];
+        yield 'equal arrays' => [['a'], ['a'], true];
+    }
+
+    #[DataProvider('tenants')]
+    public function testTwoTenantsAreTheSameWhenTheirTextIs(mixed $a, mixed $b, bool $same): void
+    {
+        $method = new \ReflectionMethod(SearchGate::class, 'sameTenant');
+
+        self::assertSame($same, $method->invoke(null, $a, $b));
+    }
+
+    public function testTheFieldsOfTheQueryAreAListWhateverTheGuardReturns(): void
+    {
+        $seen = null;
+        $engine = self::createStub(Engine::class);
+        $engine->method('search')->willReturnCallback(static function ($index, SearchQuery $q) use (&$seen): SearchResult {
+            $seen = $q->allowedFields;
+
+            return SearchResult::empty(20, 0);
+        });
+        $guard = new class implements SearchGuard {
+            public function check(\Fuzzphony\Core\Definition\IndexDefinition $index, Actor $actor, bool $charge = true): Access
+            {
+                return Access::only(['name', 'brand']);
+            }
+        };
+        $gate = new SearchGate(guards: [$guard]);
+        $query = (new SearchQuery('mouse'))->withActor(new Actor(user: 'ada'))->restrictedTo(['zzz', 'name', 'yyy', 'brand']);
+
+        $gate->search($engine, Indexes::products(), $query);
+
+        self::assertSame(['name', 'brand'], $seen);
+    }
+
+    public function testLoggingASystemSearchIsRefusedWhereSystemSearchesAreSwitchedOff(): void
+    {
+        $log = new RecordingSearchLog();
+        $gate = new SearchGate(log: $log, allowSystem: false);
+
+        try {
+            $gate->logSearch(Indexes::products(), (new SearchQuery('mouse'))->asSystem(), 1, 1.0, false, false);
+            self::fail('a system search was logged');
+        } catch (AccessDenied) {
+            self::assertSame([], $log->records);
+        }
+    }
+
+    public function testTheLoggedCountsAndTimesAreNeverNegativeNorRounded(): void
+    {
+        $log = new RecordingSearchLog();
+        $gate = new SearchGate(log: $log);
+        $query = (new SearchQuery('mouse'))->withActor(new Actor(user: 'ada'));
+
+        $gate->logSearch(Indexes::products(), $query, -5, -2.5, false, false);
+        $gate->logSearch(Indexes::products(), $query, 0, 0.5, false, false);
+        $gate->logSearch(Indexes::products(), $query, 7, 12.25, false, false);
+
+        self::assertSame([[0, 0.0], [0, 0.5], [7, 12.25]], array_map(static fn($r): array => [$r->hits, $r->tookMs], $log->records));
+    }
+
+    public function testARefusedSearchIsNotRecordedAsRescued(): void
+    {
+        $log = new RecordingSearchLog();
+        $engine = self::createStub(Engine::class);
+        $gate = new SearchGate(log: $log);
+        $query = (new SearchQuery('mouse'))->withActor(new Actor(tenant: 3, user: 'ada'))->forTenant(9);
+
+        try {
+            $gate->search($engine, Indexes::products(tenant: true), $query);
+            self::fail('crossed');
+        } catch (AccessDenied) {
+            self::assertFalse($log->records[0]->rescued);
+        }
+    }
+}
