@@ -47,14 +47,22 @@ final class DoctorCommand extends Command
         $this
             ->addArgument('index', InputArgument::OPTIONAL, 'Only this index (default: all)')
             ->addOption('deep', null, InputOption::VALUE_NONE, 'Exact row counts instead of planner estimates (slower)')
-            ->addOption('strict', null, InputOption::VALUE_NONE, 'Exit with a failure code on warnings too (useful in CI)')
+            ->addOption('fail-on', null, InputOption::VALUE_REQUIRED, 'Exit with a failure code when a check of this severity or worse exists: error (default) or warning (useful in CI)', 'error', ['error', 'warning'])
+            ->addOption('strict', null, InputOption::VALUE_NONE, 'Same as --fail-on=warning')
             ->addOption('format', null, InputOption::VALUE_REQUIRED, 'Output format: text (default) or prometheus', 'text')
-            ->setHelp('Exit code 0 = healthy, 1 = errors (or warnings with --strict). Run it in CI after migrations.');
+            ->setHelp('Exit code 0 = healthy, 1 = errors (or warnings with --fail-on=warning). Run it in CI after migrations.');
     }
 
     protected function execute(InputInterface $input, OutputInterface $output): int
     {
         $io = new SymfonyStyle($input, $output);
+        $failOn = $input->getOption('fail-on');
+        if (!in_array($failOn, ['error', 'warning'], true)) {
+            $io->error(sprintf('--fail-on must be "error" or "warning", got "%s".', is_scalar($failOn) ? (string) $failOn : ''));
+
+            return Command::INVALID;
+        }
+        $failOnWarning = $failOn === 'warning' || $input->getOption('strict') === true;
         $options = new InspectOptions(deep: $input->getOption('deep') === true);
         $worst = CheckStatus::Ok;
         $format = $input->getOption('format');
@@ -124,17 +132,16 @@ final class DoctorCommand extends Command
         if ($format === 'prometheus') {
             $output->writeln($promLines);
 
-            return $worst === CheckStatus::Error || ($input->getOption('strict') === true && $worst === CheckStatus::Warning) ? Command::FAILURE : Command::SUCCESS;
+            return $worst === CheckStatus::Error || ($failOnWarning && $worst === CheckStatus::Warning) ? Command::FAILURE : Command::SUCCESS;
         }
 
-        $strict = $input->getOption('strict') === true;
         match ($worst) {
             CheckStatus::Error => $io->error('Problems found; see the fixes above.'),
             CheckStatus::Warning => $io->warning('Healthy, with warnings.'),
             default => $io->success('All checks passed.'),
         };
 
-        return $worst === CheckStatus::Error || ($strict && $worst === CheckStatus::Warning) ? Command::FAILURE : Command::SUCCESS;
+        return $worst === CheckStatus::Error || ($failOnWarning && $worst === CheckStatus::Warning) ? Command::FAILURE : Command::SUCCESS;
     }
 
     public function complete(CompletionInput $input, CompletionSuggestions $suggestions): void
