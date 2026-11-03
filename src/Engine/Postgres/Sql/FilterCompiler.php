@@ -43,6 +43,9 @@ final class FilterCompiler
         $filter = $this->index->filter($c->filter);
         $column = $alias . '.' . self::column($filter->name);
         $bind = fn(mixed $value): string => $params->add($filter->type->normalize($value, $filter->name));
+        if ($filter->many !== null) {
+            return $this->many($c, $column, $bind);
+        }
 
         return match ($c->operator) {
             Operator::IsNull => $column . ' IS NULL',
@@ -56,6 +59,44 @@ final class FilterCompiler
             Operator::Between => $this->between($c, $column, $bind),
             Operator::In, Operator::NotIn => $this->in($c, $column, $bind),
         };
+    }
+
+    /**
+     * A filter whose values come from a child table: the column holds the array of the document's distinct values, so "any of them"
+     * is containment (`@>` for one value, `&&` for a list) and the negations are its NOT. Ranges have no meaning for it.
+     *
+     * @param \Closure(mixed): string $bind
+     */
+    private function many(Condition $c, string $column, \Closure $bind): string
+    {
+        $none = sprintf('coalesce(cardinality(%s), 0) = 0', $column);
+        $one = fn(): string => sprintf('coalesce(%s @> ARRAY[%s]::text[], false)', $column, $bind($c->value));
+
+        return match ($c->operator) {
+            Operator::IsNull => $none,
+            Operator::IsNotNull => 'NOT (' . $none . ')',
+            Operator::Eq => $c->value === null ? $none : $one(),
+            Operator::Neq => $c->value === null ? 'NOT (' . $none . ')' : 'NOT ' . $one(),
+            Operator::In, Operator::NotIn => $this->manyIn($c, $column, $bind),
+            default => throw new InvalidQuery(sprintf('Filter "%s" takes several values per document: it supports =, !=, IN, NOT IN and null checks (any value matches), not %s.', $c->filter, strtoupper($c->operator->value))),
+        };
+    }
+
+    /** @param \Closure(mixed): string $bind */
+    private function manyIn(Condition $c, string $column, \Closure $bind): string
+    {
+        if (!is_array($c->value)) {
+            throw new InvalidQuery(sprintf('Filter "%s" %s expects a list of values.', $c->filter, strtoupper($c->operator->value)));
+        }
+        if (count($c->value) > self::MAX_IN_VALUES) {
+            throw new InvalidQuery(sprintf('Filter "%s" accepts at most %d values in IN().', $c->filter, self::MAX_IN_VALUES));
+        }
+        if ($c->value === []) {
+            return $c->operator === Operator::In ? 'FALSE' : 'TRUE';
+        }
+        $any = sprintf('coalesce(%s && ARRAY[%s]::text[], false)', $column, implode(', ', array_map($bind, array_values($c->value))));
+
+        return $c->operator === Operator::In ? $any : 'NOT ' . $any;
     }
 
     /** @param \Closure(mixed): string $bind */

@@ -643,6 +643,11 @@ final class SearchSqlBuilder
     private function facetBranch(int $i, string $filter, int $values, string $from): string
     {
         $cast = $this->index->filter($filter)->type === FilterType::Bool ? 'g.value::int::text' : 'g.value::text';
+        if ($this->index->filter($filter)->many !== null) {
+            // a many filter's column holds the array of the document's distinct values: one row per value, so a document counts once
+            // for each of its values (and in the NULL bucket when it has none), never twice for the same one
+            $from = sprintf('(SELECT u.x AS v%1$d FROM %2$s AS t LEFT JOIN LATERAL unnest(t.v%1$d) AS u(x) ON true) AS mv', $i, $from);
+        }
 
         return sprintf(
             'SELECT %1$d AS f, g.rk, %2$s AS value, g.n FROM (SELECT v%1$d AS value, count(*) AS n, row_number() OVER (ORDER BY count(*) DESC, v%1$d NULLS LAST) AS rk FROM %4$s GROUP BY v%1$d ORDER BY rk LIMIT %3$d) AS g',

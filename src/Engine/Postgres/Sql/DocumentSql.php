@@ -6,6 +6,7 @@ namespace Fuzzphony\Engine\Postgres\Sql;
 
 use Fuzzphony\Core\Definition\IdType;
 use Fuzzphony\Core\Definition\IndexDefinition;
+use Fuzzphony\Core\Definition\ManyValues;
 use Fuzzphony\Engine\Postgres\Schema\Types;
 
 /**
@@ -28,10 +29,10 @@ final class DocumentSql
         }
         $columns = ['d.' . Sql::ident($index->source->idColumn) . ' AS fz_id'];
         foreach ($index->fields as $field) {
-            $columns[] = 'd.' . Sql::ident($field->column()) . ' AS ' . Sql::ident('fld_' . $field->name);
+            $columns[] = ($field->many !== null ? self::manyText($index, $field->many) : 'd.' . Sql::ident($field->column())) . ' AS ' . Sql::ident('fld_' . $field->name);
         }
         foreach ($index->filters as $filter) {
-            $columns[] = 'd.' . Sql::ident($filter->column()) . ' AS ' . Sql::ident('flt_' . $filter->name);
+            $columns[] = ($filter->many !== null ? self::manyArray($index, $filter->many) : 'd.' . Sql::ident($filter->column())) . ' AS ' . Sql::ident('flt_' . $filter->name);
         }
         if ($index->boostColumn !== null) {
             $columns[] = 'd.' . Sql::ident($index->boostColumn) . ' AS fz_boost';
@@ -96,6 +97,42 @@ FROM (%s) AS d%s", implode(', ', $columns), $one->source->query ?? 'SELECT * FRO
         return implode("
 UNION ALL
 ", array_map(static fn(string $b): string => '(' . $b . ')', $branches));
+    }
+
+    /**
+     * The first `limit` non-null values of a document's child rows, in the order every part of the many machinery uses: the value
+     * as text, then the child's primary key. (A field's text is these values joined with a space; the values table stores them
+     * with their position `ord` in this order.)
+     *
+     * @return string SQL of a subquery returning the columns v (text) and pk, correlated to the document alias `d`
+     */
+    public static function manyRows(IndexDefinition $index, ManyValues $many, string $document = 'd'): string
+    {
+        return sprintf(
+            'SELECT c.%1$s::text AS v, c.%2$s AS pk FROM %3$s AS c WHERE c.%4$s = %5$s.%6$s AND c.%1$s IS NOT NULL ORDER BY c.%1$s::text, c.%2$s LIMIT %7$d',
+            Sql::ident($many->column),
+            Sql::ident($many->id),
+            Sql::ident($many->from),
+            Sql::ident($many->key),
+            $document,
+            Sql::ident($index->source->idColumn),
+            $many->limit,
+        );
+    }
+
+    /** A many field's text: its values in order, one space between them. */
+    private static function manyText(IndexDefinition $index, ManyValues $many): string
+    {
+        return sprintf("(SELECT string_agg(m.v, ' ' ORDER BY m.v, m.pk) FROM (%s) AS m)", self::manyRows($index, $many));
+    }
+
+    /** A many filter's value: the distinct values as a text[] (empty when there are none), so "any of them" is array containment. */
+    private static function manyArray(IndexDefinition $index, ManyValues $many): string
+    {
+        return sprintf(
+            "coalesce((SELECT array_agg(m.v ORDER BY m.v) FROM (SELECT DISTINCT x.v FROM (%s) AS x) AS m), '{}'::text[])",
+            self::manyRows($index, $many),
+        );
     }
 
     /** The untouched source: the user's query or the whole table. */
