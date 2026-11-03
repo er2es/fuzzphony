@@ -170,14 +170,12 @@ final class RoleGrantsTest extends TestCase
         self::assertArrayHasKey('name', $hit->data);
         self::assertArrayHasKey('brand', $hit->data);
         $this->connection->execute('RESET ROLE');
-        self::assertStringContainsString('fz_product', implode("
-", $this->dump('search')));
+        self::assertStringContainsString('fz_product', implode('|', $this->dump('search')));
 
         // an index without returnable columns: the search role is not given the source (and cannot read it)
         $this->connection->execute('REVOKE ALL ON fz_product, fz_brand FROM ' . $this->roles['search']);
         $this->fuzzphony = new Fuzzphony($this->engine, new IndexRegistry([$this->index]));
-        self::assertStringNotContainsString('fz_product', implode("
-", $this->dump('search')));
+        self::assertStringNotContainsString('fz_product', implode('|', $this->dump('search')));
         $this->become('search');
         $this->assertDenied('SELECT * FROM fz_product');
         $this->connection->execute('RESET ROLE');
