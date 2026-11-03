@@ -179,7 +179,8 @@ final readonly class Names
 
     public function syncFunctionName(IndexDefinition $index, Watch $watch): string
     {
-        return self::limit(self::PREFIX . 'sync_' . $index->name . '__' . str_replace('.', '_', $watch->table));
+        // the two sources of a multi-source index that read one table each have their own function and triggers
+        return self::limit(self::PREFIX . 'sync_' . $index->name . '__' . ($watch->source !== null ? $watch->source . '__' : '') . str_replace('.', '_', $watch->table));
     }
 
     public function syncFunction(IndexDefinition $index, Watch $watch): string
