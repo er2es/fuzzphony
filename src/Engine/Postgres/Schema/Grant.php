@@ -18,6 +18,7 @@ final readonly class Grant
      * @param string       $object     the object, quoted and qualified for SQL ("public"."fuzzphony_queue"; a function with its argument types)
      * @param list<string> $privileges
      * @param string       $why        the operation that needs it, for the comment above the statement
+     * @param list<string> $columns     when not empty, the privileges apply to these columns only (a column privilege: UPDATE (cur_xid))
      * @param bool         $optional   an object that exists only on some installs (a source table the application owns: it may live elsewhere)
      */
     public function __construct(
@@ -26,11 +27,14 @@ final readonly class Grant
         public array $privileges,
         public string $why,
         public bool $optional = false,
+        public array $columns = [],
     ) {}
 
     public function sql(string $role): string
     {
-        return sprintf('GRANT %s ON %s %s TO %s;', implode(', ', $this->privileges), $this->kind, $this->object, Sql::ident($role));
+        $list = $this->columns === [] ? implode(', ', $this->privileges) : implode(', ', array_map(fn(string $p): string => sprintf('%s (%s)', $p, implode(', ', array_map(Sql::ident(...), $this->columns))), $this->privileges));
+
+        return sprintf('GRANT %s ON %s %s TO %s;', $list, $this->kind, $this->object, Sql::ident($role));
     }
 
     /** The SQL that says whether the object exists (true or false). */
@@ -55,7 +59,9 @@ final readonly class Grant
             self::SCHEMA => sprintf('SELECT NOT has_schema_privilege(%s, to_regnamespace(%s)::oid, %s) WHERE to_regnamespace(%2$s) IS NOT NULL', $roleLiteral, $object, Sql::string($privilege)),
             self::DATABASE => sprintf('SELECT NOT has_database_privilege(%s, current_database(), %s)', $roleLiteral, Sql::string($privilege)),
             self::FUNCTION => sprintf('SELECT NOT has_function_privilege(%s, to_regprocedure(%s), %s) WHERE to_regprocedure(%2$s) IS NOT NULL', $roleLiteral, $object, Sql::string($privilege)),
-            default => sprintf('SELECT NOT has_table_privilege(%s, to_regclass(%s), %s) WHERE to_regclass(%2$s) IS NOT NULL', $roleLiteral, $object, Sql::string($privilege)),
+            default => $this->columns !== []
+                ? sprintf('SELECT NOT (%s) WHERE to_regclass(%s) IS NOT NULL', implode(' AND ', array_map(fn(string $c): string => sprintf('has_column_privilege(%s, to_regclass(%s), %s, %s)', $roleLiteral, $object, Sql::string($c), Sql::string($privilege)), $this->columns)), $object)
+                : sprintf('SELECT NOT has_table_privilege(%s, to_regclass(%s), %s) WHERE to_regclass(%2$s) IS NOT NULL', $roleLiteral, $object, Sql::string($privilege)),
         };
     }
 }

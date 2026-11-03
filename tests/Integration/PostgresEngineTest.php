@@ -160,7 +160,7 @@ final class PostgresEngineTest extends TestCase
         $fuzzphony = $this->fuzzphony('queue');
         $this->connection->execute('DROP INDEX fuzzphony_products__fz');
         $this->connection->execute('ALTER TABLE fuzzphony_products DROP COLUMN f_price');
-        $this->connection->execute('ALTER TABLE fz_brand DISABLE TRIGGER fuzzphony_watch__fz_brand__upd');
+        $this->connection->execute('ALTER TABLE fz_brand DISABLE TRIGGER fuzzphony_watch__fz_brand_e21f3cf4__upd');
 
         $problems = [];
         foreach ($fuzzphony->inspect('products')->problems() as $check) {
@@ -172,7 +172,7 @@ final class PostgresEngineTest extends TestCase
         self::assertStringContainsString('ENABLE TRIGGER', (string) $problems['Sync trigger on fz_brand']->fix);
 
         $fuzzphony->schema()->apply($this->connection); // idempotent repair (except the trigger state, which is deliberate)
-        $this->connection->execute('ALTER TABLE fz_brand ENABLE TRIGGER fuzzphony_watch__fz_brand__upd');
+        $this->connection->execute('ALTER TABLE fz_brand ENABLE TRIGGER fuzzphony_watch__fz_brand_e21f3cf4__upd');
         $fuzzphony->reindex('products');
         self::assertTrue($fuzzphony->inspect('products')->isHealthy());
     }
@@ -181,13 +181,13 @@ final class PostgresEngineTest extends TestCase
     {
         $fuzzphony = $this->fuzzphony('queue');
         // what an index whose schema was applied before the TRUNCATE trigger existed looks like
-        $this->connection->execute('DROP TRIGGER fuzzphony_watch__fz_brand__trn ON fz_brand');
+        $this->connection->execute('DROP TRIGGER fuzzphony_watch__fz_brand_e21f3cf4__trn ON fz_brand');
 
         $problems = array_values(array_filter($fuzzphony->inspect('products')->problems(), static fn(Check $c): bool => $c->name === 'Sync trigger on fz_brand'));
 
         self::assertCount(1, $problems);
         self::assertSame(CheckStatus::Error, $problems[0]->status);
-        self::assertSame('missing fuzzphony_watch__fz_brand__trn: a TRUNCATE of this table leaves stale documents in the index', $problems[0]->message);
+        self::assertSame('missing fuzzphony_watch__fz_brand_e21f3cf4__trn: a TRUNCATE of this table leaves stale documents in the index', $problems[0]->message);
         self::assertStringContainsString('fuzzphony:schema --apply', (string) $problems[0]->fix);
 
         $fuzzphony->schema()->apply($this->connection);

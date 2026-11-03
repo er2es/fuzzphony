@@ -74,10 +74,10 @@ final class SharedWatchTest extends TestCase
 
         // one UPDATE statement: the shared trigger function runs exactly once
         $this->connection->execute("SET track_functions = 'pl'");
-        $before = $this->int("SELECT coalesce(sum(calls), 0) FROM pg_stat_user_functions WHERE funcname = 'fuzzphony_watch__fz_product'");
+        $before = $this->int("SELECT coalesce(sum(calls), 0) FROM pg_stat_user_functions WHERE funcname = 'fuzzphony_watch__fz_product_bfb5b0f8'");
         $this->connection->execute("UPDATE fz_product SET name = name || ' x', description = description || ' y' WHERE id IN (1, 2)");
         $this->connection->execute('SELECT pg_stat_force_next_flush()');
-        $calls = $this->int("SELECT coalesce(sum(calls), 0) FROM pg_stat_user_functions WHERE funcname = 'fuzzphony_watch__fz_product'") - $before;
+        $calls = $this->int("SELECT coalesce(sum(calls), 0) FROM pg_stat_user_functions WHERE funcname = 'fuzzphony_watch__fz_product_bfb5b0f8'") - $before;
         self::assertSame(1, $calls, 'one trigger firing for the statement, whatever the number of indexes');
         self::assertSame(2, $this->int("SELECT count(*) FROM fuzzphony_watch_log WHERE op = 'U'"), 'the keys of the two changed rows, once');
         self::assertSame(0, $this->int('SELECT count(*) FROM fuzzphony_queue'), 'the queue rows come when the indexes drain');
@@ -146,13 +146,13 @@ final class SharedWatchTest extends TestCase
         self::assertSame(4, $this->triggers('fz_product'), 'b still has its trigger');
         self::assertSame(0, $this->int("SELECT count(*) FROM fuzzphony_watches WHERE index_name = 'sw_a'"));
         self::assertSame(1, $this->int("SELECT count(*) FROM fuzzphony_watches WHERE index_name = 'sw_b'"));
-        self::assertNotNull($this->connection->fetchValue("SELECT to_regprocedure('fuzzphony_watch__fz_product()')"));
+        self::assertNotNull($this->connection->fetchValue("SELECT to_regprocedure('fuzzphony_watch__fz_product_bfb5b0f8()')"));
         self::assertSame(1, $this->work($b), 'b keeps reading the log');
 
         $this->engine->dropSchema($b)->apply($this->connection);
 
         self::assertSame(0, $this->triggers('fz_product'));
-        self::assertNull($this->connection->fetchValue("SELECT to_regprocedure('fuzzphony_watch__fz_product()')"));
+        self::assertNull($this->connection->fetchValue("SELECT to_regprocedure('fuzzphony_watch__fz_product_bfb5b0f8()')"));
         self::assertSame(0, $this->int('SELECT count(*) FROM fuzzphony_watch_log'));
     }
 
@@ -234,7 +234,7 @@ final class SharedWatchTest extends TestCase
         $fuzzphony = $this->install([$a]);
         // what a 0.9.13 install looks like: the per-index statement-level triggers and queue rows, no shared trigger
         $this->connection->execute('DELETE FROM fuzzphony_watches');
-        $this->connection->execute('SELECT fuzzphony_watch_install(\'"fz_product"\', \'fuzzphony_watch__fz_product\')');
+        $this->connection->execute('SELECT fuzzphony_watch_install(\'"fz_product"\', \'fuzzphony_watch__fz_product_bfb5b0f8\')');
         self::assertSame(0, $this->triggers('fz_product'));
         $legacy = (new \Fuzzphony\Engine\Postgres\Schema\PostgresSchemaGenerator())->index($a->withTriggerLevel(\Fuzzphony\Core\Definition\TriggerLevel::Statement)->withSync(\Fuzzphony\Core\Definition\SyncMode::Trigger));
         $legacy->apply($this->connection);

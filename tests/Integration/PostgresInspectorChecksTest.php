@@ -381,13 +381,13 @@ final class PostgresInspectorChecksTest extends TestCase
     public function testAMissingTriggerOtherThanTheTruncateOneMeansChangesAreNotIndexed(): void
     {
         $fuzzphony = $this->fuzzphony(Indexes::products('queue'));
-        $this->connection->execute('DROP TRIGGER fuzzphony_watch__fz_brand__upd ON fz_brand');
-        $this->connection->execute('DROP TRIGGER fuzzphony_watch__fz_brand__trn ON fz_brand');
+        $this->connection->execute('DROP TRIGGER fuzzphony_watch__fz_brand_e21f3cf4__upd ON fz_brand');
+        $this->connection->execute('DROP TRIGGER fuzzphony_watch__fz_brand_e21f3cf4__trn ON fz_brand');
 
         $check = self::named($fuzzphony, 'products', 'Sync trigger on fz_brand')[0];
 
         self::assertSame(CheckStatus::Error, $check->status);
-        self::assertSame('missing fuzzphony_watch__fz_brand__upd, fuzzphony_watch__fz_brand__trn: changes to this table are not indexed', $check->message);
+        self::assertSame('missing fuzzphony_watch__fz_brand_e21f3cf4__upd, fuzzphony_watch__fz_brand_e21f3cf4__trn: changes to this table are not indexed', $check->message);
     }
 
     public function testTheSyncQueueWarnsAboutAnOldestItemAndNeverAboutAnEmptyQueue(): void

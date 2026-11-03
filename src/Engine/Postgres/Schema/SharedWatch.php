@@ -252,7 +252,11 @@ final readonly class SharedWatch
             CREATE OR REPLACE FUNCTION @FN@(p_tbl text, p_fn text) RETURNS void
             LANGUAGE plpgsql AS $fzi$
             DECLARE
-                v_fn text := format('%I.%I', @SCHEMA@::text, p_fn);
+                -- the name is derived from the table, never taken from the stored watches (a forged row must not point the cleanup at someone else's function)
+                v_base text := 'fuzzphony_watch__' || left(trim(both '_' from regexp_replace(p_tbl, '[^A-Za-z0-9_]+', '_', 'g')), 32) || '_' || substr(md5(p_tbl), 1, 8);
+                v_fn text := format('%I.%I', @SCHEMA@::text, v_base);
+                v_rel regclass := to_regclass(p_tbl);
+                v_rels text;
                 v_n integer;
                 v_keys text[];
                 v_cols text[];
@@ -267,13 +271,18 @@ final readonly class SharedWatch
                 SELECT count(*), coalesce(array_agg(DISTINCT w.key_column), '{}'), coalesce(bool_or(w.columns IS NULL), false)
                   INTO v_n, v_keys, v_any FROM @REG@ AS w WHERE w.tbl = p_tbl;
                 IF v_n = 0 THEN
-                    FOR r IN SELECT n.nspname, c.relname, g.tgname FROM pg_trigger AS g JOIN pg_class AS c ON c.oid = g.tgrelid JOIN pg_namespace AS n ON n.oid = c.relnamespace WHERE g.tgfoid = to_regprocedure(v_fn || '()') LOOP
+                    FOR r IN SELECT n.nspname, c.relname, g.tgname FROM pg_trigger AS g JOIN pg_class AS c ON c.oid = g.tgrelid JOIN pg_namespace AS n ON n.oid = c.relnamespace
+                              WHERE g.tgfoid = to_regprocedure(v_fn || '()') AND g.tgname IN (v_base || '__ins', v_base || '__upd', v_base || '__del', v_base || '__trn') LOOP
                         EXECUTE format('DROP TRIGGER %I ON %I.%I', r.tgname, r.nspname, r.relname);
                     END LOOP;
                     EXECUTE 'DROP FUNCTION IF EXISTS ' || v_fn || '()';
                     DELETE FROM @LOG@ WHERE tbl = p_tbl;
                     RETURN;
                 END IF;
+                IF v_rel IS NULL THEN
+                    RAISE EXCEPTION 'fuzzphony_watch_install: the watched table % does not exist', p_tbl;
+                END IF;
+                v_rels := v_rel::text;
                 SELECT coalesce(array_agg(DISTINCT x), '{}') INTO v_cols FROM @REG@ AS w, jsonb_array_elements_text(w.columns) AS x WHERE w.tbl = p_tbl AND w.columns IS NOT NULL;
                 FOREACH v_k IN ARRAY v_keys LOOP
                     v_ins := v_ins || format('INSERT INTO @LOG@ (tbl, xid, op, key_column, key) SELECT %L, v_x, ''I'', %L, r.%I::text FROM fz_new AS r; ', p_tbl, v_k, v_k);
@@ -302,17 +311,17 @@ final readonly class SharedWatch
                 RETURN NULL;
             END
             $fzb$$b$, v_fn, p_tbl, v_ins, v_del, v_upd);
-                EXECUTE format('CREATE OR REPLACE TRIGGER %I AFTER INSERT ON %s REFERENCING NEW TABLE AS fz_new FOR EACH STATEMENT EXECUTE FUNCTION %s()', p_fn || '__ins', p_tbl, v_fn);
-                EXECUTE format('CREATE OR REPLACE TRIGGER %I AFTER UPDATE ON %s REFERENCING OLD TABLE AS fz_old NEW TABLE AS fz_new FOR EACH STATEMENT EXECUTE FUNCTION %s()', p_fn || '__upd', p_tbl, v_fn);
-                EXECUTE format('CREATE OR REPLACE TRIGGER %I AFTER DELETE ON %s REFERENCING OLD TABLE AS fz_old FOR EACH STATEMENT EXECUTE FUNCTION %s()', p_fn || '__del', p_tbl, v_fn);
-                EXECUTE format('CREATE OR REPLACE TRIGGER %I AFTER TRUNCATE ON %s FOR EACH STATEMENT EXECUTE FUNCTION %s()', p_fn || '__trn', p_tbl, v_fn);
+                EXECUTE format('CREATE OR REPLACE TRIGGER %I AFTER INSERT ON %s REFERENCING NEW TABLE AS fz_new FOR EACH STATEMENT EXECUTE FUNCTION %s()', v_base || '__ins', v_rels, v_fn);
+                EXECUTE format('CREATE OR REPLACE TRIGGER %I AFTER UPDATE ON %s REFERENCING OLD TABLE AS fz_old NEW TABLE AS fz_new FOR EACH STATEMENT EXECUTE FUNCTION %s()', v_base || '__upd', v_rels, v_fn);
+                EXECUTE format('CREATE OR REPLACE TRIGGER %I AFTER DELETE ON %s REFERENCING OLD TABLE AS fz_old FOR EACH STATEMENT EXECUTE FUNCTION %s()', v_base || '__del', v_rels, v_fn);
+                EXECUTE format('CREATE OR REPLACE TRIGGER %I AFTER TRUNCATE ON %s FOR EACH STATEMENT EXECUTE FUNCTION %s()', v_base || '__trn', v_rels, v_fn);
                 -- truncating one partition fires only that partition's triggers
-                FOR r IN SELECT n.nspname, c.relname FROM pg_partition_tree(to_regclass(p_tbl)) AS t JOIN pg_class AS c ON c.oid = t.relid JOIN pg_namespace AS n ON n.oid = c.relnamespace WHERE t.level > 0 LOOP
-                    EXECUTE format('CREATE OR REPLACE TRIGGER %I AFTER TRUNCATE ON %I.%I FOR EACH STATEMENT EXECUTE FUNCTION %s()', p_fn || '__trn', r.nspname, r.relname, v_fn);
+                FOR r IN SELECT n.nspname, c.relname FROM pg_partition_tree(v_rel) AS t JOIN pg_class AS c ON c.oid = t.relid JOIN pg_namespace AS n ON n.oid = c.relnamespace WHERE t.level > 0 LOOP
+                    EXECUTE format('CREATE OR REPLACE TRIGGER %I AFTER TRUNCATE ON %I.%I FOR EACH STATEMENT EXECUTE FUNCTION %s()', v_base || '__trn', r.nspname, r.relname, v_fn);
                 END LOOP;
                 -- a detached partition keeps its TRUNCATE trigger
                 FOR r IN SELECT n.nspname, c.relname, g.tgname FROM pg_trigger AS g JOIN pg_class AS c ON c.oid = g.tgrelid JOIN pg_namespace AS n ON n.oid = c.relnamespace
-                          WHERE g.tgfoid = to_regprocedure(v_fn || '()') AND g.tgrelid IS DISTINCT FROM to_regclass(p_tbl) AND g.tgrelid NOT IN (SELECT t.relid FROM pg_partition_tree(to_regclass(p_tbl)) AS t) LOOP
+                          WHERE g.tgfoid = to_regprocedure(v_fn || '()') AND g.tgname = v_base || '__trn' AND g.tgrelid IS DISTINCT FROM v_rel AND g.tgrelid NOT IN (SELECT t.relid FROM pg_partition_tree(v_rel) AS t) LOOP
                     EXECUTE format('DROP TRIGGER %I ON %I.%I', r.tgname, r.nspname, r.relname);
                 END LOOP;
             END
