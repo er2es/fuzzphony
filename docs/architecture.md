@@ -37,7 +37,7 @@ reads `pg_trgm.word_similarity_threshold`; the SQL builders (`Sql\SearchSqlBuild
 
 ## Public API
 
-From 1.0 the backward-compatibility promise covers exactly these 78 classes, interfaces and enums; everything else in
+From 1.0 the backward-compatibility promise covers exactly these 79 classes, interfaces and enums; everything else in
 `src/` is marked `@internal` and may change in any release. The engine contract (`Core\Engine\Engine`), the wizard's
 building blocks, the index registry, the search gate and the other container types are `@internal`: build the service
 with `Fuzzphony::postgres()` (or the bundle) and read the wizard through `Fuzzphony::wizard()`; `Fuzzphony::indexes()` and `Fuzzphony::definition()` list and read the registered indexes. The constructor of an
@@ -48,7 +48,7 @@ added to a result is not a breaking change.
 - Attributes: `Fuzzphony\Core\Attribute\Searchable`, `Fuzzphony\Core\Attribute\SearchField`,
   `Fuzzphony\Core\Attribute\SearchFilter`, `Fuzzphony\Core\Attribute\AsIndexDefinition`
 - Definitions: `Fuzzphony\Core\Definition\IndexDefinition`, `Fuzzphony\Core\Definition\IndexBuilder`,
-  `Fuzzphony\Core\Definition\Source`, `Fuzzphony\Core\Definition\FieldDefinition`,
+  `Fuzzphony\Core\Definition\Source`, `Fuzzphony\Core\Definition\IndexSource`, `Fuzzphony\Core\Definition\FieldDefinition`,
   `Fuzzphony\Core\Definition\FilterDefinition`, `Fuzzphony\Core\Definition\Watch`,
   `Fuzzphony\Core\Definition\Synonyms`,
   `Fuzzphony\Core\Definition\TextConfig`, `Fuzzphony\Core\Definition\Weight`,

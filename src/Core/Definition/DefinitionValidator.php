@@ -137,7 +137,7 @@ final class DefinitionValidator
         if ($source->table !== null && !Identifier::isTable($source->table)) {
             $v[] = $label . sprintf('Source table "%s" is not a valid identifier (use "table" or "schema.table").', $source->table);
         }
-        if ($source->query !== null && preg_match('/^\s*(select|with)/i', $source->query) !== 1) {
+        if ($source->query !== null && preg_match('/^\s*(select|with)\b/i', $source->query) !== 1) {
             $v[] = $label . 'Source query must be a SELECT (or WITH ... SELECT) statement.';
         }
         if ($source->query !== null && str_contains($source->query, self::DOLLAR_QUOTE_TAG)) {
@@ -160,7 +160,7 @@ final class DefinitionValidator
             if (!Identifier::isColumn($watch->keyColumn)) {
                 $v[] = $label . sprintf('Watch key column "%s" is not a valid column name.', $watch->keyColumn);
             }
-            if (preg_match_all('/:id/', $watch->affectedIds) !== 1 || preg_match('/^\s*select/i', $watch->affectedIds) !== 1) {
+            if (preg_match_all('/:id\b/', $watch->affectedIds) !== 1 || preg_match('/^\s*select\b/i', $watch->affectedIds) !== 1) {
                 $v[] = $label . sprintf('Watch on "%s": affectedIds must be a SELECT containing ":id" exactly once, e.g. "SELECT id FROM product WHERE brand_id = :id".', $watch->table);
             }
             if (str_contains($watch->affectedIds, self::DOLLAR_QUOTE_TAG)) {

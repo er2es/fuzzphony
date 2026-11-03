@@ -37,6 +37,7 @@ final class PublicApiTest extends TestCase
         \Fuzzphony\Core\Definition\IdType::class,
         \Fuzzphony\Core\Definition\IndexBuilder::class,
         \Fuzzphony\Core\Definition\IndexDefinition::class,
+        \Fuzzphony\Core\Definition\IndexSource::class,
         \Fuzzphony\Core\Definition\Source::class,
         \Fuzzphony\Core\Definition\SyncMode::class,
         \Fuzzphony\Core\Definition\Synonyms::class,
@@ -114,7 +115,7 @@ final class PublicApiTest extends TestCase
         }
 
         self::assertSame([], $wrong);
-        self::assertCount(78, self::PUBLIC);
+        self::assertCount(79, self::PUBLIC);
         self::assertCount(211, self::classes());
     }
 
