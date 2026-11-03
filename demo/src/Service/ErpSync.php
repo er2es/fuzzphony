@@ -130,9 +130,15 @@ final readonly class ErpSync
         }
         foreach ($result->hits as $rank => $hit) {
             if ($hit->id === self::CUSTOMER_ID) {
-                $reasons = array_values(array_filter(Erp::reasons($hit), static fn (string $r): bool => str_contains($r, $city)));
+                $reason = null;
+                foreach ($hit->matches ?? [] as $match) {
+                    if ($match->value !== null && $match->value === $city) {
+                        $reason = sprintf('found in the address: %s', $match->value);
+                        break;
+                    }
+                }
 
-                return ['query' => $query, 'found' => true, 'rank' => $rank + 1, 'total' => $result->total, 'reason' => $reasons[0] ?? null];
+                return ['query' => $query, 'found' => true, 'rank' => $rank + 1, 'total' => $result->total, 'reason' => $reason];
             }
         }
 
