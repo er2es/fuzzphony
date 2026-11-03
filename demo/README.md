@@ -87,6 +87,7 @@ Symfony: Twig + Stimulus via AssetMapper (no Node build), Live Components, DBAL.
 | **Search** (`/`) | One search field over the catalogue: results while you type, a typo or a half-typed word found, a calm bar when a typo is rescued (*Showing results for mouse* for `mpuse`), and a **Speed** view next to a plain `ILIKE`. |
 | **Relevance** (`/relevance`) | Why a search finds what was meant: typo tolerance by word length, synonyms, "did you mean". |
 | **Languages** (`/languages`) | One small catalogue in five languages, with the stem PostgreSQL made of every word and ILIKE's count next to Fuzzphony's. |
+| **ERP** (`/erp`) | The ERP data set: a search box each for people, companies and orders, a combined box (multi-source index against federated search) and a live sync demonstration ([below](#the-erp-page)). |
 | **Tune** (`/tune`) | Every ranking weight and threshold as a control, with a score breakdown per hit and the SQL. An info icon next to each label opens a tooltip: what the setting does and an example. It starts with `projector`, twelve products (added by `sql/demo_additions.sql`) that differ in title match, popularity, age, price and stock, so every ranking slider visibly reorders or shrinks the list; the chips under the field add `hedphones` (the typo settings) and `mouse` (the candidate limit shows in the total). |
 | **Under the hood** (`/under-the-hood/...`) | The **Config wizard**, **Benchmark**, **Doctor**, **Observability**, the **Synonyms** editor, **Analytics** (what was searched, and who searched what) and **Security** (below). |
 
@@ -176,7 +177,7 @@ Four indexes read them (all `sync: queue`, drained by the worker; every table a 
 
 | Index | Shows |
 |---|---|
-| `people` | a [definition class](../docs/configuration.md#definition-classes) ([`src/Search/PeopleAdminIndex.php`](src/Search/PeopleAdminIndex.php)): persons by `name`, `birth_name` and e-mail, with `city` and `street` as [several values](../docs/configuration.md#several-values-per-document-many) each from `erp_address` (`kovacs budapest`); a `created_at` filter; `returnable` name, e-mail, tax number |
+| `people` | a [definition class](../docs/configuration.md#definition-classes) ([`src/Search/PeopleAdminIndex.php`](src/Search/PeopleAdminIndex.php)): persons by `name`, `birth_name` and e-mail, with `city` (also a filter and facet) and `street` as [several values](../docs/configuration.md#several-values-per-document-many) each from `erp_address` (`kovacs budapest`); a `created_at` filter; `returnable` name, e-mail, tax number |
 | `companies` | companies with the legal form inside the name, `tax_no` and `phone` as [codes](../docs/searching.md#codes-and-numbers) (`12345678-2-41`), the contact persons as a many field; one hand-written watch on `erp_contact` |
 | `orders` | orders with a join to the customer: `number` as a code (`ORD-2025-000123`), the customer name fuzzy, `status`, `total` and `ordered_at` filters, recency by the order date |
 | `site` | ONE [multi-source index](../docs/configuration.md#several-sources-in-one-index) over the same tables with three sources (`person`, `company`, `order`), shared fields `title` and `text`, no entity: a hit says its `kind`, and `returnable` is per source (`Kovács János` returns all three kinds) |
