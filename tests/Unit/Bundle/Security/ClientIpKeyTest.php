@@ -76,6 +76,15 @@ final class ClientIpKeyTest extends TestCase
         self::assertNotSame(ClientIpKey::of('2002:cb00:712d::'), ClientIpKey::of('2002:cb00:712e::'));
     }
 
+    public function testAnAddressThatOnlyLooksLikeAnEmbeddingKeepsItsOwnBucket(): void
+    {
+        // ten zero bytes but not ::ffff:, eleven zero bytes but not twelve, a NAT64 prefix with a non-zero tail inside the 96 bits
+        self::assertSame('::/64', ClientIpKey::of('::5:1:2'));
+        self::assertSame('64:ff9b::/64', ClientIpKey::of('64:ff9b::5:1:2'));
+        self::assertSame('64:ff9b::/64', ClientIpKey::of('64:ff9b::1:0:0:1'));
+        self::assertSame('1.2.3.4', ClientIpKey::of('::ffff:1.2.3.4'));
+    }
+
     public function testOnlyAValueThatHoldsSomethingButIsNoAddressIsUnparseable(): void
     {
         self::assertFalse(ClientIpKey::isUnparseable(null));
