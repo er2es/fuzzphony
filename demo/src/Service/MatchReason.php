@@ -5,17 +5,16 @@ declare(strict_types=1);
 namespace App\Service;
 
 use Fuzzphony\Core\Search\Hit;
+use Fuzzphony\Core\Search\MatchedWord;
 
 /**
- * "Why was this found?" in plain words, for the rows of the Relevance page. What the library reports is used as it is: the fields whose
- * highlight carries a mark, the text rank (0 = no word matched exactly, only typo tolerance) and `interpretedAs` (the query after its
- * synonyms). For a typo-found row the library only gives the similarity, not the word pair, so Catalog::closestWords() asks PostgreSQL
- * for the pair of the displayed rows (the same measure, pg_trgm word_similarity).
+ * "Why was this found?" in plain words, for the rows of the Relevance page. The words come from the library: the hits carry
+ * `Hit::$matches` (SearchBuilder::explainMatches()): which stored word of which field matched, and how (exact, stem, prefix,
+ * synonym, typo with its similarity). The sentence is built from those; for a typo only the typed word it came from and the
+ * trigrams they share are worked out here (pg_trgm's trigram sets).
  */
 final readonly class MatchReason
 {
-    public function __construct(private Catalog $catalog) {}
-
     /** The lower-case words of a query: operators, quotes and excluded (-word) terms left out. */
     public static function words(string $query): array
     {
@@ -31,62 +30,97 @@ final readonly class MatchReason
     }
 
     /**
-     * @param list<Hit> $hits
+     * @param list<Hit> $hits hits of a search made with explainMatches()
      *
      * @return array<int|string, string> the sentence of each hit id
      */
-    public function explain(array $hits, string $query, ?string $interpretedAs): array
+    public function explain(array $hits, string $query): array
     {
         $words = self::words($query);
-        $typoIds = [];
-        foreach ($hits as $hit) {
-            if ($hit->breakdown->textRank <= 0.0) {
-                $typoIds[] = $hit->id;
-            }
-        }
-        $pairs = $this->catalog->closestWords($typoIds, $words);
         $reasons = [];
         foreach ($hits as $hit) {
             $reasons[$hit->id] = $hit->breakdown->textRank > 0.0
-                ? $this->exact($hit, $words, $interpretedAs)
-                : $this->typo($hit, $pairs[$hit->id] ?? null);
+                ? $this->exact($hit)
+                : $this->typo($hit, $words);
         }
 
         return $reasons;
     }
 
     /** A word of the query (or its stem) is in the field; or a synonym of it. */
-    private function exact(Hit $hit, array $words, ?string $interpretedAs): string
+    private function exact(Hit $hit): string
     {
         $found = [];
-        foreach (['name', 'brand', 'category'] as $field) {
-            if (preg_match_all('~<mark>(.*?)</mark>~su', $hit->highlights[$field] ?? '', $m) > 0) {
-                $found[$field] = array_unique(array_map(static fn(string $w): string => mb_strtolower(html_entity_decode($w)), $m[1]));
+        $synonym = false;
+        foreach ($hit->matches ?? [] as $match) {
+            if (!in_array($match->field, ['name', 'brand', 'category'], true) || $match->via === MatchedWord::TYPO) {
+                continue;
             }
+            $found[$match->field][$match->word] = true;
+            $synonym = $synonym || $match->via === MatchedWord::SYNONYM;
         }
         if ($found === []) {
             return 'Matched in the description: a word of the query is there.';
         }
         $parts = [];
-        $synonym = false;
         foreach ($found as $field => $marked) {
-            $parts[] = $field . ' (' . implode(', ', array_map(static fn(string $w): string => '“' . $w . '”', $marked)) . ')';
-            foreach ($marked as $w) {
-                $synonym = $synonym || (!in_array($w, $words, true) && $interpretedAs !== null && preg_match('~\b' . preg_quote($w, '~') . '\b~iu', $interpretedAs) === 1);
-            }
+            $parts[] = $field . ' (' . implode(', ', array_map(static fn(string $w): string => '“' . $w . '”', array_keys($marked))) . ')';
         }
 
         return 'Matched in ' . implode(' and ', $parts) . ($synonym ? ': a synonym of a word of the query (the catalogue\'s synonyms were expanded on it).' : ': the word itself or its stem.');
     }
 
-    /** @param array{field: string, word: string, token: string, similarity: float, shared: int}|null $pair */
-    private function typo(Hit $hit, ?array $pair): string
+    /** @param list<string> $words the words of the query */
+    private function typo(Hit $hit, array $words): string
     {
-        if ($pair === null) {
-            return sprintf('Matched by typo tolerance (similarity %.2f).', $hit->breakdown->fuzzySimilarity);
+        $best = null;
+        foreach ($hit->matches ?? [] as $match) {
+            if ($match->via === MatchedWord::TYPO && ($best === null || ($match->similarity ?? 0.0) > ($best->similarity ?? 0.0))) {
+                $best = $match;
+            }
         }
-        $trigrams = $pair['shared'] === 1 ? 'they share one trigram' : sprintf('they share %d trigrams', $pair['shared']);
+        $word = $best?->word;
+        $field = $best?->field;
+        $similarity = $best?->similarity ?? $hit->breakdown->fuzzySimilarity;
+        if ($best === null) {
+            // explainMatches() names no typo word when the query word is shorter than typo.min_length (the search still found the row by
+            // its own rule): the highlighted word of the row is the one that matched
+            foreach (['name', 'brand', 'category'] as $candidate) {
+                preg_match_all('~<mark>(.*?)</mark>~su', $hit->highlights[$candidate] ?? '', $marks);
+                foreach ($marks[1] as $mark) {
+                    $lower = mb_strtolower(html_entity_decode($mark));
+                    if (!in_array($lower, $words, true)) {
+                        [$field, $word] = [$candidate, $lower];
+                        break 2;
+                    }
+                }
+            }
+            if ($word === null) {
+                return sprintf('Matched by typo tolerance (similarity %.2f).', $hit->breakdown->fuzzySimilarity);
+            }
+        }
+        $typed = null;
+        $shared = 0;
+        foreach ($words as $queryWord) {
+            $common = count(array_intersect(self::trigrams($queryWord), self::trigrams($word)));
+            if ($typed === null || $common > $shared) {
+                [$typed, $shared] = [$queryWord, $common];
+            }
+        }
+        $trigrams = $shared === 1 ? 'they share one trigram' : sprintf('they share %d trigrams', $shared);
 
-        return sprintf('Matched in %s by typo tolerance: “%s” ~ “%s”, similarity %.2f (%s).', $pair['field'], $pair['token'], $pair['word'], $pair['similarity'], $trigrams);
+        return sprintf('Matched in %s by typo tolerance: “%s” ~ “%s”, similarity %.2f (%s).', $field, $word, $typed ?? '', $similarity, $trigrams);
+    }
+
+    /** @return list<string> the distinct trigrams of a word, as pg_trgm sees them (two spaces before, one after) */
+    private static function trigrams(string $word): array
+    {
+        $padded = '  ' . $word . ' ';
+        $set = [];
+        for ($i = 0, $n = mb_strlen($padded) - 2; $i < $n; ++$i) {
+            $set[mb_substr($padded, $i, 3)] = true;
+        }
+
+        return array_keys($set);
     }
 }

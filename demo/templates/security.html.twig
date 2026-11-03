@@ -143,6 +143,35 @@
         </ul>
     </section>
 
+    <section aria-labelledby="compare">
+        <h2 id="compare" class="list-title">What a call that forgets <code>asActor()</code> sees</h2>
+        <p class="muted">A search that names no actor is made as the application's current user, so a controller that forgets <code>-&gt;asActor()</code> is guarded like one that remembers. Where nobody can be resolved (a command, a worker, a test) the actor is anonymous: the guards still run, a tenant-scoped index refuses it. Only <code>asSystem()</code> skips the guards, on purpose and visibly.</p>
+        {% if compare is null %}
+            {% if q != '' %}<a class="button small" href="{{ path('security', {as: viewerId, q: q, compare: 1}) }}" data-loading-message="Comparing the calls…">Compare the calls for “{{ q }}”</a>{% else %}<p class="muted">Search for a word above, then compare the calls.</p>{% endif %}
+        {% else %}
+            <div class="table-card" tabindex="0" role="region" aria-label="The same search made four ways">
+                <table>
+                    <thead><tr><th scope="col">Call</th><th scope="col">Ran as</th><th scope="col">Notes found</th><th scope="col">Matched the confidential field</th></tr></thead>
+                    <tbody>
+                    {% for c in compare %}
+                        <tr>
+                            <th scope="row"><code>{{ c.label }}</code><br><small><code>{{ c.code }}</code></small></th>
+                            <td>{{ c.ran }}</td>
+                            {% if c.refusal %}
+                                <td colspan="2"><span class="flag">refused</span> {{ c.refusal }}</td>
+                            {% else %}
+                                <td>{{ c.hits }}</td>
+                                <td>{{ c.confidential }}</td>
+                            {% endif %}
+                        </tr>
+                    {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+            <p class="muted">None of these four searches is written to the search log; the one above is. <code>asActor(Ada)</code> names the tenant and the user only: the roles that open a <code>granted</code> field still come from the token.</p>
+        {% endif %}
+    </section>
+
     {% if explanation %}
         <details class="disclosure">
             <summary>The SQL of this search<svg class="icon" aria-hidden="true"><use href="#i-chevron"/></svg></summary>
@@ -157,6 +186,6 @@
         </details>
     {% endif %}
 
-    <p class="muted">The viewers are four fixed accounts (and nobody) without passwords: the choice is kept in the session, and nothing about a viewer comes from the request. The search is made with <code>-&gt;asActor()</code>; the other pages of the demo never do, so nothing here applies to them. The guards run from <code>fuzzphony.actor</code>, <code>fuzzphony.authorization</code> and <code>fuzzphony.rate_limit</code> in <code>config/packages/fuzzphony.yaml</code>, and the field's <code>granted: ROLE_HR</code> is on the <code>intranet</code> index. This page is the worked example of <code>docs/security.md</code>.</p>
+    <p class="muted">The viewers are four fixed accounts (and nobody) without passwords: the choice is kept in the session, and nothing about a viewer comes from the request. The search names no actor, so it is made as the signed-in viewer; the other pages of the demo say <code>-&gt;asSystem()</code> (the catalog is public data), so nothing here applies to them. The guards run from <code>fuzzphony.actor</code>, <code>fuzzphony.authorization</code> and <code>fuzzphony.rate_limit</code> in <code>config/packages/fuzzphony.yaml</code>, and the field's <code>granted: ROLE_HR</code> is on the <code>intranet</code> index. This page is the worked example of <code>docs/security.md</code>.</p>
 </div>
 {% endblock %}

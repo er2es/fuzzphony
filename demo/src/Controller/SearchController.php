@@ -11,13 +11,10 @@ use App\Service\Measure;
 use Fuzzphony\Core\Exception\FuzzphonyException;
 use Fuzzphony\Core\Fuzzphony;
 use Fuzzphony\Core\Search\SearchBuilder;
-use Fuzzphony\Core\Search\SearchResult;
 use Symfony\Bundle\FrameworkBundle\Controller\AbstractController;
 use Symfony\Component\HttpFoundation\Request;
 use Symfony\Component\HttpFoundation\Response;
-use Symfony\Component\HttpKernel\KernelEvents;
 use Symfony\Component\Routing\Attribute\Route;
-use Symfony\Contracts\EventDispatcher\EventDispatcherInterface;
 
 /**
  * The home page: one search field over the catalogue. The results appear in place while you type (the page answers a
@@ -36,7 +33,7 @@ final class SearchController extends AbstractController
     private const int CANDIDATE_CAP = 2000;
 
     #[Route('/', name: 'search')]
-    public function __invoke(Request $request, Fuzzphony $fuzzphony, Catalog $catalog, Facets $facets, EventDispatcherInterface $dispatcher): Response
+    public function __invoke(Request $request, Fuzzphony $fuzzphony, Catalog $catalog, Facets $facets): Response
     {
         $q = self::normalizeQuery($request);
         $view = (string) $request->query->get('view') === 'speed' ? 'speed' : 'results';
@@ -63,12 +60,11 @@ final class SearchController extends AbstractController
         // means ($logged: a page load, a chip, Enter, or typing that has SETTLED, see live_search_controller.js) does both steps in this
         // request. While the visitor is still typing, an empty answer is not shown as "Nothing found": the page says it is looking for a
         // correction ($pending) and the browser asks at once for the rescue (X-Rescue); a word that finds results is never rescued, so
-        // the bar cannot appear under a word that is still being typed. The first step is a probe and never logged; the search that
-        // answers is logged (once), so the Analytics page sees `mpuse` with the rescued hits, not as a search that found nothing.
-        $build = static function (bool $asYouType, bool $log) use ($fuzzphony, $facets, $q, $category, $stock, $exact): SearchBuilder {
-            $search = $fuzzphony->in('catalog')->query($q)->highlight('name')->limit(20);
+        // the bar cannot appear under a word that is still being typed. The steps are probes and never logged; the answer is recorded
+        // once with Fuzzphony::logSearch(), so the Analytics page sees `mpuse` with the rescued hits, not as a search that found nothing.
+        $build = static function (bool $asYouType) use ($fuzzphony, $facets, $q, $category, $stock, $exact): SearchBuilder {
+            $search = $fuzzphony->in('catalog')->asSystem()->query($q)->highlight('name')->limit(20)->unlogged();
             $search = $facets->narrow($asYouType ? $search->asYouType() : $search, $category, $stock);
-            $search = $log ? $search : $search->unlogged();
 
             return $exact ? $search->thresholds(['rescue' => ['correct_when_empty' => false]]) : $search;
         };
@@ -81,22 +77,17 @@ final class SearchController extends AbstractController
         $asYouType = true;
         if ($q !== '') {
             try {
-                $result = $build(true, false)->facets('category_id', 'in_stock')->get();
+                $result = $build(true)->facets('category_id', 'in_stock')->get();
                 if ($result->total === 0 && !$exact && ($logged || $rescuing)) {
                     $asYouType = false;
-                    $result = $build(false, $logged)->facets('category_id', 'in_stock')->get();
+                    $result = $build(false)->facets('category_id', 'in_stock')->get();
                 } elseif ($result->total === 0 && !$exact && $live && mb_strlen($q) >= self::RESCUE_MIN) {
                     $pending = true;
-                } elseif ($logged) {
-                    // the probe found hits and the search is meant: the library logs a search only by running it, so the logged run
-                    // is the one that answers nothing and waits for nothing: it runs after the response has been sent (kernel.terminate)
-                    $dispatcher->addListener(KernelEvents::TERMINATE, static function () use ($build): void {
-                        try {
-                            $build(true, true)->facets('category_id', 'in_stock')->get();
-                        } catch (FuzzphonyException) {
-                            // the answer has gone out already; a log row that cannot be written is the library's to count
-                        }
-                    }, 10); // before the library writes the buffered log rows (its kernel.terminate listener has priority 0)
+                }
+                if ($logged && !$pending) {
+                    // every run above is unlogged (a probe, a typed prefix): the answer the visitor got is recorded as it is, once,
+                    // without running it again (Fuzzphony::logSearch()); a rescued answer is marked, so Analytics tells it from a plain hit
+                    $fuzzphony->logSearch('catalog', $q, $result->total, $result->tookMs, usedFuzzy: $result->usedFuzzy, rescued: $result->correctedFrom !== null, system: true);
                 }
                 $rows = $catalog->rows($result->ids());
                 $categories = $facets->categories($result->facets['category_id'] ?? []);
@@ -123,7 +114,7 @@ final class SearchController extends AbstractController
             'examples' => Examples::HOME,
             'pending' => $pending,
             'cap' => self::CANDIDATE_CAP,
-            'correctedTo' => $result === null ? null : self::correctedTo($result),
+            'correctedTo' => $result?->correctedTo,
         ];
 
         // the live search asks for the region only
@@ -153,7 +144,7 @@ final class SearchController extends AbstractController
         $without = $with = null;
         if ($q !== '') {
             try {
-                $with = Measure::median(static fn () => $facets->narrow($fuzzphony->in('catalog')->query($q)->asYouType($asYouType)->limit(20)->unlogged(), $category, $stock)->get());
+                $with = Measure::median(static fn () => $facets->narrow($fuzzphony->in('catalog')->asSystem()->query($q)->asYouType($asYouType)->limit(20)->unlogged(), $category, $stock)->get());
                 $without = Measure::median(static fn (): array => $catalog->ilike($q));
             } catch (FuzzphonyException) {
                 // the page above has shown the error; the bars stay empty
@@ -161,25 +152,6 @@ final class SearchController extends AbstractController
         }
 
         return $this->render('search/_bars.html.twig', ['without' => $without, 'with' => $with, 'q' => $q]);
-    }
-
-    /**
-     * The text the rescued search was made with (`mouse` for `mpuse`). The library names it only in the warning of the rescue
-     * ("No results for 'mpuse'; showing results for 'mouse'."), not in a property: SearchResult::$interpretedAs is the expanded query
-     * ("(mouse OR mice)"). Null when the search was not rescued or the sentence is not that one: the page then shows the expanded query.
-     */
-    private static function correctedTo(SearchResult $result): ?string
-    {
-        if ($result->correctedFrom === null) {
-            return null;
-        }
-        foreach ($result->warnings as $warning) {
-            if (preg_match("/^No results for '.*'; showing results for '(.+)'\.$/su", $warning, $m) === 1) {
-                return $m[1];
-            }
-        }
-
-        return null;
     }
 
     private static function normalizeQuery(Request $request): string

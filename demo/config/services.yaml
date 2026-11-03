@@ -17,7 +17,7 @@ services:
         resource: '../src/'
         exclude: ['../src/Kernel.php', '../src/Security/DemoUser.php']
 
-    # The demo has no Monolog, and the default logger drops the debug-level lines LoggingMetricsCollector writes.
+    # The demo has no Monolog, and the default logger drops the debug-level lines the bundle's logging metrics collector writes.
     # This one writes them to stderr, so `docker compose logs php` shows what Fuzzphony reports.
     app.metrics_logger:
         class: Symfony\Component\HttpKernel\Log\Logger
@@ -34,6 +34,7 @@ services:
         class: Symfony\Component\Cache\Adapter\FilesystemAdapter
         arguments: ['rate_limit', 0, '/tmp/fuzzphony-demo-cache']
 
-    fuzzphony.metrics:
-        class: Fuzzphony\Core\Observability\LoggingMetricsCollector
-        arguments: ['@app.metrics_logger']
+    # The bundle's own fuzzphony.metrics (the logging collector here: no APCu, no Prometheus client) writes to the app's `logger`: this one.
+    logger:
+        alias: app.metrics_logger
+        public: true

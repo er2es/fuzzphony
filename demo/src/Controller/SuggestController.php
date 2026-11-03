@@ -36,12 +36,12 @@ final class SuggestController extends AbstractController
             throw $this->createNotFoundException(sprintf('Unknown index "%s".', $index));
         }
         $text = mb_substr((string) $request->query->get('q', ''), 0, self::MAX_QUERY);
-        $completions = $fuzzphony->complete($index, $text, 6);
+        $completions = $fuzzphony->complete($index, $text, 6, system: true);
         $categories = $products = [];
 
         if (trim($text) !== '') {
             try {
-                $search = $fuzzphony->in($index)->query($text)->asYouType()->limit(5)->unlogged(); // the dropdown fires on every keystroke
+                $search = $fuzzphony->in($index)->asSystem()->query($text)->asYouType()->limit(5)->unlogged(); // the dropdown fires on every keystroke
                 if ($index === 'catalog') {
                     $found = $search->facets('category_id')->get();
                     $categories = array_slice($facets->categories($found->facets['category_id'] ?? []), 0, 4);

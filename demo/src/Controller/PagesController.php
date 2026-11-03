@@ -117,7 +117,7 @@ final class PagesController extends AbstractController
         $label = (string) array_key_first($entry);
         $q = $entry[$label];
         $without = Measure::median(static fn (): array => $catalog->ilike($q));
-        $with = Measure::median(static fn () => $fuzzphony->in('catalog')->query($q)->limit(20)->unlogged()->get()); // measuring searches (1 cold + warm runs) would skew the Analytics page
+        $with = Measure::median(static fn () => $fuzzphony->in('catalog')->asSystem()->query($q)->limit(20)->unlogged()->get()); // measuring searches (1 cold + warm runs) would skew the Analytics page
 
         return $this->render('benchmark_row.html.twig', ['r' => ['label' => $label, 'q' => $q, 'without' => $without, 'with' => $with]]);
     }
@@ -147,7 +147,7 @@ final class PagesController extends AbstractController
         if (mb_strlen($query) > 256) {
             throw new BadRequestHttpException('The query is too long.');
         }
-        $explanation = $fuzzphony->in('catalog')->query($query)->explain();
+        $explanation = $fuzzphony->in('catalog')->asSystem()->query($query)->explain();
         $fallback = array_any($explanation->statements, static fn(array $s): bool => str_ends_with($s['label'], 'fallback: full-text + fuzzy'));
         $queueCheck = null;
         foreach ($fuzzphony->inspect('catalog')->checks as $check) {

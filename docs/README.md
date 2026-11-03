@@ -2,6 +2,9 @@
 
 This folder is in the Git repository, not in the Composer package (`composer require fuzzphony/fuzzphony` installs just `src/`).
 
+Fuzzphony is a small, relevant alternative to Elasticsearch and Meilisearch for applications that already run PostgreSQL: the
+index lives in the same database (consistent, no dual write), authorization is built in, and it is fast and small.
+
 Where to find what. The [README](../README.md) says what Fuzzphony is, how to install it and shows a first search;
 the pages below go deeper. Every page links back here or to the README, and a CI check keeps these links working.
 

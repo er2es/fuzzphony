@@ -261,6 +261,7 @@ final class Playground
     private function search(): SearchBuilder
     {
         $search = $this->fuzzphony->in('catalog')
+            ->asSystem()
             ->query($this->query)
             ->asYouType()
             ->highlight('name')
