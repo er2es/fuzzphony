@@ -7,6 +7,7 @@ namespace Fuzzphony\Bundle\Command;
 use Fuzzphony\Core\Exception\FuzzphonyException;
 use Fuzzphony\Core\Fuzzphony;
 use Fuzzphony\Core\Support\Coerce;
+use Fuzzphony\Core\Support\ErrorSummary;
 use Fuzzphony\Core\Sync\ReindexOptions;
 use Symfony\Component\Console\Attribute\AsCommand;
 use Symfony\Component\Console\Command\Command;
@@ -75,7 +76,7 @@ final class ReindexCommand extends Command
                 try {
                     $words = $this->fuzzphony->rebuildVocabulary($index->name);
                 } catch (FuzzphonyException $e) {
-                    $io->writeln(sprintf('  <error>%s</error>', OutputFormatter::escape($e->getMessage())));
+                    $io->writeln(sprintf('  <error>%s</error>', OutputFormatter::escape(ErrorSummary::forOperator($e))));
 
                     return Command::FAILURE;
                 }
@@ -99,7 +100,7 @@ final class ReindexCommand extends Command
                 ));
             } catch (FuzzphonyException $e) {
                 // a failed run keeps what it built (a full run: its rebuild), so resuming continues it
-                $io->writeln(sprintf('  <error>%s</error>', OutputFormatter::escape($e->getMessage())));
+                $io->writeln(sprintf('  <error>%s</error>', OutputFormatter::escape(ErrorSummary::forOperator($e))));
                 if ($lastId !== null) {
                     $io->writeln(sprintf('  Resume it: bin/console fuzzphony:reindex %s %s--from=%s', $index->name, $again, $lastId));
                 }

@@ -4,6 +4,8 @@ declare(strict_types=1);
 
 namespace Fuzzphony\Core\Support;
 
+use Fuzzphony\Core\Exception\EngineFailure;
+
 /**
  * @internal What may be shown of a database failure: its exception class and SQLSTATE. The driver's message can carry
  * the values of the source row that failed, so it never reaches a log, a metric or the queue.
@@ -39,6 +41,20 @@ final class ErrorSummary
         $state = self::sqlState($e);
 
         return $root::class . ($state === null ? '' : ' (SQLSTATE ' . $state . ')');
+    }
+
+    /** What an operator may be shown on a console: the message of Fuzzphony's own errors, the summary of a wrapped database failure. */
+    public static function forOperator(\Throwable $e, bool $withHint = true): string
+    {
+        if ($e->getPrevious() === null) {
+            return $e->getMessage();
+        }
+        if ($e instanceof EngineFailure && $e->operation !== null && $withHint) {
+            return sprintf('Fuzzphony %s failed: %s%s', $e->operation, self::describe($e), $e->hint !== null ? "
+Hint: " . $e->hint : '');
+        }
+
+        return self::describe($e);
     }
 
     /** Whether the failure is a problem of the data one document was built from (data exception, integrity, program limit, a raised error), not of the database or the schema. */

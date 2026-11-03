@@ -29,7 +29,7 @@ final class ReleaseReviewTest extends TestCase
             self::markTestSkipped('The connection user cannot create roles.');
         }
         $this->engine = new PostgresEngine($this->connection);
-        $this->connection->execute('DROP TABLE IF EXISTS rr_x, rr_orders, rr_y CASCADE');
+        $this->connection->execute('DROP TABLE IF EXISTS rr_x, rr_orders, rr_y, rr_bad CASCADE');
         $this->connection->execute('DROP SCHEMA IF EXISTS rr CASCADE');
         $this->role = 'fz_rr_worker_' . getmypid();
         $this->connection->execute('DROP ROLE IF EXISTS ' . $this->role);
@@ -44,7 +44,7 @@ final class ReleaseReviewTest extends TestCase
         $this->connection->execute('RESET ROLE');
         $this->connection->execute('DROP OWNED BY ' . $this->role);
         $this->connection->execute('DROP ROLE ' . $this->role);
-        $this->connection->execute('DROP TABLE IF EXISTS rr_x, rr_orders, rr_y CASCADE');
+        $this->connection->execute('DROP TABLE IF EXISTS rr_x, rr_orders, rr_y, rr_bad CASCADE');
         $this->connection->execute('DROP SCHEMA IF EXISTS rr CASCADE');
     }
 
@@ -129,5 +129,25 @@ final class ReleaseReviewTest extends TestCase
         self::assertSame(2, $this->int("SELECT count(DISTINCT tgfoid) FROM pg_trigger WHERE tgrelid IN ('rr.x'::regclass, 'rr_x'::regclass) AND NOT tgisinternal"), 'one function per table');
         $fuzzphony->schema()->apply($this->connection); // idempotent: the second install does not strip the first
         self::assertSame(4, $this->int("SELECT count(*) FROM pg_trigger WHERE tgrelid = 'rr.x'::regclass AND NOT tgisinternal"));
+    }
+
+    public function testAFailedFullRebuildStoresTheClassAndTheSqlStateNeverTheRowValues(): void
+    {
+        $this->connection->execute('CREATE TABLE rr_bad (id bigint PRIMARY KEY, label text NOT NULL, amount text NOT NULL)');
+        $this->connection->execute("INSERT INTO rr_bad VALUES (1, 'one', '1'), (2, 'two', '2')");
+        $index = IndexDefinition::builder('rr_a')->fromQuery('SELECT b.id, b.label, b.amount::int AS amount FROM rr_bad b')->watch('rr_bad')->field('label', 'A')->filter('amount', 'int')->sync('queue')->build();
+        $fuzzphony = $this->fuzzphony($index);
+        $fuzzphony->reindex('rr_a');
+        $this->connection->execute("UPDATE rr_bad SET amount = 'card 4111111111111111' WHERE id = 2");
+        $this->connection->execute("INSERT INTO fuzzphony_queue (index_name, doc_id) VALUES ('rr_a', '*') ON CONFLICT DO NOTHING");
+
+        $worker = new \Fuzzphony\Core\Sync\Worker($this->engine);
+        $worker->runOnce([$index]);
+
+        $stored = Coerce::str($this->connection->fetchValue("SELECT rebuild_error FROM fuzzphony_meta WHERE index_name = 'rr_a'"));
+        self::assertSame('PDOException (SQLSTATE 22P02)', $stored);
+        foreach ($fuzzphony->inspect('rr_a')->checks as $check) {
+            self::assertStringNotContainsString('4111111111111111', $check->message);
+        }
     }
 }
