@@ -48,6 +48,7 @@ use Fuzzphony\Core\Support\Coerce;
 use Fuzzphony\Core\Sync\ImmediateRefreshDispatcher;
 use Fuzzphony\Core\Sync\RefreshDispatcher;
 use Fuzzphony\Core\Wizard\SourceIntrospector;
+use Fuzzphony\Engine\Postgres\Inspection\PrivilegeCheck;
 use Fuzzphony\Engine\Postgres\PostgresEngine;
 use Fuzzphony\Engine\Postgres\Schema\Grants;
 use Fuzzphony\Engine\Postgres\Schema\Names;
@@ -595,9 +596,15 @@ final class FuzzphonyBundle extends AbstractBundle
             ? Coerce::str($builder->getParameter('fuzzphony.app_schema_filter'))
             : null;
         $admin = self::roleService($settings->hasSeparateAdmin(), 'fuzzphony.admin', 'fuzzphony');
+        $adminConnection = self::roleService($settings->hasSeparateAdmin(), 'fuzzphony.connection.admin', 'fuzzphony.connection');
         $commands = [
-            SchemaCommand::class => [service($admin), service(self::roleService($settings->hasSeparateAdmin(), 'fuzzphony.connection.admin', 'fuzzphony.connection')), inline_service(Grants::class)->args([inline_service(Names::class)->args([$settings->names->extensionSchema, $settings->names->schema]), $settings->searchLogEnabled])],
-            DoctorCommand::class => [service($admin), $applicationSchemaFilter, $settings->names->schema, $settings->authorizationEnabled],
+            SchemaCommand::class => [service($admin), service($adminConnection), inline_service(Grants::class)->args([inline_service(Names::class)->args([$settings->names->extensionSchema, $settings->names->schema]), $settings->searchLogEnabled])],
+            DoctorCommand::class => [service($admin), $applicationSchemaFilter, $settings->names->schema, $settings->authorizationEnabled, inline_service(PrivilegeCheck::class)->args([
+                service($adminConnection),
+                inline_service(Grants::class)->args([inline_service(Names::class)->args([$settings->names->extensionSchema, $settings->names->schema]), $settings->searchLogEnabled]),
+                // the roles in use: the application's, the worker's, and the admin's only when it is a user of its own (an admin that is the application user is not asked for DDL)
+                ['search' => service('fuzzphony.connection'), 'worker' => service(self::roleService($settings->hasSeparateWorker(), 'fuzzphony.connection.worker', 'fuzzphony.connection')), ...($settings->hasSeparateAdmin() ? ['admin' => service('fuzzphony.connection.admin')] : [])],
+            ])],
             ReindexCommand::class => [service($admin)],
             WorkerCommand::class => [service(self::roleService($settings->hasSeparateWorker(), 'fuzzphony.worker', 'fuzzphony')), $settings->workerBatchSize, $settings->workerIdleSleep, service('fuzzphony.metrics')],
             SearchCommand::class => [service('fuzzphony.operator')],

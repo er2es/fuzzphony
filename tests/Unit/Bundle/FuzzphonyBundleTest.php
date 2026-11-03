@@ -332,7 +332,7 @@ final class FuzzphonyBundleTest extends TestCase
 
         $extension = $container->getExtension('fuzzphony');
         $extension->load($container->getExtensionConfig('fuzzphony'), $container);
-        self::assertSame(['~^(?!legacy_)~', 'fuzzphony', false], array_slice($container->getDefinition(DoctorCommand::class)->getArguments(), 1));
+        self::assertSame(['~^(?!legacy_)~', 'fuzzphony', false], array_slice($container->getDefinition(DoctorCommand::class)->getArguments(), 1, 3));
     }
 
     public function testAnotherConnectionsFilterDoesNotCount(): void

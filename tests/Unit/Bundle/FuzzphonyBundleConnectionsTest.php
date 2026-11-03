@@ -13,9 +13,11 @@ use Fuzzphony\Bundle\Command\SearchLogPurgeCommand;
 use Fuzzphony\Bundle\Command\WorkerCommand;
 use Fuzzphony\Bundle\FuzzphonyBundle;
 use Fuzzphony\Core\Exception\InvalidConfiguration;
+use Fuzzphony\Engine\Postgres\Inspection\PrivilegeCheck;
 use PHPUnit\Framework\TestCase;
 use Symfony\Component\DependencyInjection\Argument\ServiceClosureArgument;
 use Symfony\Component\DependencyInjection\ContainerBuilder;
+use Symfony\Component\DependencyInjection\Definition;
 use Symfony\Component\DependencyInjection\Reference;
 
 /** fuzzphony.connections: the worker and the admin may use another database user; without it nothing changes. */
@@ -72,6 +74,26 @@ final class FuzzphonyBundleConnectionsTest extends TestCase
         self::assertEquals(new Reference('fuzzphony.worker'), $container->getDefinition(WorkerCommand::class)->getArgument(0));
         self::assertEquals(new Reference('fuzzphony'), $container->getDefinition(SchemaCommand::class)->getArgument(0));
         self::assertFalse($container->hasDefinition('fuzzphony.admin'));
+    }
+
+    public function testTheDoctorChecksTheRolesInUse(): void
+    {
+        $shared = $this->doctorCheck($this->buildContainer([]));
+        $separate = $this->doctorCheck($this->buildContainer(['connections' => ['worker' => 'worker', 'admin' => 'admin']]));
+
+        self::assertSame(PrivilegeCheck::class, $shared->getClass());
+        self::assertEquals(new Reference('fuzzphony.connection'), $shared->getArgument(0));
+        self::assertEquals(['search' => new Reference('fuzzphony.connection'), 'worker' => new Reference('fuzzphony.connection')], $shared->getArgument(2), 'an admin that is the application user is not asked for DDL');
+        self::assertEquals(new Reference('fuzzphony.connection.admin'), $separate->getArgument(0));
+        self::assertEquals(['search' => new Reference('fuzzphony.connection'), 'worker' => new Reference('fuzzphony.connection.worker'), 'admin' => new Reference('fuzzphony.connection.admin')], $separate->getArgument(2));
+    }
+
+    private function doctorCheck(ContainerBuilder $container): Definition
+    {
+        $check = $container->getDefinition(DoctorCommand::class)->getArgument(4);
+        self::assertInstanceOf(Definition::class, $check);
+
+        return $check;
     }
 
     public function testAnUnknownConnectionNameListsTheConfiguredOnes(): void

@@ -4,16 +4,20 @@ declare(strict_types=1);
 
 namespace Fuzzphony\Tests\Integration;
 
+use Fuzzphony\Bundle\Command\DoctorCommand;
 use Fuzzphony\Bundle\Command\SchemaCommand;
 use Fuzzphony\Core\Analytics\RecordStatus;
 use Fuzzphony\Core\Analytics\SearchRecord;
 use Fuzzphony\Core\Database\Connection;
 use Fuzzphony\Core\Definition\IndexDefinition;
 use Fuzzphony\Core\Exception\EngineFailure;
+use Fuzzphony\Core\Inspection\Check;
+use Fuzzphony\Core\Inspection\CheckStatus;
 use Fuzzphony\Core\Fuzzphony;
 use Fuzzphony\Core\Registry\IndexRegistry;
 use Fuzzphony\Core\Support\Coerce;
 use Fuzzphony\Core\Sync\Worker;
+use Fuzzphony\Engine\Postgres\Inspection\PrivilegeCheck;
 use Fuzzphony\Engine\Postgres\PostgresEngine;
 use Fuzzphony\Engine\Postgres\Schema\Grants;
 use Fuzzphony\Engine\Postgres\Schema\Names;
@@ -213,7 +217,7 @@ final class RoleGrantsTest extends TestCase
         self::assertSame($this->roles['admin'], $this->connection->fetchValue(sprintf("SELECT pg_get_userbyid(relowner) FROM pg_class WHERE oid = to_regclass('%s')", $this->names->sidecar($this->index))));
         $this->become('admin');
         $this->fuzzphony->schema()->apply($this->connection); // idempotent, as the same role again
-        self::assertTrue($this->fuzzphony->inspect('products')->status() !== \Fuzzphony\Core\Inspection\CheckStatus::Error);
+        self::assertTrue($this->fuzzphony->inspect('products')->status() !== CheckStatus::Error);
     }
 
     public function testTheAdminRoleWithoutTheDumpedGrantsCannotApply(): void
@@ -221,5 +225,84 @@ final class RoleGrantsTest extends TestCase
         $this->become('admin');
         $this->expectException(EngineFailure::class);
         $this->fuzzphony->schema()->apply($this->connection);
+    }
+
+    /** A second session that runs as the role: what a separate DBAL connection of that database user is. */
+    private function sessionOf(string $kind): Connection
+    {
+        $session = PostgresTestCase::connect();
+        $session->execute('SET ROLE ' . $this->roles[$kind]);
+
+        return $session;
+    }
+
+    /** @param array<string, Connection> $subjects */
+    private function privileges(array $subjects): Check
+    {
+        return (new PrivilegeCheck($this->connection, new Grants($this->names, true), $subjects))->check($this->index);
+    }
+
+    public function testTheDoctorNamesWhatEachRoleLacksAndTheFix(): void
+    {
+        $this->applyAsSuperuser();
+        $this->grant('search');
+        $worker = $this->sessionOf('worker');
+
+        $check = $this->privileges(['search' => $this->sessionOf('search'), 'worker' => $worker]);
+
+        self::assertSame(CheckStatus::Error, $check->status);
+        self::assertStringContainsString(sprintf('worker "%s" lacks', $this->roles['worker']), $check->message);
+        self::assertStringContainsString('SELECT, UPDATE, DELETE on table ' . $this->names->watchLog(), $check->message, 'FOR UPDATE needs UPDATE: the check knows the whole set');
+        self::assertStringContainsString('UPDATE on table ' . $this->names->watches(), $check->message);
+        self::assertStringNotContainsString('search "', $check->message, 'the search role holds everything it needs');
+        self::assertSame(sprintf('run the output of bin/console fuzzphony:schema products --dump-grants --role=worker --to=%s as the owner of the objects (docs/roles.md)', $this->roles['worker']), $check->fix);
+
+        $this->grant('worker');
+        self::assertSame(CheckStatus::Ok, $this->privileges(['search' => $this->sessionOf('search'), 'worker' => $worker])->status, 'after the printed grants nothing is missing');
+    }
+
+    public function testTheDoctorNeverReportsAnOwnerOrASuperuser(): void
+    {
+        $this->applyAsSuperuser();
+
+        $check = $this->privileges(['search' => $this->connection, 'worker' => $this->connection, 'admin' => $this->connection]);
+
+        self::assertSame(CheckStatus::Ok, $check->status, $check->message);
+    }
+
+    public function testTheDoctorAsksTheAdminRoleForOwnershipAndTheSchemaRights(): void
+    {
+        $this->applyAsSuperuser();
+        $this->grant('admin');
+
+        $check = $this->privileges(['admin' => $this->sessionOf('admin')]);
+
+        self::assertSame(CheckStatus::Error, $check->status, $check->message);
+        self::assertStringContainsString('ownership of ' . $this->names->sidecar($this->index), $check->message, 'the objects belong to the superuser, not to the admin role');
+        self::assertStringNotContainsString('CREATE on schema', $check->message);
+    }
+
+    public function testTheDoctorCommandShowsThePrivilegesRowAndFailsOnAMissingGrant(): void
+    {
+        $this->applyAsSuperuser();
+        $privileges = new PrivilegeCheck($this->connection, new Grants($this->names, true), ['search' => $this->sessionOf('search')]);
+        $tester = new CommandTester(new DoctorCommand($this->fuzzphony, null, self::SCHEMA, true, $privileges));
+
+        $status = $tester->execute([]);
+
+        self::assertSame(1, $status, 'the search role has no grants yet');
+        self::assertStringContainsString('Privileges', $tester->getDisplay(true));
+        self::assertStringContainsString('--dump-grants --role=search', $tester->getDisplay(true));
+        $this->grant('search');
+        $tester->execute(['--format' => 'prometheus']);
+        self::assertStringContainsString('fuzzphony_doctor_check{index="products",check="Privileges"} 1', $tester->getDisplay(true));
+    }
+
+    public function testTheDoctorSkipsTheWorkerForAnIndexWithoutTheQueue(): void
+    {
+        $check = (new PrivilegeCheck($this->connection, new Grants($this->names, true), ['worker' => $this->sessionOf('worker')]))->check(Indexes::products('manual'));
+
+        self::assertSame(CheckStatus::Ok, $check->status);
+        self::assertSame('nothing to check', $check->message);
     }
 }
