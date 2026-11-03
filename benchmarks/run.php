@@ -19,7 +19,20 @@ require $argv[0] === __FILE__ && is_file(__DIR__ . '/../vendor/autoload.php') ? 
 use Fuzzphony\Core\Database\PdoConnection;
 use Fuzzphony\Core\Definition\IndexDefinition;
 use Fuzzphony\Core\Fuzzphony;
+use Fuzzphony\Core\Search\Access;
+use Fuzzphony\Core\Search\Actor;
+use Fuzzphony\Core\Search\FieldRestrictingGuard;
 use Fuzzphony\Core\Sync\ReindexOptions;
+
+// The granted fields of bench_granted need a field-restricting guard to exist; this one lets everything through (the cases below search as the
+// system and narrow with restrictedToFields(), the guard itself is not measured).
+final class AllowAllGuard implements FieldRestrictingGuard
+{
+    public function check(IndexDefinition $index, Actor $actor, bool $charge = true): Access
+    {
+        return Access::all();
+    }
+}
 
 $dsn = getenv('FUZZPHONY_BENCH_DSN') ?: exit("Set FUZZPHONY_BENCH_DSN.\n");
 
@@ -81,7 +94,7 @@ $granted = IndexDefinition::builder('bench_granted')
     ->filter('price', 'int')
     ->filter('in_stock', 'bool')
     ->build();
-$fuzzphony = Fuzzphony::postgres($connection, [$index, $long, $granted]);
+$fuzzphony = Fuzzphony::postgres($connection, [$index, $long, $granted], guards: [new AllowAllGuard()]);
 
 if (in_array('--setup', $argv, true) || in_array('--setup-only', $argv, true)) {
     $t = microtime(true);
@@ -133,7 +146,7 @@ foreach ($cases as $label => [$query, $like]) {
         return count($st->fetchAll());
     });
     $fz = $measure(static function () use ($fuzzphony, $query, $filtered) {
-        $search = $fuzzphony->in('bench')->query($query)->limit(20);
+        $search = $fuzzphony->in('bench')->asSystem()->query($query)->limit(20);
 
         return ($filtered ? $search->where('price', '<', 50_000)->where('in_stock', true) : $search)->get();
     });
@@ -182,7 +195,7 @@ foreach ($paths as $label => [$name, $query, $configure]) {
         continue; // a database set up before this index existed: run with --setup
     }
     $fz = $measure(static function () use ($fuzzphony, $name, $query, $configure) {
-        return $configure($fuzzphony->in($name)->query($query)->limit(20))->get();
+        return $configure($fuzzphony->in($name)->asSystem()->query($query)->limit(20))->get();
     });
     $pathRows[] = [
         'case' => $label,
