@@ -1,6 +1,8 @@
 framework:
     secret: '%env(APP_SECRET)%'
     http_method_override: false
+    # The token of the one POST form of the demo (the sync demonstration on /erp).
+    csrf_protection: true
     # Only the Security page uses the session (the "Viewing as" choice). The container's file system is read-only apart
     # from /tmp, so the files live there, like the synonym cache (config/services.yaml).
     session:
@@ -12,6 +14,12 @@ framework:
             policy: fixed_window
             limit: 5
             interval: '10 seconds'
+            cache_pool: app.rate_limit_cache
+        # The ERP page's sync demonstration (/erp?tab=sync): the one write of the demo, five moves a minute for each client address.
+        fuzzphony_erp_sync:
+            policy: fixed_window
+            limit: 5
+            interval: '1 minute'
             cache_pool: app.rate_limit_cache
     # No trusted_proxies on purpose: nginx talks FastCGI to php-fpm and sets REMOTE_ADDR to the client's address, so
     # Request::getClientIp() (what search_log.ip stores, masked) is right as it is. A trusted_proxies list that holds the private

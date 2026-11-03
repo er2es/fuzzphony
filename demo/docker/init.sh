@@ -143,6 +143,9 @@ GRANT USAGE ON SCHEMA public TO :"role";
 GRANT SELECT ON ALL TABLES IN SCHEMA public TO :"role";
 -- the tables the app writes outside Fuzzphony's schema: the synonym lists the /synonyms page edits
 GRANT INSERT, UPDATE, DELETE ON demo_synonym_entry, demo_synonym_version TO :"role";
+-- and the one write of the ERP page's sync demonstration (/erp?tab=sync): it moves an address to another city, nothing else (not even
+-- another column of that table: the other ERP tables stay read-only for the application)
+GRANT UPDATE (city) ON erp_address TO :"role";
 GRANT USAGE ON SCHEMA fuzzphony TO :"role";
 GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA fuzzphony TO :"role";
 SQL
