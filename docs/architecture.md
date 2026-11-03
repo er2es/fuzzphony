@@ -133,6 +133,24 @@ such an index. A single-source index (the vast majority) is untouched: same colu
 - Queue and change-log tables carry the composite key as they carry any id. Ids are not unique across sources by construction, and a
   source's own ids must be unique inside it (the refresh keeps one row per key, like for a single source).
 
+## One-to-many values: how they are stored and searched
+
+A field or a filter can take its values from a child table (`many: { from, key, column, limit }`: a customer with several addresses).
+Only an index that declares one pays for it; every other index keeps its layout, statements and results byte for byte.
+
+- The document SELECT (`DocumentSql`) reads the values of a many field as one text, the first `limit` values by `ORDER BY column, id` joined
+  with a space (no value is silently dropped past the limit: the doctor names the documents over it). The sidecar columns (`t_<field>`, `tsv`,
+  `fz`, `z_<field>`) are built from that text exactly as for a plain field, so the candidate lookup, the fuzzy lookups, the highlight and the
+  restricted-viewer machinery (a `granted` many field) work unchanged. Ranking therefore treats the field as a whole, not by its best value.
+- A child table `fuzzphony_<index>__values (doc, field, ord, v, t, z)` holds one row per value (primary key `(doc, field, ord)`, GIN on `t`,
+  trigram on `z`). The refresh function rewrites the rows of the refreshed documents (DELETE + INSERT by `doc`) after the sidecar write, in its
+  own transaction. They answer "which value matched" (`explainMatches()`) and the highlight of the best value; searches never join them.
+- A many filter is a `text[]` column `f_<name>` of the sidecar with a GIN index: `city = 'Budapest'` is `f_city @> ARRAY[...]` (any match),
+  a facet unnests the array, so it counts documents, never values (the array holds distinct values).
+- The watch of the child table is derived from `from` and `key` (columns: the value column and the key): a change logs the owning document
+  (old and new key through the shared watch log), so only that document is refreshed. A TRUNCATE queues a rebuild like any joined table.
+- Not supported (refused by the definition): a multi-source index, a `code` field, the primary field (exact/prefix bonuses read one value).
+
 ## Why the combined vector is stored
 
 The sidecar row keeps the combined full-text vector `tsv` of all fields next to the per-field vectors (`t_<field>`). On the demo catalogue
