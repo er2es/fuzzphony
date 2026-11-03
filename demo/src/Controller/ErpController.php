@@ -44,18 +44,18 @@ final class ErpController extends AbstractController
 
         try {
             if (isset(Erp::TABS[$tab])) {
-                $data += $this->single($request, $fuzzphony, $tab, $q);
+                $data = [...$data, ...$this->single($request, $fuzzphony, $tab, $q)];
             } elseif ($tab === 'combined') {
                 $mode = (string) $request->query->get('mode', 'both');
                 $data['mode'] = isset(self::MODES[$mode]) ? $mode : 'both';
-                $data = $this->combined($fuzzphony, $q, $data['mode']) + ['modes' => self::MODES, 'federation' => self::FEDERATION, 'examples' => Erp::COMBINED_EXAMPLES] + $data;
+                $data = [...$data, ...$this->combined($fuzzphony, $q, $data['mode']), 'modes' => self::MODES, 'federation' => self::FEDERATION, 'examples' => Erp::COMBINED_EXAMPLES];
             }
         } catch (FuzzphonyException $e) {
             $data['error'] = $e->getMessage();
         }
 
         if ($tab === 'sync') {
-            $data += $this->syncData($request, $sync);
+            $data = [...$data, ...$this->syncData($request, $sync)];
         }
 
         // the live search asks for the results region only

@@ -23,6 +23,7 @@ final class PeopleAdminIndex
             ->field('email', 'C')
             ->field('city', 'C', fuzzy: true, many: ['from' => 'erp_address', 'key' => 'customer_id', 'column' => 'city', 'limit' => 50])
             ->field('street', 'D', many: ['from' => 'erp_address', 'key' => 'customer_id', 'column' => 'street', 'limit' => 50])
+            ->filter('city', 'string', many: ['from' => 'erp_address', 'key' => 'customer_id', 'column' => 'city', 'limit' => 50])
             ->filter('created_at', 'datetime')
             ->watch('erp_customer')
             ->returnable('name', 'email', 'tax_no');
