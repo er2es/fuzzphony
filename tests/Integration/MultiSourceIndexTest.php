@@ -98,7 +98,12 @@ final class MultiSourceIndexTest extends TestCase
     /** @return array<string, string> key => indexed_at */
     private function stamps(): array
     {
-        return array_column($this->connection->fetchAll('SELECT id, indexed_at::text AS at FROM fuzzphony_site ORDER BY id'), 'at', 'id');
+        $stamps = [];
+        foreach ($this->connection->fetchAll('SELECT id, indexed_at::text AS at FROM fuzzphony_site ORDER BY id') as $row) {
+            $stamps[Coerce::str($row['id'])] = Coerce::str($row['at']);
+        }
+
+        return $stamps;
     }
 
     private function converge(IndexDefinition $index): void
@@ -143,7 +148,11 @@ final class MultiSourceIndexTest extends TestCase
         self::assertNotSame([], $facets);
     }
 
-    /** @param list<\Fuzzphony\Core\Search\Hit> $hits @return list<string> */
+    /**
+     * @param list<\Fuzzphony\Core\Search\Hit> $hits
+     *
+     * @return list<string>
+     */
     private function sortedKinds(array $hits): array
     {
         $kinds = array_values(array_unique(array_map(static fn($h): string => $h->kind, $hits)));

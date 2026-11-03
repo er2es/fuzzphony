@@ -48,10 +48,19 @@ final class MultiSourceDefinitionTest extends TestCase
         ];
     }
 
-    /** @param \Closure(array<string, mixed>): array<string, mixed> $edit */
-    private static function fingerprintOf(\Closure $edit): string
+    /** @param array<string, mixed> $config */
+    private static function fingerprintOf(array $config): string
     {
-        return Fingerprint::definition((new ArrayDefinitionLoader())->load('site', $edit(self::yaml())));
+        return Fingerprint::definition((new ArrayDefinitionLoader())->load('site', $config));
+    }
+
+    /** @param array<string, mixed> $patch */
+    private static function with(array $patch): string
+    {
+        /** @var array<string, mixed> $merged */
+        $merged = array_replace_recursive(self::yaml(), $patch);
+
+        return self::fingerprintOf($merged);
     }
 
     public function testTheBuilderTheYamlAndADefinitionClassGiveTheSameIndex(): void
@@ -74,31 +83,13 @@ final class MultiSourceDefinitionTest extends TestCase
     {
         $base = Fingerprint::definition(self::byBuilder());
 
-        self::assertNotSame($base, self::fingerprintOf(static function (array $c): array {
-            $c['sources']['product']['query'] .= ' WHERE account > 0';
-
-            return $c;
-        }), 'the SQL');
-        self::assertNotSame($base, self::fingerprintOf(static function (array $c): array {
-            $c['sources']['product']['watch']['ms_tag']['columns'] = ['label', 'id'];
-
-            return $c;
-        }), 'a watch');
-        self::assertNotSame($base, self::fingerprintOf(static function (array $c): array {
-            $c['sources']['article']['id_type'] = 'string';
-
-            return $c;
-        }), 'the id type');
-        self::assertNotSame($base, self::fingerprintOf(static function (array $c): array {
-            unset($c['sources']['product']['entity']);
-
-            return $c;
-        }), 'the entity');
-        self::assertNotSame($base, self::fingerprintOf(static function (array $c): array {
-            $c['sources'] = array_reverse($c['sources']);
-
-            return $c;
-        }), 'the order');
+        self::assertNotSame($base, self::with(['sources' => ['product' => ['query' => SiteMultiSourceIndex::PRODUCT_SQL . ' WHERE account > 0']]]), 'the SQL');
+        self::assertNotSame($base, self::with(['sources' => ['product' => ['watch' => ['ms_tag' => ['columns' => ['label', 'id']]]]]]), 'a watch');
+        self::assertNotSame($base, self::with(['sources' => ['article' => ['id_type' => 'string']]]), 'the id type');
+        self::assertNotSame($base, self::with(['sources' => ['product' => ['entity' => null]]]), 'the entity');
+        $reversed = self::yaml();
+        $reversed['sources'] = ['article' => ['table' => 'ms_article', 'id_type' => 'uuid'], 'product' => ['query' => SiteMultiSourceIndex::PRODUCT_SQL, 'entity' => Product::class, 'watch' => ['ms_product' => 'SELECT :id', 'ms_tag' => ['ids' => 'SELECT id FROM ms_product WHERE tag_id = :id', 'columns' => ['label']]]]];
+        self::assertNotSame($base, self::fingerprintOf($reversed), 'the order');
     }
 
     public function testASourceNameIsAnIdentifierAndUniqueInsideTheIndex(): void

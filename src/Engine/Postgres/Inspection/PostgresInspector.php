@@ -53,13 +53,15 @@ final class PostgresInspector
         $checks[] = $this->textConfig($index);
         $checks[] = $this->function($this->names->normFunction() . '(text)', 'Normaliser function');
 
+        $queryable = true;
         foreach ($index->isMultiSource() ? $index->sources : [null] as $one) {
             // a multi-source index: each source checked as a single-source one, its checks named after it
             $part = $one === null ? $index : $index->forSource($one);
             $partChecks = [];
-            $sourceColumns = $this->sourceColumns($part, $partChecks);
-            if ($sourceColumns !== null) {
-                array_push($partChecks, ...$this->sourceMapping($part, $sourceColumns));
+            $partColumns = $this->sourceColumns($part, $partChecks);
+            $queryable = $queryable && $partColumns !== null;
+            if ($partColumns !== null) {
+                array_push($partChecks, ...$this->sourceMapping($part, $partColumns));
             }
             if ($part->source->table !== null) {
                 $partChecks[] = $this->sourceKey($part);
@@ -87,7 +89,7 @@ final class PostgresInspector
         $checks[] = $this->function($this->names->trackFunction($index) . '()', 'Rebuild change log function');
         array_push($checks, ...$this->triggers($index));
         $checks[] = $this->queue($index, $options);
-        if ($sidecarExists && $sourceColumns !== null) {
+        if ($sidecarExists && $queryable) {
             $checks[] = $this->coverage($index, $options);
             $checks[] = $this->orphans($index, $options);
         }

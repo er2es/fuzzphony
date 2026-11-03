@@ -57,22 +57,31 @@ final class MultiSourceScopingTest extends TestCase
         $this->connection->execute("INSERT INTO ms_s_two VALUES ('0b1d6f0e-0000-4000-8000-000000000001', 'word1 word2 guide', 'plain', :s, 1), ('0b1d6f0e-0000-4000-8000-000000000002', 'other', 'word1 word2', :s, 2)", ['s' => $secret]);
     }
 
+    /**
+     * @param list<\Fuzzphony\Core\Search\Hit> $hits
+     *
+     * @return list<string>
+     */
+    private static function keys(array $hits): array
+    {
+        return array_map(static fn(\Fuzzphony\Core\Search\Hit $h): string => $h->kind . ':' . $h->id, $hits);
+    }
+
     public function testATenantNeverSeesAnotherTenantsRowsOfAnyKind(): void
     {
         $fuzzphony = $this->fuzzphony();
         $this->load('nothing');
         $fuzzphony->reindex('scoped');
 
-        $keys = static fn(array $hits): array => array_map(static fn($h): string => $h->kind . ':' . $h->id, $hits);
-        $one = $keys($fuzzphony->in('scoped')->forTenant(1)->query('word1')->get()->hits);
-        $two = $keys($fuzzphony->in('scoped')->forTenant(2)->query('word1')->get()->hits);
+        $one = self::keys($fuzzphony->in('scoped')->forTenant(1)->query('word1')->get()->hits);
+        $two = self::keys($fuzzphony->in('scoped')->forTenant(2)->query('word1')->get()->hits);
         sort($one);
         sort($two);
 
         self::assertSame(['one:1', 'one:3', 'two:0b1d6f0e-0000-4000-8000-000000000001'], $one);
         self::assertSame(['one:2', 'two:0b1d6f0e-0000-4000-8000-000000000002'], $two);
-        self::assertSame(['one:1', 'one:3', 'two:0b1d6f0e-0000-4000-8000-000000000001'], (function () use ($fuzzphony, $keys): array {
-            $hits = $keys($fuzzphony->in('scoped')->forTenant(1)->query('')->get()->hits);
+        self::assertSame(['one:1', 'one:3', 'two:0b1d6f0e-0000-4000-8000-000000000001'], (function () use ($fuzzphony): array {
+            $hits = self::keys($fuzzphony->in('scoped')->forTenant(1)->query('')->get()->hits);
             sort($hits);
 
             return $hits;

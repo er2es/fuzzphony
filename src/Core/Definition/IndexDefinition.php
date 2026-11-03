@@ -196,7 +196,11 @@ final readonly class IndexDefinition
         return null;
     }
 
-    /** The sources a run works on: all of them, or the one a per-source reindex is narrowed to. @return list<IndexSource> */
+    /**
+     * The sources a run works on: all of them, or the one a per-source reindex is narrowed to.
+     *
+     * @return list<IndexSource>
+     */
     public function activeSources(): array
     {
         return $this->onlySource === null ? $this->sources : array_values(array_filter($this->sources, fn(IndexSource $s): bool => $s->name === $this->onlySource));
@@ -223,7 +227,7 @@ final readonly class IndexDefinition
         $kind = $at === false ? '' : substr($key, 0, $at);
         $raw = $at === false ? $key : substr($key, $at + 1);
 
-        return [$kind, ($this->sourceNamed($kind)?->idType ?? IdType::String)->cast($raw)];
+        return [$kind, ($this->sourceNamed($kind)->idType ?? IdType::String)->cast($raw)];
     }
 
     /** One source of a multi-source index as a single-source definition (the doctor checks each source on its own). */
@@ -342,6 +346,7 @@ final readonly class IndexDefinition
      * @param list<FieldDefinition>|null         $fields
      * @param list<FilterDefinition>|null        $filters
      * @param list<Watch>|null                   $watches
+     * @param list<IndexSource>|null             $sources
      * @param array<string, RankingProfile>|null $profiles
      * @param class-string|false|null            $entityClass
      */
