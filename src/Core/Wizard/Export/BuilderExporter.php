@@ -54,10 +54,13 @@ final class BuilderExporter
             if ($field->granted !== null) {
                 $args[] = 'granted: ' . $e($field->granted);
             }
+            if ($field->many !== null) {
+                $args[] = 'many: ' . self::many($field->many->toArray(), $e);
+            }
             $lines[] = sprintf('    ->field(%s)', implode(', ', $args));
         }
         foreach ($index->filters as $filter) {
-            $lines[] = sprintf('    ->filter(%s, %s%s)', $e($filter->name), $e($filter->type->value), $filter->column !== null ? ', ' . $e($filter->column) : '');
+            $lines[] = sprintf('    ->filter(%s, %s%s%s)', $e($filter->name), $e($filter->type->value), $filter->column !== null ? ', ' . $e($filter->column) : '', $filter->many !== null ? ', many: ' . $e($filter->many->toArray()) : '');
         }
         if ($index->sync !== SyncMode::Queue) {
             $lines[] = sprintf('    ->sync(%s)', $e($index->sync->value));
@@ -145,5 +148,14 @@ final class BuilderExporter
     private function variable(string $name): string
     {
         return lcfirst(str_replace('_', '', ucwords($name, '_')));
+    }
+
+    /**
+     * @param array<string, int|string> $many
+     * @param \Closure(mixed): string  $e
+     */
+    private static function many(array $many, \Closure $e): string
+    {
+        return '[' . implode(', ', array_map(static fn(string $key, int|string $value): string => $e($key) . ' => ' . $e($value), array_keys($many), $many)) . ']';
     }
 }

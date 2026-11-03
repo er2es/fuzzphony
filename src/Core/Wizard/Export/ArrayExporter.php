@@ -39,11 +39,12 @@ final class ArrayExporter
                 'column' => $field->column,
                 'granted' => $field->granted,
                 'code' => $field->code ? true : null,
+                'many' => $field->many?->toArray(),
             ], static fn(mixed $v): bool => $v !== null);
             $out['fields'][$field->name] = count($options) === 1 ? $field->weight->value : $options;
         }
         foreach ($index->filters as $filter) {
-            $out['filters'][$filter->name] = $filter->column === null ? $filter->type->value : ['type' => $filter->type->value, 'column' => $filter->column];
+            $out['filters'][$filter->name] = $filter->column === null && $filter->many === null ? $filter->type->value : array_filter(['type' => $filter->type->value, 'column' => $filter->column, 'many' => $filter->many?->toArray()], static fn(mixed $v): bool => $v !== null);
         }
         foreach ($index->watches as $watch) {
             $out['watch'][$watch->table] = $watch->keyColumn === 'id' && $watch->columns === null

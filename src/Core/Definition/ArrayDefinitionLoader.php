@@ -44,8 +44,8 @@ final class ArrayDefinitionLoader
 
     private const array SOURCE_KEYS = ['table', 'query', 'query_file', 'id'];
     private const array SOURCES_KEYS = ['table', 'query', 'query_file', 'id', 'watch', 'entity', 'id_type'];
-    private const array FIELD_KEYS = ['weight', 'fuzzy', 'highlight', 'column', 'granted', 'code'];
-    private const array FILTER_KEYS = ['type', 'column'];
+    private const array FIELD_KEYS = ['weight', 'fuzzy', 'highlight', 'column', 'granted', 'code', 'many'];
+    private const array FILTER_KEYS = ['type', 'column', 'many'];
     private const array WATCH_KEYS = ['ids', 'key', 'columns'];
     private const array STRING_KEYS = ['id_type', 'sync', 'trigger_level', 'language', 'boost', 'recency', 'tenant'];
     private const array BOOL_KEYS = ['unaccent', 'log'];
@@ -73,11 +73,11 @@ final class ArrayDefinitionLoader
 
         foreach (self::map($config['fields'] ?? []) as $field => $options) {
             $options = is_string($options) ? ['weight' => $options] : self::map($options);
-            $builder->field($field, self::str($options['weight'] ?? null, 'B'), ($options['fuzzy'] ?? false) === true, ($options['highlight'] ?? true) === true, isset($options['column']) ? self::str($options['column'], '') : null, isset($options['granted']) ? self::str($options['granted'], '') : null, ($options['code'] ?? false) === true);
+            $builder->field($field, self::str($options['weight'] ?? null, 'B'), ($options['fuzzy'] ?? false) === true, ($options['highlight'] ?? true) === true, isset($options['column']) ? self::str($options['column'], '') : null, isset($options['granted']) ? self::str($options['granted'], '') : null, ($options['code'] ?? false) === true, isset($options['many']) && is_array($options['many']) ? $options['many'] : null);
         }
         foreach (self::map($config['filters'] ?? []) as $filter => $options) {
             $options = is_string($options) ? ['type' => $options] : self::map($options);
-            $builder->filter($filter, self::str($options['type'] ?? null, ''), isset($options['column']) ? self::str($options['column'], '') : null);
+            $builder->filter($filter, self::str($options['type'] ?? null, ''), isset($options['column']) ? self::str($options['column'], '') : null, isset($options['many']) && is_array($options['many']) ? $options['many'] : null);
         }
         foreach (self::map($config['watch'] ?? []) as $table => $options) {
             $options = is_string($options) ? ['ids' => $options] : self::map($options);
@@ -431,6 +431,9 @@ final class ArrayDefinitionLoader
                 continue;
             }
             $this->assertKeys($problems, $at, array_keys($options), $allowed);
+            if (array_key_exists('many', $options)) {
+                $this->assertMany($problems, $at, $options['many']);
+            }
             if ($section === 'fields') {
                 self::assertBool($problems, $at . ' "fuzzy"', $options['fuzzy'] ?? null);
                 self::assertBool($problems, $at . ' "highlight"', $options['highlight'] ?? null);
@@ -440,6 +443,29 @@ final class ArrayDefinitionLoader
                     $problems[] = sprintf('%s "granted" must be a non-empty string, the attribute that unlocks the field (granted: ROLE_HR), got %s. Remove the key to leave the field open to everyone.', $at, self::describe($options['granted']));
                 }
             }
+        }
+    }
+
+    /** @param list<string> $problems */
+    private function assertMany(array &$problems, string $at, mixed $many): void
+    {
+        if (!self::isMap($many)) {
+            $problems[] = sprintf('%s "many" must be a map { from: address, key: customer_id, column: city, limit: 50 }, got %s.', $at, self::describe($many));
+
+            return;
+        }
+        /** @var array<string, mixed> $many */
+        $this->assertKeys($problems, $at . ' "many"', array_keys($many), ManyValues::KEYS);
+        foreach (['from', 'key', 'column'] as $required) {
+            if (!is_string($many[$required] ?? null) || $many[$required] === '') {
+                $problems[] = sprintf('%s "many" needs "%s" (a non-empty string), e.g. many: { from: address, key: customer_id, column: city }.', $at, $required);
+            }
+        }
+        if (array_key_exists('limit', $many) && !is_int($many['limit'])) {
+            $problems[] = sprintf('%s "many" "limit" must be an integer, got %s.', $at, self::describe($many['limit']));
+        }
+        if (array_key_exists('id', $many) && (!is_string($many['id']) || $many['id'] === '')) {
+            $problems[] = sprintf('%s "many" "id" must be the child table's primary key column (a non-empty string), got %s.', $at, self::describe($many['id']));
         }
     }
 

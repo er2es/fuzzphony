@@ -155,6 +155,11 @@ final readonly class IndexDefinition
             return array_merge(...array_map(static fn(IndexSource $s): array => $s->effectiveWatches(), $this->sources));
         }
         $watches = $this->watches;
+        foreach ($this->manyWatches() as $derived) {
+            if (!array_any($watches, static fn(Watch $w): bool => $w->table === $derived->table)) {
+                $watches[] = $derived;
+            }
+        }
         if ($this->source->table !== null) {
             $own = false;
             foreach ($watches as $watch) {
@@ -166,6 +171,49 @@ final readonly class IndexDefinition
         }
 
         return $watches;
+    }
+
+    /** @return list<FieldDefinition> the searchable fields whose values come from a child table */
+    public function manyFields(): array
+    {
+        return array_values(array_filter($this->fields, static fn(FieldDefinition $f): bool => $f->many !== null));
+    }
+
+    /** @return list<FilterDefinition> the filters whose values come from a child table */
+    public function manyFilters(): array
+    {
+        return array_values(array_filter($this->filters, static fn(FilterDefinition $f): bool => $f->many !== null));
+    }
+
+    /** Whether any field or filter takes several values from a child table (such an index gets the values table). */
+    public function hasMany(): bool
+    {
+        return $this->manyFields() !== [] || $this->manyFilters() !== [];
+    }
+
+    /**
+     * Every child table the many fields and filters read, with the key column that links a row to its document; the sync watches
+     * of these tables are derived from here (a change of a child row refreshes its owning document only).
+     *
+     * @return list<Watch>
+     */
+    public function manyWatches(): array
+    {
+        $byTable = [];
+        foreach ([...$this->manyFields(), ...$this->manyFilters()] as $one) {
+            $many = $one->many;
+            if ($many === null) {
+                continue;
+            }
+            $byTable[$many->from]['key'] = $many->key;
+            $byTable[$many->from]['columns'][] = $many->column;
+        }
+
+        return array_values(array_map(
+            static fn(string $table, array $w): Watch => new Watch($table, 'SELECT :id', $w['key'], array_values(array_unique($w['columns']))),
+            array_keys($byTable),
+            $byTable,
+        ));
     }
 
     public function isMultiSource(): bool

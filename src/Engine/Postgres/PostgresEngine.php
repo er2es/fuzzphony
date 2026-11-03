@@ -20,6 +20,7 @@ use Fuzzphony\Core\Search\Explanation;
 use Fuzzphony\Core\Search\SearchResult;
 use Fuzzphony\Core\Wizard\SourceIntrospector;
 use Fuzzphony\Engine\Postgres\Inspection\PostgresInspector;
+use Fuzzphony\Engine\Postgres\Inspection\ManyProbe;
 use Fuzzphony\Engine\Postgres\Inspection\SourceProbe;
 use Fuzzphony\Engine\Postgres\Schema\Names;
 use Fuzzphony\Engine\Postgres\Schema\PostgresSchemaGenerator;
@@ -111,6 +112,9 @@ final class PostgresEngine implements Engine, OperationalStats
     {
         if ($index->isMultiSource()) {
             SourceProbe::assertColumns($this->connection, $index);
+        }
+        if ($index->hasMany()) {
+            ManyProbe::assertColumns($this->connection, $index);
         }
 
         return $this->schema->index($index);
