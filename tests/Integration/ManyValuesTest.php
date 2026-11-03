@@ -25,9 +25,9 @@ final class ManyValuesTest extends TestCase
         $this->connection = PostgresTestCase::connect();
         $this->engine = new PostgresEngine($this->connection);
         $this->drop();
-        $this->connection->execute('CREATE TABLE mv_customer (id bigint PRIMARY KEY, name text NOT NULL)');
+        $this->connection->execute('CREATE TABLE mv_customer (id bigint PRIMARY KEY, name text NOT NULL, tid integer NOT NULL DEFAULT 1)');
         $this->connection->execute('CREATE TABLE mv_address (id serial PRIMARY KEY, customer_id bigint NOT NULL, city text, street text)');
-        $this->connection->execute("INSERT INTO mv_customer VALUES (1, 'Alice Kovacs'), (2, 'Bob Nagy'), (3, 'Carol Szabo'), (4, 'Dave Toth')");
+        $this->connection->execute("INSERT INTO mv_customer (id, name, tid) VALUES (1, 'Alice Kovacs', 1), (2, 'Bob Nagy', 1), (3, 'Carol Szabo', 2), (4, 'Dave Toth', 2)");
         $this->connection->execute("INSERT INTO mv_address (customer_id, city) VALUES (1, 'Budapest'), (1, 'Vienna'), (1, 'Budapest'), (2, 'Debrecen'), (2, 'Szeged'), (3, 'Budapest')");
     }
 
@@ -315,5 +315,43 @@ final class ManyValuesTest extends TestCase
         $this->connection->execute('DROP TABLE fuzzphony_customers__values');
         $missing = array_filter($f->inspect('customers')->checks, static fn($c): bool => $c->name === 'Values table');
         self::assertCount(1, $missing);
+    }
+
+    public function testATenantNeverSeesAnotherTenantsValuesInResultsOrFacets(): void
+    {
+        $index = IndexDefinition::builder('customers')
+            ->fromTable('mv_customer')
+            ->field('name', 'A', fuzzy: true)
+            ->field('city', 'C', fuzzy: true, many: ['from' => 'mv_address', 'key' => 'customer_id', 'column' => 'city'])
+            ->filter('city', 'string', many: ['from' => 'mv_address', 'key' => 'customer_id', 'column' => 'city'])
+            ->filter('tid', 'int')
+            ->tenant('tid')
+            ->build();
+        $f = $this->install($index);
+
+        self::assertSame([1], self::ids($f->in('customers')->forTenant(1)->query('budapest')->get()), 'customer 3 (tenant 2) also lives in Budapest');
+        self::assertSame([3], self::ids($f->in('customers')->forTenant(2)->query('budapest')->get()));
+        self::assertSame([1], self::ids($f->in('customers')->forTenant(1)->where('city', 'Budapest')->get()));
+        $facets = $f->in('customers')->forTenant(1)->query('alice OR bob OR carol')->facets('city')->get()->facets;
+        $counts = [];
+        foreach ($facets['city'] as $value) {
+            $counts[(string) $value->value] = $value->count;
+        }
+        self::assertSame(['Budapest' => 1, 'Debrecen' => 1, 'Szeged' => 1, 'Vienna' => 1], $counts);
+        $hit = $f->in('customers')->forTenant(2)->query('budapest')->explainMatches()->highlight('city')->get()->hits[0];
+        self::assertSame(3, $hit->id);
+        self::assertSame('<mark>Budapest</mark>', $hit->highlights['city']);
+    }
+
+    public function testARefreshOfOneDocumentRewritesItsValues(): void
+    {
+        $index = $this->definition();
+        $f = $this->install($index);
+        $this->connection->execute("UPDATE mv_address SET city = 'Zalaegerszeg' WHERE customer_id = 2 AND city = 'Szeged'");
+
+        $this->engine->refresh($index, [2]);
+
+        self::assertSame([2], self::ids($f->in('customers')->query('zalaegerszeg')->get()));
+        self::assertSame(['city:0:Debrecen', 'city:1:Zalaegerszeg'], $this->values(2));
     }
 }
