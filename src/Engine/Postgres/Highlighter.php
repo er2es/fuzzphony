@@ -111,7 +111,26 @@ final class Highlighter
             $typo = null;
         }
         // a multi-source index looks each kind's ids up in its own source (not in the whole union)
-        $document = DocumentSql::select($index, $index->isMultiSource() ? sprintf('CAST(%s AS text[])', $params->add(Sql::arrayLiteral($ids))) : null);
+        // a many field shows the value that matches best (the first of the best rank), not all its values; a document found by a typo
+        // only (no value matches the strict query) keeps the joined values, which the typo marks work on
+        $best = [];
+        foreach ($fields as $name) {
+            $many = $index->field($name)?->many;
+            if ($many === null) {
+                continue;
+            }
+            $best[$name] = fn(string $id): string => sprintf(
+                'coalesce((SELECT mv.v FROM %1$s AS mv WHERE mv.doc = %2$s AND mv.field = %3$s AND mv.t @@ to_tsquery(%4$s, %5$s) ORDER BY ts_rank_cd(mv.t, to_tsquery(%4$s, %6$s)) DESC, mv.ord LIMIT 1), %7$s)',
+                $this->names->values($index),
+                $id,
+                $params->add($name),
+                $config,
+                $params->add($tsquery),
+                $params->add($tsquery),
+                DocumentSql::manyText($index, $many),
+            );
+        }
+        $document = DocumentSql::select($index, $index->isMultiSource() ? sprintf('CAST(%s AS text[])', $params->add(Sql::arrayLiteral($ids))) : null, $best);
         $sql = sprintf(
             'SELECT %s FROM (%s) AS d WHERE d.fz_id = ANY(CAST(%s AS %s[]))',
             implode(', ', $columns),

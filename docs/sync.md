@@ -170,6 +170,16 @@ In `trigger` and `queue` mode a `TRUNCATE` is followed by a separate statement-l
 older version get the `TRUNCATE` trigger from `fuzzphony:schema --apply`
 (`fuzzphony:doctor` reports it missing until then).
 
+## Child tables of `many` fields
+
+A field or filter declared [`many`](configuration.md#several-values-per-document-many) reads its values from a child table (`address` of a
+customer). That table's watch is **derived** from the declaration: you write no `watch` for it. The trigger logs the `key` column of the changed
+child row (`customer_id`: the old row on a delete, both the old and the new key when an address moves to another customer) through the shared
+change log, so the owning customer is the only document refreshed; an `UPDATE` that changes neither the value column nor the key is skipped. Every
+sync mode works (`trigger`, `queue`, `manual`, `orm`), and the refresh of a document rewrites that document's rows of the values table in the same
+transaction as its sidecar row. A `TRUNCATE` of the child table is a rebuild like any other joined table's. A watch you declare on the child table
+yourself replaces the derived one. The child table needs the same grants as any watched table ([roles](roles.md)).
+
 ## Several sources in one index
 
 An index with [sources](configuration.md#several-sources-in-one-index) syncs per source. Every watch belongs to a source (the shared registry

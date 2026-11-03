@@ -20,6 +20,8 @@ final readonly class FieldDefinition
         public ?string $granted = null,
         /** A code or identifier field ("INV-001"): indexed with its separators turned into spaces (and the code without them), so every spelling of the code finds it. */
         public bool $code = false,
+        /** The values come from a child table (several per document); null = one value from the source row. */
+        public ?ManyValues $many = null,
     ) {}
 
     public function column(): string

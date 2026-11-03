@@ -175,6 +175,9 @@ final class PostgresSchemaGenerator
                 sprintf('Vocabulary of "%s": its words and in how many documents each occurs (filled by fuzzphony:reindex)', $index->name),
             );
         }
+        if ($index->manyFields() !== []) {
+            $statements[] = $this->valuesTable($index);
+        }
         $statements[] = new Statement($this->refreshFunction($index), 'Builds / removes documents by id');
         $statements[] = new Statement($this->refreshFunction($index, shadow: true), 'Builds / removes documents by id in the table a full reindex builds next to the live one');
         $statements[] = new Statement($this->trackFunction($index), 'Logs which documents change while a full reindex runs');
@@ -314,6 +317,9 @@ final class PostgresSchemaGenerator
             $statements[] = new Statement(sprintf('DROP FUNCTION IF EXISTS %s()', $this->names->syncFunction($index, $watch)), 'Remove sync function');
         }
         $statements[] = new Statement(sprintf('DROP FUNCTION IF EXISTS %s(%s[])', $this->names->refreshFunction($index), Types::id($index->idType)), 'Remove refresh function');
+        if ($index->manyFields() !== []) {
+            $statements[] = new Statement(sprintf('DROP TABLE IF EXISTS %s', $this->names->values($index)), 'Remove the values table');
+        }
         $statements[] = new Statement(sprintf('DROP TABLE IF EXISTS %s', $this->names->vocabulary($index)), 'Remove the vocabulary');
         $statements[] = new Statement(sprintf('DROP TABLE IF EXISTS %s', $this->names->sidecar($index)), 'Remove sidecar table');
         $statements[] = new Statement(sprintf('DROP TABLE IF EXISTS %s', $this->names->shadow($index)), 'Remove a rebuild that did not finish');
@@ -425,7 +431,7 @@ ON CONFLICT (index_name) DO UPDATE SET layout_version = EXCLUDED.layout_version,
             $columns['recency_at'] = 'timestamptz';
         }
         foreach ($index->filters as $filter) {
-            $columns['f_' . $filter->name] = Types::filter($filter->type);
+            $columns['f_' . $filter->name] = $filter->many !== null ? 'text[]' : Types::filter($filter->type);
         }
         $columns['indexed_at'] = 'timestamptz NOT NULL DEFAULT now()';
 
@@ -499,7 +505,8 @@ ON CONFLICT (index_name) DO UPDATE SET layout_version = EXCLUDED.layout_version,
             $indexes[$this->names->indexName($index, $suffix)] = $definition;
         }
         foreach ($index->filters as $filter) {
-            $indexes[$this->names->indexName($index, 'f_' . $filter->name)] = sprintf('(%s)', FilterCompiler::column($filter->name));
+            // a many filter holds the array of its values: "any of them" is containment, which a GIN index answers
+            $indexes[$this->names->indexName($index, 'f_' . $filter->name)] = sprintf($filter->many !== null ? 'USING gin (%s)' : '(%s)', FilterCompiler::column($filter->name));
         }
 
         return $indexes;
@@ -652,7 +659,7 @@ ON CONFLICT (index_name) DO UPDATE SET layout_version = EXCLUDED.layout_version,
         }
         foreach ($index->filters as $filter) {
             $columns[] = 'f_' . $filter->name;
-            $values[] = sprintf('doc.%s::%s', Sql::ident('flt_' . $filter->name), Types::filter($filter->type));
+            $values[] = sprintf('doc.%s::%s', Sql::ident('flt_' . $filter->name), $filter->many !== null ? 'text[]' : Types::filter($filter->type));
         }
         $columns[] = 'indexed_at';
         $values[] = 'now()';
@@ -687,7 +694,7 @@ ON CONFLICT (index_name) DO UPDATE SET layout_version = EXCLUDED.layout_version,
 
                     DELETE FROM %3$s AS s
                     WHERE s.id = ANY(p_ids)
-                      AND NOT EXISTS (SELECT 1 FROM (%6$s) AS doc WHERE doc.fz_id = s.id);%9$s
+                      AND NOT EXISTS (SELECT 1 FROM (%6$s) AS doc WHERE doc.fz_id = s.id);%9$s%11$s
 
                     RETURN written;
                 END
@@ -711,7 +718,73 @@ ON CONFLICT (index_name) DO UPDATE SET layout_version = EXCLUDED.layout_version,
                 $this->names->changes($index),
             ),
             $this->tsvectorExpression($index),
+            $index->manyFields() === [] ? '' : $this->valuesRefresh($index, $table),
         );
+    }
+
+    /**
+     * The values table part of the refresh function (an index with many fields only): the rows of the refreshed documents are
+     * deleted and written again, one row per value in DocumentSql::manyRows() order (`ord` counts from 0, the first `limit` values),
+     * for the documents the sidecar `$table` holds after the write. A rebuild's function (the shadow one) writes the same live
+     * values table: a document has one set of rows, whichever table is being built.
+     */
+    private function valuesRefresh(IndexDefinition $index, string $table): string
+    {
+        $parts = [];
+        foreach ($index->manyFields() as $field) {
+            $many = $field->many;
+            if ($many === null) {
+                continue;
+            }
+            $parts[] = sprintf(
+                "SELECT m.doc, %1\$s, m.ord, m.v, setweight(to_tsvector(%2\$s, m.v), '%3\$s'), %4\$s
+        FROM (SELECT c.%5\$s::%6\$s AS doc, c.%7\$s::text AS v, (row_number() OVER (PARTITION BY c.%5\$s ORDER BY c.%7\$s::text, c.%8\$s) - 1)::integer AS ord
+              FROM %9\$s AS c WHERE c.%5\$s = ANY(p_ids) AND c.%7\$s IS NOT NULL) AS m
+        WHERE m.ord < %10\$d AND EXISTS (SELECT 1 FROM %11\$s AS s WHERE s.id = m.doc)",
+                Sql::string($field->name),
+                $this->names->regconfig($index->text),
+                $field->weight->value,
+                $field->fuzzy ? sprintf('%s(m.v)', $this->names->normFunction()) : "''",
+                Sql::ident($many->key),
+                Types::id($index->idType),
+                Sql::ident($many->column),
+                Sql::ident($many->id),
+                Sql::ident($many->from),
+                $many->limit,
+                $table,
+            );
+        }
+
+        return sprintf(
+            "
+
+    DELETE FROM %1\$s WHERE doc = ANY(p_ids);
+    INSERT INTO %1\$s (doc, field, ord, v, t, z)
+        %2\$s;",
+            $this->names->values($index),
+            implode("
+        UNION ALL
+        ", $parts),
+        );
+    }
+
+    /** The values table of an index with several values per document: one row per value (see valuesRefresh()). */
+    private function valuesTable(IndexDefinition $index): Statement
+    {
+        return new Statement(sprintf(
+            "CREATE TABLE IF NOT EXISTS %s (
+    doc %s NOT NULL,
+    field text NOT NULL,
+    ord integer NOT NULL,
+    v text NOT NULL,
+    t tsvector NOT NULL,
+    z text NOT NULL DEFAULT '',
+    CONSTRAINT %s PRIMARY KEY (doc, field, ord)
+)",
+            $this->names->values($index),
+            Types::id($index->idType),
+            Sql::ident($this->names->valuesIndexName($index, 'pkey')),
+        ), sprintf('Values table of "%s": one row per value of its many fields (which value matched, highlight)', $index->name));
     }
 
     /**
@@ -850,7 +923,7 @@ ON CONFLICT (index_name) DO UPDATE SET layout_version = EXCLUDED.layout_version,
                     DROP TABLE %4$s;
                     ALTER TABLE %5$s RENAME TO %6$s;
                     ALTER TABLE %4$s RENAME CONSTRAINT %7$s TO %8$s;%9$s
-                    DROP TABLE %10$s;
+                    DROP TABLE %10$s;%11$s
                 END
                 %1$s
                 SQL,
@@ -864,6 +937,9 @@ ON CONFLICT (index_name) DO UPDATE SET layout_version = EXCLUDED.layout_version,
             Sql::ident($key),
             $renames,
             $this->names->changes($index),
+            // the values rows of a document the rebuild did not find any more (a rebuild writes the live values table as it goes)
+            $index->manyFields() === [] ? '' : sprintf("
+                    DELETE FROM %1\$s AS v WHERE NOT EXISTS (SELECT 1 FROM %2\$s AS s WHERE s.id = v.doc);", $this->names->values($index), $sidecar),
         );
     }
 
@@ -1013,6 +1089,9 @@ ON CONFLICT (index_name) DO UPDATE SET layout_version = EXCLUDED.layout_version,
         }
 
         $wipe = [$kind === null ? sprintf('DELETE FROM %s;', $sidecar) : sprintf('DELETE FROM %s WHERE kind = %s;', $sidecar, Sql::string($kind))];
+        if ($index->manyFields() !== []) {
+            $wipe[] = sprintf('DELETE FROM %s;', $this->names->values($index));
+        }
         if ($index->sync === SyncMode::Queue) {
             $wipe[] = sprintf(
                 // not while a full reindex runs: the worker refreshes those ids (which logs them), a

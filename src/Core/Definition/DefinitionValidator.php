@@ -99,6 +99,8 @@ final class DefinitionValidator
             }
         }
 
+        array_push($v, ...self::validateMany($index));
+
         array_push($v, ...$index->synonyms->violations());
 
         foreach (['boost' => $index->boostColumn, 'recency' => $index->recencyColumn] as $what => $column) {
@@ -120,6 +122,61 @@ final class DefinitionValidator
             }
             if ($profile->recency > 0.0 && $index->recencyColumn === null) {
                 $v[] = sprintf('Profile "%s" uses recency, but the index has no recency column. Call recencyBy("published_at") or set recency to 0.', $name);
+            }
+        }
+
+        return $v;
+    }
+
+    /** @return list<string> */
+    private static function validateMany(IndexDefinition $index): array
+    {
+        $v = [];
+        if (!$index->hasMany()) {
+            return $v;
+        }
+        if ($index->isMultiSource()) {
+            $v[] = 'Several values per document (many) are not supported in a multi-source index: declare the field without "many" in a single-source index, or fold the values into one column in each source (string_agg).';
+        }
+        $primary = $index->fields === [] ? null : $index->primaryField()->name;
+        $keys = [];
+        foreach ($index->fields as $field) {
+            if ($field->many === null) {
+                continue;
+            }
+            $what = sprintf('Field "%s"', $field->name);
+            array_push($v, ...$field->many->violations($what));
+            if ($field->column !== null) {
+                $v[] = $what . ': "column" and "many" are exclusive: the column of the values is many.column.';
+            }
+            if ($field->code) {
+                $v[] = $what . ': "code" cannot be combined with "many" (a code field is read as one value).';
+            }
+            if ($field->name === $primary) {
+                $v[] = $what . sprintf(' is the primary field (the first A-weighted field, else the first one; the exact and prefix bonuses read one value) and cannot be "many": give another field weight A%s.', $index->fields[0]->name === $field->name ? ' or put a single-valued field first' : '');
+            }
+            $keys[$field->many->from][$field->many->key] = true;
+        }
+        foreach ($index->filters as $filter) {
+            if ($filter->many === null) {
+                continue;
+            }
+            $what = sprintf('Filter "%s"', $filter->name);
+            array_push($v, ...$filter->many->violations($what));
+            if ($filter->column !== null) {
+                $v[] = $what . ': "column" and "many" are exclusive: the column of the values is many.column.';
+            }
+            if ($filter->type !== FilterType::String) {
+                $v[] = $what . sprintf(' is a %s filter: only string filters can take several values (many).', $filter->type->value);
+            }
+            if ($filter->name === $index->tenant) {
+                $v[] = $what . ' is the tenant filter and cannot take several values (a document belongs to one tenant).';
+            }
+            $keys[$filter->many->from][$filter->many->key] = true;
+        }
+        foreach ($keys as $table => $columns) {
+            if (count($columns) > 1) {
+                $v[] = sprintf('The child table "%s" is linked to the documents by different key columns (%s): one table has one key.', $table, implode(', ', array_keys($columns)));
             }
         }
 

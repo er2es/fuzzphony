@@ -151,18 +151,20 @@ final class IndexBuilder
         return $list;
     }
 
-    public function field(string $name, Weight|string $weight = Weight::B, bool $fuzzy = false, bool $highlight = true, ?string $column = null, ?string $granted = null, bool $code = false): self
+    /** @param ManyValues|array<array-key, mixed>|null $many the values come from a child table: ManyValues, or ['from' => ..., 'key' => ..., 'column' => ..., 'limit' => 50] */
+    public function field(string $name, Weight|string $weight = Weight::B, bool $fuzzy = false, bool $highlight = true, ?string $column = null, ?string $granted = null, bool $code = false, ManyValues|array|null $many = null): self
     {
         $weight = $weight instanceof Weight ? $weight : EnumOption::parse(Weight::class, strtoupper($weight), $this->name, 'weight', sprintf(' of field "%s"', $name));
-        $this->fields[] = new FieldDefinition($name, $weight, $fuzzy, $highlight, $column, $granted, $code);
+        $this->fields[] = new FieldDefinition($name, $weight, $fuzzy, $highlight, $column, $granted, $code, is_array($many) ? ManyValues::fromArray($this->name, sprintf('Field "%s"', $name), $many) : $many);
 
         return $this;
     }
 
-    public function filter(string $name, FilterType|string $type, ?string $column = null): self
+    /** @param ManyValues|array<array-key, mixed>|null $many see field() */
+    public function filter(string $name, FilterType|string $type, ?string $column = null, ManyValues|array|null $many = null): self
     {
         $type = $type instanceof FilterType ? $type : EnumOption::parse(FilterType::class, $type, $this->name, 'filter type', sprintf(' of filter "%s"', $name));
-        $this->filters[] = new FilterDefinition($name, $type, $column);
+        $this->filters[] = new FilterDefinition($name, $type, $column, is_array($many) ? ManyValues::fromArray($this->name, sprintf('Filter "%s"', $name), $many) : $many);
 
         return $this;
     }

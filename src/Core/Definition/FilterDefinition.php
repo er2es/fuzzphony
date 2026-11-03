@@ -11,6 +11,8 @@ final readonly class FilterDefinition
         public string $name,
         public FilterType $type,
         public ?string $column = null,
+        /** The values come from a child table (several per document, any of them matches); null = one value from the source row. */
+        public ?ManyValues $many = null,
     ) {}
 
     public function column(): string

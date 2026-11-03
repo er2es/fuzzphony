@@ -67,7 +67,14 @@ final readonly class MatchExplainer
             $queryRows[] = sprintf('(%s(%s), CAST(%s AS boolean), CAST(%s AS boolean), CAST(%s AS text))', $norm, $params->add($term['word']), $params->add($term['prefix'] ? 't' : 'f'), $params->add($term['synonym'] ? 't' : 'f'), $params->add($term['field']));
         }
         $fieldRows = [];
+        $manyRows = [];
         foreach ($fields as $ord => $name) {
+            if ($index->field($name)?->many !== null) {
+                // read value by value from the values table below, not as the joined text
+                $manyRows[] = sprintf('(%d, %s, CAST(%s AS boolean))', $ord, $params->add($name), $params->add($index->field($name)->fuzzy ? 't' : 'f'));
+
+                continue;
+            }
             $fieldRows[] = sprintf('(%d, %s, CAST(%s AS boolean), x.%s::text)', $ord, $params->add($name), $params->add($index->field($name)?->fuzzy === true ? 't' : 'f'), Sql::ident('fld_' . $name));
         }
         $typo = $typoEnabled
@@ -75,26 +82,43 @@ final readonly class MatchExplainer
             : 'false';
         $stem = sprintf('(length(to_tsvector(%1$s, t.token)) > 0 AND to_tsvector(%1$s, t.token) = to_tsvector(%1$s, q.w))', $config);
         $prefix = '(q.prefix AND left(t.token, char_length(q.w)) = q.w)';
-        $sql = sprintf(
-            "WITH q AS (SELECT * FROM (VALUES %s) AS v(w, prefix, synonym, field)),\n"
-            . "d AS (SELECT x.fz_id, f.ord, f.field, f.fuzzy, %s(left(coalesce(f.txt, ''), %d)) AS n FROM (%s) AS x CROSS JOIN LATERAL (VALUES %s) AS f(ord, field, fuzzy, txt) WHERE x.fz_id = ANY(CAST(%s AS %s[])))\n"
-            . "SELECT d.fz_id::text AS id, d.ord, t.pos, d.field, t.token, q.synonym, t.token = q.w AS is_exact, %s AS is_stem, %s AS is_prefix, %s(q.w, t.token) AS sim\n"
-            . "FROM d CROSS JOIN LATERAL unnest(string_to_array(d.n, ' ')) WITH ORDINALITY AS t(token, pos) JOIN q ON (q.field IS NULL OR q.field = d.field)\n"
-            . "WHERE t.token <> '' AND (t.token = q.w OR %s OR %s OR %s)\n"
-            . 'ORDER BY d.fz_id, d.ord, t.pos',
-            implode(', ', $queryRows),
+        $idList = fn(): string => sprintf('CAST(%s AS %s[])', $params->add(Sql::arrayLiteral($ids)), Types::id($index->idType));
+        $fromDocuments = sprintf(
+            "SELECT x.fz_id, f.ord, f.field, f.fuzzy, %s(left(coalesce(f.txt, ''), %d)) AS n%s FROM (%s) AS x CROSS JOIN LATERAL (VALUES %s) AS f(ord, field, fuzzy, txt) WHERE x.fz_id = ANY(%s)",
             $norm,
             self::MAX_CHARS,
+            $manyRows === [] ? '' : ', NULL::integer AS vord, NULL::text AS vtext',
             DocumentSql::select($index, $index->isMultiSource() ? sprintf('CAST(%s AS text[])', $params->add(Sql::arrayLiteral($ids))) : null),
-            implode(', ', $fieldRows),
-            $params->add(Sql::arrayLiteral($ids)),
-            Types::id($index->idType),
+            implode(', ', $fieldRows === [] ? ["(0, '', false, NULL::text)"] : $fieldRows),
+            $idList(),
+        );
+        // a many field is read value by value from the values table (its first `limit` values, in the order of the ranking text)
+        $d = $manyRows === [] ? $fromDocuments : sprintf(
+            "SELECT * FROM (%s AND f.field <> ''\n UNION ALL SELECT mv.doc, mf.ord, mv.field, mf.fuzzy, %s(left(mv.v, %d)), mv.ord, mv.v FROM %s AS mv JOIN (VALUES %s) AS mf(ord, field, fuzzy) ON mf.field = mv.field WHERE mv.doc = ANY(%s)) AS u",
+            $fromDocuments,
+            $norm,
+            self::MAX_CHARS,
+            $this->names->values($index),
+            implode(', ', $manyRows),
+            $idList(),
+        );
+        $sql = sprintf(
+            "WITH q AS (SELECT * FROM (VALUES %s) AS v(w, prefix, synonym, field)),\n"
+            . "d AS (%s)\n"
+            . "SELECT d.fz_id::text AS id, d.ord, t.pos, d.field, t.token, q.synonym, t.token = q.w AS is_exact, %s AS is_stem, %s AS is_prefix, %s(q.w, t.token) AS sim%s\n"
+            . "FROM d CROSS JOIN LATERAL unnest(string_to_array(d.n, ' ')) WITH ORDINALITY AS t(token, pos) JOIN q ON (q.field IS NULL OR q.field = d.field)\n"
+            . "WHERE t.token <> '' AND (t.token = q.w OR %s OR %s OR %s)\n"
+            . 'ORDER BY d.fz_id, d.ord, %st.pos',
+            implode(', ', $queryRows),
+            $d,
             $stem,
             $prefix,
             $similarity,
+            $manyRows === [] ? '' : ', d.vord, d.vtext',
             $stem,
             $prefix,
             $typo,
+            $manyRows === [] ? '' : 'd.vord, ',
         );
 
         $best = []; // id => "field|token" => [rank, MatchedWord, order]
@@ -115,7 +139,7 @@ final readonly class MatchExplainer
                 continue;
             }
             $order = $best[$id][$key][2] ?? count($best[$id] ?? []);
-            $best[$id][$key] = [$rank, new MatchedWord($field, $token, $via, $via === MatchedWord::TYPO ? round(Coerce::float($row['sim']), 3) : null), $order];
+            $best[$id][$key] = [$rank, new MatchedWord($field, $token, $via, $via === MatchedWord::TYPO ? round(Coerce::float($row['sim']), 3) : null, isset($row['vord']) ? Coerce::int($row['vord']) : null, isset($row['vtext']) ? Coerce::str($row['vtext']) : null), $order];
         }
 
         $out = [];

@@ -26,6 +26,8 @@ Fuzzphony supports that with **three roles** and prints the exact `GRANT` statem
 | the database | `CONNECT` | `CONNECT` | `CONNECT`; `CREATE` when `schema` is not `public` | `CREATE SCHEMA IF NOT EXISTS` is checked against the database even when the schema exists |
 | sidecar table | S | S I U D | owner | search reads; the refresh writes |
 | vocabulary table (fuzzy indexes) | S | S I U D | owner | "did you mean" reads it |
+| values table (indexes with a `many` field) | S | S I D | owner | the matched value and the highlight read it; the refresh rewrites a document's rows (`sync: trigger`: the role that writes the child table needs I D too) |
+| child tables of the `many` fields | - | S | S, `TRIGGER` | they are watched tables: the worker reads them, the admin creates their trigger |
 | `fuzzphony_queue` | - | S I U D | owner | the drain fills it, the batch takes from it and records failures |
 | `fuzzphony_watch_log` | I | S **U** D | owner | the shared trigger appends as the role that writes a watched table; the worker's `DELETE ... FOR UPDATE SKIP LOCKED` needs `UPDATE` too |
 | `fuzzphony_watches` | - | S, U on `cur_xid`, `bad_rows`, `bad_at` only | owner | each index's position in the log; the worker cannot rewrite which table an index watches (the admin trusts those names) |

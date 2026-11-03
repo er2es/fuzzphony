@@ -65,10 +65,10 @@ final class Fingerprint
         return [$index->source->table, $index->source->query, $index->source->idColumn];
     }
 
-    /** @return list<array{string, string, string, bool}|array{string, string, string, bool, true}> */
+    /** @return list<list<mixed>> */
     private static function fields(IndexDefinition $index): array
     {
-        return array_map(static fn(FieldDefinition $f): array => $f->code ? [$f->name, $f->column(), $f->weight->value, $f->fuzzy, true] : [$f->name, $f->column(), $f->weight->value, $f->fuzzy], $index->fields);
+        return array_map(static fn(FieldDefinition $f): array => $f->many !== null ? [$f->name, $f->column(), $f->weight->value, $f->fuzzy, $f->many->fingerprint()] : ($f->code ? [$f->name, $f->column(), $f->weight->value, $f->fuzzy, true] : [$f->name, $f->column(), $f->weight->value, $f->fuzzy]), $index->fields);
     }
 
     /**
@@ -109,10 +109,10 @@ final class Fingerprint
         return $index->returnable === [] ? [] : ['returnable' => $index->returnable];
     }
 
-    /** @return list<array{string, string, string}> */
+    /** @return list<list<mixed>> */
     private static function filters(IndexDefinition $index): array
     {
-        return array_map(static fn(FilterDefinition $f): array => [$f->name, $f->column(), $f->type->value], $index->filters);
+        return array_map(static fn(FilterDefinition $f): array => $f->many !== null ? [$f->name, $f->column(), $f->type->value, $f->many->fingerprint()] : [$f->name, $f->column(), $f->type->value], $index->filters);
     }
 
     /** @param array<string, mixed> $parts */

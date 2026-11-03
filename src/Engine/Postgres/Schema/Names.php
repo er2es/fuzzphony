@@ -199,6 +199,23 @@ final readonly class Names
         return $this->qualify($this->shadowName($index));
     }
 
+    /** The child table of an index with several values per document: one row per value (only for an index that declares `many`). */
+    public function valuesName(IndexDefinition $index): string
+    {
+        return self::limit($this->sidecarName($index) . '__values');
+    }
+
+    public function values(IndexDefinition $index): string
+    {
+        return $this->qualify($this->valuesName($index));
+    }
+
+    /** An index (or the primary key, `pkey`) of the values table. */
+    public function valuesIndexName(IndexDefinition $index, string $suffix): string
+    {
+        return self::limit($this->valuesName($index) . '_' . $suffix);
+    }
+
     /** The words of a fuzzy index and in how many documents each occurs: where "did you mean" (and later suggest()) read. */
     public function vocabularyName(IndexDefinition $index): string
     {

@@ -23,7 +23,7 @@ final class AttributeExporter
 {
     public function supports(IndexDefinition $index): bool
     {
-        return $index->source->table !== null && $index->watches === [] && $index->returnable === [] && !$this->hasProfilesOrThresholds($index);
+        return $index->source->table !== null && $index->watches === [] && $index->returnable === [] && !$index->hasMany() && !$this->hasProfilesOrThresholds($index);
     }
 
     private function hasProfilesOrThresholds(IndexDefinition $index): bool
@@ -41,7 +41,7 @@ final class AttributeExporter
     public function export(IndexDefinition $index, string $className = 'Product'): string
     {
         if (!$this->supports($index)) {
-            throw new InvalidArgument('Only table sources without extra watches, ranking profiles and thresholds can be expressed with attributes; export YAML instead.');
+            throw new InvalidArgument('Only table sources without extra watches, several values per document (many), ranking profiles and thresholds can be expressed with attributes; export YAML instead.');
         }
         $e = static fn(mixed $v): string => var_export($v, true);
 

@@ -25,15 +25,25 @@ final readonly class MatchedWord implements \JsonSerializable
         public string $word,
         public string $via,
         public ?float $similarity = null,
+        /** For a field with several values (many): the position (from 0) of the value the word was found in; else null. */
+        public ?int $valueOrd = null,
+        /** For a field with several values: that value as it is stored; else null. */
+        public ?string $value = null,
     ) {}
 
-    /** @return array{field: string, word: string, via: string, similarity: float|null} */
+    /** @return array{field: string, word: string, via: string, similarity: float|null, value_ord?: int, value?: string} */
     public function toArray(): array
     {
-        return ['field' => $this->field, 'word' => $this->word, 'via' => $this->via, 'similarity' => $this->similarity];
+        $array = ['field' => $this->field, 'word' => $this->word, 'via' => $this->via, 'similarity' => $this->similarity];
+        if ($this->valueOrd !== null && $this->value !== null) {
+            $array['value_ord'] = $this->valueOrd;
+            $array['value'] = $this->value;
+        }
+
+        return $array;
     }
 
-    /** @return array{field: string, word: string, via: string, similarity: float|null} */
+    /** @return array{field: string, word: string, via: string, similarity: float|null, value_ord?: int, value?: string} */
     public function jsonSerialize(): array
     {
         return $this->toArray();

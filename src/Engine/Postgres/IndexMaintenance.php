@@ -162,7 +162,17 @@ final readonly class IndexMaintenance
             DocumentSql::select($index),
         );
 
-        return $this->pruneBatches($index, $sql, $batchSize);
+        $removed = $this->pruneBatches($index, $sql, $batchSize);
+        if ($index->manyFields() !== []) {
+            // the values rows of the documents just removed (and of any that lost theirs some other way)
+            $this->guard->run('orphan pruning', fn(): int => $this->connection->execute(sprintf(
+                'DELETE FROM %1$s AS v WHERE NOT EXISTS (SELECT 1 FROM %2$s AS s WHERE s.id = v.doc)',
+                $this->names->values($index),
+                $sidecar,
+            )), Hints::SCHEMA_AND_DOCTOR);
+        }
+
+        return $removed;
     }
 
     /** @param \Closure(bool): string $sql the batch statement ($first: no keyset condition yet) */
