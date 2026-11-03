@@ -7,6 +7,7 @@ namespace Fuzzphony\Tests\Integration;
 use Fuzzphony\Core\Database\Connection;
 use Fuzzphony\Core\Definition\IndexDefinition;
 use Fuzzphony\Core\Fuzzphony;
+use Fuzzphony\Core\Inspection\CheckStatus;
 use Fuzzphony\Core\Registry\IndexRegistry;
 use Fuzzphony\Core\Support\Coerce;
 use Fuzzphony\Engine\Postgres\PostgresEngine;
@@ -185,6 +186,22 @@ final class ReleaseReviewTest extends TestCase
         self::assertSame(100000, $this->int("SELECT count(*) FROM fuzzphony_queue WHERE index_name = 'rr_a'"), 'every legitimate key is queued');
         self::assertSame(2, $this->int("SELECT bad_rows FROM fuzzphony_watches WHERE index_name = 'rr_a'"));
         self::assertLessThan(1.3 * $clean + 0.2, $forged, 'the key-by-key retry (a subtransaction per key) made the drain several times slower');
+    }
+
+    public function testTheDoctorFindsTheTriggersAndThePrimaryKeyOfAMixedCaseTable(): void
+    {
+        $this->connection->execute('DROP TABLE IF EXISTS "RrMix" CASCADE');
+        $this->connection->execute('CREATE TABLE "RrMix" (id int primary key, name text)');
+        $index = IndexDefinition::builder('rr_mix')->fromTable('public.RrMix')->field('name', 'A')->sync('queue')->build();
+        $fuzzphony = $this->fuzzphony($index);
+        $fuzzphony->reindex('rr_mix');
+
+        foreach ($fuzzphony->inspect('rr_mix')->checks as $check) {
+            if (str_contains($check->name, 'trigger') || str_contains($check->name, 'Source key') || str_contains($check->message, 'primary key')) {
+                self::assertContains($check->status, [CheckStatus::Ok, CheckStatus::Skipped], $check->name . ': ' . $check->message);
+            }
+        }
+        $this->connection->execute('DROP TABLE "RrMix" CASCADE');
     }
 
     public function testAForgedLogRowWithAKeyThatDoesNotCastIsSkippedAndCountedAndBlocksNothing(): void
