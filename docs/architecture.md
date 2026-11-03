@@ -115,6 +115,24 @@ is a guarded `DO` block in the index's plan that runs only while the stored layo
 records the shared objects (queue, normaliser, text configurations); the doctor's "Shared objects"
 check compares it.
 
+## Multi-source indexes: how it is stored
+
+An index with `sources:` (several SELECTs that share one set of fields) keeps the layout above; only the key changes, and only for
+such an index. A single-source index (the vast majority) is untouched: same columns, same statements, no migration.
+
+- The sidecar key `id` is **text** and holds a composite `<kind>:<id>` (`product:42`, `article:0b1d...`). A source name is a lowercase
+  identifier, so the first colon always ends the kind. Two plain columns, `kind` and `src_id` (the raw id as text), come with it, and a
+  secondary index on `kind`. Every statement of the engine keeps working on `s.id` (filters, facets, windows, ordering, highlight, the
+  restricted-viewer machinery); a hit gets `kind` from the column and `id` from `src_id`, converted by that source's `id_type`.
+- The document SELECT is a `UNION ALL` of one branch per source (`DocumentSql`), each aliasing the source's columns to the common fields
+  and building the composite id. A refresh by ids pushes the ids of each kind into its own branch (`WHERE id = ANY(...)` on the source's
+  own key), so a refresh of one document never scans another source.
+- Watches belong to a source (`Watch::$source`; the shared registry `fuzzphony_watches` has a `source` column). A change queues
+  composite keys; a TRUNCATE queues a rebuild of that source only (queue row `*:<kind>`); `fuzzphony:reindex <index> --source=<kind>`
+  rebuilds the rows of one kind in place; a full reindex builds all sources into the `__next` table and swaps as usual.
+- Queue and change-log tables carry the composite key as they carry any id. Ids are not unique across sources by construction, and a
+  source's own ids must be unique inside it (the refresh keeps one row per key, like for a single source).
+
 ## Why the combined vector is stored
 
 The sidecar row keeps the combined full-text vector `tsv` of all fields next to the per-field vectors (`t_<field>`). On the demo catalogue
