@@ -345,6 +345,10 @@ least-privilege matrix for the application (reads the index, no DDL), the worker
 `GRANT` statements for your tables, the `fuzzphony.connections` setting to use a separate user for each, and the doctor's privilege check. Every Fuzzphony
 function is `SECURITY INVOKER`: none runs with its owner's rights.
 
+`INSERT` on `fuzzphony_watch_log` is a trust boundary: the application role that writes the watched tables has it by design, so it
+can also write bogus log entries. Unusable keys are skipped and counted (the doctor reports them), forged TRUNCATE entries queue at most one
+full rebuild per index, and none of it can read or change a search result; see [Sync](sync.md#one-trigger-per-table-one-change-log).
+
 ## The limits, stated honestly
 
 The guarantee is about the content of the hidden fields. It is not row-level security, and it is not

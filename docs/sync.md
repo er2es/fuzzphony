@@ -61,6 +61,12 @@ needs the first `fuzzphony:reindex` as before).
 - An entry is read once its transaction has ended and every transaction that started earlier has too, so a
   transaction that commits late is never skipped. A long-running writing transaction (an import in one
   transaction, a forgotten `BEGIN` after a write) therefore delays the sync of every index until it ends.
+- `INSERT` on `fuzzphony_watch_log` is a trust boundary: the role that writes the watched tables must be trusted
+  with it (any role that can insert there can write keys and TRUNCATE entries). A key that does not fit the source
+  key (a forged or buggy writer) cannot stop the sync: the drain retries the batch key by key, skips the unusable
+  keys (they can never succeed) and counts them per watch in `fuzzphony_watches.bad_rows`; the doctor says "N log
+  row(s) for <table> could not be applied" (never the value). Forged TRUNCATE entries queue one full rebuild per
+  index at most (the queue holds a single `*` row per index).
 - Dropping an index (`fuzzphony:schema <index> --drop --apply`) removes its part only; the triggers and the log
   entries of a table go with the last index that watches it.
 - The role that writes to a watched table needs `INSERT` on `fuzzphony_watch_log` (the trigger runs as that role);

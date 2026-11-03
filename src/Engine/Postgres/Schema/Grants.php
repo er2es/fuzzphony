@@ -125,7 +125,7 @@ final readonly class Grants
             new Grant(Grant::TABLE, $n->watchLog(), ['SELECT', 'UPDATE', 'DELETE'], 'the shared change log: read, then trimmed (DELETE ... FOR UPDATE needs UPDATE too)'),
             new Grant(Grant::TABLE, $n->watches(), ['SELECT'], 'who watches which table'),
             // a column privilege only: the admin trusts the stored table names, so the worker must not be able to rewrite them (FOR UPDATE needs UPDATE on one column)
-            new Grant(Grant::TABLE, $n->watches(), ['UPDATE'], 'each index\'s position in the log (cur_xid, nothing else)', false, ['cur_xid']),
+            new Grant(Grant::TABLE, $n->watches(), ['UPDATE'], 'each index\'s position in the log (cur_xid) and the count of log rows it skipped; nothing else', false, ['cur_xid', 'bad_rows', 'bad_at']),
             new Grant(Grant::TABLE, $n->meta(), ['SELECT', 'UPDATE'], 'the record of a failed full rebuild'),
         ];
         foreach ($indexes as $index) {

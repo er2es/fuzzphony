@@ -692,7 +692,36 @@ final class PostgresInspector
             )];
         }
 
+        $skipped = $this->skippedLogRows($index);
+        if ($skipped !== null) {
+            return [Check::warning(
+                'Shared change log',
+                $skipped,
+                'someone with INSERT on the change log wrote keys that do not fit the source key (a forged or buggy writer): the rows were skipped, the sync goes on; find the writer (docs/sync.md)',
+            )];
+        }
+
         return [Check::ok('Shared change log', sprintf('%d watch(es) registered', count($index->effectiveWatches())))];
+    }
+
+    /** "N log rows could not be applied ..." (counts and the table, never a key value); null when none, or on a schema without the counter. */
+    private function skippedLogRows(IndexDefinition $index): ?string
+    {
+        if ($this->connection->fetchValue("SELECT EXISTS (SELECT 1 FROM pg_attribute WHERE attrelid = to_regclass(:watches) AND attname = 'bad_rows' AND NOT attisdropped)", ['watches' => $this->names->watches()]) !== true) {
+            return null;
+        }
+        $rows = $this->connection->fetchAll(
+            sprintf('SELECT tbl, bad_rows, bad_at FROM %s WHERE index_name = :index AND bad_rows > 0 ORDER BY watch_no', $this->names->watches()),
+            ['index' => $index->name],
+        );
+        if ($rows === []) {
+            return null;
+        }
+
+        return implode('; ', array_map(
+            static fn(array $row): string => sprintf('%d log row(s) for %s could not be applied (last at %s) and were skipped', Coerce::int($row['bad_rows']), Coerce::str($row['tbl']), Coerce::str($row['bad_at'])),
+            $rows,
+        ));
     }
 
     private function queue(IndexDefinition $index, InspectOptions $options): Check

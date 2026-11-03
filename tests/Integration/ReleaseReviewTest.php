@@ -29,6 +29,7 @@ final class ReleaseReviewTest extends TestCase
             self::markTestSkipped('The connection user cannot create roles.');
         }
         $this->engine = new PostgresEngine($this->connection);
+        $this->cleanLog();
         $this->connection->execute('DROP TABLE IF EXISTS rr_x, rr_orders, rr_y, rr_bad CASCADE');
         $this->connection->execute('DROP SCHEMA IF EXISTS rr CASCADE');
         $this->role = 'fz_rr_worker_' . getmypid();
@@ -42,10 +43,20 @@ final class ReleaseReviewTest extends TestCase
             return;
         }
         $this->connection->execute('RESET ROLE');
+        $this->cleanLog();
         $this->connection->execute('DROP OWNED BY ' . $this->role);
         $this->connection->execute('DROP ROLE ' . $this->role);
         $this->connection->execute('DROP TABLE IF EXISTS rr_x, rr_orders, rr_y, rr_bad CASCADE');
         $this->connection->execute('DROP SCHEMA IF EXISTS rr CASCADE');
+    }
+
+    private function cleanLog(): void
+    {
+        foreach (['fuzzphony_watch_log', 'fuzzphony_queue'] as $table) {
+            if ($this->connection->fetchValue('SELECT to_regclass(:t) IS NOT NULL', ['t' => $table]) === true) {
+                $this->connection->execute('DELETE FROM ' . $table);
+            }
+        }
     }
 
     private function fuzzphony(IndexDefinition ...$indexes): Fuzzphony
@@ -149,5 +160,50 @@ final class ReleaseReviewTest extends TestCase
         foreach ($fuzzphony->inspect('rr_a')->checks as $check) {
             self::assertStringNotContainsString('4111111111111111', $check->message);
         }
+    }
+
+    public function testAForgedLogRowWithAKeyThatDoesNotCastIsSkippedAndCountedAndBlocksNothing(): void
+    {
+        $this->connection->execute('CREATE TABLE rr_x (id int primary key, name text)');
+        $this->connection->execute("INSERT INTO rr_x VALUES (1, 'alpha'), (2, 'gamma')");
+        $index = $this->index('rr_a', 'rr_x');
+        $fuzzphony = $this->fuzzphony($index);
+        $fuzzphony->reindex('rr_a');
+        // the search/application role has INSERT on the log by design: it writes a key the source cannot cast
+        $this->connection->execute("INSERT INTO fuzzphony_watch_log (tbl, xid, op, key_column, key) VALUES ('\"rr_x\"', pg_current_xact_id()::text::bigint, 'I', 'id', 'not-an-int')");
+        $this->connection->execute("UPDATE rr_x SET name = 'betamax' WHERE id = 1");
+
+        $worker = new \Fuzzphony\Core\Sync\Worker($this->engine);
+        self::assertSame(1, $worker->runOnce([$index]), 'the real change is applied');
+        self::assertSame(1, $fuzzphony->in('rr_a')->query('betamax')->get()->total);
+        self::assertSame(1, $this->int("SELECT bad_rows FROM fuzzphony_watches WHERE index_name = 'rr_a'"));
+
+        $message = '';
+        foreach ($fuzzphony->inspect('rr_a')->checks as $check) {
+            $message .= $check->message . "\n";
+        }
+        self::assertStringContainsString('1 log row(s) for "rr_x" could not be applied', $message);
+        self::assertStringNotContainsString('not-an-int', $message);
+
+        // the sync keeps working afterwards
+        $this->connection->execute("UPDATE rr_x SET name = 'zetamax' WHERE id = 2");
+        self::assertSame(1, $worker->runOnce([$index]));
+        self::assertSame(1, $fuzzphony->in('rr_a')->query('zetamax')->get()->total);
+    }
+
+    public function testManyForgedTruncateRowsQueueOneRebuildNotOnePerRow(): void
+    {
+        $this->connection->execute('CREATE TABLE rr_x (id int primary key, name text)');
+        $this->connection->execute("INSERT INTO rr_x VALUES (1, 'alpha')");
+        $index = $this->index('rr_a', 'rr_x');
+        $fuzzphony = $this->fuzzphony($index);
+        $fuzzphony->reindex('rr_a');
+        for ($i = 0; $i < 20; ++$i) {
+            $this->connection->execute("INSERT INTO fuzzphony_watch_log (tbl, xid, op, key_column) VALUES ('\"rr_x\"', pg_current_xact_id()::text::bigint, 'T', '')");
+        }
+
+        $this->connection->fetchValue('SELECT fuzzphony_drain_rr_a()');
+
+        self::assertSame(1, $this->int("SELECT count(*) FROM fuzzphony_queue WHERE index_name = 'rr_a' AND doc_id = '*'"), 'one pending full rebuild, however many rows asked for it');
     }
 }
