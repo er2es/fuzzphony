@@ -33,4 +33,7 @@ interface Connection
      * @return T
      */
     public function transactional(callable $callback): mixed;
+
+    /** True when a transaction is already open on this connection (the caller's, not one Fuzzphony itself is about to start). */
+    public function inTransaction(): bool;
 }

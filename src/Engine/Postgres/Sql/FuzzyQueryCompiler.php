@@ -100,9 +100,6 @@ final class FuzzyQueryCompiler
      * @param bool              $transpositions a typed word of 4 to 15 letters also matches, as a whole word of a typo-tolerant
      *                                          field, with two neighbouring letters swapped (see Transpositions); off keeps
      *                                          every statement as it was
-     * @param (\Closure(): bool)|null $cappedColumn asked (only when a phrase or a scoped word of an unrestricted viewer on an index with several fields
-     *                                          is compiled) whether the sidecar has the tsv_capped column; null or false: it has not, and
-     *                                          the later fields' vectors are read for every document that `tsv` does not match
      * @param (\Closure(): bool)|null $openClass asked (only for a restricted viewer who holds none of the index's granted fields) whether the
      *                                          open-class indexes exist, are valid and each is smaller than the one it replaces; null or false: the lookups
      *                                          stay on `fz` and `tsv`
@@ -115,7 +112,6 @@ final class FuzzyQueryCompiler
         private readonly array $candidates = [],
         ?array $allowedFields = null,
         private readonly bool $transpositions = false,
-        private readonly ?\Closure $cappedColumn = null,
         /** @var (\Closure(): bool)|null whether the open-class indexes may serve a restricted viewer's lookups (TextConfigCache::openClass()); null: they may not */
         private readonly ?\Closure $openClass = null,
     ) {
@@ -150,7 +146,7 @@ final class FuzzyQueryCompiler
             }
             $params = new ParameterBag();
             $norm = sprintf('%s(%s)', $this->names->normFunction(), $params->add($needle));
-            $threshold = $this->thresholds->fuzzySimilarity === null ? self::similaritySql($norm, $this->isPrefix($leaf)) : null;
+            $threshold = $this->thresholds->typo->similarity === null ? self::similaritySql($norm, $this->isPrefix($leaf)) : null;
             $where = $this->trigram($leaf, $norm, $threshold)['condition'];
             if (($this->variants[$key] ?? []) !== []) {
                 // the swapped-letter variants are found in the same probe: one more way for a document to be a candidate of this word
@@ -270,8 +266,8 @@ final class FuzzyQueryCompiler
     {
         $hides = $this->hidesTypoTolerantText();
         $length = self::length($needle) - ($hides && $this->isPrefix($leaf) ? 1 : 0);
-        if ($this->thresholds->fuzzySimilarity !== null) {
-            return $this->thresholds->fuzzySimilarity;
+        if ($this->thresholds->typo->similarity !== null) {
+            return $this->thresholds->typo->similarity;
         }
         $ascii = preg_match('/^[ -~]*$/', $needle) === 1;
         // a restricted viewer: the length after normalisation can be anything a non-ASCII letter folds to (a double s, a ligature), and a lookup
@@ -533,7 +529,7 @@ final class FuzzyQueryCompiler
         // "<%" uses the session's similarity (the lowest any word of the statement needs, so GIN finds every
         // candidate). By default each word is also rechecked against the similarity of its own length, which
         // PostgreSQL measures on the normalised word (q.th<n>); a word below it does not score either.
-        $threshold = $this->thresholds->fuzzySimilarity === null
+        $threshold = $this->thresholds->typo->similarity === null
             ? $this->column('th', self::similaritySql(sprintf('%s(%s)', $this->names->normFunction(), $params->add($needle)), $this->isPrefix($node)))
             : null;
         $trigram = $this->trigram($node, $norm, $threshold);
@@ -552,7 +548,7 @@ final class FuzzyQueryCompiler
             // ordinary typo match of the word; a candidate id list (probes()) already holds the documents it finds.
             $variants = $this->column('tv', $this->variantQuery($params->add($this->variantsTsquery($this->variants[$key]))));
             $match = $this->variantMatch($node, static fn(): string => $variants);
-            $scores[] = sprintf('CASE WHEN %s THEN %s ELSE 0.0 END', $match, $threshold ?? Sql::float((float) $this->thresholds->fuzzySimilarity));
+            $scores[] = sprintf('CASE WHEN %s THEN %s ELSE 0.0 END', $match, $threshold ?? Sql::float((float) $this->thresholds->typo->similarity));
             if ($ids === null) {
                 $predicates[] = $match;
             }
@@ -666,7 +662,7 @@ final class FuzzyQueryCompiler
             $similarity = count($similarities) === 1 ? $similarities[0] : 'GREATEST(' . implode(', ', $similarities) . ')';
 
             return [
-                'condition' => sprintf('(%s OPERATOR(%s.<%%) %s AND %s >= %s)', $norm, $schema, $this->trigramColumn(), $similarity, $threshold ?? Sql::float((float) $this->thresholds->fuzzySimilarity)),
+                'condition' => sprintf('(%s OPERATOR(%s.<%%) %s AND %s >= %s)', $norm, $schema, $this->trigramColumn(), $similarity, $threshold ?? Sql::float((float) $this->thresholds->typo->similarity)),
                 'similarity' => $similarity,
             ];
         }
@@ -752,7 +748,7 @@ final class FuzzyQueryCompiler
             return null; // no field the viewer may see is typo-tolerant (for a scoped word: its own field)
         }
 
-        return $this->index->hasFuzzy() && ($field === null || $field->fuzzy) && self::length($needle) >= $this->thresholds->fuzzyMinLength ? $needle : null;
+        return $this->index->hasFuzzy() && ($field === null || $field->fuzzy) && self::length($needle) >= $this->thresholds->typo->minLength ? $needle : null;
     }
 
     /**
@@ -832,25 +828,20 @@ final class FuzzyQueryCompiler
             if ($field !== null) {
                 return sprintf('(s.tsv @@ %s AND s.%s @@ %s)', $lookup, $this->names->fieldVector($field->name), $query);
             }
-            $later = array_map(static fn(string $vector): string => sprintf('(%s) @@ %s', $vector, $query), $this->names->laterVectors($this->index));
-            if ($this->cappedColumn !== null && ($this->cappedColumn)()) {
-                // The later fields' vectors are read only for a document whose tsv was capped (or not known to be: NULL), which is
-                // rare: the phrase on tsv, the statement's old cost, decides for every other. They are read by a subquery on the
-                // document's own row, not as columns of the scanned one: PostgreSQL fetches every column an expression names from
-                // the scanned row before it evaluates anything, which for the last fields of a wide index costs more than the phrase.
-                $own = array_map(fn(string $vector): string => sprintf('(%s) @@ %s', $vector, $query), $this->names->laterVectors($this->index, 'c'));
+            // The later fields' vectors are read only for a document whose tsv was capped (or not known to be: NULL), which is
+            // rare: the phrase on tsv, the statement's old cost, decides for every other. They are read by a subquery on the
+            // document's own row, not as columns of the scanned one: PostgreSQL fetches every column an expression names from
+            // the scanned row before it evaluates anything, which for the last fields of a wide index costs more than the phrase.
+            $own = array_map(fn(string $vector): string => sprintf('(%s) @@ %s', $vector, $query), $this->names->laterVectors($this->index, 'c'));
 
-                return sprintf(
-                    '(s.tsv @@ %s AND (s.tsv @@ %s OR (s.%s IS NOT FALSE AND EXISTS (SELECT 1 FROM %s AS c WHERE c.id = s.id AND (%s)))))',
-                    $lookup,
-                    $query,
-                    PostgresSchemaGenerator::CAPPED_COLUMN,
-                    $this->names->sidecar($this->index),
-                    implode(' OR ', $own),
-                );
-            }
-
-            return sprintf('(s.tsv @@ %s AND (%s))', $lookup, implode(' OR ', ['s.tsv @@ ' . $query, ...$later]));
+            return sprintf(
+                '(s.tsv @@ %s AND (s.tsv @@ %s OR (s.%s IS NOT FALSE AND EXISTS (SELECT 1 FROM %s AS c WHERE c.id = s.id AND (%s)))))',
+                $lookup,
+                $query,
+                PostgresSchemaGenerator::CAPPED_COLUMN,
+                $this->names->sidecar($this->index),
+                implode(' OR ', $own),
+            );
         }
 
         return $field === null

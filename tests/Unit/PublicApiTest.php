@@ -15,14 +15,10 @@ final class PublicApiTest extends TestCase
     private const array PUBLIC = [
         \Fuzzphony\Bridge\Doctrine\DbalConnection::class,
         \Fuzzphony\Bridge\Doctrine\EntityLoader::class,
-        \Fuzzphony\Bridge\Doctrine\OrmSyncListener::class,
         \Fuzzphony\Bundle\ApiPlatform\FuzzphonySearchFilter::class,
         \Fuzzphony\Bundle\FuzzphonyBundle::class,
-        \Fuzzphony\Bundle\Messenger\RefreshDocuments::class,
-        \Fuzzphony\Bundle\Twig\SearchComponent::class,
         \Fuzzphony\Core\Analytics\IpMode::class,
         \Fuzzphony\Core\Analytics\LoggedSearch::class,
-        \Fuzzphony\Core\Analytics\PatternQueryRedactor::class,
         \Fuzzphony\Core\Analytics\QueryRedactor::class,
         \Fuzzphony\Core\Analytics\QueryStat::class,
         \Fuzzphony\Core\Analytics\RecordStatus::class,
@@ -34,7 +30,6 @@ final class PublicApiTest extends TestCase
         \Fuzzphony\Core\Attribute\Searchable::class,
         \Fuzzphony\Core\Database\Connection::class,
         \Fuzzphony\Core\Database\PdoConnection::class,
-        \Fuzzphony\Core\Database\TransactionAware::class,
         \Fuzzphony\Core\Definition\FieldDefinition::class,
         \Fuzzphony\Core\Definition\FilterDefinition::class,
         \Fuzzphony\Core\Definition\FilterType::class,
@@ -43,19 +38,11 @@ final class PublicApiTest extends TestCase
         \Fuzzphony\Core\Definition\IndexDefinition::class,
         \Fuzzphony\Core\Definition\Source::class,
         \Fuzzphony\Core\Definition\SyncMode::class,
+        \Fuzzphony\Core\Definition\Synonyms::class,
         \Fuzzphony\Core\Definition\TextConfig::class,
         \Fuzzphony\Core\Definition\TriggerLevel::class,
         \Fuzzphony\Core\Definition\Watch::class,
-        \Fuzzphony\Core\Definition\Synonyms::class,
         \Fuzzphony\Core\Definition\Weight::class,
-        \Fuzzphony\Core\Engine\Capabilities::class,
-        \Fuzzphony\Core\Engine\Capability::class,
-        \Fuzzphony\Core\Engine\RecentSearchStore::class,
-        \Fuzzphony\Core\Engine\SearchLogStore::class,
-        \Fuzzphony\Core\Engine\Suggestions::class,
-        \Fuzzphony\Core\Engine\SynonymStems::class,
-        \Fuzzphony\Core\Engine\Vocabulary::class,
-        \Fuzzphony\Core\Engine\Engine::class,
         \Fuzzphony\Core\Exception\AccessDenied::class,
         \Fuzzphony\Core\Exception\ActorRequired::class,
         \Fuzzphony\Core\Exception\EngineFailure::class,
@@ -66,6 +53,7 @@ final class PublicApiTest extends TestCase
         \Fuzzphony\Core\Exception\InvalidQuery::class,
         \Fuzzphony\Core\Exception\RateLimited::class,
         \Fuzzphony\Core\Exception\RebuildAlreadyRunning::class,
+        \Fuzzphony\Core\Exception\SchemaNotApplied::class,
         \Fuzzphony\Core\Exception\SearchRefused::class,
         \Fuzzphony\Core\Exception\UnknownIndex::class,
         \Fuzzphony\Core\Fuzzphony::class,
@@ -73,16 +61,14 @@ final class PublicApiTest extends TestCase
         \Fuzzphony\Core\Inspection\CheckStatus::class,
         \Fuzzphony\Core\Inspection\InspectOptions::class,
         \Fuzzphony\Core\Inspection\InspectionReport::class,
-        \Fuzzphony\Core\Observability\LoggingMetricsCollector::class,
         \Fuzzphony\Core\Observability\MetricsCollector::class,
-        \Fuzzphony\Core\Observability\NullMetricsCollector::class,
-        \Fuzzphony\Core\Query\Filter\Condition::class,
-        \Fuzzphony\Core\Query\Filter\Operator::class,
-        \Fuzzphony\Core\Query\SearchQuery::class,
         \Fuzzphony\Core\Ranking\FuzzyMode::class,
+        \Fuzzphony\Core\Ranking\LimitThresholds::class,
         \Fuzzphony\Core\Ranking\RankingProfile::class,
+        \Fuzzphony\Core\Ranking\RelevanceThresholds::class,
+        \Fuzzphony\Core\Ranking\RescueThresholds::class,
         \Fuzzphony\Core\Ranking\Thresholds::class,
-        \Fuzzphony\Core\Registry\IndexRegistry::class,
+        \Fuzzphony\Core\Ranking\TypoThresholds::class,
         \Fuzzphony\Core\Schema\SchemaPlan::class,
         \Fuzzphony\Core\Schema\Statement::class,
         \Fuzzphony\Core\Search\Access::class,
@@ -90,31 +76,20 @@ final class PublicApiTest extends TestCase
         \Fuzzphony\Core\Search\ActorResolver::class,
         \Fuzzphony\Core\Search\Explanation::class,
         \Fuzzphony\Core\Search\FacetValue::class,
-        \Fuzzphony\Core\Search\FederatedHit::class,
         \Fuzzphony\Core\Search\FederatedResult::class,
         \Fuzzphony\Core\Search\FederatedSearch::class,
         \Fuzzphony\Core\Search\Hit::class,
+        \Fuzzphony\Core\Search\MatchedWord::class,
         \Fuzzphony\Core\Search\ScoreBreakdown::class,
         \Fuzzphony\Core\Search\SearchBuilder::class,
-        \Fuzzphony\Core\Search\SearchGate::class,
         \Fuzzphony\Core\Search\SearchGuard::class,
+        \Fuzzphony\Core\Search\FieldRestrictingGuard::class,
         \Fuzzphony\Core\Search\SearchResult::class,
-        \Fuzzphony\Core\Sync\ImmediateRefreshDispatcher::class,
-        \Fuzzphony\Core\Sync\RefreshDispatcher::class,
         \Fuzzphony\Core\Sync\ReindexOptions::class,
         \Fuzzphony\Core\Sync\ReindexResult::class,
-        \Fuzzphony\Core\Wizard\ColumnKind::class,
-        \Fuzzphony\Core\Wizard\ColumnProfile::class,
         \Fuzzphony\Core\Wizard\Decision::class,
-        \Fuzzphony\Core\Wizard\DefinitionSuggester::class,
-        \Fuzzphony\Core\Wizard\Export\AttributeExporter::class,
-        \Fuzzphony\Core\Wizard\Export\BuilderExporter::class,
-        \Fuzzphony\Core\Wizard\Export\YamlExporter::class,
-        \Fuzzphony\Core\Wizard\ForeignKey::class,
-        \Fuzzphony\Core\Wizard\SourceIntrospector::class,
         \Fuzzphony\Core\Wizard\Suggestion::class,
-        \Fuzzphony\Core\Wizard\TableProfile::class,
-        \Fuzzphony\Engine\Postgres\PostgresEngine::class,
+        \Fuzzphony\Core\Wizard\Wizard::class,
     ];
 
     /** Source directory => namespace, as in composer.json's autoload. */
@@ -138,8 +113,8 @@ final class PublicApiTest extends TestCase
         }
 
         self::assertSame([], $wrong);
-        self::assertCount(102, self::PUBLIC);
-        self::assertCount(200, self::classes());
+        self::assertCount(77, self::PUBLIC);
+        self::assertCount(209, self::classes());
     }
 
     public function testThePublicApiExposesNoInternalType(): void
@@ -170,7 +145,7 @@ final class PublicApiTest extends TestCase
     {
         $method = new \ReflectionMethod(\Fuzzphony\Core\Fuzzphony::class, 'engine');
 
-        self::assertSame([], self::internalTypes($method->getReturnType(), 'engine'), 'Engine is public API');
+        self::assertSame(['engine: Fuzzphony\Core\Engine\Engine'], self::internalTypes($method->getReturnType(), 'engine'), 'Engine is @internal');
         self::assertSame(
             ['x: Fuzzphony\Core\Support\Coerce'],
             self::internalTypes((new \ReflectionFunction(static fn(\Fuzzphony\Core\Support\Coerce|int|null $c): null => null))->getParameters()[0]->getType(), 'x'),

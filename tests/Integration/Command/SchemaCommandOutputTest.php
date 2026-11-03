@@ -40,20 +40,15 @@ final class SchemaCommandOutputTest extends TestCase
         self::assertMatchesRegularExpression(sprintf('/ %1$d\/%1$d \[[^\]]+\] 100%%/', $count), $display, 'the bar ends complete');
     }
 
-    public function testAddingAColumnToATableThatWasThereAsksForARestartOfTheLongRunningProcesses(): void
+    public function testAddingAColumnNeedsNoRestartOfTheLongRunningProcesses(): void
     {
         $this->tester->execute(['--apply' => true], ['interactive' => false]);
-        self::assertStringNotContainsString('restart', $this->tester->getDisplay(true), 'a fresh install has no process that knows the tables');
-
-        $this->tester->execute(['--apply' => true], ['interactive' => false]);
-        self::assertStringNotContainsString('restart', $this->tester->getDisplay(true), 'nothing was added');
-
         $this->context->connection->execute('ALTER TABLE fuzzphony_products DROP COLUMN tsv_capped');
+
         $status = $this->tester->execute(['--apply' => true], ['interactive' => false]);
-        $display = preg_replace('/\s+/', ' ', $this->tester->getDisplay(true)) ?? '';
-        self::assertSame(Command::SUCCESS, $status, $display);
-        self::assertStringContainsString('restart long-running processes (Messenger workers, RoadRunner, FrankenPHP)', $display);
-        self::assertStringContainsString('resetCaches()', $display);
+
+        self::assertSame(Command::SUCCESS, $status);
+        self::assertStringNotContainsString('restart', $this->tester->getDisplay(true), 'no column is looked up once per process any more: only the open-class indexes are');
     }
 
     public function testDumpMigrationNamesTheFileAndTheClassAfterTheTimeAndSaysWhereItWentWithoutPrintingTheSql(): void
@@ -71,9 +66,10 @@ final class SchemaCommandOutputTest extends TestCase
         self::assertIsString($contents);
         self::assertStringContainsString('namespace App\\Migrations;', $contents);
         self::assertStringContainsString(sprintf('final class %s extends AbstractMigration', $class), $contents);
+        // SymfonyStyle::success() word-wraps its block at the terminal width and may break inside the long path: compare without whitespace
         self::assertStringContainsString(
-            sprintf('Migration written to %s (non-transactional, because indexes are built concurrently).', $files[0]),
-            preg_replace('/\s+/', ' ', $display) ?? '',
+            (string) preg_replace('/\s+/', '', sprintf('Migration written to %s (non-transactional, because indexes are built concurrently).', $files[0])),
+            (string) preg_replace('/\s+/', '', $display),
         );
         self::assertStringNotContainsString('Nothing was executed', $display, 'the SQL is neither printed nor hinted at');
         self::assertStringNotContainsString('CREATE', $display);

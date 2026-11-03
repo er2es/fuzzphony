@@ -8,7 +8,7 @@ use Fuzzphony\Core\Definition\DefinitionValidator;
 use Fuzzphony\Core\Definition\IndexDefinition;
 use Fuzzphony\Core\Exception\UnknownIndex;
 
-/** Looks indexes up by name or by entity class. */
+/** @internal Looks indexes up by name or by entity class. */
 final class IndexRegistry
 {
     /** @var array<string, IndexDefinition> */

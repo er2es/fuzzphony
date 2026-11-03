@@ -32,7 +32,7 @@ final class LanguagesController extends AbstractController
         $federatedNames = [];
         if ($q !== '') {
             try {
-                $result = $fuzzphony->in($language['index'])->query($q)->highlight('name', 'description')->limit(30)->get();
+                $result = $fuzzphony->in($language['index'])->asSystem()->query($q)->highlight('name', 'description')->limit(30)->get();
             } catch (FuzzphonyException $e) {
                 $error = $e->getMessage();
             }
@@ -44,13 +44,13 @@ final class LanguagesController extends AbstractController
 
             // the same text over all five languages at once, merged by rank (federated search)
             try {
-                $search = $fuzzphony->federated();
+                $search = $fuzzphony->federated()->asSystem();
                 foreach (Languages::LANGUAGES as $other) {
                     $search = $search->index($other['index']);
                 }
                 $federated = $search->query($q)->limit(10)->get();
                 foreach (Languages::LANGUAGES as $otherCode => $other) {
-                    if (array_any($federated->hits, static fn ($h): bool => $h->index === $other['index'])) {
+                    if (array_any($federated->hits, static fn ($h): bool => $h->kind === $other['index'])) {
                         foreach ($languages->products($otherCode) as $id => $product) {
                             $federatedNames[$other['index']][$id] = $product['name'];
                         }

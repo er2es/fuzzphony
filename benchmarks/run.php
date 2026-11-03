@@ -19,9 +19,7 @@ require $argv[0] === __FILE__ && is_file(__DIR__ . '/../vendor/autoload.php') ? 
 use Fuzzphony\Core\Database\PdoConnection;
 use Fuzzphony\Core\Definition\IndexDefinition;
 use Fuzzphony\Core\Fuzzphony;
-use Fuzzphony\Core\Registry\IndexRegistry;
 use Fuzzphony\Core\Sync\ReindexOptions;
-use Fuzzphony\Engine\Postgres\PostgresEngine;
 
 $dsn = getenv('FUZZPHONY_BENCH_DSN') ?: exit("Set FUZZPHONY_BENCH_DSN.\n");
 
@@ -83,7 +81,7 @@ $granted = IndexDefinition::builder('bench_granted')
     ->filter('price', 'int')
     ->filter('in_stock', 'bool')
     ->build();
-$fuzzphony = new Fuzzphony(new PostgresEngine($connection), new IndexRegistry([$index, $long, $granted]));
+$fuzzphony = Fuzzphony::postgres($connection, [$index, $long, $granted]);
 
 if (in_array('--setup', $argv, true) || in_array('--setup-only', $argv, true)) {
     $t = microtime(true);

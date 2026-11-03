@@ -104,7 +104,8 @@ companies ([`sql/demo_note.sql`](sql/demo_note.sql)). Choose who is searching (A
 session; a first visit is Ada) and search the same words: the company is the tenant, `ROLE_USER` may search at all, the `confidential` field
 needs `ROLE_HR`, and a viewer may search five times in 10 seconds (the sixth shows a countdown). The refusals are answers of the page, not
 error pages. The guards come from `fuzzphony.actor`, `fuzzphony.authorization` and `fuzzphony.rate_limit` in
-[`config/packages/fuzzphony.yaml`](config/packages/fuzzphony.yaml); only this page searches `->asActor()`. The viewers are shared by everyone who
+[`config/packages/fuzzphony.yaml`](config/packages/fuzzphony.yaml); this page's search names no actor, so it is made as the signed-in viewer; every other page of the demo
+says `->asSystem()` (the catalogue is public data). "Compare the calls" runs the same words as `asActor(Ada)`, `asActor(anonymous)` and `asSystem()` next to it. The viewers are shared by everyone who
 uses the demo, so the five searches are too (`?reset=1` forgets them: demo only).
 
 The search boxes of the catalogue, the Languages, Relevance, Synonyms and Observability pages have the dropdown while you type
@@ -147,8 +148,8 @@ The Languages page searches a separate, hand-written catalogue ([`sql/lang_produ
 in the same file, each with its own `language:` (stemming, stop words) and accent folding.
 
 Try the sync: change a brand name in psql (`docker compose exec db psql -U fuzzphony -c "UPDATE bench_brand SET name = 'Zebra' WHERE id = 1"`)
-and search for `zebra` a second later: the statement-level trigger queued every product of that
-brand, and the `worker` service refreshed them (`docker compose logs worker`).
+and search for `zebra` a second later: the statement-level trigger logged the brand, the `worker` service
+queued every product of that brand and refreshed them (`docker compose logs worker`).
 
 Try a zero-downtime rebuild: `DEMO_REINDEX=always docker compose run --rm init` rebuilds every
 index next to the live one while the site keeps answering from the old index, and swaps each one in
@@ -184,7 +185,7 @@ listed there use the library's defaults, shown here with "default".
 | Indexes | `catalog` (500 000 products), `lang_en`, `lang_de`, `lang_fr`, `lang_es`, `lang_hu` (31 products each), `intranet` (24 notes, tenant `company_id`, the Security page) | |
 | Schema | `fuzzphony` | every index table, the sync queue, the version table, the functions and the text search configurations; the demo data stays in `public`; sidecar layout 2, applied (and upgraded from an older layout) by `fuzzphony:schema --apply` |
 | Extension schema | `public` (default) | where `pg_trgm` and `unaccent` live |
-| Sync mode | `queue` (default) | database triggers queue the changed ids, the `worker` service refreshes them; a `TRUNCATE` of `bench_brand` or `bench_category` queues one `'*'` full-rebuild job instead of every product id, which the worker runs before the queued ids |
+| Sync mode | `queue` (default) | one shared trigger per watched table logs the changed keys, the `worker` service turns them into the changed ids and refreshes them; a `TRUNCATE` of `bench_brand` or `bench_category` becomes one `'*'` full-rebuild job instead of every product id, which the worker runs before the queued ids |
 | Trigger level | `statement` (default) | one trigger call per statement, with transition tables; `TRUNCATE` is followed too |
 | Watched tables | `catalog`: `bench_product`, `bench_brand`, `bench_category`; `lang_*`: `lang_product` | a brand or category change queues every product that uses it |
 | Worker | `fuzzphony:worker --time-limit=3600`, batch of 500 ids, 1 s sleep when idle (defaults) | recycled hourly by Docker's restart policy; stops after the current batch on SIGTERM |
@@ -195,15 +196,15 @@ listed there use the library's defaults, shown here with "default".
 | Fields (`catalog`) | `name` A fuzzy, `brand` B fuzzy, `category` C, `description` D | A–D are the full-text weights; fuzzy fields get typo tolerance; each field also has its own `t_<field>` tsvector column (and `z_<field>` normalised text for the fuzzy ones), so a scoped query like `brand:sony` matches that field only |
 | Filters (`catalog`) | `price`, `in_stock`, `brand_id`, `category_id`, `published_at` | |
 | Ranking (`catalog`) | boost by `popularity`, recency by `published_at`; profile `popular` (boost 0.03, recency 0.3, 60-day half-life) | |
-| Thresholds (`catalog`) | `min_score` 0.01; otherwise defaults: `fuzzy_mode` fallback, `fallback_below` 5, `fuzzy_similarity` by word length (see [Typo tolerance](../docs/searching.md#typo-tolerance); the Playground applies its slider only when "by word length" is unchecked), `fuzzy_min_length` 3, `candidate_limit` 2000, `max_query_length` 256, `max_terms` 16, `relax_when_empty` on | typo tolerance kicks in when fewer than 5 documents match exactly |
-| Thresholds (`lang_*`) | `fallback_below` 1 | typo tolerance only when nothing matches exactly, so the stemming examples stay clean |
+| Thresholds (`catalog`) | `relevance.min_score` 0.01; otherwise defaults: `typo.mode` fallback, `typo.fallback_below` 5, `typo.similarity` by word length (see [Typo tolerance](../docs/searching.md#typo-tolerance); the Playground applies its slider only when "by word length" is unchecked), `typo.min_length` 3, `limits.candidates` 2000, `limits.max_query_length` 256, `limits.max_terms` 16, `rescue.drop_unmatched` on | typo tolerance kicks in when fewer than 5 documents match exactly |
+| Thresholds (`lang_*`) | `typo.fallback_below` 1 | typo tolerance only when nothing matches exactly, so the stemming examples stay clean |
 | Language | `catalog`: English; `lang_*`: its own language, accent folding on (default) | text search configuration `fuzzphony.fuzzphony_<language>` |
 | Reindex at start | `init` reindexes an index only when it is empty (`DEMO_REINDEX=auto`), 20 000 ids per batch | `always` / `never` change that, see Settings; a full reindex builds next to the live index and swaps it in, so the site keeps answering from the old one meanwhile (`init` owns the schema, so it can always do this; the `worker`'s rebuild of a `TRUNCATE` job falls back to rebuilding in place, since `fuzzphony_app` has no DDL rights) |
 | Database roles | `init` runs as the owner `fuzzphony`; `php` and `worker` run as `fuzzphony_app` | `fuzzphony_app`: no DDL, read-only on the demo data, read/write on the `fuzzphony` schema's tables, `statement_timeout` 5 s |
 
 The **Observability** page runs any query you type (or one of the same examples as the Search page) and shows
 what Fuzzphony reported for it: `took_ms`, whether the typo-tolerance fallback ran, the sync queue depth and the
-log line `LoggingMetricsCollector` writes (this demo has neither `promphp/prometheus_client_php` nor `apcu`, so it
+log line the logging metrics collector writes (this demo has neither `promphp/prometheus_client_php` nor `apcu`, so it
 runs the logging collector; the bundle falls back to it on its own). It also lists every metric Fuzzphony can
 report. See [docs/observability.md](../docs/observability.md) for the collectors, the Symfony wiring and a
 `/metrics` endpoint recipe, and [docs/grafana/](../docs/grafana/) for a sample Grafana dashboard.
@@ -364,3 +365,5 @@ warmup happening on every start). Image size: `fuzzphony-demo/php`
 Idle memory (`docker stats`, no load): `web` ~5-7 MB / 128 MB limit, `php` ~40-60 MB / 768 MB, `worker`
 ~20 MB / 256 MB, `db` ~135-195 MB / 1 GB — versus the old single `app` container at ~38-60 MB (it did
 less: dev-mode `php -S`, no opcache preload, one process).
+
+**Database roles.** The demo is the worked example of [docs/roles.md](../docs/roles.md): `fuzzphony_app` (php-fpm and the worker) is the search + worker role without DDL, and the init container, which applies the schema and reindexes, is the owner/admin.

@@ -30,12 +30,12 @@ final class AsActorTest extends TestCase
         self::assertSame('ada', $query->actor?->user);
     }
 
-    public function testTheLastOfForTenantAndAsActorWins(): void
+    public function testANamedTenantIsKeptWhateverTheOrderAndRefusedLaterWhenItIsNotTheActors(): void
     {
         $a = $this->builder(tenant: true)->forTenant(1)->asActor(new Actor(tenant: 2))->toQuery();
         $b = $this->builder(tenant: true)->asActor(new Actor(tenant: 2))->forTenant(1)->toQuery();
 
-        self::assertSame(2, $a->tenant);
+        self::assertSame(1, $a->tenant);
         self::assertSame(1, $b->tenant);
     }
 

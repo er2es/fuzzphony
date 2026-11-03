@@ -81,6 +81,64 @@ final readonly class Names
         return self::PREFIX . 'queue_order';
     }
 
+    /** The change log every watched table's shared trigger appends to; the indexes read it through their own cursor (watches()). */
+    public function watchLog(): string
+    {
+        return $this->qualify(self::PREFIX . 'watch_log');
+    }
+
+    public function watchLogIndexName(): string
+    {
+        return self::PREFIX . 'watch_log_tbl_xid';
+    }
+
+    /** Who watches which table: one row per watch of an index, with the shared log position the index has processed up to. */
+    public function watches(): string
+    {
+        return $this->qualify(self::PREFIX . 'watches');
+    }
+
+    /** The function that (re)builds or removes the shared trigger of a watched table from the watches. */
+    public function watchInstallFunction(): string
+    {
+        return $this->qualify(self::PREFIX . 'watch_install');
+    }
+
+    /**
+     * The shared trigger function of a watched table: `fuzzphony_watch__<readable part>_<8 hex of md5(quoted table)>`, short enough
+     * for the `__ins`, `__upd`, `__del` and `__trn` triggers. The hash keeps `public.x` and `public_x` apart. The SQL function
+     * fuzzphony_watch_install() derives the very same name from the table text (it never trusts a stored name).
+     */
+    public function watchFunctionName(string $table): string
+    {
+        $quoted = Sql::ident($table);
+        $readable = trim((string) preg_replace('/[^A-Za-z0-9_]+/', '_', $quoted), '_');
+
+        return self::PREFIX . 'watch__' . substr($readable, 0, 32) . '_' . substr(md5($quoted), 0, 8);
+    }
+
+    public function watchFunction(string $table): string
+    {
+        return $this->qualify($this->watchFunctionName($table));
+    }
+
+    /** A trigger of the shared function: "__ins", "__upd", "__del" or "__trn". */
+    public function watchTriggerName(string $table, string $kind): string
+    {
+        return $this->watchFunctionName($table) . '__' . $kind;
+    }
+
+    /** The function that moves the shared log into an index's own queue (queue sync, statement-level triggers). */
+    public function drainFunctionName(IndexDefinition $index): string
+    {
+        return self::limit(self::PREFIX . 'drain_' . $index->name);
+    }
+
+    public function drainFunction(IndexDefinition $index): string
+    {
+        return $this->qualify($this->drainFunctionName($index));
+    }
+
     public function metaName(): string
     {
         return self::PREFIX . 'meta';
@@ -221,16 +279,27 @@ final readonly class Names
         return $suffix === '' ? $function : self::limit($function . $suffix);
     }
 
+    /**
+     * An index of the sidecar table, named `<sidecar>__<suffix>`. The double underscore cannot occur in an index name (the definition
+     * validator refuses it), so no such name is the sidecar (or another object) of an index called `<name>_<suffix>`: `products` with
+     * `tsv` and an index named `products_tsv` stay apart.
+     */
     public function indexName(IndexDefinition $index, string $suffix): string
     {
-        if (preg_match('/^' . OpenClass::NAME_TAIL . '$/', $suffix) === 1 && strlen($this->sidecarName($index) . '_' . $suffix) > self::MAX_IDENTIFIER_BYTES) {
-            // an open-class index keeps its `_open_..._<hash>` tail whatever the length (the apply, the doctor and the restart reminder
+        if (preg_match('/^' . OpenClass::NAME_TAIL . '$/', $suffix) === 1 && strlen($this->sidecarName($index) . '__' . $suffix) > self::MAX_IDENTIFIER_BYTES) {
+            // an open-class index keeps its `__open_..._<hash>` tail whatever the length (the apply, the doctor and the restart reminder
             // find it by that tail): the sidecar part is shortened instead, with its own hash so that two long names stay apart
             $sidecar = $this->sidecarName($index);
 
-            return substr($sidecar, 0, self::MAX_IDENTIFIER_BYTES - strlen($suffix) - 10) . '_' . hash('crc32b', $sidecar) . '_' . $suffix;
+            return substr($sidecar, 0, self::MAX_IDENTIFIER_BYTES - strlen($suffix) - 11) . '_' . hash('crc32b', $sidecar) . '__' . $suffix;
         }
 
+        return self::limit($this->sidecarName($index) . '__' . $suffix);
+    }
+
+    /** The name indexName() gave before 0.10 (`<sidecar>_<suffix>`): the apply drops an index that still has it, the doctor reports it. */
+    public function legacyIndexName(IndexDefinition $index, string $suffix): string
+    {
         return self::limit($this->sidecarName($index) . '_' . $suffix);
     }
 

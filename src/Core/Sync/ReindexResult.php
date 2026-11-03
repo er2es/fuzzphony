@@ -7,6 +7,7 @@ namespace Fuzzphony\Core\Sync;
 /** What a reindex did. */
 final readonly class ReindexResult
 {
+    /** @internal */
     public function __construct(
         /** Documents written. */
         public int $written,

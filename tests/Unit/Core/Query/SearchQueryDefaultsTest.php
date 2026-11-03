@@ -39,9 +39,9 @@ final class SearchQueryDefaultsTest extends TestCase
 
     public function testThresholdOverridesAccumulate(): void
     {
-        $query = (new SearchQuery())->thresholds(['min_score' => 0.1])->thresholds(['fuzzy_mode' => 'always'])->thresholds(['min_score' => 0.2]);
+        $query = (new SearchQuery())->thresholds(['relevance' => ['min_score' => 0.1]])->thresholds(['typo' => ['mode' => 'always']])->thresholds(['relevance' => ['min_score' => 0.2]]);
 
-        self::assertSame(['min_score' => 0.2, 'fuzzy_mode' => 'always'], $query->thresholdOverrides);
+        self::assertSame(['relevance' => ['min_score' => 0.2], 'typo' => ['mode' => 'always']], $query->thresholdOverrides);
     }
 
     public function testFacetsAreListedOnceAndAsAList(): void

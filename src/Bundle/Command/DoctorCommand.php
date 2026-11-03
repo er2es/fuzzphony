@@ -5,10 +5,14 @@ declare(strict_types=1);
 namespace Fuzzphony\Bundle\Command;
 
 use Fuzzphony\Bridge\Doctrine\SchemaAssetFilter;
+use Fuzzphony\Bundle\Registry\RegistryFactory;
 use Fuzzphony\Core\Definition\SyncMode;
 use Fuzzphony\Core\Fuzzphony;
+use Fuzzphony\Core\Inspection\Check;
 use Fuzzphony\Core\Inspection\CheckStatus;
+use Fuzzphony\Core\Inspection\InspectionReport;
 use Fuzzphony\Core\Inspection\InspectOptions;
+use Fuzzphony\Engine\Postgres\Inspection\PrivilegeCheck;
 use Symfony\Component\Console\Attribute\AsCommand;
 use Symfony\Component\Console\Command\Command;
 use Symfony\Component\Console\Completion\CompletionInput;
@@ -30,6 +34,10 @@ final class DoctorCommand extends Command
         private readonly ?string $applicationSchemaFilter = null,
         /** Fuzzphony's schema, whose tables that filter must hide. */
         private readonly string $schema = 'public',
+        /** Whether fuzzphony.authorization is on: a field with `granted` is an error without it. */
+        private readonly bool $authorizationEnabled = true,
+        /** The check of the roles' privileges (docs/roles.md); null = not checked. */
+        private readonly ?PrivilegeCheck $privileges = null,
     ) {
         parent::__construct();
     }
@@ -54,6 +62,12 @@ final class DoctorCommand extends Command
 
         foreach (IndexArgument::resolve($this->fuzzphony, $input) as $index) {
             $report = $this->fuzzphony->engine()->inspect($index, $options);
+            if (!$this->authorizationEnabled && $index->hasGrantedField()) {
+                $report = new InspectionReport($report->index, [...$report->checks, Check::error('Authorization', RegistryFactory::GRANTED_WITHOUT_AUTHORIZATION, 'set fuzzphony.authorization.enabled: true')]);
+            }
+            if ($this->privileges !== null) {
+                $report = new InspectionReport($report->index, [...$report->checks, $this->privileges->check($index)]);
+            }
             if ($format === 'prometheus') {
                 $queueCheckOk = true;
                 foreach ($report->checks as $check) {

@@ -30,7 +30,7 @@
         {% endfor %}
         {% if result.didYouMean %}
             <p class="fuzzphony-search__did-you-mean">Did you mean
-                <button type="button" data-action="live#action" data-live-action-param="useSuggestion">{{ result.didYouMean }}</button>?</p>
+                <button type="button" data-action="live#action" data-live-action-param="useDidYouMean">{{ result.didYouMean }}</button>?</p>
         {% endif %}
         {# Facets: the values of a filter with their counts; choosing one narrows the search, choosing it again lifts it. #}
         {% for name, values in result.facets %}

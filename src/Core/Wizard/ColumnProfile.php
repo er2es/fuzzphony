@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Fuzzphony\Core\Wizard;
 
+/** @internal */
 final readonly class ColumnProfile
 {
     public function __construct(

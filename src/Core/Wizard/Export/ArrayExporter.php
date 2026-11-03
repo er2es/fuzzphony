@@ -7,6 +7,7 @@ namespace Fuzzphony\Core\Wizard\Export;
 use Fuzzphony\Core\Definition\IndexDefinition;
 use Fuzzphony\Core\Definition\SyncMode;
 use Fuzzphony\Core\Definition\TriggerLevel;
+use Fuzzphony\Core\Ranking\FuzzyMode;
 use Fuzzphony\Core\Ranking\RankingProfile;
 use Fuzzphony\Core\Ranking\Thresholds;
 
@@ -37,6 +38,7 @@ final class ArrayExporter
                 'highlight' => $field->highlight ? null : false,
                 'column' => $field->column,
                 'granted' => $field->granted,
+                'code' => $field->code ? true : null,
             ], static fn(mixed $v): bool => $v !== null);
             $out['fields'][$field->name] = count($options) === 1 ? $field->weight->value : $options;
         }
@@ -95,18 +97,17 @@ final class ArrayExporter
         return $out;
     }
 
-    /** @return array<string, mixed> */
+    /** @return array<string, mixed> only the options that differ from the default, per group */
     private function thresholds(Thresholds $t): array
     {
-        $d = new Thresholds();
+        $default = (new Thresholds())->toArray();
         $out = [];
-        foreach (['min_score' => 'minScore', 'fuzzy_similarity' => 'fuzzySimilarity', 'fuzzy_min_length' => 'fuzzyMinLength', 'fallback_below' => 'fallbackBelow', 'candidate_limit' => 'candidateLimit', 'max_query_length' => 'maxQueryLength', 'max_terms' => 'maxTerms', 'relax_when_empty' => 'relaxWhenEmpty', 'did_you_mean' => 'didYouMean', 'rescue_empty' => 'rescueEmpty'] as $key => $property) {
-            if ($t->{$property} !== $d->{$property}) {
-                $out[$key] = $t->{$property};
+        foreach ($t->toArray() as $group => $options) {
+            foreach ($options as $key => $value) {
+                if ($value !== $default[$group][$key]) {
+                    $out[$group][$key] = $value instanceof FuzzyMode ? $value->value : $value;
+                }
             }
-        }
-        if ($t->fuzzyMode !== $d->fuzzyMode) {
-            $out['fuzzy_mode'] = $t->fuzzyMode->value;
         }
 
         return $out;

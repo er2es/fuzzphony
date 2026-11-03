@@ -24,7 +24,7 @@ final class AnalyticsController extends AbstractController
     private const array INDEXES = ['catalog', 'intranet'];
     private const int RECENT = 20;
 
-    /** A search counts at most this many matches (the default `candidate_limit`): a total at the cap is shown as "2,000+". */
+    /** A search counts at most this many matches (the default `limits.candidates`): a total at the cap is shown as "2,000+". */
     private const int CAP = 2000;
 
     #[Route('/under-the-hood/analytics', name: 'analytics')]
@@ -44,7 +44,7 @@ final class AnalyticsController extends AbstractController
         }
 
         // The filters of the list are links (?index=&who=&status=); anything that is not on the lists falls back to "all".
-        $viewers = ['anonymous' => 'Anonymous'] + array_map(static fn(DemoUser $u): string => $u->name, DemoUser::all());
+        $viewers = ['anonymous' => 'Anonymous', '(system)' => 'System'] + array_map(static fn(DemoUser $u): string => $u->name, DemoUser::all());
         $index = $this->choice($request, 'index', self::INDEXES);
         $who = $this->choice($request, 'who', array_keys($viewers));
         $status = $this->choice($request, 'status', array_map(static fn(RecordStatus $s): string => $s->value, RecordStatus::cases()));

@@ -2,8 +2,8 @@
 
 What each version shipped and what comes next, up to 1.0. No dates are promised. Back to the [README](../README.md).
 
-Steps are ordered by what other things build on: the breaking changes are gathered in one release (0.10.0), so the
-additive work after it (0.11.0) and the stable 1.0.0 do not have to change the API again.
+Steps are ordered by what other things build on: the breaking changes were gathered in one release (0.10.0, released), so the
+additive work after it (0.11.0, next) and the stable 1.0.0 do not have to change the API again.
 
 ## Done
 
@@ -82,57 +82,32 @@ additive work after it (0.11.0) and the stable 1.0.0 do not have to change the A
   definitions, a reworked demo and CI, and documentation for a database that already exists (see
   [Joins, several tables and several indexes](configuration.md#joins-several-tables-and-several-indexes)).
 
-- v0.9.13, demo only (the library behaviour does not change): the benchmark shows hit counts green or red, Tune's "Start from" row fits one line on phones, and the bundle defaults say why they are what they are.
-- v0.9.12, demo only (the library does not change): Tune starts with a query every setting reacts to, with example chips, and the Config wizard has a loadable sample configuration that Tune can start from.
-
-- v0.9.11: the exact-title and prefix bonuses now apply to searches made as you type (`asYouType()`).
-
 - v0.9.10, demo only (the library does not change): the language switch resets the search, an emptied search box
   removes `q` from the URL, a centred menu, a footer at the bottom of the page with the library version and links to
   the docs and GitHub, a dark mode switch, a "why it matched" line for every hit on the Relevance page, refreshed
   images for the [screenshots](screenshots.md), and this roadmap.
+- v0.9.11: the exact-title and prefix bonuses now apply to searches made as you type (`asYouType()`).
+- v0.9.12, demo only (the library does not change): Tune starts with a query every setting reacts to, with example chips, and the Config wizard has a loadable sample configuration that Tune can start from.
+- v0.9.13, demo only (the library behaviour does not change): the benchmark shows hit counts green or red, Tune's "Start from" row fits one line on phones, and the bundle defaults say why they are what they are.
+- v0.10.0, the breaking release (every item is in [UPGRADE.md](../UPGRADE.md#from-0913-to-0100) and the [CHANGELOG](../CHANGELOG.md)):
+  - **Security by default.** A search that names no actor is made as the application's current user (anonymous where nobody can be
+    resolved), so a forgotten `asActor()` can no longer show a `granted` field; full access is the visible `->asSystem()`
+    ([Security](security.md#the-actor)). A `granted` field without the authorization guard is an error, and `restrictedToFields()` can only narrow.
+  - **Hits know their index.** `Hit::$kind` and a typed `Hit::$id`; `FederatedHit` is gone, a federated result holds plain `Hit`s with `mergedScore`.
+  - **A smaller API.** 77 public types ([list](architecture.md#public-api)); everything else is `@internal`. `Fuzzphony::postgres()`, `wizard()` and
+    `resetCaches()` replace the constructors and the optional `Engine` interfaces (`Capabilities` and its siblings are gone).
+  - **Names cleaned up.** `suggest()` is `complete()`, `useSuggestion` is `useDidYouMean`, and the eleven flat thresholds are four groups
+    (`relevance`, `typo`, `rescue`, `limits`) ([Configuration](configuration.md)).
+  - **A sturdier engine.** `fuzzphony:schema --apply` is mandatory (`SchemaNotApplied` instead of slower no-column statements); index objects are
+    named `fuzzphony_<index>__<kind>` (no collision with an index called `products_open`); a typo-tolerant search in your transaction uses a
+    savepoint; one trigger set and one change log per watched table; a worker splits a batch that fails on its data and keeps the culprits
+    in the queue with their error; the wizard's YAML writes lists and multi-line texts exactly.
+  - **Additive.** `SearchResult::$correctedTo`, a `rescued` flag in the search log, `Fuzzphony::logSearch()` (record a search answered elsewhere),
+    `toArray()` and JSON for results and hits ([Your own frontend](integrations.md#your-own-frontend)), `explainMatches()`
+    ([Searching](searching.md#what-matched)), `code: true` for invoice numbers and SKUs, and `source: { query_file: ... }` for the SQL of a source query.
+  - The demo follows: its catalogue pages say `->asSystem()`, the Security page compares the calls and the Analytics page marks rescued searches.
 
 ## Next
-
-### v0.10.0: the breaking release
-
-Every breaking change is gathered here, so an upgrade is one step and 1.0 can promise stability. Each change is listed
-under **Breaking** in the [CHANGELOG](../CHANGELOG.md) and explained in [UPGRADE.md](../UPGRADE.md).
-
-**A sturdier engine**
-
-- `fuzzphony:schema --apply` becomes mandatory: the engine no longer works around a missing column, so what runs is
-  what the doctor checked.
-- Settings that Fuzzphony changes inside a search are restored correctly when your code already holds a transaction (PDO
-  and DBAL behave the same).
-- `fuzzphony:schema --apply` skips `ALTER TABLE` when the column exists, so it no longer waits behind (or blocks) a
-  long-running query.
-- Index names that collide with a table's own indexes (`products_open` and `products_open_fz`) no longer break the
-  reindex swap.
-- The sync worker splits a failing batch, so one bad document does not hold back the rest of its index.
-- Overlapping indexes on one table share their triggers and change log ([Sync](sync.md)).
-- `candidate_limit` takes the size of the text into account; a very long field no longer makes the default window
-  slow ([Limitations](limitations.md)).
-- A `code` field type for invoice numbers and SKUs such as `INV-001`: found by a part of the code, not split like a word.
-
-**A smaller, safer API**
-
-- An ambient actor: a forgotten `asActor()` can no longer expose a field that is granted to some viewers
-  ([Security](security.md)); `granted` without the authorization switched on is an error.
-- Configuration names cleaned up (thresholds, the zero-result rescue and "did you mean", `rate_limit.enabled`,
-  `suggest()` to `complete()`), one rule for reading values ([Configuration](configuration.md)).
-- The public API shrinks to about 60 types; everything else is `@internal` ([Architecture](architecture.md#public-api)).
-- `Capabilities` goes away: the optional interfaces become part of `Engine`.
-- `restrictedToFields()` and the guards get one clear relationship.
-
-**Additive API for your own frontend**
-
-- `SearchResult::correctedTo` (the word a rescued search used), a `rescued` flag in the search log, logging a search
-  without running it, and a `SearchResult` that turns into JSON as it is, so a custom UI does not parse warnings.
-- The design of the 0.11 types (the source or kind of a hit, mapping ids to entities) is settled here, so they arrive
-  without another breaking change.
-
-A release candidate (1.0.0-rc.1) follows before the final release.
 
 ### v0.11.0: several sources, additive
 
@@ -146,7 +121,8 @@ application search several places, with no breaking change:
 - An entity loader for several classes.
 - Federated search with normalised scores, so results from different indexes compare fairly
   ([Searching](searching.md)).
-- A demo page with several indexes: separate search boxes and a combined one.
+- A demo page with several indexes (separate search boxes and a combined one) and an ERP-like demo data set for it: orders,
+  customers, products and order lines.
 
 ### v1.0.0: stable
 
@@ -164,11 +140,13 @@ A stable API and a backward-compatibility promise. PostgreSQL only: no other eng
 
 Separate projects, in their own repositories:
 
-- A real-world example: an Open Food Facts product search application built on Fuzzphony.
 - Record linkage (`fuzzphony/record-linkage`): probabilistic matching of people and companies with explainable match
   scores; online lookup, batch and incremental deduplication; locale packs (hu, en, de).
+- A Laravel Scout driver over the same PostgreSQL engine.
+- An ERP-like demo as the showcase: orders, customers, products and order lines in several indexes, searched together and apart,
+  with tenants and field authorization.
 
-Also planned later: a Laravel Scout driver over the same PostgreSQL engine, and a Prometheus and Grafana stack next to
+Also planned later: a Prometheus and Grafana stack next to
 the demo, so the Prometheus collector and the dashboard ([`grafana/`](grafana/)) are shown working end to end (until then
 only the metric names are verified against the real exposition output).
 

@@ -9,6 +9,7 @@ use Fuzzphony\Core\Engine\Engine;
 use Fuzzphony\Core\Exception\RebuildAlreadyRunning;
 use Fuzzphony\Core\Observability\MetricsCollector;
 use Fuzzphony\Core\Observability\NullMetricsCollector;
+use Fuzzphony\Core\Support\ErrorSummary;
 
 /**
  * @internal Drains the sync queue. Run it long-lived (supervisor/systemd) or with runOnce() from cron
@@ -223,7 +224,7 @@ final class Worker
         $delay = isset($this->backoff[$index->name]) ? min(self::BACKOFF_MAX, 2 * $this->backoff[$index->name][0]) : self::BACKOFF;
         $this->backoff[$index->name] = [$delay, ($this->clock)() + $delay];
         try {
-            $this->engine->recordRebuildFailure($index, $e->getMessage());
+            $this->engine->recordRebuildFailure($index, ErrorSummary::forOperator($e, false));
         } catch (\Throwable) {
             // the rebuild's failure is the one to report
         }

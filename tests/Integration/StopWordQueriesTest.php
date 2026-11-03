@@ -74,7 +74,7 @@ final class StopWordQueriesTest extends TestCase
 
     private function search(string $text, string $mode = 'fallback', string $index = 'stop_docs'): SearchBuilder
     {
-        return $this->fuzzphony->in($index)->query($text)->thresholds(['fuzzy_mode' => $mode]);
+        return $this->fuzzphony->in($index)->query($text)->thresholds(['typo' => ['mode' => $mode]]);
     }
 
     /**
@@ -132,7 +132,7 @@ final class StopWordQueriesTest extends TestCase
         self::assertSame([], $this->search('to be or not to be')->get()->ids());
         self::assertSame([], $this->search('to the')->get()->ids());
         self::assertSame([], $this->search('to the', 'always')->get()->ids());
-        $result = $this->search('to be')->thresholds(['fuzzy_min_length' => 2])->get();
+        $result = $this->search('to be')->thresholds(['typo' => ['min_length' => 2]])->get();
         self::assertSame([4], $result->ids(), 'with a lower minimum they are long enough');
     }
 
@@ -143,7 +143,7 @@ final class StopWordQueriesTest extends TestCase
         }
         self::assertSame([], $this->search('the who', 'never')->get()->ids(), 'fuzzy_mode never');
         self::assertSame([], $this->search('who', 'never')->get()->ids());
-        self::assertSame([], $this->search('the who')->thresholds(['fuzzy_mode' => 'always'])->ranking(['fuzzy' => 0.0])->get()->ids(), 'a typo-tolerant weight of 0');
+        self::assertSame([], $this->search('the who')->thresholds(['typo' => ['mode' => 'always']])->ranking(['fuzzy' => 0.0])->get()->ids(), 'a typo-tolerant weight of 0');
         $simple = $this->search('the who', 'never', 'stop_simple')->get();
         self::assertSame([1, 3, 5, 6], self::sorted($simple->ids()), 'the simple configuration has no stop words: the strict branch finds them');
         self::assertFalse($simple->usedFuzzy);
@@ -159,7 +159,7 @@ final class StopWordQueriesTest extends TestCase
         }
         // and a real word that is not found stays not found: it is not rescued by the stop words
         self::assertSame([], $this->search('the who zzzzzz', 'never')->get()->ids());
-        self::assertSame([], $this->search('the who -rock', 'never', 'stop_plain')->thresholds(['relax_when_empty' => false])->where('cat', 'nothing')->get()->ids());
+        self::assertSame([], $this->search('the who -rock', 'never', 'stop_plain')->thresholds(['rescue' => ['drop_unmatched' => false]])->where('cat', 'nothing')->get()->ids());
     }
 
     #[\PHPUnit\Framework\Attributes\DataProvider('fuzzyModes')]
@@ -212,7 +212,7 @@ final class StopWordQueriesTest extends TestCase
             self::assertSame($everythingButRock, self::sorted($result->ids()), $why);
             self::assertFalse($result->usedFuzzy, $why);
         }
-        self::assertSame($everythingButRock, self::sorted($this->search('the who -rock')->thresholds(['fuzzy_mode' => 'always'])->ranking(['fuzzy' => 0.0])->get()->ids()), 'a typo-tolerant weight of 0');
+        self::assertSame($everythingButRock, self::sorted($this->search('the who -rock')->thresholds(['typo' => ['mode' => 'always']])->ranking(['fuzzy' => 0.0])->get()->ids()), 'a typo-tolerant weight of 0');
         // too short for typo tolerance: the search could not find the words, the query is not changed
         self::assertSame([1, 2, 3, 4, 5, 7, 8], self::sorted($this->search('to be -zebra')->get()->ids()), 'short stop words: "everything but zebra" as before');
         // more than three words
@@ -283,12 +283,12 @@ final class StopWordQueriesTest extends TestCase
         }
         $this->fuzzphony->reindex('stop_docs');
 
-        $result = $this->search('the')->thresholds(['candidate_limit' => 10])->limit(10)->get();
+        $result = $this->search('the')->thresholds(['limits' => ['candidates' => 10]])->limit(10)->get();
 
         self::assertSame(10, $result->total, 'at most the candidate limit');
         self::assertTrue($result->totalIsLowerBound);
         self::assertCount(10, $result->hits);
-        $exact = $this->search('the')->thresholds(['candidate_limit' => 10])->exactCounts()->get();
+        $exact = $this->search('the')->thresholds(['limits' => ['candidates' => 10]])->exactCounts()->get();
         self::assertFalse($exact->totalIsLowerBound);
         self::assertGreaterThanOrEqual(30, $exact->total);
     }
@@ -306,7 +306,7 @@ final class StopWordQueriesTest extends TestCase
         $both = $this->search('the for')->get();
         self::assertSame([], $both->ids(), 'one has "the", the other "for": no document has both');
         self::assertSame([], $both->warnings);
-        $off = $this->search('the for')->thresholds(['relax_when_empty' => false])->get();
+        $off = $this->search('the for')->thresholds(['rescue' => ['drop_unmatched' => false]])->get();
         self::assertSame([], $off->ids());
     }
 

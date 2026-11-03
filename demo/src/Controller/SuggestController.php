@@ -17,7 +17,7 @@ use Symfony\Component\Routing\Attribute\Route;
 
 /**
  * Search-as-you-type for every search box of the demo (assets/controllers/suggest_controller.js): the same dropdown
- * everywhere, built from three ordinary calls: the completions of the word being typed (suggest()), the first hits of
+ * everywhere, built from three ordinary calls: the completions of the word being typed (complete()), the first hits of
  * the same text matched as you type (asYouType()), and for the catalogue the categories it is found in (a facet).
  * Brand, price and category name are the application's data, loaded for the ids the search returned.
  *
@@ -32,16 +32,16 @@ final class SuggestController extends AbstractController
     public function __invoke(Request $request, Fuzzphony $fuzzphony, Catalog $catalog, Facets $facets, Languages $languages, CategoryStyle $styles): JsonResponse
     {
         $index = (string) $request->query->get('index', '');
-        if (!$fuzzphony->registry()->has($index)) {
+        if (!in_array($index, $fuzzphony->indexes(), true)) {
             throw $this->createNotFoundException(sprintf('Unknown index "%s".', $index));
         }
         $text = mb_substr((string) $request->query->get('q', ''), 0, self::MAX_QUERY);
-        $completions = $fuzzphony->suggest($index, $text, 6);
+        $completions = $fuzzphony->complete($index, $text, 6, system: true);
         $categories = $products = [];
 
         if (trim($text) !== '') {
             try {
-                $search = $fuzzphony->in($index)->query($text)->asYouType()->limit(5)->unlogged(); // the dropdown fires on every keystroke
+                $search = $fuzzphony->in($index)->asSystem()->query($text)->asYouType()->limit(5)->unlogged(); // the dropdown fires on every keystroke
                 if ($index === 'catalog') {
                     $found = $search->facets('category_id')->get();
                     $categories = array_slice($facets->categories($found->facets['category_id'] ?? []), 0, 4);

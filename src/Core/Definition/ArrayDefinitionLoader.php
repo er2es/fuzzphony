@@ -13,7 +13,7 @@ use Fuzzphony\Core\Support\Closest;
  * @internal Builds or overrides definitions from plain arrays (YAML config). Shape:
  *
  *   products:
- *     source: { table: product, id: id }            # or { query: "SELECT ...", id: id }
+ *     source: { table: product, id: id }            # or { query: "SELECT ...", id: id } or { query_file: sql/catalog.sql }
  *     id_type: int
  *     fields: { name: { weight: A, fuzzy: true }, description: C, salary: { weight: B, granted: ROLE_HR } }
  *     filters: { price: int, in_stock: bool }
@@ -28,7 +28,7 @@ use Fuzzphony\Core\Support\Closest;
  *     synonyms: [[tv, television], 'laptop => notebook']
  *     log: true                  # false keeps the index out of the search log
  *     profiles: { default: { text: 1, fuzzy: 0.5 } }
- *     thresholds: { min_score: 0.05, fuzzy_mode: fallback }
+ *     thresholds: { relevance: { min_score: 0.05 }, typo: { mode: fallback } }
  *
  * The shape is checked as a whole before anything is built: unknown keys at every level, a list where a map
  * belongs, a string where a boolean belongs (the string "false" is not false) are InvalidDefinition problems.
@@ -40,12 +40,15 @@ final class ArrayDefinitionLoader
     /** What an override can change on an index its attributes define; the other keys describe the index itself. */
     private const array OVERRIDABLE = ['watch', 'sync', 'language', 'unaccent', 'boost', 'recency', 'profiles', 'thresholds', 'trigger_level', 'tenant', 'synonyms', 'log'];
 
-    private const array SOURCE_KEYS = ['table', 'query', 'id'];
-    private const array FIELD_KEYS = ['weight', 'fuzzy', 'highlight', 'column', 'granted'];
+    private const array SOURCE_KEYS = ['table', 'query', 'query_file', 'id'];
+    private const array FIELD_KEYS = ['weight', 'fuzzy', 'highlight', 'column', 'granted', 'code'];
     private const array FILTER_KEYS = ['type', 'column'];
     private const array WATCH_KEYS = ['ids', 'key', 'columns'];
     private const array STRING_KEYS = ['id_type', 'sync', 'trigger_level', 'language', 'boost', 'recency', 'tenant'];
     private const array BOOL_KEYS = ['unaccent', 'log'];
+
+    /** @param ?string $baseDir what a relative `source.query_file` starts at (the project root); null: the current working directory */
+    public function __construct(private readonly ?string $baseDir = null) {}
 
     /** @param array<string, mixed> $config */
     public function load(string $name, array $config): IndexDefinition
@@ -53,15 +56,17 @@ final class ArrayDefinitionLoader
         $this->assertShape($name, $config, false);
         $builder = IndexDefinition::builder($name);
 
-        /** @var array{table?: string, query?: string, id?: string} $source */
+        /** @var array{table?: string, query?: string, query_file?: string, id?: string} $source */
         $source = $config['source'] ?? ['table' => $name];
-        isset($source['query'])
-            ? $builder->fromQuery($source['query'], $source['id'] ?? 'id')
-            : $builder->fromTable($source['table'] ?? $name, $source['id'] ?? 'id');
+        match (true) {
+            isset($source['query']) => $builder->fromQuery($source['query'], $source['id'] ?? 'id'),
+            isset($source['query_file']) => $builder->fromQueryFile($source['query_file'], $this->baseDir, $source['id'] ?? 'id'),
+            default => $builder->fromTable($source['table'] ?? $name, $source['id'] ?? 'id'),
+        };
 
         foreach (self::map($config['fields'] ?? []) as $field => $options) {
             $options = is_string($options) ? ['weight' => $options] : self::map($options);
-            $builder->field($field, self::str($options['weight'] ?? null, 'B'), ($options['fuzzy'] ?? false) === true, ($options['highlight'] ?? true) === true, isset($options['column']) ? self::str($options['column'], '') : null, isset($options['granted']) ? self::str($options['granted'], '') : null);
+            $builder->field($field, self::str($options['weight'] ?? null, 'B'), ($options['fuzzy'] ?? false) === true, ($options['highlight'] ?? true) === true, isset($options['column']) ? self::str($options['column'], '') : null, isset($options['granted']) ? self::str($options['granted'], '') : null, ($options['code'] ?? false) === true);
         }
         foreach (self::map($config['filters'] ?? []) as $filter => $options) {
             $options = is_string($options) ? ['type' => $options] : self::map($options);
@@ -196,7 +201,8 @@ final class ArrayDefinitionLoader
         try {
             return $part();
         } catch (InvalidDefinition $e) {
-            throw new InvalidDefinition($index, array_map(static fn(string $violation): string => sprintf('%s: %s', $place, $violation), $e->violations));
+            $where = str_starts_with($e->index, $place) ? $e->index : $place;
+            throw new InvalidDefinition($index, array_map(static fn(string $violation): string => sprintf('%s: %s', $where, $violation), $e->violations));
         }
     }
 
@@ -282,7 +288,7 @@ final class ArrayDefinitionLoader
         $this->assertEntries($problems, 'watch', $config['watch'] ?? null, 'a query returning the affected ids', self::WATCH_KEYS, 'watch', 'watch: { product: "SELECT :id" }');
         $this->assertProfiles($problems, $config['profiles'] ?? null);
         if (isset($config['thresholds']) && !self::isMap($config['thresholds'])) {
-            $problems[] = sprintf('"thresholds" must be a map of options (e.g. thresholds: { min_score: 0.1 }), got %s.', self::shape($config['thresholds']));
+            $problems[] = sprintf('"thresholds" must be a map of options (e.g. thresholds: { relevance: { min_score: 0.1 } }), got %s.', self::shape($config['thresholds']));
         }
         if ($problems !== []) {
             throw new InvalidDefinition($name, $problems);
@@ -309,6 +315,16 @@ final class ArrayDefinitionLoader
             return;
         }
         $this->assertKeys($problems, '"source"', array_keys($source), self::SOURCE_KEYS);
+        if (array_key_exists('query_file', $source)) {
+            if (!is_string($source['query_file'])) {
+                $problems[] = sprintf('"source.query_file" must be the path of an SQL file, got %s.', self::describe($source['query_file']));
+            }
+            foreach (['query', 'table'] as $other) {
+                if (isset($source[$other])) {
+                    $problems[] = sprintf('"source" takes "query_file" or "%s", not both.', $other);
+                }
+            }
+        }
     }
 
     /**
@@ -342,6 +358,7 @@ final class ArrayDefinitionLoader
             if ($section === 'fields') {
                 self::assertBool($problems, $at . ' "fuzzy"', $options['fuzzy'] ?? null);
                 self::assertBool($problems, $at . ' "highlight"', $options['highlight'] ?? null);
+                self::assertBool($problems, $at . ' "code"', $options['code'] ?? null);
                 if (array_key_exists('granted', $options) && (!is_string($options['granted']) || trim($options['granted']) === '')) {
                     // never read as "open": a field meant to be protected must not become visible to everyone by a typo or an empty value
                     $problems[] = sprintf('%s "granted" must be a non-empty string, the attribute that unlocks the field (granted: ROLE_HR), got %s. Remove the key to leave the field open to everyone.', $at, self::describe($options['granted']));

@@ -11,7 +11,9 @@ use Fuzzphony\Core\Fuzzphony;
 use Fuzzphony\Core\Inspection\Check;
 use Fuzzphony\Core\Inspection\CheckStatus;
 use Fuzzphony\Core\Inspection\InspectOptions;
+use Fuzzphony\Core\Ranking\LimitThresholds;
 use Fuzzphony\Core\Ranking\Thresholds;
+use Fuzzphony\Core\Ranking\TypoThresholds;
 use Fuzzphony\Core\Registry\IndexRegistry;
 use Fuzzphony\Engine\Postgres\Inspection\PostgresInspector;
 use Fuzzphony\Engine\Postgres\PostgresEngine;
@@ -96,24 +98,25 @@ final class PostgresInspectorChecksTest extends TestCase
                 ['Boost column', CheckStatus::Ok, 'popularity (real)', null],
                 ['Recency column', CheckStatus::Ok, 'published_at (timestamp with time zone)', null],
                 ['Sidecar columns', CheckStatus::Ok, '17 column(s) match the definition', null],
-                ['Index fuzzphony_products_tsv', CheckStatus::Ok, 'valid', null],
-                ['Index fuzzphony_products_fz', CheckStatus::Ok, 'valid', null],
-                ['Index fuzzphony_products_f_price', CheckStatus::Ok, 'valid', null],
-                ['Index fuzzphony_products_f_in_stock', CheckStatus::Ok, 'valid', null],
-                ['Index fuzzphony_products_f_published_at', CheckStatus::Ok, 'valid', null],
-                ['Index fuzzphony_products_f_brand_id', CheckStatus::Ok, 'valid', null],
+                ['Index fuzzphony_products__tsv', CheckStatus::Ok, 'valid', null],
+                ['Index fuzzphony_products__fz', CheckStatus::Ok, 'valid', null],
+                ['Index fuzzphony_products__f_price', CheckStatus::Ok, 'valid', null],
+                ['Index fuzzphony_products__f_in_stock', CheckStatus::Ok, 'valid', null],
+                ['Index fuzzphony_products__f_published_at', CheckStatus::Ok, 'valid', null],
+                ['Index fuzzphony_products__f_brand_id', CheckStatus::Ok, 'valid', null],
                 ['Refresh function', CheckStatus::Ok, '"public"."fuzzphony_refresh_products"(bigint[])', null],
                 ['Rebuild refresh function', CheckStatus::Ok, '"public"."fuzzphony_refresh_products__next"(bigint[])', null],
                 ['Rebuild change log function', CheckStatus::Ok, '"public"."fuzzphony_track_products"()', null],
-                ['Sync trigger on fz_product', CheckStatus::Ok, '4 trigger(s), queue mode, statement level', null],
-                ['Sync trigger on fz_brand', CheckStatus::Ok, '4 trigger(s), queue mode, statement level', null],
+                ['Sync trigger on fz_product', CheckStatus::Ok, '4 trigger(s), queue mode, statement level, shared by the indexes that watch the table', null],
+                ['Sync trigger on fz_brand', CheckStatus::Ok, '4 trigger(s), queue mode, statement level, shared by the indexes that watch the table', null],
+                ['Shared change log', CheckStatus::Ok, '2 watch(es) registered', null],
                 ['Sync queue', CheckStatus::Ok, '0 items waiting', null],
                 ['Coverage', CheckStatus::Skipped, 'Estimates are not available for query sources; run with --deep for exact counts.', null],
                 ['Orphaned documents', CheckStatus::Skipped, 'Run with --deep to count indexed documents that are no longer in the source.', null],
                 ['Vocabulary', CheckStatus::Ok, '12 words', null],
                 ['Configuration', CheckStatus::Ok, 'fuzzy=fallback, similarity=by word length, min_score=0.00, candidates=2000', null],
             ],
-            array_slice($actual, 0, 31),
+            array_slice($actual, 0, 32),
         );
         $deep = self::byName($fuzzphony, 'products', new InspectOptions(deep: true));
         self::assertSame('5 of 5 documents indexed (100.0%, exact)', $deep['Coverage']->message);
@@ -349,27 +352,27 @@ final class PostgresInspectorChecksTest extends TestCase
     {
         $fuzzphony = $this->fuzzphony(Indexes::products('manual'));
         // what an interrupted CREATE INDEX CONCURRENTLY leaves: the index exists, flagged invalid
-        $this->connection->execute('DROP INDEX fuzzphony_products_f_price');
+        $this->connection->execute('DROP INDEX fuzzphony_products__f_price');
         $this->connection->execute('UPDATE fuzzphony_products SET f_price = 1');
         try {
-            $this->connection->execute('CREATE UNIQUE INDEX CONCURRENTLY fuzzphony_products_f_price ON fuzzphony_products (f_price)');
+            $this->connection->execute('CREATE UNIQUE INDEX CONCURRENTLY fuzzphony_products__f_price ON fuzzphony_products (f_price)');
             self::fail('the unique build must fail on the duplicate values');
         } catch (\PDOException) {
         }
 
-        $check = self::named($fuzzphony, 'products', 'Index fuzzphony_products_f_price')[0];
+        $check = self::named($fuzzphony, 'products', 'Index fuzzphony_products__f_price')[0];
 
         self::assertSame(CheckStatus::Error, $check->status);
         self::assertSame('INVALID (an interrupted concurrent build); it is ignored by the planner', $check->message);
-        self::assertStringStartsWith('DROP INDEX CONCURRENTLY "public"."fuzzphony_products_f_price"; CREATE INDEX CONCURRENTLY IF NOT EXISTS "fuzzphony_products_f_price" ON ', (string) $check->fix);
+        self::assertStringStartsWith('DROP INDEX CONCURRENTLY "public"."fuzzphony_products__f_price"; CREATE INDEX CONCURRENTLY IF NOT EXISTS "fuzzphony_products__f_price" ON ', (string) $check->fix);
     }
 
     public function testAMissingIndexIsReportedByName(): void
     {
         $fuzzphony = $this->fuzzphony(Indexes::products('manual'));
-        $this->connection->execute('DROP INDEX fuzzphony_products_fz');
+        $this->connection->execute('DROP INDEX fuzzphony_products__fz');
 
-        $check = self::named($fuzzphony, 'products', 'Index fuzzphony_products_fz')[0];
+        $check = self::named($fuzzphony, 'products', 'Index fuzzphony_products__fz')[0];
 
         self::assertSame(CheckStatus::Error, $check->status);
         self::assertSame('missing', $check->message);
@@ -378,13 +381,13 @@ final class PostgresInspectorChecksTest extends TestCase
     public function testAMissingTriggerOtherThanTheTruncateOneMeansChangesAreNotIndexed(): void
     {
         $fuzzphony = $this->fuzzphony(Indexes::products('queue'));
-        $this->connection->execute('DROP TRIGGER fuzzphony_sync_products__fz_brand_upd ON fz_brand');
-        $this->connection->execute('DROP TRIGGER fuzzphony_sync_products__fz_brand_trn ON fz_brand');
+        $this->connection->execute('DROP TRIGGER fuzzphony_watch__fz_brand_e21f3cf4__upd ON fz_brand');
+        $this->connection->execute('DROP TRIGGER fuzzphony_watch__fz_brand_e21f3cf4__trn ON fz_brand');
 
         $check = self::named($fuzzphony, 'products', 'Sync trigger on fz_brand')[0];
 
         self::assertSame(CheckStatus::Error, $check->status);
-        self::assertSame('missing fuzzphony_sync_products__fz_brand_upd, fuzzphony_sync_products__fz_brand_trn: changes to this table are not indexed', $check->message);
+        self::assertSame('missing fuzzphony_watch__fz_brand_e21f3cf4__upd, fuzzphony_watch__fz_brand_e21f3cf4__trn: changes to this table are not indexed', $check->message);
     }
 
     public function testTheSyncQueueWarnsAboutAnOldestItemAndNeverAboutAnEmptyQueue(): void
@@ -411,7 +414,7 @@ final class PostgresInspectorChecksTest extends TestCase
 
     public function testACandidateLimitAboveFiveThousandWarns(): void
     {
-        $index = static fn(int $limit): IndexDefinition => Indexes::products('manual')->withThresholds(new Thresholds(candidateLimit: $limit));
+        $index = static fn(int $limit): IndexDefinition => Indexes::products('manual')->withThresholds(new Thresholds(limits: new LimitThresholds(candidates: $limit)));
         $this->fuzzphony($index(5_000));
 
         $inspect = fn(int $limit): array => self::byName(new Fuzzphony(new PostgresEngine($this->connection), new IndexRegistry([$index($limit)])), 'products');
@@ -420,7 +423,7 @@ final class PostgresInspectorChecksTest extends TestCase
         self::assertArrayNotHasKey('Candidate limit', $atLimit);
         self::assertSame('fuzzy=fallback, similarity=by word length, min_score=0.00, candidates=5000', $atLimit['Configuration']->message);
         $over = $inspect(5_001);
-        self::assertEquals(Check::warning('Candidate limit', 'candidate_limit 5001 may make frequent words slow to rank.'), $over['Candidate limit']);
+        self::assertEquals(Check::warning('Candidate limit', 'limits.candidates 5001 may make frequent words slow to rank.'), $over['Candidate limit']);
         self::assertArrayNotHasKey('Configuration', $over);
     }
 
@@ -493,12 +496,12 @@ final class PostgresInspectorChecksTest extends TestCase
     {
         $noFuzzy = static fn(string $mode): IndexDefinition => IndexDefinition::builder('products')
             ->fromQuery('SELECT p.id, p.name FROM fz_product p')->field('name', 'A')->sync('manual')
-            ->thresholds(new Thresholds(fuzzyMode: \Fuzzphony\Core\Ranking\FuzzyMode::from($mode)))->build();
+            ->thresholds(new Thresholds(typo: new TypoThresholds(mode: \Fuzzphony\Core\Ranking\FuzzyMode::from($mode))))->build();
         $configuration = fn(IndexDefinition $index): array => array_column($this->inspector($this->connection)->inspect($index, new InspectOptions())->checks, null, 'name');
 
         $always = $configuration($noFuzzy('always'));
         self::assertEquals(
-            Check::warning('Typo tolerance', 'fuzzy_mode is enabled but no field is marked fuzzy, so it has no effect.', 'Mark the most important field fuzzy: #[SearchField("A", fuzzy: true)]'),
+            Check::warning('Typo tolerance', 'typo.mode is enabled but no field is marked fuzzy, so it has no effect.', 'Mark the most important field fuzzy: #[SearchField("A", fuzzy: true)]'),
             $always['Typo tolerance'],
         );
         self::assertArrayNotHasKey('Configuration', $always);
@@ -602,26 +605,21 @@ final class PostgresInspectorChecksTest extends TestCase
         );
     }
 
-    public function testTheIpColumnIsWantedOnlyWhenTheIpIsOn(): void
+    public function testAMissingIpColumnIsASchemaError(): void
     {
         $this->connection->execute('DROP TABLE IF EXISTS fuzzphony_search_log CASCADE');
         $index = Indexes::products('manual');
-        $registry = new IndexRegistry([$index]);
-        $setup = new Fuzzphony(new PostgresEngine($this->connection, searchLog: true), $registry);
-        $setup->schema()->apply($this->connection);
-        $setup->reindex('products');
-        $ipOn = new Fuzzphony(new PostgresEngine($this->connection, searchLog: true, searchLogIp: true), $registry);
-        $ipOff = new Fuzzphony(new PostgresEngine($this->connection, searchLog: true), $registry);
-        $ok = [Check::ok('Search log', 'Table exists, nothing older than the retention.')];
+        $fuzzphony = new Fuzzphony(new PostgresEngine($this->connection, searchLog: true), new IndexRegistry([$index]));
+        $fuzzphony->schema()->apply($this->connection);
+        $fuzzphony->reindex('products');
 
-        self::assertEquals($ok, self::named($ipOn, 'products', 'Search log'), 'the column is there');
+        self::assertEquals([Check::ok('Search log', 'Table exists, nothing older than the retention.')], self::named($fuzzphony, 'products', 'Search log'), 'the column is there');
 
         $this->connection->execute('ALTER TABLE fuzzphony_search_log DROP COLUMN actor_ip');
 
-        self::assertEquals($ok, self::named($ipOff, 'products', 'Search log'), 'nobody wants the column');
         self::assertEquals(
-            [Check::error('Search log', 'search_log.ip is on, but table "public"."fuzzphony_search_log" has no actor_ip column: the addresses are dropped (the rows are kept). After applying the schema restart long-running workers (they look the column up once per process).', 'bin/console fuzzphony:schema --apply')],
-            self::named($ipOn, 'products', 'Search log'),
+            [Check::error('Search log', 'Table "public"."fuzzphony_search_log" has no actor_ip column: the schema is not up to date (missing: actor_ip), and writing or reading the log fails.', 'bin/console fuzzphony:schema --apply')],
+            self::named($fuzzphony, 'products', 'Search log'),
         );
     }
 

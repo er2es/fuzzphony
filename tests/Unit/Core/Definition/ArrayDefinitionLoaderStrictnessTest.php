@@ -17,10 +17,10 @@ final class ArrayDefinitionLoaderStrictnessTest extends TestCase
     /** @return iterable<string, array{array<string, mixed>, string}> */
     public static function typos(): iterable
     {
-        yield 'field option' => [['fields' => ['title' => ['wieght' => 'A']]], 'Field "title": unknown option(s): wieght. Allowed: weight, fuzzy, highlight, column, granted. Did you mean "weight" for "wieght"?'];
+        yield 'field option' => [['fields' => ['title' => ['wieght' => 'A']]], 'Field "title": unknown option(s): wieght. Allowed: weight, fuzzy, highlight, column, granted, code. Did you mean "weight" for "wieght"?'];
         yield 'field option fuzy' => [['fields' => ['title' => ['weight' => 'A', 'fuzy' => true]]], 'Field "title": unknown option(s): fuzy.'];
         yield 'filter option' => [['fields' => ['title' => 'A'], 'filters' => ['price' => ['type' => 'int', 'colum' => 'p']]], 'Filter "price": unknown option(s): colum. Allowed: type, column. Did you mean "column" for "colum"?'];
-        yield 'source option' => [['source' => ['tabel' => 'article'], 'fields' => ['title' => 'A']], '"source": unknown option(s): tabel. Allowed: table, query, id. Did you mean "table" for "tabel"?'];
+        yield 'source option' => [['source' => ['tabel' => 'article'], 'fields' => ['title' => 'A']], '"source": unknown option(s): tabel. Allowed: table, query, query_file, id. Did you mean "table" for "tabel"?'];
         yield 'watch option' => [['fields' => ['title' => 'A'], 'watch' => ['article' => ['ids' => 'SELECT :id', 'colums' => ['title']]]], 'Watch "article": unknown option(s): colums. Allowed: ids, key, columns. Did you mean "columns" for "colums"?'];
         yield 'top level with a hint' => [['feilds' => []], 'Unknown option(s): feilds. Allowed: source, id_type, fields, filters, watch, sync, language, unaccent, boost, recency, profiles, thresholds, class, trigger_level, tenant, synonyms, log. Did you mean "fields" for "feilds"?'];
         yield 'profiles as a string' => [['fields' => ['title' => 'A'], 'profiles' => 'popular'], '"profiles" must be a map of profile name => ranking options'];
@@ -28,7 +28,7 @@ final class ArrayDefinitionLoaderStrictnessTest extends TestCase
         yield 'thresholds as a string' => [['fields' => ['title' => 'A'], 'thresholds' => 'loose'], '"thresholds" must be a map of options'];
         yield 'fields as a list' => [['fields' => ['name', 'body']], '"fields" must be a map of field name => a weight letter (A-D) or options (e.g. fields: { title: A, body: { weight: C, fuzzy: true } }), got a list.'];
         yield 'filters as a list' => [['fields' => ['title' => 'A'], 'filters' => ['price']], '"filters" must be a map'];
-        yield 'a field as a number' => [['fields' => ['title' => 5]], 'Field "title" must be a weight letter (A-D) or a map of options (weight, fuzzy, highlight, column, granted), got 5.'];
+        yield 'a field as a number' => [['fields' => ['title' => 5]], 'Field "title" must be a weight letter (A-D) or a map of options (weight, fuzzy, highlight, column, granted, code), got 5.'];
         yield 'granted without a value (null)' => [['fields' => ['title' => ['weight' => 'A', 'granted' => null]]], 'Field "title" "granted" must be a non-empty string, the attribute that unlocks the field (granted: ROLE_HR), got null. Remove the key to leave the field open to everyone.'];
         yield 'granted as a list of roles' => [['fields' => ['title' => ['weight' => 'A', 'granted' => ['ROLE_A', 'ROLE_B']]]], 'Field "title" "granted" must be a non-empty string'];
         yield 'granted false' => [['fields' => ['title' => ['weight' => 'A', 'granted' => false]]], 'Field "title" "granted" must be a non-empty string, the attribute that unlocks the field (granted: ROLE_HR), got false.'];
@@ -136,7 +136,7 @@ final class ArrayDefinitionLoaderStrictnessTest extends TestCase
 
         $merged = (new ArrayDefinitionLoader())->override($base, [
             'sync' => 'queue', 'trigger_level' => 'row', 'language' => 'german', 'unaccent' => false, 'boost' => 'price', 'recency' => 'price',
-            'log' => false, 'profiles' => ['x' => ['boost' => 0.1]], 'thresholds' => ['min_score' => 0.2], 'synonyms' => [['tv', 'television']],
+            'log' => false, 'profiles' => ['x' => ['boost' => 0.1]], 'thresholds' => ['relevance' => ['min_score' => 0.2]], 'synonyms' => [['tv', 'television']],
             'watch' => ['brand' => 'SELECT :id'],
         ]);
 
@@ -157,11 +157,11 @@ final class ArrayDefinitionLoaderStrictnessTest extends TestCase
     public function testAThresholdsTypoNamesTheRealIndex(): void
     {
         try {
-            (new ArrayDefinitionLoader())->load('articles', ['source' => ['table' => 'article'], 'fields' => ['title' => 'A'], 'thresholds' => ['min_scor' => 1]]);
+            (new ArrayDefinitionLoader())->load('articles', ['source' => ['table' => 'article'], 'fields' => ['title' => 'A'], 'thresholds' => ['relevance' => ['min_scor' => 1]]]);
             self::fail('InvalidDefinition expected');
         } catch (InvalidDefinition $e) {
             self::assertSame('articles', $e->index);
-            self::assertStringStartsWith('thresholds: Unknown threshold option(s): min_scor.', $e->violations[0]);
+            self::assertStringStartsWith('thresholds.relevance: Unknown option "min_scor". Did you mean "min_score"?', $e->violations[0]);
             self::assertStringContainsString('Search index "articles" is misconfigured', $e->getMessage());
         }
     }

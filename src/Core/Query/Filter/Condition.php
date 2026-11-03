@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Fuzzphony\Core\Query\Filter;
 
+/** @internal */
 final readonly class Condition
 {
     public function __construct(

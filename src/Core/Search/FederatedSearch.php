@@ -35,7 +35,11 @@ final readonly class FederatedSearch
     /** @internal The most hits (offset + limit) a federated search reads from every index. */
     public const int MAX_READ = 1000;
 
-    /** @param array<string, array{weight: float, configure: (\Closure(SearchBuilder): SearchBuilder)|null}> $indexes */
+    /**
+     * @internal
+     *
+     * @param array<string, array{weight: float, configure: (\Closure(SearchBuilder): SearchBuilder)|null}> $indexes
+     */
     public function __construct(
         private Engine $engine,
         private IndexRegistry $registry,
@@ -45,6 +49,8 @@ final readonly class FederatedSearch
         private int $offset = 0,
         private ?SearchGate $gate = null,
         private bool $unlogged = false,
+        private ?Actor $actor = null,
+        private bool $system = false,
     ) {}
 
     /**
@@ -63,12 +69,12 @@ final readonly class FederatedSearch
             throw new InvalidQuery(sprintf('The weight of index "%s" must be positive, got %s.', $definition->name, $weight));
         }
 
-        return new self($this->engine, $this->registry, [...$this->indexes, $definition->name => ['weight' => $weight, 'configure' => $configure]], $this->text, $this->limit, $this->offset, $this->gate, $this->unlogged);
+        return new self($this->engine, $this->registry, [...$this->indexes, $definition->name => ['weight' => $weight, 'configure' => $configure]], $this->text, $this->limit, $this->offset, $this->gate, $this->unlogged, $this->actor, $this->system);
     }
 
     public function query(string $text): self
     {
-        return new self($this->engine, $this->registry, $this->indexes, $text, $this->limit, $this->offset, $this->gate, $this->unlogged);
+        return new self($this->engine, $this->registry, $this->indexes, $text, $this->limit, $this->offset, $this->gate, $this->unlogged, $this->actor, $this->system);
     }
 
     public function limit(int $limit, int $offset = 0): self
@@ -77,13 +83,28 @@ final readonly class FederatedSearch
             throw new InvalidQuery(sprintf('A federated search reads offset + limit hits from every index: limit must be at least 1 and offset + limit at most %d, got %d + %d.', self::MAX_READ, $offset, $limit));
         }
 
-        return new self($this->engine, $this->registry, $this->indexes, $this->text, $limit, $offset, $this->gate, $this->unlogged);
+        return new self($this->engine, $this->registry, $this->indexes, $this->text, $limit, $offset, $this->gate, $this->unlogged, $this->actor, $this->system);
     }
 
     /** Keeps the whole search out of the search log: every per-index search is unlogged (a refusal is still recorded). */
     public function unlogged(): self
     {
-        return new self($this->engine, $this->registry, $this->indexes, $this->text, $this->limit, $this->offset, $this->gate, true);
+        return new self($this->engine, $this->registry, $this->indexes, $this->text, $this->limit, $this->offset, $this->gate, true, $this->actor, $this->system);
+    }
+
+    /**
+     * Searches every index as this actor (each index's `configure` closure may still name another). Without it (and without
+     * asSystem()) the application's current user is used, as for a single search.
+     */
+    public function asActor(Actor $actor): self
+    {
+        return new self($this->engine, $this->registry, $this->indexes, $this->text, $this->limit, $this->offset, $this->gate, $this->unlogged, $actor, false);
+    }
+
+    /** Searches every index as the system, see SearchBuilder::asSystem(). The last of asActor() / asSystem() wins. */
+    public function asSystem(): self
+    {
+        return new self($this->engine, $this->registry, $this->indexes, $this->text, $this->limit, $this->offset, $this->gate, $this->unlogged, null, true);
     }
 
     public function page(int $page, int $perPage = 20): self
@@ -103,10 +124,17 @@ final readonly class FederatedSearch
         $warnings = [];
         $order = 0;
         $charged = false;
+        // who asks is decided once: the named actor, else the application's current user (the same one for every index)
+        $actor = $this->system ? null : ($this->actor ?? $this->gate?->ambientActor());
         foreach ($this->indexes as $name => $options) {
             $builder = (new SearchBuilder($this->engine, $this->registry->get($name), gate: $this->gate))->query($this->text);
             if ($this->unlogged) {
                 $builder = $builder->unlogged();
+            }
+            if ($this->system) {
+                $builder = $builder->asSystem();
+            } elseif ($actor !== null) {
+                $builder = $builder->asActor($actor);
             }
             if ($options['configure'] !== null) {
                 $builder = ($options['configure'])($builder);
@@ -119,13 +147,13 @@ final readonly class FederatedSearch
                 $warnings[] = sprintf('[%s] %s', $name, $warning);
             }
             foreach ($result->hits as $i => $hit) {
-                $candidates[] = ['score' => $options['weight'] / (self::RANK_CONSTANT + $i + 1), 'order' => $order, 'rank' => $i, 'index' => $name, 'hit' => $hit];
+                $candidates[] = ['score' => $options['weight'] / (self::RANK_CONSTANT + $i + 1), 'order' => $order, 'rank' => $i, 'hit' => $hit];
             }
             ++$order;
         }
         usort($candidates, static fn(array $a, array $b): int => [$b['score'], $a['order'], $a['rank']] <=> [$a['score'], $b['order'], $b['rank']]);
         $page = array_map(
-            static fn(array $c): FederatedHit => new FederatedHit($c['index'], $c['hit'], $c['score']),
+            static fn(array $c): Hit => $c['hit']->withMergedScore($c['score']),
             array_slice($candidates, $this->offset, $this->limit),
         );
 

@@ -10,6 +10,7 @@ use Fuzzphony\Core\Query\Ast\Term;
 use Fuzzphony\Core\Query\QueryParser;
 use Fuzzphony\Core\Ranking\RankingProfile;
 use Fuzzphony\Core\Ranking\Thresholds;
+use Fuzzphony\Core\Ranking\TypoThresholds;
 use Fuzzphony\Engine\Postgres\Schema\Names;
 use Fuzzphony\Engine\Postgres\Schema\OpenClass;
 use Fuzzphony\Engine\Postgres\Schema\PostgresSchemaGenerator;
@@ -43,17 +44,17 @@ final class OpenClassSqlTest extends TestCase
 
         $names = array_keys($indexes);
         self::assertCount(5, $names);
-        self::assertSame(['fuzzphony_items_tsv', 'fuzzphony_items_fz'], array_slice($names, 0, 2));
-        self::assertMatchesRegularExpression('/^fuzzphony_items_open_fz_[0-9a-f]{8}$/', $names[2]);
-        self::assertMatchesRegularExpression('/^fuzzphony_items_open_tsv_[0-9a-f]{8}$/', $names[3]);
-        self::assertSame('fuzzphony_items_f_price', $names[4]);
+        self::assertSame(['fuzzphony_items__tsv', 'fuzzphony_items__fz'], array_slice($names, 0, 2));
+        self::assertMatchesRegularExpression('/^fuzzphony_items__open_fz_[0-9a-f]{8}$/', $names[2]);
+        self::assertMatchesRegularExpression('/^fuzzphony_items__open_tsv_[0-9a-f]{8}$/', $names[3]);
+        self::assertSame('fuzzphony_items__f_price', $names[4]);
         self::assertSame('USING gin (("z_name" || \' \' || "z_category") "public".gin_trgm_ops)', $indexes[$names[2]]);
         self::assertSame('USING gin (("t_name" || "t_category"))', $indexes[$names[3]]);
     }
 
     public function testAnIndexWithoutAGrantedFieldHasNoneOfThem(): void
     {
-        self::assertSame(['fuzzphony_items_tsv', 'fuzzphony_items_fz', 'fuzzphony_items_f_price'], array_keys((new PostgresSchemaGenerator())->indexes(self::index(false))));
+        self::assertSame(['fuzzphony_items__tsv', 'fuzzphony_items__fz', 'fuzzphony_items__f_price'], array_keys((new PostgresSchemaGenerator())->indexes(self::index(false))));
         self::assertSame([], OpenClass::indexes(self::index(false), new Names()));
     }
 
@@ -141,7 +142,7 @@ final class OpenClassSqlTest extends TestCase
     {
         $builder = self::builder(['name', 'category'], static fn(): bool => true);
         $probe = $builder->probe([new Term('mouse'), new Term('cable')], true, [], new Thresholds())['sql'];
-        $probes = (new FuzzyQueryCompiler(self::index(), new Thresholds(), new Names(), [], ['name', 'category'], false, null, static fn(): bool => true))->probes(self::parse('mouse'), 100);
+        $probes = (new FuzzyQueryCompiler(self::index(), new Thresholds(), new Names(), [], ['name', 'category'], false, static fn(): bool => true))->probes(self::parse('mouse'), 100);
 
         self::assertStringContainsString(self::OPEN_VECTOR . ' @@ q.ft0', $probe);
         self::assertStringContainsString('OPERATOR("public".<%) ' . self::OPEN_TRIGRAM, $probe);
@@ -261,7 +262,7 @@ final class OpenClassSqlTest extends TestCase
         $tsquery = (new TsQueryCompiler(self::index()))->compile($root);
         $builder = self::builder($allowed, $gate ?? ($open ? static fn(): bool => true : null));
 
-        return $builder->ranked($tsquery, 'mouse', $root, [], new RankingProfile(), new Thresholds(fuzzySimilarity: 0.3), 10, 0, [], $root)['sql'];
+        return $builder->ranked($tsquery, 'mouse', $root, [], new RankingProfile(), new Thresholds(typo: new TypoThresholds(similarity: 0.3)), 10, 0, [], $root)['sql'];
     }
 
     private static function parse(string $input): Node

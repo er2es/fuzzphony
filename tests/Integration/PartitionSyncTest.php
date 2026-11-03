@@ -259,7 +259,7 @@ final class PartitionSyncTest extends TestCase
     /** @return list<int|string> */
     private function lamps(Fuzzphony $fuzzphony): array
     {
-        return $fuzzphony->in('parts')->query('lamp')->thresholds(['fuzzy_mode' => 'never'])->get()->ids();
+        return $fuzzphony->in('parts')->query('lamp')->thresholds(['typo' => ['mode' => 'never']])->get()->ids();
     }
 
     /** @return list<string> the tables with the TRUNCATE trigger */

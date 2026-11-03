@@ -55,13 +55,13 @@ final class OrmSyncListenerTest extends TestCase
         $article = new Article(2, 'Old headline', null);
         $this->em->persist($article);
         $this->em->flush();
-        self::assertContains(2, $this->fuzzphony->in('articles')->query('headline')->thresholds(['fuzzy_mode' => 'never'])->get()->ids());
+        self::assertContains(2, $this->fuzzphony->in('articles')->query('headline')->thresholds(['typo' => ['mode' => 'never']])->get()->ids());
 
         $article->setTitle('Ergonomic keyboard guide');
         $this->em->flush();
 
-        self::assertNotContains(2, $this->fuzzphony->in('articles')->query('headline')->thresholds(['fuzzy_mode' => 'never'])->get()->ids());
-        self::assertContains(2, $this->fuzzphony->in('articles')->query('keyboard')->thresholds(['fuzzy_mode' => 'never'])->get()->ids());
+        self::assertNotContains(2, $this->fuzzphony->in('articles')->query('headline')->thresholds(['typo' => ['mode' => 'never']])->get()->ids());
+        self::assertContains(2, $this->fuzzphony->in('articles')->query('keyboard')->thresholds(['typo' => ['mode' => 'never']])->get()->ids());
     }
 
     public function testFlushAfterRemoveDropsTheDocument(): void
@@ -69,11 +69,11 @@ final class OrmSyncListenerTest extends TestCase
         $article = new Article(3, 'Deletable gadget review', null);
         $this->em->persist($article);
         $this->em->flush();
-        self::assertContains(3, $this->fuzzphony->in('articles')->query('gadget')->thresholds(['fuzzy_mode' => 'never'])->get()->ids());
+        self::assertContains(3, $this->fuzzphony->in('articles')->query('gadget')->thresholds(['typo' => ['mode' => 'never']])->get()->ids());
 
         $this->em->remove($article);
         $this->em->flush();
 
-        self::assertNotContains(3, $this->fuzzphony->in('articles')->query('gadget')->thresholds(['fuzzy_mode' => 'never'])->get()->ids());
+        self::assertNotContains(3, $this->fuzzphony->in('articles')->query('gadget')->thresholds(['typo' => ['mode' => 'never']])->get()->ids());
     }
 }

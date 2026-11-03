@@ -57,18 +57,6 @@ final class PostgresEngineVocabularyCheckTest extends TestCase
         self::assertSame(2, self::times($connection, 'vocabulary check'));
     }
 
-    public function testAConnectionThatCannotTellKeepsAskingEverySearch(): void
-    {
-        $connection = new RecordingConnection(static fn(): bool => true);
-        $search = self::search($connection);
-
-        $search->in('products')->query('mouze')->get();
-        $search->in('products')->query('mouze')->get();
-
-        $checks = array_filter($connection->log, static fn(array $entry): bool => str_contains($entry[0], 'to_regclass'));
-        self::assertCount(2, $checks);
-    }
-
     public function testALookupThatFailsForgetsTheAnswerAndFailsLikeAnyLookup(): void
     {
         $failing = new \stdClass();

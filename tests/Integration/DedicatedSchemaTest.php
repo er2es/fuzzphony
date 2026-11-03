@@ -54,7 +54,7 @@ final class DedicatedSchemaTest extends TestCase
             'SELECT p.proname FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace WHERE n.nspname = :schema ORDER BY 1',
             ['schema' => self::SCHEMA],
         ), 'proname'));
-        self::assertSame(['fuzzphony_norm', 'fuzzphony_refresh_products', 'fuzzphony_refresh_products__next', 'fuzzphony_sync_products__fz_brand', 'fuzzphony_sync_products__fz_product', 'fuzzphony_track_products'], $functions);
+        self::assertSame(['fuzzphony_drain_products', 'fuzzphony_norm', 'fuzzphony_refresh_products', 'fuzzphony_refresh_products__next', 'fuzzphony_track_products', 'fuzzphony_watch__fz_brand_e21f3cf4', 'fuzzphony_watch__fz_product_bfb5b0f8', 'fuzzphony_watch_install'], $functions);
         self::assertTrue((bool) $this->connection->fetchValue(
             "SELECT EXISTS (SELECT 1 FROM pg_ts_config c JOIN pg_namespace n ON n.oid = c.cfgnamespace WHERE c.cfgname = 'fuzzphony_english' AND n.nspname = :schema)",
             ['schema' => self::SCHEMA],
@@ -85,7 +85,7 @@ final class DedicatedSchemaTest extends TestCase
         $this->connection->execute('SET search_path TO pg_catalog');
         self::assertSame(2, $engine->queueSize($index));
         self::assertSame(2, (new Worker($engine))->runOnce([$index]));
-        self::assertEqualsCanonicalizing([1, 4], $fuzzphony->in('products')->query('brand:"logitech g"')->thresholds(['fuzzy_mode' => 'never'])->get()->ids());
+        self::assertEqualsCanonicalizing([1, 4], $fuzzphony->in('products')->query('brand:"logitech g"')->thresholds(['typo' => ['mode' => 'never']])->get()->ids());
 
         $this->connection->execute('TRUNCATE public.fz_product');
         // a rebuild job reads the source like a reindex: the source tables must be visible, Fuzzphony's schema need not be
@@ -102,7 +102,7 @@ final class DedicatedSchemaTest extends TestCase
         $this->connection->execute('SET search_path TO pg_catalog');
         $this->connection->execute("UPDATE public.fz_brand SET name = 'Zebra' WHERE id = 1");
 
-        self::assertEqualsCanonicalizing([1, 4], $fuzzphony->in('products')->query('zebra')->thresholds(['fuzzy_mode' => 'never'])->get()->ids());
+        self::assertEqualsCanonicalizing([1, 4], $fuzzphony->in('products')->query('zebra')->thresholds(['typo' => ['mode' => 'never']])->get()->ids());
     }
 
     public function testDropRemovesTheIndexFromTheSchema(): void

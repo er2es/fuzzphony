@@ -146,7 +146,7 @@ final class PostgresEngineBehaviourTest extends TestCase
 
     public function testWordsThatEachMatchSomethingAreNotDroppedWhenTogetherTheyMatchNothing(): void
     {
-        $explanation = $this->fuzzphony($this->spy())->in('products')->query('mouse headphones')->thresholds(['did_you_mean' => false])->explain();
+        $explanation = $this->fuzzphony($this->spy())->in('products')->query('mouse headphones')->thresholds(['rescue' => ['did_you_mean' => false, 'correct_when_empty' => false]])->explain();
 
         self::assertSame(0, $explanation->result->total);
         self::assertSame([], $explanation->result->warnings, 'nothing was ignored');
@@ -158,7 +158,7 @@ final class PostgresEngineBehaviourTest extends TestCase
     {
         $spy = $this->spy();
 
-        $result = $this->fuzzphony($spy)->in('products')->query('zzzzzz')->thresholds(['fuzzy_mode' => 'never', 'did_you_mean' => false])->get();
+        $result = $this->fuzzphony($spy)->in('products')->query('zzzzzz')->thresholds(['typo' => ['mode' => 'never'], 'rescue' => ['did_you_mean' => false, 'correct_when_empty' => false]])->get();
 
         self::assertSame(0, $result->total);
         self::assertSame([], array_filter($spy->log, static fn(array $e): bool => str_contains($e[0], 'numnode(')), 'with one word there is nothing to relax');
@@ -247,7 +247,7 @@ final class PostgresEngineBehaviourTest extends TestCase
         (new Fuzzphony(new PostgresEngine($this->connection), new IndexRegistry([$this->index])))->reindex('products');
         $spy = $this->spy(fetchAll: static fn(string $sql): ?array => str_starts_with($sql, 'SELECT count(*) AS total FROM') ? [] : null);
 
-        $result = $this->fuzzphony($spy)->in('products')->query('')->thresholds(['candidate_limit' => 10])->limit(10)->exactCounts()->get();
+        $result = $this->fuzzphony($spy)->in('products')->query('')->thresholds(['limits' => ['candidates' => 10]])->limit(10)->exactCounts()->get();
 
         self::assertSame(0, $result->total, 'no row: no documents');
         self::assertFalse($result->totalIsLowerBound);

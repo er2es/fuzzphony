@@ -14,6 +14,8 @@ use Fuzzphony\Core\Support\Identifier;
 /**
  * Turns a table profile into a ready-to-use index definition, explaining every choice.
  * Heuristics only suggest; the developer confirms (CLI) or edits (web wizard) the result.
+ *
+ * @internal
  */
 final class DefinitionSuggester
 {

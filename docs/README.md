@@ -2,6 +2,9 @@
 
 This folder is in the Git repository, not in the Composer package (`composer require fuzzphony/fuzzphony` installs just `src/`).
 
+Fuzzphony is a small, relevant alternative to Elasticsearch and Meilisearch for applications that already run PostgreSQL: the
+index lives in the same database (consistent, no dual write), authorization is built in, and it is fast and small.
+
 Where to find what. The [README](../README.md) says what Fuzzphony is, how to install it and shows a first search;
 the pages below go deeper. Every page links back here or to the README, and a CI check keeps these links working.
 
@@ -44,12 +47,14 @@ If you read in order: the README (install and quick start), then [Index definiti
 - [Search log and analytics](analytics.md): how do I log searches, redact them, report the most searched and the
   zero-result texts, and purge old rows?
 - [Security](security.md): who may search, how often, and which fields may a viewer search and see?
+- [Database roles and grants](roles.md): which database user may do what (search, worker, admin), the privilege matrix, `fuzzphony:schema --dump-grants`
+  and the doctor's privilege check.
 - [Observability](observability.md): which metrics exist, and how do I wire them up (Prometheus, the bundle, a
   `/metrics` endpoint)?
 - [Architecture](architecture.md): how is the code organised into layers, and what is the public API?
 - [Known limitations](limitations.md): what does Fuzzphony not do, or do less well than expected, and what should I do
   about it?
-- [Tuning `candidate_limit`](tuning-candidate-limit.md): what to set when the indexed texts are long, with numbers.
+- [Tuning `limits.candidates`](tuning-candidate-limit.md): what to set when the indexed texts are long, with numbers.
 - [Benchmarks](benchmarks.md): how does it compare with a naive `ILIKE`, and how do I measure it myself?
 - [Design decisions (ADRs)](adr/): why is it built this way (sidecar table, queue sync by default, candidate limit,
   shadow rebuild and more)?

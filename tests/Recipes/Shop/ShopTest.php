@@ -146,7 +146,7 @@ final class ShopTest extends KernelTestCase
     {
         // region: fallback-cost
         $labels = array_column($this->fuzzphony()->in('products')->query('wireless')->explain()->statements, 'label');
-        self::assertSame(['full-text', 'fallback: full-text + fuzzy', 'did you mean'], $labels);   // 3 hits: fewer than fallback_below (5)
+        self::assertSame(['full-text', 'fallback: full-text + fuzzy', 'did you mean'], $labels);   // 3 hits: fewer than typo.fallback_below (5)
         // endregion
     }
 
@@ -171,7 +171,7 @@ final class ShopTest extends KernelTestCase
         self::assertSame([1, 2, 3], $whole->ids());                            // "mo" is no word: it is ignored, and the result says so
         self::assertSame(['No results for all words; ignored words that match nothing: "mo".'], $whole->warnings);
 
-        self::assertSame(['wireless headphones', 'wireless headset'], $this->fuzzphony()->suggest('products', 'wireless hea'));
+        self::assertSame(['wireless headphones', 'wireless headset'], $this->fuzzphony()->complete('products', 'wireless hea'));
         // endregion
 
         $dropdown = $this->storefront()->dropdown('wireless hea');
@@ -218,13 +218,13 @@ final class ShopTest extends KernelTestCase
         $hits = iterator_to_array($result, false);
 
         // region: federated
-        self::assertSame(['products:1', 'products:2', 'categories:5'], array_map(static fn($hit): string => $hit->index . ':' . $hit->hit->id, $hits));
+        self::assertSame(['products:1', 'products:2', 'categories:5'], array_map(static fn($hit): string => $hit->kind . ':' . $hit->id, $hits));
         // product 9 is out of stock and the products index skips those; the headset comes with the typo-tolerant search;
         // the category is last: the products weigh twice
         // endregion
 
         self::assertSame(2, $result->results['products']->total);
-        self::assertGreaterThan($hits[2]->score, $hits[1]->score);
+        self::assertGreaterThan($hits[2]->mergedScore, $hits[1]->mergedScore);
     }
 
     public function testTheLiveComponentIsTheUiAndAFacetKeepsTheOtherValues(): void

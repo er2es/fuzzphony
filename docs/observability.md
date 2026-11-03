@@ -5,7 +5,7 @@ the [README](../README.md).
 
 ## The three collectors
 
-Every metrics call site (`PostgresEngine`, `Worker`, `RefreshDocumentsHandler`) takes an optional
+Every metrics call site (the engine, `Worker`, `RefreshDocumentsHandler`) takes an optional
 `Fuzzphony\Core\Observability\MetricsCollector` — `increment()`, `observe()`, `gauge()`, matching
 Prometheus's own data model. Nothing is required; pick one:
 
@@ -21,10 +21,11 @@ Prometheus's own data model. Nothing is required; pick one:
 ### Plain PHP
 
 ```php
-use Fuzzphony\Core\Observability\LoggingMetricsCollector;
+use Fuzzphony\Core\Observability\MetricsCollector;
 
-$engine = new PostgresEngine($connection, metrics: new LoggingMetricsCollector($logger));
-$worker = new Worker($engine, metrics: new LoggingMetricsCollector($logger));
+// MetricsCollector is the extension point: implement increment(), gauge() and timing() for your metrics library
+
+$fuzzphony = Fuzzphony::postgres($connection, $indexes, metrics: new MyMetricsCollector());
 ```
 
 ### Symfony bundle
@@ -81,16 +82,14 @@ services:
   counter) labeled `index` and `reason` (`actor_required` or `authorization`); see
   [Multi-tenancy](multi-tenancy.md#a-refusal-is-a-403).
 - `fuzzphony.search.denied` also counts a search refused by the authorization guard (`reason=authorization`,
-  and a refused `suggest()`), and `fuzzphony.search.rate_limited` (a counter, label `index`) a search over the
+  and a refused `complete()`), and `fuzzphony.search.rate_limited` (a counter, label `index`) a search over the
   rate limit; both write a warning log line and a `denied` / `rate_limited` row in the search log. See
   [Security](security.md#refusals-in-metrics-logs-and-the-search-log). `fuzzphony.search.rate_limit_unkeyed`
   (a counter without labels, once per process) says a `per: ip` actor carried an address that is no IP address and
   was not limited; see [Limiting anonymous visitors by IP](security.md#limiting-anonymous-visitors-by-ip).
 - The search log (opt-in): `fuzzphony.search_log.failed` (a counter) counts the records that could not be
   recorded or written (labeled `index` when one search failed to record, and by the size of the batch when a write
-  failed, without a label); the search itself is never affected. `fuzzphony.search_log.ip_dropped` counts the client
-  addresses a write dropped because the table has no `actor_ip` column yet (the rows are kept; run
-  `fuzzphony:schema --apply`). See
+  failed, without a label); the search itself is never affected. See
   [Search log and analytics](analytics.md#how-it-is-written-and-what-happens-when-it-fails).
 - `Worker`: `fuzzphony.queue.depth` (a gauge, once per cycle, reusing `queueSize()`),
   `fuzzphony.queue.processed` (a counter) and `fuzzphony.worker.rebuild_failures` (a counter).

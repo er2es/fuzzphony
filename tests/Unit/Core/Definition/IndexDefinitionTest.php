@@ -16,6 +16,7 @@ use Fuzzphony\Core\Definition\TriggerLevel;
 use Fuzzphony\Core\Definition\Watch;
 use Fuzzphony\Core\Definition\Weight;
 use Fuzzphony\Core\Ranking\RankingProfile;
+use Fuzzphony\Core\Ranking\RelevanceThresholds;
 use Fuzzphony\Core\Ranking\Thresholds;
 use Fuzzphony\Tests\Fixtures\Indexes;
 use Fuzzphony\Tests\Fixtures\Product;
@@ -40,7 +41,7 @@ final class IndexDefinitionTest extends TestCase
         yield 'recency column' => [static fn(IndexDefinition $d): IndexDefinition => $d->withRecencyColumn('updated_at'), 'recencyColumn', 'updated_at'];
         yield 'no recency column' => [static fn(IndexDefinition $d): IndexDefinition => $d->withRecencyColumn(null), 'recencyColumn', null];
         yield 'profiles' => [static fn(IndexDefinition $d): IndexDefinition => $d->withProfiles(['default' => new RankingProfile(text: 0.5)]), 'profiles', ['default' => new RankingProfile(text: 0.5)]];
-        yield 'thresholds' => [static fn(IndexDefinition $d): IndexDefinition => $d->withThresholds(new Thresholds(minScore: 0.2)), 'thresholds', new Thresholds(minScore: 0.2)];
+        yield 'thresholds' => [static fn(IndexDefinition $d): IndexDefinition => $d->withThresholds(new Thresholds(relevance: new RelevanceThresholds(minScore: 0.2))), 'thresholds', new Thresholds(relevance: new RelevanceThresholds(minScore: 0.2))];
         yield 'entity class' => [static fn(IndexDefinition $d): IndexDefinition => $d->withEntityClass(Product::class), 'entityClass', Product::class];
         yield 'trigger level' => [static fn(IndexDefinition $d): IndexDefinition => $d->withTriggerLevel(TriggerLevel::Row), 'triggerLevel', TriggerLevel::Row];
         yield 'tenant' => [static fn(IndexDefinition $d): IndexDefinition => $d->withTenant('brand_id'), 'tenant', 'brand_id'];

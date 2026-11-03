@@ -8,7 +8,6 @@ use Fuzzphony\Bundle\Command\SearchCommand;
 use Fuzzphony\Core\Definition\FilterType;
 use Fuzzphony\Core\Definition\IndexDefinition;
 use Fuzzphony\Core\Engine\Engine;
-use Fuzzphony\Core\Engine\Suggestions;
 use Fuzzphony\Core\Exception\AccessDenied;
 use Fuzzphony\Core\Exception\InvalidQuery;
 use Fuzzphony\Core\Fuzzphony;
@@ -53,16 +52,15 @@ final class SearchCommandOptionsTest extends TestCase
     public function testSuggestClampsTheLimitToOneToTwenty(string $limit, int $expected): void
     {
         $passed = null;
-        $engine = self::createStubForIntersectionOfInterfaces([Engine::class, Suggestions::class]);
+        $engine = self::createStub(Engine::class);
         $engine->method('suggestWords')->willReturnCallback(static function (IndexDefinition $index, string $prefix, int $limit) use (&$passed): array {
             $passed = $limit;
 
             return ['headphones'];
         });
-        assert($engine instanceof Engine);
 
         $tester = $this->tester($engine);
-        $status = $tester->execute(['index' => 'products', 'query' => 'wireless hea', '--suggest' => true, '--limit' => $limit], ['interactive' => false]);
+        $status = $tester->execute(['index' => 'products', 'query' => 'wireless hea', '--complete' => true, '--limit' => $limit], ['interactive' => false]);
 
         self::assertSame(Command::SUCCESS, $status);
         self::assertSame($expected, $passed);
@@ -72,15 +70,14 @@ final class SearchCommandOptionsTest extends TestCase
 
     public function testSuggestionsAreEscapedAndAnEmptyListIsSaid(): void
     {
-        $engine = self::createStubForIntersectionOfInterfaces([Engine::class, Suggestions::class]);
+        $engine = self::createStub(Engine::class);
         $engine->method('suggestWords')->willReturnCallback(static fn(IndexDefinition $index, string $prefix): array => $prefix === 'hea' ? ['headphones'] : []);
-        assert($engine instanceof Engine);
         $tester = $this->tester($engine);
 
-        $tester->execute(['index' => 'products', 'query' => '<info>x hea', '--suggest' => true], ['interactive' => false]);
+        $tester->execute(['index' => 'products', 'query' => '<info>x hea', '--complete' => true], ['interactive' => false]);
         self::assertStringContainsString('<info>x headphones', $tester->getDisplay(true), 'the completion is printed as text, not as console markup');
 
-        $tester->execute(['index' => 'products', 'query' => 'qq', '--suggest' => true], ['interactive' => false]);
+        $tester->execute(['index' => 'products', 'query' => 'qq', '--complete' => true], ['interactive' => false]);
         self::assertStringContainsString('No completions.', $tester->getDisplay(true));
     }
 
@@ -177,10 +174,10 @@ final class SearchCommandOptionsTest extends TestCase
     {
         $tester = $this->tester();
 
-        $tester->execute(['index' => 'products', 'query' => 'mouse', '--threshold' => ['min_score=0.25', 'fuzzy_mode=always', 'fuzzy_similarity=NULL', 'candidate_limit=500']], ['interactive' => false]);
+        $tester->execute(['index' => 'products', 'query' => 'mouse', '--threshold' => ['relevance.min_score=0.25', 'typo.mode=always', 'typo.similarity=NULL', 'limits.candidates=500']], ['interactive' => false]);
 
         self::assertSame(
-            ['min_score' => 0.25, 'fuzzy_mode' => 'always', 'fuzzy_similarity' => null, 'candidate_limit' => 500],
+            ['relevance' => ['min_score' => 0.25], 'typo' => ['mode' => 'always', 'similarity' => null], 'limits' => ['candidates' => 500]],
             $this->query()->thresholdOverrides,
         );
     }
@@ -188,8 +185,8 @@ final class SearchCommandOptionsTest extends TestCase
     /** @return iterable<string, array{string, string}> */
     public static function malformedThresholds(): iterable
     {
-        yield 'the value is everything after the first equals sign' => ['fuzzy_similarity=0.5=1', '"fuzzy_similarity" must be a number.'];
-        yield 'a missing value is empty' => ['fuzzy_mode', '"fuzzy_mode" must be one of'];
+        yield 'the value is everything after the first equals sign' => ['typo.similarity=0.5=1', '"similarity" must be a number.'];
+        yield 'a missing value is empty' => ['typo.mode', '"mode" must be one of'];
     }
 
     #[DataProvider('malformedThresholds')]
@@ -212,7 +209,7 @@ final class SearchCommandOptionsTest extends TestCase
 
         self::assertSame(1, $status);
         $display = (string) preg_replace('/\s+/', ' ', $tester->getDisplay(true));
-        self::assertStringContainsString('Index "products": invalid thresholds for this query: Unknown threshold option(s): min_scor.', $display);
+        self::assertStringContainsString('Index "products": invalid thresholds for this query: Unknown threshold group "min_scor"', $display);
         self::assertNull($this->query, 'nothing was searched');
     }
 
@@ -404,7 +401,7 @@ final class SearchCommandOptionsTest extends TestCase
 
     public function testTheTablePrintsEveryScoreComponent(): void
     {
-        $hit = new Hit('p-7', 1.23456, new ScoreBreakdown(textRank: 0.1234, fuzzySimilarity: 0.5678, exactBonus: 0.5, prefixBonus: 0.25, boostBonus: 0.0123, recencyBonus: 0.0456));
+        $hit = new Hit('products', 'p-7', 1.23456, new ScoreBreakdown(textRank: 0.1234, fuzzySimilarity: 0.5678, exactBonus: 0.5, prefixBonus: 0.25, boostBonus: 0.0123, recencyBonus: 0.0456));
         $tester = $this->tester(result: $this->searchResult(hits: [$hit], total: 1));
 
         $tester->execute(['index' => 'products', 'query' => 'mouse'], ['interactive' => false]);

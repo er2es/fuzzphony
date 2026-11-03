@@ -10,6 +10,7 @@ use Fuzzphony\Core\Definition\IndexDefinition;
 use Fuzzphony\Core\Definition\Synonyms;
 use Fuzzphony\Core\Exception\InvalidArgument;
 use Fuzzphony\Core\Ranking\RankingProfile;
+use Fuzzphony\Core\Ranking\RelevanceThresholds;
 use Fuzzphony\Core\Ranking\Thresholds;
 use Fuzzphony\Core\Wizard\Export\ArrayExporter;
 use Fuzzphony\Core\Wizard\Export\AttributeExporter;
@@ -24,7 +25,7 @@ final class ExportersTest extends TestCase
 {
     public function testArrayExportRoundTripsThroughTheLoader(): void
     {
-        $original = Indexes::products()->withThresholds((new Thresholds())->with(['min_score' => 0.05, 'fuzzy_mode' => 'always']));
+        $original = Indexes::products()->withThresholds((new Thresholds())->with(['relevance' => ['min_score' => 0.05], 'typo' => ['mode' => 'always']]));
 
         $reloaded = (new ArrayDefinitionLoader())->load('products', (new ArrayExporter())->export($original));
 
@@ -33,40 +34,41 @@ final class ExportersTest extends TestCase
 
     public function testRelaxWhenEmptyRoundTripsAndIsOnlyExportedWhenChanged(): void
     {
-        $original = Indexes::products()->withThresholds((new Thresholds())->with(['relax_when_empty' => false]));
+        $original = Indexes::products()->withThresholds((new Thresholds())->with(['rescue' => ['drop_unmatched' => false]]));
         $exported = (new ArrayExporter())->export($original);
 
-        self::assertSame(['relax_when_empty' => false], $exported['thresholds'] ?? null);
+        self::assertSame(['rescue' => ['drop_unmatched' => false]], $exported['thresholds'] ?? null);
         self::assertEquals($original, (new ArrayDefinitionLoader())->load('products', $exported));
         self::assertStringContainsString("    thresholds:
-        relax_when_empty: false
+        rescue:
+          drop_unmatched: false
 ", (new YamlExporter())->export($original));
         self::assertArrayNotHasKey('thresholds', (new ArrayExporter())->export(Indexes::products()));
     }
 
     public function testDidYouMeanIsExportedOnlyWhenSwitchedOff(): void
     {
-        $off = Indexes::products()->withThresholds((new Thresholds())->with(['did_you_mean' => false]));
+        $off = Indexes::products()->withThresholds((new Thresholds())->with(['rescue' => ['did_you_mean' => false, 'correct_when_empty' => false]]));
 
-        self::assertSame(['did_you_mean' => false], (new ArrayExporter())->export($off)['thresholds'] ?? null);
+        self::assertSame(['rescue' => ['did_you_mean' => false, 'correct_when_empty' => false]], (new ArrayExporter())->export($off)['thresholds'] ?? null);
         self::assertArrayNotHasKey('thresholds', (new ArrayExporter())->export(Indexes::products()));
-        self::assertFalse((new ArrayDefinitionLoader())->load('products', (new ArrayExporter())->export($off))->thresholds->didYouMean);
+        self::assertFalse((new ArrayDefinitionLoader())->load('products', (new ArrayExporter())->export($off))->thresholds->rescue->didYouMean);
     }
 
     public function testRescueEmptyIsExportedOnlyWhenSwitchedOff(): void
     {
-        $off = Indexes::products()->withThresholds((new Thresholds())->with(['rescue_empty' => false]));
+        $off = Indexes::products()->withThresholds((new Thresholds())->with(['rescue' => ['correct_when_empty' => false]]));
 
-        self::assertSame(['rescue_empty' => false], (new ArrayExporter())->export($off)['thresholds'] ?? null);
-        self::assertFalse((new ArrayDefinitionLoader())->load('products', (new ArrayExporter())->export($off))->thresholds->rescueEmpty);
+        self::assertSame(['rescue' => ['correct_when_empty' => false]], (new ArrayExporter())->export($off)['thresholds'] ?? null);
+        self::assertFalse((new ArrayDefinitionLoader())->load('products', (new ArrayExporter())->export($off))->thresholds->rescue->correctWhenEmpty);
     }
 
     public function testFuzzySimilarityIsExportedOnlyWhenExplicit(): void
     {
         self::assertArrayNotHasKey('thresholds', (new ArrayExporter())->export(Indexes::products()), 'the default is by word length');
 
-        $flat = Indexes::products()->withThresholds((new Thresholds())->with(['fuzzy_similarity' => 0.3]));
-        self::assertSame(['fuzzy_similarity' => 0.3], (new ArrayExporter())->export($flat)['thresholds'] ?? null);
+        $flat = Indexes::products()->withThresholds((new Thresholds())->with(['typo' => ['similarity' => 0.3]]));
+        self::assertSame(['typo' => ['similarity' => 0.3]], (new ArrayExporter())->export($flat)['thresholds'] ?? null);
     }
 
     public function testSynonymsRoundTripThroughEveryExporter(): void
@@ -88,6 +90,28 @@ final class ExportersTest extends TestCase
         self::assertStringContainsString('->synonyms(', $code);
         self::assertNotEmpty(token_get_all("<?php\n" . $code, TOKEN_PARSE));
         self::assertStringNotContainsString('->synonyms(', (new BuilderExporter())->export(Indexes::products()));
+    }
+
+    public function testTheYamlWritesListsAsSequencesAndReadsBackAsTheSameDefinition(): void
+    {
+        $original = IndexDefinition::builder('products')->fromQuery("SELECT p.id, p.name, p.tenant_id FROM product p\nWHERE p.active")
+            ->watch('product')
+            ->watch('product_tag', 'SELECT product_id FROM product_tag WHERE id = :id', 'id', ['tag_id', 'weight'])
+            ->field('name', 'A', fuzzy: true)
+            ->filter('tenant_id', 'int')->tenant('tenant_id')
+            ->synonyms([['tv', 'television'], ['ssd', 'solid state drive', 'it\'s'], 'laptop => notebook | portable'])
+            ->boostBy('popularity')->profile('popular', new RankingProfile(boost: 0.5))
+            ->build();
+
+        $yaml = (new YamlExporter())->export($original);
+
+        self::assertStringContainsString("      synonyms:\n        - [tv, television]\n        - [ssd, solid state drive, 'it''s']\n        - 'laptop => notebook | portable'\n", $yaml, 'a list is a sequence, never numbered keys');
+        self::assertStringContainsString("columns: [tag_id, weight]\n", $yaml);
+        self::assertDoesNotMatchRegularExpression('/^\s+0:/m', $yaml);
+        /** @var array{fuzzphony: array{indexes: array{products: array<string, mixed>}}} $parsed */
+        $parsed = Yaml::parse($yaml);
+        self::assertSame((new ArrayExporter())->export($original), $parsed['fuzzphony']['indexes']['products'], 'the YAML is the array the loader reads');
+        self::assertEquals($original, (new ArrayDefinitionLoader())->load('products', $parsed['fuzzphony']['indexes']['products']));
     }
 
     public function testAttributeExportCarriesTheSynonyms(): void
@@ -231,7 +255,18 @@ final class ExportersTest extends TestCase
     {
         $index = IndexDefinition::builder('notes')->fromQuery("SELECT n.id, n.title\nFROM note n")->watch('note')->field('title', 'A')->build();
 
-        self::assertStringContainsString("        query: |\n          SELECT n.id, n.title\n          FROM note n\n", (new YamlExporter())->export($index));
+        self::assertStringContainsString("        query: |-\n          SELECT n.id, n.title\n          FROM note n\n", (new YamlExporter())->export($index), 'no final newline in the text: |-');
+    }
+
+    public function testAMultilineQueryReadsBackAsExactlyTheSameText(): void
+    {
+        foreach (["SELECT n.id, n.title\nFROM note n", "SELECT n.id, n.title\nFROM note n\n", "SELECT n.id, n.title\nFROM note n\n\n", "SELECT n.id, n.title\n\n  FROM note n", "  SELECT n.id, n.title\nFROM note n"] as $query) {
+            $original = IndexDefinition::builder('notes')->fromQuery($query)->watch('note')->field('title', 'A')->build();
+            /** @var array{fuzzphony: array{indexes: array{notes: array<string, mixed>}}} $parsed */
+            $parsed = Yaml::parse((new YamlExporter())->export($original));
+
+            self::assertEquals($original, (new ArrayDefinitionLoader())->load('notes', $parsed['fuzzphony']['indexes']['notes']), json_encode($query, JSON_THROW_ON_ERROR));
+        }
     }
 
     public function testJoinedSourcesCannotBeAttributes(): void
@@ -248,7 +283,7 @@ final class ExportersTest extends TestCase
 
         $withProfile = IndexDefinition::builder('gadgets')->fromTable('gadget')->field('title', 'A')->profile('popular', new RankingProfile(fuzzy: 0.2))->build();
         $withLabels = IndexDefinition::builder('gadgets')->fromTable('gadget')->field('title', 'A')->profile('default', new RankingProfile(labelWeights: ['B' => 0.9]))->build();
-        $withThresholds = $plain->withThresholds(new Thresholds(minScore: 0.1));
+        $withThresholds = $plain->withThresholds(new Thresholds(relevance: new RelevanceThresholds(minScore: 0.1)));
 
         foreach ([$withProfile, $withLabels, $withThresholds] as $index) {
             self::assertFalse($exporter->supports($index));

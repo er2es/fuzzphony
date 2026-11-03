@@ -49,7 +49,7 @@ final readonly class SynonymStore
             return; // an older demo database without the tables: the pages work, without synonyms
         }
         foreach ($versions as $index => $version) {
-            if ($fuzzphony->registry()->has($index)) {
+            if (in_array($index, $fuzzphony->indexes(), true)) {
                 try {
                     $fuzzphony->useSynonyms($index, $this->prepared($fuzzphony, $index, (int) $version));
                 } catch (FuzzphonyException) {

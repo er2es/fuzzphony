@@ -18,6 +18,8 @@ use Fuzzphony\Core\Sync\RefreshDispatcher;
  * Sync mode "orm": collects changed entity ids during a flush and hands them to a RefreshDispatcher
  * right after it: immediately (default) or asynchronously through Symfony Messenger.
  * (Joined data changed by other entities is not seen; use "queue" mode with watches for that.)
+ *
+ * @internal
  */
 final class OrmSyncListener
 {

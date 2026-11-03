@@ -7,6 +7,7 @@ namespace Fuzzphony\Core\Search;
 /** Why a hit got its score. Shown by explain() and the demo playground. */
 final readonly class ScoreBreakdown
 {
+    /** @internal */
     public function __construct(
         public float $textRank = 0.0,
         public float $fuzzySimilarity = 0.0,

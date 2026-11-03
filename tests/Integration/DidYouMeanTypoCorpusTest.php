@@ -69,7 +69,7 @@ final class DidYouMeanTypoCorpusTest extends TestCase
         $search = $this->fuzzphony()->in('products');
         $got = [];
         foreach (self::typos() as [, $word, $typo]) {
-            $result = $search->query($typo)->thresholds(['rescue_empty' => false, 'relax_when_empty' => false])->get();
+            $result = $search->query($typo)->thresholds(['rescue' => ['correct_when_empty' => false, 'drop_unmatched' => false]])->get();
             $got[$typo] = $result->didYouMean === null ? null : $word === $result->didYouMean;
         }
 

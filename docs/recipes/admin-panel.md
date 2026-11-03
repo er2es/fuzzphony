@@ -168,7 +168,7 @@ final class SearchRestrictionFilter implements FilterInterface
 
 Use it in place of `FuzzphonySearchFilter` (an `#[ApiFilter]` on the entity, or a service tagged
 `api_platform.filter`). The test sorts the same search by `createdAt` and gets the column's order. This one passes
-no actor, so on a tenant-scoped index use `FuzzphonySearchFilter` (see the [multi-tenant recipe](multi-tenant-saas.md))
+no actor, so it searches as the current user; on a tenant-scoped index use `FuzzphonySearchFilter` (see the [multi-tenant recipe](multi-tenant-saas.md))
 or add `->asActor()` to the call.
 
 ## Keeping the index fresh

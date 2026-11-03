@@ -16,6 +16,8 @@ use Fuzzphony\Core\Ranking\Thresholds;
  * Emits the attributes to put on a Doctrine entity. Only table sources without extra watches, ranking
  * profiles and thresholds can be expressed with attributes (they have no place in #[Searchable]); for the
  * others use YAML or the builder (supports() tells which).
+ *
+ * @internal
  */
 final class AttributeExporter
 {
@@ -33,7 +35,7 @@ final class AttributeExporter
             }
         }
 
-        return (array) $index->thresholds !== (array) new Thresholds();
+        return serialize($index->thresholds) !== serialize(new Thresholds());
     }
 
     public function export(IndexDefinition $index, string $className = 'Product'): string
@@ -80,6 +82,9 @@ final class AttributeExporter
                 $fieldArgs[] = 'highlight: false';
             }
             $fieldArgs[] = sprintf('column: %s', $e($field->column()));
+            if ($field->code) {
+                $fieldArgs[] = 'code: true';
+            }
             if ($field->granted !== null) {
                 $fieldArgs[] = sprintf('granted: %s', $e($field->granted));
             }

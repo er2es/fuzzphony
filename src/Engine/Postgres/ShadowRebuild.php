@@ -11,6 +11,7 @@ use Fuzzphony\Core\Exception\RebuildAlreadyRunning;
 use Fuzzphony\Core\Support\Coerce;
 use Fuzzphony\Engine\Postgres\Schema\Names;
 use Fuzzphony\Engine\Postgres\Schema\PostgresSchemaGenerator;
+use Fuzzphony\Engine\Postgres\Schema\SharedWatch;
 use Fuzzphony\Engine\Postgres\Schema\Types;
 use Fuzzphony\Engine\Postgres\Sql\Sql;
 
@@ -359,6 +360,15 @@ final class ShadowRebuild
 
     private function start(IndexDefinition $index): void
     {
+        if (SharedWatch::applies($index)) {
+            // a TRUNCATE the shared trigger logged before this run is a queue row (the job) only after a drain: drain first, so that the
+            // job is older than the run, which then completes it (a TRUNCATE during the run is drained later: its job stays)
+            try {
+                $this->connection->fetchValue(sprintf('SELECT %s()', $this->names->drainFunction($index)));
+            } catch (\Throwable) {
+                // the run rebuilds every document anyway; the entries stay logged for the worker
+            }
+        }
         $this->started[$index->name] = Coerce::str($this->connection->fetchValue('SELECT clock_timestamp()::text'));
     }
 

@@ -11,7 +11,7 @@ use Fuzzphony\Core\Ranking\FuzzyMode;
 use Fuzzphony\Core\Ranking\RankingProfile;
 use Fuzzphony\Core\Ranking\Thresholds;
 
-/** Emits the equivalent fluent builder code (plain PHP projects, tests). */
+/** @internal Emits the equivalent fluent builder code (plain PHP projects, tests). */
 final class BuilderExporter
 {
     public function export(IndexDefinition $index): string
@@ -47,6 +47,9 @@ final class BuilderExporter
             }
             if ($field->column !== null) {
                 $args[] = 'column: ' . $e($field->column);
+            }
+            if ($field->code) {
+                $args[] = 'code: true';
             }
             if ($field->granted !== null) {
                 $args[] = 'granted: ' . $e($field->granted);
@@ -102,28 +105,38 @@ final class BuilderExporter
         $lines[] = '    ->build();';
 
         $uses = ['Definition\\IndexDefinition'];
-        if ($index->thresholds->fuzzyMode !== (new Thresholds())->fuzzyMode) {
+        if ($index->thresholds->typo->mode !== (new Thresholds())->typo->mode) {
             $uses[] = 'Ranking\\FuzzyMode';
         }
         $uses[] = 'Ranking\\RankingProfile';
         if ($thresholds !== []) {
             $uses[] = 'Ranking\\Thresholds';
+            foreach (['limits' => 'LimitThresholds', 'relevance' => 'RelevanceThresholds', 'rescue' => 'RescueThresholds', 'typo' => 'TypoThresholds'] as $group => $class) {
+                if (array_filter($thresholds, static fn(string $arg): bool => str_starts_with($arg, $group . ': ')) !== []) {
+                    $uses[] = 'Ranking\\' . $class;
+                }
+            }
         }
 
         return implode('', array_map(static fn(string $use): string => sprintf("use Fuzzphony\\Core\\%s;\n", $use), $uses)) . "\n" . implode("\n", $lines) . "\n";
     }
 
-    /** @return list<string> the named constructor arguments of the thresholds that differ from the default */
+    /** @return list<string> the named constructor arguments of the thresholds that differ from the default, one object per group */
     private function thresholds(Thresholds $t): array
     {
-        $d = new Thresholds();
+        $default = (new Thresholds())->toArray();
+        $classes = ['relevance' => 'RelevanceThresholds', 'typo' => 'TypoThresholds', 'rescue' => 'RescueThresholds', 'limits' => 'LimitThresholds'];
         $args = [];
-        foreach (['minScore', 'fuzzySimilarity', 'fuzzyMinLength', 'fuzzyMode', 'fallbackBelow', 'candidateLimit', 'maxQueryLength', 'maxTerms', 'relaxWhenEmpty', 'didYouMean', 'rescueEmpty'] as $property) {
-            if ($t->{$property} === $d->{$property}) {
-                continue;
+        foreach ($t->toArray() as $group => $options) {
+            $inner = [];
+            foreach ($options as $key => $value) {
+                if ($value !== $default[$group][$key]) {
+                    $inner[] = sprintf('%s: %s', lcfirst(str_replace('_', '', ucwords($key, '_'))), $value instanceof FuzzyMode ? 'FuzzyMode::' . $value->name : var_export($value, true));
+                }
             }
-            $value = $t->{$property};
-            $args[] = sprintf('%s: %s', $property, $value instanceof FuzzyMode ? 'FuzzyMode::' . $value->name : var_export($value, true));
+            if ($inner !== []) {
+                $args[] = sprintf('%s: new %s(%s)', $group, $classes[$group], implode(', ', $inner));
+            }
         }
 
         return $args;

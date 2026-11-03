@@ -4,7 +4,7 @@ declare(strict_types=1);
 
 namespace Fuzzphony\Core\Wizard;
 
-/** Engine-neutral classification of a column type. */
+/** @internal Engine-neutral classification of a column type. */
 enum ColumnKind: string
 {
     case Text = 'text';

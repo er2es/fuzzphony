@@ -57,6 +57,8 @@ RUN --mount=type=cache,target=/tmp/composer-cache \
     php bin/console importmap:install; \
     php bin/console asset-map:compile; \
     php bin/console cache:warmup; \
+    # primes the property-type cache the Live Components read: the cache is read-only at run time, a miss logs a warning on every request
+    php bin/console debug:live-component >/dev/null; \
     test -f var/cache/prod/App_KernelProdContainer.preload.php; \
     # pre-compressed copies for nginx's gzip_static
     find public/assets -type f \( -name '*.js' -o -name '*.css' -o -name '*.svg' \) -exec gzip -9 -k -n {} +; \

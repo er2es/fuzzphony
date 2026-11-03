@@ -96,7 +96,7 @@ final readonly class FacetRunner
     public static function carriable(SearchContext $c): ?array
     {
         $query = $c->query;
-        if ($query->facets === [] || $query->exactCounts || SearchSqlBuilder::window($c->thresholds, $query->limit, $query->offset) !== $c->thresholds->candidateLimit) {
+        if ($query->facets === [] || $query->exactCounts || SearchSqlBuilder::window($c->thresholds, $query->limit, $query->offset) !== $c->thresholds->limits->candidates) {
             return null;
         }
         foreach ($query->facets as $name) {

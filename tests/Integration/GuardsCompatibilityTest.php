@@ -117,14 +117,18 @@ final class GuardsCompatibilityTest extends TestCase
         self::assertSame($plainConnection->log, $guardedConnection->log);
     }
 
-    public function testASearchWithoutAnActorRunsNoGuard(): void
+    public function testASearchWithoutAnActorRunsTheGuardAsAnonymous(): void
     {
         [, , $guarded, $guardedConnection] = $this->pair();
 
         $guardedConnection->reset();
         $guarded->in('products')->query('mouse')->get();
 
-        self::assertSame([], $this->ran->getArrayCopy());
+        self::assertSame(['products'], $this->ran->getArrayCopy());
         self::assertNotSame([], $guardedConnection->log);
+
+        $this->ran->exchangeArray([]);
+        $guarded->in('products')->query('mouse')->asSystem()->get();
+        self::assertSame([], $this->ran->getArrayCopy(), 'asSystem() runs none');
     }
 }

@@ -6,6 +6,10 @@ namespace Fuzzphony\Tests\Integration;
 
 use Fuzzphony\Core\Database\Connection;
 use Fuzzphony\Core\Database\PdoConnection;
+use Fuzzphony\Core\Definition\IndexDefinition;
+use Fuzzphony\Core\Support\Coerce;
+use Fuzzphony\Engine\Postgres\Schema\Names;
+use Fuzzphony\Engine\Postgres\Schema\SharedWatch;
 use PHPUnit\Framework\TestCase;
 
 /** @internal */
@@ -69,10 +73,16 @@ final class PostgresTestCase
         return PdoConnection::fromDsn(self::dsn());
     }
 
+    /** Moves what the shared trigger logged into the index queue (what a worker does before it takes a batch); nothing for an index outside the shared trigger. */
+    public static function drain(Connection $connection, IndexDefinition $index): int
+    {
+        return SharedWatch::applies($index) ? Coerce::int($connection->fetchValue(sprintf('SELECT %s()', (new Names())->drainFunction($index)))) : 0;
+    }
+
     /** @param array{brands: list<array{int, string}>, products: list<array{int, string, string, int, int, bool, float, string}>} $rows */
     public static function createFixtures(Connection $connection, array $rows): void
     {
-        $connection->execute('DROP TABLE IF EXISTS fz_product, fz_brand, fuzzphony_products, fuzzphony_products__vocab, fuzzphony_products__next, fuzzphony_products__changes, fuzzphony_queue, fuzzphony_meta CASCADE');
+        $connection->execute('DROP TABLE IF EXISTS fz_product, fz_brand, fuzzphony_products, fuzzphony_products__vocab, fuzzphony_products__next, fuzzphony_products__changes, fuzzphony_queue, fuzzphony_watches, fuzzphony_watch_log, fuzzphony_meta CASCADE');
         $connection->execute("CREATE TABLE fz_brand (id bigint PRIMARY KEY, name text NOT NULL, country text NOT NULL DEFAULT '')");
         $connection->execute(<<<'SQL'
             CREATE TABLE fz_product (

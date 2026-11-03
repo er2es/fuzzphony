@@ -164,8 +164,10 @@ final class TicketSearchController
 }
 ```
 
-The core has no ambient actor: in your own code you resolve it and pass it. The API Platform filter and the Live
-Component do that for you with the same resolver, on every request ([Multi-tenancy](../multi-tenancy.md#integrations)).
+In your own code a search that does not name an actor is made as the current user (the same resolver), so a forgotten `->asActor()` cannot
+search unguarded; pass `->asActor()` to be explicit. The API Platform filter and the Live Component name it for you, on every request
+([Multi-tenancy](../multi-tenancy.md#integrations)). A job without a signed-in user needs `->asSystem()->forTenant($id)`
+([Security](../security.md#searching-as-the-system)).
 
 <!-- tested: tests/Recipes/MultiTenant/MultiTenantTest.php#isolation -->
 ```php
@@ -234,7 +236,7 @@ for ($i = 0; $i < 8; ++$i) {
 ```
 
 One token per search; `per: tenant` (the default) shares one bucket per customer instead. A search with no key
-(no actor, or `per: user` without a user) is not limited. This recipe has no anonymous visitors (authorization refuses
+(`per: user` without a user) is not limited. This recipe has no anonymous visitors (authorization refuses
 them); a public search box would use [`per: ip`](../security.md#limiting-anonymous-visitors-by-ip) instead, which limits
 by client address. The Live Component spends one token per render, one per pause in typing.
 [What is and is not limited](../security.md#the-rate-limit).
@@ -334,7 +336,7 @@ self::assertSame(['open' => 2, 'closed' => 1], array_column(array_map(static fn(
 
 // a tenant-scoped index never suggests a spelling or a completion: its vocabulary is every tenant's words
 self::assertNull($this->fuzzphony()->in('tickets')->asActor($actor)->query('invoise')->get()->didYouMean);
-self::assertSame([], $this->fuzzphony()->suggest('tickets', 'invo', actor: $actor));
+self::assertSame([], $this->fuzzphony()->complete('tickets', 'invo', actor: $actor));
 ```
 
 - **No row-level authorization.** Whoever may search the index finds every ticket of the tenant. For rules per
@@ -357,8 +359,7 @@ self::assertSame([], $this->fuzzphony()->suggest('tickets', 'invo', actor: $acto
   the limiter's lock (`lock_factory`) while it reads and writes the state.
 - **`fuzzphony:search` runs no guard** (a console has no token): it takes `--tenant` and `--user`, and its searches
   are logged with that user.
-- **The doctor checks the log:** `fuzzphony:doctor` reports an error if the table, or the `actor_ip` column when `ip`
-  is on, is missing.
+- **The doctor checks the log:** `fuzzphony:doctor` reports an error if the table, or its `actor_ip` column, is missing.
 
 ## Reference
 

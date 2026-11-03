@@ -27,6 +27,8 @@ use Symfony\UX\LiveComponent\DefaultActionTrait;
  *
  * Override the look by copying templates/components/Search.html.twig to
  * templates/bundles/FuzzphonyBundle/components/Search.html.twig.
+ *
+ * @internal
  */
 #[AsLiveComponent('Fuzzphony:Search', template: '@Fuzzphony/components/Search.html.twig')]
 final class SearchComponent
@@ -86,7 +88,7 @@ final class SearchComponent
 
     /** "Did you mean ...?": searches the suggestion. */
     #[LiveAction]
-    public function useSuggestion(): void
+    public function useDidYouMean(): void
     {
         $suggestion = $this->getResult()?->didYouMean;
         if ($suggestion !== null) {
@@ -155,7 +157,7 @@ final class SearchComponent
             return [];
         }
 
-        return $this->fuzzphony->suggest($this->index, $this->query, min(20, $this->suggestions), $this->actors?->resolve(), charge: false);
+        return $this->fuzzphony->complete($this->index, $this->query, min(20, $this->suggestions), $this->actors?->resolve(), charge: false);
     }
 
     /** @return list<string> */

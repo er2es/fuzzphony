@@ -10,12 +10,11 @@ use Fuzzphony\Core\Analytics\RecordStatus;
 use Fuzzphony\Core\Analytics\SearchAnalytics;
 use Fuzzphony\Core\Definition\IndexDefinition;
 use Fuzzphony\Core\Engine\Engine;
-use Fuzzphony\Core\Engine\RecentSearchStore;
-use Fuzzphony\Core\Engine\SearchLogStore;
 use Fuzzphony\Core\Exception\InvalidArgument;
 use Fuzzphony\Core\Fuzzphony;
 use Fuzzphony\Core\Registry\IndexRegistry;
 use Fuzzphony\Tests\Fixtures\Indexes;
+use Fuzzphony\Tests\Unit\UnusedEngine;
 use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\TestCase;
 
@@ -258,7 +257,7 @@ final class SearchAnalyticsTest extends TestCase
 
     public function testAStoreWithDifferentlyNamedParametersStillGetsEveryArgumentInItsPlace(): void
     {
-        $store = new class implements SearchLogStore, RecentSearchStore {
+        $store = new class extends UnusedEngine {
             /** @var list<mixed> */
             public array $seen = [];
 
@@ -297,35 +296,6 @@ final class SearchAnalyticsTest extends TestCase
         self::assertSame(['products', $from, $to, 7, 'acme', false, 'ada', false, RecordStatus::Denied], $store->seen);
     }
 
-    public function testAStoreThatCannotListSearchesIsRefusedClearly(): void
-    {
-        $store = new class implements SearchLogStore {
-            public function writeSearchLog(array $records): int
-            {
-                return 0;
-            }
-
-            public function purgeSearchLog(\DateTimeInterface $before): int
-            {
-                return 0;
-            }
-
-            public function topQueries(IndexDefinition $index, \DateTimeInterface $from, ?\DateTimeInterface $to, int $limit, int|string|null $tenant, bool $allTenants): array
-            {
-                return [];
-            }
-
-            public function zeroResultQueries(IndexDefinition $index, \DateTimeInterface $from, ?\DateTimeInterface $to, int $limit, int|string|null $tenant, bool $allTenants): array
-            {
-                return [];
-            }
-        };
-
-        $this->expectException(InvalidArgument::class);
-        $this->expectExceptionMessage(RecentSearchStore::class);
-        (new SearchAnalytics($store, new IndexRegistry([Indexes::products()])))->recentSearches('products', new \DateTimeImmutable('-1 day'));
-    }
-
     public function testThePurgeIsDelegated(): void
     {
         $store = new FakeSearchLogStore();
@@ -335,27 +305,16 @@ final class SearchAnalyticsTest extends TestCase
         self::assertSame([['purge', $before]], $store->calls);
     }
 
-    public function testFuzzphonyHandsOutAnalyticsWhenTheEngineKeepsALog(): void
-    {
-        $engine = self::createStubForIntersectionOfInterfaces([Engine::class, SearchLogStore::class]);
-        assert($engine instanceof Engine);
-
-        self::assertInstanceOf(SearchAnalytics::class, (new Fuzzphony($engine, new IndexRegistry([Indexes::products()])))->analytics());
-    }
-
-    public function testFuzzphonyRefusesAnalyticsWhenTheEngineKeepsNoLog(): void
+    public function testFuzzphonyHandsOutAnalytics(): void
     {
         $engine = self::createStub(Engine::class);
-        $engine->method('name')->willReturn('fake');
 
-        $this->expectException(InvalidArgument::class);
-        $this->expectExceptionMessage('The "fake" engine keeps no search log.');
-        (new Fuzzphony($engine, new IndexRegistry([Indexes::products()])))->analytics();
+        self::assertInstanceOf(SearchAnalytics::class, (new Fuzzphony($engine, new IndexRegistry([Indexes::products()])))->analytics());
     }
 }
 
 /** A store that records what it was asked and returns a fixed list. */
-final class FakeSearchLogStore implements SearchLogStore, RecentSearchStore
+final class FakeSearchLogStore extends UnusedEngine
 {
     /** @var list<array<int, mixed>> */
     public array $calls = [];

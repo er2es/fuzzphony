@@ -201,9 +201,9 @@ final class FieldAuthorizationTest extends TestCase
 
     public function testSuggestionsAndDidYouMeanAreOffForARestrictedViewer(): void
     {
-        self::assertSame('zebrafish', $this->search('zebrafsh')->thresholds(['did_you_mean' => true])->get()->didYouMean);
-        self::assertNull($this->search('zebrafsh')->thresholds(['did_you_mean' => true])->restrictedToFields('title', 'body')->get()->didYouMean);
-        self::assertNull($this->search('margn')->thresholds(['did_you_mean' => true])->restrictedToFields('title', 'body')->get()->didYouMean);
+        self::assertSame('zebrafish', $this->search('zebrafsh')->thresholds(['rescue' => ['did_you_mean' => true]])->get()->didYouMean);
+        self::assertNull($this->search('zebrafsh')->thresholds(['rescue' => ['did_you_mean' => true]])->restrictedToFields('title', 'body')->get()->didYouMean);
+        self::assertNull($this->search('margn')->thresholds(['rescue' => ['did_you_mean' => true]])->restrictedToFields('title', 'body')->get()->didYouMean);
     }
 
     public function testTheTotalAndTheFacetsCountOnlyWhatTheViewerMatches(): void
@@ -226,10 +226,10 @@ final class FieldAuthorizationTest extends TestCase
         }
         $this->fuzzphony->reindex('auth_docs');
 
-        $unrestricted = $this->search('okapi', 'never')->thresholds(['candidate_limit' => 10])->exactCounts()->facets('in_stock')->get();
+        $unrestricted = $this->search('okapi', 'never')->thresholds(['limits' => ['candidates' => 10]])->exactCounts()->facets('in_stock')->get();
         self::assertSame(24, $unrestricted->total);
         self::assertSame(24, $unrestricted->facets['in_stock'][0]->count);
-        $restricted = $this->restricted('okapi', 'never')->thresholds(['candidate_limit' => 10])->exactCounts()->facets('in_stock')->get();
+        $restricted = $this->restricted('okapi', 'never')->thresholds(['limits' => ['candidates' => 10]])->exactCounts()->facets('in_stock')->get();
         self::assertSame(12, $restricted->total);
         self::assertFalse($restricted->totalIsLowerBound);
         self::assertSame(12, $restricted->facets['in_stock'][0]->count);
@@ -292,12 +292,13 @@ final class FieldAuthorizationTest extends TestCase
         $gated = $this->build(new SearchGate(guards: [$titleAndBody]));
 
         self::assertSame([2], $gated->in('auth_docs')->query('zebrafish')->asActor(new Actor(user: 'ada'))->get()->ids());
-        self::assertEqualsCanonicalizing([1, 2, 3], $gated->in('auth_docs')->query('zebrafish')->get()->ids(), 'no actor, no guard');
+        self::assertSame([2], $gated->in('auth_docs')->query('zebrafish')->get()->ids(), 'no actor named: anonymous, the guard runs');
+        self::assertEqualsCanonicalizing([1, 2, 3], $gated->in('auth_docs')->query('zebrafish')->asSystem()->get()->ids(), 'only asSystem() skips it');
     }
 
     private function search(string $text, string $mode = 'fallback'): SearchBuilder
     {
-        return $this->fuzzphony->in('auth_docs')->query($text)->thresholds(['fuzzy_mode' => $mode]);
+        return $this->fuzzphony->in('auth_docs')->query($text)->thresholds(['typo' => ['mode' => $mode]]);
     }
 
     private function restricted(string $text, string $mode = 'fallback'): SearchBuilder

@@ -6,9 +6,9 @@ namespace Fuzzphony\Tests\Unit\Core;
 
 use Fuzzphony\Core\Definition\IndexDefinition;
 use Fuzzphony\Core\Engine\Engine;
-use Fuzzphony\Core\Engine\Suggestions;
 use Fuzzphony\Core\Exception\InvalidArgument;
 use Fuzzphony\Core\Fuzzphony;
+use Fuzzphony\Core\Ranking\LimitThresholds;
 use Fuzzphony\Core\Ranking\Thresholds;
 use Fuzzphony\Core\Registry\IndexRegistry;
 use Fuzzphony\Tests\Fixtures\Indexes;
@@ -23,8 +23,7 @@ final class FuzzphonySuggestTest extends TestCase
     private function fuzzphony(bool $withVocabulary = true): Fuzzphony
     {
         if ($withVocabulary) {
-            $engine = self::createStubForIntersectionOfInterfaces([Engine::class, Suggestions::class]);
-            assert($engine instanceof Engine);
+            $engine = self::createStub(Engine::class);
             $engine->method('suggestWords')->willReturnCallback(function (IndexDefinition $index, string $prefix, int $limit): array {
                 $this->asked[] = [$prefix, $limit];
 
@@ -39,7 +38,7 @@ final class FuzzphonySuggestTest extends TestCase
 
     public function testEightCompletionsAreAskedForByDefault(): void
     {
-        self::assertSame(['wireless heaone', 'wireless heatwo'], $this->fuzzphony()->suggest('products', 'wireless hea'));
+        self::assertSame(['wireless heaone', 'wireless heatwo'], $this->fuzzphony()->complete('products', 'wireless hea'));
         self::assertSame([['hea', 8]], $this->asked);
     }
 
@@ -60,7 +59,7 @@ final class FuzzphonySuggestTest extends TestCase
             $this->expectExceptionMessage(sprintf('The suggestion limit must be between 1 and 20, got %d.', $limit));
         }
 
-        $this->fuzzphony()->suggest('products', 'hea', $limit);
+        $this->fuzzphony()->complete('products', 'hea', $limit);
 
         self::assertSame([['hea', $limit]], $this->asked);
     }
@@ -69,41 +68,40 @@ final class FuzzphonySuggestTest extends TestCase
     {
         $fuzzphony = $this->fuzzphony();
 
-        self::assertSame(['heaone'], array_slice($fuzzphony->suggest('products', "  \t hea"), 0, 1));
+        self::assertSame(['heaone'], array_slice($fuzzphony->complete('products', "  \t hea"), 0, 1));
 
-        $fuzzphony->suggest('products', str_repeat('é', 300));
+        $fuzzphony->complete('products', str_repeat('é', 300));
         self::assertSame([str_repeat('é', 256), 8], $this->asked[1], 'max_query_length (256 by default)');
 
-        $fuzzphony->suggest('products', str_repeat('x', 256) . 'yz');
+        $fuzzphony->complete('products', str_repeat('x', 256) . 'yz');
         self::assertSame([str_repeat('x', 256), 8], $this->asked[2]);
     }
 
     public function testTheCutFollowsTheIndexsMaxQueryLength(): void
     {
-        $engine = self::createStubForIntersectionOfInterfaces([Engine::class, Suggestions::class]);
-        assert($engine instanceof Engine);
+        $engine = self::createStub(Engine::class);
         $asked = [];
         $engine->method('suggestWords')->willReturnCallback(static function (IndexDefinition $index, string $prefix, int $limit) use (&$asked): array {
             $asked[] = $prefix;
 
             return [];
         });
-        $index = Indexes::products()->withThresholds(new Thresholds(maxQueryLength: 20));
+        $index = Indexes::products()->withThresholds(new Thresholds(limits: new LimitThresholds(maxQueryLength: 20)));
 
-        (new Fuzzphony($engine, new IndexRegistry([$index])))->suggest('products', 'wireless ' . str_repeat('m', 30));
+        (new Fuzzphony($engine, new IndexRegistry([$index])))->complete('products', 'wireless ' . str_repeat('m', 30));
 
         self::assertSame(['m' . str_repeat('m', 10)], $asked, 'the text is cut at 20 characters: "wireless " + 11 letters');
     }
 
     public function testTheTextBeforeTheLastWordSpansLines(): void
     {
-        self::assertSame(["wireless\nheaone", "wireless\nheatwo"], $this->fuzzphony()->suggest('products', "wireless\nhea"));
+        self::assertSame(["wireless\nheaone", "wireless\nheatwo"], $this->fuzzphony()->complete('products', "wireless\nhea"));
     }
 
     public function testNothingIsSuggestedAfterAFinishedWordOrWithoutAVocabulary(): void
     {
-        self::assertSame([], $this->fuzzphony()->suggest('products', 'wireless '));
-        self::assertSame([], $this->fuzzphony(false)->suggest('products', 'hea'));
+        self::assertSame([], $this->fuzzphony()->complete('products', 'wireless '));
+        self::assertSame([], $this->fuzzphony(false)->complete('products', 'hea'));
         self::assertSame([], $this->asked);
     }
 }

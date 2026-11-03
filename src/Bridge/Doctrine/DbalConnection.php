@@ -7,10 +7,9 @@ namespace Fuzzphony\Bridge\Doctrine;
 use Doctrine\DBAL\Connection as DoctrineConnection;
 use Doctrine\DBAL\ParameterType;
 use Fuzzphony\Core\Database\Connection;
-use Fuzzphony\Core\Database\TransactionAware;
 
 /** Runs Fuzzphony on the application's existing DBAL connection (same transaction, same pool). */
-final readonly class DbalConnection implements Connection, TransactionAware
+final readonly class DbalConnection implements Connection
 {
     public function __construct(private DoctrineConnection $connection) {}
 

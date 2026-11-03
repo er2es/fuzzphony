@@ -6,6 +6,7 @@ namespace Fuzzphony\Tests\Integration;
 
 use Fuzzphony\Core\Database\Connection;
 use Fuzzphony\Core\Definition\IndexDefinition;
+use Fuzzphony\Core\Exception\SchemaNotApplied;
 use Fuzzphony\Core\Fuzzphony;
 use Fuzzphony\Core\Inspection\CheckStatus;
 use Fuzzphony\Core\Registry\IndexRegistry;
@@ -15,8 +16,7 @@ use PHPUnit\Framework\TestCase;
 
 /**
  * The sidecar column `tsv_capped` (true when the joined vector `tsv` reached position 16 383): the later fields' vectors are read
- * for a phrase or a scoped word only for a document that is capped, or not known to be (NULL); an install without the column works
- * the slower way. Index order: notes (long in the capped document), title, body, secret.
+ * for a phrase or a scoped word only for a document that is capped, or not known to be (NULL); an install without the column fails with SchemaNotApplied. Index order: notes (long in the capped document), title, body, secret.
  */
 final class CappedFlagTest extends TestCase
 {
@@ -57,7 +57,7 @@ final class CappedFlagTest extends TestCase
         $found = [];
         foreach (self::QUERIES as $text) {
             $ids = function (string $mode) use ($fuzzphony, $text): array {
-                $hits = array_map(static fn($hit): int|string => $hit->id, $fuzzphony->in('cap_docs')->query($text)->thresholds(['fuzzy_mode' => $mode])->get()->hits);
+                $hits = array_map(static fn($hit): int|string => $hit->id, $fuzzphony->in('cap_docs')->query($text)->thresholds(['typo' => ['mode' => $mode]])->get()->hits);
                 sort($hits);
 
                 return $hits;
@@ -125,19 +125,32 @@ final class CappedFlagTest extends TestCase
         self::assertSame([1, 2], $found['secret:word1'], 'a scoped word needs no flag: the field decides');
     }
 
-    public function testWithoutTheColumnItWorksTheSlowerWay(): void
+    public function testWithoutTheColumnTheFirstSearchAndRefreshFailWithOneClearException(): void
     {
         $this->connection->execute('ALTER TABLE fuzzphony_cap_docs DROP COLUMN tsv_capped');
         $fuzzphony = $this->engine();
 
-        self::assertSame(self::EXPECTED, $this->found($fuzzphony));
-        $statement = $fuzzphony->in('cap_docs')->query('"word1 word2"')->explain()->statements[0]['sql'];
-        self::assertStringNotContainsString('tsv_capped', $statement);
-        self::assertStringContainsString('s.tsv @@ q.sft0 OR (s."t_title" || s."t_body" || s."t_secret") @@ q.sft0', (string) preg_replace('/\s+/', ' ', $statement), 'the later fields are read for every document tsv does not match');
+        try {
+            $fuzzphony->in('cap_docs')->query('"word1 word2"')->get();
+            self::fail('a phrase on an index without the column must not run');
+        } catch (SchemaNotApplied $e) {
+            self::assertStringContainsString('missing: tsv_capped', $e->getMessage());
+            self::assertStringContainsString('fuzzphony:schema --apply', $e->getMessage());
+        }
+        try {
+            $fuzzphony->refresh('cap_docs', [1]);
+            self::fail('a refresh on an index without the column must not run');
+        } catch (SchemaNotApplied $e) {
+            self::assertStringContainsString('missing: tsv_capped', $e->getMessage());
+        }
 
-        $warnings = array_filter($fuzzphony->inspect('cap_docs')->checks, static fn($check): bool => $check->name === 'Sidecar columns');
-        self::assertSame([CheckStatus::Ok, CheckStatus::Warning], array_values(array_map(static fn($check): CheckStatus => $check->status, $warnings)), 'a missing flag is a hint, not schema drift');
-        self::assertStringContainsString('tsv_capped is missing', implode(' ', array_map(static fn($check): string => $check->message, $warnings)));
+        $drift = array_values(array_filter($fuzzphony->inspect('cap_docs')->checks, static fn($check): bool => $check->name === 'Sidecar columns' && $check->status === CheckStatus::Error));
+        self::assertCount(1, $drift);
+        self::assertStringContainsString('missing: tsv_capped', $drift[0]->message);
+        self::assertStringContainsString('fuzzphony:schema --apply', (string) $drift[0]->fix);
+
+        $this->fuzzphony->schema()->apply($this->connection);
+        self::assertSame(self::EXPECTED, $this->found($this->engine()), 'applying the schema is the whole remedy');
     }
 
     public function testApplyingTheSchemaAddsTheColumnAndTheReindexFillsIt(): void
@@ -154,7 +167,7 @@ final class CappedFlagTest extends TestCase
 
     public function testTheFastStatementReadsTheLaterFieldsOnlyForACappedDocument(): void
     {
-        $sql = (string) preg_replace('/\s+/', ' ', $this->fuzzphony->in('cap_docs')->query('"word1 word2"')->thresholds(['fuzzy_mode' => 'never'])->explain()->statements[0]['sql']);
+        $sql = (string) preg_replace('/\s+/', ' ', $this->fuzzphony->in('cap_docs')->query('"word1 word2"')->thresholds(['typo' => ['mode' => 'never']])->explain()->statements[0]['sql']);
 
         self::assertStringContainsString('s.tsv @@ q.sft0 OR (s.tsv_capped IS NOT FALSE AND EXISTS (SELECT 1 FROM "public"."fuzzphony_cap_docs" AS c WHERE c.id = s.id AND ((c."t_title" || c."t_body" || c."t_secret") @@ q.sft0 OR ', $sql);
         self::assertStringContainsString('CASE WHEN s.tsv_capped IS NOT FALSE AND NOT (s.tsv @@ q.tsq) THEN (SELECT GREATEST(', $sql);
@@ -175,7 +188,7 @@ final class CappedFlagTest extends TestCase
     /** @return list<int|string> */
     private function ids(Fuzzphony $fuzzphony, string $text, string $mode = 'never'): array
     {
-        $ids = array_map(static fn($hit): int|string => $hit->id, $fuzzphony->in('cap_docs')->query($text)->thresholds(['fuzzy_mode' => $mode])->get()->hits);
+        $ids = array_map(static fn($hit): int|string => $hit->id, $fuzzphony->in('cap_docs')->query($text)->thresholds(['typo' => ['mode' => $mode]])->get()->hits);
         sort($ids);
 
         return $ids;
@@ -192,8 +205,6 @@ final class CappedFlagTest extends TestCase
             self::assertSame([1, 2], $this->ids($this->fuzzphony, '"foo bar"', $mode), $mode);
             self::assertSame([1, 2], $this->ids($this->fuzzphony, 'title:"foo bar"', $mode), $mode);
         }
-        $this->connection->execute('ALTER TABLE fuzzphony_cap_docs DROP COLUMN tsv_capped');
-        self::assertSame([1, 2], $this->ids($this->engine(), '"foo bar"'), 'the same as without the column');
     }
 
     public function testALexemeJustUnderTheLimitIsNotCapped(): void
@@ -218,7 +229,7 @@ final class CappedFlagTest extends TestCase
     {
         $this->load([[1, str_repeat('foo ', 300), 'foo baz foo bar'], [2, 'x', 'foo baz foo bar']]);
         $rank = [];
-        foreach ($this->fuzzphony->in('cap_docs')->query('title:"foo bar"')->thresholds(['fuzzy_mode' => 'never'])->get()->hits as $hit) {
+        foreach ($this->fuzzphony->in('cap_docs')->query('title:"foo bar"')->thresholds(['typo' => ['mode' => 'never']])->get()->hits as $hit) {
             $rank[$hit->id] = round($hit->breakdown->textRank, 6);
         }
         ksort($rank);

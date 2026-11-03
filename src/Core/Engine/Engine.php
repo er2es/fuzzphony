@@ -4,23 +4,39 @@ declare(strict_types=1);
 
 namespace Fuzzphony\Core\Engine;
 
+use Fuzzphony\Core\Analytics\LoggedSearch;
+use Fuzzphony\Core\Analytics\QueryStat;
+use Fuzzphony\Core\Analytics\RecordStatus;
+use Fuzzphony\Core\Analytics\SearchRecord;
 use Fuzzphony\Core\Definition\IndexDefinition;
+use Fuzzphony\Core\Definition\Synonyms;
 use Fuzzphony\Core\Inspection\InspectionReport;
 use Fuzzphony\Core\Inspection\InspectOptions;
 use Fuzzphony\Core\Query\SearchQuery;
 use Fuzzphony\Core\Schema\SchemaPlan;
 use Fuzzphony\Core\Search\Explanation;
 use Fuzzphony\Core\Search\SearchResult;
+use Fuzzphony\Core\Wizard\SourceIntrospector;
 
 /**
  * A database-specific implementation. Core never talks SQL directly; everything
  * dialect-specific lives behind this interface (see tests/Conformance).
+ *
+ * @internal
  */
 interface Engine
 {
     public function name(): string;
 
-    public function capabilities(): Capabilities;
+    /**
+     * Forgets what the engine remembered for the life of the process (which words a text search configuration reduces to nothing,
+     * the stems of the synonyms, which vocabulary tables are readable). A long-lived process calls it after a text search
+     * configuration or a dictionary changed, or is restarted.
+     */
+    public function resetCaches(): void;
+
+    /** The reader of table structures behind the configuration wizard. */
+    public function introspector(): SourceIntrospector;
 
     /** Objects shared by all indexes (extensions, text configurations, helper functions). */
     public function globalSchema(IndexDefinition ...$indexes): SchemaPlan;
@@ -134,4 +150,58 @@ interface Engine
     public function recordRebuildFailure(IndexDefinition $index, string $message): void;
 
     public function inspect(IndexDefinition $index, InspectOptions $options = new InspectOptions()): InspectionReport;
+
+    /**
+     * Rebuilds the vocabulary of $index (the words of a fuzzy index and in how many documents each occurs, which "did you mean"
+     * and complete() read) from its indexed documents, replacing the old one in one transaction. A full reindex calls it after
+     * it has finished; it is never kept up to date per write.
+     *
+     * @return int the number of words
+     */
+    public function rebuildVocabulary(IndexDefinition $index): int;
+
+    /**
+     * The words of the vocabulary that start with $prefix, the most frequent first. The words are in the index's normalised form
+     * (lowercase, accents folded). A tenant-scoped index, or one without a typo-tolerant field, has no vocabulary: the list is empty.
+     *
+     * @return list<string>
+     */
+    public function suggestWords(IndexDefinition $index, string $prefix, int $limit): array;
+
+    /** $synonyms with the stems of its members for $index's text configuration (one round trip). */
+    public function stemSynonyms(IndexDefinition $index, Synonyms $synonyms): Synonyms;
+
+    /**
+     * @param list<SearchRecord> $records
+     *
+     * @return int the number of records written
+     */
+    public function writeSearchLog(array $records): int;
+
+    /** @return int the number of records deleted */
+    public function purgeSearchLog(\DateTimeInterface $before): int;
+
+    /**
+     * The most searched texts of $index from $from until $to (null = now), most searched first. A tenant-scoped index is reported
+     * for $tenant, or across tenants when $allTenants.
+     *
+     * @return list<QueryStat>
+     */
+    public function topQueries(IndexDefinition $index, \DateTimeInterface $from, ?\DateTimeInterface $to, int $limit, int|string|null $tenant, bool $allTenants): array;
+
+    /**
+     * The texts that found nothing, with the same arguments as topQueries().
+     *
+     * @return list<QueryStat>
+     */
+    public function zeroResultQueries(IndexDefinition $index, \DateTimeInterface $from, ?\DateTimeInterface $to, int $limit, int|string|null $tenant, bool $allTenants): array;
+
+    /**
+     * The most recent logged searches of $index from $from until $to (null = now), newest first, whatever their status.
+     * The tenant arguments work as in topQueries(). $user keeps the searches of that user, $anonymousOnly those without a user
+     * (not both), $status those that ended so.
+     *
+     * @return list<LoggedSearch>
+     */
+    public function recentSearches(IndexDefinition $index, \DateTimeInterface $from, ?\DateTimeInterface $to, int $limit, int|string|null $tenant, bool $allTenants, ?string $user, bool $anonymousOnly, ?RecordStatus $status): array;
 }

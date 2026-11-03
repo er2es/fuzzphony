@@ -8,7 +8,10 @@ use Fuzzphony\Core\Definition\ArrayDefinitionLoader;
 use Fuzzphony\Core\Definition\IndexDefinition;
 use Fuzzphony\Core\Ranking\FuzzyMode;
 use Fuzzphony\Core\Ranking\RankingProfile;
+use Fuzzphony\Core\Ranking\RelevanceThresholds;
+use Fuzzphony\Core\Ranking\RescueThresholds;
 use Fuzzphony\Core\Ranking\Thresholds;
+use Fuzzphony\Core\Ranking\TypoThresholds;
 use Fuzzphony\Core\Wizard\Export\ArrayExporter;
 use Fuzzphony\Core\Wizard\Export\AttributeExporter;
 use Fuzzphony\Core\Wizard\Export\BuilderExporter;
@@ -93,15 +96,15 @@ final class ExportersOutputTest extends TestCase
         $index = IndexDefinition::builder('products')->fromTable('product')->field('name', 'B')
             ->profile('default', new RankingProfile(labelWeights: ['B' => 0.9]))
             ->profile('loose', new RankingProfile(fuzzy: 0.9, labelWeights: ['C' => 0.5, 'D' => 0.3]))
-            ->thresholds(new Thresholds(minScore: 0.2, fuzzyMode: FuzzyMode::Always, rescueEmpty: false))
+            ->thresholds(new Thresholds(relevance: new RelevanceThresholds(minScore: 0.2), typo: new TypoThresholds(mode: FuzzyMode::Always), rescue: new RescueThresholds(correctWhenEmpty: false)))
             ->build();
 
         $code = (new BuilderExporter())->export($index);
 
-        self::assertStringStartsWith("use Fuzzphony\\Core\\Definition\\IndexDefinition;\nuse Fuzzphony\\Core\\Ranking\\FuzzyMode;\nuse Fuzzphony\\Core\\Ranking\\RankingProfile;\nuse Fuzzphony\\Core\\Ranking\\Thresholds;\n\n", $code);
+        self::assertStringStartsWith("use Fuzzphony\\Core\\Definition\\IndexDefinition;\nuse Fuzzphony\\Core\\Ranking\\FuzzyMode;\nuse Fuzzphony\\Core\\Ranking\\RankingProfile;\nuse Fuzzphony\\Core\\Ranking\\Thresholds;\nuse Fuzzphony\\Core\\Ranking\\RelevanceThresholds;\nuse Fuzzphony\\Core\\Ranking\\RescueThresholds;\nuse Fuzzphony\\Core\\Ranking\\TypoThresholds;\n\n", $code);
         self::assertStringContainsString("    ->profile('default', new RankingProfile(labelWeights: ['B' => 0.9]))\n", $code);
         self::assertStringContainsString("    ->profile('loose', new RankingProfile(fuzzy: 0.9, labelWeights: ['C' => 0.5, 'D' => 0.3]))\n", $code);
-        self::assertStringContainsString("    ->thresholds(new Thresholds(minScore: 0.2, fuzzyMode: FuzzyMode::Always, rescueEmpty: false))\n    ->build();", $code);
+        self::assertStringContainsString("    ->thresholds(new Thresholds(relevance: new RelevanceThresholds(minScore: 0.2), typo: new TypoThresholds(mode: FuzzyMode::Always), rescue: new RescueThresholds(correctWhenEmpty: false)))\n    ->build();", $code);
 
         // the code, run, builds the same definition
         $rebuilt = eval('namespace Fuzzphony\\Tests\\Unit\\Core\\Wizard\\Evaluated; ' . $code . ' return $products;');
@@ -203,7 +206,7 @@ final class ExportersOutputTest extends TestCase
     public function testYamlStaysParseableForTrickyValues(): void
     {
         $index = IndexDefinition::builder('products')->fromTable('NO')->field('name', 'A')->boostBy('popularity')
-            ->thresholds((new Thresholds())->with(['candidate_limit' => 500, 'min_score' => 1.0, 'fuzzy_similarity' => 0.25]))
+            ->thresholds((new Thresholds())->with(['limits' => ['candidates' => 500], 'relevance' => ['min_score' => 1.0], 'typo' => ['similarity' => 0.25]]))
             ->synonyms([['it\'s', 'it is'], ['TRUE', 'yes please']])
             ->profile('popular', new RankingProfile(text: 2.0, boost: 0.0000004))
             ->build();
@@ -211,11 +214,11 @@ final class ExportersOutputTest extends TestCase
         $yaml = (new YamlExporter())->export($index);
 
         self::assertStringContainsString("        table: 'NO'\n", $yaml, 'a word YAML reads as a boolean is quoted whatever its case');
-        self::assertStringContainsString("          0: 'it''s'\n", $yaml, 'quotes are doubled');
-        self::assertStringContainsString("          0: 'TRUE'\n", $yaml);
-        self::assertStringContainsString("        candidate_limit: 500\n", $yaml);
-        self::assertStringContainsString("        min_score: 1\n", $yaml, 'a whole float has no trailing dot');
-        self::assertStringContainsString("        fuzzy_similarity: 0.25\n", $yaml);
+        self::assertStringContainsString("        - ['it''s', it is]\n", $yaml, 'quotes are doubled, a group is a list');
+        self::assertStringContainsString("        - ['TRUE', yes please]\n", $yaml);
+        self::assertStringContainsString("          candidates: 500\n", $yaml);
+        self::assertStringContainsString("          min_score: 1\n", $yaml, 'a whole float has no trailing dot');
+        self::assertStringContainsString("          similarity: 0.25\n", $yaml);
         self::assertStringContainsString("          text: 2\n", $yaml);
     }
 
@@ -239,6 +242,6 @@ final class ExportersOutputTest extends TestCase
 
         $yaml = (new YamlExporter())->export($index);
 
-        self::assertStringContainsString("        note: 'SELECT :id'\n        tag: |\n          SELECT note_id\n          FROM note_tag WHERE tag_id = :id\n", $yaml);
+        self::assertStringContainsString("        note: 'SELECT :id'\n        tag: |-\n          SELECT note_id\n          FROM note_tag WHERE tag_id = :id\n", $yaml);
     }
 }

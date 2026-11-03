@@ -4,7 +4,7 @@ declare(strict_types=1);
 
 namespace Fuzzphony\Bundle\Messenger;
 
-/** Route it to an async transport: framework.messenger.routing: { Fuzzphony\Bundle\Messenger\RefreshDocuments: async } */
+/** @internal Route it to an async transport: framework.messenger.routing: { Fuzzphony\Bundle\Messenger\RefreshDocuments: async } */
 final readonly class RefreshDocuments
 {
     /** @param list<int|string> $ids */

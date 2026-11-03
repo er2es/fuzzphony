@@ -76,7 +76,7 @@ final class StopWordExclusionIndependenceTest extends TestCase
             foreach ($queries as $text) {
                 foreach (['fallback', 'always'] as $mode) {
                     foreach ([[5000, false], [5000, true]] as [$limit, $exact]) {
-                        $builder = $fuzzphony->in('swx_docs')->query($text)->thresholds(['fuzzy_mode' => $mode, 'candidate_limit' => $limit])
+                        $builder = $fuzzphony->in('swx_docs')->query($text)->thresholds(['typo' => ['mode' => $mode], 'limits' => ['candidates' => $limit]])
                             ->restrictedToFields(...$allowed)->facets('cat')->limit(8);
                         $explained = ($exact ? $builder->exactCounts() : $builder)->explain();
                         $result = $explained->result;
@@ -133,7 +133,7 @@ final class StopWordExclusionIndependenceTest extends TestCase
         $fuzzphony->reindex('swx_docs');
 
         foreach ([1, 2] as $tenant) {
-            $ids = $fuzzphony->in('swx_docs')->query('the who -rock')->forTenant($tenant)->limit(500)->thresholds(['candidate_limit' => 1000])->get()->ids();
+            $ids = $fuzzphony->in('swx_docs')->query('the who -rock')->forTenant($tenant)->limit(500)->thresholds(['limits' => ['candidates' => 1000]])->get()->ids();
             self::assertNotSame([], $ids);
             foreach ($ids as $id) {
                 $id = (int) $id;

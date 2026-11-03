@@ -22,5 +22,7 @@ final readonly class LoggedSearch
         public float $tookMs,
         public bool $usedFuzzy,
         public RecordStatus $status,
+        /** Whether the zero-result rescue answered the search: `hits` counts the corrected search's hits, `query` is what the visitor typed. */
+        public bool $rescued = false,
     ) {}
 }

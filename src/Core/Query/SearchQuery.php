@@ -10,13 +10,15 @@ use Fuzzphony\Core\Query\Filter\Operator;
 /**
  * Immutable search request. Every with*() / where*() call returns a new instance,
  * so a base query can be safely reused and extended.
+ *
+ * @internal
  */
 final readonly class SearchQuery
 {
     /**
      * @param list<Condition>      $conditions
      * @param list<string>         $highlight           field names
-     * @param array<string, mixed> $thresholdOverrides snake_case keys, see Thresholds::with()
+     * @param array<string, mixed> $thresholdOverrides per group, see Thresholds::with()
      * @param array<string, mixed> $rankingOverrides   snake_case keys, see RankingProfile::with()
      * @param list<string>         $facets             filters to count the values of among the matches
      * @param list<string>|null    $allowedFields      field names the search is limited to; null = every field
@@ -34,7 +36,7 @@ final readonly class SearchQuery
         public array $facets = [],
         /** The most values listed per facet. */
         public int $facetValues = 20,
-        /** Count every match: an exact total and exact facets, not only the candidates (see Thresholds::$candidateLimit). */
+        /** Count every match: an exact total and exact facets, not only the candidates (see LimitThresholds::$candidates). */
         public bool $exactCounts = false,
         /** The last word of the text also matches as a prefix (search-as-you-type), see Typeahead. */
         public bool $asYouType = false,
@@ -44,6 +46,10 @@ final readonly class SearchQuery
         public bool $log = true,
         /** Searches, ranks and highlights only these fields (SearchBuilder::restrictedToFields()); null = every field. */
         public ?array $allowedFields = null,
+        /** Searched as the system (SearchBuilder::asSystem()): no guard runs, the search log records it as such. Never together with an actor. */
+        public bool $system = false,
+        /** Explain which word matched where, for the returned page (SearchBuilder::explainMatches()). */
+        public bool $explainMatches = false,
     ) {
         if ($facetValues < 1 || $facetValues > 100) {
             throw new \Fuzzphony\Core\Exception\InvalidQuery(sprintf('Facet values must be between 1 and 100, got %d.', $facetValues));
@@ -102,7 +108,18 @@ final readonly class SearchQuery
 
     public function withActor(\Fuzzphony\Core\Search\Actor $actor): self
     {
-        return $this->copy(actor: $actor);
+        return $this->copy(actor: $actor, system: false);
+    }
+
+    /** Searched as the system: no actor (the last of asActor() / asSystem() wins). */
+    public function asSystem(): self
+    {
+        return $this->copy(actor: null, system: true);
+    }
+
+    public function explainMatches(bool $explain = true): self
+    {
+        return $this->copy(explainMatches: $explain);
     }
 
     public function profile(string $profile): self
@@ -125,10 +142,10 @@ final readonly class SearchQuery
         return $this->copy(highlight: array_unique([...$this->highlight, ...$fields]));
     }
 
-    /** @param array<string, mixed> $overrides e.g. ['min_score' => 0.1, 'fuzzy_mode' => 'always'] */
+    /** @param array<string, mixed> $overrides e.g. ['relevance' => ['min_score' => 0.1], 'typo' => ['mode' => 'always']] */
     public function thresholds(array $overrides): self
     {
-        return $this->copy(thresholdOverrides: [...$this->thresholdOverrides, ...$overrides]);
+        return $this->copy(thresholdOverrides: array_replace_recursive($this->thresholdOverrides, $overrides));
     }
 
     /** @param array<string, mixed> $overrides e.g. ['fuzzy' => 0.8, 'boost' => 0.1] applied on top of the chosen profile */
@@ -189,6 +206,8 @@ final readonly class SearchQuery
         $actor = array_key_exists('actor', $changes) ? $changes['actor'] : $this->actor;
         $log = $changes['log'] ?? null;
         $allowedFields = array_key_exists('allowedFields', $changes) ? self::stringList($changes['allowedFields']) : $this->allowedFields;
+        $system = $changes['system'] ?? null;
+        $explainMatches = $changes['explainMatches'] ?? null;
 
         return new self(
             text: is_string($text) ? $text : $this->text,
@@ -207,6 +226,8 @@ final readonly class SearchQuery
             actor: $actor instanceof \Fuzzphony\Core\Search\Actor ? $actor : null,
             log: is_bool($log) ? $log : $this->log,
             allowedFields: $allowedFields,
+            system: is_bool($system) ? $system : $this->system,
+            explainMatches: is_bool($explainMatches) ? $explainMatches : $this->explainMatches,
         );
     }
 

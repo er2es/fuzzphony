@@ -10,6 +10,7 @@ use Fuzzphony\Core\Query\QueryParser;
 use Fuzzphony\Core\Query\SearchQuery;
 use Fuzzphony\Core\Ranking\RankingProfile;
 use Fuzzphony\Core\Ranking\Thresholds;
+use Fuzzphony\Core\Ranking\TypoThresholds;
 use Fuzzphony\Engine\Postgres\Schema\Names;
 use Fuzzphony\Engine\Postgres\Sql\SearchSqlBuilder;
 use Fuzzphony\Engine\Postgres\Sql\TsQueryCompiler;
@@ -73,7 +74,7 @@ final class SearchSqlBuilderRestrictedTest extends TestCase
     {
         $root = self::parse('mouse');
         $builder = new SearchSqlBuilder(Indexes::products(), new Names(), [], ['name']);
-        $thresholds = new Thresholds(fuzzySimilarity: 0.3);
+        $thresholds = new Thresholds(typo: new TypoThresholds(similarity: 0.3));
         $statements = [
             $builder->ranked("'mouse'", 'mouse', $root, [], new RankingProfile(), $thresholds, 10, 0, [], $root)['sql'],
             $builder->facets(['in_stock'], "'mouse'", 'mouse', $root, [], new RankingProfile(), $thresholds, 10, false, [], $root)['sql'],
@@ -106,7 +107,7 @@ final class SearchSqlBuilderRestrictedTest extends TestCase
             $scoped = (new TsQueryCompiler(Indexes::products()))->hasFieldScope($root) ? $root : null;
             $plain = new SearchSqlBuilder(Indexes::products(), new Names(), ['x' => [1]]);
             $null = new SearchSqlBuilder(Indexes::products(), new Names(), ['x' => [1]], null);
-            foreach ([new Thresholds(), new Thresholds(fuzzySimilarity: 0.3)] as $t) {
+            foreach ([new Thresholds(), new Thresholds(typo: new TypoThresholds(similarity: 0.3))] as $t) {
                 $args = [$tsquery, $text, $root, $conditions, new RankingProfile(), $t];
                 self::assertSame($plain->ranked(...[...$args, 10, 0, [], $scoped]), $null->ranked(...[...$args, 10, 0, [], $scoped]), $text);
                 self::assertSame($plain->facets(['in_stock'], ...[...$args, 10, true, [], $scoped]), $null->facets(['in_stock'], ...[...$args, 10, true, [], $scoped]), $text);

@@ -5,10 +5,10 @@ declare(strict_types=1);
 namespace Fuzzphony\Tests\Unit\Bundle\Analytics;
 
 use Fuzzphony\Core\Definition\IndexDefinition;
-use Fuzzphony\Core\Engine\SearchLogStore;
+use Fuzzphony\Tests\Unit\UnusedEngine;
 
 /** @internal Records the batches it is asked to write; can be told to fail. */
-final class FakeSearchLogStore implements SearchLogStore
+final class FakeSearchLogStore extends UnusedEngine
 {
     /** @var list<list<\Fuzzphony\Core\Analytics\SearchRecord>> */
     public array $batches = [];

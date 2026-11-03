@@ -6,26 +6,61 @@ Who may search, how often, and which fields of an index they may search and see.
 Everything here is opt-in. With nothing configured a search is what 0.8 did: the same results, and
 the same statements except the probe and facet change listed in the [CHANGELOG](../CHANGELOG.md)
 (the candidate probes carry the search's tenant and filters; a disjunctive facet with different
-conditions uses the trigram condition). A search made without an actor never runs a guard, and a
-viewer the guards let see every field takes the same fast path as before (a test compares the
+conditions uses the trigram condition). A viewer the guards let see every field takes the same fast path as before (a test compares the
 statements). The [demo](#a-worked-example) has a Security page that shows all of it running.
 
 ## The actor
 
 A guard decides about an *actor*: the tenant and the user who is searching, described once as a
-`Fuzzphony\Core\Search\Actor` and passed with `asActor()`. Where the actor comes from, and how the
-API Platform filter and the Live Component resolve it on the server on every request, is in
+`Fuzzphony\Core\Search\Actor`. Where the actor comes from, and how the API Platform filter and the Live
+Component resolve it on the server on every request, is in
 [Multi-tenancy](multi-tenancy.md#the-actor-who-is-searching) and
-[the bundle configuration](configuration.md#the-actor). In your own code you resolve it and pass it
-yourself:
+[the bundle configuration](configuration.md#the-actor).
+
+**Who is searching?** Every search has an actor, in this order:
+
+1. The one you name: `->asActor($actor)` (on `FederatedSearch` too, for every index).
+
+   Whoever the actor is, if it has a tenant it can search that tenant only: a `forTenant()` naming another one is refused (`AccessDenied`,
+   no tenant named); `asSystem()` is the way across tenants.
+
+2. Otherwise the application's current user, the **ambient actor**: the service asks the `ActorResolver` itself (the Symfony bundle: the
+   Security token, plus the client IP of the request when the IP is in use; plain PHP: `Fuzzphony::postgres(..., actors: $resolver)`). A
+   controller that forgets `->asActor()` is therefore guarded like one that remembers, and counted by the rate limit.
+3. Where nobody can be resolved (a command, a Messenger worker, a test, a request without a token) the actor is **anonymous**: the guards run
+   for it, so a [`granted` field](#granted-a-field-only-some-viewers-may-search) stays hidden, and nothing is thrown for that. A tenant-scoped
+   index still refuses it with `ActorRequired` (a tenant must be known). With `fuzzphony.authorization.enabled` the authorization guard
+   still fails closed without a Security token (`AccessDenied`): voters never see an empty token.
 
 ```php
-$fuzzphony->in('notes')->asActor($resolver->resolve())->query('salary')->get();
+$fuzzphony->in('notes')->query('salary')->get();                                   // as the current user
+$fuzzphony->in('notes')->asActor($resolver->resolve())->query('salary')->get();    // as this actor
 ```
 
-The core has no ambient actor, so a search you do not make `asActor()` is not guarded: the guards run
-for a search with an actor, in `get()`, in `explain()` and in `suggest()` (with an actor), and, for a
-[federated search](searching.md#federated-search), for each index it searches.
+The guards run in `get()`, in `explain()` and in `complete()`, and, for a [federated search](searching.md#federated-search), for each index it
+searches.
+
+### Searching as the system
+
+A job that is allowed to see everything (an export, an admin command, a handler that indexes or checks documents, a test) says so, visibly:
+
+```php
+$fuzzphony->in('notes')->asSystem()->query('salary')->get();
+$fuzzphony->federated()->index('notes')->index('staff')->asSystem()->query('salary')->get();
+$fuzzphony->complete('notes', 'sal', system: true);
+```
+
+`asSystem()` runs no guard: every field is searched and shown, nothing is rate limited. The search log records the search with the user
+`(system)` (no IP), so an audit can find them. A tenant-scoped index still needs `forTenant()`. The last of `asActor()` and `asSystem()` wins.
+`fuzzphony.authorization.allow_system: false` (plain PHP: `Fuzzphony::postgres(allowSystem: false)`) refuses it with `AccessDenied` (recorded as a
+denied search), for an application where nothing may bypass the guards. Do not put it in a controller that answers a visitor.
+
+### A `granted` field needs its guard
+
+A field with `granted: ROLE_HR` is hidden only by the authorization guard. An index with such a field while `fuzzphony.authorization.enabled` is
+false would show it to everybody, so it is an error: the container does not build (`InvalidDefinition`, "set fuzzphony.authorization.enabled: true"),
+`Fuzzphony::postgres()` refuses it unless one of the `guards:` can restrict fields (an authorization guard; a custom guard implements `FieldRestrictingGuard`: a rate limit alone returns every field and would show it), and `fuzzphony:doctor` reports it. Fields found by entity attributes are checked when
+the registry is built.
 
 ## The guards and their order
 
@@ -54,9 +89,7 @@ runs no guard, so the only refusal it can show is `ActorRequired`, as its error 
 Without Symfony, pass your own guards to the gate:
 
 ```php
-use Fuzzphony\Core\Search\SearchGate;
-
-$fuzzphony = new Fuzzphony($engine, $registry, new SearchGate(guards: [new MyGuard()]));
+$fuzzphony = Fuzzphony::postgres($connection, $indexes, guards: [new MyGuard()]);
 ```
 
 ## The rate limit
@@ -166,8 +199,7 @@ What the limit by IP cannot do, and what to know before you rely on it:
 - **A call with no request cannot be limited by IP.** The library sees no request in a plain PHP call, a
   console command, a worker or a message handler, so an actor there has no address and `per: ip` does not
   limit it (it does not throw either). The same holds for an actor you build with `new Actor(...)` without
-  `ip:`; and a search made without any `asActor()` is never guarded (the Live Component and the API Platform
-  filter always name an actor, your own controller must too: `->asActor($actors->resolve())`).
+  `ip:`; the ambient actor of a plain call carries no address either (the bundle adds the address of the request when there is one).
 - **The address is read per request** when the actor is resolved, and is not stored by Fuzzphony unless
   `search_log.ip` says so. The limiter keeps its own state in the cache pool of its entry for the length of
   the window: the bundle hands the limiter an HMAC-SHA-256 of the bucket key, keyed with your `kernel.secret`,
@@ -184,14 +216,14 @@ What the limit by IP cannot do, and what to know before you rely on it:
 
 What is and is not limited:
 
-- **A search without an actor, or with an actor that has no key** (`per: user` and an actor without a
-  user, `per: ip` and an actor without an address) is not limited. A search made without `asActor()` is not
-  guarded at all.
+- **An actor that has no key** (`per: user` and an actor without a
+  user, `per: ip` and an actor without an address) is not limited. A search without `asActor()` is limited as the ambient actor
+  (anonymous, with the address of the request, when there is none); `asSystem()` is never limited.
 - **One token per search.** `explain()` runs the search, so it **charges** a token too.
-  `Fuzzphony::suggest()` (the completions) charges one token per call, unless you pass `charge: false`
+  `Fuzzphony::complete()` (the completions) charges one token per call, unless you pass `charge: false`
   (only when the same request already charged a search). The Live Component does: a render is a
   search plus its completions, and the search charges, so a render costs one token, and the Live
-  Component debounces its requests, so that is one per pause in typing. `useSuggestion` ("did you
+  Component debounces its requests, so that is one per pause in typing. `useDidYouMean` ("did you
   mean") is a request of its own and can cost one extra token.
 - **A federated search charges once**, on the first index that has an actor; the other indexes run the
   guards but do not charge again. If your `configure` closures set different actors for different
@@ -274,7 +306,7 @@ leaks. A word that exists only in a hidden field is:
 - **not ranked**: the score, the exact and prefix bonuses and the score breakdown ignore the hidden
   field, so two documents that differ only in a hidden field score the same;
 - **not highlighted**: a hit never shows a snippet of a hidden field;
-- **not suggested**: a restricted viewer gets no "did you mean" and `suggest()` returns `[]`, because
+- **not suggested**: a restricted viewer gets no "did you mean" and `complete()` returns `[]`, because
   the vocabulary holds the words of every field; for the same reason a restricted viewer's search that finds nothing is
   never rescued with a corrected spelling ([zero-result rescue](searching.md#zero-result-rescue); a tenant-scoped index
   has none either). The two swapped letters of `mosue` are matched in the fields the viewer may see only;
@@ -298,9 +330,9 @@ The same restriction is available to application code, with no guard:
 $fuzzphony->in('staff')->restrictedToFields('name', 'title')->query('ada')->get();
 ```
 
-It searches, ranks and highlights only those fields. An unknown field throws `InvalidQuery` listing the
-known ones; a second call can only narrow the list. A guard's `Access` and `restrictedToFields()` are
-intersected.
+It searches, ranks and highlights only those fields, and it can only **narrow**: the fields searched are those of the list that the actor
+may also see. Naming a `granted` field the actor does not hold adds nothing, and a list with none of the allowed fields finds nothing (no
+exception). An unknown field throws `InvalidQuery` listing the known ones; a second call narrows the list further, never widens it.
 
 ### `fuzzphony:search` and the guards
 
@@ -309,6 +341,20 @@ without `--tenant` and `--user` (a console has no Security token, so an authoriz
 deny it). The bundle gives the command its own `Fuzzphony` over a gate without guards; every other
 service keeps the guarded one. Its searches are counted in the metrics but not written to the
 [search log](analytics.md) unless you pass `--log` (then with the `--user` you gave). See [Console commands](commands.md).
+
+## Database roles
+
+The guards above decide who may search. The database user decides what the code can do at all: [Database roles and grants](roles.md) has the
+least-privilege matrix for the application (reads the index, no DDL), the worker and the admin, `fuzzphony:schema --dump-grants` to print the
+`GRANT` statements for your tables, the `fuzzphony.connections` setting to use a separate user for each, and the doctor's privilege check. Every Fuzzphony
+function is `SECURITY INVOKER`: none runs with its owner's rights.
+
+`INSERT` on `fuzzphony_watch_log` is a trust boundary: the application role that writes the watched tables has it by design, so it
+can also write bogus log entries. Unusable keys are skipped and counted (the doctor reports them), forged TRUNCATE entries queue at most one
+full rebuild per index, and none of it can read or change a search result; see [Sync](sync.md#one-trigger-per-table-one-change-log).
+
+The worker role is trusted for **all** indexes: its `UPDATE (cur_xid, bad_rows, bad_at)` on `fuzzphony_watches` can move another index's position in the log or reset the
+`bad_rows` counter, and its `DELETE` on the log can lose changes. `bad_rows` is advisory, not a security record ([roles](roles.md#the-worker-role-is-trusted-for-every-index)).
 
 ## The limits, stated honestly
 
@@ -347,7 +393,7 @@ a covert-channel proof:
   its own documents (the tenant condition is part of the statement), so the size of another tenant's rows does not change them: a
   test compares a tenant's hits, totals and facets over corpora whose other tenant takes four different sizes.
 - **The candidates of a very common word are chosen by the fields the viewer may see only.** When a word matches more
-  documents than `candidate_limit`, the best candidates are selected by the page's own sort key; for a restricted
+  documents than `limits.candidates`, the best candidates are selected by the page's own sort key; for a restricted
   viewer that key is the text rank of the allowed fields' vectors and the exact and prefix bonuses only when the primary
   field is allowed, with the same lookup, recheck, tenant and filter conditions as the cheap selection, so neither which
   documents are candidates nor their order depends on a hidden field (the tests compare corpora that differ only in a
@@ -380,7 +426,7 @@ Every refusal is recorded, and none is silent:
 - **The search log** ([Search log and analytics](analytics.md)), when it is enabled: a row with the
   status `denied` or `rate_limited`, with the text that was typed (redacted like any other), the
   tenant and the user. It is written **always, also for an unlogged search** (`unlogged()` or
-  `log: false`): a refusal is never silent. A refused `suggest()` is counted and logged, but writes no
+  `log: false`): a refusal is never silent. A refused `complete()` is counted and logged, but writes no
   row (there is no text).
 
 ## A worked example

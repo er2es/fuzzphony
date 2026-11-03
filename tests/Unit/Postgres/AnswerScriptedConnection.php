@@ -9,6 +9,11 @@ use Fuzzphony\Core\Database\Connection;
 /** @internal Records every fetchAll() and answers it with the next scripted set of rows; one statement more than scripted fails. */
 final class AnswerScriptedConnection implements Connection
 {
+    public function inTransaction(): bool
+    {
+        return false;
+    }
+
     /** @var list<array{string, array<string, scalar|null>}> */
     public array $log = [];
 

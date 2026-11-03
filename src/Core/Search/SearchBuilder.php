@@ -4,7 +4,6 @@ declare(strict_types=1);
 
 namespace Fuzzphony\Core\Search;
 
-use Fuzzphony\Core\Definition\FilterType;
 use Fuzzphony\Core\Definition\IndexDefinition;
 use Fuzzphony\Core\Engine\Engine;
 use Fuzzphony\Core\Exception\InvalidDefinition;
@@ -23,6 +22,7 @@ use Fuzzphony\Core\Query\Typeahead;
  */
 final readonly class SearchBuilder
 {
+    /** @internal */
     public function __construct(
         private Engine $engine,
         private IndexDefinition $index,
@@ -63,22 +63,35 @@ final readonly class SearchBuilder
 
     /**
      * Searches as this actor: its tenant scopes a tenant-scoped index (it is ignored on any other index), its
-     * user is carried for the search log and the guards. The last of forTenant() / asActor() wins; an actor
-     * without a tenant leaves a tenant set before alone. An integer tenant (a resolver reading `account.id`)
+     * user is carried for the search log and the guards. An actor with a tenant never searches another one:
+     * a forTenant() naming a different tenant (before or after) refuses the search with AccessDenied; asSystem() is the way across tenants.
+     * An actor without a tenant leaves a tenant set with forTenant() alone. An integer tenant (a resolver reading `account.id`)
      * on a string tenant filter is turned into its string; any other pairing is left as it is.
      */
     public function asActor(Actor $actor): self
     {
-        $query = $this->query->withActor($actor);
-        if ($this->index->tenant !== null && $actor->tenant !== null) {
-            $tenant = $actor->tenant;
-            if (is_int($tenant) && $this->index->filter($this->index->tenant)->type === FilterType::String) {
-                $tenant = (string) $tenant;
-            }
-            $query = $query->forTenant($tenant);
-        }
+        return $this->with(SearchGate::withActor($this->index, $this->query, $actor));
+    }
 
-        return $this->with($query);
+    /**
+     * Searches as the system: no guard runs (every field is searched and shown), and the search log records the search as
+     * made by "(system)". For jobs and commands that are allowed to see everything; a web request should name its actor with
+     * asActor() or leave it out (the application's current user is used). An index with a tenant still needs one
+     * (forTenant()). Refused with AccessDenied when `fuzzphony.authorization.allow_system` is false. The last of asActor() /
+     * asSystem() wins.
+     */
+    public function asSystem(): self
+    {
+        return $this->with($this->query->asSystem());
+    }
+
+    /**
+     * Adds, for the hits of the returned page, which word of which field matched and how (Hit::$matches). It costs one more
+     * statement over the ids of the page, only when asked for, and shows no field the viewer may not see.
+     */
+    public function explainMatches(bool $explain = true): self
+    {
+        return $this->with($this->query->explainMatches($explain));
     }
 
     public function profile(string $profile): self
@@ -93,7 +106,7 @@ final readonly class SearchBuilder
         return $this->with($this->query->highlight(...$fields));
     }
 
-    /** @param array<string, mixed> $overrides e.g. ['min_score' => 0.1, 'fuzzy_mode' => 'always'] */
+    /** @param array<string, mixed> $overrides e.g. ['relevance' => ['min_score' => 0.1], 'typo' => ['mode' => 'always']] */
     public function thresholds(array $overrides): self
     {
         try {
@@ -177,8 +190,10 @@ final readonly class SearchBuilder
     }
 
     /**
-     * Searches, ranks and highlights only these fields (the guards use it for fields a viewer may not see). A word
-     * that exists only in another field finds nothing; calling it again can only narrow the list.
+     * Searches, ranks and highlights only these fields. It can only NARROW: the fields searched are those of the list that the actor
+     * may also see (a guard's answer), so naming a `granted` field the actor does not hold adds nothing, and a list with none of the
+     * allowed fields finds nothing (no exception). A word that exists only in another field finds nothing; calling it again narrows
+     * the list further, never widens it. A name that is no field of the index is an InvalidQuery listing the index's fields.
      */
     public function restrictedToFields(string ...$fields): self
     {
@@ -227,6 +242,7 @@ final readonly class SearchBuilder
         return new Explanation($explanation->interpretedAs, $explanation->statements, $explanation->plan, $explanation->result->withDidYouMean(Typeahead::withoutPrefixAlternative($didYouMean)));
     }
 
+    /** @internal */
     public function toQuery(): SearchQuery
     {
         return $this->query;
@@ -241,6 +257,7 @@ final readonly class SearchBuilder
     private static function checked(IndexDefinition $index, SearchQuery $query): SearchQuery
     {
         SearchGate::assertActorHasTenant($index, $query);
+        SearchGate::assertTenantAgrees($index, $query);
 
         return $query;
     }

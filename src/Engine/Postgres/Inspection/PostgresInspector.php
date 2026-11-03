@@ -20,6 +20,7 @@ use Fuzzphony\Engine\Postgres\Schema\Fingerprint;
 use Fuzzphony\Engine\Postgres\Schema\Names;
 use Fuzzphony\Engine\Postgres\Schema\OpenClass;
 use Fuzzphony\Engine\Postgres\Schema\PostgresSchemaGenerator;
+use Fuzzphony\Engine\Postgres\Schema\SharedWatch;
 use Fuzzphony\Engine\Postgres\Schema\Types;
 use Fuzzphony\Engine\Postgres\Sql\DocumentSql;
 use Fuzzphony\Engine\Postgres\Sql\Sql;
@@ -40,8 +41,6 @@ final class PostgresInspector
         /** Whether the engine keeps a search log: only then is its table checked. */
         private readonly bool $searchLog = false,
         private readonly int $searchLogRetentionDays = 90,
-        /** Whether the log is to keep the client IP (search_log.ip is not off): the table then needs its actor_ip column. */
-        private readonly bool $searchLogIp = false,
     ) {
         $this->names = $schema->names();
     }
@@ -121,8 +120,9 @@ final class PostgresInspector
                 sprintf('GRANT SELECT ON %s TO %s;', $table, Sql::ident($role)),
             );
         }
-        if ($this->searchLogIp && !$this->hasColumn($table, 'actor_ip')) {
-            return Check::error('Search log', sprintf('search_log.ip is on, but table %s has no actor_ip column: the addresses are dropped (the rows are kept). After applying the schema restart long-running workers (they look the column up once per process).', $table), self::APPLY);
+        $missing = array_values(array_filter(['actor_ip', 'rescued'], fn(string $column): bool => !$this->hasColumn($table, $column)));
+        if ($missing !== []) {
+            return Check::error('Search log', sprintf('Table %s has no %s column: the schema is not up to date (missing: %s), and writing or reading the log fails.', $table, implode(' / ', $missing), implode(', ', $missing)), self::APPLY);
         }
         $stale = $this->connection->fetchValue(
             sprintf('SELECT EXISTS (SELECT 1 FROM %s WHERE at < now() - make_interval(days => :days))', $table),
@@ -443,7 +443,7 @@ final class PostgresInspector
                 JOIN pg_attribute a ON a.attrelid = i.indrelid AND a.attnum = i.indkey[0]
                 WHERE i.indrelid = to_regclass(:table) AND (i.indisprimary OR i.indisunique) AND i.indnkeyatts = 1 AND a.attname = :column
                 SQL,
-            ['table' => (string) $index->source->table, 'column' => $index->source->idColumn],
+            ['table' => Sql::ident((string) $index->source->table), 'column' => $index->source->idColumn],
         );
 
         return $indexed
@@ -467,20 +467,10 @@ final class PostgresInspector
         $extra = array_diff($actual, $expected);
 
         $checks = [];
-        // the capped flag is optional: without it phrases and field-scoped words work, a little slower on a multi-field index
-        $flagMissing = in_array(PostgresSchemaGenerator::CAPPED_COLUMN, $missing, true);
-        $missing = array_diff($missing, [PostgresSchemaGenerator::CAPPED_COLUMN]);
         $checks[] = $missing === []
-            ? Check::ok('Sidecar columns', sprintf('%d column(s) match the definition', count($expected) - ($flagMissing ? 1 : 0)))
-            : Check::error('Sidecar columns', sprintf('Schema drift, missing: %s.', implode(', ', $missing)), self::APPLY);
-        if ($flagMissing) {
-            $checks[] = Check::warning(
-                'Sidecar columns',
-                sprintf('Column %s is missing: phrases and field-scoped words are looked up the slower way on an index with several fields. Apply the schema, then reindex (the column is filled by the reindex) and restart long-running workers (they look the column up once per process).', PostgresSchemaGenerator::CAPPED_COLUMN),
-                self::APPLY,
-            );
-        }
-        if (!$flagMissing && count($index->fields) > 1) {
+            ? Check::ok('Sidecar columns', sprintf('%d column(s) match the definition', count($expected)))
+            : Check::error('Sidecar columns', sprintf('The sidecar of "%s" is not up to date (missing: %s): searches and refreshes fail until the schema is applied.', $index->name, implode(', ', $missing)), self::APPLY);
+        if (!in_array(PostgresSchemaGenerator::CAPPED_COLUMN, $missing, true) && count($index->fields) > 1) {
             array_push($checks, ...$this->unfilledCappedFlags($index));
         }
         if ($extra !== []) {
@@ -541,7 +531,13 @@ final class PostgresInspector
         }
         // an open-class index built for other granted fields (the expected one has another name): never used, and costs every write
         $expected = array_keys($this->schema->indexes($index));
+        $legacy = $this->schema->legacyIndexNames($index);
         foreach (array_keys($valid) as $name) {
+            if (in_array($name, $legacy, true)) {
+                $checks[] = Check::error('Index ' . $name, 'OLD NAME (an earlier release named it so; no search uses it)', sprintf('DROP INDEX CONCURRENTLY %s; or run "bin/console fuzzphony:schema --apply"', $this->names->index($name)));
+
+                continue;
+            }
             if (!in_array($name, $expected, true) && OpenClass::isOpenClassName($name)) {
                 $checks[] = Check::error('Index ' . $name, 'STALE (built for other granted fields; no search uses it)', sprintf('DROP INDEX CONCURRENTLY %s; or run "bin/console fuzzphony:schema --apply"', $this->names->index($name)));
             }
@@ -562,7 +558,9 @@ final class PostgresInspector
      */
     private function partitions(IndexDefinition $index, Watch $watch): array
     {
-        $trigger = $this->names->triggerName($index, $watch, '_trn');
+        $shared = SharedWatch::applies($index);
+        $trigger = $shared ? $this->names->watchTriggerName($watch->table, 'trn') : $this->names->triggerName($index, $watch, '_trn');
+        $function = $shared ? $this->names->watchFunction($watch->table) : $this->names->syncFunction($index, $watch);
         $table = Sql::ident($watch->table);
         $label = 'Partitions of ' . $watch->table;
         $checks = [];
@@ -603,7 +601,7 @@ final class PostgresInspector
                 'SELECT string_agg(g.tgrelid::regclass::text, \', \' ORDER BY g.tgrelid::regclass::text COLLATE "C") FROM pg_trigger AS g WHERE g.tgname = :trigger AND g.tgfoid = to_regprocedure(:function) AND g.tgrelid IS DISTINCT FROM to_regclass(:table)%s',
                 $index->sync->usesTriggers() ? ' AND g.tgrelid NOT IN (SELECT t.relid FROM pg_partition_tree(to_regclass(:table)) AS t)' : '',
             ),
-            ['trigger' => $trigger, 'function' => $this->names->syncFunction($index, $watch) . '()', 'table' => $table],
+            ['trigger' => $trigger, 'function' => $function . '()', 'table' => $table],
         );
         if ($left !== null) {
             $checks[] = Check::warning($label, sprintf('%s is left on %s: a TRUNCATE there still triggers a full resync of the index.', $trigger, Coerce::str($left)), self::APPLY);
@@ -619,20 +617,23 @@ final class PostgresInspector
         foreach ($index->effectiveWatches() as $watch) {
             $rows = $this->connection->fetchAll(
                 'SELECT tgname, tgenabled FROM pg_trigger WHERE tgrelid = to_regclass(:table) AND NOT tgisinternal',
-                ['table' => $watch->table],
+                ['table' => Sql::ident($watch->table)],
             );
             $state = array_column($rows, 'tgenabled', 'tgname');
             $label = 'Sync trigger on ' . $watch->table;
-            $expected = array_keys($this->schema->triggerDefinitions($index, $watch));
+            $shared = SharedWatch::applies($index);
+            $expected = $shared
+                ? array_map(fn(string $kind): string => $this->names->watchTriggerName($watch->table, $kind), ['ins', 'upd', 'del', 'trn'])
+                : array_keys($this->schema->triggerDefinitions($index, $watch));
 
             $missing = array_values(array_filter($expected, static fn(string $t): bool => !isset($state[$t])));
             $disabled = array_values(array_filter($expected, static fn(string $t): bool => ($state[$t] ?? null) === 'D'));
-            $leftover = array_values(array_filter($this->schema->obsoleteTriggerNames($index, $watch), static fn(string $t): bool => isset($state[$t])));
+            $leftover = array_values(array_filter($shared ? $this->schema->allTriggerNames($index, $watch) : $this->schema->obsoleteTriggerNames($index, $watch), static fn(string $t): bool => isset($state[$t])));
 
             if ($missing !== []) {
                 // An index set up before the TRUNCATE trigger existed only lacks that one.
                 // (compared by name: Names::limit() hashes a long name, which then no longer ends in "_trn")
-                $truncateTrigger = $this->names->triggerName($index, $watch, '_trn');
+                $truncateTrigger = $shared ? $this->names->watchTriggerName($watch->table, 'trn') : $this->names->triggerName($index, $watch, '_trn');
                 $truncateOnly = array_all($missing, static fn(string $t): bool => $t === $truncateTrigger);
                 $checks[] = Check::error($label, sprintf(
                     $truncateOnly ? 'missing %s: a TRUNCATE of this table leaves stale documents in the index' : 'missing %s: changes to this table are not indexed',
@@ -644,18 +645,83 @@ final class PostgresInspector
                     $disabled,
                 )));
             } elseif ($expected !== []) {
-                $checks[] = Check::ok($label, sprintf('%d trigger(s), %s mode, %s level', count($expected), $index->sync->value, $index->triggerLevel->value));
+                $checks[] = Check::ok($label, sprintf('%d trigger(s), %s mode, %s level%s', count($expected), $index->sync->value, $index->triggerLevel->value, $shared ? ', shared by the indexes that watch the table' : ''));
             }
             if ($leftover !== []) {
                 $checks[] = Check::warning($label, sprintf('Leftover trigger(s) %s do not match "%s" sync / %s level and cause double work.', implode(', ', $leftover), $index->sync->value, $index->triggerLevel->value), self::APPLY);
             }
             array_push($checks, ...$this->partitions($index, $watch));
         }
+        if (SharedWatch::applies($index)) {
+            array_push($checks, ...$this->sharedWatches($index));
+        }
         if (!$index->sync->usesTriggers()) {
             $checks[] = Check::ok('Sync', sprintf('"%s" mode: no database triggers expected', $index->sync->value));
         }
 
         return $checks;
+    }
+
+    /**
+     * The shared change log: every watch of the index is recorded (with the position the index has read up to) and its drain function exists;
+     * without them the shared trigger logs the changes but nothing turns them into queue rows.
+     *
+     * @return list<Check>
+     */
+    private function sharedWatches(IndexDefinition $index): array
+    {
+        $missing = [];
+        if (!$this->regclass($this->names->watches()) || !$this->regclass($this->names->watchLog())) {
+            return [Check::error('Shared change log', 'The change log or the watches table is missing: nothing turns the changes of a watched table into queue rows.', self::APPLY)];
+        }
+        $known = array_column($this->connection->fetchAll(
+            sprintf('SELECT watch_no, tbl FROM %s WHERE index_name = :index', $this->names->watches()),
+            ['index' => $index->name],
+        ), 'tbl', 'watch_no');
+        foreach ($index->effectiveWatches() as $no => $watch) {
+            if (($known[$no] ?? null) !== Sql::ident($watch->table)) {
+                $missing[] = $watch->table;
+            }
+        }
+        $function = $this->connection->fetchValue('SELECT to_regprocedure(:function) IS NOT NULL', ['function' => $this->names->drainFunction($index) . '()']) === true;
+        if ($missing !== [] || !$function) {
+            return [Check::error(
+                'Shared change log',
+                $missing !== [] ? sprintf('"%s" is not registered as a watcher of %s: its changes are logged by no one for it.', $index->name, implode(', ', $missing)) : 'The function that moves the change log into the queue is missing.',
+                self::APPLY,
+            )];
+        }
+
+        $skipped = $this->skippedLogRows($index);
+        if ($skipped !== null) {
+            return [Check::warning(
+                'Shared change log',
+                $skipped,
+                'someone with INSERT on the change log wrote keys that do not fit the source key (a forged or buggy writer): the rows were skipped, the sync goes on; find the writer (docs/sync.md)',
+            )];
+        }
+
+        return [Check::ok('Shared change log', sprintf('%d watch(es) registered', count($index->effectiveWatches())))];
+    }
+
+    /** "N log rows could not be applied ..." (counts and the table, never a key value); null when none, or on a schema without the counter. */
+    private function skippedLogRows(IndexDefinition $index): ?string
+    {
+        if ($this->connection->fetchValue("SELECT EXISTS (SELECT 1 FROM pg_attribute WHERE attrelid = to_regclass(:watches) AND attname = 'bad_rows' AND NOT attisdropped)", ['watches' => $this->names->watches()]) !== true) {
+            return null;
+        }
+        $rows = $this->connection->fetchAll(
+            sprintf('SELECT tbl, bad_rows, bad_at FROM %s WHERE index_name = :index AND bad_rows > 0 ORDER BY watch_no', $this->names->watches()),
+            ['index' => $index->name],
+        );
+        if ($rows === []) {
+            return null;
+        }
+
+        return implode('; ', array_map(
+            static fn(array $row): string => sprintf('%d log row(s) for %s could not be applied (last at %s) and were skipped', Coerce::int($row['bad_rows']), Coerce::str($row['tbl']), Coerce::str($row['bad_at'])),
+            $rows,
+        ));
     }
 
     private function queue(IndexDefinition $index, InspectOptions $options): Check
@@ -670,10 +736,25 @@ final class PostgresInspector
         $size = Coerce::int($row['n']);
         $age = Coerce::int($row['age']);
         $rebuild = $row['rebuild'] === true;
+        if (SharedWatch::applies($index) && $this->regclass($this->names->watches()) && $this->regclass($this->names->watchLog())) {
+            // what the shared trigger logged and the index has not drained yet is waiting too
+            $pending = $this->connection->fetchAll(
+                sprintf('SELECT count(*) AS n, coalesce(extract(epoch FROM now() - min(l.at)), 0)::bigint AS oldest FROM %s AS w JOIN %s AS l ON l.tbl = w.tbl AND l.xid >= w.cur_xid WHERE w.index_name = :index', $this->names->watches(), $this->names->watchLog()),
+                ['index' => $index->name],
+            )[0];
+            $size += Coerce::int($pending['n']);
+            $age = max($age, Coerce::int($pending['oldest']));
+        }
         $waiting = sprintf('%d %s waiting%s', $size, $size === 1 ? 'item' : 'items', $rebuild ? ', one of them a full rebuild (queued by a TRUNCATE)' : '');
         $failure = $rebuild ? $this->rebuildFailure($index) : null;
+        $failing = $this->failingItems($index);
 
         return match (true) {
+            $failing !== null => Check::warning(
+                'Sync queue',
+                sprintf('%s; %s', $waiting, $failing),
+                'fix the source rows (or the query) of these ids: the worker tries them again with a back-off, the other documents are not held back',
+            ),
             $failure !== null => Check::warning(
                 'Sync queue',
                 sprintf('%s; a full rebuild keeps failing: %s (%d times, last at %s)', $waiting, Coerce::str($failure['rebuild_error']), Coerce::int($failure['rebuild_failures']), Coerce::str($failure['failed_at'])),
@@ -686,6 +767,35 @@ final class PostgresInspector
             ),
             default => Check::ok('Sync queue', $waiting),
         };
+    }
+
+    /**
+     * The ids the worker could not refresh on their own (never the row values, never the driver's message): at most five, with the error class
+     * and SQLSTATE of the last failure. Null without any, or when the queue table has no failure columns yet (an older schema).
+     */
+    private function failingItems(IndexDefinition $index): ?string
+    {
+        if ($this->connection->fetchValue("SELECT EXISTS (SELECT 1 FROM pg_attribute WHERE attrelid = to_regclass(:queue) AND attname = 'attempts' AND NOT attisdropped)", ['queue' => $this->names->queue()]) !== true) {
+            return null;
+        }
+        $rows = $this->connection->fetchAll(
+            sprintf("SELECT doc_id, attempts, last_error, count(*) OVER () AS total FROM %s WHERE index_name = :index AND attempts > 0 AND doc_id <> '*' ORDER BY failed_at DESC, doc_id LIMIT 5", $this->names->queue()),
+            ['index' => $index->name],
+        );
+        if ($rows === []) {
+            return null;
+        }
+        $total = Coerce::int($rows[0]['total']);
+
+        return sprintf(
+            '%d %s fail on their own and stay queued: %s',
+            $total,
+            $total === 1 ? 'document' : 'documents',
+            implode('; ', array_map(
+                static fn(array $row): string => sprintf('id %s (%s, %d %s)', Coerce::str($row['doc_id']), Coerce::str($row['last_error']), Coerce::int($row['attempts']), Coerce::int($row['attempts']) === 1 ? 'attempt' : 'attempts'),
+                $rows,
+            )) . ($total > count($rows) ? sprintf('; and %d more', $total - count($rows)) : ''),
+        );
     }
 
     /**
@@ -755,17 +865,17 @@ final class PostgresInspector
     {
         $checks = [];
         $t = $index->thresholds;
-        if ($t->fuzzyMode !== FuzzyMode::Never && !$index->hasFuzzy()) {
-            $checks[] = Check::warning('Typo tolerance', 'fuzzy_mode is enabled but no field is marked fuzzy, so it has no effect.', 'Mark the most important field fuzzy: #[SearchField("A", fuzzy: true)]');
+        if ($t->typo->mode !== FuzzyMode::Never && !$index->hasFuzzy()) {
+            $checks[] = Check::warning('Typo tolerance', 'typo.mode is enabled but no field is marked fuzzy, so it has no effect.', 'Mark the most important field fuzzy: #[SearchField("A", fuzzy: true)]');
         }
-        if ($t->fuzzySimilarity !== null && $t->fuzzySimilarity < 0.2) {
-            $checks[] = Check::warning('Typo tolerance', sprintf('fuzzy_similarity %.2f is very tolerant; expect noisy matches.', $t->fuzzySimilarity));
+        if ($t->typo->similarity !== null && $t->typo->similarity < 0.2) {
+            $checks[] = Check::warning('Typo tolerance', sprintf('typo.similarity %.2f is very tolerant; expect noisy matches.', $t->typo->similarity));
         }
-        if ($t->candidateLimit > 5_000) {
-            $checks[] = Check::warning('Candidate limit', sprintf('candidate_limit %d may make frequent words slow to rank.', $t->candidateLimit));
+        if ($t->limits->candidates > 5_000) {
+            $checks[] = Check::warning('Candidate limit', sprintf('limits.candidates %d may make frequent words slow to rank.', $t->limits->candidates));
         }
         if ($checks === []) {
-            $checks[] = Check::ok('Configuration', sprintf('fuzzy=%s, similarity=%s, min_score=%.2f, candidates=%d', $t->fuzzyMode->value, $t->fuzzySimilarity === null ? 'by word length' : sprintf('%.2f', $t->fuzzySimilarity), $t->minScore, $t->candidateLimit));
+            $checks[] = Check::ok('Configuration', sprintf('fuzzy=%s, similarity=%s, min_score=%.2f, candidates=%d', $t->typo->mode->value, $t->typo->similarity === null ? 'by word length' : sprintf('%.2f', $t->typo->similarity), $t->relevance->minScore, $t->limits->candidates));
         }
 
         return $checks;
@@ -790,7 +900,7 @@ final class PostgresInspector
         }
         foreach ($index->effectiveWatches() as $watch) {
             if ($watch->columns !== null) {
-                $missing = array_values(array_diff($watch->columns, $this->tableColumns($watch->table)));
+                $missing = array_values(array_diff($watch->columns, $this->tableColumns(Sql::ident($watch->table))));
                 if ($missing !== []) {
                     $checks[] = Check::error(
                         'Column-aware filtering',

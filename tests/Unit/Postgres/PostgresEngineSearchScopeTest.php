@@ -37,22 +37,28 @@ final class PostgresEngineSearchScopeTest extends TestCase
         ]) : null);
         $search = new Fuzzphony(new PostgresEngine($connection), new IndexRegistry([Indexes::products()]));
 
-        $search->in('products')->query('mouse')->thresholds(['did_you_mean' => false])->get();
+        $search->in('products')->query('mouse')->thresholds(['rescue' => ['did_you_mean' => false, 'correct_when_empty' => false]])->get();
 
         self::assertNotContains('BEGIN', $connection->kinds());
         self::assertNotContains('set_config', $connection->kinds());
     }
 
-    public function testACallersTransactionKeepsEveryStatementOnItsOwn(): void
+    public function testACallersTransactionHoldsTheSearchUnderOneSavepointAndPutsTheSettingsBackOnce(): void
     {
         $connection = new ScriptedConnection(callerTransaction: true, value: static fn(): bool => true);
         $search = new Fuzzphony(new PostgresEngine($connection), new IndexRegistry([Indexes::products()]));
 
         $search->in('products')->query('mouze')->get();
 
-        self::assertNotContains('BEGIN', $connection->kinds(), 'the caller owns the transaction');
-        // every setting is read and set, and put back (two statements each)
-        self::assertSame(6, count(array_keys($connection->kinds(), 'set_config', true)));
+        $kinds = $connection->kinds();
+        self::assertNotContains('BEGIN', $kinds, 'the caller owns the transaction');
+        self::assertSame(1, count(array_keys($kinds, 'SAVEPOINT', true)), 'one savepoint for the whole search, opened at the first setting');
+        self::assertSame(1, count(array_keys($kinds, 'RELEASE', true)));
+        self::assertNotContains('ROLLBACK TO', $kinds);
+        self::assertSame('RELEASE', array_last($kinds));
+        self::assertSame('set_config', $kinds[count($kinds) - 2], 'the previous values are put back once, just before the release');
+        // each setting is read and set once, and put back in one statement
+        self::assertSame(3, count(array_keys($kinds, 'set_config', true)));
     }
 
     public function testAFailingStatementRollsTheSearchBackAndIsTheSameFailure(): void

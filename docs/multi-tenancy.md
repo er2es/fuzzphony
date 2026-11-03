@@ -60,17 +60,18 @@ Symfony bundle, from `Request::getClientIp()`) gives it, and it only ever reache
 masked or not at all as `search_log.ip` says.
 
 `asActor()` sets the tenant when the actor has one (an actor without a tenant never clears a tenant
-set before; the last of `forTenant()` and `asActor()` wins) and keeps the user on the query. The user
+set before) and keeps the user on the query. The user
 changes no SQL: it is the identity that the [search log](analytics.md) and the
-[guards](security.md) (rate limit and authorization) read. `forTenant()` stays and works as before. The search log's
+[guards](security.md) (rate limit and authorization) read. `forTenant()` stays, with one rule that holds for every entry point (`get()`, `explain()`, `count`, federated searches, `logSearch()`) and every order of the calls: **an actor with a tenant never searches another tenant**. A `forTenant()` that names a tenant other than the actor's (the ambient user's included: `->forTenant($request->get('t'))` is the typical mistake) is refused with `AccessDenied`, which names no tenant and is recorded under the actor's own tenant; the tenant itself, or an actor without a tenant, works as documented. `asSystem()` is the explicit way across tenants. The search log's
 per-user report, [`recentSearches()`](analytics.md#who-searched-what), follows the same tenant rule as the other reports:
 on a tenant-scoped index it needs a tenant or an explicit `allTenants: true`, and with a tenant named the history of a user in
 one tenant is never returned for another tenant, even when two tenants have a user of the same name. On an index that is not
 tenant-scoped, a call without a tenant covers everyone (as the other reports do, but these rows are per person): name the tenant.
 
 On a tenant-scoped index, a search with an actor but no tenant throws `ActorRequired`, a subclass of
-`InvalidQuery`. A search without an actor still throws the original `InvalidQuery` ("requires
-forTenant(); none was given"), so code that catches `InvalidQuery` keeps working.
+`InvalidQuery`, and so does one made as `asSystem()` or as the anonymous ambient actor: a tenant must be known. A service built without
+guards, resolver or log (no gate) keeps the original `InvalidQuery` ("requires forTenant(); none was given"); code that catches
+`InvalidQuery` works with both.
 
 ## Integrations
 
@@ -103,10 +104,9 @@ tenant-scoped index is refused. No token (nobody logged in) is anonymous too, no
   `bin/console fuzzphony:search products 'mouse' --tenant=42 --user=ada` (the value is matched against
   the type of the tenant filter: `42` works for an integer and for a string filter). On a tenant-scoped
   index without `--tenant` it prints why and exits with code 1; an empty `--tenant=` or `--user=` is refused.
-- **Explicit stays explicit:** the core has no ambient actor. In your own controllers and services,
-  resolve it and pass it yourself: `->asActor($resolver->resolve())`, with
-  `Fuzzphony\Core\Search\ActorResolver` injected (the bundle aliases it to the configured resolver).
-  A search you do not scope throws; it is never scoped by a hidden request context.
+- **The current user is the default actor:** a search that does not call `->asActor()` is made as the actor the `ActorResolver` returns for the
+  current request (the bundle: the configured resolver), so a forgotten call cannot search unguarded. An explicit `->asActor()` replaces it; an explicit `->forTenant()` must be the actor's own tenant (see above). A search with no tenant at all still throws; a tenant is never taken from the request or the client
+  ([Security](security.md#the-actor)).
 
 ### A refusal is a 403
 

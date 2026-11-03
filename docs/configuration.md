@@ -7,7 +7,7 @@ How to describe an index, set up the Symfony bundle, and build the index. Back t
 An index definition has:
 
 - a source: a table, or any `SELECT` with joins;
-- searchable fields, each with a weight A–D and an optional `fuzzy` flag (typo tolerance);
+- searchable fields, each with a weight A–D, an optional `fuzzy` flag (typo tolerance) and an optional `code` flag (invoice numbers and SKUs, see [Codes and numbers](searching.md#codes-and-numbers));
 - typed filters;
 - optional boost and recency columns;
 - ranking profiles and thresholds (see [Ranking and thresholds](ranking.md)).
@@ -81,7 +81,7 @@ column the index does not use (see [Column-aware filtering](sync.md#column-aware
 
 ### Several indexes
 
-Give `indexes:` several entries (with the builder: build several definitions and give them all to the `IndexRegistry`).
+Give `indexes:` several entries (with the builder: build several definitions and give them all to `Fuzzphony::postgres()`).
 Each index has its own sidecar table, triggers and queue rows, so indexes can share tables:
 
 ```yaml
@@ -107,12 +107,14 @@ Each index has its own sidecar table, triggers and queue rows, so indexes can sh
         customer: 'SELECT id FROM invoice WHERE customer_id = :id'
 ```
 
-- `customer` is now watched by `people`, `companies` and `invoices`. `fuzzphony:schema --apply` creates four triggers per
-  index and table (`fuzzphony_sync_<index>__<table>_ins|upd|del|trn`), so there is no name clash, and applying it twice
-  changes nothing. Every extra index that watches a table adds four triggers on it and one more queue row (in `trigger`
-  mode, one more refresh) per changed document: one `UPDATE` of a customer queued rows for `people`, `companies` and
-  `invoices` (and for a fourth index over the same table, below).
-- Dropping one index (`fuzzphony:schema people --drop --apply`) removes its triggers only; the other indexes keep theirs.
+- `customer` is now watched by `people`, `companies` and `invoices`. With `queue` sync (the default) `fuzzphony:schema --apply` puts
+  ONE set of four triggers on the table (`fuzzphony_watch__customer_03195256__ins|upd|del|trn`) and the three indexes read the one change log
+  through their own positions, so one `UPDATE` of a customer writes one log row per changed customer and each index turns it into its
+  queue rows with its own watch query when its worker runs ([Sync](sync.md#one-trigger-per-table-one-change-log)). Applying it twice
+  changes nothing. With `sync: trigger` (or `trigger_level: row`) each index keeps four triggers of its own on the table
+  (`fuzzphony_sync_<index>__<table>_ins|upd|del|trn`) and one more refresh per changed document.
+- Dropping one index (`fuzzphony:schema people --drop --apply`) removes its part only; the other indexes keep the triggers and the log, which
+  go with the last index that watches the table.
 - **One `#[Searchable]` per class.** The attribute is not repeatable (a second one is a PHP error). To index the same table
   or entity twice (a public and an admin index, with other fields, language or `sync`), define the second one under
   another name in YAML or the builder, with `source.table`; it needs no class:
@@ -176,7 +178,7 @@ $people = $fuzzphony->in('people')->query('kovacs')->get();   // ids [1]
 
 $both = $fuzzphony->federated()->index('items')->index('people')->query('debrecen')->get();
 foreach ($both as $hit) {
-    echo $hit->index, ' ', $hit->hit->id, "\n";               // items 2, people 1, people 2
+    echo $hit->kind, ' ', $hit->id, "\n";                    // items 2, people 1, people 2
 }
 ```
 
@@ -197,14 +199,14 @@ $result = $fuzzphony->federated()
     ->get();
 
 foreach ($result as $hit) {
-    echo $hit->index, ' ', $hit->hit->id, ' ', $hit->score; // the index, its own id, the merged score
+    echo $hit->kind, ' ', $hit->id, ' ', $hit->mergedScore; // the index, its own id, the merged score
 }
 ```
 
-A hit carries `index`, the index's own `Hit` (`->hit->id`, its own score and highlights) and the merged score. The scores
+A hit is the index's own `Hit` (`->id`, its own `->score` and highlights) with `->kind`, the index it comes from, and `->mergedScore`. The scores
 of different indexes are not comparable ([limitations](limitations.md#scores-are-not-stable)), so the lists are merged by
 rank: the best hit of each index first. The ids are those of each index (`people` 1 and `companies` 1 are different rows):
-use `$hit->index` to tell them apart and load each kind from its own table.
+use `$hit->kind` to tell them apart and load each kind from its own table.
 
 ### One index over two tables (`UNION ALL`)
 
@@ -258,7 +260,7 @@ the key (`key: "(order_no || '/' || line_no)"`) is refused with "is not a valid 
 ### A database where Fuzzphony may not create triggers
 
 Tried with a role that has `SELECT` on the source tables, `CREATE` on the database and a schema of its own
-(`new PostgresEngine($connection, schema: 'fz')`, see [Fuzzphony's schema](#fuzzphonys-schema)). With `sync: manual`,
+(`Fuzzphony::postgres($connection, $indexes, schema: 'fz')`, see [Fuzzphony's schema](#fuzzphonys-schema)). With `sync: manual`,
 `schema --apply`, `reindex`, search, `refresh()` and the doctor worked, and nothing was installed on the source tables.
 With `sync: queue` the apply stopped with `permission denied for table …` and created nothing: triggers need ownership of
 (or `TRIGGER` on) the source tables. Without that right, run `fuzzphony:reindex` from cron or after an import, and call
@@ -299,8 +301,9 @@ class Product
 [search log](analytics.md#keeping-a-search-or-an-index-out-of-the-log)).
 
 An index name matches `[a-z_][a-z0-9_]*`, at most 48 characters, and must not contain `__` (two
-underscores): that is reserved for the objects of an index's rebuild (`fuzzphony_<index>__next`,
-`fuzzphony_<index>__changes`).
+underscores): that is reserved for the objects of an index: its secondary indexes (`fuzzphony_<index>__tsv`, `__fz`, `__f_<filter>`,
+`__pkey`, `__open_...`) and the objects of its rebuild (`fuzzphony_<index>__next`, `fuzzphony_<index>__changes`), so that an index called
+`products_open` never collides with an object of `products`.
 
 Filter and field names are always snake_case, even when the attribute is on a camelCase property:
 `bool $inStock` becomes the filter `in_stock`. Names follow the property name through
@@ -346,7 +349,7 @@ fuzzphony:
       profiles:
         popular: { boost: 0.03, recency: 0.3, recency_half_life_days: 60 }
       thresholds:
-        min_score: 0.01
+        relevance: { min_score: 0.01 }
 ```
 
 Other keys: `sync`, `trigger_level`, `unaccent`, `tenant`, `synonyms`, `id_type`, and `source: { table: … }`
@@ -360,17 +363,27 @@ belongs (`fields: [name, body]`), a string where a boolean belongs (`fuzzy: "fal
 `watch`; `fields`, `filters`, `source`, `id_type` and `class` describe the index itself and are refused with a message
 that names the index (change the attributes).
 
-`thresholds` takes the options of [Ranking and thresholds](ranking.md#thresholds). Two of them are switches for what a
-search that found little or nothing does by itself, both on by default: `did_you_mean` (a suggestion next to the result,
-[Did you mean](searching.md#did-you-mean)) and `rescue_empty` (a search that found nothing and has a word with exactly
+`thresholds` takes the four groups of [Ranking and thresholds](ranking.md#thresholds): `relevance`, `typo`, `rescue` and `limits`, each a
+map of options (an unknown group or option is refused with a "did you mean", one error per group). Two options of `rescue` are switches for what a
+search that found little or nothing does by itself, both on by default: `rescue.did_you_mean` (a suggestion next to the result,
+[Did you mean](searching.md#did-you-mean)) and `rescue.correct_when_empty` (a search that found nothing and has a word with exactly
 one one-edit correction in the vocabulary is run again with it and says so,
-[Zero-result rescue](searching.md#zero-result-rescue)). `rescue_empty: false` keeps the suggestion and drops the second
-search; `did_you_mean: false` turns both off (the rescue uses the suggestion's vocabulary lookup):
+[Zero-result rescue](searching.md#zero-result-rescue)). `rescue.correct_when_empty: false` keeps the suggestion and drops the second
+search; `rescue.did_you_mean: false` turns both off (the rescue uses the suggestion's vocabulary lookup, so `correct_when_empty` must be `false` too):
 
 ```yaml
       thresholds:
-        rescue_empty: false     # suggest a correction, but never search it for the visitor
+        rescue:
+          correct_when_empty: false     # suggest a correction, but never search it for the visitor
 ```
+
+### The source query from a file
+
+A long query can live in an SQL file: `source: { query_file: sql/catalog.sql }` (YAML) or `->fromQueryFile('sql/catalog.sql', $baseDir)` (builder). The path is relative to the project
+root (`kernel.project_dir` in the bundle) or to `$baseDir` (builder; default the current working directory) and must stay inside it: a `..` that leaves it, an absolute path elsewhere (symbolic
+links are resolved), a missing, unreadable or empty file is refused with the path in the message. `query` and `query_file` (or `table`) together are refused. The file is read when the
+definition loads, so its content is the source query and part of the definition fingerprint: after an edit the doctor reports "definition changed", run `fuzzphony:schema --apply` and
+`fuzzphony:reindex`. The same rules as for `query` apply (a trusted file, no `$fuzzphony$`).
 
 ## Synonyms
 
@@ -483,8 +496,7 @@ declared.
 Without Symfony, use the builder and a PDO connection:
 
 ```php
-use Fuzzphony\Core\{Fuzzphony, Registry\IndexRegistry, Database\PdoConnection, Definition\IndexDefinition};
-use Fuzzphony\Engine\Postgres\PostgresEngine;
+use Fuzzphony\Core\{Fuzzphony, Database\PdoConnection, Definition\IndexDefinition};
 
 $connection = PdoConnection::fromDsn('pgsql:host=localhost;dbname=shop', 'user', 'secret');
 
@@ -500,7 +512,7 @@ $products = IndexDefinition::builder('products')
     ->language('english')
     ->build();                                  // validates, reporting ALL problems at once
 
-$fuzzphony = new Fuzzphony(new PostgresEngine($connection), new IndexRegistry([$products]));
+$fuzzphony = Fuzzphony::postgres($connection, [$products]);
 $fuzzphony->schema()->apply($connection);
 $fuzzphony->reindex('products');
 ```
@@ -509,7 +521,7 @@ $fuzzphony->reindex('products');
 
 Every object Fuzzphony creates (sidecar tables, the sync queue, the version table, the helper
 functions, the text search configurations and their stop-word dictionaries) lives in one schema,
-`public` by default. `new PostgresEngine($connection, schema: 'fuzzphony')` (bundle:
+`public` by default. `Fuzzphony::postgres($connection, $indexes, schema: 'fuzzphony')` (bundle:
 `fuzzphony.schema`) puts them in their own schema instead; `fuzzphony:schema --apply` creates it.
 Triggers stay on your tables, since PostgreSQL attaches a trigger to its table; they call the
 schema-qualified sync function.
@@ -554,6 +566,9 @@ automatic, see [UPGRADE.md](../UPGRADE.md#moving-to-a-dedicated-schema); the doc
 ```yaml
 fuzzphony:
   connection: default          # Doctrine DBAL connection name; "default" is Doctrine's own name for the first one
+  # connections: optional separate database users, so the application can stay read-only and DDL belongs to the user who deploys (docs/roles.md).
+  # Each defaults to `connection`; set nothing and everything runs as that one user. worker: fuzzphony:worker and the async refresh; admin: schema, reindex, doctor.
+  connections: { worker: ~, admin: ~ }
   extension_schema: public     # schema of pg_trgm and unaccent; "public" is where CREATE EXTENSION puts them unless told otherwise
   schema: public               # Fuzzphony's own schema, e.g. fuzzphony (see below); public so an upgrade moves nothing, a dedicated one is cleaner
   discover_entities: true      # register every Doctrine entity with #[Searchable]; false: only what you list

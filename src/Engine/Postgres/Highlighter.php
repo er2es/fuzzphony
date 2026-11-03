@@ -67,6 +67,25 @@ final class Highlighter
             // a long one as up to two fragments; a typo-found hit is built the same way (TypoMarker). Native prepared statements cannot reuse
             // a placeholder, so each use binds its own copy.
             $text = fn(): string => sprintf("translate(coalesce(d.%s::text, ''), %s, '')", Sql::ident('fld_' . $name), $params->add(self::START . self::STOP));
+            if ($index->field($name)?->code === true) {
+                // a code is indexed with its separators as spaces (see PostgresSchemaGenerator::codeText()), so a short one is read that way, one space
+                // per separator character: the text keeps its length, and spaced() puts the original characters back (a long one stays as it is)
+                $plain = $text;
+                $text = fn(): string => sprintf(
+                    "CASE WHEN char_length(coalesce(d.%s::text, '')) <= %d THEN regexp_replace(%s, '[^[:alnum:][:space:]]', ' ', 'g') ELSE %s END",
+                    Sql::ident('fld_' . $name),
+                    self::WHOLE_TEXT_CHARS,
+                    $plain(),
+                    $plain(),
+                );
+                $columns[] = sprintf(
+                    "CASE WHEN char_length(coalesce(d.%1\$s::text, '')) <= %2\$d THEN translate(coalesce(d.%1\$s::text, ''), %3\$s, '') END AS %4\$s",
+                    Sql::ident('fld_' . $name),
+                    self::WHOLE_TEXT_CHARS,
+                    $params->add(self::START . self::STOP),
+                    Sql::ident('c_' . $name),
+                );
+            }
             $headline = fn(int $fragments): string => sprintf(
                 'ts_headline(%s, %s, to_tsquery(%s, %s), %s)',
                 $config,
@@ -103,7 +122,7 @@ final class Highlighter
         $marked = [];
         foreach ($rows as $row) {
             foreach ($fields as $name) {
-                $marked[Coerce::str($row['id'])][$name] = Coerce::str($row['h_' . $name]);
+                $marked[Coerce::str($row['id'])][$name] = isset($row['c_' . $name]) ? self::spaced(Coerce::str($row['h_' . $name]), Coerce::str($row['c_' . $name])) : Coerce::str($row['h_' . $name]);
             }
         }
         if ($typo !== null) {
@@ -175,7 +194,7 @@ final class Highlighter
     /**
      * The words (or runs of words) that reach the similarity their term needs, in one statement: the search's own rule,
      * word_similarity() of the normalised typed words in the normalised candidate, against the similarity the typed word's
-     * length needs (or the search's fuzzy_similarity). The normaliser is the search's.
+     * length needs (or the search's typo.similarity). The normaliser is the search's.
      *
      * @param list<string> $words
      *
@@ -275,6 +294,31 @@ final class Highlighter
                 throw new InvalidQuery(sprintf('Cannot highlight "%s": it is not a highlightable field of index "%s".', $name, $index->name));
             }
         }
+    }
+
+    /**
+     * A code field's snippet made from its text with every separator turned into a space (same length): the characters of the
+     * original go back in, and a mark that a separator alone divided ("INV" "-" "001") is one mark over the whole code. A text that
+     * is not the same length (ts_headline cut or changed it) is returned as it is.
+     */
+    private static function spaced(string $snippet, string $original): string
+    {
+        $from = preg_split('//u', $original, -1, PREG_SPLIT_NO_EMPTY);
+        $from = $from === false ? [] : $from;
+        $chars = preg_split('//u', $snippet, -1, PREG_SPLIT_NO_EMPTY);
+        $out = '';
+        $at = 0;
+        foreach ($chars === false ? [] : $chars as $char) {
+            if ($char === self::START || $char === self::STOP) {
+                $out .= $char;
+            } elseif (isset($from[$at])) {
+                $out .= $from[$at++];
+            } else {
+                return $snippet;
+            }
+        }
+
+        return $at === count($from) ? (string) preg_replace('/' . self::STOP . '([^\p{L}\p{N}\s' . self::START . self::STOP . ']+)' . self::START . '/u', '$1', $out) : $snippet;
     }
 
     public static function toHtml(string $marked): string

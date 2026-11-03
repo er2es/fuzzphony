@@ -35,7 +35,7 @@ final class FederatedSearchTest extends TestCase
     /** @return list<string> "index:id" in the merged order */
     private static function order(\Fuzzphony\Core\Search\FederatedResult $result): array
     {
-        return array_map(static fn(\Fuzzphony\Core\Search\FederatedHit $h): string => $h->index . ':' . $h->hit->id, $result->hits);
+        return array_map(static fn(\Fuzzphony\Core\Search\Hit $h): string => $h->kind . ':' . $h->id, $result->hits);
     }
 
     public function testTheBestHitOfEveryIndexComesFirst(): void
@@ -43,14 +43,14 @@ final class FederatedSearchTest extends TestCase
         $result = $this->fuzzphony()->federated()->index('products')->index('brands')->query('sony')->get();
 
         // "sony" is brand 3 and the brand of the headphones (3) and the torch (5): rank 1 of each index first, then the rest
-        self::assertSame('products', $result->hits[0]->index);
+        self::assertSame('products', $result->hits[0]->kind);
         self::assertSame('brands:3', self::order($result)[1]);
         self::assertEqualsCanonicalizing(['products:3', 'products:5', 'brands:3'], self::order($result));
-        self::assertSame($result->hits[0]->score, $result->hits[1]->score, 'rank 1 of each index');
-        self::assertGreaterThan($result->hits[2]->score, $result->hits[1]->score, 'rank 2 of the products');
+        self::assertSame($result->hits[0]->mergedScore, $result->hits[1]->mergedScore, 'rank 1 of each index');
+        self::assertGreaterThan($result->hits[2]->mergedScore, $result->hits[1]->mergedScore, 'rank 2 of the products');
         self::assertSame($result->results['products']->total + $result->results['brands']->total, $result->total);
         self::assertSame(['products', 'brands'], array_keys($result->results));
-        self::assertSame(1 / (FederatedSearch::RANK_CONSTANT + 1), $result->hits[0]->score);
+        self::assertSame(1 / (FederatedSearch::RANK_CONSTANT + 1), $result->hits[0]->mergedScore);
     }
 
     public function testAWeightMovesAnIndexUp(): void
@@ -58,9 +58,9 @@ final class FederatedSearchTest extends TestCase
         $plain = $this->fuzzphony()->federated()->index('products')->index('brands')->query('sony')->get();
         $weighted = $this->fuzzphony()->federated()->index('products')->index('brands', weight: 2.0)->query('sony')->get();
 
-        self::assertSame('products', $plain->hits[0]->index, 'equal scores: the index added first');
+        self::assertSame('products', $plain->hits[0]->kind, 'equal scores: the index added first');
         self::assertSame('brands:3', self::order($weighted)[0], 'the brand outranks the products with weight 2');
-        self::assertSame(2.0 / (FederatedSearch::RANK_CONSTANT + 1), $weighted->hits[0]->score);
+        self::assertSame(2.0 / (FederatedSearch::RANK_CONSTANT + 1), $weighted->hits[0]->mergedScore);
     }
 
     public function testEachIndexIsConfiguredOnItsOwnAndPagesAreSlicesOfTheMergedList(): void
@@ -82,7 +82,7 @@ final class FederatedSearchTest extends TestCase
         self::assertSame(array_slice(self::order($all), 1, 1), self::order($search->page(2, 1)->get()));
         self::assertTrue($first->hasMore());
         self::assertCount(1, $first);
-        self::assertSame(self::order($first), array_map(static fn($h): string => $h->index . ':' . $h->hit->id, iterator_to_array($first)));
+        self::assertSame(self::order($first), array_map(static fn($h): string => $h->kind . ':' . $h->id, iterator_to_array($first)));
     }
 
     public function testWarningsNameTheirIndex(): void

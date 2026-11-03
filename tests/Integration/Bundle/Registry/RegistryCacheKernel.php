@@ -31,7 +31,8 @@ final class RegistryCacheKernel extends Kernel
     public static int $metadataEnumerations = 0;
 
     /** @param bool $cacheInCli the test seam of RegistryFactory: the registry cache applies to web requests only, and this suite runs in the command line */
-    public function __construct(private readonly string $cacheDir, bool $debug, private readonly bool $cacheInCli = true)
+    /** @param array<string, mixed> $fuzzphony the bundle's own configuration (indexes ...), none by default */
+    public function __construct(private readonly string $cacheDir, bool $debug, private readonly bool $cacheInCli = true, private readonly array $fuzzphony = [])
     {
         parent::__construct('prod', $debug);
     }
@@ -80,6 +81,10 @@ final class RegistryCacheKernel extends Kernel
             'handle_all_throwables' => true,
             'php_errors' => ['log' => false],
         ]);
+
+        if ($this->fuzzphony !== []) {
+            $container->extension('fuzzphony', $this->fuzzphony);
+        }
 
         // the bundle wires the ORM only when `orm:` is configured (the real DoctrineBundle's config tree is not loaded here: any array will do)
         $container->extension('doctrine', ['orm' => ['auto_mapping' => true]]);

@@ -23,6 +23,8 @@ final readonly class IndexDefinition
      * @param list<Watch>                   $watches  Extra tables whose changes affect documents (joins).
      * @param array<string, RankingProfile> $profiles Must contain "default".
      * @param class-string|null             $entityClass
+     *
+     * @internal
      */
     public function __construct(
         public string $name,
@@ -96,6 +98,12 @@ final readonly class IndexDefinition
     public function profile(string $name): RankingProfile
     {
         return $this->profiles[$name] ?? throw InvalidQuery::unknownProfile($this->name, $name, array_keys($this->profiles));
+    }
+
+    /** Whether a field names a role that unlocks it (`granted`): such a field is only hidden by a guard. */
+    public function hasGrantedField(): bool
+    {
+        return array_any($this->fields, static fn(FieldDefinition $f): bool => $f->granted !== null);
     }
 
     /** @return list<string> */

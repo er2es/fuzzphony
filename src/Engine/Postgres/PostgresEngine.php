@@ -8,14 +8,7 @@ use Fuzzphony\Core\Analytics\RecordStatus;
 use Fuzzphony\Core\Database\Connection;
 use Fuzzphony\Core\Definition\IndexDefinition;
 use Fuzzphony\Core\Definition\Synonyms;
-use Fuzzphony\Core\Engine\Capabilities;
-use Fuzzphony\Core\Engine\Capability;
 use Fuzzphony\Core\Engine\Engine;
-use Fuzzphony\Core\Engine\RecentSearchStore;
-use Fuzzphony\Core\Engine\SearchLogStore;
-use Fuzzphony\Core\Engine\Suggestions;
-use Fuzzphony\Core\Engine\SynonymStems;
-use Fuzzphony\Core\Engine\Vocabulary;
 use Fuzzphony\Core\Inspection\InspectionReport;
 use Fuzzphony\Core\Inspection\InspectOptions;
 use Fuzzphony\Core\Observability\MetricsCollector;
@@ -24,11 +17,13 @@ use Fuzzphony\Core\Query\SearchQuery;
 use Fuzzphony\Core\Schema\SchemaPlan;
 use Fuzzphony\Core\Search\Explanation;
 use Fuzzphony\Core\Search\SearchResult;
+use Fuzzphony\Core\Wizard\SourceIntrospector;
 use Fuzzphony\Engine\Postgres\Inspection\PostgresInspector;
 use Fuzzphony\Engine\Postgres\Schema\Names;
 use Fuzzphony\Engine\Postgres\Schema\PostgresSchemaGenerator;
 use Fuzzphony\Engine\Postgres\Search\FacetRunner;
 use Fuzzphony\Engine\Postgres\Search\SearchRunner;
+use Fuzzphony\Engine\Postgres\Wizard\PostgresIntrospector;
 
 /**
  * The PostgreSQL engine: the facade of the services that do the work.
@@ -39,8 +34,10 @@ use Fuzzphony\Engine\Postgres\Search\SearchRunner;
  *   VocabularyService  the vocabulary and the did-you-mean lookup
  *   IndexMaintenance   refresh, source ids, orphans, the queue, the rebuild records
  *   SearchLogRepository / PostgresInspector / PostgresSchemaGenerator   the search log, the doctor, the DDL
+ *
+ * @internal
  */
-final class PostgresEngine implements Engine, Vocabulary, SynonymStems, Suggestions, SearchLogStore, RecentSearchStore
+final class PostgresEngine implements Engine
 {
     private readonly Names $names;
     private readonly PostgresSchemaGenerator $schema;
@@ -50,13 +47,13 @@ final class PostgresEngine implements Engine, Vocabulary, SynonymStems, Suggesti
     private readonly SearchRunner $searches;
     private readonly IndexMaintenance $maintenance;
     private readonly bool $searchLogEnabled;
+    private readonly PostgresIntrospector $introspector;
 
     /**
      * @param string $extensionSchema schema of the pg_trgm and unaccent extensions
      * @param string $schema          schema of Fuzzphony's own tables, functions and text search configurations
      * @param bool   $searchLog       whether the schema includes the search log table (and the doctor checks it)
      * @param int    $searchLogRetentionDays the age after which the doctor suggests purging log rows
-     * @param bool   $searchLogIp     whether the log is to keep the client IP: the doctor then wants the actor_ip column
      */
     public function __construct(
         private readonly Connection $connection,
@@ -65,9 +62,9 @@ final class PostgresEngine implements Engine, Vocabulary, SynonymStems, Suggesti
         private readonly MetricsCollector $metrics = new NullMetricsCollector(),
         bool $searchLog = false,
         private readonly int $searchLogRetentionDays = 90,
-        private readonly bool $searchLogIp = false,
     ) {
         $this->names = new Names($extensionSchema, $schema);
+        $this->introspector = new PostgresIntrospector($connection, $schema);
         $this->searchLogEnabled = $searchLog;
         $this->schema = new PostgresSchemaGenerator($this->names, $searchLog);
         $this->guard = new EngineGuard($metrics);
@@ -86,8 +83,6 @@ final class PostgresEngine implements Engine, Vocabulary, SynonymStems, Suggesti
      * otherwise be paid again on every request), so nothing calls this by itself: an application that changes the text
      * search configuration or a dictionary while its process runs calls it, or restarts the process. It also forgets which
      * vocabulary tables the did-you-mean lookup has found readable, so a table created or dropped since is looked at again.
-     *
-     * @internal
      */
     public function resetCaches(): void
     {
@@ -100,9 +95,9 @@ final class PostgresEngine implements Engine, Vocabulary, SynonymStems, Suggesti
         return 'postgresql';
     }
 
-    public function capabilities(): Capabilities
+    public function introspector(): SourceIntrospector
     {
-        return new Capabilities(Capability::cases());
+        return $this->introspector;
     }
 
     public function globalSchema(IndexDefinition ...$indexes): SchemaPlan
@@ -245,17 +240,13 @@ final class PostgresEngine implements Engine, Vocabulary, SynonymStems, Suggesti
     {
         return $this->guard->run(
             'inspection',
-            fn(): InspectionReport => (new PostgresInspector($this->connection, $this->schema, $this->searchLogEnabled, $this->searchLogRetentionDays, $this->searchLogIp))->inspect($index, $options),
+            fn(): InspectionReport => (new PostgresInspector($this->connection, $this->schema, $this->searchLogEnabled, $this->searchLogRetentionDays))->inspect($index, $options),
             'Check that this connection can read the catalog and the source.',
         );
     }
 
     private function searchLog(): SearchLogRepository
     {
-        return new SearchLogRepository(
-            $this->connection,
-            $this->names,
-            fn(int $dropped) => $this->metrics->increment('fuzzphony.search_log.ip_dropped', [], $dropped),
-        );
+        return new SearchLogRepository($this->connection, $this->names);
     }
 }

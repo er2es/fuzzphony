@@ -59,10 +59,10 @@ final class Fingerprint
         return [$index->source->table, $index->source->query, $index->source->idColumn];
     }
 
-    /** @return list<array{string, string, string, bool}> */
+    /** @return list<array{string, string, string, bool}|array{string, string, string, bool, true}> */
     private static function fields(IndexDefinition $index): array
     {
-        return array_map(static fn(FieldDefinition $f): array => [$f->name, $f->column(), $f->weight->value, $f->fuzzy], $index->fields);
+        return array_map(static fn(FieldDefinition $f): array => $f->code ? [$f->name, $f->column(), $f->weight->value, $f->fuzzy, true] : [$f->name, $f->column(), $f->weight->value, $f->fuzzy], $index->fields);
     }
 
     /**

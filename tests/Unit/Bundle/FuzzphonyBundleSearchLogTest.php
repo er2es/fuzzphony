@@ -46,7 +46,7 @@ final class FuzzphonyBundleSearchLogTest extends TestCase
         self::assertFalse($container->hasDefinition('fuzzphony.search_log'));
         self::assertFalse($container->hasDefinition('fuzzphony.search_log_flush_listener'));
         self::assertFalse($container->hasDefinition('fuzzphony.query_redactor'));
-        self::assertEquals([new Reference('fuzzphony.metrics'), new Reference('logger'), new Definition(NullSearchLog::class), null, [], IpMode::Off], $container->getDefinition('fuzzphony.search_gate')->getArguments());
+        self::assertEquals([new Reference('fuzzphony.metrics'), new Reference('logger'), new Definition(NullSearchLog::class), null, [], IpMode::Off, new Reference('fuzzphony.actor_resolver'), true], $container->getDefinition('fuzzphony.search_gate')->getArguments());
         self::assertFalse($container->getDefinition('fuzzphony.engine')->getArgument(4));
         self::assertSame(90, $container->getDefinition('fuzzphony.engine')->getArgument(5));
         self::assertSame(self::BASE_COMMANDS, array_keys($container->findTaggedServiceIds('console.command')), 'the log commands exist only when the log is on');
@@ -102,7 +102,7 @@ final class FuzzphonyBundleSearchLogTest extends TestCase
         $container = $this->buildContainer(['search_log' => ['enabled' => true]]);
 
         self::assertEquals(
-            [new Reference('fuzzphony.metrics'), new Reference('logger'), new Reference('fuzzphony.search_log'), null, [], IpMode::Off],
+            [new Reference('fuzzphony.metrics'), new Reference('logger'), new Reference('fuzzphony.search_log'), null, [], IpMode::Off, new Reference('fuzzphony.actor_resolver'), true],
             $container->getDefinition('fuzzphony.search_gate')->getArguments(),
         );
     }
@@ -203,14 +203,6 @@ final class FuzzphonyBundleSearchLogTest extends TestCase
 
         self::assertSame(IpMode::Off, $container->getDefinition('fuzzphony.search_gate')->getArgument(5));
         self::assertSame(NullActorResolver::class, $container->getDefinition('fuzzphony.actor_resolver')->getClass(), 'nothing stores an address, so nothing reads it');
-    }
-
-    public function testTheEngineKnowsWhetherTheDoctorShouldWantTheIpColumn(): void
-    {
-        self::assertFalse($this->buildContainer(['search_log' => ['enabled' => true]])->getDefinition('fuzzphony.engine')->getArgument(6));
-        self::assertTrue($this->buildContainer(['search_log' => ['enabled' => true, 'ip' => 'masked']])->getDefinition('fuzzphony.engine')->getArgument(6));
-        self::assertTrue($this->buildContainer(['search_log' => ['enabled' => true, 'ip' => 'full']])->getDefinition('fuzzphony.engine')->getArgument(6));
-        self::assertFalse($this->buildContainer(['search_log' => ['ip' => 'full']])->getDefinition('fuzzphony.engine')->getArgument(6), 'the log is off');
     }
 
     public function testTheIpModeMustBeOffMaskedOrFull(): void

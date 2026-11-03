@@ -8,6 +8,7 @@ use Fuzzphony\Core\Query\Ast\Node;
 use Fuzzphony\Core\Query\Ast\Term;
 use Fuzzphony\Core\Query\QueryParser;
 use Fuzzphony\Core\Ranking\Thresholds;
+use Fuzzphony\Core\Ranking\TypoThresholds;
 use Fuzzphony\Engine\Postgres\Schema\Names;
 use Fuzzphony\Engine\Postgres\Sql\FuzzyQueryCompiler;
 use Fuzzphony\Engine\Postgres\Sql\ParameterBag;
@@ -193,7 +194,7 @@ final class FuzzyQueryCompilerRestrictedTest extends TestCase
     public function testNullIsTheUnrestrictedSqlUntouched(): void
     {
         foreach (['mouse', 'brand:razr -cable', '(mouse | "usb receiver") -(brand:sony | cable)', 'ergnoo*'] as $query) {
-            foreach ([new Thresholds(fuzzySimilarity: 0.3), new Thresholds()] as $thresholds) {
+            foreach ([new Thresholds(typo: new TypoThresholds(similarity: 0.3)), new Thresholds()] as $thresholds) {
                 $plain = new FuzzyQueryCompiler(Indexes::products(), $thresholds);
                 $null = new FuzzyQueryCompiler(Indexes::products(), $thresholds, new Names(), [], null);
                 self::assertEquals($plain->compile(self::parse($query), $a = new ParameterBag()), $null->compile(self::parse($query), $b = new ParameterBag()), $query);
@@ -208,7 +209,7 @@ final class FuzzyQueryCompilerRestrictedTest extends TestCase
     /** @param list<string>|null $allowed */
     private static function compiler(?array $allowed): FuzzyQueryCompiler
     {
-        return new FuzzyQueryCompiler(Indexes::products(), new Thresholds(fuzzySimilarity: 0.3), new Names(), [], $allowed);
+        return new FuzzyQueryCompiler(Indexes::products(), new Thresholds(typo: new TypoThresholds(similarity: 0.3)), new Names(), [], $allowed);
     }
 
     private static function parse(string $input): Node

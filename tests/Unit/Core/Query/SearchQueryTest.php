@@ -90,7 +90,7 @@ final class SearchQueryTest extends TestCase
             ->limit(5, 5)
             ->page(2, 5)
             ->highlight('name')
-            ->thresholds(['min_score' => 0.1])
+            ->thresholds(['relevance' => ['min_score' => 0.1]])
             ->ranking(['fuzzy' => 0.8])
             ->facets('in_stock')
             ->facetValues(5)

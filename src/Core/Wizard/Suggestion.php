@@ -6,6 +6,7 @@ namespace Fuzzphony\Core\Wizard;
 
 use Fuzzphony\Core\Definition\IndexDefinition;
 
+/** The wizard's answer. */
 final readonly class Suggestion
 {
     /**

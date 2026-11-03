@@ -67,6 +67,7 @@ final class AttributeDefinitionLoader
                     $field->highlight,
                     $field->column ?? $this->naming->column($class, $property->getName()),
                     $field->granted,
+                    $field->code,
                 );
             }
             foreach ($property->getAttributes(SearchFilter::class) as $attribute) {

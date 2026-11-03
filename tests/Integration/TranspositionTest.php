@@ -80,7 +80,7 @@ final class TranspositionTest extends TestCase
         // five letters: one typo is tolerated down to (5 + 1 - 3) / (5 + 1 + 3) + 0.03
         self::assertEqualsWithDelta(3 / 9 + 0.03, $swap, 0.0001);
 
-        $flat = $this->fuzzphony()->in('products')->query('mosue')->thresholds(['fuzzy_similarity' => 0.5])->get();
+        $flat = $this->fuzzphony()->in('products')->query('mosue')->thresholds(['typo' => ['similarity' => 0.5]])->get();
         self::assertEqualsWithDelta(0.5, $flat->hits[1]->breakdown->fuzzySimilarity, 0.0001);
     }
 
@@ -110,7 +110,7 @@ final class TranspositionTest extends TestCase
 
         // "wide" occurs only in descriptions, which are not typo-tolerant
         self::assertSame([], $search->query('wdie')->get()->ids());
-        self::assertSame([2, 3], self::sorted($search->query('wide')->thresholds(['fuzzy_mode' => 'never'])->get()), 'as typed it is found there');
+        self::assertSame([2, 3], self::sorted($search->query('wide')->thresholds(['typo' => ['mode' => 'never']])->get()), 'as typed it is found there');
         // "sony" is a brand, which is typo-tolerant; a word scoped to another field does not look there
         self::assertSame([3, 4, 5, 6], self::sorted($search->query('snoy')->get()));
         self::assertSame([3, 4, 5, 6], self::sorted($search->query('brand:snoy')->get()));
@@ -123,20 +123,20 @@ final class TranspositionTest extends TestCase
 
         // "mouse" finds 1 and 2 exactly: with fallback_below 1 the typo-tolerant branch never runs, so product 6 ("Mosue", the
         // swap of the typed word) is not added; typo tolerance ran for it only in 'always'
-        self::assertSame([1, 2], self::sorted($search->query('mouse')->thresholds(['fallback_below' => 1])->get()));
-        $always = $search->query('mouse')->thresholds(['fuzzy_mode' => 'always'])->get();
+        self::assertSame([1, 2], self::sorted($search->query('mouse')->thresholds(['typo' => ['fallback_below' => 1]])->get()));
+        $always = $search->query('mouse')->thresholds(['typo' => ['mode' => 'always']])->get();
         self::assertSame([1, 2, 6], self::sorted($always));
         self::assertSame(6, $always->hits[2]->id, 'the swapped one comes after both exact hits');
-        self::assertSame([1, 2], self::sorted($search->query('mouse')->thresholds(['fuzzy_mode' => 'never'])->get()));
+        self::assertSame([1, 2], self::sorted($search->query('mouse')->thresholds(['typo' => ['mode' => 'never']])->get()));
     }
 
     public function testItNeedsTypoToleranceToRun(): void
     {
         $search = $this->fuzzphony()->in('products');
 
-        self::assertSame([6], $search->query('mosue')->thresholds(['fuzzy_mode' => 'never'])->get()->ids(), 'never: only the document that has the word as typed');
+        self::assertSame([6], $search->query('mosue')->thresholds(['typo' => ['mode' => 'never']])->get()->ids(), 'never: only the document that has the word as typed');
         self::assertSame([6], $search->query('mosue')->ranking(['fuzzy' => 0.0])->get()->ids(), 'a profile without typo tolerance');
-        self::assertSame([6], $search->query('mosue')->thresholds(['fuzzy_min_length' => 6])->get()->ids(), 'the word is shorter than fuzzy_min_length');
+        self::assertSame([6], $search->query('mosue')->thresholds(['typo' => ['min_length' => 6]])->get()->ids(), 'the word is shorter than fuzzy_min_length');
     }
 
     public function testATenantScopedIndexFindsTheSwapInItsOwnRowsOnly(): void

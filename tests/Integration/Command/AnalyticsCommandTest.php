@@ -8,7 +8,6 @@ use Fuzzphony\Bundle\Command\AnalyticsCommand;
 use Fuzzphony\Core\Analytics\RecordStatus;
 use Fuzzphony\Core\Analytics\SearchRecord;
 use Fuzzphony\Core\Database\Connection;
-use Fuzzphony\Core\Engine\Engine;
 use Fuzzphony\Core\Fuzzphony;
 use Fuzzphony\Core\Registry\IndexRegistry;
 use Fuzzphony\Engine\Postgres\PostgresEngine;
@@ -325,16 +324,17 @@ final class AnalyticsCommandTest extends TestCase
         self::assertEqualsCanonicalizing(['a secret', 'b secret'], $across);
     }
 
-    public function testRecentWorksOnAnInstallWithoutTheIpColumn(): void
+    public function testRecentOnAnInstallWithoutTheIpColumnSaysToApplyTheSchema(): void
     {
         $this->connection->execute('ALTER TABLE fuzzphony_search_log DROP COLUMN actor_ip');
-        $this->engine->writeSearchLog([$this->recentRecord('plain', 'ada')]);
         $tester = $this->tester();
 
-        $status = $tester->execute(['index' => 'products', '--recent' => true, '--format' => 'json']);
-
-        self::assertSame(Command::SUCCESS, $status);
-        self::assertSame([null], array_column(self::json($tester), 'ip'));
+        try {
+            $tester->execute(['index' => 'products', '--recent' => true, '--format' => 'json']);
+            self::fail('SchemaNotApplied expected');
+        } catch (\Fuzzphony\Core\Exception\SchemaNotApplied $e) {
+            self::assertStringContainsString('missing: actor_ip', $e->getMessage());
+        }
     }
 
     public function testRecentWithALimitOutOfRangeIsReportedWithoutAStackTrace(): void
@@ -345,16 +345,5 @@ final class AnalyticsCommandTest extends TestCase
 
         self::assertSame(Command::FAILURE, $status);
         self::assertStringContainsString('between 1 and 1000', $tester->getDisplay());
-    }
-
-    public function testAnEngineWithoutALogIsReportedWithoutAStackTrace(): void
-    {
-        $engine = self::createStub(Engine::class);
-        $tester = new CommandTester(new AnalyticsCommand(new Fuzzphony($engine, new IndexRegistry([Indexes::products('manual')]))));
-
-        $status = $tester->execute(['index' => 'products']);
-
-        self::assertSame(Command::FAILURE, $status);
-        self::assertStringContainsString('keeps no search log', $tester->getDisplay());
     }
 }

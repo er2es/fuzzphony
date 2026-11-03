@@ -8,12 +8,14 @@ fuzzphony:
   # E-mail addresses are replaced by [redacted] before anything is stored; rows older than 30 days are purged by
   # `bin/console fuzzphony:search-log:purge`.
   # `ip: masked` also stores where a search of an actor came from (192.0.2.45 is kept as 192.0.2.0) and the log already has the
-  # user: that is personal data (docs/analytics.md, "Privacy"). Only the searches made ->asActor() (the Security page) carry an
-  # address; the other pages make no actor search, so their rows have none. The address is Request::getClientIp(): here nginx
-  # hands PHP the client's address over FastCGI (REMOTE_ADDR), so no framework.trusted_proxies is set (see framework.yaml).
+  # user: that is personal data (docs/analytics.md, "Privacy"). Only the searches of the Security page carry an address and a user;
+  # the catalog pages search with ->asSystem() (public data), whose rows are the user "(system)" without one. The address is
+  # Request::getClientIp(): here nginx hands PHP the client's address over FastCGI (REMOTE_ADDR), so no framework.trusted_proxies is set
+  # (see framework.yaml).
   search_log: { enabled: true, retention_days: 30, redact: [email], ip: masked }
-  # The /under-the-hood/security page (docs/security.md): who searches decides what a search may see. All three apply only
-  # to a search made with ->asActor() (the Security page makes those; the other pages never do).
+  # The /under-the-hood/security page (docs/security.md): who searches decides what a search may see. A search that names no actor
+  # is made as the current Security user (a visitor without a token is denied), so the guards below apply to EVERY search: the
+  # Security page searches as that user; the catalog pages, which are public data and have no firewall, say ->asSystem().
   # The actor is read from the Security user: its company is the tenant, its identifier the user.
   actor: { tenant: company, user: userIdentifier }
   # isGranted('FUZZPHONY_SEARCH', 'intranet') before every actor search: App\Security\SearchVoter grants it to ROLE_USER.
@@ -50,7 +52,7 @@ fuzzphony:
       profiles:
         popular: { boost: 0.03, recency: 0.3, recency_half_life_days: 60 }
       thresholds:
-        min_score: 0.01
+        relevance: { min_score: 0.01 }
       # No synonyms here: they live in the demo_synonym_entry table (sql/demo_synonym.sql). The /synonyms page edits them
       # and a request listener hands the prepared lists to Fuzzphony at run time (Fuzzphony::useSynonyms). They could just as well
       # come from a file: `synonyms: { file: '%kernel.project_dir%/config/synonyms/catalog.txt' }`.
@@ -72,7 +74,7 @@ fuzzphony:
         public.demo_note: 'SELECT :id'
       language: english
       # typo tolerance only when nothing matches exactly (as on the Languages page): a few notes, clean examples
-      thresholds: { fallback_below: 1 }
+      thresholds: { typo: { fallback_below: 1 } }
 
     # The /languages page: one small hand-written catalogue (sql/lang_product.sql), one index per language.
     # Each index stems and removes stop words with its own language and folds accents (fuzzphony.fuzzphony_<language>).
@@ -88,7 +90,7 @@ fuzzphony:
       language: english
       # typo tolerance only when nothing matches exactly: on 31 products the default (fewer than 5 exact hits) would
       # mix typo matches into every stemming example
-      thresholds: { fallback_below: 1 }
+      thresholds: { typo: { fallback_below: 1 } }
     lang_de:
       <<: *lang
       source:

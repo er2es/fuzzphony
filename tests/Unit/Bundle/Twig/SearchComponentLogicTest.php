@@ -7,7 +7,6 @@ namespace Fuzzphony\Tests\Unit\Bundle\Twig;
 use Fuzzphony\Bundle\Twig\SearchComponent;
 use Fuzzphony\Core\Definition\IndexDefinition;
 use Fuzzphony\Core\Engine\Engine;
-use Fuzzphony\Core\Engine\Suggestions;
 use Fuzzphony\Core\Fuzzphony;
 use Fuzzphony\Core\Query\Filter\Operator;
 use Fuzzphony\Core\Query\SearchQuery;
@@ -162,7 +161,7 @@ final class SearchComponentLogicTest extends TestCase
         $this->didYouMean = 'mouse';
         $component = $this->component(query: 'mose', asYouType: false);
 
-        $component->useSuggestion();
+        $component->useDidYouMean();
 
         self::assertSame('mouse', $component->query);
         $component->getResult();
@@ -172,12 +171,12 @@ final class SearchComponentLogicTest extends TestCase
     public function testUseSuggestionDoesNothingWithoutASuggestionOrAQuery(): void
     {
         $blank = $this->component(query: '');
-        $blank->useSuggestion();
+        $blank->useDidYouMean();
         self::assertSame('', $blank->query);
         self::assertSame([], $this->queries);
 
         $none = $this->component(query: 'mouse', asYouType: false);
-        $none->useSuggestion();
+        $none->useDidYouMean();
         self::assertSame('mouse', $none->query);
         self::assertCount(1, $this->queries);
     }
@@ -308,7 +307,7 @@ final class SearchComponentLogicTest extends TestCase
      */
     private function component(string $query = '', string $index = 'products', string $profile = 'default', string $highlight = '', int $limit = 10, string $facets = '', int $suggestions = 5, bool $asYouType = true, array $selected = [], ?ActorResolver $actors = null, bool $tenant = false, bool $log = false): SearchComponent
     {
-        $engine = self::createStubForIntersectionOfInterfaces([Engine::class, Suggestions::class]);
+        $engine = self::createStub(Engine::class);
         $engine->method('search')->willReturnCallback(function (IndexDefinition $index, SearchQuery $query): SearchResult {
             $this->queries[] = $query;
             $result = SearchResult::empty($query->limit, $query->offset);
@@ -321,7 +320,6 @@ final class SearchComponentLogicTest extends TestCase
 
             return ['keyboard'];
         });
-        assert($engine instanceof Engine);
 
         $component = new SearchComponent(new Fuzzphony($engine, new IndexRegistry([Indexes::products('manual', tenant: $tenant), $this->shirts()])), $actors);
         $component->query = $query;

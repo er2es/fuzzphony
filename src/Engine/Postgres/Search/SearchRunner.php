@@ -30,6 +30,7 @@ use Fuzzphony\Core\Support\Coerce;
 use Fuzzphony\Engine\Postgres\EngineGuard;
 use Fuzzphony\Engine\Postgres\Highlighter;
 use Fuzzphony\Engine\Postgres\Hints;
+use Fuzzphony\Engine\Postgres\MatchExplainer;
 use Fuzzphony\Engine\Postgres\Schema\Names;
 use Fuzzphony\Engine\Postgres\SearchSession;
 use Fuzzphony\Engine\Postgres\Sql\FilterCompiler;
@@ -144,6 +145,7 @@ final readonly class SearchRunner
                 didYouMean: null,
                 facets: $inner->facets,
                 correctedFrom: $query->text,
+                correctedTo: $rescue['to'],
             ),
             [...$first->statements, ...self::rescueLabels($second->statements)],
             $second->threshold,
@@ -162,8 +164,8 @@ final readonly class SearchRunner
 
     /**
      * One search without a rescue of its own (`$rescue` false, the run of a rescue, also has no relaxation and no suggestion: see above). A search is to be rescued ("rescue" is set) when it found nothing (after the
-     * relaxation and the typo-tolerant branch), $rescue allows it (the second run of a rescue does not), `rescue_empty` and
-     * `did_you_mean` are on, typo tolerance is not switched off (`fuzzy_mode: never`, a profile with `fuzzy` 0), the text is not a search-as-you-type one (the last word is unfinished: nothing is wrong with it),
+     * relaxation and the typo-tolerant branch), $rescue allows it (the second run of a rescue does not), `rescue.correct_when_empty` and
+     * `rescue.did_you_mean` are on, typo tolerance is not switched off (`typo.mode: never`, a profile with `fuzzy` 0), the text is not a search-as-you-type one (the last word is unfinished: nothing is wrong with it),
      * the viewer is not restricted and the index is not tenant-scoped (the vocabulary is the words of every document,
      * hidden fields and other tenants' included: suggest() never looks it up for them), and every word that needs a
      * correction has exactly one vocabulary word one edit away (suggest()). "from" and "to" are the typed and the corrected
@@ -185,7 +187,7 @@ final readonly class SearchRunner
         $thresholds = $index->thresholds->with($query->thresholdOverrides);
         if (!$rescue) {
             // the run of a rescue answers with its hits and total only: the relaxation, the suggestion and a second rescue are work it would throw away
-            $thresholds = $thresholds->with(['relax_when_empty' => false, 'did_you_mean' => false]);
+            $thresholds = $thresholds->with(['rescue' => ['drop_unmatched' => false, 'did_you_mean' => false, 'correct_when_empty' => false]]);
         }
         $profile = $query->rankingOverrides === [] ? $index->profile($query->profile) : $index->profile($query->profile)->with($query->rankingOverrides);
         (new FilterCompiler($index))->validate(...$conditions);
@@ -195,7 +197,7 @@ final readonly class SearchRunner
         // every requested name, before a restricted viewer's hidden ones are dropped: the same request fails or passes for every viewer
         Highlighter::assertHighlightable($index, $query->highlight);
 
-        $parsed = (new QueryParser($thresholds->maxQueryLength, $thresholds->maxTerms))->parse($query->text);
+        $parsed = (new QueryParser($thresholds->limits->maxQueryLength, $thresholds->limits->maxTerms))->parse($query->text);
         $warnings = $parsed->warnings;
         $root = $parsed->root;
         if ($root === null && trim($query->text) !== '') {
@@ -217,7 +219,7 @@ final readonly class SearchRunner
         }
         $expandedRoot = $root;
 
-        $context = new SearchContext($index, $query, $conditions, $profile, $thresholds, $this->names, $this->caches->cappedColumn($index), $this->caches->openClass($index));
+        $context = new SearchContext($index, $query, $conditions, $profile, $thresholds, $this->names, $this->caches->openClass($index));
         $run = $this->pipeline($context, $root, '', true);
         // What is left of the search (the typo-tolerant statements, the relaxation, the facets, the suggestion) runs in ONE transaction
         // when typo tolerance is due (see SearchSession::inTransaction()); a search that needs no setting has no transaction at all.
@@ -232,7 +234,7 @@ final readonly class SearchRunner
         $hits = [];
         foreach ($rows as $row) {
             $id = $index->idType->cast(Coerce::str($row['id']));
-            $hits[] = new Hit($id, Coerce::float($row['score']), new ScoreBreakdown(
+            $hits[] = new Hit($index->name, $id, Coerce::float($row['score']), new ScoreBreakdown(
                 textRank: Coerce::float($row['r_text']),
                 fuzzySimilarity: Coerce::float($row['r_fuzzy']),
                 relevance: Coerce::float($row['relevance']),
@@ -241,6 +243,19 @@ final readonly class SearchRunner
                 boostBonus: Coerce::float($row['boost_bonus']),
                 recencyBonus: Coerce::float($row['recency_bonus']),
             ), $highlights[(string) $id] ?? []);
+        }
+
+        if ($query->explainMatches && $hits !== []) {
+            // opt-in: one statement over the ids of the page, never run (and never in the statement list) otherwise
+            $matches = $this->guard->run('matches', fn(): array => (new MatchExplainer($this->connection, $this->names))->explain(
+                $index,
+                $query->allowedFields ?? $index->fieldNames(),
+                $root,
+                array_map(static fn(Hit $hit): int|string => $hit->id, $hits),
+                $thresholds,
+                $thresholds->typo->mode !== FuzzyMode::Never && $profile->fuzzy > 0.0,
+            ), Hints::INDEX);
+            $hits = array_map(static fn(Hit $hit): Hit => $hit->withMatches($matches[(string) $hit->id] ?? []), $hits);
         }
 
         $result = new SearchResult(
@@ -278,7 +293,7 @@ final readonly class SearchRunner
 
         // Empty-result relaxation: drop the words that match nothing on their own, search once more.
         $relaxedUsed = false;
-        if ($root !== null && $thresholds->relaxWhenEmpty && self::total($run->rows) === 0) {
+        if ($root !== null && $thresholds->rescue->dropUnmatched && self::total($run->rows) === 0) {
             $attempt = $this->relax($c, $root, $run);
             if ($attempt !== null) {
                 array_push($statements, ...$attempt->statements);
@@ -322,16 +337,16 @@ final readonly class SearchRunner
 
         $suggestion = null;
         // the vocabulary holds the words of every field: a restricted viewer gets no suggestion (nor the lookup's statement)
-        if ($thresholds->didYouMean && $query->allowedFields === null && $typedRoot !== null && $expandedRoot !== null && !$run->browse && $c->index->hasFuzzy() && ($total < $thresholds->fallbackBelow || $run->usedFuzzy)) {
+        if ($thresholds->rescue->didYouMean && $query->allowedFields === null && $typedRoot !== null && $expandedRoot !== null && !$run->browse && $c->index->hasFuzzy() && ($total < $thresholds->didYouMeanBelow() || $run->usedFuzzy)) {
             $suggestion = $this->vocabulary->suggest($c->index, $typedRoot, $expandedRoot, $thresholds);
             if ($suggestion->statement !== null) {
                 $statements[] = $suggestion->statement;
             }
         }
         // Only a search that found nothing is rescued, and a search-as-you-type text never (its last word is not finished). It is
-        // a typo correction: a search that switched typo tolerance off (fuzzy_mode never, a profile without fuzzy weight) has none.
+        // a typo correction: a search that switched typo tolerance off (typo.mode never, a profile without fuzzy weight) has none.
         $oneEdit = $suggestion?->oneEdit;
-        $rescueWith = $rescue && $total === 0 && $thresholds->rescueEmpty && $thresholds->fuzzyMode !== FuzzyMode::Never && $c->profile->fuzzy > 0.0 && !$query->asYouType && $typedRoot !== null && $oneEdit !== null
+        $rescueWith = $rescue && $total === 0 && $thresholds->rescue->correctWhenEmpty && $thresholds->typo->mode !== FuzzyMode::Never && $c->profile->fuzzy > 0.0 && !$query->asYouType && $typedRoot !== null && $oneEdit !== null
             ? ['from' => QueryRenderer::render($typedRoot), 'to' => $oneEdit]
             : null;
 
@@ -394,7 +409,7 @@ final readonly class SearchRunner
         $fuzzyRoot = $root !== null
             && $index->hasFuzzy()
             && $c->profile->fuzzy > 0.0
-            && $thresholds->fuzzyMode !== FuzzyMode::Never
+            && $thresholds->typo->mode !== FuzzyMode::Never
             && $fuzzy->hasFuzzyLeaf($root) ? $root : null;
 
         // "the who -rock": PostgreSQL reduces 'the' & 'who' & !'rock' to !'rock', "everything but rock", so the strict branch
@@ -408,7 +423,7 @@ final readonly class SearchRunner
         // the facets that keep every condition count the very candidates of the page's own selection (see SearchSqlBuilder::facetsOf()), unless
         // the page is past the candidate limit (its selection is larger, and the facets of a search must not change with the page) or the
         // counts are exact (they read every match)
-        $withIds = $query->facets !== [] && !$query->exactCounts && SearchSqlBuilder::window($thresholds, $query->limit, $query->offset) === $thresholds->candidateLimit;
+        $withIds = $query->facets !== [] && !$query->exactCounts && SearchSqlBuilder::window($thresholds, $query->limit, $query->offset) === $thresholds->limits->candidates;
         $statements = [];
         $threshold = null;
         $browse = false;
@@ -435,7 +450,7 @@ final readonly class SearchRunner
             $browse = true;
         } else {
             $alwaysFuzzy = $fuzzyRoot !== null
-                && ($thresholds->fuzzyMode === FuzzyMode::Always || $tsquery === null)
+                && ($thresholds->typo->mode === FuzzyMode::Always || $tsquery === null)
                 && $fuzzy->hasFuzzyLeaf($fuzzyRoot, $emptyQueries ??= $this->fuzzyStopWords($c, $fuzzy, $fuzzyRoot, $fuzzyRoot));
             if ($alwaysFuzzy && $fuzzyRoot !== null) {
                 $phase = $typoPhase($fuzzyRoot, StatementKind::Search, $labelPrefix . 'full-text + fuzzy', $emptyQueries ?? []);
@@ -447,8 +462,8 @@ final readonly class SearchRunner
 
                 if (
                     $fuzzyRoot !== null
-                    && $thresholds->fuzzyMode === FuzzyMode::Fallback
-                    && self::total($rows) < $thresholds->fallbackBelow
+                    && $thresholds->typo->mode === FuzzyMode::Fallback
+                    && self::total($rows) < $thresholds->typo->fallbackBelow
                     && $fuzzy->hasFuzzyLeaf($fuzzyRoot, $emptyQueries ??= $this->fuzzyStopWords($c, $fuzzy, $fuzzyRoot, $fuzzyRoot))
                 ) {
                     $phase = $typoPhase($fuzzyRoot, StatementKind::Fallback, $labelPrefix . 'fallback: full-text + fuzzy', $emptyQueries);
@@ -542,7 +557,7 @@ final readonly class SearchRunner
      */
     private function fuzzyCandidates(SearchContext $c, FuzzyQueryCompiler $fuzzy, Node $root, array $emptyQueries): array
     {
-        $cap = $c->thresholds->candidateLimit;
+        $cap = $c->thresholds->limits->candidates;
         $candidates = [];
         foreach ($fuzzy->probes($root, $cap, $emptyQueries, $c->conditions) as $key => $probe) {
             $ids = array_map(static fn(array $row): int|string => is_int($row['id']) ? $row['id'] : Coerce::str($row['id']), $this->session->runProbe($probe['sql'], $probe['params'], $probe['similarity']));
@@ -582,7 +597,7 @@ final readonly class SearchRunner
                 }
             }
             $terms = $typoIds === [] ? [] : (new FuzzyQueryCompiler($index, $c->thresholds, $this->names, [], $query->allowedFields, true))->typoTerms($done->root, $run->emptyQueries ?? []);
-            $typo = $terms === [] ? null : new TypoPlan($terms, $typoIds, $c->thresholds->fuzzySimilarity, $query->allowedFields);
+            $typo = $terms === [] ? null : new TypoPlan($terms, $typoIds, $c->thresholds->typo->similarity, $query->allowedFields);
         }
 
         return $this->guard->run('highlighting', fn(): array => (new Highlighter($this->connection, $this->names))->highlight(
