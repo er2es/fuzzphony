@@ -134,6 +134,7 @@
     .muted { color: var(--label-2); font-size: .875rem; }
     /* a link in small print is a target of its own: 24 px of height (WCAG 2.5.8), the padding costs no space in the line */
     .muted a, .crumb a, .caption a { padding-block: .3rem; }
+    .crumb a, .muted a { text-decoration: underline; }
     .s-ok { color: var(--ok); } .s-warning { color: var(--warn); } .s-error { color: var(--bad); }
 }
 

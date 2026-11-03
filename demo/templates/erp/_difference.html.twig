@@ -10,7 +10,7 @@
     </div>
     <table class="erp-table">
         <caption class="sr-only">Federated search compared with a multi-source index</caption>
-        <thead><tr><th scope="col"></th><th scope="col">Multi-source index <code>site</code></th><th scope="col">Federated search</th></tr></thead>
+        <thead><tr><th scope="col"><span class="sr-only">Aspect</span></th><th scope="col">Multi-source index <code>site</code></th><th scope="col">Federated search</th></tr></thead>
         <tbody>
             <tr><th scope="row">Ranking</th><td>one ranking over all sources</td><td>each index ranks with its own statistics, merged by rank (weights {{ federation|map(f => f[0])|join(' / ') }}, floors {{ federation|map(f => f[1])|join(' / ') }})</td></tr>
             <tr><th scope="row">Setup</th><td>one configuration, shared fields <code>title</code> and <code>text</code></td><td>filters, tenant, thresholds per index (<code>people</code>, <code>companies</code>, <code>orders</code>)</td></tr>
