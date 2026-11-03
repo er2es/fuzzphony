@@ -354,4 +354,36 @@ final class ManyValuesTest extends TestCase
         self::assertSame([2], self::ids($f->in('customers')->query('zalaegerszeg')->get()));
         self::assertSame(['city:0:Debrecen', 'city:1:Zalaegerszeg'], $this->values(2));
     }
+
+    /** @return array<string, int> */
+    private static function counts(\Fuzzphony\Core\Search\SearchResult $result): array
+    {
+        $counts = [];
+        foreach ($result->facets['city'] ?? [] as $value) {
+            $counts[(string) $value->value] = $value->count;
+        }
+        ksort($counts);
+
+        return $counts;
+    }
+
+    public function testFacetsOfAManyFilterInEveryFacetPath(): void
+    {
+        $f = $this->install($this->definition());
+        $all = ['' => 1, 'Budapest' => 2, 'Debrecen' => 1, 'Szeged' => 1, 'Vienna' => 1];
+
+        // without text (browsing), a text search, exact counts: documents per value; customer 4 has no city (the NULL bucket)
+        $browse = self::counts($f->in('customers')->facets('city')->get());
+        self::assertSame(['' => 1, 'Budapest' => 2, 'Debrecen' => 1, 'Szeged' => 1, 'Vienna' => 1], $browse);
+        self::assertSame($all, self::counts($f->in('customers')->query('alice OR bob OR carol OR dave')->facets('city')->get()));
+        self::assertSame($all, self::counts($f->in('customers')->query('alice OR bob OR carol OR dave')->facets('city')->exactCounts()->get()));
+
+        // the facet of the filter the search is narrowed by still lists the other values (disjunctive), counting documents
+        $narrowed = $f->in('customers')->query('alice OR bob OR carol OR dave')->where('city', 'Budapest')->facets('city')->get();
+        self::assertSame([1, 3], self::ids($narrowed));
+        self::assertSame($all, self::counts($narrowed));
+        $browseNarrowed = $f->in('customers')->where('city', 'Budapest')->facets('city')->get();
+        self::assertSame($all, self::counts($browseNarrowed));
+        self::assertSame(2, $browseNarrowed->total);
+    }
 }
