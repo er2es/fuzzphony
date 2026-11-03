@@ -13,6 +13,7 @@ use Fuzzphony\Core\Analytics\SearchAnalytics;
 use Fuzzphony\Core\Analytics\SearchLog;
 use Fuzzphony\Core\Database\Connection;
 use Fuzzphony\Core\Definition\IndexDefinition;
+use Fuzzphony\Core\Definition\IndexSource;
 use Fuzzphony\Core\Definition\IndexDefinitionClass;
 use Fuzzphony\Core\Definition\Synonyms;
 use Fuzzphony\Core\Engine\Engine;
@@ -205,7 +206,21 @@ final readonly class Fuzzphony
      */
     public function reindex(string $index, ReindexOptions $options = new ReindexOptions()): ReindexResult
     {
-        return (new Reindexer($this->engine))->run($this->registry->get($index), $options);
+        $definition = $this->registry->get($index);
+        if ($options->source !== null) {
+            if (!$definition->isMultiSource() || $definition->sourceNamed($options->source) === null) {
+                throw new InvalidArgument(sprintf(
+                    $definition->isMultiSource() ? 'Index "%s" has no source "%s". Its sources: %s.' : 'Index "%s" has a single source, so there is no source "%s" to rebuild alone (reindex the whole index).',
+                    $definition->name,
+                    $options->source,
+                    implode(', ', array_map(static fn(IndexSource $s): string => $s->name, $definition->sources)),
+                ));
+            }
+            // one source is rebuilt in place: its rows are removed when the source no longer returns them, the other rows are left alone
+            $definition = $definition->withOnlySource($options->source);
+        }
+
+        return (new Reindexer($this->engine))->run($definition, $options);
     }
 
     /**

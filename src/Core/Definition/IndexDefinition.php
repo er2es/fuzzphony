@@ -184,6 +184,18 @@ final readonly class IndexDefinition
         return null;
     }
 
+    /** The source that reads an entity class (a multi-source index: each source may name one). */
+    public function sourceForEntity(string $class): ?IndexSource
+    {
+        foreach ($this->sources as $source) {
+            if ($source->entityClass === $class) {
+                return $source;
+            }
+        }
+
+        return null;
+    }
+
     /** The sources a run works on: all of them, or the one a per-source reindex is narrowed to. @return list<IndexSource> */
     public function activeSources(): array
     {
@@ -212,6 +224,12 @@ final readonly class IndexDefinition
         $raw = $at === false ? $key : substr($key, $at + 1);
 
         return [$kind, ($this->sourceNamed($kind)?->idType ?? IdType::String)->cast($raw)];
+    }
+
+    /** One source of a multi-source index as a single-source definition (the doctor checks each source on its own). */
+    public function forSource(IndexSource $source): self
+    {
+        return $this->copy(source: $source->source, idType: $source->idType, watches: $source->watches, entityClass: $source->entityClass ?? false, sources: []);
     }
 
     /** A copy narrowed to one source (a per-source reindex). */

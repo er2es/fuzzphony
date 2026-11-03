@@ -172,6 +172,12 @@ final readonly class Grants
     private function sourceTables(IndexDefinition $index): array
     {
         $tables = $index->source->table !== null ? [$index->source->table] : [];
+        foreach ($index->sources as $source) {
+            // a multi-source index: every source's own table (its watched tables come with effectiveWatches() below)
+            if ($source->source->table !== null) {
+                $tables[] = $source->source->table;
+            }
+        }
         foreach ($index->effectiveWatches() as $watch) {
             $tables[] = $watch->table;
         }

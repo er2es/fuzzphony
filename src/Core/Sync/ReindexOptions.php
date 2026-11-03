@@ -29,6 +29,8 @@ final readonly class ReindexOptions
         public bool $inPlace = false,
         /** Rebuild the vocabulary ("did you mean") after a full run, when the engine keeps one. */
         public bool $vocabulary = true,
+        /** A multi-source index: rebuild only the rows of this source, in place (no swap); null: the whole index. */
+        public ?string $source = null,
     ) {
         if ($batchSize < 1) {
             throw new InvalidArgument(sprintf('Batch size must be >= 1, got %d.', $batchSize));

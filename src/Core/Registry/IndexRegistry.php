@@ -6,6 +6,7 @@ namespace Fuzzphony\Core\Registry;
 
 use Fuzzphony\Core\Definition\DefinitionValidator;
 use Fuzzphony\Core\Definition\IndexDefinition;
+use Fuzzphony\Core\Definition\IndexSource;
 use Fuzzphony\Core\Exception\InvalidDefinition;
 use Fuzzphony\Core\Exception\UnknownIndex;
 
@@ -44,8 +45,10 @@ final class IndexRegistry
             $this->origins[$definition->name] = $origin;
         }
         // the first index of an entity answers for the entity class (the attribute index, then the definition classes); the others are reached by name
-        if ($definition->entityClass !== null && ($this->byClass[$definition->entityClass] ?? $definition->name) === $definition->name) {
-            $this->byClass[$definition->entityClass] = $definition->name;
+        foreach ([$definition->entityClass, ...array_map(static fn(IndexSource $s): ?string => $s->entityClass, $definition->sources)] as $class) {
+            if ($class !== null && ($this->byClass[$class] ?? $definition->name) === $definition->name) {
+                $this->byClass[$class] = $definition->name;
+            }
         }
     }
 

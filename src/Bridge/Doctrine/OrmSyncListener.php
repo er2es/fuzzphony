@@ -80,6 +80,14 @@ final class OrmSyncListener
             return;
         }
         $id = $id instanceof \Stringable ? (string) $id : $id;
+        if ($index->isMultiSource()) {
+            // the source that reads this entity class decides the kind of the stored key
+            $source = $index->sourceForEntity($class);
+            if ($source === null) {
+                return;
+            }
+            $id = $source->key($id);
+        }
         $this->pending[$index->name][(string) $id] = [$id, \WeakReference::create($manager)];
     }
 }

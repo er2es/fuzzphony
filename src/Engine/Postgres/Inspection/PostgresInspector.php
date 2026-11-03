@@ -53,12 +53,18 @@ final class PostgresInspector
         $checks[] = $this->textConfig($index);
         $checks[] = $this->function($this->names->normFunction() . '(text)', 'Normaliser function');
 
-        $sourceColumns = $this->sourceColumns($index, $checks);
-        if ($sourceColumns !== null) {
-            array_push($checks, ...$this->sourceMapping($index, $sourceColumns));
-        }
-        if ($index->source->table !== null) {
-            $checks[] = $this->sourceKey($index);
+        foreach ($index->isMultiSource() ? $index->sources : [null] as $one) {
+            // a multi-source index: each source checked as a single-source one, its checks named after it
+            $part = $one === null ? $index : $index->forSource($one);
+            $partChecks = [];
+            $sourceColumns = $this->sourceColumns($part, $partChecks);
+            if ($sourceColumns !== null) {
+                array_push($partChecks, ...$this->sourceMapping($part, $sourceColumns));
+            }
+            if ($part->source->table !== null) {
+                $partChecks[] = $this->sourceKey($part);
+            }
+            array_push($checks, ...($one === null ? $partChecks : array_map(static fn(Check $c): Check => new Check(sprintf('Source "%s": %s', $one->name, $c->name), $c->status, $c->message, $c->fix), $partChecks)));
         }
 
         $sidecarExists = $this->regclass($this->names->sidecar($index));
@@ -620,7 +626,7 @@ final class PostgresInspector
                 ['table' => Sql::ident($watch->table)],
             );
             $state = array_column($rows, 'tgenabled', 'tgname');
-            $label = 'Sync trigger on ' . $watch->table;
+            $label = 'Sync trigger on ' . $watch->table . ($watch->source !== null ? sprintf(' (%s)', $watch->source) : '');
             $shared = SharedWatch::applies($index);
             $expected = $shared
                 ? array_map(fn(string $kind): string => $this->names->watchTriggerName($watch->table, $kind), ['ins', 'upd', 'del', 'trn'])
@@ -819,6 +825,9 @@ final class PostgresInspector
 
     private function coverage(IndexDefinition $index, InspectOptions $options): Check
     {
+        if ($index->isMultiSource()) {
+            return $this->multiCoverage($index, $options);
+        }
         if ($options->deep) {
             $source = Coerce::int($this->connection->fetchValue(sprintf('SELECT count(*) FROM (%s) AS d', DocumentSql::raw($index))));
             $indexed = Coerce::int($this->connection->fetchValue(sprintf('SELECT count(*) FROM %s', $this->names->sidecar($index))));
@@ -841,6 +850,38 @@ final class PostgresInspector
         return $ratio < 0.95 || $ratio > 1.05
             ? Check::warning('Coverage', sprintf('%d of %d documents indexed (%.1f%%, %s).', $indexed, $source, $ratio * 100, $how), sprintf('bin/console fuzzphony:reindex %s', $index->name))
             : Check::ok('Coverage', sprintf('%d of %d documents indexed (%.1f%%, %s)', $indexed, $source, $ratio * 100, $how));
+    }
+
+    /** Each source's row count against the sidecar rows of its kind (exact with --deep, else the estimates of table sources). */
+    private function multiCoverage(IndexDefinition $index, InspectOptions $options): Check
+    {
+        $parts = [];
+        $off = false;
+        foreach ($index->sources as $one) {
+            $part = $index->forSource($one);
+            if ($options->deep) {
+                $source = Coerce::int($this->connection->fetchValue(sprintf('SELECT count(*) FROM (%s) AS d', DocumentSql::raw($part))));
+                $indexed = Coerce::int($this->connection->fetchValue(sprintf('SELECT count(*) FROM %s WHERE kind = :kind', $this->names->sidecar($index)), ['kind' => $one->name]));
+                $how = 'exact';
+            } elseif ($one->source->table === null) {
+                $parts[] = sprintf('%s: no estimate for a query source', $one->name);
+
+                continue;
+            } else {
+                $source = Coerce::int($this->connection->fetchValue('SELECT greatest(reltuples, 0)::bigint FROM pg_class WHERE oid = to_regclass(:t)', ['t' => $one->source->table]));
+                // the sidecar's own estimate is for all kinds: the rows of this kind are counted (an index on kind)
+                $indexed = Coerce::int($this->connection->fetchValue(sprintf('SELECT count(*) FROM %s WHERE kind = :kind', $this->names->sidecar($index)), ['kind' => $one->name]));
+                $how = 'estimated';
+            }
+            $ratio = $source === 0 ? 1.0 : $indexed / $source;
+            $off = $off || $ratio < 0.95 || $ratio > 1.05;
+            $parts[] = sprintf('%s: %d of %d (%s)', $one->name, $indexed, $source, $how);
+        }
+        $message = implode('; ', $parts);
+
+        return $off
+            ? Check::warning('Coverage', $message . '.', sprintf('bin/console fuzzphony:reindex %s --source=<source>', $index->name))
+            : Check::ok('Coverage', $message);
     }
 
     /** Indexed documents whose id the source no longer returns: exact only, so --deep only. */

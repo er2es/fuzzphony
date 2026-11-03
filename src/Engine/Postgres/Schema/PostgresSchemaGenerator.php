@@ -891,7 +891,7 @@ ON CONFLICT (index_name) DO UPDATE SET layout_version = EXCLUDED.layout_version,
     public function completeRebuildRequest(IndexDefinition $index, string $started): string
     {
         return sprintf(
-            'DO %1$s BEGIN IF to_regclass(%2$s) IS NOT NULL THEN IF has_table_privilege(%2$s, \'SELECT\') AND has_table_privilege(%2$s, \'DELETE\') THEN DELETE FROM %3$s WHERE index_name = %4$s AND doc_id = \'*\' AND queued_at <= %5$s::timestamptz; END IF; END IF; IF EXISTS (SELECT 1 FROM pg_attribute WHERE attrelid = to_regclass(%6$s) AND attname = \'rebuild_failures\' AND NOT attisdropped) THEN IF has_table_privilege(%6$s, \'SELECT\') AND has_table_privilege(%6$s, \'UPDATE\') THEN UPDATE %7$s SET rebuild_failed_at = NULL, rebuild_failures = NULL, rebuild_error = NULL WHERE index_name = %4$s AND rebuild_failures IS NOT NULL; END IF; END IF; END %1$s',
+            'DO %1$s BEGIN IF to_regclass(%2$s) IS NOT NULL THEN IF has_table_privilege(%2$s, \'SELECT\') AND has_table_privilege(%2$s, \'DELETE\') THEN DELETE FROM %3$s WHERE index_name = %4$s AND %8$s AND queued_at <= %5$s::timestamptz; END IF; END IF; IF EXISTS (SELECT 1 FROM pg_attribute WHERE attrelid = to_regclass(%6$s) AND attname = \'rebuild_failures\' AND NOT attisdropped) THEN IF has_table_privilege(%6$s, \'SELECT\') AND has_table_privilege(%6$s, \'UPDATE\') THEN UPDATE %7$s SET rebuild_failed_at = NULL, rebuild_failures = NULL, rebuild_error = NULL WHERE index_name = %4$s AND rebuild_failures IS NOT NULL; END IF; END IF; END %1$s',
             self::TAG,
             Sql::string($this->names->queue()),
             $this->names->queue(),
@@ -899,6 +899,7 @@ ON CONFLICT (index_name) DO UPDATE SET layout_version = EXCLUDED.layout_version,
             Sql::string($started),
             Sql::string($this->names->meta()),
             $this->names->meta(),
+            $index->onlySource !== null ? 'doc_id = ' . Sql::string(IndexSource::rebuildRequestKey($index->onlySource)) : ($index->isMultiSource() ? "(doc_id = '*' OR starts_with(doc_id, '*:'))" : "doc_id = '*'"),
         );
     }
 
