@@ -87,6 +87,7 @@ It checks:
   that targets a partition directly is not synced, and a warning for that trigger left on a table
   that should not have it (a detached partition, or any partition in `orm` / `manual` mode);
 - with the search log enabled, its table (an error when it is missing: fixed by `fuzzphony:schema --apply`) and any rows older than `retention_days` (a warning: fixed by `fuzzphony:search-log:purge`; it never counts the table, and a role without `SELECT` on it gets a warning with the `GRANT`);
+- `Values` (an index with a [`many`](configuration.md#several-values-per-document-many) field or filter): the values table exists, the child table can be read, how many documents have more values than the `limit` (a count, never an id or a value) and whether the values table holds the rows the child table implies; with a big child table (over a million rows) the counts wait for `--deep`;
 - the database privileges of the roles in use (search, worker, and the admin when it is a user of its own): an error naming what is missing and the `--dump-grants` command that prints the fix, see [Database roles](roles.md#the-doctor-checks-the-privileges);
 - queue backlog and age, a pending full-rebuild job a `TRUNCATE` queued, and whether the worker's
   rebuild of it keeps failing (the last error, how often, when);
