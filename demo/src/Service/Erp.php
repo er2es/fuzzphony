@@ -25,7 +25,7 @@ final readonly class Erp
         'companies' => [
             'index' => 'companies', 'label' => 'Companies', 'field' => 'Search companies',
             'about' => 'Companies by name, by tax number and phone as exact codes, and by the names of their contact persons.',
-            'examples' => ['legal form' => 'kft', 'tax number' => '10079190-1-12', 'contact person' => 'contact:nagy'],
+            'examples' => ['legal form' => 'kft', 'tax number' => '10079190-1-12', 'contact person' => 'contact:simon'],
         ],
         'orders' => [
             'index' => 'orders', 'label' => 'Orders', 'field' => 'Search orders',
@@ -111,9 +111,17 @@ final readonly class Erp
      *
      * @return list<string>
      */
-    public static function reasons(Hit $hit): array
+    public static function reasons(Hit $hit, string $query = ''): array
     {
         $lines = [];
+        // a code (tax number, phone, order number) typed whole, or its beginning, matches as a code: the row says so
+        $typed = mb_strtolower(trim($query));
+        foreach (self::CODES as $code) {
+            $value = mb_strtolower((string) ($hit->data[$code] ?? ''));
+            if ($typed !== '' && $value !== '' && str_starts_with($value, $typed) && preg_match('/\d/', $typed) === 1) {
+                $lines[sprintf('found in %s: %s (%s)', self::FIELD_LABELS[$code], $hit->data[$code], $value === $typed ? 'exact code' : 'beginning of a code')] = true;
+            }
+        }
         foreach ($hit->matches ?? [] as $m) {
             $where = self::FIELD_LABELS[$m->field] ?? $m->field;
             $line = match (true) {

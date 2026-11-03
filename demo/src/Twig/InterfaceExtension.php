@@ -50,8 +50,8 @@ final readonly class InterfaceExtension
 
     /** @return list<string> the "found in ..." lines of an ERP hit, from Hit::$matches */
     #[AsTwigFunction('erp_reasons')]
-    public function erpReasons(Hit $hit): array
+    public function erpReasons(Hit $hit, string $query = ''): array
     {
-        return Erp::reasons($hit);
+        return Erp::reasons($hit, $query);
     }
 }
