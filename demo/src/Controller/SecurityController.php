@@ -13,7 +13,9 @@ use Fuzzphony\Core\Exception\ActorRequired;
 use Fuzzphony\Core\Exception\FuzzphonyException;
 use Fuzzphony\Core\Exception\RateLimited;
 use Fuzzphony\Core\Fuzzphony;
+use Fuzzphony\Core\Search\Actor;
 use Fuzzphony\Core\Search\ActorResolver;
+use Fuzzphony\Core\Search\SearchResult;
 use Symfony\Bundle\FrameworkBundle\Controller\AbstractController;
 use Symfony\Component\DependencyInjection\Attribute\Autowire;
 use Symfony\Component\HttpFoundation\Request;
@@ -24,7 +26,7 @@ use Symfony\Component\Security\Core\Authorization\AuthorizationCheckerInterface;
 
 /**
  * Who is searching decides what a search may see: the worked example of docs/security.md. The visitor picks one of five
- * fixed viewers (ViewerAuthenticator); the search is made with `asActor()`, so the configured guards run: the company is the
+ * fixed viewers (ViewerAuthenticator); the search names no actor, so it is made as the current Security user and the configured guards run: the company is the
  * tenant, ROLE_USER may search the `intranet` index (SearchVoter), the `confidential` field needs ROLE_HR, and a viewer
  * may search five times in 10 seconds. A refusal is an answer of the page, never an error page.
  */
@@ -78,9 +80,10 @@ final class SecurityController extends AbstractController
                 // The search itself: the guards run, the rate limit is charged once, and the search log gets one row
                 // (the viewer as the user, the company as the tenant, the masked client IP; a refusal is a `denied` or
                 // `rate_limited` row). explain() would run the same search but records no row for an answered one.
+                // No asActor(): the search is made as the application's current user (the token), which is the point of the
+                // "compare the calls" table below. The resolver is asked here only for the tenant of the explain().
                 $actor = $actors->resolve();
                 $result = $fuzzphony->in(self::INDEX)
-                    ->asActor($actor)
                     ->query($q)
                     ->highlight('title', 'body', 'confidential')
                     ->limit(20)
@@ -106,6 +109,11 @@ final class SecurityController extends AbstractController
             }
         }
 
+        $compare = null;
+        if ($q !== '' && $request->query->getBoolean('compare')) {
+            $compare = $this->compare($fuzzphony, $q, $viewer, $result, $outcome);
+        }
+
         $used = null;
         if ($viewer !== null) {
             $used = self::LIMIT - $limiter->create($viewer->getUserIdentifier())->consume(0)->getRemainingTokens();
@@ -121,6 +129,7 @@ final class SecurityController extends AbstractController
             'explanation' => $explanation,
             'rows' => $rows,
             'outcome' => $outcome,
+            'compare' => $compare,
             'allowed' => $allowed,
             'forbidden' => $forbidden,
             'used' => $used,
@@ -128,6 +137,41 @@ final class SecurityController extends AbstractController
             'wasReset' => $wasReset,
             'companies' => DemoUser::COMPANIES,
         ]);
+    }
+
+    /**
+     * The same words searched by the four kinds of call (docs/security.md, "Who is searching"): what a controller sees that names no actor
+     * (the page's own search above), one that names Ada explicitly, one that runs where nobody can be resolved (a command, a worker) and one
+     * that says asSystem(). None is logged here (the page's own search is); the guards of the first three run for real.
+     *
+     * @param array{kind: string, class: string, message: string}|null $outcome the refusal of the page's own search, if any
+     *
+     * @return list<array{label: string, code: string, ran: string, hits: ?int, confidential: ?int, refusal: ?string}>
+     */
+    private function compare(Fuzzphony $fuzzphony, string $q, ?DemoUser $viewer, ?SearchResult $own, ?array $outcome): array
+    {
+        $tenant = $viewer?->getCompany() ?? 1;
+        $run = static function (callable $make) use ($q): array {
+            try {
+                /** @var SearchResult $r */
+                $r = $make()->query($q)->highlight('title', 'body', 'confidential')->limit(20)->unlogged()->get();
+
+                return [$r->total, count(array_filter($r->hits, static fn($h): bool => isset($h->highlights['confidential']))), null];
+            } catch (FuzzphonyException $e) {
+                return [null, null, (new \ReflectionClass($e))->getShortName() . ': ' . $e->getMessage()];
+            }
+        };
+        $row = static fn(string $label, string $code, string $ran, array $r): array => ['label' => $label, 'code' => $code, 'ran' => $ran, 'hits' => $r[0], 'confidential' => $r[1], 'refusal' => $r[2]];
+        $ownRun = $own !== null
+            ? [$own->total, count(array_filter($own->hits, static fn($h): bool => isset($h->highlights['confidential']))), null]
+            : [null, null, $outcome !== null ? $outcome['class'] . ': ' . $outcome['message'] : null];
+
+        return [
+            $row('No asActor()', "\$fuzzphony->in('intranet')->query(\$q)->get()", $viewer !== null ? $viewer->name . ' (the token user), company ' . $viewer->companyName : 'nobody: no token', $ownRun),
+            $row('asActor(Ada)', "->asActor(new Actor(tenant: 1, user: 'ada'))", 'Ada, company Acme; the roles still come from the token', $run(fn() => $fuzzphony->in(self::INDEX)->asActor(new Actor(tenant: 1, user: 'ada')))),
+            $row('asActor(anonymous)', '->asActor(Actor::anonymous())', 'what a command, a worker or a test sees: nobody, no company', $run(fn() => $fuzzphony->in(self::INDEX)->asActor(Actor::anonymous()))),
+            $row('asSystem()', '->asSystem()->forTenant(' . $tenant . ')', 'no guard: every field, company ' . (DemoUser::COMPANIES[$tenant] ?? $tenant) . ' (a tenant must still be named)', $run(fn() => $fuzzphony->in(self::INDEX)->asSystem()->forTenant($tenant))),
+        ];
     }
 
     /**

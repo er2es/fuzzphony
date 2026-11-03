@@ -104,7 +104,8 @@ companies ([`sql/demo_note.sql`](sql/demo_note.sql)). Choose who is searching (A
 session; a first visit is Ada) and search the same words: the company is the tenant, `ROLE_USER` may search at all, the `confidential` field
 needs `ROLE_HR`, and a viewer may search five times in 10 seconds (the sixth shows a countdown). The refusals are answers of the page, not
 error pages. The guards come from `fuzzphony.actor`, `fuzzphony.authorization` and `fuzzphony.rate_limit` in
-[`config/packages/fuzzphony.yaml`](config/packages/fuzzphony.yaml); only this page searches `->asActor()`. The viewers are shared by everyone who
+[`config/packages/fuzzphony.yaml`](config/packages/fuzzphony.yaml); this page's search names no actor, so it is made as the signed-in viewer; every other page of the demo
+says `->asSystem()` (the catalogue is public data). "Compare the calls" runs the same words as `asActor(Ada)`, `asActor(anonymous)` and `asSystem()` next to it. The viewers are shared by everyone who
 uses the demo, so the five searches are too (`?reset=1` forgets them: demo only).
 
 The search boxes of the catalogue, the Languages, Relevance, Synonyms and Observability pages have the dropdown while you type
@@ -203,7 +204,7 @@ listed there use the library's defaults, shown here with "default".
 
 The **Observability** page runs any query you type (or one of the same examples as the Search page) and shows
 what Fuzzphony reported for it: `took_ms`, whether the typo-tolerance fallback ran, the sync queue depth and the
-log line `LoggingMetricsCollector` writes (this demo has neither `promphp/prometheus_client_php` nor `apcu`, so it
+log line the logging metrics collector writes (this demo has neither `promphp/prometheus_client_php` nor `apcu`, so it
 runs the logging collector; the bundle falls back to it on its own). It also lists every metric Fuzzphony can
 report. See [docs/observability.md](../docs/observability.md) for the collectors, the Symfony wiring and a
 `/metrics` endpoint recipe, and [docs/grafana/](../docs/grafana/) for a sample Grafana dashboard.

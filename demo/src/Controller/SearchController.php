@@ -66,7 +66,7 @@ final class SearchController extends AbstractController
         // the bar cannot appear under a word that is still being typed. The first step is a probe and never logged; the search that
         // answers is logged (once), so the Analytics page sees `mpuse` with the rescued hits, not as a search that found nothing.
         $build = static function (bool $asYouType, bool $log) use ($fuzzphony, $facets, $q, $category, $stock, $exact): SearchBuilder {
-            $search = $fuzzphony->in('catalog')->query($q)->highlight('name')->limit(20);
+            $search = $fuzzphony->in('catalog')->asSystem()->query($q)->highlight('name')->limit(20);
             $search = $facets->narrow($asYouType ? $search->asYouType() : $search, $category, $stock);
             $search = $log ? $search : $search->unlogged();
 
@@ -153,7 +153,7 @@ final class SearchController extends AbstractController
         $without = $with = null;
         if ($q !== '') {
             try {
-                $with = Measure::median(static fn () => $facets->narrow($fuzzphony->in('catalog')->query($q)->asYouType($asYouType)->limit(20)->unlogged(), $category, $stock)->get());
+                $with = Measure::median(static fn () => $facets->narrow($fuzzphony->in('catalog')->asSystem()->query($q)->asYouType($asYouType)->limit(20)->unlogged(), $category, $stock)->get());
                 $without = Measure::median(static fn (): array => $catalog->ilike($q));
             } catch (FuzzphonyException) {
                 // the page above has shown the error; the bars stay empty
