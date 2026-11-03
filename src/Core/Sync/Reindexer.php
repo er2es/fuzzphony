@@ -8,6 +8,7 @@ use Fuzzphony\Core\Definition\IndexDefinition;
 use Fuzzphony\Core\Engine\Engine;
 use Fuzzphony\Core\Exception\FuzzphonyException;
 use Fuzzphony\Core\Exception\InvalidArgument;
+use Fuzzphony\Core\Support\ErrorSummary;
 
 /**
  * @internal Batched, resumable reindex using keyset pagination over source ids.
@@ -81,7 +82,7 @@ final class Reindexer
         try {
             return $result->withVocabulary($this->engine->rebuildVocabulary($index));
         } catch (FuzzphonyException $e) {
-            return $result->withVocabulary(null, $e->getMessage());
+            return $result->withVocabulary(null, ErrorSummary::forOperator($e) . '.');
         }
     }
 

@@ -25,13 +25,11 @@ final class QueryFile
         }
         $absolute = preg_match('#^(?:[A-Za-z]:)?[\\\\/]#', $path) === 1;
         $real = realpath($absolute ? $path : $base . DIRECTORY_SEPARATOR . $path);
-        if ($real === false || !is_file($real) || !is_readable($real)) {
-            throw new InvalidDefinition($index, [sprintf('Query file "%s" does not exist or cannot be read (relative paths start at "%s").', $path, $base)]);
-        }
         $prefix = rtrim(str_replace('\\', '/', $base), '/') . '/';
-        $inside = str_replace('\\', '/', $real);
-        if (!str_starts_with(DIRECTORY_SEPARATOR === '/' ? $inside : strtolower($inside), DIRECTORY_SEPARATOR === '/' ? $prefix : strtolower($prefix))) {
-            throw new InvalidDefinition($index, [sprintf('Query file "%s" is outside the project directory "%s"; keep it inside (a path with ".." or an absolute path elsewhere is refused).', $path, $base)]);
+        $inside = $real === false ? '' : str_replace('\\', '/', $real);
+        // one message for a file that is not there and for one outside the project: whether a path elsewhere on the machine exists is not revealed
+        if ($real === false || !is_file($real) || !is_readable($real) || !str_starts_with(DIRECTORY_SEPARATOR === '/' ? $inside : strtolower($inside), DIRECTORY_SEPARATOR === '/' ? $prefix : strtolower($prefix))) {
+            throw new InvalidDefinition($index, [sprintf('Query file "%s" cannot be used: it must be a readable file inside the project directory "%s" (a path with ".." or an absolute path elsewhere is refused).', $path, $base)]);
         }
         $sql = file_get_contents($real);
         if ($sql === false || trim($sql) === '') {

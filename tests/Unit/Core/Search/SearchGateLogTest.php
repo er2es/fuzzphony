@@ -219,14 +219,20 @@ final class SearchGateLogTest extends TestCase
         self::assertSame([], $log->records);
     }
 
-    public function testTheEffectiveTenantOfTheSearchIsRecordedNotTheActors(): void
+    public function testTheTenantOfTheSearchIsTheActorsAndAnotherOneIsRefused(): void
     {
         $log = new RecordingSearchLog();
         $builder = new SearchBuilder($this->engineReturning(1, 1.0, false), Indexes::products(tenant: true), gate: new SearchGate(log: $log));
 
-        $builder->query('mouse')->asActor(new Actor(tenant: 3, user: 'ada'))->forTenant(9)->get();
+        $builder->query('mouse')->asActor(new Actor(tenant: 3, user: 'ada'))->forTenant(3)->get();
+        self::assertSame([3, 'ada'], [$log->records[0]->tenant, $log->records[0]->user]);
 
-        self::assertSame([9, 'ada'], [$log->records[0]->tenant, $log->records[0]->user]);
+        try {
+            $builder->query('mouse')->asActor(new Actor(tenant: 3, user: 'ada'))->forTenant(9)->get();
+            self::fail('crossed');
+        } catch (\Fuzzphony\Core\Exception\AccessDenied) {
+            self::assertSame([3, 'ada'], [$log->records[1]->tenant ?? null, $log->records[1]->user ?? null], 'the refusal is recorded under the actor\'s own tenant, never the other one');
+        }
     }
 
     public function testOnAnIndexWithoutTenantScopingTheActorsTenantIsRecordedAsWhoAsked(): void

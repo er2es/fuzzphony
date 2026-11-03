@@ -104,10 +104,17 @@ final readonly class Names
         return $this->qualify(self::PREFIX . 'watch_install');
     }
 
-    /** The shared trigger function of a watched table (`fuzzphony_watch__<table>`), short enough for the `__ins`, `__upd`, `__del` and `__trn` triggers. */
+    /**
+     * The shared trigger function of a watched table: `fuzzphony_watch__<readable part>_<8 hex of md5(quoted table)>`, short enough
+     * for the `__ins`, `__upd`, `__del` and `__trn` triggers. The hash keeps `public.x` and `public_x` apart. The SQL function
+     * fuzzphony_watch_install() derives the very same name from the table text (it never trusts a stored name).
+     */
     public function watchFunctionName(string $table): string
     {
-        return self::limit(self::PREFIX . 'watch__' . str_replace('.', '_', $table), self::MAX_IDENTIFIER_BYTES - 5);
+        $quoted = Sql::ident($table);
+        $readable = trim((string) preg_replace('/[^A-Za-z0-9_]+/', '_', $quoted), '_');
+
+        return self::PREFIX . 'watch__' . substr($readable, 0, 32) . '_' . substr(md5($quoted), 0, 8);
     }
 
     public function watchFunction(string $table): string

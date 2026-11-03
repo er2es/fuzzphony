@@ -24,6 +24,7 @@ The details of each change follow.
 
 ### Breaking
 
+- **An actor with a tenant can no longer search another tenant.** `->forTenant($x)` with `$x` different from the tenant of the actor (the named one, or the current user when none is named) now throws `AccessDenied` instead of searching `$x` while the search log recorded the user under it. Before, the order of `asActor()` and `forTenant()` decided who won, and the ambient user never overrode `forTenant()`. A job that must search across tenants uses `->asSystem()->forTenant($x)`; `Fuzzphony::logSearch()` takes the same `forTenant:` for a system record.
 - **A search that names no actor is made as the application's current user.** Until now a search without `->asActor()` ran no guard: a controller that forgot it
   searched as everybody and saw every `granted` field (and was not rate limited). Now the service asks the `ActorResolver` itself (the Symfony bundle: the Security
   token and, with the client IP in use, the request; plain PHP: `Fuzzphony::postgres(..., actors: $resolver)`), so every search is guarded and logged as that actor, and an
@@ -82,7 +83,7 @@ The details of each change follow.
 - **A batch the worker cannot refresh because of the data is split.** Only the ids that fail on their own stay queued, with `attempts`, `last_error`
   (exception class and SQLSTATE) and `failed_at` (three columns the apply adds to `fuzzphony_queue`) and a back-off from 60 s to an hour; the doctor names them. The
   worker's stderr shows the exception class and SQLSTATE only (the driver message used to be printed: a log scraper that matched it needs the SQLSTATE).
-- **The public API is smaller (76 types, [list](docs/architecture.md#public-api)).** Everything that is not on the list is tagged `@internal` and may change in any
+- **The public API is smaller (77 types, [list](docs/architecture.md#public-api)).** Everything that is not on the list is tagged `@internal` and may change in any
   release. If your code imports one of these, change it:
 
   | Was | Now |

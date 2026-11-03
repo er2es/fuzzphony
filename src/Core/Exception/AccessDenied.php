@@ -12,6 +12,11 @@ final class AccessDenied extends \RuntimeException implements SearchRefused
         return new self(sprintf('Searching index "%s" is not granted to this actor.', $index));
     }
 
+    public static function tenantMismatch(string $index): self
+    {
+        return new self(sprintf('Searching index "%s" for a tenant other than the actor\'s is not allowed (asSystem() is the way to search across tenants).', $index));
+    }
+
     public static function systemSwitchedOff(string $index): self
     {
         return new self(sprintf('Searching index "%s" as the system is switched off (fuzzphony.authorization.allow_system: false).', $index));

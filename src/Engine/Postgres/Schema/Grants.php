@@ -123,7 +123,9 @@ final readonly class Grants
             new Grant(Grant::FUNCTION, $n->normFunction() . '(text)', ['EXECUTE'], 'the normaliser the refresh uses'),
             new Grant(Grant::TABLE, $n->queue(), ['SELECT', 'INSERT', 'UPDATE', 'DELETE'], 'the queue: drained into, taken from, failures recorded'),
             new Grant(Grant::TABLE, $n->watchLog(), ['SELECT', 'UPDATE', 'DELETE'], 'the shared change log: read, then trimmed (DELETE ... FOR UPDATE needs UPDATE too)'),
-            new Grant(Grant::TABLE, $n->watches(), ['SELECT', 'UPDATE'], 'who watches which table, and each index\'s position in the log'),
+            new Grant(Grant::TABLE, $n->watches(), ['SELECT'], 'who watches which table'),
+            // a column privilege only: the admin trusts the stored table names, so the worker must not be able to rewrite them (FOR UPDATE needs UPDATE on one column)
+            new Grant(Grant::TABLE, $n->watches(), ['UPDATE'], 'each index\'s position in the log (cur_xid) and the count of log rows it skipped; nothing else', false, ['cur_xid', 'bad_rows', 'bad_at']),
             new Grant(Grant::TABLE, $n->meta(), ['SELECT', 'UPDATE'], 'the record of a failed full rebuild'),
         ];
         foreach ($indexes as $index) {

@@ -20,6 +20,10 @@ Component resolve it on the server on every request, is in
 **Who is searching?** Every search has an actor, in this order:
 
 1. The one you name: `->asActor($actor)` (on `FederatedSearch` too, for every index).
+
+   Whoever the actor is, if it has a tenant it can search that tenant only: a `forTenant()` naming another one is refused (`AccessDenied`,
+   no tenant named); `asSystem()` is the way across tenants.
+
 2. Otherwise the application's current user, the **ambient actor**: the service asks the `ActorResolver` itself (the Symfony bundle: the
    Security token, plus the client IP of the request when the IP is in use; plain PHP: `Fuzzphony::postgres(..., actors: $resolver)`). A
    controller that forgets `->asActor()` is therefore guarded like one that remembers, and counted by the rate limit.
@@ -55,7 +59,7 @@ denied search), for an application where nothing may bypass the guards. Do not p
 
 A field with `granted: ROLE_HR` is hidden only by the authorization guard. An index with such a field while `fuzzphony.authorization.enabled` is
 false would show it to everybody, so it is an error: the container does not build (`InvalidDefinition`, "set fuzzphony.authorization.enabled: true"),
-`Fuzzphony::postgres()` refuses it without `guards:`, and `fuzzphony:doctor` reports it. Fields found by entity attributes are checked when
+`Fuzzphony::postgres()` refuses it unless one of the `guards:` can restrict fields (an authorization guard; a custom guard implements `FieldRestrictingGuard`: a rate limit alone returns every field and would show it), and `fuzzphony:doctor` reports it. Fields found by entity attributes are checked when
 the registry is built.
 
 ## The guards and their order
@@ -344,6 +348,10 @@ The guards above decide who may search. The database user decides what the code 
 least-privilege matrix for the application (reads the index, no DDL), the worker and the admin, `fuzzphony:schema --dump-grants` to print the
 `GRANT` statements for your tables, the `fuzzphony.connections` setting to use a separate user for each, and the doctor's privilege check. Every Fuzzphony
 function is `SECURITY INVOKER`: none runs with its owner's rights.
+
+`INSERT` on `fuzzphony_watch_log` is a trust boundary: the application role that writes the watched tables has it by design, so it
+can also write bogus log entries. Unusable keys are skipped and counted (the doctor reports them), forged TRUNCATE entries queue at most one
+full rebuild per index, and none of it can read or change a search result; see [Sync](sync.md#one-trigger-per-table-one-change-log).
 
 ## The limits, stated honestly
 

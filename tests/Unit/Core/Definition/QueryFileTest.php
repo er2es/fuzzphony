@@ -65,7 +65,7 @@ final class QueryFileTest extends TestCase
             $this->build($path);
             self::fail('expected InvalidDefinition');
         } catch (InvalidDefinition $e) {
-            self::assertStringContainsString('outside the project directory', $e->getMessage());
+            self::assertStringContainsString('must be a readable file inside the project directory', $e->getMessage());
             self::assertStringContainsString($path, $e->getMessage());
         }
     }
@@ -73,7 +73,7 @@ final class QueryFileTest extends TestCase
     public function testAMissingFileIsNamed(): void
     {
         $this->expectException(InvalidDefinition::class);
-        $this->expectExceptionMessage('Query file "sql/nope.sql" does not exist or cannot be read');
+        $this->expectExceptionMessage('Query file "sql/nope.sql" cannot be used: it must be a readable file inside the project directory');
         $this->build('sql/nope.sql');
     }
 

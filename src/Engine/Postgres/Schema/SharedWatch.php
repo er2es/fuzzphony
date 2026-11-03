@@ -46,9 +46,10 @@ final readonly class SharedWatch
             ), 'Change log shared by all indexes: the keys of the rows that changed in a watched table'),
             new Statement(sprintf('CREATE INDEX IF NOT EXISTS %s ON %s (tbl, xid)', Sql::ident($this->names->watchLogIndexName()), $this->names->watchLog()), 'Change log by table and transaction'),
             new Statement(sprintf(
-                "CREATE TABLE IF NOT EXISTS %s (\n    index_name text NOT NULL,\n    watch_no integer NOT NULL,\n    tbl text NOT NULL,\n    fn text NOT NULL,\n    key_column text NOT NULL,\n    columns jsonb,\n    cur_xid bigint NOT NULL,\n    PRIMARY KEY (index_name, watch_no)\n)",
+                "CREATE TABLE IF NOT EXISTS %s (\n    index_name text NOT NULL,\n    watch_no integer NOT NULL,\n    tbl text NOT NULL,\n    fn text NOT NULL,\n    key_column text NOT NULL,\n    columns jsonb,\n    cur_xid bigint NOT NULL,\n    bad_rows bigint NOT NULL DEFAULT 0,\n    bad_at timestamptz,\n    PRIMARY KEY (index_name, watch_no)\n)",
                 $this->names->watches(),
-            ), 'Which index watches which table, and how far in the change log it has read'),
+            ), 'Which index watches which table, how far in the change log it has read, and how many log rows it could not apply'),
+            ...array_map(fn(array $c): Statement => new Statement(sprintf('DO %1$s BEGIN IF NOT EXISTS (SELECT 1 FROM pg_attribute WHERE attrelid = to_regclass(%2$s) AND attname = %3$s AND NOT attisdropped) THEN ALTER TABLE %4$s ADD COLUMN %6$s %5$s; END IF; END %1$s', self::TAG, Sql::string($this->names->watches()), Sql::string($c[0]), $this->names->watches(), $c[1], $c[0]), 'Count of log rows with an unusable key (skipped, never retried)'), [['bad_rows', 'bigint NOT NULL DEFAULT 0'], ['bad_at', 'timestamptz']]),
             new Statement(sprintf('CREATE INDEX IF NOT EXISTS %s ON %s (tbl)', Sql::ident($this->names->watchLogIndexName() . '_w'), $this->names->watches()), 'Watches by table'),
             new Statement($this->installFunction(), 'Builds (or removes) the shared trigger of a watched table from the watches'),
         ];
@@ -194,19 +195,40 @@ final readonly class SharedWatch
                 <<<'SQL'
                         SELECT cur_xid INTO v_lo FROM %1$s WHERE index_name = %2$s AND watch_no = %3$d FOR UPDATE SKIP LOCKED;
                         IF FOUND AND v_lo < v_hi THEN
-                            INSERT INTO %7$s (index_name, doc_id)
-                            SELECT DISTINCT %2$s, a.doc_id::text
-                              FROM %4$s AS r
-                              CROSS JOIN LATERAL jsonb_populate_record(NULL::%8$s, jsonb_build_object(%9$s, r.key)) AS k
-                              CROSS JOIN LATERAL (%10$s) AS a(doc_id)
-                             WHERE r.tbl = %11$s AND r.key_column = %9$s AND r.op <> 'T' AND r.xid >= v_lo AND r.xid < v_hi AND %12$s AND a.doc_id IS NOT NULL
-                            ON CONFLICT (index_name, doc_id) DO NOTHING;
-                            GET DIAGNOSTICS v_m = ROW_COUNT;
+                            v_bad := 0;
+                            -- the key of a log row is text that any role with INSERT on the log can write: when one does not cast to the key's type,
+                            -- the batch is retried key by key and the unusable keys are skipped and counted (they can never succeed, so never retried)
+                            BEGIN
+                                INSERT INTO %7$s (index_name, doc_id)
+                                SELECT DISTINCT %2$s, a.doc_id::text
+                                  FROM %4$s AS r
+                                  CROSS JOIN LATERAL jsonb_populate_record(NULL::%8$s, jsonb_build_object(%9$s, r.key)) AS k
+                                  CROSS JOIN LATERAL (%10$s) AS a(doc_id)
+                                 WHERE r.tbl = %11$s AND r.key_column = %9$s AND r.op <> 'T' AND r.xid >= v_lo AND r.xid < v_hi AND %12$s AND a.doc_id IS NOT NULL
+                                ON CONFLICT (index_name, doc_id) DO NOTHING;
+                                GET DIAGNOSTICS v_m = ROW_COUNT;
+                            EXCEPTION WHEN data_exception THEN
+                                v_m := 0;
+                                FOR v_key, v_cnt IN SELECT r.key, count(*) FROM %4$s AS r WHERE r.tbl = %11$s AND r.key_column = %9$s AND r.op <> 'T' AND r.xid >= v_lo AND r.xid < v_hi AND r.key IS NOT NULL AND %12$s GROUP BY r.key LOOP
+                                    BEGIN
+                                        INSERT INTO %7$s (index_name, doc_id)
+                                        SELECT DISTINCT %2$s, a.doc_id::text
+                                          FROM jsonb_populate_record(NULL::%8$s, jsonb_build_object(%9$s, v_key)) AS k
+                                          CROSS JOIN LATERAL (%10$s) AS a(doc_id)
+                                         WHERE a.doc_id IS NOT NULL
+                                        ON CONFLICT (index_name, doc_id) DO NOTHING;
+                                        GET DIAGNOSTICS v_m2 = ROW_COUNT;
+                                        v_m := v_m + v_m2;
+                                    EXCEPTION WHEN data_exception THEN
+                                        v_bad := v_bad + v_cnt;
+                                    END;
+                                END LOOP;
+                            END;
                             v_n := v_n + v_m;
                             IF EXISTS (SELECT 1 FROM %4$s WHERE %5$s) THEN
                     %6$s
                             END IF;
-                            UPDATE %1$s SET cur_xid = v_hi WHERE index_name = %2$s AND watch_no = %3$d;
+                            UPDATE %1$s SET cur_xid = v_hi, bad_rows = bad_rows + v_bad, bad_at = CASE WHEN v_bad > 0 THEN now() ELSE bad_at END WHERE index_name = %2$s AND watch_no = %3$d;
                             v_done := true;
                         END IF;
                     SQL,
@@ -236,7 +258,7 @@ final readonly class SharedWatch
         }
 
         return sprintf(
-            "CREATE OR REPLACE FUNCTION %1\$s() RETURNS integer\nLANGUAGE plpgsql SET search_path FROM CURRENT AS %2\$s\nDECLARE\n    v_hi bigint := pg_snapshot_xmin(pg_current_snapshot())::text::bigint;\n    v_lo bigint;\n    v_n integer := 0;\n    v_m integer;\n    v_done boolean := false;\nBEGIN\n%3\$s\n    IF v_done THEN\n        %4\$s\n    END IF;\n    RETURN v_n;\nEND\n%2\$s",
+            "CREATE OR REPLACE FUNCTION %1\$s() RETURNS integer\nLANGUAGE plpgsql SET search_path FROM CURRENT AS %2\$s\nDECLARE\n    v_hi bigint := pg_snapshot_xmin(pg_current_snapshot())::text::bigint;\n    v_lo bigint;\n    v_n integer := 0;\n    v_m integer;\n    v_m2 integer;\n    v_bad integer := 0;\n    v_cnt bigint;\n    v_key text;\n    v_done boolean := false;\nBEGIN\n%3\$s\n    IF v_done THEN\n        %4\$s\n    END IF;\n    RETURN v_n;\nEND\n%2\$s",
             $this->names->drainFunction($index),
             self::TAG,
             implode("\n", $body),
@@ -252,7 +274,11 @@ final readonly class SharedWatch
             CREATE OR REPLACE FUNCTION @FN@(p_tbl text, p_fn text) RETURNS void
             LANGUAGE plpgsql AS $fzi$
             DECLARE
-                v_fn text := format('%I.%I', @SCHEMA@::text, p_fn);
+                -- the name is derived from the table, never taken from the stored watches (a forged row must not point the cleanup at someone else's function)
+                v_base text := 'fuzzphony_watch__' || left(trim(both '_' from regexp_replace(p_tbl, '[^A-Za-z0-9_]+', '_', 'g')), 32) || '_' || substr(md5(p_tbl), 1, 8);
+                v_fn text := format('%I.%I', @SCHEMA@::text, v_base);
+                v_rel regclass := to_regclass(p_tbl);
+                v_rels text;
                 v_n integer;
                 v_keys text[];
                 v_cols text[];
@@ -267,13 +293,18 @@ final readonly class SharedWatch
                 SELECT count(*), coalesce(array_agg(DISTINCT w.key_column), '{}'), coalesce(bool_or(w.columns IS NULL), false)
                   INTO v_n, v_keys, v_any FROM @REG@ AS w WHERE w.tbl = p_tbl;
                 IF v_n = 0 THEN
-                    FOR r IN SELECT n.nspname, c.relname, g.tgname FROM pg_trigger AS g JOIN pg_class AS c ON c.oid = g.tgrelid JOIN pg_namespace AS n ON n.oid = c.relnamespace WHERE g.tgfoid = to_regprocedure(v_fn || '()') LOOP
+                    FOR r IN SELECT n.nspname, c.relname, g.tgname FROM pg_trigger AS g JOIN pg_class AS c ON c.oid = g.tgrelid JOIN pg_namespace AS n ON n.oid = c.relnamespace
+                              WHERE g.tgfoid = to_regprocedure(v_fn || '()') AND g.tgname IN (v_base || '__ins', v_base || '__upd', v_base || '__del', v_base || '__trn') LOOP
                         EXECUTE format('DROP TRIGGER %I ON %I.%I', r.tgname, r.nspname, r.relname);
                     END LOOP;
                     EXECUTE 'DROP FUNCTION IF EXISTS ' || v_fn || '()';
                     DELETE FROM @LOG@ WHERE tbl = p_tbl;
                     RETURN;
                 END IF;
+                IF v_rel IS NULL THEN
+                    RAISE EXCEPTION 'fuzzphony_watch_install: the watched table % does not exist', p_tbl;
+                END IF;
+                v_rels := v_rel::text;
                 SELECT coalesce(array_agg(DISTINCT x), '{}') INTO v_cols FROM @REG@ AS w, jsonb_array_elements_text(w.columns) AS x WHERE w.tbl = p_tbl AND w.columns IS NOT NULL;
                 FOREACH v_k IN ARRAY v_keys LOOP
                     v_ins := v_ins || format('INSERT INTO @LOG@ (tbl, xid, op, key_column, key) SELECT %L, v_x, ''I'', %L, r.%I::text FROM fz_new AS r; ', p_tbl, v_k, v_k);
@@ -302,17 +333,17 @@ final readonly class SharedWatch
                 RETURN NULL;
             END
             $fzb$$b$, v_fn, p_tbl, v_ins, v_del, v_upd);
-                EXECUTE format('CREATE OR REPLACE TRIGGER %I AFTER INSERT ON %s REFERENCING NEW TABLE AS fz_new FOR EACH STATEMENT EXECUTE FUNCTION %s()', p_fn || '__ins', p_tbl, v_fn);
-                EXECUTE format('CREATE OR REPLACE TRIGGER %I AFTER UPDATE ON %s REFERENCING OLD TABLE AS fz_old NEW TABLE AS fz_new FOR EACH STATEMENT EXECUTE FUNCTION %s()', p_fn || '__upd', p_tbl, v_fn);
-                EXECUTE format('CREATE OR REPLACE TRIGGER %I AFTER DELETE ON %s REFERENCING OLD TABLE AS fz_old FOR EACH STATEMENT EXECUTE FUNCTION %s()', p_fn || '__del', p_tbl, v_fn);
-                EXECUTE format('CREATE OR REPLACE TRIGGER %I AFTER TRUNCATE ON %s FOR EACH STATEMENT EXECUTE FUNCTION %s()', p_fn || '__trn', p_tbl, v_fn);
+                EXECUTE format('CREATE OR REPLACE TRIGGER %I AFTER INSERT ON %s REFERENCING NEW TABLE AS fz_new FOR EACH STATEMENT EXECUTE FUNCTION %s()', v_base || '__ins', v_rels, v_fn);
+                EXECUTE format('CREATE OR REPLACE TRIGGER %I AFTER UPDATE ON %s REFERENCING OLD TABLE AS fz_old NEW TABLE AS fz_new FOR EACH STATEMENT EXECUTE FUNCTION %s()', v_base || '__upd', v_rels, v_fn);
+                EXECUTE format('CREATE OR REPLACE TRIGGER %I AFTER DELETE ON %s REFERENCING OLD TABLE AS fz_old FOR EACH STATEMENT EXECUTE FUNCTION %s()', v_base || '__del', v_rels, v_fn);
+                EXECUTE format('CREATE OR REPLACE TRIGGER %I AFTER TRUNCATE ON %s FOR EACH STATEMENT EXECUTE FUNCTION %s()', v_base || '__trn', v_rels, v_fn);
                 -- truncating one partition fires only that partition's triggers
-                FOR r IN SELECT n.nspname, c.relname FROM pg_partition_tree(to_regclass(p_tbl)) AS t JOIN pg_class AS c ON c.oid = t.relid JOIN pg_namespace AS n ON n.oid = c.relnamespace WHERE t.level > 0 LOOP
-                    EXECUTE format('CREATE OR REPLACE TRIGGER %I AFTER TRUNCATE ON %I.%I FOR EACH STATEMENT EXECUTE FUNCTION %s()', p_fn || '__trn', r.nspname, r.relname, v_fn);
+                FOR r IN SELECT n.nspname, c.relname FROM pg_partition_tree(v_rel) AS t JOIN pg_class AS c ON c.oid = t.relid JOIN pg_namespace AS n ON n.oid = c.relnamespace WHERE t.level > 0 LOOP
+                    EXECUTE format('CREATE OR REPLACE TRIGGER %I AFTER TRUNCATE ON %I.%I FOR EACH STATEMENT EXECUTE FUNCTION %s()', v_base || '__trn', r.nspname, r.relname, v_fn);
                 END LOOP;
                 -- a detached partition keeps its TRUNCATE trigger
                 FOR r IN SELECT n.nspname, c.relname, g.tgname FROM pg_trigger AS g JOIN pg_class AS c ON c.oid = g.tgrelid JOIN pg_namespace AS n ON n.oid = c.relnamespace
-                          WHERE g.tgfoid = to_regprocedure(v_fn || '()') AND g.tgrelid IS DISTINCT FROM to_regclass(p_tbl) AND g.tgrelid NOT IN (SELECT t.relid FROM pg_partition_tree(to_regclass(p_tbl)) AS t) LOOP
+                          WHERE g.tgfoid = to_regprocedure(v_fn || '()') AND g.tgname = v_base || '__trn' AND g.tgrelid IS DISTINCT FROM v_rel AND g.tgrelid NOT IN (SELECT t.relid FROM pg_partition_tree(v_rel) AS t) LOOP
                     EXECUTE format('DROP TRIGGER %I ON %I.%I', r.tgname, r.nspname, r.relname);
                 END LOOP;
             END

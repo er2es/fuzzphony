@@ -14,7 +14,7 @@ and a link. Measurements, proofs and test names belong to the pull request, [doc
 ## [0.10.0] - 2026-11-03
 
 The breaking release, gathered in one round so that 0.11 and 1.0 do not have to change the API again. The engine is sturdier (a mandatory schema apply, one
-trigger set and one change log per watched table, a worker that isolates unreadable rows), the API is smaller and safer (76 public types, a search always runs
+trigger set and one change log per watched table, a worker that isolates unreadable rows), the API is smaller and safer (77 public types, a search always runs
 as someone, grouped thresholds, renamed methods) and a custom frontend gets what it needs (`toArray()`/JSON, `explainMatches()`, `logSearch()`, database roles).
 Start with the checklist in [UPGRADE](UPGRADE.md#from-0913-to-0100). The demo follows the new API and runs on Symfony UX 3.6.
 
@@ -25,7 +25,7 @@ Start with the checklist in [UPGRADE](UPGRADE.md#from-0913-to-0100). The demo fo
 - **`restrictedToFields()` only narrows;** `Hit::$kind` and a typed `Hit::$id` replace `FederatedHit` (`mergedScore` on the hit).
 - **Thresholds are four named groups** (`relevance`, `typo`, `rescue`, `limits`); the flat names fail with the new key in the message ([UPGRADE](UPGRADE.md#from-0913-to-0100)).
 - **`Fuzzphony::suggest()` is `complete()`, `useSuggestion` is `useDidYouMean`, `--suggest` is `--complete`** (no aliases).
-- **The public API is 76 types:** the engine contract, the wizard's parts, the registry and the container types are `@internal`; `Fuzzphony::postgres()`, `wizard()`,
+- **The public API is 77 types:** the engine contract, the wizard's parts, the registry and the container types are `@internal`; `Fuzzphony::postgres()`, `wizard()`,
   `resetCaches()` and the optional `Engine` interfaces folded into `Engine` and `Connection` ([Public API](docs/architecture.md#public-api)).
 - **`fuzzphony:schema --apply` is mandatory after the upgrade:** a missing `tsv_capped`, `actor_ip` or `rescued` column throws `SchemaNotApplied`; the no-column fallbacks are gone.
 - **Index objects are named `fuzzphony_<index>__<kind>`** (no collision between `products_open` and the open-class objects of `products`); the apply renames them online.
@@ -33,6 +33,11 @@ Start with the checklist in [UPGRADE](UPGRADE.md#from-0913-to-0100). The demo fo
   ([Sync](docs/sync.md#one-trigger-per-table-one-change-log)).
 - **A search inside your own transaction runs under one savepoint** (`fuzzphony_search`); the worker prints only the exception class and SQLSTATE of a failure.
 - **The wizard's YAML writes lists as sequences** and multi-line texts exactly.
+
+- **An actor with a tenant never searches another tenant.** A `forTenant()` naming a different tenant (also for the current user) throws `AccessDenied`, whatever the order of
+  `asActor()` and `forTenant()`; `asSystem()` is the way across ([UPGRADE](UPGRADE.md#from-0913-to-0100), [multi-tenancy](docs/multi-tenancy.md)).
+- **A `granted` field needs a guard that can restrict fields** (`FieldRestrictingGuard`, which the authorization guard is); a rate limit alone no longer satisfies `Fuzzphony::postgres()`.
+  The public API grows to 77 types.
 
 ### Added
 
@@ -53,6 +58,13 @@ Start with the checklist in [UPGRADE](UPGRADE.md#from-0913-to-0100). The demo fo
 
 ### Fixed
 
+- **The worker role can no longer make the admin drop an application's trigger or function:** it holds `UPDATE (cur_xid)` only on `fuzzphony_watches`, the install function derives
+  the trigger function from the table (a hash keeps `public.x` and `public_x` apart, they used to collide) and removes only its own triggers.
+- **A failed rebuild stores the class and SQLSTATE, not the driver message** (it carried source row values); the `fuzzphony:reindex` command prints summaries of wrapped database failures.
+- **A forged or buggy change-log row with an unusable key no longer stops the sync of every index:** it is skipped and counted, and the doctor reports it
+  ([sync](docs/sync.md#one-trigger-per-table-one-change-log)).
+- **`Fuzzphony::logSearch()` takes `forTenant:`** (`system: true` on a tenant-scoped index used to throw); `fuzzphony:search --complete` applies `--user`/`--tenant`; a missing query file and
+  one outside the project give the same message.
 - **`fuzzphony:schema --apply` no longer locks tables it does not change:** a column is added only when the catalog says it is missing (it took an `ACCESS EXCLUSIVE` lock on the sidecar,
   the meta table and the log on every apply).
 - **A typo-tolerant search that fails inside your transaction leaves it usable on PDO too** (as on DBAL).

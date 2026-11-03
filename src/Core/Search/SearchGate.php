@@ -84,21 +84,50 @@ final readonly class SearchGate
     /**
      * The query searched as this actor: a tenant-scoped index takes the actor's tenant (an integer tenant on a string tenant filter is
      * turned into its string; any other pairing is left as it is); an actor without a tenant leaves a tenant set before alone.
-     *
-     * @param bool $override false keeps a tenant the caller set with forTenant() (the ambient actor never replaces an explicit tenant)
+     * A tenant the caller named with forTenant() is never replaced: when it differs from the actor's, assertTenantAgrees() refuses
+     * the search (one rule for every entry point and every order of the calls). The tenant a previous actor brought is replaced.
      */
-    public static function withActor(IndexDefinition $index, SearchQuery $query, Actor $actor, bool $override = true): SearchQuery
+    public static function withActor(IndexDefinition $index, SearchQuery $query, Actor $actor): SearchQuery
     {
+        $previous = $query->actor;
         $query = $query->withActor($actor);
-        if ($index->tenant !== null && $actor->tenant !== null && ($override || $query->tenant === null)) {
-            $tenant = $actor->tenant;
-            if (is_int($tenant) && $index->filter($index->tenant)->type === FilterType::String) {
-                $tenant = (string) $tenant;
+        if ($index->tenant !== null && $actor->tenant !== null) {
+            $derived = $query->tenant === null || ($previous?->tenant !== null && self::sameTenant($query->tenant, self::actorTenant($index, $previous->tenant)));
+            if ($derived) {
+                $query = $query->forTenant(self::actorTenant($index, $actor->tenant));
             }
-            $query = $query->forTenant($tenant);
         }
 
         return $query;
+    }
+
+    /** The tenant of an actor in the type of the tenant filter (an integer on a string filter becomes its string). */
+    private static function actorTenant(IndexDefinition $index, mixed $tenant): mixed
+    {
+        return is_int($tenant) && $index->tenant !== null && $index->filter($index->tenant)->type === FilterType::String ? (string) $tenant : $tenant;
+    }
+
+    private static function sameTenant(mixed $a, mixed $b): bool
+    {
+        if ((is_scalar($a) || $a instanceof \Stringable) && (is_scalar($b) || $b instanceof \Stringable)) {
+            return (string) $a === (string) $b;
+        }
+
+        return $a === $b;
+    }
+
+    /**
+     * An actor with a tenant never searches another tenant: a tenant named with forTenant() that differs from the actor's refuses the search
+     * (asSystem() is the explicit way to cross tenants). The refusal names no tenant.
+     *
+     * @throws AccessDenied
+     */
+    public static function assertTenantAgrees(IndexDefinition $index, SearchQuery $query): void
+    {
+        $actor = $query->system ? null : $query->actor;
+        if ($index->tenant !== null && $actor?->tenant !== null && $query->tenant !== null && !self::sameTenant($query->tenant, self::actorTenant($index, $actor->tenant))) {
+            throw AccessDenied::tenantMismatch($index->name);
+        }
     }
 
     /**
@@ -194,10 +223,11 @@ final readonly class SearchGate
             if ($query->system) {
                 $this->assertSystemAllowed($index);
             } elseif ($query->actor === null && ($ambient = $this->ambientActor()) !== null) {
-                $query = self::withActor($index, $query, $ambient, false);
+                $query = self::withActor($index, $query, $ambient);
             }
             $asked = $query; // a refusal is recorded with the actor that was asked
             self::assertActorHasTenant($index, $query);
+            self::assertTenantAgrees($index, $query);
             // a system search runs no guard; any other search does, as the ambient actor when the caller named none
             if ($query->actor !== null && $this->guards !== []) {
                 $access = $this->access($index, $query->actor, $charge);
@@ -229,7 +259,7 @@ final readonly class SearchGate
         $text = mb_substr($typed ?? $query->text, 0, self::MAX_REDACTED_INPUT);
         $text = $this->redactor?->redact($text) ?? $text;
 
-        return new SearchRecord(new \DateTimeImmutable(), $index->name, self::tenantOf($query), $query->system ? self::SYSTEM_USER : $query->actor?->user, mb_substr($text, 0, 255), $hits, $tookMs, $usedFuzzy, $status, $this->ipMode->apply($query->actor?->ip), $rescued);
+        return new SearchRecord(new \DateTimeImmutable(), $index->name, self::tenantOf($index, $query), $query->system ? self::SYSTEM_USER : $query->actor?->user, mb_substr($text, 0, 255), $hits, $tookMs, $usedFuzzy, $status, $this->ipMode->apply($query->actor?->ip), $rescued);
     }
 
     /**
@@ -238,6 +268,7 @@ final readonly class SearchGate
      *
      * @throws InvalidArgument when the index is not logged or the search log is off
      * @throws ActorRequired   on a tenant-scoped index without a tenant
+     * @throws AccessDenied    asSystem() while it is switched off, or a tenant that is not the actor's
      */
     public function logSearch(IndexDefinition $index, SearchQuery $query, int $hits, float $tookMs, bool $usedFuzzy, bool $rescued): LoggedSearch
     {
@@ -250,8 +281,9 @@ final readonly class SearchGate
         if ($query->system) {
             $this->assertSystemAllowed($index);
         } elseif ($query->actor === null && ($ambient = $this->ambientActor()) !== null) {
-            $query = self::withActor($index, $query, $ambient, false);
+            $query = self::withActor($index, $query, $ambient);
         }
+        self::assertTenantAgrees($index, $query);
         if ($index->tenant !== null && $query->tenant === null) {
             throw ActorRequired::forIndex($index->name); // a tenant must be known, with or without an actor
         }
@@ -289,9 +321,12 @@ final readonly class SearchGate
      * The tenant the search ran for, in the shape the log stores: the effective one of the query, else (an index
      * without tenant scoping) the tenant of the actor who asked.
      */
-    private static function tenantOf(SearchQuery $query): int|string|null
+    private static function tenantOf(IndexDefinition $index, SearchQuery $query): int|string|null
     {
         $tenant = $query->tenant ?? $query->actor?->tenant;
+        if (!$query->system && $index->tenant !== null && $query->actor?->tenant !== null && !self::sameTenant($tenant, self::actorTenant($index, $query->actor->tenant))) {
+            $tenant = $query->actor->tenant; // a refused crossing is recorded under the actor's own tenant, never the one it asked for
+        }
 
         return match (true) {
             $tenant === null, is_int($tenant), is_string($tenant) => $tenant,

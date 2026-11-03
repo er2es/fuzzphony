@@ -128,7 +128,7 @@ final class SchemaGeneratorTest extends TestCase
 
         self::assertStringNotContainsString('CREATE OR REPLACE TRIGGER "fuzzphony_sync_', $sql, 'no trigger of its own');
         self::assertStringContainsString('PERFORM "public"."fuzzphony_watch_install"(r.tbl, r.fn)', $sql);
-        self::assertStringContainsString("'\"fz_brand\"', 'fuzzphony_watch__fz_brand', 'id', NULL::jsonb", $sql, 'the unfiltered watch of the joined table');
+        self::assertStringContainsString("'\"fz_brand\"', 'fuzzphony_watch__fz_brand_e21f3cf4', 'id', NULL::jsonb", $sql, 'the unfiltered watch of the joined table');
         self::assertStringContainsString('CROSS JOIN LATERAL (SELECT id FROM fz_product WHERE brand_id = k."id") AS a(doc_id)', $sql, 'the watch query maps a logged key to documents when the index drains');
         self::assertStringContainsString('DROP TRIGGER IF EXISTS "fuzzphony_sync_products__fz_brand_upd" ON "fz_brand"', $sql, 'the per-index triggers of an earlier release go');
         self::assertStringContainsString('DROP FUNCTION IF EXISTS "public"."fuzzphony_sync_products__fz_brand"()', $sql);

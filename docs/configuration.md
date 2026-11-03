@@ -108,7 +108,7 @@ Each index has its own sidecar table, triggers and queue rows, so indexes can sh
 ```
 
 - `customer` is now watched by `people`, `companies` and `invoices`. With `queue` sync (the default) `fuzzphony:schema --apply` puts
-  ONE set of four triggers on the table (`fuzzphony_watch__customer__ins|upd|del|trn`) and the three indexes read the one change log
+  ONE set of four triggers on the table (`fuzzphony_watch__customer_03195256__ins|upd|del|trn`) and the three indexes read the one change log
   through their own positions, so one `UPDATE` of a customer writes one log row per changed customer and each index turns it into its
   queue rows with its own watch query when its worker runs ([Sync](sync.md#one-trigger-per-table-one-change-log)). Applying it twice
   changes nothing. With `sync: trigger` (or `trigger_level: row`) each index keeps four triggers of its own on the table

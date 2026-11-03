@@ -174,7 +174,14 @@ final class AmbientActorTest extends TestCase
         $this->thereIsAnApplication = true;
         self::assertSame([3], $fz->in('amb_tenant')->query('desk')->get()->ids(), 'the tenant of the current user scopes the search');
         self::assertSame([], $fz->in('amb_tenant')->query('notebook')->get()->ids(), 'and another tenant\'s document is not found');
-        self::assertSame([1], $fz->in('amb_tenant')->query('notebook')->forTenant(1)->get()->ids(), 'an explicit forTenant() is kept');
+        $crossing = static fn() => $fz->in('amb_tenant')->query('notebook')->forTenant(1)->get();
+        try {
+            $crossing();
+            self::fail('the ambient user (tenant 2) searched tenant 1');
+        } catch (\Fuzzphony\Core\Exception\AccessDenied) {
+            self::addToAssertionCount(1);
+        }
+        self::assertSame([3], $fz->in('amb_tenant')->query('desk')->forTenant(2)->get()->ids(), 'the actor\'s own tenant named explicitly is fine');
         self::assertSame([3], $fz->in('amb_tenant')->query('desk')->asSystem()->forTenant(2)->get()->ids());
     }
 
@@ -237,7 +244,7 @@ final class AmbientActorTest extends TestCase
 
     public function testGuardsWithoutAResolverMakeAnUnnamedSearchAnonymous(): void
     {
-        $guard = new class implements SearchGuard {
+        $guard = new class implements \Fuzzphony\Core\Search\FieldRestrictingGuard {
             public function check(IndexDefinition $index, Actor $actor, bool $charge = true): Access
             {
                 return Access::only(['title']);
@@ -255,5 +262,19 @@ final class AmbientActorTest extends TestCase
         $this->expectException(InvalidDefinition::class);
         $this->expectExceptionMessage('no guard');
         Fuzzphony::postgres($this->connection, [$index]);
+    }
+
+    public function testAGrantedFieldWithOnlyAGuardThatCannotRestrictFieldsDoesNotBuild(): void
+    {
+        $rateLimitOnly = new class implements SearchGuard {
+            public function check(IndexDefinition $index, Actor $actor, bool $charge = true): Access
+            {
+                return Access::all();
+            }
+        };
+        $index = IndexDefinition::builder('amb_docs')->fromQuery('SELECT id, title, secret FROM fz_amb_doc')->field('title', 'A')->field('secret', 'C', granted: 'ROLE_BOSS')->sync('manual')->build();
+        $this->expectException(InvalidDefinition::class);
+        $this->expectExceptionMessage('no guard can restrict fields');
+        Fuzzphony::postgres($this->connection, [$index], guards: [$rateLimitOnly]);
     }
 }

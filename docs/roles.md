@@ -28,7 +28,7 @@ Fuzzphony supports that with **three roles** and prints the exact `GRANT` statem
 | vocabulary table (fuzzy indexes) | S | S I U D | owner | "did you mean" reads it |
 | `fuzzphony_queue` | - | S I U D | owner | the drain fills it, the batch takes from it and records failures |
 | `fuzzphony_watch_log` | I | S **U** D | owner | the shared trigger appends as the role that writes a watched table; the worker's `DELETE ... FOR UPDATE SKIP LOCKED` needs `UPDATE` too |
-| `fuzzphony_watches` | - | S U | owner | each index's position in the log |
+| `fuzzphony_watches` | - | S, U on `cur_xid` only | owner | each index's position in the log; the worker cannot rewrite which table an index watches (the admin trusts those names) |
 | `fuzzphony_meta` | - | S U | owner | the worker records a failed rebuild; the reindex records its run |
 | `fuzzphony_search_log` (when enabled) | I | - | owner | searches write it; the analytics and purge commands run as the admin |
 | the source tables of an index | (the application's own rights) | S | S, `TRIGGER` | the worker runs the watch queries and rebuilds; the admin reindexes and creates the triggers |
@@ -96,6 +96,12 @@ Without the setting nothing changes: everything runs as the Symfony user. A name
 and the message lists the connections there are (checked when DoctrineBundle's configuration lists them). Doctrine Migrations: run
 `fuzzphony:schema --dump-migration` migrations as the admin user too.
 
+## The worker role must see every row
+
+The worker drains the log by asking the source tables (the watch queries and, after a `TRUNCATE`, "is the table empty?") as itself. If a watched table has
+**row-level security** that hides rows from the worker role, the worker sees an incomplete table: an apparently empty table makes it empty the index
+(the TRUNCATE branch). Give the worker role a policy that shows all rows (or `BYPASSRLS`), as the admin role that reindexes needs too.
+
 ## The doctor checks the privileges
 
 `fuzzphony:doctor` has a **Privileges** check per index. It asks the catalog (`has_table_privilege`, `has_schema_privilege`,
@@ -110,6 +116,9 @@ missing with the fix:
 - It checks **search** (the user of `connection`) and **worker** (the user of `connections.worker`, or the same user) always; the worker only for an index
   with `sync: queue`. It checks **admin** only when `connections.admin` is a user of its own: an admin that is the application user is not asked for DDL
   (the demo runs this way and applies the schema elsewhere).
+- It checks **sufficiency, not minimality**: a role that holds MORE than the matrix (a worker with DDL, a search role with `UPDATE` on the queue) is
+  not reported. The other direction is proved by the negative tests that run each role with exactly the `--dump-grants` statements and expect everything
+  else to be refused (`tests/Integration/RoleGrantsTest.php`); review the grants of the roles you created by hand.
 - An owner or a superuser is never reported (the catalog answers yes), so an install that runs everything as the owner sees `Privileges: ok`.
 - A missing privilege that makes the search or the worker fail is an **error**; the check also shows in the Prometheus format as
   `fuzzphony_doctor_check{check="Privileges"}`.
