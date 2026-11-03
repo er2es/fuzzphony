@@ -242,6 +242,11 @@ final class ManyValuesTest extends TestCase
 
         $hit = $f->in('customers')->query('debrecen')->highlight('city')->get()->hits[0];
         self::assertStringContainsString('Debrecen', implode(' ', $hit->highlights));
-        self::assertStringContainsString('<mark>Debrecen</mark>', implode(' ', $hit->highlights));
+        self::assertSame('<mark>Debrecen</mark>', $hit->highlights['city'] ?? null, 'only the value that matches, not all of them');
+
+        $two = $f->in('customers')->query('vienna')->highlight('city')->get()->hits[0];
+        self::assertSame('<mark>Vienna</mark>', $two->highlights['city'] ?? null);
+        $typo = $f->in('customers')->query('szged')->highlight('city')->get()->hits[0];
+        self::assertStringContainsString('Szeged', $typo->highlights['city'] ?? '');
     }
 }

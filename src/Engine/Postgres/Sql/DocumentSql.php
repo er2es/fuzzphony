@@ -21,15 +21,17 @@ final class DocumentSql
      * @param string|null $ids SQL of a text[] with stored keys: a multi-source index pushes each kind's part down into its own
      *                         branch (`WHERE id = ANY(...)` on the source's key), so a lookup by ids never scans another source.
      *                         Ignored for a single-source index (the caller filters `fz_id` itself, as before).
+     * @param array<string, \Closure(string): string> $text for a many field: the SQL that replaces its joined text, given the SQL of the
+     *                                                    source row's id (the highlight reads the best matching value instead)
      */
-    public static function select(IndexDefinition $index, ?string $ids = null): string
+    public static function select(IndexDefinition $index, ?string $ids = null, array $text = []): string
     {
         if ($index->isMultiSource()) {
             return self::multi($index, $ids);
         }
         $columns = ['d.' . Sql::ident($index->source->idColumn) . ' AS fz_id'];
         foreach ($index->fields as $field) {
-            $columns[] = ($field->many !== null ? self::manyText($index, $field->many) : 'd.' . Sql::ident($field->column())) . ' AS ' . Sql::ident('fld_' . $field->name);
+            $columns[] = ($field->many !== null ? (isset($text[$field->name]) ? $text[$field->name]('d.' . Sql::ident($index->source->idColumn)) : self::manyText($index, $field->many)) : 'd.' . Sql::ident($field->column())) . ' AS ' . Sql::ident('fld_' . $field->name);
         }
         foreach ($index->filters as $filter) {
             $columns[] = ($filter->many !== null ? self::manyArray($index, $filter->many) : 'd.' . Sql::ident($filter->column())) . ' AS ' . Sql::ident('flt_' . $filter->name);
@@ -121,7 +123,7 @@ UNION ALL
     }
 
     /** A many field's text: its values in order, one space between them. */
-    private static function manyText(IndexDefinition $index, ManyValues $many): string
+    public static function manyText(IndexDefinition $index, ManyValues $many): string
     {
         return sprintf("(SELECT string_agg(m.v, ' ' ORDER BY m.v, m.pk) FROM (%s) AS m)", self::manyRows($index, $many));
     }
