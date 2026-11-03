@@ -309,6 +309,13 @@ other settings (`fields`, `filters`, `language`, `boost`, `recency`, `profiles`,
 apply to every source. Results, filters, facets, highlights, did-you-mean, restricted viewers (`granted` fields) and tenants behave as for a
 single source; a tenant filter column must come from every source.
 
+Loading the entities of mixed hits (one query per class, rank order kept):
+
+```php
+foreach ($entityLoader->loadHits($fuzzphony->in('site')->query('mouse')->get()) as $entity) {   // Product, Article, ...
+}
+```
+
 How it is stored: [Multi-source indexes: how it is stored](architecture.md#multi-source-indexes-how-it-is-stored). To refresh one document
 by hand, give its key: `$fuzzphony->refresh('site', ['product:5'])`. To rebuild one source only, `fuzzphony:reindex site --source=article`
 ([commands](commands.md#commands)). Limits: [limitations](limitations.md#several-sources-in-one-index).

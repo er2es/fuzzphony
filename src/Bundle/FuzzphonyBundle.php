@@ -528,7 +528,7 @@ final class FuzzphonyBundle extends AbstractBundle
             $services->set('fuzzphony.discovery', DoctrineIndexDiscovery::class)
                 ->args([service('doctrine.orm.entity_manager')]);
             $services->set('fuzzphony.entity_loader', EntityLoader::class)
-                ->args([service('doctrine.orm.entity_manager')]);
+                ->args([service('doctrine.orm.entity_manager'), service('fuzzphony')]);
             $services->alias(EntityLoader::class, 'fuzzphony.entity_loader')->public();
         }
 

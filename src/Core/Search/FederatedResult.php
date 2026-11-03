@@ -7,7 +7,7 @@ namespace Fuzzphony\Core\Search;
 use Fuzzphony\Core\Ranking\Thresholds;
 
 /**
- * The merged result of a federated search: its hits are plain Hits (`kind` is the index each comes from, `mergedScore` the fusion score).
+ * The merged result of a federated search: its hits are plain Hits (`index` is the index each comes from, `mergedScore` the fusion score).
  *
  * @implements \IteratorAggregate<int, Hit>
  */

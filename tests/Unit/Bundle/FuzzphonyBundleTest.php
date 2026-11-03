@@ -119,6 +119,7 @@ final class FuzzphonyBundleTest extends TestCase
         $container->compile();
         $container->set('doctrine.dbal.default_connection', self::createStub(DbalConnection::class));
         $container->set('doctrine.orm.entity_manager', self::createStub(EntityManagerInterface::class));
+        $container->set('logger', self::createStub(\Psr\Log\LoggerInterface::class));
         self::assertInstanceOf(EntityLoader::class, $container->get(EntityLoader::class));
     }
 
@@ -487,7 +488,7 @@ final class FuzzphonyBundleTest extends TestCase
         $connection = new Reference('fuzzphony.connection');
 
         self::assertEquals([new Reference('doctrine.orm.entity_manager')], $container->getDefinition('fuzzphony.discovery')->getArguments());
-        self::assertEquals([new Reference('doctrine.orm.entity_manager')], $container->getDefinition('fuzzphony.entity_loader')->getArguments());
+        self::assertEquals([new Reference('doctrine.orm.entity_manager'), $fuzzphony], $container->getDefinition('fuzzphony.entity_loader')->getArguments());
         self::assertEquals([new Reference('fuzzphony.engine')], $container->getDefinition('fuzzphony.refresh_dispatcher')->getArguments());
         self::assertEquals([$fuzzphony, 'q', 'default', 500, new Reference('fuzzphony.actor_resolver')], $container->getDefinition(FuzzphonySearchFilter::class)->getArguments());
         self::assertEquals([$fuzzphony, new Reference('fuzzphony.actor_resolver')], $container->getDefinition(SearchComponent::class)->getArguments());
