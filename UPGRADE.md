@@ -16,6 +16,7 @@ and the [CHANGELOG](CHANGELOG.md) has the full list of changes.
   `--fail-on=warning` (like `--strict`) fails a CI step on it. Nothing to apply; expect new warnings on indexes with an unwatched join ([Sync](docs/sync.md#the-doctor-finds-the-tables-you-forgot-to-watch)).
 - **New metrics:** the worker gauges `fuzzphony.watch_log.entries`, `fuzzphony.watch_log.oldest_age_seconds`, `fuzzphony.watch.bad_rows`, `fuzzphony.queue.failing_items`, `fuzzphony.queue.oldest_age_seconds`
   (label `index`), and for multi-source indexes `fuzzphony.reindex.documents` and `fuzzphony.worker.source_rebuild_failures` (labels `index`, `source`); existing metrics keep their labels ([Observability](docs/observability.md)).
+- **Federated `atLeast` floor:** `->index('articles', atLeast: 3)` keeps at least that many of the index's best hits on the first page; `weight` now also refuses `NAN` and `INF` ([Federated search](docs/searching.md#federated-search)).
 - **`FuzzphonySearchFilter`** has an `index` argument (default: the index of the resource's entity).
 - `Fuzzphony::postgres()` also accepts the class names of definition classes next to `IndexDefinition` objects.
 

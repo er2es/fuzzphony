@@ -205,7 +205,8 @@ final readonly class FederatedSearch
         foreach ($floor as $order => $wanted) {
             for ($rank = $count[$order]; $rank < $wanted; ++$rank) {
                 $promoted = array_find($candidates, static fn(array $c): bool => $c['order'] === $order && $c['rank'] === $rank);
-                for ($victim = count($first) - 1; $victim >= 0; --$victim) {
+                $victim = count($first) - 1;
+                for (; $victim >= 0; --$victim) {
                     if ($count[$first[$victim]['order']] > $floor[$first[$victim]['order']]) {
                         break;
                     }

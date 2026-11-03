@@ -537,6 +537,16 @@ $result->results['products']->total;   // each index's own SearchResult (facets,
   moves an index up (below 1.0 down). Ties go to the index added first. `$hit->mergedScore` is that
   fusion score (it is null in a single-index search); `$hit->score` is still the index's own score. The hits are plain `Hit`s: `kind`
   is the index each comes from.
+- **Weights** (`weight`, finite and above 0, default 1.0) scale the fusion score. Worked example: `products` has hits
+  `P1 P2 P3`, `articles` has `A1 A2 A3`. With equal weights the merged order is `P1 A1 P2 A2 P3 A3`; with
+  `->index('products', weight: 2.0)` every product (`2 / 63` at worst) outranks every article (`1 / 61` at best), so it is
+  `P1 P2 P3 A1 A2 A3`; with `weight: 0.5` it is `A1 A2 A3 P1 P2 P3`.
+- **Floors** (`->index('articles', atLeast: 3)`) guarantee that a heavy index cannot crowd out another: if the index has hits, the
+  page holds at least `min(atLeast, its hits)` of its best ones, even when the fusion would rank them lower. They replace the
+  lowest-scored hits of indexes that stay at or above their own floor; the page keeps the merged order. Floors that add up to more
+  than `limit` throw `InvalidQuery`. **Paging:** the floors shape the first `limit` hits of the list; the hits they push out follow
+  in merged order, and the next pages continue after them, so with the same `limit` no hit is shown twice or lost. Use the same
+  `limit` for every page of one search.
 - Each index is searched on its own, so its filters, tenant, thresholds, ranking profile and highlights
   are what the `configure` closure says (a tenant-scoped index needs `forTenant()` there, as always).
 - **Deep pages cost more:** page N reads the first `offset + limit` hits of every index and merges them,
@@ -547,6 +557,15 @@ $result->results['products']->total;   // each index's own SearchResult (facets,
   uses `search()`.
 - `unlogged()` keeps every per-index search out of the [search log](analytics.md#keeping-a-search-out-of-the-log)
   (a refusal is still recorded).
+- A [multi-source index](configuration.md#several-sources-in-one-index) can be one of the indexes: its hits carry `index` and `kind`.
+
+**Federated search or a multi-source index?**
+
+| | Federated search | Multi-source index |
+|---|---|---|
+| Ranking | each index ranks with its own statistics, merged by rank (weights, floors) | one ranking over all sources |
+| Per-part setup | filters, tenant, thresholds, profile per index | one configuration |
+| Use when | the parts differ (own tenant, fields, viewers) or already exist as indexes | the parts are one kind of thing to rank together |
 
 ## Empty-result relaxation
 
