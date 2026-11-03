@@ -66,9 +66,10 @@ final class SchemaCommandOutputTest extends TestCase
         self::assertIsString($contents);
         self::assertStringContainsString('namespace App\\Migrations;', $contents);
         self::assertStringContainsString(sprintf('final class %s extends AbstractMigration', $class), $contents);
+        // SymfonyStyle::success() word-wraps its block at the terminal width and may break inside the long path: compare without whitespace
         self::assertStringContainsString(
-            sprintf('Migration written to %s (non-transactional, because indexes are built concurrently).', $files[0]),
-            preg_replace('/\s+/', ' ', $display) ?? '',
+            (string) preg_replace('/\s+/', '', sprintf('Migration written to %s (non-transactional, because indexes are built concurrently).', $files[0])),
+            (string) preg_replace('/\s+/', '', $display),
         );
         self::assertStringNotContainsString('Nothing was executed', $display, 'the SQL is neither printed nor hinted at');
         self::assertStringNotContainsString('CREATE', $display);
