@@ -36,6 +36,19 @@ Triggers also watch joined tables, so renaming a brand reindexes its products:
 ->watch('brand', 'SELECT id FROM product WHERE brand_id = :id')
 ```
 
+### The doctor finds the tables you forgot to watch
+
+A joined table nobody watches is the quiet way to go stale: the index stays healthy, only its documents are old. `fuzzphony:doctor` lists the tables the source query reads
+(from PostgreSQL's dependency catalog, not by parsing your SQL; a view is followed down to its tables) and warns about each one that has no watch:
+
+```
+! Watches   the source query reads "address" but no watch covers it: a change there does not update the index.
+Fix for "Watches": add a watch (adapt the ids query: ...): watch: { address: 'SELECT id FROM customer WHERE <fk> = :id' }   or set sync: manual
+```
+
+The ids query is a template: Fuzzphony does not guess the join condition. A watched partitioned parent covers its partitions, `sync: manual` is not checked, and when the
+check cannot run it says `not checked: <reason>` instead of failing. `bin/console fuzzphony:doctor --fail-on=warning` fails a pipeline on it.
+
 ## Statement-level triggers
 
 Triggers are statement-level by default. They read PostgreSQL transition tables, so

@@ -494,7 +494,7 @@ final class FuzzphonyBundleTest extends TestCase
         self::assertEquals([$fuzzphony, new Reference('fuzzphony.actor_resolver')], $container->getDefinition(SearchComponent::class)->getArguments());
         self::assertEquals([new Reference('fuzzphony.refresh_dispatcher'), new Reference('fuzzphony.registry')], $container->getDefinition('fuzzphony.orm_sync_listener')->getArguments());
         self::assertEquals([$fuzzphony, $connection], array_slice($container->getDefinition(SchemaCommand::class)->getArguments(), 0, 2));
-        self::assertEquals([$fuzzphony], $container->getDefinition(ReindexCommand::class)->getArguments());
+        self::assertEquals([$fuzzphony, new Reference('fuzzphony.metrics')], $container->getDefinition(ReindexCommand::class)->getArguments());
         self::assertEquals([new Reference('fuzzphony.operator')], $container->getDefinition(SearchCommand::class)->getArguments());
         self::assertEquals(
             [new Reference('fuzzphony.introspector'), new Reference('fuzzphony.engine'), $connection],

@@ -88,6 +88,31 @@ final class DoctorCommandReportTest extends TestCase
 
     /** @param list<Check> $checks */
     #[DataProvider('outcomes')]
+    public function testFailOnWarningIsTheLongFormOfStrict(array $checks, bool $strict, string $message, int $exit): void
+    {
+        $tester = $this->tester($checks);
+
+        $status = $tester->execute($strict ? ['--fail-on' => 'warning'] : ['--fail-on' => 'error'], ['interactive' => false]);
+
+        self::assertSame($exit, $status, $tester->getDisplay(true));
+    }
+
+    public function testFailOnWarningAlsoGovernsThePrometheusSnapshot(): void
+    {
+        self::assertSame(Command::FAILURE, $this->tester([Check::warning('A', 'x')])->execute(['--format' => 'prometheus', '--fail-on' => 'warning']));
+        self::assertSame(Command::SUCCESS, $this->tester([Check::warning('A', 'x')])->execute(['--format' => 'prometheus']));
+    }
+
+    public function testFailOnTakesErrorOrWarningOnly(): void
+    {
+        $tester = $this->tester([Check::ok('A', 'x')]);
+
+        self::assertSame(Command::INVALID, $tester->execute(['--fail-on' => 'notice']));
+        self::assertStringContainsString('--fail-on must be "error" or "warning"', $tester->getDisplay(true));
+    }
+
+    /** @param list<Check> $checks */
+    #[DataProvider('outcomes')]
     public function testThePrometheusSnapshotExitsLikeTheTextReport(array $checks, bool $strict, string $message, int $exit): void
     {
         $tester = $this->tester($checks);

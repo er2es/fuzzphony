@@ -131,6 +131,47 @@
           "instant": true
         }
       ]
+    },
+    {
+      "id": 9,
+      "title": "Change log: undrained entries and oldest age (s)",
+      "type": "timeseries",
+      "gridPos": {"h": 8, "w": 12, "x": 0, "y": 32},
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "fuzzphony_watch_log_entries",
+          "legendFormat": "{{index}} entries"
+        },
+        {
+          "refId": "B",
+          "expr": "fuzzphony_watch_log_oldest_age_seconds",
+          "legendFormat": "{{index}} oldest age"
+        }
+      ]
+    },
+    {
+      "id": 10,
+      "title": "Quarantined log rows, failing queue items, oldest queue item (s)",
+      "type": "timeseries",
+      "gridPos": {"h": 8, "w": 12, "x": 12, "y": 32},
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "fuzzphony_watch_bad_rows",
+          "legendFormat": "{{index}} bad rows"
+        },
+        {
+          "refId": "B",
+          "expr": "fuzzphony_queue_failing_items",
+          "legendFormat": "{{index}} failing"
+        },
+        {
+          "refId": "C",
+          "expr": "fuzzphony_queue_oldest_age_seconds",
+          "legendFormat": "{{index}} oldest"
+        }
+      ]
     }
   ]
 }

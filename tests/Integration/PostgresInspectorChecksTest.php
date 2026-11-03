@@ -97,6 +97,7 @@ final class PostgresInspectorChecksTest extends TestCase
                 ['Filter brand_id', CheckStatus::Ok, 'brand_id (bigint)', null],
                 ['Boost column', CheckStatus::Ok, 'popularity (real)', null],
                 ['Recency column', CheckStatus::Ok, 'published_at (timestamp with time zone)', null],
+                ['Watches', CheckStatus::Ok, '2 table(s) read by the source, all watched', null],
                 ['Sidecar columns', CheckStatus::Ok, '17 column(s) match the definition', null],
                 ['Index fuzzphony_products__tsv', CheckStatus::Ok, 'valid', null],
                 ['Index fuzzphony_products__fz', CheckStatus::Ok, 'valid', null],
@@ -116,7 +117,7 @@ final class PostgresInspectorChecksTest extends TestCase
                 ['Vocabulary', CheckStatus::Ok, '12 words', null],
                 ['Configuration', CheckStatus::Ok, 'fuzzy=fallback, similarity=by word length, min_score=0.00, candidates=2000', null],
             ],
-            array_slice($actual, 0, 32),
+            array_slice($actual, 0, 33),
         );
         $deep = self::byName($fuzzphony, 'products', new InspectOptions(deep: true));
         self::assertSame('5 of 5 documents indexed (100.0%, exact)', $deep['Coverage']->message);

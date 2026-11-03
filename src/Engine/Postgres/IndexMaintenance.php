@@ -356,6 +356,52 @@ final readonly class IndexMaintenance
         )) + $this->pendingChanges($index), 'Run "fuzzphony:schema --apply" to create the queue table.');
     }
 
+    /**
+     * The gauges of `OperationalStats`: one statement each, on the small queue, watches and change-log tables (the queue by its
+     * (index_name, queued_at) index, the log by the entries past the index's cursor). A statement that fails (a table or column of an
+     * older schema) leaves its gauges out; the worker never stops over a metric.
+     *
+     * @return array<string, float>
+     */
+    public function operationalStats(IndexDefinition $index): array
+    {
+        $stats = [];
+        try {
+            $row = $this->connection->fetchAll(
+                sprintf("SELECT count(*) FILTER (WHERE attempts > 0 AND doc_id <> '*') AS failing, coalesce(extract(epoch FROM now() - min(queued_at)), 0)::bigint AS oldest FROM %s WHERE index_name = :index", $this->names->queue()),
+                ['index' => $index->name],
+            )[0] ?? null;
+            if ($row !== null) {
+                $stats['fuzzphony.queue.failing_items'] = (float) Coerce::int($row['failing']);
+                $stats['fuzzphony.queue.oldest_age_seconds'] = (float) Coerce::int($row['oldest']);
+            }
+        } catch (\Throwable) {
+        }
+        if (!SharedWatch::applies($index)) {
+            return $stats;
+        }
+        try {
+            $row = $this->connection->fetchAll(
+                sprintf('SELECT count(l.tbl) AS entries, coalesce(extract(epoch FROM now() - min(l.at)), 0)::bigint AS oldest FROM %s AS w LEFT JOIN %s AS l ON l.tbl = w.tbl AND l.xid >= w.cur_xid WHERE w.index_name = :index', $this->names->watches(), $this->names->watchLog()),
+                ['index' => $index->name],
+            )[0] ?? null;
+            if ($row !== null) {
+                $stats['fuzzphony.watch_log.entries'] = (float) Coerce::int($row['entries']);
+                $stats['fuzzphony.watch_log.oldest_age_seconds'] = (float) Coerce::int($row['oldest']);
+            }
+        } catch (\Throwable) {
+        }
+        try {
+            $stats['fuzzphony.watch.bad_rows'] = (float) Coerce::int($this->connection->fetchValue(
+                sprintf('SELECT coalesce(sum(bad_rows), 0)::bigint FROM %s WHERE index_name = :index', $this->names->watches()),
+                ['index' => $index->name],
+            ));
+        } catch (\Throwable) {
+        }
+
+        return $stats;
+    }
+
     /** The entries of the shared log the index has not drained yet (they become queue rows at its next drain). */
     public function pendingChanges(IndexDefinition $index): int
     {

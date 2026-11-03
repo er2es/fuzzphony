@@ -66,6 +66,9 @@ final class PostgresInspector
             if ($part->source->table !== null) {
                 $partChecks[] = $this->sourceKey($part);
             }
+            if ($partColumns !== null) {
+                array_push($partChecks, ...(new WatchCoverage($this->connection, $this->names->schema))->check($part, $one?->name));
+            }
             array_push($checks, ...($one === null ? $partChecks : array_map(static fn(Check $c): Check => new Check(sprintf('Source "%s": %s', $one->name, $c->name), $c->status, $c->message, $c->fix), $partChecks)));
         }
 

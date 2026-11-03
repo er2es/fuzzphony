@@ -16,6 +16,7 @@ use Fuzzphony\Core\Support\Coerce;
 use Fuzzphony\Core\Sync\ReindexOptions;
 use Fuzzphony\Core\Sync\Worker;
 use Fuzzphony\Engine\Postgres\PostgresEngine;
+use Fuzzphony\Tests\Unit\Core\Observability\RecordingMetricsCollector;
 use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\TestCase;
 use Symfony\Component\Console\Tester\CommandTester;
@@ -241,6 +242,21 @@ final class MultiSourceIndexTest extends TestCase
         $this->converge($index);
 
         self::assertSame(['legacy:EU-7', 'legacy:US-7', 'product:1', 'product:2', 'product:3'], $this->keys());
+    }
+
+    public function testASourceRebuildIsCountedWithItsSourceLabel(): void
+    {
+        $index = $this->definition();
+        $this->install($index);
+        $this->connection->execute('TRUNCATE ms_tag CASCADE');
+        PostgresTestCase::drain($this->connection, $index);
+        $metrics = new RecordingMetricsCollector();
+
+        (new Worker($this->engine, metrics: $metrics))->runOnce([$index]);
+
+        $counted = array_values(array_filter($metrics->calls, static fn(array $c): bool => $c[1] === 'fuzzphony.reindex.documents'));
+        self::assertSame([['index' => 'site', 'source' => 'product'], ['index' => 'site', 'source' => 'article']], array_map(static fn(array $c): array => $c[3], $counted));
+        self::assertSame([3.0, 2.0], array_map(static fn(array $c): float => $c[2], $counted));
     }
 
     public function testTruncatingAJoinedTableRebuildsThatSourceOnly(): void

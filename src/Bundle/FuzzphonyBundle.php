@@ -624,7 +624,7 @@ final class FuzzphonyBundle extends AbstractBundle
                 // the roles in use: the application's, the worker's, and the admin's only when it is a user of its own (an admin that is the application user is not asked for DDL)
                 ['search' => service('fuzzphony.connection'), 'worker' => service(self::roleService($settings->hasSeparateWorker(), 'fuzzphony.connection.worker', 'fuzzphony.connection')), ...($settings->hasSeparateAdmin() ? ['admin' => service('fuzzphony.connection.admin')] : [])],
             ])],
-            ReindexCommand::class => [service($admin)],
+            ReindexCommand::class => [service($admin), service('fuzzphony.metrics')],
             WorkerCommand::class => [service(self::roleService($settings->hasSeparateWorker(), 'fuzzphony.worker', 'fuzzphony')), $settings->workerBatchSize, $settings->workerIdleSleep, service('fuzzphony.metrics')],
             SearchCommand::class => [service('fuzzphony.operator')],
             WizardCommand::class => [service('fuzzphony.introspector'), service('fuzzphony.engine'), service('fuzzphony.connection')],
