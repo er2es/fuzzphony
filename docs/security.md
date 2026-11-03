@@ -20,6 +20,10 @@ Component resolve it on the server on every request, is in
 **Who is searching?** Every search has an actor, in this order:
 
 1. The one you name: `->asActor($actor)` (on `FederatedSearch` too, for every index).
+
+   Whoever the actor is, if it has a tenant it can search that tenant only: a `forTenant()` naming another one is refused (`AccessDenied`,
+   no tenant named); `asSystem()` is the way across tenants.
+
 2. Otherwise the application's current user, the **ambient actor**: the service asks the `ActorResolver` itself (the Symfony bundle: the
    Security token, plus the client IP of the request when the IP is in use; plain PHP: `Fuzzphony::postgres(..., actors: $resolver)`). A
    controller that forgets `->asActor()` is therefore guarded like one that remembers, and counted by the rate limit.

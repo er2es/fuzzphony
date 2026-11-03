@@ -63,8 +63,9 @@ final readonly class SearchBuilder
 
     /**
      * Searches as this actor: its tenant scopes a tenant-scoped index (it is ignored on any other index), its
-     * user is carried for the search log and the guards. The last of forTenant() / asActor() wins; an actor
-     * without a tenant leaves a tenant set before alone. An integer tenant (a resolver reading `account.id`)
+     * user is carried for the search log and the guards. An actor with a tenant never searches another one:
+     * a forTenant() naming a different tenant (before or after) refuses the search with AccessDenied; asSystem() is the way across tenants.
+     * An actor without a tenant leaves a tenant set with forTenant() alone. An integer tenant (a resolver reading `account.id`)
      * on a string tenant filter is turned into its string; any other pairing is left as it is.
      */
     public function asActor(Actor $actor): self
@@ -256,6 +257,7 @@ final readonly class SearchBuilder
     private static function checked(IndexDefinition $index, SearchQuery $query): SearchQuery
     {
         SearchGate::assertActorHasTenant($index, $query);
+        SearchGate::assertTenantAgrees($index, $query);
 
         return $query;
     }

@@ -24,6 +24,7 @@ The details of each change follow.
 
 ### Breaking
 
+- **An actor with a tenant can no longer search another tenant.** `->forTenant($x)` with `$x` different from the tenant of the actor (the named one, or the current user when none is named) now throws `AccessDenied` instead of searching `$x` while the search log recorded the user under it. Before, the order of `asActor()` and `forTenant()` decided who won, and the ambient user never overrode `forTenant()`. A job that must search across tenants uses `->asSystem()->forTenant($x)`; `Fuzzphony::logSearch()` takes the same `forTenant:` for a system record.
 - **A search that names no actor is made as the application's current user.** Until now a search without `->asActor()` ran no guard: a controller that forgot it
   searched as everybody and saw every `granted` field (and was not rate limited). Now the service asks the `ActorResolver` itself (the Symfony bundle: the Security
   token and, with the client IP in use, the request; plain PHP: `Fuzzphony::postgres(..., actors: $resolver)`), so every search is guarded and logged as that actor, and an

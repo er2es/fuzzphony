@@ -121,21 +121,25 @@ final readonly class Fuzzphony
      * @param int  $hits    how many hits the search found (the analytics' "found nothing" report counts the records with none)
      * @param bool $rescued the search was answered by the zero-result rescue (SearchResult::$correctedFrom)
      * @param bool $system  as SearchBuilder::asSystem()
+     * @param mixed $forTenant as SearchBuilder::forTenant(): the tenant of a system record on a tenant-scoped index; for an actor it must be the actor's
      *
      * @return LoggedSearch what was recorded (the stored, redacted text)
      *
      * @throws InvalidArgument when the index is not logged (`log: false`) or the search log is off: the same conditions under which a
      *                         search is not recorded, here refused so that a call that records nothing is not silent
      * @throws ActorRequired   a tenant-scoped index needs the tenant of the actor
-     * @throws AccessDenied    asSystem() while `authorization.allow_system` is false
+     * @throws AccessDenied    asSystem() while `authorization.allow_system` is false, or a tenant that is not the actor's
      */
-    public function logSearch(string $index, string $text, int $hits, float $tookMs = 0.0, ?Actor $actor = null, bool $usedFuzzy = false, bool $rescued = false, bool $system = false): LoggedSearch
+    public function logSearch(string $index, string $text, int $hits, float $tookMs = 0.0, ?Actor $actor = null, bool $usedFuzzy = false, bool $rescued = false, bool $system = false, mixed $forTenant = null): LoggedSearch
     {
         $definition = $this->registry->get($index);
         if ($this->gate === null) {
             throw new InvalidArgument(SearchGate::LOG_OFF);
         }
         $query = new SearchQuery(text: $text);
+        if ($forTenant !== null) {
+            $query = $query->forTenant($forTenant); // as SearchBuilder::forTenant(): needed by asSystem(), and checked against the actor's tenant
+        }
         $query = $system ? $query->asSystem() : ($actor === null ? $query : SearchGate::withActor($definition, $query, $actor));
 
         return $this->gate->logSearch($definition, $query, $hits, $tookMs, $usedFuzzy, $rescued);
