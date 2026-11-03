@@ -30,9 +30,10 @@ final class RegistryCacheKernel extends Kernel
     /** How many times the metadata of all entities was enumerated (by any kernel of this process). */
     public static int $metadataEnumerations = 0;
 
+    /** @param list<class-string> $definitionClasses classes with #[AsIndexDefinition] registered as autoconfigured services */
     /** @param bool $cacheInCli the test seam of RegistryFactory: the registry cache applies to web requests only, and this suite runs in the command line */
     /** @param array<string, mixed> $fuzzphony the bundle's own configuration (indexes ...), none by default */
-    public function __construct(private readonly string $cacheDir, bool $debug, private readonly bool $cacheInCli = true, private readonly array $fuzzphony = [])
+    public function __construct(private readonly string $cacheDir, bool $debug, private readonly bool $cacheInCli = true, private readonly array $fuzzphony = [], private readonly array $definitionClasses = [])
     {
         parent::__construct('prod', $debug);
     }
@@ -93,6 +94,9 @@ final class RegistryCacheKernel extends Kernel
         $services->set('doctrine.dbal.default_connection', DbalConnection::class)->factory([DoctrineTestCase::class, 'dbalConnection']);
         $services->set('doctrine.orm.entity_manager', EntityManagerInterface::class)->factory([self::class, 'entityManager']);
         $services->set('logger', NullLogger::class);
+        foreach ($this->definitionClasses as $class) {
+            $services->set($class)->autoconfigure();
+        }
         // private services are inlined/removed from a compiled container: reach the two under test through public aliases
         $services->alias('test.registry', 'fuzzphony.registry')->public();
         $services->alias('test.cache', 'cache.system')->public();
