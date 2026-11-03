@@ -196,7 +196,7 @@ its customer in `people` and in `site`. The application role gets `SELECT` on th
   12345678-2-41 (exact code)*), the link from `Hit::kind` and `Hit::id` to `/erp/{kind}/{id}`, a small read-only detail page (plain SQL).
 - **Combined:** one box and the same query in the multi-source index `site` and in a federated search over `people`, `companies` and `orders` (weights 1.0 / 1.2 / 0.8,
   floors 2 / 2 / 1), side by side or one at a time; every hit shows its `index` and its `kind`. The difference is the table of
-  [Federated search or a multi-source index?](../docs/searching.md#federated-search-or-a-multi-source-index).
+  [Federated search or a multi-source index?](../docs/searching.md#federated-search).
 - **Sync:** the demonstration of a table's triggers. Move the address of one customer (`erp_address` #1) to Sopron, Győr or Zalaegerszeg, or undo it. The panel then reads, with
   polling and a clear *still syncing* state when the worker is slow, which indexes refreshed the customer and after how many milliseconds (`people` and `site` do, `orders` and
   `companies` do not: they do not read addresses), the search before and after, and the triggers of the table (*one trigger set for 2 indexes*, from `pg_trigger` and
