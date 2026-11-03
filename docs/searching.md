@@ -171,6 +171,12 @@ null and the statements are exactly the ones of a search without it; with it the
 more than `limit` hits; at most 50 words per hit). A viewer who may not see a field gets no word of it and no name of it, whatever the
 query: the statement reads only the fields the viewer may search ([Security](security.md)).
 
+For a field with [several values per document](configuration.md#several-values-per-document-many) the statement reads the values one by one (from the
+index's values table) and each `MatchedWord` also carries `valueOrd` (the position of the value, from 0) and `value` (the stored text), so you can
+show "found in the Vienna address". A word that matches several values is listed once, with the first of them. `toArray()` and the JSON form add
+`value_ord` and `value` only for such a word; every other word is unchanged. The highlight of a many field (`highlight('city')`) shows the value that
+matches best instead of all of them.
+
 ## Query syntax
 
 End-user search text never throws. Malformed input is repaired and reported in
@@ -488,6 +494,8 @@ foreach ($result->facets['category_id'] as $facet) {   // FacetValue: ->value, -
 }
 ```
 
+- A filter declared [`many`](configuration.md#several-values-per-document-many) (several values per document, from a child table) matches when any of
+  its values does and its facet counts **documents** per value: a customer with two Budapest addresses is one in `Budapest (1)`.
 - Facets can be string, int, bool and date filters (not float or datetime: every value would be its own
   group), and not the tenant filter. `facetValues($n)` keeps the `$n` most frequent values (1 to 100,
   default 20); values come as the filter's type (`int`, `bool`, ...), `null` for the documents without one.

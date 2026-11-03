@@ -42,7 +42,8 @@ is one command.
 or with the builder (`fromQuery()`); the first example under [YAML](#yaml) and the one under
 [Builder](#builder-plain-php) are joined indexes. The query returns one row per document, with the id in a column
 (`id` by default; `source.id`, or the second argument of `fromQuery()`, names another). A one-to-many join (a customer's
-addresses) must be folded into the row (`string_agg(...)` and `GROUP BY`), or the id repeats.
+addresses) is best declared as [several values per document](#several-values-per-document-many); folding it into the row
+(`string_agg(...)` and `GROUP BY`) also works and is still fine when you never need the matched value, a per-value filter or a limit.
 
 **List every joined table in `watch`**, or a change in it is not followed. A watch answers "when a row of this table
 changes, which document ids are affected": `SELECT :id` for the table the documents are keyed on, a query for a joined table
@@ -322,6 +323,53 @@ by hand, give its key: `$fuzzphony->refresh('site', ['product:5'])`. To rebuild 
 
 This replaces the earlier recipe of one index over a hand-written `UNION ALL` with prefixed string ids and a prefixed watch per table:
 sources give the typed id, the kind, a per-source refresh, a per-source rebuild and per-source doctor checks, and need no id splitting.
+
+### Several values per document: many
+
+A customer has several addresses, a product several tags, a person several phone numbers. Declare the field (or a filter) with
+`many` and Fuzzphony reads the values from the child table, one row per value, instead of from a folded `string_agg(...)` column:
+
+```yaml
+fuzzphony:
+  indexes:
+    customers:
+      source: { table: customer }
+      fields:
+        name: { weight: A, fuzzy: true }
+        city:
+          weight: C
+          fuzzy: true
+          many: { from: address, key: customer_id, column: city, limit: 50 }
+      filters:
+        city: { type: string, many: { from: address, key: customer_id, column: city } }
+```
+
+The builder says the same with `->field('city', 'C', fuzzy: true, many: ['from' => 'address', 'key' => 'customer_id', 'column' => 'city'])`
+(or a `ManyValues` object) and `->filter('city', 'string', many: [...])`; a [definition class](#definition-classes) uses the same builder.
+`from` is the child table, `key` its column that holds the customer's id, `column` the value, `limit` how many values of one document are indexed
+(default 50) and `id` the child's primary key column (default `id`, the tie-breaker of the order). A bad option is refused with a hint,
+and `fuzzphony:schema` reads the child table without a row to check that it and its columns exist.
+
+- **A search finds a customer by any of its values** (`budapest` finds the customer with a Budapest address, `szged` finds `Szeged` by typo,
+  `city:vienna` scopes to the field). The field takes part in ranking as one field with the weight you gave it.
+- **A many filter matches when any value does.** `->where('city', 'Budapest')` finds the customers with at least one Budapest address; a
+  customer with two counts once. `=`, `!=`, `IN`, `NOT IN` and the null checks work (a customer without a value is null); ranges do not,
+  and only `string` filters can be many. A facet over it counts **documents** per value, never values.
+- **The hit says which value matched**: with `explainMatches()` every `MatchedWord` of a many field carries `valueOrd` (the position of the
+  value, from 0) and `value` (the stored text). `highlight('city')` shows the value that matches best, not the whole list.
+- **The limit is never silent.** Values are taken in the order of the column value, then of the child's primary key, and only the first `limit`
+  per document are indexed. `fuzzphony:doctor` reports how many documents have more (a count, never an id or a value).
+- **Sync is derived.** The child table is watched for you (its `key` column, and the value column for updates): changing, adding, moving or
+  deleting an address refreshes only that customer. All sync modes work; a `TRUNCATE` of the child table queues a rebuild of the index. A watch you
+  declare yourself on the child table replaces the derived one.
+- **Roles**: the worker (and the role that writes the child table under `sync: trigger`) needs the child table and the values table in its grants;
+  `fuzzphony:schema --dump-grants` prints them, and the doctor checks them.
+
+How it is stored: [architecture](architecture.md#one-to-many-values-how-they-are-stored-and-searched). Not supported (refused with a fix):
+a [multi-source](#several-sources-in-one-index) index, a `code` field, the primary field (the first A-weighted field), a many tenant filter.
+A field that is many cannot also name a `column`: the column of the values is `many.column`. Changing an existing field or filter to many needs
+`fuzzphony:schema --apply` and a `fuzzphony:reindex`; a filter that was single-valued has a different column type, so give the many filter a new
+name (or drop the index's table first). What it does not do: [ranks by the whole field, not the best value](limitations.md#several-values-per-document).
 
 ### Legacy tables with a composite key
 
