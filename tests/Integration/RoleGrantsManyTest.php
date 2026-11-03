@@ -121,7 +121,7 @@ final class RoleGrantsManyTest extends TestCase
         $this->connection->execute('SET ROLE ' . $this->roles['search']);
         $hit = $this->fuzzphony->in('rg_customers')->query('pecs')->explainMatches()->highlight('city')->get()->hits[0];
         self::assertSame(2, $hit->id);
-        self::assertSame('Pecs', $hit->matches[0]->value);
+        self::assertSame('Pecs', ($hit->matches ?? [])[0]->value);
         self::assertSame('<mark>Pecs</mark>', $hit->highlights['city']);
         self::assertSame([1], $this->fuzzphony->in('rg_customers')->where('city', 'Vienna')->get()->ids());
     }

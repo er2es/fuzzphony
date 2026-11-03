@@ -61,6 +61,12 @@ final class ManyValuesTest extends TestCase
         return $fuzzphony;
     }
 
+    /** @return list<\Fuzzphony\Core\Search\MatchedWord> */
+    private static function matchesOf(\Fuzzphony\Core\Search\Hit $hit): array
+    {
+        return $hit->matches ?? [];
+    }
+
     /** @return list<int|string> */
     private static function ids(\Fuzzphony\Core\Search\SearchResult $result): array
     {
@@ -115,7 +121,7 @@ final class ManyValuesTest extends TestCase
     private function values(int $doc): array
     {
         return array_map(
-            static fn(array $r): string => $r['field'] . ':' . $r['ord'] . ':' . $r['v'],
+            static fn(array $r): string => Coerce::str($r['field']) . ':' . Coerce::str($r['ord']) . ':' . Coerce::str($r['v']),
             $this->connection->fetchAll('SELECT field, ord, v FROM fuzzphony_customers__values WHERE doc = :doc ORDER BY field, ord', ['doc' => $doc]),
         );
     }
@@ -223,17 +229,17 @@ final class ManyValuesTest extends TestCase
 
         $hit = $f->in('customers')->query('vienna')->explainMatches()->get()->hits[0];
         self::assertSame(1, $hit->id);
-        self::assertCount(1, $hit->matches);
-        self::assertSame(['field' => 'city', 'word' => 'vienna', 'via' => 'exact', 'similarity' => null, 'value_ord' => 2, 'value' => 'Vienna'], $hit->matches[0]->toArray());
+        self::assertCount(1, ($hit->matches ?? []));
+        self::assertSame(['field' => 'city', 'word' => 'vienna', 'via' => 'exact', 'similarity' => null, 'value_ord' => 2, 'value' => 'Vienna'], self::matchesOf($hit)[0]->toArray());
 
         $typo = $f->in('customers')->query('szged')->explainMatches()->get()->hits[0];
         self::assertSame(2, $typo->id);
-        self::assertSame('Szeged', $typo->matches[0]->value);
-        self::assertSame('typo', $typo->matches[0]->via);
+        self::assertSame('Szeged', self::matchesOf($typo)[0]->value);
+        self::assertSame('typo', self::matchesOf($typo)[0]->via);
 
         $both = $f->in('customers')->query('alice vienna')->explainMatches()->get()->hits[0];
-        self::assertSame(['name', 'city'], array_map(static fn($m): string => $m->field, $both->matches));
-        self::assertNull($both->matches[0]->value, 'a single-valued field has no value info');
+        self::assertSame(['name', 'city'], array_map(static fn($m): string => $m->field, self::matchesOf($both)));
+        self::assertNull(self::matchesOf($both)[0]->value, 'a single-valued field has no value info');
     }
 
     public function testTheHighlightShowsTheMatchingValue(): void
@@ -272,7 +278,7 @@ final class ManyValuesTest extends TestCase
                 $explained = $f->in('customers')->query($text)->restrictedToFields('name')->explainMatches()->highlight('name')->explain();
                 $result = $explained->result;
                 $outcomes[$text][$variant] = [
-                    array_map(static fn($hit): array => [$hit->id, round($hit->score, 9), $hit->highlights, array_map(static fn($m): array => $m->toArray(), $hit->matches)], $result->hits),
+                    array_map(static fn($hit): array => [$hit->id, round($hit->score, 9), $hit->highlights, array_map(static fn($m): array => $m->toArray(), ($hit->matches ?? []))], $result->hits),
                     $result->total,
                     $result->didYouMean,
                     array_map(static fn(array $st): array => [$st['label'], $st['sql'], $st['params']], $explained->statements),
@@ -281,7 +287,7 @@ final class ManyValuesTest extends TestCase
         }
         foreach ($outcomes as $text => $byVariant) {
             foreach ($byVariant as $variant => $outcome) {
-                self::assertSame($byVariant['none'], $outcome, sprintf('"%s": the hidden values (%s) changed the outcome', $text, $variant));
+                self::assertSame($byVariant['none'] ?? null, $outcome, sprintf('"%s": the hidden values (%s) changed the outcome', $text, $variant));
             }
         }
         // and the viewer who holds the field does see the values

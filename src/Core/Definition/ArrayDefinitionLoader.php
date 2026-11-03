@@ -465,7 +465,7 @@ final class ArrayDefinitionLoader
             $problems[] = sprintf('%s "many" "limit" must be an integer, got %s.', $at, self::describe($many['limit']));
         }
         if (array_key_exists('id', $many) && (!is_string($many['id']) || $many['id'] === '')) {
-            $problems[] = sprintf('%s "many" "id" must be the child table's primary key column (a non-empty string), got %s.', $at, self::describe($many['id']));
+            $problems[] = sprintf('%s "many" "id" must be the primary key column of the child table (a non-empty string), got %s.', $at, self::describe($many['id']));
         }
     }
 
