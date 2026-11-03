@@ -171,6 +171,40 @@ null and the statements are exactly the ones of a search without it; with it the
 more than `limit` hits; at most 50 words per hit). A viewer who may not see a field gets no word of it and no name of it, whatever the
 query: the statement reads only the fields the viewer may search ([Security](security.md)).
 
+## Returning source fields: `with()`
+
+A result row usually needs a title, a slug, a price. `with()` returns those columns of the hit's **source row** in `Hit::$data`, so a page can be
+rendered and its links built without loading entities:
+
+```php
+// the index declares what may be returned: returnable: [title, slug, price]  (see Configuration)
+$result = $fuzzphony->in('products')->query('mouse')->limit(10)->with('title', 'slug', 'price')->get();
+
+foreach ($result->hits as $hit) {
+    echo $hit->data['title'], ' ', $hit->data['price'];   // 'Wireless mouse' 19.9
+}
+```
+
+- `with('title', 'slug')` takes a subset of the index's `returnable` columns; `with()` with no argument means all of them; calling it again adds.
+  A name that is not returnable is an `InvalidQuery` that lists the names you may ask for.
+- **Opt-in and fresh.** Without `with()` nothing changes: the statements and the results are the ones of a search without it, and `Hit::$data` is
+  `[]`. With it the engine runs **one more statement per source on the page**, over the ids of the page (never more than `limit`), reading the source
+  query itself: always the current value, nothing is copied into the index. `explain()` lists it as `returned fields: <source>`; every value is bound
+  and the column names come from the validated list.
+- **Types.** PostgreSQL types the values: integers, floats (a `numeric` is a float) and booleans come back as PHP ones, text as strings, dates and
+  timestamps as ISO 8601 strings (`2026-01-02`, `2026-01-02T03:04:05+00:00`), `json`/`jsonb` and arrays as compact JSON strings, `null` as `null`.
+  Keep to scalar columns for what you render.
+- **Several sources.** Each source declares its own `returnable` columns; a hit carries every name you asked for, `null` for one its source does
+  not return. A hit whose source row was deleted since the last sync has `data = []` (no exception).
+- **Viewers.** A returnable column that is also a `granted` field (same name) is returned only to an actor who holds it; for anyone else it is
+  an unknown name (the same `InvalidQuery`, and `with()` with no argument leaves it out). `restrictedToFields()` narrows it like the search.
+  A tenant-scoped index repeats its tenant condition on the source query. See [Security](security.md#returned-fields).
+- **Federated search.** Each index's `configure` closure may call `with()` (`->index('products', configure: fn($b) => $b->with('title'))`); the
+  merged hits keep their `data`. A federated search reads `offset + limit` hits per index, so the extra statement covers that many rows: keep
+  pages small.
+- **Roles.** The search role needs `SELECT` on the source tables of an index that declares `returnable` columns, and only of those
+  ([Database roles](roles.md)).
+
 ## Query syntax
 
 End-user search text never throws. Malformed input is repaired and reported in
@@ -640,7 +674,7 @@ only: a word that exists only in the hidden field finds nothing, is not ranked o
 ## Hits and results as data
 
 A `Hit` has `kind` (the index it comes from; a federated search mixes them), a typed `id` (an `int` for an integer key, a `string` for a uuid or string key: the raw
-key, for you to load your rows with), `score`, `breakdown`, `highlights`, `mergedScore` (federated only) and `matches` (`explainMatches()` only). `SearchResult`,
+key, for you to load your rows with), `score`, `breakdown`, `highlights`, `mergedScore` (federated only), `matches` (`explainMatches()` only) and `data` ([`with()`](#returning-source-fields-with) only, left out of the JSON when empty). `SearchResult`,
 `Hit`, `FacetValue` and `MatchedWord` have `toArray()` and are `JsonSerializable`, with the same stable keys:
 
 ```php

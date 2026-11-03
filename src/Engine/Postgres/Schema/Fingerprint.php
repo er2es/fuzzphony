@@ -32,7 +32,7 @@ final class Fingerprint
             'boost' => $index->boostColumn,
             'recency' => $index->recencyColumn,
             'tenant' => $index->tenant,
-        ] + self::granted($index));
+        ] + self::granted($index) + self::returnable($index));
     }
 
     public static function documents(IndexDefinition $index): string
@@ -85,6 +85,28 @@ final class Fingerprint
         ));
 
         return $granted === [] ? [] : ['granted' => $granted];
+    }
+
+    /**
+     * The returnable columns (what SearchBuilder::with() may return): absent for an index without any, so the hash of every such index
+     * stays what it was.
+     *
+     * @return array{returnable?: list<string>|array<string, list<string>>}
+     */
+    private static function returnable(IndexDefinition $index): array
+    {
+        if ($index->isMultiSource()) {
+            $each = [];
+            foreach ($index->sources as $source) {
+                if ($source->returnable !== []) {
+                    $each[$source->name] = $source->returnable;
+                }
+            }
+
+            return $each === [] ? [] : ['returnable' => $each];
+        }
+
+        return $index->returnable === [] ? [] : ['returnable' => $index->returnable];
     }
 
     /** @return list<array{string, string, string}> */

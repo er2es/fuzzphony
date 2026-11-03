@@ -113,7 +113,7 @@ UI depends on:
 
 | `SearchResult` | What it is | Rendering |
 |---|---|---|
-| `hits` | `Hit` objects in rank order: `kind` (the index), `id` (typed: `int` or `string`), `score`, `highlights` (field => snippet), `matches` with `explainMatches()` | Load your own rows by `id` (`ids()` gives the list) |
+| `hits` | `Hit` objects in rank order: `kind` (the index), `id` (typed: `int` or `string`), `score`, `highlights` (field => snippet), `matches` with `explainMatches()`, `data` (field => value of the source row, with `with()`) | Load your own rows by `id` (`ids()` gives the list), or ask for the columns you render with [`with()`](searching.md#returning-source-fields-with) |
 | `total`, `totalIsLowerBound` | The number of matches; a lower bound when the search hit `limits.candidates` | Show `2000+` when `totalIsLowerBound` is true |
 | `hasMore()`, `limit`, `offset`, `page()` | Paging | A pager follows `hasMore()` |
 | `facets` | `filter => list<FacetValue>` (`value`, `count`) for the filters named in `facets()` | Counts are lower bounds when `totalIsLowerBound` |
@@ -123,7 +123,7 @@ UI depends on:
 | `usedFuzzy`, `interpretedAs`, `tookMs` | Diagnostics | Optional |
 
 **JSON without the glue.** `json_encode($result)` writes the whole result with stable keys (`hits`, `total`, `totalIsLowerBound`, `facets`, `didYouMean`,
-`correctedFrom`, `correctedTo`, `warnings`, `tookMs`; a hit has `kind`, `id`, `score`, `breakdown`, `highlights`, `mergedScore`, `matches`), also `$result->toArray()`: an endpoint can be
+`correctedFrom`, `correctedTo`, `warnings`, `tookMs`; a hit has `index`, `kind`, `id`, `score`, `breakdown`, `highlights`, `mergedScore`, `matches`, and `data` when `with()` returned something), also `$result->toArray()`: an endpoint can be
 `echo json_encode($fuzzphony->in('products')->query($q)->highlight('name')->get());`. The `highlights` are HTML (below), everything else is plain text. The example
 below builds its own shape on purpose, to show what each part is for.
 
@@ -216,6 +216,24 @@ For search-as-you-type, call the endpoint after a pause in typing, not on every 
 those searches should stay out of the [search log](analytics.md). A public endpoint needs a rate limit: with Symfony it is
 `fuzzphony.rate_limit.per: ip` ([Security](security.md#the-rate-limit)); without it, use your framework's. The template of the
 component (`src/Bundle/templates/components/Search.html.twig`) shows one way to render each part of the result.
+
+**A result row and its link without loading entities.** Declare `returnable: [title, slug]` on the index (on each source of a multi-source one) and ask for
+it; `kind` + `id` + `data` are then enough to build the link:
+
+```php
+$result = $fuzzphony->in('site')->query($q)->with('title', 'slug')->limit(10)->get();
+
+$rows = array_map(static fn(Hit $hit): array => [
+    'title' => $hit->highlights['title'] ?? htmlspecialchars((string) ($hit->data['title'] ?? '')),   // highlights are HTML, data is plain text
+    'url' => match ($hit->kind) {                  // the source of the hit
+        'product' => '/p/' . rawurlencode((string) $hit->data['slug']) . '-' . $hit->id,
+        'article' => '/blog/' . rawurlencode((string) $hit->data['slug']),
+        default => '/',
+    },
+], $result->hits);
+```
+
+`data` values are plain text from your own rows: escape them like any other. A hit whose row vanished since the last sync has `data = []`.
 
 ## Messenger
 

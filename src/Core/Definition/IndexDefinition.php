@@ -56,6 +56,13 @@ final readonly class IndexDefinition
         public array $sources = [],
         /** Narrows the definition to one source for a per-source reindex (never part of a registered definition). */
         public ?string $onlySource = null,
+        /**
+         * The columns of the source a search may return with SearchBuilder::with() (Hit::$data). A multi-source index declares them per
+         * source (IndexSource::$returnable) and this is empty.
+         *
+         * @var list<string>
+         */
+        public array $returnable = [],
     ) {}
 
     public static function builder(string $name): IndexBuilder
@@ -184,6 +191,36 @@ final readonly class IndexDefinition
         return null;
     }
 
+    /** Whether any source of the index declares returnable columns (a search may then ask for them with with()). */
+    public function hasReturnable(): bool
+    {
+        return $this->returnableNames() !== [];
+    }
+
+    /**
+     * Every name a search may ask for with with(): the returnable columns of the index (single-source) or of its sources (their union).
+     *
+     * @return list<string>
+     */
+    public function returnableNames(): array
+    {
+        if ($this->sources === []) {
+            return $this->returnable;
+        }
+
+        return array_values(array_unique(array_merge([], ...array_map(static fn(IndexSource $s): array => $s->returnable, $this->sources))));
+    }
+
+    /**
+     * The returnable columns of one kind (a single-source index: its own).
+     *
+     * @return list<string>
+     */
+    public function returnableOf(string $kind): array
+    {
+        return $this->sources === [] ? $this->returnable : ($this->sourceNamed($kind)->returnable ?? []);
+    }
+
     /** The source that reads an entity class (a multi-source index: each source may name one). */
     public function sourceForEntity(string $class): ?IndexSource
     {
@@ -233,7 +270,7 @@ final readonly class IndexDefinition
     /** One source of a multi-source index as a single-source definition (the doctor checks each source on its own). */
     public function forSource(IndexSource $source): self
     {
-        return $this->copy(source: $source->source, idType: $source->idType, watches: $source->watches, entityClass: $source->entityClass ?? false, sources: []);
+        return $this->copy(source: $source->source, idType: $source->idType, watches: $source->watches, entityClass: $source->entityClass ?? false, sources: [], returnable: $source->returnable);
     }
 
     /** A copy narrowed to one source (a per-source reindex). */
@@ -334,6 +371,12 @@ final readonly class IndexDefinition
         return $this->copy(sources: $sources);
     }
 
+    /** @param list<string> $returnable */
+    public function withReturnable(array $returnable): self
+    {
+        return $this->copy(returnable: $returnable);
+    }
+
     public function withLog(bool $log): self
     {
         return $this->copy(log: $log);
@@ -347,6 +390,7 @@ final readonly class IndexDefinition
      * @param list<FilterDefinition>|null        $filters
      * @param list<Watch>|null                   $watches
      * @param list<IndexSource>|null             $sources
+     * @param list<string>|null                  $returnable
      * @param array<string, RankingProfile>|null $profiles
      * @param class-string|false|null            $entityClass
      */
@@ -370,6 +414,7 @@ final readonly class IndexDefinition
         ?bool $log = null,
         string|null $onlySource = null,
         ?array $sources = null,
+        ?array $returnable = null,
     ): self {
         return new self(
             name: $name ?? $this->name,
@@ -391,6 +436,7 @@ final readonly class IndexDefinition
             log: $log ?? $this->log,
             sources: $sources ?? $this->sources,
             onlySource: $onlySource === null ? $this->onlySource : ($onlySource === '' ? null : $onlySource),
+            returnable: $returnable ?? $this->returnable,
         );
     }
 }

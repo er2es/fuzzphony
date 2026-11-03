@@ -14,6 +14,7 @@ final readonly class IndexSource
     /**
      * @param list<Watch>       $watches
      * @param class-string|null $entityClass
+     * @param list<string>      $returnable the columns of this source a search may return with SearchBuilder::with()
      */
     public function __construct(
         public string $name,
@@ -21,6 +22,7 @@ final readonly class IndexSource
         public array $watches = [],
         public ?string $entityClass = null,
         public IdType $idType = IdType::Int,
+        public array $returnable = [],
     ) {}
 
     /** The queue row (doc_id) that asks for a rebuild of one source of a multi-source index; `*` asks for the whole index. */

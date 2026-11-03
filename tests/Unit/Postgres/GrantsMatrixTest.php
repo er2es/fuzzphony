@@ -42,6 +42,19 @@ final class GrantsMatrixTest extends TestCase
         self::assertSame($head, self::sql($grants->for(GrantRole::Search, [self::index('row', 'manual')])), 'no queue, no shared trigger: nothing to append to');
     }
 
+    public function testTheSearchRoleReadsTheSourceOnlyForAnIndexWithReturnableColumns(): void
+    {
+        $grants = new Grants(new Names('public', 'fz_s'), false);
+        $plain = self::index('statement', 'manual');
+        $returning = $plain->withReturnable(['name']);
+
+        self::assertNotContains('GRANT SELECT ON TABLE "tt" TO "r"; [optional]', self::sql($grants->for(GrantRole::Search, [$plain])));
+        self::assertSame(
+            ['GRANT SELECT ON TABLE "tt" TO "r"; [optional]', 'GRANT SELECT ON TABLE "tu" TO "r"; [optional]'],
+            array_slice(self::sql($grants->for(GrantRole::Search, [$returning])), 4),
+        );
+    }
+
     public function testTheSearchRoleOfATriggerSyncAndOfATypoTolerantIndexWithTheSearchLog(): void
     {
         $grants = new Grants(new Names('public', 'fz_s'), true);

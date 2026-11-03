@@ -45,6 +45,8 @@ final class IndexBuilder
     private array $sources = [];
     /** @var list<string> */
     private array $sourceProblems = [];
+    /** @var list<string> */
+    private array $returnable = [];
 
     public function __construct(private readonly string $name)
     {
@@ -88,10 +90,11 @@ final class IndexBuilder
      *
      * @param array<array-key, mixed>      $watch  Watch objects, or table => "SELECT ... :id" / table => { ids, key, columns } as in YAML
      * @param class-string|null            $entity
+     * @param list<string>                 $returnable columns of this source a search may return with SearchBuilder::with()
      */
-    public function source(string $name, string $sql, ?string $entity = null, array $watch = [], IdType|string|null $idType = null, string $idColumn = 'id'): self
+    public function source(string $name, string $sql, ?string $entity = null, array $watch = [], IdType|string|null $idType = null, string $idColumn = 'id', array $returnable = []): self
     {
-        return $this->addSource($name, Source::query($sql, $idColumn), $entity, $watch, $idType);
+        return $this->addSource($name, Source::query($sql, $idColumn), $entity, $watch, $idType, $returnable);
     }
 
     /**
@@ -100,20 +103,22 @@ final class IndexBuilder
      *
      * @param array<array-key, mixed> $watch
      * @param class-string|null       $entity
+     * @param list<string>            $returnable columns of this source a search may return with SearchBuilder::with()
      */
-    public function sourceFromTable(string $name, string $table, ?string $entity = null, array $watch = [], IdType|string|null $idType = null, string $idColumn = 'id'): self
+    public function sourceFromTable(string $name, string $table, ?string $entity = null, array $watch = [], IdType|string|null $idType = null, string $idColumn = 'id', array $returnable = []): self
     {
-        return $this->addSource($name, Source::table($table, $idColumn), $entity, $watch, $idType);
+        return $this->addSource($name, Source::table($table, $idColumn), $entity, $watch, $idType, $returnable);
     }
 
     /**
      * @param array<array-key, mixed> $watch
      * @param class-string|null       $entity
+     * @param list<string>            $returnable
      */
-    private function addSource(string $name, Source $source, ?string $entity, array $watch, IdType|string|null $idType): self
+    private function addSource(string $name, Source $source, ?string $entity, array $watch, IdType|string|null $idType, array $returnable = []): self
     {
         $type = $idType === null ? IdType::Int : ($idType instanceof IdType ? $idType : EnumOption::parse(IdType::class, $idType, $this->name, 'id type', sprintf(' of source "%s"', $name)));
-        $this->sources[] = new IndexSource($name, $source, $this->watchList($name, $watch), $entity, $type);
+        $this->sources[] = new IndexSource($name, $source, $this->watchList($name, $watch), $entity, $type, array_values(array_unique($returnable)));
 
         return $this;
     }
@@ -280,6 +285,18 @@ final class IndexBuilder
         return $this;
     }
 
+    /**
+     * The columns of the source a search may return with SearchBuilder::with() (Hit::$data): an allow-list of names the source query
+     * returns, so an application can render a result row without loading entities. On a multi-source index give it per source instead
+     * (source(..., returnable: [...])). A name that is also a `granted` field is only returned to an actor who holds it.
+     */
+    public function returnable(string ...$columns): self
+    {
+        $this->returnable = array_values(array_unique([...$this->returnable, ...$columns]));
+
+        return $this;
+    }
+
     public function build(): IndexDefinition
     {
         if ($this->sources !== []) {
@@ -303,6 +320,7 @@ final class IndexBuilder
             tenant: $this->tenant,
             synonyms: $this->synonyms,
             log: $this->log,
+            returnable: $this->returnable,
         );
         DefinitionValidator::assertValid($definition);
 
@@ -323,6 +341,9 @@ final class IndexBuilder
         }
         if ($this->idType !== IdType::Int) {
             $problems[] = 'An index with sources declares the id type inside each source (source(..., idType: ...)), not on the index.';
+        }
+        if ($this->returnable !== []) {
+            $problems[] = 'An index with sources declares the returnable columns inside each source (source(..., returnable: ["title"])), not on the index.';
         }
         if ($problems !== []) {
             throw new InvalidDefinition($this->name, $problems);
