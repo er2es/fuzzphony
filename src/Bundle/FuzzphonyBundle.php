@@ -25,6 +25,7 @@ use Fuzzphony\Bundle\EventListener\SearchLogFlushListener;
 use Fuzzphony\Bundle\Messenger\MessengerRefreshDispatcher;
 use Fuzzphony\Bundle\Messenger\RefreshDocumentsHandler;
 use Fuzzphony\Bundle\Observability\MetricsCollectorFactory;
+use Fuzzphony\Bundle\Registry\RegistryCacheWarmer;
 use Fuzzphony\Bundle\Registry\RegistryFactory;
 use Fuzzphony\Bundle\Security\AuthorizationGuard;
 use Fuzzphony\Bundle\Security\NullActorResolver;
@@ -532,21 +533,30 @@ final class FuzzphonyBundle extends AbstractBundle
             $services->alias(EntityLoader::class, 'fuzzphony.entity_loader')->public();
         }
 
+        $cache = $builder->hasParameter('kernel.debug') && $builder->getParameter('kernel.debug') === false ? service('cache.system')->nullOnInvalid() : null;
+        $projectDir = $builder->hasParameter('kernel.project_dir') && is_string($builder->getParameter('kernel.project_dir')) ? $builder->getParameter('kernel.project_dir') : null;
+        $discovery = $hasOrm && $settings->discoverEntities ? service('fuzzphony.discovery') : null;
         $services->set('fuzzphony.registry', IndexRegistry::class)
             ->factory([RegistryFactory::class, 'create'])
             ->args([
                 $settings->indexes,
-                $hasOrm && $settings->discoverEntities ? service('fuzzphony.discovery') : null,
+                $discovery,
                 // Prod only: discovery loads the metadata of every entity, so its result is kept in cache.system (cache:clear drops it).
                 // Without kernel.debug (or when it is unknown) nothing is cached and an edited attribute shows up on the next request.
-                $builder->hasParameter('kernel.debug') && $builder->getParameter('kernel.debug') === false ? service('cache.system')->nullOnInvalid() : null,
+                $cache,
                 // Web requests only: a command, a worker or a consumer (PHP_SAPI "cli") always discovers fresh. The parameter is a test seam
                 // (the real-kernel test proves the cache from the command line), not a configuration option.
                 $builder->hasParameter('fuzzphony.registry_cache_in_cli') && $builder->getParameter('fuzzphony.registry_cache_in_cli') === true,
-                $builder->hasParameter('kernel.project_dir') && is_string($builder->getParameter('kernel.project_dir')) ? $builder->getParameter('kernel.project_dir') : null,
+                $projectDir,
                 $settings->authorizationEnabled,
                 tagged_iterator(self::INDEX_DEFINITION_TAG),
             ]);
+        if ($cache !== null) {
+            // cache:warmup fills the discovery cache, so an immutable image with a read-only cache directory never writes it per request.
+            $services->set('fuzzphony.registry_cache_warmer', RegistryCacheWarmer::class)
+                ->args([$settings->indexes, $discovery, $cache, $projectDir, $settings->authorizationEnabled, tagged_iterator(self::INDEX_DEFINITION_TAG)])
+                ->tag('kernel.cache_warmer');
+        }
         $services->alias(IndexRegistry::class, 'fuzzphony.registry');
 
         $services->set('fuzzphony', Fuzzphony::class)

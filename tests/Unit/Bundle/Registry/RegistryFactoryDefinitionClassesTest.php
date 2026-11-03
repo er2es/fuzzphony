@@ -114,4 +114,36 @@ final class RegistryFactoryDefinitionClassesTest extends TestCase
 
         self::assertEquals($first->get('articles_admin'), $second->get('articles_admin'));
     }
+
+    public function testAPoolThatCannotBeWrittenNeverBreaksDiscovery(): void
+    {
+        $throwing = new class extends ArrayAdapter {
+            public function save(\Psr\Cache\CacheItemInterface $item): bool
+            {
+                throw new \RuntimeException('read-only');
+            }
+        };
+        $refusing = new class extends ArrayAdapter {
+            public function save(\Psr\Cache\CacheItemInterface $item): bool
+            {
+                return false;
+            }
+        };
+
+        foreach ([$throwing, $refusing] as $pool) {
+            $registry = RegistryFactory::create([], cache: $pool, cacheInCli: true, definitionClasses: [new ArticleAdminIndex()]);
+            self::assertSame(['articles_admin'], array_keys($registry->all()));
+        }
+    }
+
+    public function testTheWarmerFillsTheCacheAndIsANoOpWithoutOne(): void
+    {
+        $cache = new ArrayAdapter();
+        $warmer = new \Fuzzphony\Bundle\Registry\RegistryCacheWarmer([], null, $cache, null, true, [new ArticleAdminIndex()]);
+
+        self::assertTrue($warmer->isOptional());
+        self::assertSame([], $warmer->warmUp('/tmp'));
+        self::assertTrue($cache->getItem('fuzzphony_discovered_definition_classes')->isHit());
+        self::assertSame([], (new \Fuzzphony\Bundle\Registry\RegistryCacheWarmer([], null, null, null, true, []))->warmUp('/tmp'));
+    }
 }
