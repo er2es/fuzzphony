@@ -160,7 +160,7 @@ final class GrantsMatrixTest extends TestCase
 
             public function transactional(callable $callback): mixed
             {
-                return $callback();
+                return $callback($this);
             }
 
             public function inTransaction(): bool
@@ -192,7 +192,7 @@ final class GrantsMatrixTest extends TestCase
 
             public function transactional(callable $callback): mixed
             {
-                return $callback();
+                return $callback($this);
             }
 
             public function inTransaction(): bool

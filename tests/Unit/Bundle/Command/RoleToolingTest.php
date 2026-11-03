@@ -46,7 +46,7 @@ final class RoleToolingTest extends TestCase
 
             public function transactional(callable $callback): mixed
             {
-                return $callback();
+                return $callback($this);
             }
 
             public function inTransaction(): bool
