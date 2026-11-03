@@ -171,8 +171,6 @@ null and the statements are exactly the ones of a search without it; with it the
 more than `limit` hits; at most 50 words per hit). A viewer who may not see a field gets no word of it and no name of it, whatever the
 query: the statement reads only the fields the viewer may search ([Security](security.md)).
 
-A `typo` match is reported only for words of at least `typo.min_length` characters (the same limit the search itself applies), so a hit that matched through a shorter typo word lists no entry for it.
-
 ## Query syntax
 
 End-user search text never throws. Malformed input is repaired and reported in

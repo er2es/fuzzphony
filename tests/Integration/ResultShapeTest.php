@@ -56,7 +56,7 @@ final class ResultShapeTest extends TestCase
             ->sync('manual')
             ->log($logged)
             ->build()
-            ->withSynonyms(Synonyms::fromEntries([['desk', 'table']]));
+            ->withSynonyms(Synonyms::fromEntries([['desk', 'table'], ['tv', 'telly']]));
         $guard = new class implements SearchGuard {
             public function check(IndexDefinition $index, Actor $actor, bool $charge = true): Access
             {
@@ -119,6 +119,17 @@ final class ResultShapeTest extends TestCase
         $viaTypo = array_values(array_filter($typo[1], static fn(array $m): bool => $m['via'] === 'typo'));
         self::assertNotSame([], $viaTypo);
         self::assertGreaterThan(0.0, $viaTypo[0]['similarity']);
+    }
+
+    /** `tv` is shorter than typo.min_length, so the search typo-matches its synonym `telly` (word_similarity 0.333 >= the flat 0.3): the explanation names that match. */
+    public function testAShortWordMatchedByTypoUnderAFlatSimilarityIsExplained(): void
+    {
+        $this->connection->execute("INSERT INTO fz_shape_doc VALUES (5, 'Tefal kettle', 'boils water', '', 1)");
+        $fz = $this->fuzzphony();
+        $fz->reindex('shape_docs');
+        $result = $fz->in('shape_docs')->query('tv')->thresholds(['typo' => ['mode' => 'always', 'similarity' => 0.3], 'rescue' => ['correct_when_empty' => false]])->explainMatches()->asSystem()->get();
+        self::assertSame([5], $result->ids());
+        self::assertSame([['field' => 'title', 'word' => 'tefal', 'via' => 'typo', 'similarity' => 0.333]], self::matchesById($result)[5]);
     }
 
     public function testMatchesAreOnlyComputedForThePageAndOnlyWhenAsked(): void

@@ -71,7 +71,7 @@ final readonly class MatchExplainer
             $fieldRows[] = sprintf('(%d, %s, CAST(%s AS boolean), x.%s::text)', $ord, $params->add($name), $params->add($index->field($name)?->fuzzy === true ? 't' : 'f'), Sql::ident('fld_' . $name));
         }
         $typo = $typoEnabled
-            ? sprintf('(d.fuzzy AND NOT q.synonym AND char_length(q.w) >= %d AND %s(q.w, t.token) >= %s)', $thresholds->typo->minLength, $similarity, $thresholds->typo->similarity === null ? FuzzyQueryCompiler::similaritySql('q.w', false) : Sql::float($thresholds->typo->similarity))
+            ? sprintf('(d.fuzzy AND char_length(q.w) >= %d AND %s(q.w, t.token) >= %s)', $thresholds->typo->minLength, $similarity, $thresholds->typo->similarity === null ? FuzzyQueryCompiler::similaritySql('q.w', false) : Sql::float($thresholds->typo->similarity))
             : 'false';
         $stem = sprintf('(length(to_tsvector(%1$s, t.token)) > 0 AND to_tsvector(%1$s, t.token) = to_tsvector(%1$s, q.w))', $config);
         $prefix = '(q.prefix AND left(t.token, char_length(q.w)) = q.w)';
