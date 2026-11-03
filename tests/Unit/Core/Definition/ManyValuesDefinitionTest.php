@@ -148,8 +148,8 @@ final class ManyValuesDefinitionTest extends TestCase
         $index = self::byBuilder();
 
         $array = (new ArrayExporter())->export($index);
-        self::assertSame(self::CITY, $array['fields']['city']['many'] ?? null);
-        self::assertSame(['type' => 'string', 'many' => self::CITY], $array['filters']['city'] ?? null);
+        self::assertSame(['name' => ['weight' => 'A', 'fuzzy' => true], 'city' => ['weight' => 'C', 'many' => self::CITY]], $array['fields'] ?? null);
+        self::assertSame(['city' => ['type' => 'string', 'many' => self::CITY]], $array['filters'] ?? null);
         self::assertEquals($index, (new ArrayDefinitionLoader())->load('customers', $array));
         self::assertStringContainsString("many: ['from' => 'address', 'key' => 'customer_id', 'column' => 'city', 'limit' => 20]", (new BuilderExporter())->export($index));
         self::assertFalse((new AttributeExporter())->supports($index), 'attributes cannot say it');

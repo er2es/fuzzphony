@@ -391,7 +391,7 @@ final class ManyValuesTest extends TestCase
     public function testTheDoctorWarnsWhenTheChildTableHasNoIndexOnItsKey(): void
     {
         $f = $this->install($this->definition());
-        $named = static fn($c): bool => str_contains($c->message, 'has no index that starts with "customer_id"');
+        $named = static fn(\Fuzzphony\Core\Inspection\Check $c): bool => str_contains($c->message, 'has no index that starts with "customer_id"');
 
         self::assertSame([], array_filter($f->inspect('customers')->checks, $named));
         $this->connection->execute('DROP INDEX mv_address_customer');
