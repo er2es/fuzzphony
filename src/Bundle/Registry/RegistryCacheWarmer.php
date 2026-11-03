@@ -4,7 +4,7 @@ declare(strict_types=1);
 
 namespace Fuzzphony\Bundle\Registry;
 
-use Fuzzphony\Core\Discovery\DoctrineIndexDiscovery;
+use Fuzzphony\Bridge\Doctrine\DoctrineIndexDiscovery;
 use Psr\Cache\CacheItemPoolInterface;
 use Symfony\Component\HttpKernel\CacheWarmer\CacheWarmerInterface;
 
