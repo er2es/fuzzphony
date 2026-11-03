@@ -47,9 +47,9 @@ final class MultiSourceIndexTest extends TestCase
         $this->connection->execute('DROP TABLE IF EXISTS fuzzphony_site, fuzzphony_site__next, fuzzphony_site__changes, fuzzphony_site__vocab, ms_product, ms_article, ms_legacy, ms_tag CASCADE');
     }
 
-    private function definition(string $sync = 'queue'): IndexDefinition
+    private function definition(string $sync = 'queue', string $level = 'statement'): IndexDefinition
     {
-        return self::builder($sync)->build();
+        return self::builder($sync)->triggerLevel($level)->build();
     }
 
     private static function builder(string $sync = 'queue'): IndexBuilder
@@ -151,9 +151,9 @@ final class MultiSourceIndexTest extends TestCase
     }
 
     #[DataProvider('syncModes')]
-    public function testAChangeRefreshesOnlyItsOwnSource(string $sync): void
+    public function testAChangeRefreshesOnlyItsOwnSource(string $sync, string $level): void
     {
-        $index = $this->definition($sync);
+        $index = $this->definition($sync, $level);
         $fuzzphony = $this->install($index);
         $before = $this->stamps();
 
@@ -167,11 +167,13 @@ final class MultiSourceIndexTest extends TestCase
         self::assertSame([2], $this->productIds($fuzzphony, 'trackball'));
     }
 
-    /** @return iterable<string, array{string}> */
+    /** @return iterable<string, array{string, string}> */
     public static function syncModes(): iterable
     {
-        yield 'queue' => ['queue'];
-        yield 'trigger' => ['trigger'];
+        yield 'queue, statement level (the shared trigger)' => ['queue', 'statement'];
+        yield 'queue, row level' => ['queue', 'row'];
+        yield 'trigger, statement level' => ['trigger', 'statement'];
+        yield 'trigger, row level' => ['trigger', 'row'];
     }
 
     /** @return list<int|string> */
@@ -188,9 +190,9 @@ final class MultiSourceIndexTest extends TestCase
     }
 
     #[DataProvider('syncModes')]
-    public function testATableReadByTwoSourcesRefreshesBoth(string $sync): void
+    public function testATableReadByTwoSourcesRefreshesBoth(string $sync, string $level): void
     {
-        $index = $this->definition($sync);
+        $index = $this->definition($sync, $level);
         $fuzzphony = $this->install($index);
         $before = $this->stamps();
 
@@ -336,5 +338,50 @@ final class MultiSourceIndexTest extends TestCase
         self::assertStringContainsString('legacy: 0 of 2 (exact)', $coverage->message);
         self::assertStringContainsString('product: 3 of 3 (exact)', $coverage->message);
         self::assertSame('warning', $coverage->status->value);
+    }
+
+    public function testHighlightsAndMatchExplanationsFindTheRowOfTheRightKind(): void
+    {
+        $fuzzphony = $this->install($this->definition());
+
+        $hits = $fuzzphony->in('site')->query('mouse')->highlight('title')->explainMatches()->get()->hits;
+        $byKey = [];
+        foreach ($hits as $hit) {
+            $byKey[$hit->kind . ':' . $hit->id] = $hit;
+        }
+        self::assertSame('<mark>Mouse</mark>', $byKey['product:1']->highlights['title']);
+        self::assertSame('Choosing a <mark>mouse</mark>', $byKey['article:' . self::ARTICLE_A]->highlights['title']);
+        self::assertSame('Old <mark>mouse</mark> model', $byKey['legacy:EU-7']->highlights['title']);
+        self::assertNotSame([], $byKey['legacy:EU-7']->matches);
+    }
+
+    public function testRefreshByKeyAndTheSchemaCycle(): void
+    {
+        $index = $this->definition('manual');
+        $fuzzphony = $this->install($index);
+        $this->connection->execute("UPDATE ms_product SET name = 'Trackball' WHERE id = 2");
+
+        self::assertSame(1, $fuzzphony->refresh('site', ['product:2']));
+        self::assertSame([2], $this->productIds($fuzzphony, 'trackball'));
+        // a key of a row the source does not have removes the document
+        $this->connection->execute('DELETE FROM ms_product WHERE id = 3');
+        $fuzzphony->refresh('site', ['product:3']);
+        self::assertNotContains('product:3', $this->keys());
+
+        $fuzzphony->schema()->apply($this->connection);
+        $this->engine->dropSchema($index)->apply($this->connection);
+        self::assertNull($this->connection->fetchValue("SELECT to_regclass('fuzzphony_site')"));
+        self::assertSame(0, Coerce::int($this->connection->fetchValue("SELECT count(*) FROM fuzzphony_watches WHERE index_name = 'site'")));
+    }
+
+    public function testAHealthyMultiSourceIndexHasNoDoctorError(): void
+    {
+        $fuzzphony = $this->install($this->definition());
+
+        foreach ($fuzzphony->inspect('site')->checks as $check) {
+            self::assertNotSame('error', $check->status->value, $check->name . ': ' . $check->message);
+        }
+        $watches = $this->connection->fetchAll("SELECT source, tbl FROM fuzzphony_watches WHERE index_name = 'site' ORDER BY watch_no");
+        self::assertSame(['product', 'product', 'article', 'article', 'legacy'], array_column($watches, 'source'));
     }
 }
