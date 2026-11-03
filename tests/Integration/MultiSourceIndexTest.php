@@ -123,6 +123,7 @@ final class MultiSourceIndexTest extends TestCase
         $hits = $fuzzphony->in('site')->query('mouse')->get()->hits;
         $found = [];
         foreach ($hits as $hit) {
+            self::assertSame("site", $hit->index);
             $found[$hit->kind . ':' . $hit->id] = $hit->id;
         }
         self::assertSame(1, $found['product:1'], 'a product id stays an int');

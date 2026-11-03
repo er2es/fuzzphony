@@ -44,6 +44,7 @@ final class FederatedSearchTest extends TestCase
 
         // "sony" is brand 3 and the brand of the headphones (3) and the torch (5): rank 1 of each index first, then the rest
         self::assertSame('products', $result->hits[0]->kind);
+        self::assertSame('products', $result->hits[0]->index);
         self::assertSame('brands:3', self::order($result)[1]);
         self::assertEqualsCanonicalizing(['products:3', 'products:5', 'brands:3'], self::order($result));
         self::assertSame($result->hits[0]->mergedScore, $result->hits[1]->mergedScore, 'rank 1 of each index');

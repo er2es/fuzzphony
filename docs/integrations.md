@@ -8,12 +8,31 @@ Doctrine, API Platform, Symfony UX Live Component and Messenger. Back to the
 - `Fuzzphony\Bridge\Doctrine\EntityLoader` turns search results into entities with one query,
   keeping the ranking order. In `queue` mode it skips hits whose row no longer exists,
   and hits whose id cannot be an id of the entity (the string `article-1` of a federated result for an integer key); `FuzzphonySearchFilter` does the same.
+- `EntityLoader::loadHits()` loads hits of several sources or indexes without naming a class ([below](#loading-mixed-results)).
 - `Fuzzphony\Bridge\Doctrine\DbalConnection` runs Fuzzphony on an existing Doctrine DBAL
   connection. The Symfony bundle uses the connection named in `fuzzphony.connection` (default
   `default`).
 - `orm` sync mode refreshes documents after `flush()` through an ORM listener (see
   [Keeping the index in sync](sync.md)).
 - With the bundle, every Doctrine entity with `#[Searchable]` is registered as an index.
+
+### Loading mixed results
+
+A [multi-source index](configuration.md#several-sources-in-one-index) or a [federated search](searching.md#federated-search) returns hits of
+different entities. `loadHits()` needs no class: each hit's class is the `entity` of its source (`$hit->kind` inside the index
+`$hit->index`) or, for a single-source index, the `entity` of the index definition.
+
+```php
+$result = $fuzzphony->in('site')->query('mouse')->get();      // or ->federated()...->get(), or a list of Hit
+$entities = $loader->loadHits($result);                       // list<object>: Product, Article, Product, ... in rank order
+```
+
+- **One query per entity class**, not per hit: ids are grouped by class, and an id that cannot be an id of the class (a string for an
+  integer key) is skipped, as in `load()`. Typed ids work as they are: an `int` for the product, a uuid string for the article.
+- **Rank order** is kept across the classes. A hit is skipped, without an exception, when its entity was deleted meanwhile or when its
+  source or index names **no** entity class.
+- The loader needs the `Fuzzphony` service to find the definitions: the bundle wires it (`new EntityLoader($entityManager, $fuzzphony)`
+  without the bundle). `load($result, Article::class)` for a single class is unchanged.
 
 ## Doctrine Migrations
 

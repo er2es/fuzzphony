@@ -123,8 +123,8 @@
                 <ul class="list">
                     {% for h in federated.hits %}
                         <li class="row no-lead">
-                            <span class="flag lang-flag">{{ h.kind|replace({'lang_': ''}) }}</span>
-                            <div class="row-body"><div class="row-title" lang="{{ h.kind|replace({'lang_': ''}) }}">{{ federatedNames[h.kind][h.id] ?? h.id }}</div></div>
+                            <span class="flag lang-flag">{{ h.index|replace({'lang_': ''}) }}</span>
+                            <div class="row-body"><div class="row-title" lang="{{ h.index|replace({'lang_': ''}) }}">{{ federatedNames[h.index][h.id] ?? h.id }}</div></div>
                             <div class="row-trailing muted" title="Rank in the merged list">#{{ loop.index }}</div>
                         </li>
                     {% else %}

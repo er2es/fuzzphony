@@ -50,7 +50,7 @@ final class LanguagesController extends AbstractController
                 }
                 $federated = $search->query($q)->limit(10)->get();
                 foreach (Languages::LANGUAGES as $otherCode => $other) {
-                    if (array_any($federated->hits, static fn ($h): bool => $h->kind === $other['index'])) {
+                    if (array_any($federated->hits, static fn ($h): bool => $h->index === $other['index'])) {
                         foreach ($languages->products($otherCode) as $id => $product) {
                             $federatedNames[$other['index']][$id] = $product['name'];
                         }

@@ -6,13 +6,69 @@ namespace Fuzzphony\Bridge\Doctrine;
 
 use Doctrine\ORM\EntityManagerInterface;
 use Doctrine\ORM\Mapping\ClassMetadata;
+use Fuzzphony\Core\Fuzzphony;
+use Fuzzphony\Core\Search\FederatedResult;
 use Fuzzphony\Core\Search\Hit;
 use Fuzzphony\Core\Search\SearchResult;
 
 /** Turns hits into entities with ONE query, keeping the ranking order. */
 final readonly class EntityLoader
 {
-    public function __construct(private EntityManagerInterface $entityManager) {}
+    /** @param Fuzzphony|null $fuzzphony needed by loadHits() only: it tells which entity class a hit's index or source maps to */
+    public function __construct(private EntityManagerInterface $entityManager, private ?Fuzzphony $fuzzphony = null) {}
+
+    /**
+     * Loads the entities of hits of any index and source, without naming a class: a hit's entity class is the `entity` of its source
+     * (a multi-source index) or of its index definition (a single-source index). ONE query per entity class, however many hits and
+     * indexes; the entities come back in the rank order of the hits (interleaved across classes). A hit is skipped, without an
+     * exception, when its entity was deleted meanwhile, when its id cannot be an id of the class, or when its source or index
+     * names no entity class.
+     *
+     * @param iterable<Hit>|SearchResult|FederatedResult $hits
+     *
+     * @return list<object>
+     *
+     * @throws \LogicException when the loader was built without a Fuzzphony service
+     */
+    public function loadHits(iterable|SearchResult|FederatedResult $hits): array
+    {
+        $fuzzphony = $this->fuzzphony ?? throw new \LogicException('EntityLoader::loadHits() needs the Fuzzphony service: new EntityLoader($entityManager, $fuzzphony).');
+        $list = $hits instanceof SearchResult || $hits instanceof FederatedResult ? $hits->hits : array_values([...$hits]);
+        $classes = [];
+        $idsOf = [];
+        foreach ($list as $position => $hit) {
+            $definition = $fuzzphony->definition($hit->index);
+            $class = $definition->isMultiSource() ? $definition->sourceNamed($hit->kind)?->entityClass : $definition->entityClass;
+            if ($class !== null) {
+                $classes[$position] = $class;
+                $idsOf[$class][] = $hit->id;
+            }
+        }
+
+        $entities = [];
+        foreach ($idsOf as $class => $ids) {
+            $metadata = $this->entityManager->getClassMetadata($class);
+            $idField = $metadata->getIdentifierFieldNames()[0];
+            $fitting = self::fittingIds($metadata, $idField, $ids);
+            if ($fitting === []) {
+                continue;
+            }
+            foreach ($this->entityManager->getRepository($class)->findBy([$idField => $fitting]) as $entity) {
+                $id = $metadata->getIdentifierValues($entity)[$idField] ?? null;
+                $entities[$class][(string) (is_scalar($id) || $id instanceof \Stringable ? $id : '')] = $entity;
+            }
+        }
+
+        $out = [];
+        foreach ($list as $position => $hit) {
+            $entity = isset($classes[$position]) ? ($entities[$classes[$position]][(string) $hit->id] ?? null) : null;
+            if ($entity !== null) {
+                $out[] = $entity;
+            }
+        }
+
+        return $out;
+    }
 
     /**
      * @template T of object

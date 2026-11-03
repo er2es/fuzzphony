@@ -219,7 +219,7 @@ $people = $fuzzphony->in('people')->query('kovacs')->get();   // ids [1]
 
 $both = $fuzzphony->federated()->index('items')->index('people')->query('debrecen')->get();
 foreach ($both as $hit) {
-    echo $hit->kind, ' ', $hit->id, "\n";                    // items 2, people 1, people 2
+    echo $hit->index, ' ', $hit->id, "\n";                    // items 2, people 1, people 2
 }
 ```
 
@@ -240,20 +240,20 @@ $result = $fuzzphony->federated()
     ->get();
 
 foreach ($result as $hit) {
-    echo $hit->kind, ' ', $hit->id, ' ', $hit->mergedScore; // the index, its own id, the merged score
+    echo $hit->index, ' ', $hit->id, ' ', $hit->mergedScore; // the index, its own id, the merged score
 }
 ```
 
-A hit is the index's own `Hit` (`->id`, its own `->score` and highlights) with `->kind`, the index it comes from, and `->mergedScore`. The scores
+A hit is the index's own `Hit` (`->id`, its own `->score` and highlights) with `->index`, the index it comes from, `->kind`, the source inside that index (the index name for a single-source index), and `->mergedScore`. The scores
 of different indexes are not comparable ([limitations](limitations.md#scores-are-not-stable)), so the lists are merged by
 rank: the best hit of each index first. The ids are those of each index (`people` 1 and `companies` 1 are different rows):
-use `$hit->kind` to tell them apart and load each kind from its own table.
+use `$hit->index` (and `$hit->kind`) to tell them apart and load each from its own table, or let the [`EntityLoader`](integrations.md#loading-mixed-results) do it.
 
 ### Several sources in one index
 
 One list with one ranking over unrelated tables is **one index with several sources**: the index declares its fields, filters and
 settings once, and every source is a named `SELECT` that aliases its own columns to those fields. A hit says which source it comes
-from (`$hit->kind`) and carries that source's own id (an `int`, a uuid string, a composite text), so nothing is split by hand.
+from (`$hit->kind`; `$hit->index` is the index) and carries that source's own id (an `int`, a uuid string, a composite text), so nothing is split by hand.
 
 ```yaml
 fuzzphony:
@@ -308,6 +308,13 @@ What a source is:
 other settings (`fields`, `filters`, `language`, `boost`, `recency`, `profiles`, `thresholds`, `tenant`, `sync`, ...) are declared once and
 apply to every source. Results, filters, facets, highlights, did-you-mean, restricted viewers (`granted` fields) and tenants behave as for a
 single source; a tenant filter column must come from every source.
+
+Loading the entities of mixed hits (one query per class, rank order kept):
+
+```php
+foreach ($entityLoader->loadHits($fuzzphony->in('site')->query('mouse')->get()) as $entity) {   // Product, Article, ...
+}
+```
 
 How it is stored: [Multi-source indexes: how it is stored](architecture.md#multi-source-indexes-how-it-is-stored). To refresh one document
 by hand, give its key: `$fuzzphony->refresh('site', ['product:5'])`. To rebuild one source only, `fuzzphony:reindex site --source=article`

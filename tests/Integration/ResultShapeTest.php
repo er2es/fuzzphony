@@ -90,8 +90,9 @@ final class ResultShapeTest extends TestCase
         self::assertEquals($data, json_decode((string) json_encode($result), true), 'json_encode() writes toArray()');
         self::assertSame(['hits', 'total', 'totalIsLowerBound', 'facets', 'didYouMean', 'correctedFrom', 'correctedTo', 'warnings', 'tookMs'], array_keys($data));
         self::assertSame(4, $data['total']);
-        self::assertSame(['kind', 'id', 'score', 'breakdown', 'highlights', 'mergedScore', 'matches'], array_keys($data['hits'][0]));
+        self::assertSame(['index', 'kind', 'id', 'score', 'breakdown', 'highlights', 'mergedScore', 'matches'], array_keys($data['hits'][0]));
         self::assertSame('shape_docs', $data['hits'][0]['kind']);
+        self::assertSame('shape_docs', $data['hits'][0]['index']);
         self::assertIsInt($data['hits'][0]['id']);
         self::assertNull($data['hits'][0]['matches'], 'not asked for');
         self::assertSame([['value' => 1, 'count' => 2], ['value' => 2, 'count' => 2]], $data['facets']['tid']);
