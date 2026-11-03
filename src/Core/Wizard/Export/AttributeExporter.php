@@ -13,7 +13,7 @@ use Fuzzphony\Core\Ranking\RankingProfile;
 use Fuzzphony\Core\Ranking\Thresholds;
 
 /**
- * Emits the attributes to put on a Doctrine entity. Only table sources without extra watches, ranking
+ * Emits the attributes to put on a Doctrine entity. Only table sources without extra watches, returnable columns, ranking
  * profiles and thresholds can be expressed with attributes (they have no place in #[Searchable]); for the
  * others use YAML or the builder (supports() tells which).
  *
@@ -23,7 +23,7 @@ final class AttributeExporter
 {
     public function supports(IndexDefinition $index): bool
     {
-        return $index->source->table !== null && $index->watches === [] && !$this->hasProfilesOrThresholds($index);
+        return $index->source->table !== null && $index->watches === [] && $index->returnable === [] && !$this->hasProfilesOrThresholds($index);
     }
 
     private function hasProfilesOrThresholds(IndexDefinition $index): bool

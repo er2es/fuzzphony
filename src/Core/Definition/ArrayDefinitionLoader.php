@@ -19,6 +19,7 @@ use Fuzzphony\Core\Support\Closest;
  *     sources: { product: { query: "SELECT ...", watch: { ... }, entity: App\Product, id_type: int }, article: { table: article, id_type: uuid } }
  *     fields: { name: { weight: A, fuzzy: true }, description: C, salary: { weight: B, granted: ROLE_HR } }
  *     filters: { price: int, in_stock: bool }
+ *     returnable: [name, slug, price]   # source columns SearchBuilder::with() may return (per source: sources.<name>.returnable)
  *     watch: { brand: { ids: "SELECT id FROM product WHERE brand_id = :id", columns: [name] } }
  *     sync: queue
  *     trigger_level: statement   # or row
@@ -37,13 +38,13 @@ use Fuzzphony\Core\Support\Closest;
  */
 final class ArrayDefinitionLoader
 {
-    private const array KEYS = ['source', 'sources', 'id_type', 'fields', 'filters', 'watch', 'sync', 'language', 'unaccent', 'boost', 'recency', 'profiles', 'thresholds', 'class', 'trigger_level', 'tenant', 'synonyms', 'log'];
+    private const array KEYS = ['source', 'sources', 'id_type', 'fields', 'filters', 'watch', 'sync', 'language', 'unaccent', 'boost', 'recency', 'profiles', 'thresholds', 'class', 'trigger_level', 'tenant', 'synonyms', 'log', 'returnable'];
 
     /** What an override can change on an index its attributes define; the other keys describe the index itself. */
-    private const array OVERRIDABLE = ['watch', 'sync', 'language', 'unaccent', 'boost', 'recency', 'profiles', 'thresholds', 'trigger_level', 'tenant', 'synonyms', 'log'];
+    private const array OVERRIDABLE = ['watch', 'sync', 'language', 'unaccent', 'boost', 'recency', 'profiles', 'thresholds', 'trigger_level', 'tenant', 'synonyms', 'log', 'returnable'];
 
     private const array SOURCE_KEYS = ['table', 'query', 'query_file', 'id'];
-    private const array SOURCES_KEYS = ['table', 'query', 'query_file', 'id', 'watch', 'entity', 'id_type'];
+    private const array SOURCES_KEYS = ['table', 'query', 'query_file', 'id', 'watch', 'entity', 'id_type', 'returnable'];
     private const array FIELD_KEYS = ['weight', 'fuzzy', 'highlight', 'column', 'granted', 'code'];
     private const array FILTER_KEYS = ['type', 'column'];
     private const array WATCH_KEYS = ['ids', 'key', 'columns'];
@@ -84,6 +85,7 @@ final class ArrayDefinitionLoader
             $builder->watch($table, self::str($options['ids'] ?? null, 'SELECT :id'), self::str($options['key'] ?? null, 'id'), self::stringList($name, $options['columns'] ?? null));
         }
 
+        $builder->returnable(...self::returnableList($config['returnable'] ?? null));
         $this->apply($builder, $config, $name);
         if (is_string($config['class'] ?? null) && class_exists($config['class'])) {
             $builder->entity($config['class']);
@@ -106,11 +108,12 @@ final class ArrayDefinitionLoader
             /** @var class-string|null $entity */
             $idType = isset($options['id_type']) ? self::str($options['id_type'], '') : null;
             $id = self::str($options['id'] ?? null, 'id');
+            $returnable = self::returnableList($options['returnable'] ?? null);
             $source = (string) $source;
             match (true) {
-                isset($options['query']) => $builder->source($source, self::str($options['query'], ''), $entity, $watch, $idType, $id),
-                isset($options['query_file']) => $builder->source($source, QueryFile::read($index, self::str($options['query_file'], ''), $this->baseDir), $entity, $watch, $idType, $id),
-                default => $builder->sourceFromTable($source, self::str($options['table'] ?? null, $source), $entity, $watch, $idType, $id),
+                isset($options['query']) => $builder->source($source, self::str($options['query'], ''), $entity, $watch, $idType, $id, $returnable),
+                isset($options['query_file']) => $builder->source($source, QueryFile::read($index, self::str($options['query_file'], ''), $this->baseDir), $entity, $watch, $idType, $id, $returnable),
+                default => $builder->sourceFromTable($source, self::str($options['table'] ?? null, $source), $entity, $watch, $idType, $id, $returnable),
             };
         }
     }
@@ -156,6 +159,9 @@ final class ArrayDefinitionLoader
         if (isset($config['thresholds'])) {
             $merged = $merged->withThresholds($this->scoped($name, 'thresholds', static fn(): Thresholds => $definition->thresholds->with(self::map($config['thresholds']))));
         }
+        if ($definition->isMultiSource() && isset($config['returnable'])) {
+            throw new InvalidDefinition($name, [sprintf('"returnable" cannot be set by a YAML override on index "%s": its columns belong to its sources, declared where the index is defined.', $name)]);
+        }
         if ($definition->isMultiSource() && isset($config['watch'])) {
             throw new InvalidDefinition($name, [sprintf('"watch" cannot be set by a YAML override on index "%s": its watches belong to its sources, declared where the index is defined.', $name)]);
         }
@@ -165,6 +171,9 @@ final class ArrayDefinitionLoader
             $watches[] = new Watch($table, self::str($options['ids'] ?? null, 'SELECT :id'), self::str($options['key'] ?? null, 'id'), self::stringList($name, $options['columns'] ?? null));
         }
         $merged = $merged->withWatches($watches);
+        if (isset($config['returnable']) && !$definition->isMultiSource()) {
+            $merged = $merged->withReturnable(self::returnableList($config['returnable']));
+        }
         DefinitionValidator::assertValid($merged);
 
         return $merged;
@@ -282,6 +291,12 @@ final class ArrayDefinitionLoader
         )]);
     }
 
+    /** @return list<string> */
+    private static function returnableList(mixed $value): array
+    {
+        return is_array($value) ? array_values(array_filter($value, 'is_string')) : [];
+    }
+
     /**
      * Every structural problem of the configuration in one InvalidDefinition: unknown keys at every level (with a
      * "did you mean"), values of the wrong shape (a list where a map belongs, a string where a boolean belongs; the
@@ -320,12 +335,21 @@ final class ArrayDefinitionLoader
             $this->assertEntries($problems, 'filters', $config['filters'] ?? null, 'a filter type', self::FILTER_KEYS, 'filter', 'filters: { price: int }');
         }
         $this->assertEntries($problems, 'watch', $config['watch'] ?? null, 'a query returning the affected ids', self::WATCH_KEYS, 'watch', 'watch: { product: "SELECT :id" }');
+        self::assertReturnable($problems, '"returnable"', $config['returnable'] ?? null);
         $this->assertProfiles($problems, $config['profiles'] ?? null);
         if (isset($config['thresholds']) && !self::isMap($config['thresholds'])) {
             $problems[] = sprintf('"thresholds" must be a map of options (e.g. thresholds: { relevance: { min_score: 0.1 } }), got %s.', self::shape($config['thresholds']));
         }
         if ($problems !== []) {
             throw new InvalidDefinition($name, $problems);
+        }
+    }
+
+    /** @param list<string> $problems */
+    private static function assertReturnable(array &$problems, string $what, mixed $value): void
+    {
+        if ($value !== null && (!is_array($value) || !array_is_list($value) || array_filter($value, 'is_string') !== $value)) {
+            $problems[] = sprintf('%s must be a list of source column names (e.g. returnable: [title, slug, price]), got %s.', $what, self::shape($value));
         }
     }
 
@@ -373,6 +397,7 @@ final class ArrayDefinitionLoader
             if (isset($options['entity']) && (!is_string($options['entity']) || !class_exists($options['entity']))) {
                 $problems[] = sprintf('%s: "entity" must be the name of an existing class, got %s.', $at, self::describe($options['entity']));
             }
+            self::assertReturnable($problems, $at . ': "returnable"', $options['returnable'] ?? null);
             if (isset($options['watch'])) {
                 $this->assertEntries($problems, 'watch', $options['watch'], 'a query returning the affected ids', self::WATCH_KEYS, 'watch', 'watch: { product: "SELECT :id" }');
             }

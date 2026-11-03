@@ -52,8 +52,10 @@ final class DefinitionValidator
                 }
                 $names[$one->name] = true;
                 array_push($v, ...self::validateSource($index, $one->source, $one->watches, $label));
+                array_push($v, ...self::validateReturnable($one->returnable, $label));
             }
         }
+        array_push($v, ...self::validateReturnable($index->returnable, ''));
 
         if ($index->fields === []) {
             $v[] = 'At least one searchable field is required, e.g. ->field("name", "A").';
@@ -119,6 +121,28 @@ final class DefinitionValidator
             if ($profile->recency > 0.0 && $index->recencyColumn === null) {
                 $v[] = sprintf('Profile "%s" uses recency, but the index has no recency column. Call recencyBy("published_at") or set recency to 0.', $name);
             }
+        }
+
+        return $v;
+    }
+
+    /**
+     * @param list<string> $returnable
+     *
+     * @return list<string>
+     */
+    private static function validateReturnable(array $returnable, string $label): array
+    {
+        $v = [];
+        $seen = [];
+        foreach ($returnable as $column) {
+            if (!Identifier::isColumn($column)) {
+                $v[] = $label . sprintf('Returnable column "%s" is not a valid column name.', $column);
+            }
+            if (isset($seen[$column])) {
+                $v[] = $label . sprintf('Returnable column "%s" is listed twice.', $column);
+            }
+            $seen[$column] = true;
         }
 
         return $v;

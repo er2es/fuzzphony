@@ -77,6 +77,9 @@ final class ArrayExporter
         if (!$index->log) {
             $out['log'] = false;
         }
+        if ($index->returnable !== []) {
+            $out['returnable'] = $index->returnable;
+        }
         if (!$index->synonyms->isEmpty()) {
             $out['synonyms'] = $index->synonyms->toEntries();
         }
