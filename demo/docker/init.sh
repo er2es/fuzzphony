@@ -121,7 +121,8 @@ for index in catalog lang_en lang_de lang_fr lang_es lang_hu intranet; do
 done
 
 # Read access to the catalogue (and to edit the synonym lists), and to Fuzzphony's own schema what the search, the sync triggers and the worker need
-# (the index tables, the sync queue, the version table); no DDL anywhere.
+# (the index tables, the sync queue and watch log, the version table); no DDL anywhere. This is the search + worker role of docs/roles.md
+# (init itself is the owner/admin); `bin/console fuzzphony:schema <index> --dump-grants --role=search|worker` prints the narrow grants a stricter install would use.
 log "granting $APP_ROLE access"
 psql -q -v ON_ERROR_STOP=1 -v role="$APP_ROLE" <<'SQL'
 GRANT USAGE ON SCHEMA public TO :"role";

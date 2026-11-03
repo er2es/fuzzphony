@@ -365,3 +365,5 @@ warmup happening on every start). Image size: `fuzzphony-demo/php`
 Idle memory (`docker stats`, no load): `web` ~5-7 MB / 128 MB limit, `php` ~40-60 MB / 768 MB, `worker`
 ~20 MB / 256 MB, `db` ~135-195 MB / 1 GB — versus the old single `app` container at ~38-60 MB (it did
 less: dev-mode `php -S`, no opcache preload, one process).
+
+**Database roles.** The demo is the worked example of [docs/roles.md](../docs/roles.md): `fuzzphony_app` (php-fpm and the worker) is the search + worker role without DDL, and the init container, which applies the schema and reindexes, is the owner/admin.
