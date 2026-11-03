@@ -9,6 +9,7 @@ use Fuzzphony\Core\Database\Connection;
 use Fuzzphony\Core\Definition\IndexDefinition;
 use Fuzzphony\Core\Definition\Synonyms;
 use Fuzzphony\Core\Engine\Engine;
+use Fuzzphony\Core\Engine\OperationalStats;
 use Fuzzphony\Core\Inspection\InspectionReport;
 use Fuzzphony\Core\Inspection\InspectOptions;
 use Fuzzphony\Core\Observability\MetricsCollector;
@@ -38,7 +39,7 @@ use Fuzzphony\Engine\Postgres\Wizard\PostgresIntrospector;
  *
  * @internal
  */
-final class PostgresEngine implements Engine
+final class PostgresEngine implements Engine, OperationalStats
 {
     private readonly Names $names;
     private readonly PostgresSchemaGenerator $schema;
@@ -204,6 +205,11 @@ final class PostgresEngine implements Engine
     public function queueSize(IndexDefinition $index): int
     {
         return $this->maintenance->queueSize($index);
+    }
+
+    public function operationalStats(IndexDefinition $index): array
+    {
+        return $this->maintenance->operationalStats($index);
     }
 
     public function rebuildRequestedSources(IndexDefinition $index): array

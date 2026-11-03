@@ -7,6 +7,8 @@ namespace Fuzzphony\Bundle\Command;
 use Fuzzphony\Core\Definition\IndexSource;
 use Fuzzphony\Core\Exception\FuzzphonyException;
 use Fuzzphony\Core\Fuzzphony;
+use Fuzzphony\Core\Observability\MetricsCollector;
+use Fuzzphony\Core\Observability\NullMetricsCollector;
 use Fuzzphony\Core\Support\Coerce;
 use Fuzzphony\Core\Support\ErrorSummary;
 use Fuzzphony\Core\Sync\ReindexOptions;
@@ -26,8 +28,10 @@ use Symfony\Component\Console\Style\SymfonyStyle;
 #[AsCommand(name: 'fuzzphony:reindex', description: 'Rebuild index documents from the source in resumable batches')]
 final class ReindexCommand extends Command
 {
-    public function __construct(private readonly Fuzzphony $fuzzphony)
-    {
+    public function __construct(
+        private readonly Fuzzphony $fuzzphony,
+        private readonly MetricsCollector $metrics = new NullMetricsCollector(),
+    ) {
         parent::__construct();
     }
 
@@ -124,6 +128,7 @@ final class ReindexCommand extends Command
             }
             $io->writeln(sprintf('  <info>%s documents in %.1fs</info>', number_format($result->written), microtime(true) - $started));
             foreach ($result->perSource as $name => $count) {
+                $this->metrics->increment('fuzzphony.reindex.documents', ['index' => $index->name, 'source' => $name], $count);
                 $io->writeln(sprintf('  source "%s": %s documents', $name, number_format($count)));
             }
             if ($result->vocabulary !== null) {
