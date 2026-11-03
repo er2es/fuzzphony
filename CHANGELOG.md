@@ -33,6 +33,7 @@ and a link. Measurements, proofs and test names belong to the pull request, [doc
 
 ### Fixed
 
+- **Bundle:** a discovery cache that cannot be written (read-only `cache.system` directory) no longer fails or logs "Failed to save key" on every request; `cache:warmup` now fills it in prod, so an immutable image needs no change.
 - **Doctor:** the `Field columns` and filter checks no longer report a `many` field or filter as missing from the source query (its values come from the child table).
 
 ## [0.10.1] - 2026-11-03

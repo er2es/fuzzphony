@@ -71,7 +71,7 @@ final class RegistryFactory
             }
         }
         $definitions = $discovery->discover();
-        $cache->save($item->set($definitions));
+        self::store($cache, $item->set($definitions));
 
         return $definitions;
     }
@@ -100,9 +100,18 @@ final class RegistryFactory
             $definitions[$service::class] = IndexDefinitionClass::fromInstance($service);
         }
         if ($cache !== null && $item !== null) {
-            $cache->save($item->set($definitions));
+            self::store($cache, $item->set($definitions));
         }
 
         return $definitions;
+    }
+
+    /** A cache that cannot be written (a read-only directory, a full disk) only costs the next request the discovery: never an error. */
+    private static function store(CacheItemPoolInterface $cache, \Psr\Cache\CacheItemInterface $item): void
+    {
+        try {
+            $cache->save($item);
+        } catch (\Throwable) {
+        }
     }
 }
