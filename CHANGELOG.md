@@ -11,6 +11,16 @@ and a link. Measurements, proofs and test names belong to the pull request, [doc
 
 ## [Unreleased]
 
+## [0.10.1] - 2026-11-03
+
+A patch release: the benchmark workflow works again and `explainMatches()` explains short words, plus test hardening.
+
+### Fixed
+
+- **The Benchmark workflow** passes a field-restricting guard and searches as the system, as the 0.10 rule for `granted` fields requires (`benchmarks/run.php`).
+- **`explainMatches()`** names the typo match of a synonym alternative, so a hit found through a word shorter than `typo.min_length` (`tv` matched through `telly`) is explained ([Searching](docs/searching.md)).
+- **Test hardening:** exact-output tests for the role grants and the doctor's privilege messages, the search gate's tenant rule and log counts, the worker's stop and deadline handling, `QueryFile` paths and the client IP buckets.
+
 ## [0.10.0] - 2026-11-03
 
 The breaking release, gathered in one round so that 0.11 and 1.0 do not have to change the API again. The engine is sturdier (a mandatory schema apply, one
@@ -1140,7 +1150,8 @@ on its own:
 - Sync modes: queue (default), trigger, ORM, manual; watches for joined tables.
 - Doctor with fixes; CLI commands for schema, reindex, worker, search and explain.
 
-[Unreleased]: https://github.com/er2es/fuzzphony/compare/v0.10.0...HEAD
+[Unreleased]: https://github.com/er2es/fuzzphony/compare/v0.10.1...HEAD
+[0.10.1]: https://github.com/er2es/fuzzphony/compare/v0.10.0...v0.10.1
 [0.10.0]: https://github.com/er2es/fuzzphony/compare/v0.9.13...v0.10.0
 [0.9.13]: https://github.com/er2es/fuzzphony/compare/v0.9.12...v0.9.13
 [0.9.12]: https://github.com/er2es/fuzzphony/compare/v0.9.11...v0.9.12
