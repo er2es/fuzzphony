@@ -5,6 +5,8 @@ declare(strict_types=1);
 namespace App\Twig;
 
 use App\Service\CategoryStyle;
+use App\Service\Erp;
+use Fuzzphony\Core\Search\Hit;
 use App\Service\SettingHelp;
 use App\Service\Version;
 use Twig\Attribute\AsTwigFunction;
@@ -37,5 +39,19 @@ final readonly class InterfaceExtension
     public function settingHelp(string $key): array
     {
         return $this->help->get($key) ?? throw new \LogicException(sprintf('No help text for the setting "%s".', $key));
+    }
+
+    /** @return array{title: string, sub: string, label: string} the row of an ERP hit, from Hit::$data (the ERP page) */
+    #[AsTwigFunction('erp_row')]
+    public function erpRow(Hit $hit): array
+    {
+        return Erp::describe($hit);
+    }
+
+    /** @return list<string> the "found in ..." lines of an ERP hit, from Hit::$matches */
+    #[AsTwigFunction('erp_reasons')]
+    public function erpReasons(Hit $hit): array
+    {
+        return Erp::reasons($hit);
     }
 }
