@@ -17,7 +17,12 @@ and a link. Measurements, proofs and test names belong to the pull request, [doc
   several indexes; found as Symfony services or given by class name to `Fuzzphony::postgres()`, cached like attribute indexes ([Configuration](docs/configuration.md#definition-classes)).
 - **Multi-source indexes:** `sources:` (YAML), `->source()` / `->sourceFromTable()` (builder, definition classes) put several `SELECT`s into one index with shared fields, one ranking,
   per-source watches, entity and id type; hits carry `kind` and a typed `id`; `fuzzphony:reindex --source=` rebuilds one source ([Configuration](docs/configuration.md#several-sources-in-one-index)).
+- **`Hit::$index`** names the index of a hit (`kind` is the source inside it); **`EntityLoader::loadHits()`** loads mixed hits, one query per entity class, in rank order ([Integrations](docs/integrations.md#loading-mixed-results)).
 - **`FuzzphonySearchFilter`** takes `index:` to search a named index; `fuzzphony:doctor` shows where each definition came from.
+
+### Changed
+
+- **Federated results:** `Hit::$index` is the index; `Hit::$kind` is the source inside it (the same as the index name for single-source indexes) ([UPGRADE](UPGRADE.md)).
 
 ## [0.10.1] - 2026-11-03
 

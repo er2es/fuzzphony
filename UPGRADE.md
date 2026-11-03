@@ -10,8 +10,14 @@ and the [CHANGELOG](CHANGELOG.md) has the full list of changes.
 - **Index definition classes** (`#[AsIndexDefinition]`, public): several indexes per entity, see [Definition classes](docs/configuration.md#definition-classes). Nothing to do for
   existing indexes: attribute, YAML and builder definitions, fingerprints and the schema are unchanged.
 - **Multi-source indexes** (`sources:` in YAML, `->source()` / `->sourceFromTable()` on the builder, also in a definition class): several named `SELECT`s share one set of fields, with their own watches, entity and id type; hits carry `kind` and the source's typed id; `fuzzphony:reindex <index> --source=<name>` rebuilds one source ([Configuration](docs/configuration.md#several-sources-in-one-index)). Nothing to do for existing indexes: a single-source index keeps its sidecar, statements and fingerprint. The shared watch registry `fuzzphony_watches` gets a `source` column (`fuzzphony:schema --apply` adds it). Public API added: `IndexSource`, `IndexBuilder::source()`, `IndexBuilder::sourceFromTable()`, `ReindexOptions::$source`, `ReindexResult::$perSource`. Apply the release to every process (web, worker, console) before the first multi-source index is applied: earlier code cannot read its text key, and there is no schema-level downgrade.
+- **`Hit::$index`** (new) names the index a hit comes from; `Hit::$kind` is the source inside it (the index name for a single-source index). Both are in `toArray()` / JSON (`index`, `kind`). `new Hit(...)` (internal) takes an optional trailing `index`.
+- **`EntityLoader::loadHits()`** loads the entities of mixed hits (several sources or indexes, several entity classes) with one query per class ([Integrations](docs/integrations.md#loading-mixed-results)).
 - **`FuzzphonySearchFilter`** has an `index` argument (default: the index of the resource's entity).
 - `Fuzzphony::postgres()` also accepts the class names of definition classes next to `IndexDefinition` objects.
+
+### Changed
+
+- **Federated results:** use `$hit->index` for the index a hit comes from. `$hit->kind` is the hit's source: equal to the index name for single-source indexes (nothing changes for them), the source name for a multi-source index.
 
 ## From 0.9.13 to 0.10.0
 
@@ -167,7 +173,7 @@ The details of each change follow.
 - **`Fuzzphony::logSearch($index, $text, $hits, $tookMs, $actor, $usedFuzzy, $rescued, $system)`** records a search that was answered elsewhere without running it (no engine call, no guard),
   with the redaction, IP mode and actor rules of a search. It throws `InvalidArgument` when the index has `log: false` or the search log is off, and returns the `LoggedSearch`.
 - **`toArray()` and `json_encode()` of `SearchResult`, `Hit`, `FacetValue`, `MatchedWord`** with stable keys (`hits`, `total`, `totalIsLowerBound`, `facets`, `didYouMean`,
-  `correctedFrom`, `correctedTo`, `warnings`, `tookMs`; a hit: `kind`, `id`, `score`, `breakdown`, `highlights`, `mergedScore`, `matches`). The highlights are already HTML-escaped
+  `correctedFrom`, `correctedTo`, `warnings`, `tookMs`; a hit: `index`, `kind`, `id`, `score`, `breakdown`, `highlights`, `mergedScore`, `matches`). The highlights are already HTML-escaped
   (`<mark>` only); everything else is plain text ([Your own frontend](docs/integrations.md#your-own-frontend)).
 - **`->explainMatches()`** on the search builder adds `Hit::$matches` to the hits of the returned page: which word of which field matched and how (`exact`, `stem`, `prefix`,
   `typo` with its similarity, `synonym`). One more statement over the page's ids, only when asked; a restricted viewer gets no hidden field and no hidden word ([searching](docs/searching.md#what-matched)).

@@ -243,7 +243,7 @@ final readonly class SearchRunner
                 prefixBonus: Coerce::float($row['prefix_bonus']),
                 boostBonus: Coerce::float($row['boost_bonus']),
                 recencyBonus: Coerce::float($row['recency_bonus']),
-            ), $highlights[$key] ?? []);
+            ), $highlights[$key] ?? [], index: $index->name);
         }
 
         if ($query->explainMatches && $hits !== []) {
