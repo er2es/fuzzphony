@@ -1054,6 +1054,7 @@ await secContext.close();
     const siteKinds = await erp.locator('#results section').first().locator('.flag.is-ok').allTextContents();
     check('erp combined: the multi-source index says the kind of each hit (person, company, order)', siteKinds.length > 0 && siteKinds.every((k) => ['person', 'company', 'order'].includes(k.trim())), siteKinds.join(','));
     await go(erp, BASE + '/erp?tab=combined&mode=federated&q=kft');
+    check('erp combined: a single-source hit shows no kind badge (it equals its index)', (await erp.locator('#results .flag.is-ok').count()) === 0);
     check('erp combined: the federated mode alone lists hits of an index each', (await erp.locator('#results section').count()) === 1 && (await erp.locator('#results .flag').count()) > 0);
     check('erp combined: the difference table links the documentation', (await erp.locator('a[href*="searching.md#federated-search"]').count()) === 1);
     await go(erp, BASE + '/erp?tab=combined&q=ORD-2025');
