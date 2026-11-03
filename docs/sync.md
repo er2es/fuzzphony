@@ -58,9 +58,10 @@ the worker takes a batch (`fuzzphony_drain_<index>()`): changes are neither lost
 whose worker is stopped simply reads on from where it was, and a new index starts at the end of the log (it
 needs the first `fuzzphony:reindex` as before).
 
-- An entry is read once its transaction has ended and every transaction that started earlier has too, so a
-  transaction that commits late is never skipped. A long-running writing transaction (an import in one
-  transaction, a forgotten `BEGIN` after a write) therefore delays the sync of every index until it ends.
+- An entry is read once its transaction has ended and no writing transaction that started earlier is still open, so a
+  transaction that commits late is never skipped. Any open writing transaction of the **cluster** (an import in one
+  transaction, a forgotten `BEGIN` after a write, a prepared transaction nobody committed: see `pg_prepared_xacts`) holds the drain back,
+  and with it the sync of every index, until it ends.
 - `INSERT` on `fuzzphony_watch_log` is a trust boundary: the role that writes the watched tables must be trusted
   with it (any role that can insert there can write keys and TRUNCATE entries). A key that does not fit the source
   key (a forged or buggy writer) cannot stop the sync: the drain retries the batch key by key, skips the unusable

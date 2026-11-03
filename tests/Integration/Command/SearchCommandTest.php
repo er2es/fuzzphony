@@ -254,4 +254,21 @@ final class SearchCommandTest extends TestCase
         $this->tester->execute(['index' => 'products', 'query' => 'mo', '--as-you-type' => true], ['interactive' => false]);
         self::assertStringContainsString('3 hit(s)', $this->tester->getDisplay(true));
     }
+
+    public function testCompleteAppliesTheUserAndTheTenantToTheGuards(): void
+    {
+        $denying = new class implements SearchGuard {
+            public function check(IndexDefinition $index, Actor $actor, bool $charge = true): Access
+            {
+                throw AccessDenied::forIndex($index->name);
+            }
+        };
+        $gated = new Fuzzphony($this->context->engine, new IndexRegistry([Indexes::products()]), new SearchGate(guards: [$denying]));
+        $tester = new CommandTester(new SearchCommand($gated));
+
+        $status = $tester->execute(['index' => 'products', 'query' => 'wireless hea', '--complete' => true, '--user' => 'ada'], ['interactive' => false]);
+
+        self::assertSame(Command::FAILURE, $status, 'the guards see the named user');
+        self::assertStringContainsString('not granted', $tester->getDisplay(true));
+    }
 }

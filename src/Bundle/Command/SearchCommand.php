@@ -64,7 +64,16 @@ final class SearchCommand extends Command
             }
         }
         if ($input->getOption('complete') === true) {
-            $completions = $this->fuzzphony->complete(Coerce::str($input->getArgument('index')), Coerce::str($input->getArgument('query')), max(1, min(20, Coerce::int($input->getOption('limit')))));
+            $tenant = $input->getOption('tenant');
+            $user = $input->getOption('user');
+            $actor = is_string($tenant) || is_string($user) ? new Actor(is_string($tenant) ? $tenant : null, is_string($user) ? $user : null) : null;
+            try {
+                $completions = $this->fuzzphony->complete(Coerce::str($input->getArgument('index')), Coerce::str($input->getArgument('query')), max(1, min(20, Coerce::int($input->getOption('limit')))), $actor);
+            } catch (SearchRefused $e) {
+                $io->error($e->getMessage());
+
+                return Command::FAILURE;
+            }
             $io->writeln($completions === [] ? '<comment>No completions.</comment>' : array_map(static fn(string $c): string => OutputFormatter::escape($c), $completions));
 
             return Command::SUCCESS;

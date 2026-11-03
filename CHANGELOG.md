@@ -34,6 +34,11 @@ Start with the checklist in [UPGRADE](UPGRADE.md#from-0913-to-0100). The demo fo
 - **A search inside your own transaction runs under one savepoint** (`fuzzphony_search`); the worker prints only the exception class and SQLSTATE of a failure.
 - **The wizard's YAML writes lists as sequences** and multi-line texts exactly.
 
+- **An actor with a tenant never searches another tenant.** A `forTenant()` naming a different tenant (also for the current user) throws `AccessDenied`, whatever the order of
+  `asActor()` and `forTenant()`; `asSystem()` is the way across ([UPGRADE](UPGRADE.md#from-0913-to-0100), [multi-tenancy](docs/multi-tenancy.md)).
+- **A `granted` field needs a guard that can restrict fields** (`FieldRestrictingGuard`, which the authorization guard is); a rate limit alone no longer satisfies `Fuzzphony::postgres()`.
+  The public API grows to 77 types.
+
 ### Added
 
 - **Database roles:** `fuzzphony:schema --dump-grants`, `fuzzphony.connections` (`worker`, `admin`) and a doctor **Privileges** check ([Database roles](docs/roles.md)).
@@ -53,6 +58,13 @@ Start with the checklist in [UPGRADE](UPGRADE.md#from-0913-to-0100). The demo fo
 
 ### Fixed
 
+- **The worker role can no longer make the admin drop an application's trigger or function:** it holds `UPDATE (cur_xid)` only on `fuzzphony_watches`, the install function derives
+  the trigger function from the table (a hash keeps `public.x` and `public_x` apart, they used to collide) and removes only its own triggers.
+- **A failed rebuild stores the class and SQLSTATE, not the driver message** (it carried source row values); the `fuzzphony:reindex` command prints summaries of wrapped database failures.
+- **A forged or buggy change-log row with an unusable key no longer stops the sync of every index:** it is skipped and counted, and the doctor reports it
+  ([sync](docs/sync.md#one-trigger-per-table-one-change-log)).
+- **`Fuzzphony::logSearch()` takes `forTenant:`** (`system: true` on a tenant-scoped index used to throw); `fuzzphony:search --complete` applies `--user`/`--tenant`; a missing query file and
+  one outside the project give the same message.
 - **`fuzzphony:schema --apply` no longer locks tables it does not change:** a column is added only when the catalog says it is missing (it took an `ACCESS EXCLUSIVE` lock on the sidecar,
   the meta table and the log on every apply).
 - **A typo-tolerant search that fails inside your transaction leaves it usable on PDO too** (as on DBAL).
