@@ -35,6 +35,7 @@ use Fuzzphony\Bundle\Twig\SearchComponent;
 use Fuzzphony\Core\Analytics\IpMode;
 use Fuzzphony\Core\Analytics\NullSearchLog;
 use Fuzzphony\Core\Analytics\PatternQueryRedactor;
+use Fuzzphony\Core\Attribute\AsIndexDefinition;
 use Fuzzphony\Core\Database\Connection;
 use Fuzzphony\Core\Engine\Engine;
 use Fuzzphony\Core\Exception\InvalidConfiguration;
@@ -54,6 +55,7 @@ use Fuzzphony\Engine\Postgres\Schema\Grants;
 use Fuzzphony\Engine\Postgres\Schema\Names;
 use Fuzzphony\Engine\Postgres\Wizard\PostgresIntrospector;
 use Symfony\Component\Config\Definition\Configurator\DefinitionConfigurator;
+use Symfony\Component\DependencyInjection\ChildDefinition;
 use Symfony\Component\DependencyInjection\ContainerBuilder;
 use Symfony\Component\DependencyInjection\Loader\Configurator\ContainerConfigurator;
 use Symfony\Component\DependencyInjection\Loader\Configurator\DefaultsConfigurator;
@@ -66,6 +68,7 @@ use Symfony\Component\Security\Core\Authorization\AuthorizationCheckerInterface;
 use function Symfony\Component\DependencyInjection\Loader\Configurator\inline_service;
 use function Symfony\Component\DependencyInjection\Loader\Configurator\service;
 use function Symfony\Component\DependencyInjection\Loader\Configurator\service_closure;
+use function Symfony\Component\DependencyInjection\Loader\Configurator\tagged_iterator;
 
 /**
  * config/packages/fuzzphony.yaml — everything is optional:
@@ -107,6 +110,9 @@ final class FuzzphonyBundle extends AbstractBundle
 {
     protected string $extensionAlias = 'fuzzphony';
 
+    /** The tag of the services with #[AsIndexDefinition]. */
+    public const string INDEX_DEFINITION_TAG = 'fuzzphony.index_definition';
+
     private const string DOCTRINE_PARAMETER = 'fuzzphony.doctrine_orm';
 
     /** The DBAL connection names DoctrineBundle is configured with (set by prependExtension(), for the check of fuzzphony.connections). */
@@ -119,6 +125,18 @@ final class FuzzphonyBundle extends AbstractBundle
     public function getPath(): string
     {
         return __DIR__;
+    }
+
+    /** A service with #[AsIndexDefinition] is tagged for the registry: classes registered as services (autoconfigure) are found without any list. */
+    public function build(ContainerBuilder $container): void
+    {
+        parent::build($container);
+        $container->registerAttributeForAutoconfiguration(
+            AsIndexDefinition::class,
+            static function (ChildDefinition $definition): void {
+                $definition->addTag(self::INDEX_DEFINITION_TAG);
+            },
+        );
     }
 
     public function configure(DefinitionConfigurator $definition): void
@@ -521,12 +539,13 @@ final class FuzzphonyBundle extends AbstractBundle
                 $hasOrm && $settings->discoverEntities ? service('fuzzphony.discovery') : null,
                 // Prod only: discovery loads the metadata of every entity, so its result is kept in cache.system (cache:clear drops it).
                 // Without kernel.debug (or when it is unknown) nothing is cached and an edited attribute shows up on the next request.
-                $hasOrm && $settings->discoverEntities && $builder->hasParameter('kernel.debug') && $builder->getParameter('kernel.debug') === false ? service('cache.system')->nullOnInvalid() : null,
+                $builder->hasParameter('kernel.debug') && $builder->getParameter('kernel.debug') === false ? service('cache.system')->nullOnInvalid() : null,
                 // Web requests only: a command, a worker or a consumer (PHP_SAPI "cli") always discovers fresh. The parameter is a test seam
                 // (the real-kernel test proves the cache from the command line), not a configuration option.
                 $builder->hasParameter('fuzzphony.registry_cache_in_cli') && $builder->getParameter('fuzzphony.registry_cache_in_cli') === true,
                 $builder->hasParameter('kernel.project_dir') && is_string($builder->getParameter('kernel.project_dir')) ? $builder->getParameter('kernel.project_dir') : null,
                 $settings->authorizationEnabled,
+                tagged_iterator(self::INDEX_DEFINITION_TAG),
             ]);
         $services->alias(IndexRegistry::class, 'fuzzphony.registry');
 

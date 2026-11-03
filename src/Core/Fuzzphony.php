@@ -13,6 +13,7 @@ use Fuzzphony\Core\Analytics\SearchAnalytics;
 use Fuzzphony\Core\Analytics\SearchLog;
 use Fuzzphony\Core\Database\Connection;
 use Fuzzphony\Core\Definition\IndexDefinition;
+use Fuzzphony\Core\Definition\IndexDefinitionClass;
 use Fuzzphony\Core\Definition\Synonyms;
 use Fuzzphony\Core\Engine\Engine;
 use Fuzzphony\Core\Exception\AccessDenied;
@@ -49,7 +50,7 @@ final readonly class Fuzzphony
     /**
      * Builds the service on PostgreSQL without a framework: the connection and the index definitions, nothing else to wire.
      *
-     * @param list<IndexDefinition> $indexes
+     * @param list<IndexDefinition|class-string> $indexes IndexDefinition objects and/or the class names of definition classes (#[AsIndexDefinition] with a build(IndexBuilder): void method; instantiated without arguments)
      * @param string                $schema          the schema of Fuzzphony's own tables
      * @param string                $extensionSchema the schema that holds the pg_trgm and unaccent extensions
      * @param bool                  $searchLog       keep the search log in Fuzzphony's table (the reports of analytics()); each record is written at once
@@ -79,7 +80,15 @@ final readonly class Fuzzphony
         ?ActorResolver $actors = null,
         bool $allowSystem = true,
     ): self {
+        $registry = new IndexRegistry();
         foreach ($indexes as $index) {
+            if (is_string($index)) {
+                $registry->register(IndexDefinitionClass::fromClass($index), 'definition class ' . $index);
+            } else {
+                $registry->register($index);
+            }
+        }
+        foreach ($registry->all() as $index) {
             if ($index->hasGrantedField() && !array_any($guards, static fn(SearchGuard $guard): bool => $guard instanceof FieldRestrictingGuard)) {
                 throw new InvalidDefinition($index->name, ['a field has "granted" but no guard can restrict fields: pass an authorization guard (a FieldRestrictingGuard) in guards: [...] to Fuzzphony::postgres(); a rate limit alone shows the field to every viewer.']);
             }
@@ -91,7 +100,7 @@ final readonly class Fuzzphony
             ? new SearchGate($metrics, $logger, $log ?? new NullSearchLog(), $redact === [] ? null : PatternQueryRedactor::fromSettings($redact), $guards, $ipMode, $actors, $allowSystem)
             : null;
 
-        return new self($engine, new IndexRegistry($indexes), $gate);
+        return new self($engine, $registry, $gate);
     }
 
     /** @internal */

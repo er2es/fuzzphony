@@ -82,7 +82,8 @@ final class DoctorCommand extends Command
                     $promLines[] = sprintf('fuzzphony_queue_depth{index="%s"} %d', $index->name, $this->fuzzphony->engine()->queueSize($index));
                 }
             } else {
-                $io->section(sprintf('Index "%s"', $index->name));
+                $origin = $this->fuzzphony->registry()->origin($index->name);
+                $io->section(sprintf('Index "%s"%s', $index->name, $origin === null ? '' : ' (' . $origin . ')'));
                 $rows = [];
                 foreach ($report->checks as $check) {
                     $rows[] = [
