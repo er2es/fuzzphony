@@ -137,6 +137,11 @@ final class ResultShapeTest extends TestCase
             self::assertNotContains('zebrafish', array_column(array_map(static fn(MatchedWord $m): array => $m->toArray(), $hit->matches ?? []), 'word'));
         }
 
+        $onlyExclusion = $fz->in('shape_docs')->query('-zebrafish')->explainMatches()->asSystem()->get();
+        foreach ($onlyExclusion->hits as $hit) {
+            self::assertSame([], $hit->matches, 'nothing was looked for, so nothing matched');
+        }
+
         $off = self::matchesById($fz->in('shape_docs')->query('mouse')->thresholds(['typo' => ['mode' => 'never']])->explainMatches()->asSystem()->get());
         self::assertNotContains('typo', array_column($off[1], 'via'));
     }

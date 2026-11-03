@@ -221,6 +221,7 @@ final class SchemaCommandTest extends TestCase
         self::assertNull($connection->fetchValue("SELECT to_regclass('fuzzphony_nt.fuzzphony_products')"), 'the apply is transactional: nothing was created');
     }
 
+    /** @param list<array<string, mixed>>|null $rows */
     private function failing(string $needle, ?array $rows = null): Connection
     {
         return new class ($this->context->connection, $needle, $rows) implements Connection {

@@ -4,11 +4,12 @@ declare(strict_types=1);
 
 namespace Fuzzphony\Tests\Unit\Core\Search;
 
-use Fuzzphony\Core\Engine\Engine;
 use Fuzzphony\Core\Analytics\SearchLog;
 use Fuzzphony\Core\Analytics\SearchRecord;
+use Fuzzphony\Core\Engine\Engine;
 use Fuzzphony\Core\Exception\AccessDenied;
 use Fuzzphony\Core\Exception\ActorRequired;
+use Fuzzphony\Core\Exception\InvalidArgument;
 use Fuzzphony\Core\Observability\MetricsCollector;
 use Fuzzphony\Core\Query\SearchQuery;
 use Fuzzphony\Core\Search\Access;
@@ -105,6 +106,12 @@ final class SearchGateEdgesTest extends TestCase
         } catch (ActorRequired) {
             self::assertSame([], $log->records);
         }
+    }
+
+    public function testAnIndexCannotBeLoggedWhereNoLogIsConfigured(): void
+    {
+        $this->expectException(InvalidArgument::class);
+        (new SearchGate())->logSearch(Indexes::products(), (new SearchQuery('mouse'))->withActor(new Actor(user: 'ada')), 1, 1.0, false, false);
     }
 
     public function testALogThatFailsNeverFailsTheCallerAndIsCounted(): void

@@ -8,6 +8,7 @@ use Fuzzphony\Core\Definition\QueryFile;
 use Fuzzphony\Core\Exception\InvalidDefinition;
 use Fuzzphony\Core\Search\FacetValue;
 use Fuzzphony\Core\Search\MatchedWord;
+use Fuzzphony\Core\Support\Coerce;
 use Fuzzphony\Core\Support\ErrorSummary;
 use Fuzzphony\Core\Wizard\Export\YamlExporter;
 use Fuzzphony\Engine\Postgres\Sql\TsQueryCompiler;
@@ -68,7 +69,7 @@ final class ShapeEdgesTest extends TestCase
     {
         $m = new \ReflectionMethod(YamlExporter::class, $method);
 
-        return (string) $m->invoke(new YamlExporter(), $data, $depth);
+        return Coerce::str($m->invoke(new YamlExporter(), $data, $depth));
     }
 
     public function testYamlWritesEmptyMapsAndNestedSequences(): void
