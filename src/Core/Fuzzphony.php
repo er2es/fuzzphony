@@ -20,6 +20,7 @@ use Fuzzphony\Core\Exception\ActorRequired;
 use Fuzzphony\Core\Exception\InvalidArgument;
 use Fuzzphony\Core\Exception\InvalidDefinition;
 use Fuzzphony\Core\Exception\RateLimited;
+use Fuzzphony\Core\Exception\UnknownIndex;
 use Fuzzphony\Core\Inspection\InspectionReport;
 use Fuzzphony\Core\Inspection\InspectOptions;
 use Fuzzphony\Core\Observability\MetricsCollector;
