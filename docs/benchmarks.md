@@ -223,3 +223,26 @@ about 10 to 90 ms on 200 000 products (a typo word 25 to 75 ms; a wide index of 
 
 Measure on your own data. The demo's Speed view runs this benchmark in the browser, and
 [demo/README.md](../demo/README.md#measured) has results on 200 000 and 500 000 rows.
+
+## What each option costs in disk
+
+Measured on the demo database: 499 978 products, the `catalog` index (fields `name`, `brand`, `category`, `description`; `name` and `brand` fuzzy; five filters).
+The sidecar table is 342 MB: 265 MB of heap (about 530 bytes a row) and 77 MB of indexes. Sizes in MB are PostgreSQL's (`pg_size_pretty`, 1 MB = 1 048 576 bytes).
+
+| What | Option | Per row | On 499 978 rows |
+|---|---|---|---|
+| `tsv` column | the combined full-text vector of all fields (always) | 151 B | 72 MB |
+| `t_name`, `t_brand`, `t_category`, `t_description` | one full-text vector per field (exact field scoping, restricted viewers) | 48 + 31 + 20 + 98 = 197 B | 94 MB |
+| `fz` column | the trigram text of the fuzzy fields (`fuzzy: true`) | 32 B | 15 MB |
+| `z_name`, `z_brand` | one trigram text per fuzzy field | 21 + 11 = 32 B | 15 MB |
+| `exact` column | the exact-match text | 21 B | 10 MB |
+| index on `fz` | the trigram index behind typo tolerance | | 31 MB |
+| index on `tsv` | the full-text index | | 13 MB |
+| primary key | | | 11 MB |
+| five filter indexes | one btree per filter | | 23 MB |
+| open-class indexes | only for an index with a `granted` field: a trigram and a full-text index over the open fields | | +25 to 34% of the two indexes they sit beside |
+
+Reading it: the stored `tsv` costs about 28% of the heap row, and a SQL-function variant that avoids it made common searches 25 to 49% slower
+([why it stays](architecture.md#why-the-combined-vector-is-stored)). The per-field columns are what make field scoping exact and a restricted viewer's
+search as fast as an unrestricted one. A field with `fuzzy: false` has no `z_` column, and an index without `fuzzy` fields has neither `fz` nor its index. The open-class
+indexes are built only when a field is `granted`; an install without one pays nothing for them.

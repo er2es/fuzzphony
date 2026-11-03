@@ -56,6 +56,10 @@ and a link. Measurements, proofs and test names belong to the pull request, [doc
   or log write fail with one `SchemaNotApplied` exception; the no-column fallbacks and their per-process lookups are gone
   (`search_log.ip_dropped` too). See [UPGRADE](UPGRADE.md#from-0913-to-0100).
 
+### Changed
+
+- **Demo:** the catalogue pages search `->asSystem()` (public data), the Security page searches as the signed-in viewer and compares `asActor()`, anonymous and `asSystem()` calls, the home search records its answer with `logSearch()` instead of running it twice, Analytics marks rescued searches, and the Relevance "why" lines come from `explainMatches()`.
+
 ## [0.9.13] - 2026-11-02
 
 Demo-only release: no change to the library behaviour (documentation of the bundle defaults only).

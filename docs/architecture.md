@@ -115,6 +115,15 @@ is a guarded `DO` block in the index's plan that runs only while the stored layo
 records the shared objects (queue, normaliser, text configurations); the doctor's "Shared objects"
 check compares it.
 
+## Why the combined vector is stored
+
+The sidecar row keeps the combined full-text vector `tsv` of all fields next to the per-field vectors (`t_<field>`). On the demo catalogue
+(499 978 rows) `tsv` is 151 bytes of a 530-byte heap row, about 28%, so it is the first thing one would drop. A variant that computes the combined vector from
+the per-field columns with a SQL function (no stored `tsv`, a function-based GIN index) was built and measured: the common searches
+became 25 to 49% slower. The stored vector stays: speed and exactness come first and storage is cheap. What each column and index costs is in
+[Benchmarks](benchmarks.md#what-each-option-costs-in-disk); an index that does not need a restricted viewer's per-field lookups does not
+pay for the ones that do (the open-class indexes exist only for indexes with a `granted` field).
+
 ## Design decisions
 
 Recorded as ADRs in [`docs/adr`](adr/).

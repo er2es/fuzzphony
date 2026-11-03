@@ -15,10 +15,19 @@
 
 **Fuzzy search, in perfect harmony with your database.**
 
-Fuzzphony is a PostgreSQL-native search library for PHP and Symfony: typo-tolerant,
-accent-insensitive, ranked full-text search with filters and a query language. It never alters
-your tables. The index lives in a sidecar table next to them, in the database you already run.
-There is no Elasticsearch, Meilisearch or other service to add.
+Fuzzphony is a small, relevant alternative to Elasticsearch and Meilisearch for PHP and Symfony applications that already run
+PostgreSQL: typo-tolerant, accent-insensitive, ranked full-text search with filters, facets and a query language. It never
+alters your tables. The index lives in a sidecar table next to them, in the database you already run, so there is no search
+service to add, feed or keep in step.
+
+- **Consistent.** The index is in the same PostgreSQL as your data: no dual write, no second system that can disagree. With
+  `sync: trigger` a row and its index entry change in one transaction (no lag); with the queue, within one worker batch. A
+  search runs inside your transaction and sees what it sees.
+- **Secure.** Authorization is built in: a tenant-scoped index refuses a search without a tenant, a field can be granted to a
+  role, and a field a viewer may not see is not matched, ranked, highlighted, counted or suggested from. Tests prove a hidden
+  field's content cannot change a restricted viewer's results. A search that names no actor is made as the current user.
+- **Fast and small.** Common searches answer in milliseconds on half a million rows, and the whole index costs a part of the
+  table it indexes ([what each option costs in disk](docs/benchmarks.md#what-each-option-costs-in-disk)).
 
 ```php
 $result = $fuzzphony->in(Product::class)
@@ -33,7 +42,7 @@ foreach ($result as $hit) {
 }
 ```
 
-Status: v0.9.13 (pre-1.0). The API may still change before 1.0; 0.10.0 gathers the remaining breaking changes. Breaking changes are listed in the
+Status: pre-1.0 (the code in this repository is 0.10.0, being released). The API may still change before 1.0; 0.10.0 gathers the remaining breaking changes. Breaking changes are listed in the
 [CHANGELOG](https://github.com/er2es/fuzzphony/blob/main/CHANGELOG.md) and explained in
 [UPGRADE.md](https://github.com/er2es/fuzzphony/blob/main/UPGRADE.md).
 
@@ -257,18 +266,15 @@ Details in [docs/limitations.md](https://github.com/er2es/fuzzphony/blob/main/do
 
 ## Roadmap
 
-Current: v0.9.13 (a demo-only patch after 0.9.12 and 0.9.11, a ranking patch for as-you-type searches, on the 0.9.9 review-fix round after identity, search log and analytics, rate limit and
-authorization). Breaking changes are gathered in one release so 1.0 can promise stability. PostgreSQL only before 1.0:
+Current: v0.10.0, the breaking release (security by default with an ambient actor, hits that know their index, a 76-type public API,
+grouped thresholds, a sturdier engine, and the additive API a custom frontend needs). PostgreSQL only before 1.0:
 
-- v0.10.0: a sturdier engine (`schema --apply` mandatory, a failing document no longer blocks its index, `code` fields for
-  invoice numbers and SKUs), a smaller and safer API (about 60 public types, no forgotten-actor leak), and the additive
-  API a custom frontend needs. Then a release candidate.
-- v0.11.0: several sources, additive: several indexes per entity, multi-source indexes, a combined search with normalised scores.
-- v1.0.0: the stable API and the backward-compatibility promise. The documentation (an index, the
-  "Migrating from `LIKE`" guide and three recipes, with a link check in CI) is in place since 0.9.6.
+- v0.11.0: several sources, additive: several indexes per entity, multi-source indexes with a `kind`, `watch` derived from joins,
+  a combined search with normalised scores, and a demo page with an ERP-like data set (orders, customers, products, order lines).
+- v1.0.0: the stable API and the backward-compatibility promise.
 
-After 1.0, in separate projects: a real-world example application (Open Food Facts), and record linkage (matching people and
-companies across records, with explainable match scores); a Laravel Scout driver is also planned. Details in
+After 1.0, in separate projects: record linkage (matching people and companies across records, with explainable match scores), a
+Laravel Scout driver, and an ERP-like demo as the showcase. Details in
 [docs/roadmap.md](https://github.com/er2es/fuzzphony/blob/main/docs/roadmap.md).
 
 ## Contributing and license
