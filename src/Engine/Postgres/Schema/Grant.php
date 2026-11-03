@@ -60,7 +60,7 @@ final readonly class Grant
             self::DATABASE => sprintf('SELECT NOT has_database_privilege(%s, current_database(), %s)', $roleLiteral, Sql::string($privilege)),
             self::FUNCTION => sprintf('SELECT NOT has_function_privilege(%s, to_regprocedure(%s), %s) WHERE to_regprocedure(%2$s) IS NOT NULL', $roleLiteral, $object, Sql::string($privilege)),
             default => $this->columns !== []
-                ? sprintf('SELECT NOT (%s) WHERE to_regclass(%s) IS NOT NULL', implode(' AND ', array_map(fn(string $c): string => sprintf('has_column_privilege(%s, to_regclass(%s), %s, %s)', $roleLiteral, $object, Sql::string($c), Sql::string($privilege)), $this->columns)), $object)
+                ? sprintf('SELECT NOT (%s) WHERE to_regclass(%s) IS NOT NULL', implode(' AND ', array_map(fn(string $c): string => sprintf('CASE WHEN EXISTS (SELECT 1 FROM pg_attribute WHERE attrelid = to_regclass(%2$s) AND attname = %3$s AND NOT attisdropped) THEN has_column_privilege(%1$s, to_regclass(%2$s), %3$s, %4$s) ELSE false END', $roleLiteral, $object, Sql::string($c), Sql::string($privilege)), $this->columns)), $object)
                 : sprintf('SELECT NOT has_table_privilege(%s, to_regclass(%s), %s) WHERE to_regclass(%2$s) IS NOT NULL', $roleLiteral, $object, Sql::string($privilege)),
         };
     }

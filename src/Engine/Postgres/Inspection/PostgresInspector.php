@@ -443,7 +443,7 @@ final class PostgresInspector
                 JOIN pg_attribute a ON a.attrelid = i.indrelid AND a.attnum = i.indkey[0]
                 WHERE i.indrelid = to_regclass(:table) AND (i.indisprimary OR i.indisunique) AND i.indnkeyatts = 1 AND a.attname = :column
                 SQL,
-            ['table' => (string) $index->source->table, 'column' => $index->source->idColumn],
+            ['table' => Sql::ident((string) $index->source->table), 'column' => $index->source->idColumn],
         );
 
         return $indexed
@@ -617,7 +617,7 @@ final class PostgresInspector
         foreach ($index->effectiveWatches() as $watch) {
             $rows = $this->connection->fetchAll(
                 'SELECT tgname, tgenabled FROM pg_trigger WHERE tgrelid = to_regclass(:table) AND NOT tgisinternal',
-                ['table' => $watch->table],
+                ['table' => Sql::ident($watch->table)],
             );
             $state = array_column($rows, 'tgenabled', 'tgname');
             $label = 'Sync trigger on ' . $watch->table;
@@ -900,7 +900,7 @@ final class PostgresInspector
         }
         foreach ($index->effectiveWatches() as $watch) {
             if ($watch->columns !== null) {
-                $missing = array_values(array_diff($watch->columns, $this->tableColumns($watch->table)));
+                $missing = array_values(array_diff($watch->columns, $this->tableColumns(Sql::ident($watch->table))));
                 if ($missing !== []) {
                     $checks[] = Check::error(
                         'Column-aware filtering',

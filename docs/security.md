@@ -353,6 +353,9 @@ function is `SECURITY INVOKER`: none runs with its owner's rights.
 can also write bogus log entries. Unusable keys are skipped and counted (the doctor reports them), forged TRUNCATE entries queue at most one
 full rebuild per index, and none of it can read or change a search result; see [Sync](sync.md#one-trigger-per-table-one-change-log).
 
+The worker role is trusted for **all** indexes: its `UPDATE (cur_xid, bad_rows, bad_at)` on `fuzzphony_watches` can move another index's position in the log or reset the
+`bad_rows` counter, and its `DELETE` on the log can lose changes. `bad_rows` is advisory, not a security record ([roles](roles.md#the-worker-role-is-trusted-for-every-index)).
+
 ## The limits, stated honestly
 
 The guarantee is about the content of the hidden fields. It is not row-level security, and it is not

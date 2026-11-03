@@ -68,6 +68,8 @@ Start with the checklist in [UPGRADE](UPGRADE.md#from-0913-to-0100). The demo fo
 - **`fuzzphony:schema --apply` no longer locks tables it does not change:** a column is added only when the catalog says it is missing (it took an `ACCESS EXCLUSIVE` lock on the sidecar,
   the meta table and the log on every apply).
 - **A typo-tolerant search that fails inside your transaction leaves it usable on PDO too** (as on DBAL).
+- **Bulk `UPDATE`s on a watched table no longer degrade after a single-row write on the same connection**, and one forged log key no longer slows the whole drain down (unusable keys are found once, set-based).
+- **The doctor finds the triggers and primary key of a mixed-case table, the operator summary hides the message of any non-Fuzzphony exception, and the privilege check tolerates a not yet applied column.**
 
 ## [0.9.13] - 2026-11-02
 

@@ -7,6 +7,7 @@ namespace Fuzzphony\Tests\Integration;
 use Fuzzphony\Core\Database\Connection;
 use Fuzzphony\Core\Definition\IndexDefinition;
 use Fuzzphony\Core\Fuzzphony;
+use Fuzzphony\Core\Inspection\CheckStatus;
 use Fuzzphony\Core\Registry\IndexRegistry;
 use Fuzzphony\Core\Support\Coerce;
 use Fuzzphony\Engine\Postgres\PostgresEngine;
@@ -56,6 +57,9 @@ final class ReleaseReviewTest extends TestCase
             if ($this->connection->fetchValue('SELECT to_regclass(:t) IS NOT NULL', ['t' => $table]) === true) {
                 $this->connection->execute('DELETE FROM ' . $table);
             }
+        }
+        if ($this->connection->fetchValue("SELECT to_regclass('fuzzphony_watches') IS NOT NULL") === true) {
+            $this->connection->execute("DELETE FROM fuzzphony_watches WHERE index_name LIKE 'rr\_%'");
         }
     }
 
@@ -160,6 +164,44 @@ final class ReleaseReviewTest extends TestCase
         foreach ($fuzzphony->inspect('rr_a')->checks as $check) {
             self::assertStringNotContainsString('4111111111111111', $check->message);
         }
+    }
+
+    public function testOneForgedKeyDoesNotTurnTheWholeDrainIntoAKeyByKeyRetry(): void
+    {
+        $this->connection->execute('CREATE TABLE rr_x (id int primary key, name text)');
+        $index = $this->index('rr_a', 'rr_x');
+        $this->fuzzphony($index)->reindex('rr_a');
+        $this->connection->execute("INSERT INTO rr_x SELECT g, 'n' || g FROM generate_series(1, 100000) g");
+        $started = microtime(true);
+        $this->connection->fetchValue('SELECT fuzzphony_drain_rr_a()');
+        $clean = microtime(true) - $started;
+        self::assertSame(100000, $this->int("SELECT count(*) FROM fuzzphony_queue WHERE index_name = 'rr_a'"));
+
+        $this->connection->execute("DELETE FROM fuzzphony_queue WHERE index_name = 'rr_a'");
+        $this->connection->execute("UPDATE rr_x SET name = name || 'x'");
+        $this->connection->execute("INSERT INTO fuzzphony_watch_log (tbl, xid, op, key_column, key) VALUES ('\"rr_x\"', pg_current_xact_id()::text::bigint, 'I', 'id', 'zz'), ('\"rr_x\"', pg_current_xact_id()::text::bigint, 'I', 'id', '99999999999')");
+        $started = microtime(true);
+        $this->connection->fetchValue('SELECT fuzzphony_drain_rr_a()');
+        $forged = microtime(true) - $started;
+        self::assertSame(100000, $this->int("SELECT count(*) FROM fuzzphony_queue WHERE index_name = 'rr_a'"), 'every legitimate key is queued');
+        self::assertSame(2, $this->int("SELECT bad_rows FROM fuzzphony_watches WHERE index_name = 'rr_a'"));
+        self::assertLessThan(1.3 * $clean + 0.2, $forged, 'the key-by-key retry (a subtransaction per key) made the drain several times slower');
+    }
+
+    public function testTheDoctorFindsTheTriggersAndThePrimaryKeyOfAMixedCaseTable(): void
+    {
+        $this->connection->execute('DROP TABLE IF EXISTS "RrMix" CASCADE');
+        $this->connection->execute('CREATE TABLE "RrMix" (id int primary key, name text)');
+        $index = IndexDefinition::builder('rr_mix')->fromTable('public.RrMix')->field('name', 'A')->sync('queue')->build();
+        $fuzzphony = $this->fuzzphony($index);
+        $fuzzphony->reindex('rr_mix');
+
+        foreach ($fuzzphony->inspect('rr_mix')->checks as $check) {
+            if (str_contains($check->name, 'trigger') || str_contains($check->name, 'Source key') || str_contains($check->message, 'primary key')) {
+                self::assertContains($check->status, [CheckStatus::Ok, CheckStatus::Skipped], $check->name . ': ' . $check->message);
+            }
+        }
+        $this->connection->execute('DROP TABLE "RrMix" CASCADE');
     }
 
     public function testAForgedLogRowWithAKeyThatDoesNotCastIsSkippedAndCountedAndBlocksNothing(): void
