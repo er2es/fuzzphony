@@ -231,7 +231,7 @@ final class CandidateSelectionTest extends TestCase
 
         $result = $federated(20, 0);
 
-        $ids = array_map(static fn($h): string => $h->index . ':' . $h->hit->id, $result->hits);
+        $ids = array_map(static fn($h): string => $h->kind . ':' . $h->id, $result->hits);
         self::assertContains('other:9000', $ids, 'the best of the second index is found although 120 of its documents match first');
         self::assertContains('cand:900002', $ids);
         self::assertTrue($result->totalIsLowerBound);

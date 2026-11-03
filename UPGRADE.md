@@ -7,6 +7,31 @@ and the [CHANGELOG](CHANGELOG.md) has the full list of changes.
 
 ### Breaking
 
+- **A search that names no actor is made as the application's current user.** Until now a search without `->asActor()` ran no guard: a controller that forgot it
+  searched as everybody and saw every `granted` field (and was not rate limited). Now the service asks the `ActorResolver` itself (the Symfony bundle: the Security
+  token and, with the client IP in use, the request; plain PHP: `Fuzzphony::postgres(..., actors: $resolver)`), so every search is guarded and logged as that actor, and an
+  explicit `->asActor($actor)` still wins. Where nobody can be resolved (a command, a worker, a test, a request without a token) the actor is anonymous: the
+  guards run for it, a `granted` field stays hidden, a tenant-scoped index still refuses it (`ActorRequired`: a tenant must be known). With
+  `fuzzphony.authorization.enabled` a search without a token is denied (`AccessDenied`) as before. What to change:
+  - Code that searched on purpose with full access (an export, an admin command, a Messenger handler, a test) says so: `->asSystem()` (on `SearchBuilder`,
+    `FederatedSearch`; `Fuzzphony::complete(..., system: true)`). It skips the guards, is written to the search log as the user `(system)`, and can be switched off with
+    `fuzzphony.authorization.allow_system: false` (then it throws `AccessDenied`). A tenant-scoped index still needs `forTenant()` with it.
+  - Without `Fuzzphony::postgres(guards: ...)` or the bundle's guards nothing changes: there is no guard to run.
+  - `FederatedSearch` has `asActor()` and `asSystem()` too (one actor for every index; a `configure` closure may still name another).
+  - The rate limit now also counts the searches that used to skip the guards (`per: ip` limits a controller that forgot `asActor()`).
+- **A `granted` field needs the guard that hides it.** An index with a `granted` field while `fuzzphony.authorization.enabled` is false fails the container build
+  (`InvalidDefinition`: enable `fuzzphony.authorization`), `Fuzzphony::postgres()` refuses it without `guards:`, and `fuzzphony:doctor` reports it as an error.
+  Before, the field was visible to everybody and the flag only looked like protection.
+- **`restrictedToFields()` can only narrow.** The fields searched are the ones in the list that the actor may also see (the guards' answer): naming a `granted` field the
+  actor does not hold adds nothing, and a list with none of the allowed fields finds nothing (no exception). A name that is no field of the index is an `InvalidQuery`
+  listing the index's fields.
+- **Hits know their index: `Hit::$kind` (the index name) and a typed `Hit::$id` (`int` for an integer key, `string` for a uuid or string key).** `new Hit(kind, id, score, breakdown, ...)`
+  has the kind first. `FederatedHit` is removed: a `FederatedResult` holds plain `Hit`s, `$hit->kind` is the index (was `$hit->index`), `$hit->id` the id (was `$hit->hit->id`) and `$hit->mergedScore`
+  the fusion score (was `$hit->score` of the `FederatedHit`; `$hit->score` is now the index's own score). `EntityLoader::load()` is unchanged: pass the result of the index of that entity.
+- **New search-log column `rescued`.** Run `fuzzphony:schema --apply` before the new code serves traffic (a missing column throws `SchemaNotApplied`, the doctor reports it).
+  Existing rows are `false`.
+- **The YAML of the wizard (`$fuzzphony->wizard()->yaml()`, `fuzzphony:wizard`) writes lists as YAML sequences** (`synonyms:` with `- [tv, television]`; it wrote numbered keys `0: 0: tv`)
+  and a multi-line text exactly (`|-` without a final newline). A stored copy reads back as before; regenerate it to get the clean form.
 - **Searches in a caller's transaction.** A typo-tolerant search inside a transaction you opened sends `SAVEPOINT fuzzphony_search` at its first
   threshold and `RELEASE SAVEPOINT fuzzphony_search` at its end (or `ROLLBACK TO` and `RELEASE` when it fails), instead of a nested transaction
   per statement. With `PdoConnection` a search that fails after its first threshold no longer leaves your transaction aborted (the DBAL bridge already
@@ -18,7 +43,7 @@ and the [CHANGELOG](CHANGELOG.md) has the full list of changes.
   reports an old one as `OLD NAME` until then. The primary key keeps its old name until the next `fuzzphony:reindex` renames it. Until the apply, the
   doctor reports the indexes missing and searches run as before. Anything of yours that names these indexes (a monitoring query, a `REINDEX`
   script, an `EXPLAIN` assertion) needs the new names.
-- **Run `fuzzphony:schema --apply` before the new code serves traffic.** The columns `tsv_capped` (sidecar tables) and `actor_ip` (search log) are
+- **Run `fuzzphony:schema --apply` before the new code serves traffic.** The columns `tsv_capped` (sidecar tables), `actor_ip` and `rescued` (search log) are
   required. A search, refresh or log write that finds one missing throws `Fuzzphony\Core\Exception\SchemaNotApplied` ("The Fuzzphony schema is
   not up to date (missing: ...). Run: bin/console fuzzphony:schema --apply"); `fuzzphony:doctor` reports the same as an error. The slower
   no-column statements, the per-process catalog lookups for these columns, the retry of a log batch without `actor_ip`, the metric
@@ -102,6 +127,16 @@ and the [CHANGELOG](CHANGELOG.md) has the full list of changes.
 
 ### Added
 
+- **`SearchResult::$correctedTo`**: the text the zero-result rescue ran (`$correctedFrom` is what the visitor typed); both null without a rescue.
+- **`SearchRecord::$rescued` / `LoggedSearch::$rescued`**: the search log marks the searches the rescue answered. The "found nothing" report still counts by hits
+  (a rescued search found something). Needs `fuzzphony:schema --apply` (above).
+- **`Fuzzphony::logSearch($index, $text, $hits, $tookMs, $actor, $usedFuzzy, $rescued, $system)`** records a search that was answered elsewhere without running it (no engine call, no guard),
+  with the redaction, IP mode and actor rules of a search. It throws `InvalidArgument` when the index has `log: false` or the search log is off, and returns the `LoggedSearch`.
+- **`toArray()` and `json_encode()` of `SearchResult`, `Hit`, `FacetValue`, `MatchedWord`** with stable keys (`hits`, `total`, `totalIsLowerBound`, `facets`, `didYouMean`,
+  `correctedFrom`, `correctedTo`, `warnings`, `tookMs`; a hit: `kind`, `id`, `score`, `breakdown`, `highlights`, `mergedScore`, `matches`). The highlights are already HTML-escaped
+  (`<mark>` only); everything else is plain text ([Your own frontend](docs/integrations.md#your-own-frontend)).
+- **`->explainMatches()`** on the search builder adds `Hit::$matches` to the hits of the returned page: which word of which field matched and how (`exact`, `stem`, `prefix`,
+  `typo` with its similarity, `synonym`). One more statement over the page's ids, only when asked; a restricted viewer gets no hidden field and no hidden word ([searching](docs/searching.md#what-matched)).
 - **`code: true` on a field.** A code or identifier field (`INV-001`, `AB-12/3`, `INV.007`) is indexed with every run of non-alphanumeric characters as one space
   (`inv`, `001`) plus the code without separators (`inv001`), in the index's own text configuration, so what is typed reaches what is stored. Nothing changes for a
   field without the flag. After adding it: `fuzzphony:schema --apply` and `fuzzphony:reindex` (the doctor reports the definition as changed until then). A code whose parts are

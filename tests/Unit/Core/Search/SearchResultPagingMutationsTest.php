@@ -4,7 +4,6 @@ declare(strict_types=1);
 
 namespace Fuzzphony\Tests\Unit\Core\Search;
 
-use Fuzzphony\Core\Search\FederatedHit;
 use Fuzzphony\Core\Search\FederatedResult;
 use Fuzzphony\Core\Search\Hit;
 use Fuzzphony\Core\Search\ScoreBreakdown;
@@ -17,7 +16,7 @@ final class SearchResultPagingMutationsTest extends TestCase
 {
     private function hit(int $id): Hit
     {
-        return new Hit($id, 1.0, new ScoreBreakdown());
+        return new Hit('products', $id, 1.0, new ScoreBreakdown());
     }
 
     /** @return iterable<string, array{int, int, int, bool, bool}> offset, hits on the page, total, total is a lower bound, expected */
@@ -66,7 +65,7 @@ final class SearchResultPagingMutationsTest extends TestCase
     #[DataProvider('federatedPages')]
     public function testFederatedResultHasNoMoreWhereTheNextPageCannotBeAskedFor(int $offset, int $hits, int $total, bool $expected): void
     {
-        $merged = array_map(fn(int $id): FederatedHit => new FederatedHit('articles', $this->hit($id), 0.5), $hits === 0 ? [] : range(1, $hits));
+        $merged = array_map(fn(int $id): Hit => $this->hit($id)->withMergedScore(0.5), $hits === 0 ? [] : range(1, $hits));
         $result = new FederatedResult($merged, [], $total, true, 1.0, [], 20, $offset);
 
         self::assertSame($expected, $result->hasMore());
@@ -83,7 +82,7 @@ final class SearchResultPagingMutationsTest extends TestCase
     #[DataProvider('pages')]
     public function testFederatedResultHasMoreWhenTheWindowEndsBeforeTheTotal(int $offset, int $hits, int $total, bool $lowerBound, bool $expected): void
     {
-        $merged = array_map(fn(int $id): FederatedHit => new FederatedHit('articles', $this->hit($id), 0.5), range(1, $hits));
+        $merged = array_map(fn(int $id): Hit => $this->hit($id)->withMergedScore(0.5), range(1, $hits));
         $result = new FederatedResult($merged, [], $total, $lowerBound, 1.0, [], 20, $offset);
 
         // a federated search reads 1000 hits of an index at most: past that there is no next page to ask for

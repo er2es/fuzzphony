@@ -30,6 +30,7 @@ use Fuzzphony\Core\Support\Coerce;
 use Fuzzphony\Engine\Postgres\EngineGuard;
 use Fuzzphony\Engine\Postgres\Highlighter;
 use Fuzzphony\Engine\Postgres\Hints;
+use Fuzzphony\Engine\Postgres\MatchExplainer;
 use Fuzzphony\Engine\Postgres\Schema\Names;
 use Fuzzphony\Engine\Postgres\SearchSession;
 use Fuzzphony\Engine\Postgres\Sql\FilterCompiler;
@@ -144,6 +145,7 @@ final readonly class SearchRunner
                 didYouMean: null,
                 facets: $inner->facets,
                 correctedFrom: $query->text,
+                correctedTo: $rescue['to'],
             ),
             [...$first->statements, ...self::rescueLabels($second->statements)],
             $second->threshold,
@@ -232,7 +234,7 @@ final readonly class SearchRunner
         $hits = [];
         foreach ($rows as $row) {
             $id = $index->idType->cast(Coerce::str($row['id']));
-            $hits[] = new Hit($id, Coerce::float($row['score']), new ScoreBreakdown(
+            $hits[] = new Hit($index->name, $id, Coerce::float($row['score']), new ScoreBreakdown(
                 textRank: Coerce::float($row['r_text']),
                 fuzzySimilarity: Coerce::float($row['r_fuzzy']),
                 relevance: Coerce::float($row['relevance']),
@@ -241,6 +243,19 @@ final readonly class SearchRunner
                 boostBonus: Coerce::float($row['boost_bonus']),
                 recencyBonus: Coerce::float($row['recency_bonus']),
             ), $highlights[(string) $id] ?? []);
+        }
+
+        if ($query->explainMatches && $hits !== []) {
+            // opt-in: one statement over the ids of the page, never run (and never in the statement list) otherwise
+            $matches = $this->guard->run('matches', fn(): array => (new MatchExplainer($this->connection, $this->names))->explain(
+                $index,
+                $query->allowedFields ?? $index->fieldNames(),
+                $root,
+                array_map(static fn(Hit $hit): int|string => $hit->id, $hits),
+                $thresholds,
+                $thresholds->typo->mode !== FuzzyMode::Never && $profile->fuzzy > 0.0,
+            ), Hints::INDEX);
+            $hits = array_map(static fn(Hit $hit): Hit => $hit->withMatches($matches[(string) $hit->id] ?? []), $hits);
         }
 
         $result = new SearchResult(

@@ -66,6 +66,7 @@ final class ZeroResultRescueTest extends TestCase
         self::assertEqualsCanonicalizing([1, 2], $result->ids());
         self::assertSame(2, $result->total);
         self::assertSame('mpuse', $result->correctedFrom);
+        self::assertSame('mouse', $result->correctedTo, 'the text the rescue ran');
         self::assertSame('mouse', $result->interpretedAs);
         self::assertContains("No results for 'mpuse'; showing results for 'mouse'.", $result->warnings);
         self::assertNull($result->didYouMean, 'the suggestion was taken');
@@ -262,6 +263,17 @@ final class ZeroResultRescueTest extends TestCase
         self::assertInstanceOf(SearchRecord::class, $record);
         self::assertSame('mpuse', $record->query);
         self::assertSame(2, $record->hits);
+        self::assertTrue($record->rescued, 'and says that the rescue answered');
+    }
+
+    public function testASearchThatWasNotRescuedIsNotFlaggedInTheLog(): void
+    {
+        $search = $this->fuzzphony()->in('products');
+        $search->query('mouse')->get();
+        $search->query('qqqqzzzz')->get();
+
+        self::assertSame([false, false], array_map(static fn(SearchRecord $r): bool => $r->rescued, $this->log->records));
+        self::assertNull($search->query('mouse')->get()->correctedTo);
     }
 
     public function testTheRescueIsCountedAndExplained(): void

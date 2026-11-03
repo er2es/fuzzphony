@@ -19,6 +19,8 @@ final readonly class SearchRecord
         public bool $usedFuzzy,
         public RecordStatus $status = RecordStatus::Ok,
         public ?string $ip = null,
+        /** Whether the zero-result rescue answered the search (SearchResult::$correctedFrom): `hits` then counts the corrected search's hits. */
+        public bool $rescued = false,
     ) {}
 
     /** The text the reports group by: lower-cased, whitespace collapsed, trimmed. */

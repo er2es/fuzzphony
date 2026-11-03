@@ -5,15 +5,18 @@ declare(strict_types=1);
 namespace Fuzzphony\Core\Search;
 
 use Fuzzphony\Core\Analytics\IpMode;
+use Fuzzphony\Core\Analytics\LoggedSearch;
 use Fuzzphony\Core\Analytics\NullSearchLog;
 use Fuzzphony\Core\Analytics\QueryRedactor;
 use Fuzzphony\Core\Analytics\RecordStatus;
 use Fuzzphony\Core\Analytics\SearchLog;
 use Fuzzphony\Core\Analytics\SearchRecord;
+use Fuzzphony\Core\Definition\FilterType;
 use Fuzzphony\Core\Definition\IndexDefinition;
 use Fuzzphony\Core\Engine\Engine;
 use Fuzzphony\Core\Exception\AccessDenied;
 use Fuzzphony\Core\Exception\ActorRequired;
+use Fuzzphony\Core\Exception\InvalidArgument;
 use Fuzzphony\Core\Exception\RateLimited;
 use Fuzzphony\Core\Exception\SearchRefused;
 use Fuzzphony\Core\Observability\MetricsCollector;
@@ -33,9 +36,17 @@ final readonly class SearchGate
     /** The characters of a text the redactor may see: four times the 255 that are stored. */
     private const int MAX_REDACTED_INPUT = 4 * 255;
 
+    /** What the search log stores as the user of a search made with asSystem() (a real user cannot be told apart by the brackets in practice). */
+    public const string SYSTEM_USER = '(system)';
+
+    public const string LOG_OFF = 'The search log is off: a search cannot be recorded (Symfony: fuzzphony.search_log.enabled: true; plain PHP: searchLog: true or a log:).';
+
     /**
      * @param list<SearchGuard> $guards run, in order, for a search made as an actor; what they allow is intersected
      * @param IpMode            $ipMode whether the search log keeps the client IP of the actor, and how much of it (the default: none)
+     * @param ActorResolver|null $actors who searches when the caller named no actor (the application's current user); null = anonymous when there are guards,
+     *                                   else nobody (no guard runs, as there is none)
+     * @param bool              $allowSystem whether asSystem() is honoured; false refuses it (AccessDenied)
      */
     public function __construct(
         private MetricsCollector $metrics = new NullMetricsCollector(),
@@ -44,7 +55,51 @@ final readonly class SearchGate
         private ?QueryRedactor $redactor = null,
         private array $guards = [],
         private IpMode $ipMode = IpMode::Off,
+        private ?ActorResolver $actors = null,
+        private bool $allowSystem = true,
     ) {}
+
+    /**
+     * The actor of the application right now (the ambient one), or null when the gate has no resolver: a search that names no actor
+     * is made as this one, so a controller that forgets asActor() is guarded like one that remembers. No user is the anonymous actor.
+     */
+    public function ambientActor(): ?Actor
+    {
+        // guards without a resolver: a search that names no actor is anonymous, never unguarded
+        return $this->actors?->resolve() ?? ($this->guards !== [] ? Actor::anonymous() : null);
+    }
+
+    /**
+     * Whether asSystem() is honoured.
+     *
+     * @throws AccessDenied
+     */
+    public function assertSystemAllowed(IndexDefinition $index): void
+    {
+        if (!$this->allowSystem) {
+            throw AccessDenied::systemSwitchedOff($index->name);
+        }
+    }
+
+    /**
+     * The query searched as this actor: a tenant-scoped index takes the actor's tenant (an integer tenant on a string tenant filter is
+     * turned into its string; any other pairing is left as it is); an actor without a tenant leaves a tenant set before alone.
+     *
+     * @param bool $override false keeps a tenant the caller set with forTenant() (the ambient actor never replaces an explicit tenant)
+     */
+    public static function withActor(IndexDefinition $index, SearchQuery $query, Actor $actor, bool $override = true): SearchQuery
+    {
+        $query = $query->withActor($actor);
+        if ($index->tenant !== null && $actor->tenant !== null && ($override || $query->tenant === null)) {
+            $tenant = $actor->tenant;
+            if (is_int($tenant) && $index->filter($index->tenant)->type === FilterType::String) {
+                $tenant = (string) $tenant;
+            }
+            $query = $query->forTenant($tenant);
+        }
+
+        return $query;
+    }
 
     /**
      * @param string|null $typed  what the visitor typed, when $query carries a rewrite of it (search-as-you-type adds a
@@ -119,7 +174,7 @@ final readonly class SearchGate
      */
     public static function assertActorHasTenant(IndexDefinition $index, SearchQuery $query): void
     {
-        if ($query->actor !== null && $index->tenant !== null && $query->tenant === null) {
+        if (($query->actor !== null || $query->system) && $index->tenant !== null && $query->tenant === null) {
             throw ActorRequired::forIndex($index->name);
         }
     }
@@ -136,8 +191,14 @@ final readonly class SearchGate
         $asked = $query;
 
         try {
+            if ($query->system) {
+                $this->assertSystemAllowed($index);
+            } elseif ($query->actor === null && ($ambient = $this->ambientActor()) !== null) {
+                $query = self::withActor($index, $query, $ambient, false);
+            }
+            $asked = $query; // a refusal is recorded with the actor that was asked
             self::assertActorHasTenant($index, $query);
-            // a search without an actor never runs the guards
+            // a system search runs no guard; any other search does, as the ambient actor when the caller named none
             if ($query->actor !== null && $this->guards !== []) {
                 $access = $this->access($index, $query->actor, $charge);
                 if ($access->fields !== null) {
@@ -155,10 +216,54 @@ final readonly class SearchGate
         if ($result instanceof SearchResult && $query->log) {
             // explain() runs the search again for a developer and records nothing: only search() passes a SearchResult;
             // an unlogged search records no ok row (a refusal is always recorded)
-            $this->record($index, $query, $typed, $result->total, $result->tookMs, $result->usedFuzzy, RecordStatus::Ok);
+            $this->record($index, $query, $typed, $result->total, $result->tookMs, $result->usedFuzzy, RecordStatus::Ok, $result->correctedFrom !== null);
         }
 
         return $result;
+    }
+
+    private function recordOf(IndexDefinition $index, SearchQuery $query, ?string $typed, int $hits, float $tookMs, bool $usedFuzzy, RecordStatus $status, bool $rescued): SearchRecord
+    {
+        // bound the input first (the redaction patterns must not run over a text of any size), then redact, then cut:
+        // a pattern is never cut in half by the final cut, and the bound is far above it (4 x the 255 that is kept)
+        $text = mb_substr($typed ?? $query->text, 0, self::MAX_REDACTED_INPUT);
+        $text = $this->redactor?->redact($text) ?? $text;
+
+        return new SearchRecord(new \DateTimeImmutable(), $index->name, self::tenantOf($query), $query->system ? self::SYSTEM_USER : $query->actor?->user, mb_substr($text, 0, 255), $hits, $tookMs, $usedFuzzy, $status, $this->ipMode->apply($query->actor?->ip), $rescued);
+    }
+
+    /**
+     * Records a search that ran elsewhere, without running it (Fuzzphony::logSearch()): the same actor, redaction, IP mode and tenant rules as
+     * a search of this index, no guard (nothing is searched) and no engine call. The index must log and the log must be on.
+     *
+     * @throws InvalidArgument when the index is not logged or the search log is off
+     * @throws ActorRequired   on a tenant-scoped index without a tenant
+     */
+    public function logSearch(IndexDefinition $index, SearchQuery $query, int $hits, float $tookMs, bool $usedFuzzy, bool $rescued): LoggedSearch
+    {
+        if (!$index->log) {
+            throw new InvalidArgument(sprintf('Index "%s" is not logged (log: false), so a search cannot be recorded for it.', $index->name));
+        }
+        if ($this->log instanceof NullSearchLog) {
+            throw new InvalidArgument(self::LOG_OFF);
+        }
+        if ($query->system) {
+            $this->assertSystemAllowed($index);
+        } elseif ($query->actor === null && ($ambient = $this->ambientActor()) !== null) {
+            $query = self::withActor($index, $query, $ambient, false);
+        }
+        if ($index->tenant !== null && $query->tenant === null) {
+            throw ActorRequired::forIndex($index->name); // a tenant must be known, with or without an actor
+        }
+        $record = $this->recordOf($index, $query, null, max(0, $hits), max(0.0, $tookMs), $usedFuzzy, RecordStatus::Ok, $rescued);
+        try {
+            $this->log->record($record);
+        } catch (\Throwable $e) {
+            $this->metrics->increment('fuzzphony.search_log.failed', ['index' => $index->name]);
+            $this->logger?->error('Fuzzphony could not record a search: {message}', ['message' => $e->getMessage(), 'index' => $index->name]);
+        }
+
+        return new LoggedSearch($record->at, $record->index, $record->tenant === null ? null : (string) $record->tenant, $record->user, $record->ip, $record->query, $record->hits, $record->tookMs, $record->usedFuzzy, $record->status, $record->rescued);
     }
 
     /** A refused search is counted, logged and recorded (also when it is unlogged): a refusal is never silent. */
@@ -196,18 +301,14 @@ final readonly class SearchGate
     }
 
     /** A log that fails (or a redactor that does) must never fail the search: it is counted and logged instead. */
-    private function record(IndexDefinition $index, SearchQuery $query, ?string $typed, int $hits, float $tookMs, bool $usedFuzzy, RecordStatus $status): void
+    private function record(IndexDefinition $index, SearchQuery $query, ?string $typed, int $hits, float $tookMs, bool $usedFuzzy, RecordStatus $status, bool $rescued = false): void
     {
         if (!$index->log || $this->log instanceof NullSearchLog) {
             return;
         }
 
         try {
-            // bound the input first (the redaction patterns must not run over a text of any size), then redact, then cut:
-            // a pattern is never cut in half by the final cut, and the bound is far above it (4 x the 255 that is kept)
-            $text = mb_substr($typed ?? $query->text, 0, self::MAX_REDACTED_INPUT);
-            $text = $this->redactor?->redact($text) ?? $text;
-            $this->log->record(new SearchRecord(new \DateTimeImmutable(), $index->name, self::tenantOf($query), $query->actor?->user, mb_substr($text, 0, 255), $hits, $tookMs, $usedFuzzy, $status, $this->ipMode->apply($query->actor?->ip)));
+            $this->log->record($this->recordOf($index, $query, $typed, $hits, $tookMs, $usedFuzzy, $status, $rescued));
         } catch (\Throwable $e) {
             $this->metrics->increment('fuzzphony.search_log.failed', ['index' => $index->name]);
             $this->logger?->error('Fuzzphony could not record a search: {message}', ['message' => $e->getMessage(), 'index' => $index->name]);

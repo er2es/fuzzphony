@@ -20,7 +20,7 @@ final class EntityLoaderMappingTest extends TestCase
     private static function resultOf(int|string ...$ids): SearchResult
     {
         return new SearchResult(
-            array_values(array_map(static fn(int|string $id): Hit => new Hit($id, 1.0, new ScoreBreakdown()), $ids)),
+            array_values(array_map(static fn(int|string $id): Hit => new Hit('products', $id, 1.0, new ScoreBreakdown()), $ids)),
             count($ids),
             false,
             0.1,

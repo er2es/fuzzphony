@@ -69,8 +69,9 @@ one tenant is never returned for another tenant, even when two tenants have a us
 tenant-scoped, a call without a tenant covers everyone (as the other reports do, but these rows are per person): name the tenant.
 
 On a tenant-scoped index, a search with an actor but no tenant throws `ActorRequired`, a subclass of
-`InvalidQuery`. A search without an actor still throws the original `InvalidQuery` ("requires
-forTenant(); none was given"), so code that catches `InvalidQuery` keeps working.
+`InvalidQuery`, and so does one made as `asSystem()` or as the anonymous ambient actor: a tenant must be known. A service built without
+guards, resolver or log (no gate) keeps the original `InvalidQuery` ("requires forTenant(); none was given"); code that catches
+`InvalidQuery` works with both.
 
 ## Integrations
 
@@ -103,10 +104,10 @@ tenant-scoped index is refused. No token (nobody logged in) is anonymous too, no
   `bin/console fuzzphony:search products 'mouse' --tenant=42 --user=ada` (the value is matched against
   the type of the tenant filter: `42` works for an integer and for a string filter). On a tenant-scoped
   index without `--tenant` it prints why and exits with code 1; an empty `--tenant=` or `--user=` is refused.
-- **Explicit stays explicit:** the core has no ambient actor. In your own controllers and services,
-  resolve it and pass it yourself: `->asActor($resolver->resolve())`, with
-  `Fuzzphony\Core\Search\ActorResolver` injected (the bundle aliases it to the configured resolver).
-  A search you do not scope throws; it is never scoped by a hidden request context.
+- **The current user is the default actor:** a search that does not call `->asActor()` is made as the actor the `ActorResolver` returns for the
+  current request (the bundle: the configured resolver), so a forgotten call cannot search unguarded. An explicit `->asActor()` or `->forTenant()`
+  wins over it. A search with no tenant at all still throws; a tenant is never taken from the request or the client
+  ([Security](security.md#the-actor)).
 
 ### A refusal is a 403
 

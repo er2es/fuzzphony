@@ -153,7 +153,7 @@ final class FuzzphonySearchFilterApplyTest extends TestCase
         $engine->method('search')->willReturnCallback(function (IndexDefinition $index, SearchQuery $query) use ($hits): SearchResult {
             $this->queries[] = $query;
 
-            return new SearchResult(array_map(static fn(int $id): Hit => new Hit($id, 1.0, new ScoreBreakdown()), $hits), count($hits), false, 1.0, false, [], $query->limit, 0);
+            return new SearchResult(array_map(static fn(int $id): Hit => new Hit('products', $id, 1.0, new ScoreBreakdown()), $hits), count($hits), false, 1.0, false, [], $query->limit, 0);
         });
         $fuzzphony = new Fuzzphony($engine, new IndexRegistry([Indexes::products('manual', tenant: $tenant)]));
 

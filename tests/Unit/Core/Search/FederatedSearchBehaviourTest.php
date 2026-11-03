@@ -46,7 +46,7 @@ final class FederatedSearchBehaviourTest extends TestCase
     private static function resultOf(array $ids, int $total = 0, bool $lowerBound = false, array $warnings = []): SearchResult
     {
         return new SearchResult(
-            array_map(static fn(int $id): Hit => new Hit($id, 1.0, new ScoreBreakdown()), $ids),
+            array_map(static fn(int $id): Hit => new Hit('products', $id, 1.0, new ScoreBreakdown()), $ids),
             $total === 0 ? count($ids) : $total,
             $lowerBound,
             0.1,

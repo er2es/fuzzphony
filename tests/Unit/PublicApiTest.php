@@ -76,10 +76,10 @@ final class PublicApiTest extends TestCase
         \Fuzzphony\Core\Search\ActorResolver::class,
         \Fuzzphony\Core\Search\Explanation::class,
         \Fuzzphony\Core\Search\FacetValue::class,
-        \Fuzzphony\Core\Search\FederatedHit::class,
         \Fuzzphony\Core\Search\FederatedResult::class,
         \Fuzzphony\Core\Search\FederatedSearch::class,
         \Fuzzphony\Core\Search\Hit::class,
+        \Fuzzphony\Core\Search\MatchedWord::class,
         \Fuzzphony\Core\Search\ScoreBreakdown::class,
         \Fuzzphony\Core\Search\SearchBuilder::class,
         \Fuzzphony\Core\Search\SearchGuard::class,
@@ -113,7 +113,7 @@ final class PublicApiTest extends TestCase
 
         self::assertSame([], $wrong);
         self::assertCount(76, self::PUBLIC);
-        self::assertCount(203, self::classes());
+        self::assertCount(204, self::classes());
     }
 
     public function testThePublicApiExposesNoInternalType(): void

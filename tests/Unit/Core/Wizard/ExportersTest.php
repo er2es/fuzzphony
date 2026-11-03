@@ -92,6 +92,28 @@ final class ExportersTest extends TestCase
         self::assertStringNotContainsString('->synonyms(', (new BuilderExporter())->export(Indexes::products()));
     }
 
+    public function testTheYamlWritesListsAsSequencesAndReadsBackAsTheSameDefinition(): void
+    {
+        $original = IndexDefinition::builder('products')->fromQuery("SELECT p.id, p.name, p.tenant_id FROM product p\nWHERE p.active")
+            ->watch('product')
+            ->watch('product_tag', 'SELECT product_id FROM product_tag WHERE id = :id', 'id', ['tag_id', 'weight'])
+            ->field('name', 'A', fuzzy: true)
+            ->filter('tenant_id', 'int')->tenant('tenant_id')
+            ->synonyms([['tv', 'television'], ['ssd', 'solid state drive', 'it\'s'], 'laptop => notebook | portable'])
+            ->boostBy('popularity')->profile('popular', new RankingProfile(boost: 0.5))
+            ->build();
+
+        $yaml = (new YamlExporter())->export($original);
+
+        self::assertStringContainsString("      synonyms:\n        - [tv, television]\n        - [ssd, solid state drive, 'it''s']\n        - 'laptop => notebook | portable'\n", $yaml, 'a list is a sequence, never numbered keys');
+        self::assertStringContainsString("columns: [tag_id, weight]\n", $yaml);
+        self::assertDoesNotMatchRegularExpression('/^\s+0:/m', $yaml);
+        /** @var array{fuzzphony: array{indexes: array{products: array<string, mixed>}}} $parsed */
+        $parsed = Yaml::parse($yaml);
+        self::assertSame((new ArrayExporter())->export($original), $parsed['fuzzphony']['indexes']['products'], 'the YAML is the array the loader reads');
+        self::assertEquals($original, (new ArrayDefinitionLoader())->load('products', $parsed['fuzzphony']['indexes']['products']));
+    }
+
     public function testAttributeExportCarriesTheSynonyms(): void
     {
         $original = IndexDefinition::builder('gadgets')->fromTable('gadget')->field('title', 'A', fuzzy: true)
@@ -233,7 +255,18 @@ final class ExportersTest extends TestCase
     {
         $index = IndexDefinition::builder('notes')->fromQuery("SELECT n.id, n.title\nFROM note n")->watch('note')->field('title', 'A')->build();
 
-        self::assertStringContainsString("        query: |\n          SELECT n.id, n.title\n          FROM note n\n", (new YamlExporter())->export($index));
+        self::assertStringContainsString("        query: |-\n          SELECT n.id, n.title\n          FROM note n\n", (new YamlExporter())->export($index), 'no final newline in the text: |-');
+    }
+
+    public function testAMultilineQueryReadsBackAsExactlyTheSameText(): void
+    {
+        foreach (["SELECT n.id, n.title\nFROM note n", "SELECT n.id, n.title\nFROM note n\n", "SELECT n.id, n.title\nFROM note n\n\n", "SELECT n.id, n.title\n\n  FROM note n", "  SELECT n.id, n.title\nFROM note n"] as $query) {
+            $original = IndexDefinition::builder('notes')->fromQuery($query)->watch('note')->field('title', 'A')->build();
+            /** @var array{fuzzphony: array{indexes: array{notes: array<string, mixed>}}} $parsed */
+            $parsed = Yaml::parse((new YamlExporter())->export($original));
+
+            self::assertEquals($original, (new ArrayDefinitionLoader())->load('notes', $parsed['fuzzphony']['indexes']['notes']), json_encode($query, JSON_THROW_ON_ERROR));
+        }
     }
 
     public function testJoinedSourcesCannotBeAttributes(): void

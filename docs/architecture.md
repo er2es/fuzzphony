@@ -55,11 +55,11 @@ added to a result is not a breaking change.
   `Fuzzphony\Core\Definition\FilterType`, `Fuzzphony\Core\Definition\IdType`,
   `Fuzzphony\Core\Definition\SyncMode`, `Fuzzphony\Core\Definition\TriggerLevel`
 - Searching: `Fuzzphony\Core\Search\SearchBuilder`, `Fuzzphony\Core\Search\SearchResult`,
-  `Fuzzphony\Core\Search\Hit`, `Fuzzphony\Core\Search\ScoreBreakdown`,
+  `Fuzzphony\Core\Search\Hit`, `Fuzzphony\Core\Search\MatchedWord`, `Fuzzphony\Core\Search\ScoreBreakdown`,
   `Fuzzphony\Core\Search\Explanation`, `Fuzzphony\Core\Search\FacetValue`,
   `Fuzzphony\Core\Search\Actor`, `Fuzzphony\Core\Search\ActorResolver`,
   `Fuzzphony\Core\Search\SearchGuard`, `Fuzzphony\Core\Search\Access`,
-  `Fuzzphony\Core\Search\FederatedSearch`, `Fuzzphony\Core\Search\FederatedResult`, `Fuzzphony\Core\Search\FederatedHit`
+  `Fuzzphony\Core\Search\FederatedSearch`, `Fuzzphony\Core\Search\FederatedResult`
 - Search log: `Fuzzphony\Core\Analytics\SearchLog`, `Fuzzphony\Core\Analytics\SearchRecord`,
   `Fuzzphony\Core\Analytics\RecordStatus`, `Fuzzphony\Core\Analytics\QueryRedactor`,
   `Fuzzphony\Core\Analytics\SearchAnalytics`, `Fuzzphony\Core\Analytics\IpMode`,

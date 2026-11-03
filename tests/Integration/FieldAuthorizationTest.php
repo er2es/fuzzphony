@@ -292,7 +292,8 @@ final class FieldAuthorizationTest extends TestCase
         $gated = $this->build(new SearchGate(guards: [$titleAndBody]));
 
         self::assertSame([2], $gated->in('auth_docs')->query('zebrafish')->asActor(new Actor(user: 'ada'))->get()->ids());
-        self::assertEqualsCanonicalizing([1, 2, 3], $gated->in('auth_docs')->query('zebrafish')->get()->ids(), 'no actor, no guard');
+        self::assertSame([2], $gated->in('auth_docs')->query('zebrafish')->get()->ids(), 'no actor named: anonymous, the guard runs');
+        self::assertEqualsCanonicalizing([1, 2, 3], $gated->in('auth_docs')->query('zebrafish')->asSystem()->get()->ids(), 'only asSystem() skips it');
     }
 
     private function search(string $text, string $mode = 'fallback'): SearchBuilder

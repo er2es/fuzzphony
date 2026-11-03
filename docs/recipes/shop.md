@@ -236,13 +236,13 @@ public function everything(string $text): FederatedResult
 
 <!-- tested: tests/Recipes/Shop/ShopTest.php#federated -->
 ```php
-self::assertSame(['products:1', 'products:2', 'categories:5'], array_map(static fn($hit): string => $hit->index . ':' . $hit->hit->id, $hits));
+self::assertSame(['products:1', 'products:2', 'categories:5'], array_map(static fn($hit): string => $hit->kind . ':' . $hit->id, $hits));
 // product 9 is out of stock and the products index skips those; the headset comes with the typo-tolerant search;
 // the category is last: the products weigh twice
 ```
 
 Scores of different indexes cannot be compared, so the lists are merged by reciprocal rank fusion
-([Federated search](../searching.md#federated-search)). Ids repeat between indexes: use `$hit->index`. Each index
+([Federated search](../searching.md#federated-search)). Ids repeat between indexes: use `$hit->kind`. Each index
 costs its own search, and page N reads `offset + limit` hits of every index (at most 1000 in all).
 
 ## The Live Component as the UI

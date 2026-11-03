@@ -150,6 +150,27 @@ that the strict query matches is highlighted exactly as without typo tolerance. 
 only when the page has hits found by typo tolerance and a `fuzzy` field is highlighted; without `highlight()` nothing
 changes. See [Limitations](limitations.md#highlights-run-the-source-query-and-mark-typo-matches-by-word) for what it does not mark.
 
+## What matched
+
+`explainMatches()` says, for each hit of the page you get back, which word of which field matched the query and how:
+
+```php
+$result = $fuzzphony->in('products')->query('mouse')->limit(10)->explainMatches()->get();
+
+foreach ($result->hits as $hit) {
+    foreach ($hit->matches as $match) {      // a list of MatchedWord
+        echo $match->field, ' ', $match->word, ' ', $match->via;   // name mouses stem
+    }
+}
+```
+
+`via` is `exact` (the typed word), `stem` (another form of it: `mouses` for `mouse`), `prefix` (a
+`mou*` term or the word being typed with `asYouType()`), `synonym` (an alternative a [synonym](#synonyms) added) or `typo`, with the `similarity` that
+made it match. The words are the stored text in its normalised form (lower case, no accents). It is **opt-in**: without the call `Hit::$matches` is
+null and the statements are exactly the ones of a search without it; with it the engine runs one more statement over the ids of the page (never
+more than `limit` hits; at most 50 words per hit). A viewer who may not see a field gets no word of it and no name of it, whatever the
+query: the statement reads only the fields the viewer may search ([Security](security.md)).
+
 ## Query syntax
 
 End-user search text never throws. Malformed input is repaired and reported in
@@ -505,7 +526,7 @@ $result = $fuzzphony->federated()
     ->get();
 
 foreach ($result as $hit) {
-    echo $hit->index, ' ', $hit->hit->id, ' ', $hit->score;   // FederatedHit
+    echo $hit->kind, ' ', $hit->id, ' ', $hit->mergedScore;   // the index, its own id, the merged score
 }
 $result->results['products']->total;   // each index's own SearchResult (facets, didYouMean, ...)
 ```
@@ -513,15 +534,16 @@ $result->results['products']->total;   // each index's own SearchResult (facets,
 - The scores of different indexes cannot be compared (each index ranks with its own statistics), so the
   lists are merged by **reciprocal rank fusion**: a hit's merged score is `weight / (60 + its rank in its
   own index)`. The best hit of every index comes first, then the second best, and a `weight` above 1.0
-  moves an index up (below 1.0 down). Ties go to the index added first. `$hit->hit->score` is still the
-  index's own score.
+  moves an index up (below 1.0 down). Ties go to the index added first. `$hit->mergedScore` is that
+  fusion score (it is null in a single-index search); `$hit->score` is still the index's own score. The hits are plain `Hit`s: `kind`
+  is the index each comes from.
 - Each index is searched on its own, so its filters, tenant, thresholds, ranking profile and highlights
   are what the `configure` closure says (a tenant-scoped index needs `forTenant()` there, as always).
 - **Deep pages cost more:** page N reads the first `offset + limit` hits of every index and merges them,
   so `offset + limit` is at most 1000. For a "load more" list prefer a larger `limit` to deep offsets.
 - `total` is the sum of the indexes' totals (`totalIsLowerBound` when any was cut off), warnings are
   prefixed with the index name (`[products] ...`), and the ids are those of each index (an `articles` id
-  can equal a `products` id): use `$hit->index` to tell them apart. It works with every engine, as it only
+  can equal a `products` id): use `$hit->kind` to tell them apart. It works with every engine, as it only
   uses `search()`.
 - `unlogged()` keeps every per-index search out of the [search log](analytics.md#keeping-a-search-out-of-the-log)
   (a refusal is still recorded).
@@ -595,6 +617,22 @@ only: a word that exists only in the hidden field finds nothing, is not ranked o
 "did you mean" or completion. The same restriction is available to your own code with
 `->restrictedToFields('title', 'body')`. Filters and facets are not restricted. Details and limits:
 [Security](security.md).
+
+## Hits and results as data
+
+A `Hit` has `kind` (the index it comes from; a federated search mixes them), a typed `id` (an `int` for an integer key, a `string` for a uuid or string key: the raw
+key, for you to load your rows with), `score`, `breakdown`, `highlights`, `mergedScore` (federated only) and `matches` (`explainMatches()` only). `SearchResult`,
+`Hit`, `FacetValue` and `MatchedWord` have `toArray()` and are `JsonSerializable`, with the same stable keys:
+
+```php
+echo json_encode($result);
+// {"hits":[{"kind":"products","id":7,"score":0.84,"breakdown":{...},"highlights":{"name":"Wireless <mark>mouse</mark>"},"mergedScore":null,"matches":null}],
+//  "total":1,"totalIsLowerBound":false,"facets":{"category":[{"value":"mice","count":1}]},
+//  "didYouMean":null,"correctedFrom":null,"correctedTo":null,"warnings":[],"tookMs":3.2}
+```
+
+The `highlights` are already HTML-escaped (`<mark>` is the only tag): put them into HTML as they are. Every other string (`didYouMean`, `correctedFrom`, `correctedTo`, `warnings`,
+the matched words) is plain text: escape it when you render it. `correctedTo` is the text the [zero-result rescue](#zero-result-rescue) searched.
 
 ## Rendering results safely
 

@@ -6,7 +6,7 @@ namespace Fuzzphony\Tests\Integration;
 
 use Fuzzphony\Core\Fuzzphony;
 use Fuzzphony\Core\Registry\IndexRegistry;
-use Fuzzphony\Core\Search\FederatedHit;
+use Fuzzphony\Core\Search\Hit;
 use Fuzzphony\Core\Search\SearchBuilder;
 use Fuzzphony\Core\Search\SearchGate;
 use Fuzzphony\Engine\Postgres\PostgresEngine;
@@ -112,7 +112,7 @@ final class NoConfigurationCompatibilityTest extends TestCase
         $actual = $gated->federated()->index('products')->query('mouse')->get();
 
         self::assertNotSame([], $actual->hits);
-        self::assertSame(array_map(static fn(FederatedHit $hit): int|string => $hit->hit->id, $expected->hits), array_map(static fn(FederatedHit $hit): int|string => $hit->hit->id, $actual->hits));
+        self::assertSame(array_map(static fn(Hit $hit): int|string => $hit->id, $expected->hits), array_map(static fn(Hit $hit): int|string => $hit->id, $actual->hits));
         self::assertSame($plainConnection->log, $gatedConnection->log);
     }
 }

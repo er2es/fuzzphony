@@ -117,8 +117,9 @@ under **Breaking** in the [CHANGELOG](../CHANGELOG.md) and explained in [UPGRADE
 
 **A smaller, safer API**
 
-- An ambient actor: a forgotten `asActor()` can no longer expose a field that is granted to some viewers
-  ([Security](security.md)); `granted` without the authorization switched on is an error.
+- An ambient actor: a forgotten `asActor()` can no longer expose a field that is granted to some viewers; full access is the visible
+  `asSystem()`; `granted` without the authorization switched on is an error ([Security](security.md#the-actor)). Hits know their index
+  (`Hit::$kind`), results are JSON, and `explainMatches()` shows what matched ([Searching](searching.md#what-matched)).
 - Configuration names cleaned up (thresholds, the zero-result rescue and "did you mean", `rate_limit.enabled`,
   `suggest()` to `complete()`), one rule for reading values ([Configuration](configuration.md)).
 - The public API shrinks to about 60 types; everything else is `@internal` ([Architecture](architecture.md#public-api)).

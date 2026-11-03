@@ -32,7 +32,7 @@ final readonly class SearchLogRepository
     public function write(array $records): int
     {
         $written = 0;
-        // at most 11 bind parameters a row: PostgreSQL allows 65,535 a statement, so at most 1,000 rows each
+        // at most 12 bind parameters a row: PostgreSQL allows 65,535 a statement, so at most 1,000 rows each
         foreach (array_chunk(array_values($records), self::CHUNK) as $chunk) {
             $written += $this->insert($chunk);
         }
@@ -46,7 +46,7 @@ final readonly class SearchLogRepository
         $values = [];
         $params = [];
         foreach ($records as $i => $r) {
-            $values[] = sprintf('(CAST(:at%1$d AS timestamptz), :ix%1$d, :tn%1$d, :us%1$d, :q%1$d, :qn%1$d, :h%1$d, :ms%1$d, CAST(:fz%1$d AS boolean), :st%1$d, :ip%1$d)', $i);
+            $values[] = sprintf('(CAST(:at%1$d AS timestamptz), :ix%1$d, :tn%1$d, :us%1$d, :q%1$d, :qn%1$d, :h%1$d, :ms%1$d, CAST(:fz%1$d AS boolean), :st%1$d, :ip%1$d, CAST(:rs%1$d AS boolean))', $i);
             $params += [
                 "at$i" => $r->at->format(self::TIMESTAMP),
                 "ix$i" => $r->index,
@@ -59,11 +59,12 @@ final readonly class SearchLogRepository
                 "fz$i" => $r->usedFuzzy ? 't' : 'f',
                 "st$i" => $r->status->value,
                 "ip$i" => $r->ip,
+                "rs$i" => $r->rescued ? 't' : 'f',
             ];
         }
 
         return $this->connection->execute(sprintf(
-            'INSERT INTO %s (at, index_name, tenant, actor_user, query, query_norm, hits, took_ms, used_fuzzy, status, actor_ip) VALUES %s',
+            'INSERT INTO %s (at, index_name, tenant, actor_user, query, query_norm, hits, took_ms, used_fuzzy, status, actor_ip, rescued) VALUES %s',
             $this->names->searchLog(),
             implode(', ', $values),
         ), $params);
@@ -143,7 +144,7 @@ final readonly class SearchLogRepository
             $params['st'] = $status->value;
         }
         $rows = $this->connection->fetchAll(sprintf(
-            'SELECT at, index_name, tenant, actor_user, actor_ip, query, hits, took_ms, used_fuzzy, status FROM %s WHERE %s ORDER BY at DESC, id DESC LIMIT :lim',
+            'SELECT at, index_name, tenant, actor_user, actor_ip, query, hits, took_ms, used_fuzzy, status, rescued FROM %s WHERE %s ORDER BY at DESC, id DESC LIMIT :lim',
             $this->names->searchLog(),
             $where,
         ), $params);
@@ -159,6 +160,7 @@ final readonly class SearchLogRepository
             Coerce::float($r['took_ms']),
             $r['used_fuzzy'] === true,
             RecordStatus::from(Coerce::str($r['status'])),
+            $r['rescued'] === true,
         ), $rows);
     }
 }

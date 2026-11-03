@@ -502,8 +502,8 @@ response; a write that fails (the table is missing, the database is down) is cou
 `SIGKILL` loses the (at most 1000) records it still holds. The `hits` of a search that hit `limits.candidates` is a
 lower bound (see [above](#ranking-of-very-common-words)). Redaction removes what a regular
 expression can describe, nothing more, and the live search of the Live Component is not logged unless you ask
-for it. The user and the IP of a row exist only for searches made with an actor (`asActor()`; the integrations
-do). A log you must not lose is a custom `SearchLog` that writes somewhere durable, which the built-in reports
+for it. The user of a row is the actor's (named, or the current user the resolver finds; `(system)` for `asSystem()`), and the IP exists only when the actor
+carries one (the bundle adds it from the request). A log you must not lose is a custom `SearchLog` that writes somewhere durable, which the built-in reports
 then do not read.
 
 ## Security and privacy
@@ -528,7 +528,7 @@ where only a field-level rule protects it from being inferred.
   `trusted_headers`: behind a proxy or load balancer without them every row carries the proxy's address.
   Fuzzphony never reads `X-Forwarded-For` itself.
 - A search that does not come from an HTTP request carries no address: the console (`fuzzphony:search`), a
-  worker or a Messenger handler, and any search made without an actor. Anything that is not a valid IP address
+  worker or a Messenger handler (their ambient actor is anonymous, without an address). Anything that is not a valid IP address
   is not stored.
 
 What to do: keep it off unless you use it, prefer `masked`, set the retention and the trusted proxies. See
@@ -560,7 +560,7 @@ address). Its limits:
   application sees the proxy's address); with it set too broadly, a visitor can name any client. Fuzzphony
   never reads `X-Forwarded-For` itself, `Request::getClientIp()` decides.
 - **A call without a request is not limited by IP**: a plain PHP call, a console command, a worker, an actor
-  built without `ip:`, and a search made without any `asActor()` (no guard runs then) have no address.
+  built without `ip:`, and the ambient actor of a call outside a request have no address.
   Fuzzphony cannot limit what it does not see.
 - **An IPv6 address is limited by its /64**; an address that embeds an IPv4 address (IPv4-mapped,
   IPv4-compatible, NAT64 `64:ff9b::/96`, 6to4 `2002::/16`) as that IPv4 address. A visitor with a /64 to

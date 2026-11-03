@@ -321,7 +321,7 @@ final class FuzzphonyBundleTest extends TestCase
 
         $extension = $container->getExtension('fuzzphony');
         $extension->load($container->getExtensionConfig('fuzzphony'), $container);
-        self::assertSame(['~^(?!legacy_)~', 'fuzzphony'], array_slice($container->getDefinition(DoctorCommand::class)->getArguments(), 1));
+        self::assertSame(['~^(?!legacy_)~', 'fuzzphony', false], array_slice($container->getDefinition(DoctorCommand::class)->getArguments(), 1));
     }
 
     public function testAnotherConnectionsFilterDoesNotCount(): void
@@ -369,7 +369,7 @@ final class FuzzphonyBundleTest extends TestCase
         self::assertSame([], $container->getExtensionConfig('doctrine'));
         self::assertFalse($container->hasParameter('fuzzphony.app_schema_filter'));
         $container->getExtension('fuzzphony')->load($container->getExtensionConfig('fuzzphony'), $container);
-        self::assertSame([null, 'public'], array_slice($container->getDefinition(DoctorCommand::class)->getArguments(), 1));
+        self::assertSame([null, 'public', false], array_slice($container->getDefinition(DoctorCommand::class)->getArguments(), 1));
     }
 
     public function testTheDefaultsOfTheConfigurationTree(): void

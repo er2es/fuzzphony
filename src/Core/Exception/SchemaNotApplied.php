@@ -15,7 +15,7 @@ final class SchemaNotApplied extends \RuntimeException implements FuzzphonyExcep
     private const string UNDEFINED_COLUMN = '42703';
 
     /** The columns schema --apply adds to an existing table (a column of a new layout). */
-    private const array COLUMNS = ['tsv_capped', 'actor_ip'];
+    private const array COLUMNS = ['tsv_capped', 'actor_ip', 'rescued'];
 
     /**
      * @param list<string> $missing

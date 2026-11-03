@@ -7,7 +7,6 @@ namespace Fuzzphony\Tests\Recipes\MultiTenant;
 use Fuzzphony\Core\Analytics\RecordStatus;
 use Fuzzphony\Core\Exception\ActorRequired;
 use Fuzzphony\Core\Exception\InvalidArgument;
-use Fuzzphony\Core\Exception\InvalidQuery;
 use Fuzzphony\Core\Fuzzphony;
 use Fuzzphony\Core\Search\Actor;
 use Fuzzphony\Tests\Integration\PostgresTestCase;
@@ -165,19 +164,26 @@ final class MultiTenantTest extends KernelTestCase
         );
     }
 
-    public function testInYourOwnCodeTheActorIsExplicit(): void
+    public function testInYourOwnCodeATenantMustBeKnown(): void
     {
         $fuzzphony = $this->fuzzphony();
 
-        try {
-            $fuzzphony->in('tickets')->query('invoice')->get();
-            self::fail('A tenant-scoped index refuses a search without a tenant.');
-        } catch (InvalidQuery $e) {
-            self::assertStringContainsString('requires forTenant()', $e->getMessage());
-            self::assertNotInstanceOf(ActorRequired::class, $e);
+        // no one is signed in: the ambient actor is anonymous and has no tenant; asSystem() does not name one either
+        foreach ([fn() => $fuzzphony->in('tickets')->query('invoice')->get(), fn() => $fuzzphony->in('tickets')->asSystem()->query('invoice')->get(), fn() => $fuzzphony->in('tickets')->asActor(new Actor(user: 'ada'))->query('invoice')->get()] as $search) {
+            try {
+                $search();
+                self::fail('A tenant-scoped index refuses a search without a tenant.');
+            } catch (ActorRequired $e) {
+                self::assertStringContainsString('has no tenant', $e->getMessage());
+            }
         }
-        $this->expectException(ActorRequired::class);
-        $fuzzphony->in('tickets')->asActor(new Actor(user: 'ada'))->query('invoice')->get();
+    }
+
+    public function testAJobThatIsAllowedToSeeEverythingSaysSoAndNamesItsTenant(): void
+    {
+        $fuzzphony = $this->fuzzphony();
+
+        self::assertSame(2, $fuzzphony->in('tickets')->asSystem()->forTenant(1)->query('invoice')->get()->total);
     }
 
     public function testAFieldOnlyTheSupportLeadMaySearchIsNotMatchedForAnyoneElse(): void
@@ -190,6 +196,28 @@ final class MultiTenantTest extends KernelTestCase
         [, $ids] = $this->get(self::ada(), 'refund');
         self::assertSame([], $ids);     // ada may not: the word finds nothing, ranks nothing and highlights nothing
         // endregion
+    }
+
+    public function testAForgetfulControllerSearchesAsTheTokenUserAndNeverSeesMoreThanThatUser(): void
+    {
+        $tokens = self::getContainer()->get('security.token_storage');
+        self::assertInstanceOf(TokenStorageInterface::class, $tokens);
+        $ids = function (?AppUser $user, bool $system = false) use ($tokens): array {
+            $tokens->setToken($user === null ? null : new UsernamePasswordToken($user, 'main', $user->getRoles()));
+            $builder = $this->fuzzphony()->in('tickets')->query('refund');   // no asActor(): the controller forgot it
+            $hits = ($system ? $builder->asSystem()->forTenant(1) : $builder)->get()->hits;
+            $tokens->setToken(null);
+
+            return array_map(static fn($hit): int|string => $hit->id, $hits);
+        };
+
+        self::assertSame([], $ids(self::ada()), 'the token user lacks the role of internal_note: the field stays hidden');
+        self::assertSame([1], $ids(new AppUser(new Account(1), 'hana', ['ROLE_USER', 'ROLE_SUPPORT_LEAD'])), 'with the role it is visible');
+        self::assertSame([1], $ids(null, system: true), 'asSystem() sees everything');
+
+        $tokens->setToken(null);
+        $this->expectException(ActorRequired::class);   // no token (CLI, worker) on a tenant-scoped index: anonymous has no tenant
+        $this->fuzzphony()->in('tickets')->query('refund')->get();
     }
 
     public function testWhatARestrictedViewerStillLearns(): void

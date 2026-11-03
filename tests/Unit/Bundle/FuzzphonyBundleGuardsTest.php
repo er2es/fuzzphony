@@ -12,6 +12,7 @@ use Fuzzphony\Bundle\Security\RateLimitGuard;
 use Fuzzphony\Core\Analytics\IpMode;
 use Fuzzphony\Core\Analytics\NullSearchLog;
 use Fuzzphony\Core\Exception\InvalidConfiguration;
+use Fuzzphony\Core\Exception\InvalidDefinition;
 use Fuzzphony\Core\Fuzzphony;
 use Fuzzphony\Core\Search\SearchGate;
 use PHPUnit\Framework\TestCase;
@@ -27,7 +28,9 @@ final class FuzzphonyBundleGuardsTest extends TestCase
     {
         $arguments = $this->gateArguments($this->buildContainer());
 
-        self::assertCount(6, $arguments);
+        self::assertCount(8, $arguments);
+        self::assertEquals(new Reference('fuzzphony.actor_resolver'), $arguments[6], 'the gate asks the actor resolver when the code names no actor');
+        self::assertTrue($arguments[7], 'asSystem() is honoured by default');
         self::assertSame(IpMode::Off, $arguments[5], 'the client IP is off by default');
         self::assertEquals(new Reference('fuzzphony.metrics'), $arguments[0]);
         self::assertEquals(new Reference('logger'), $arguments[1]);
@@ -110,7 +113,7 @@ final class FuzzphonyBundleGuardsTest extends TestCase
         $mainGate = $this->gateArguments($container);
         self::assertEquals([new Reference('fuzzphony.guard.authorization'), new Reference('fuzzphony.guard.rate_limit')], $mainGate[4], 'the main gate runs both guards');
         self::assertEquals(
-            [...array_slice($mainGate, 0, 4), [], IpMode::Off],
+            [...array_slice($mainGate, 0, 4), [], IpMode::Off, null, true],
             $operatorGate->getArguments(),
             'the operator gate counts and logs like the main one (metrics, logger, search log, redactor) but has no guard',
         );
@@ -131,6 +134,22 @@ final class FuzzphonyBundleGuardsTest extends TestCase
 
         self::assertSame([], $this->gateArguments($container)[4]);
         self::assertFalse($container->hasDefinition('fuzzphony.guard.authorization'));
+    }
+
+    public function testAllowSystemFalseIsPassedToTheGate(): void
+    {
+        $container = $this->buildContainer(['authorization' => ['allow_system' => false]]);
+
+        self::assertFalse($this->gateArguments($container)[7]);
+    }
+
+    public function testAGrantedFieldWithoutAuthorizationDoesNotBuild(): void
+    {
+        $indexes = ['docs' => ['fields' => ['title' => ['weight' => 'A'], 'secret' => ['weight' => 'C', 'granted' => 'ROLE_BOSS']]]];
+
+        FuzzphonyBundle::assertGrantedNeedsAuthorization($indexes, true);   // authorization on: fine
+        $this->expectException(InvalidDefinition::class);
+        FuzzphonyBundle::assertGrantedNeedsAuthorization($indexes, false);
     }
 
     public function testPerMustBeTenantUserOrIp(): void

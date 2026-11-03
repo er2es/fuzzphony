@@ -120,8 +120,9 @@ final class PostgresInspector
                 sprintf('GRANT SELECT ON %s TO %s;', $table, Sql::ident($role)),
             );
         }
-        if (!$this->hasColumn($table, 'actor_ip')) {
-            return Check::error('Search log', sprintf('Table %s has no actor_ip column: the schema is not up to date (missing: actor_ip), and writing or reading the log fails.', $table), self::APPLY);
+        $missing = array_values(array_filter(['actor_ip', 'rescued'], fn(string $column): bool => !$this->hasColumn($table, $column)));
+        if ($missing !== []) {
+            return Check::error('Search log', sprintf('Table %s has no %s column: the schema is not up to date (missing: %s), and writing or reading the log fails.', $table, implode(' / ', $missing), implode(', ', $missing)), self::APPLY);
         }
         $stale = $this->connection->fetchValue(
             sprintf('SELECT EXISTS (SELECT 1 FROM %s WHERE at < now() - make_interval(days => :days))', $table),
