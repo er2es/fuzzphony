@@ -28,7 +28,7 @@ Fuzzphony supports that with **three roles** and prints the exact `GRANT` statem
 | vocabulary table (fuzzy indexes) | S | S I U D | owner | "did you mean" reads it |
 | `fuzzphony_queue` | - | S I U D | owner | the drain fills it, the batch takes from it and records failures |
 | `fuzzphony_watch_log` | I | S **U** D | owner | the shared trigger appends as the role that writes a watched table; the worker's `DELETE ... FOR UPDATE SKIP LOCKED` needs `UPDATE` too |
-| `fuzzphony_watches` | - | S U | owner | each index's position in the log |
+| `fuzzphony_watches` | - | S, U on `cur_xid` only | owner | each index's position in the log; the worker cannot rewrite which table an index watches (the admin trusts those names) |
 | `fuzzphony_meta` | - | S U | owner | the worker records a failed rebuild; the reindex records its run |
 | `fuzzphony_search_log` (when enabled) | I | - | owner | searches write it; the analytics and purge commands run as the admin |
 | the source tables of an index | (the application's own rights) | S | S, `TRIGGER` | the worker runs the watch queries and rebuilds; the admin reindexes and creates the triggers |
