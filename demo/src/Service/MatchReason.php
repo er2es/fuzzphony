@@ -86,9 +86,13 @@ final readonly class MatchReason
             // explainMatches() names no typo word when the query word is shorter than typo.min_length (the search still found the row by
             // its own rule): the highlighted word of the row is the one that matched
             foreach (['name', 'brand', 'category'] as $candidate) {
-                if (preg_match('~<mark>(.*?)</mark>~su', $hit->highlights[$candidate] ?? '', $m) === 1) {
-                    [$field, $word] = [$candidate, mb_strtolower(html_entity_decode($m[1]))];
-                    break;
+                preg_match_all('~<mark>(.*?)</mark>~su', $hit->highlights[$candidate] ?? '', $marks);
+                foreach ($marks[1] as $mark) {
+                    $lower = mb_strtolower(html_entity_decode($mark));
+                    if (!in_array($lower, $words, true)) {
+                        [$field, $word] = [$candidate, $lower];
+                        break 2;
+                    }
                 }
             }
             if ($word === null) {
