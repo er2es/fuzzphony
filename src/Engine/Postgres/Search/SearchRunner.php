@@ -37,6 +37,7 @@ use Fuzzphony\Engine\Postgres\Sql\FilterCompiler;
 use Fuzzphony\Engine\Postgres\Sql\FuzzyQueryCompiler;
 use Fuzzphony\Engine\Postgres\Sql\SearchSqlBuilder;
 use Fuzzphony\Engine\Postgres\Sql\TsQueryCompiler;
+use Fuzzphony\Engine\Postgres\SourceFields;
 use Fuzzphony\Engine\Postgres\Statement;
 use Fuzzphony\Engine\Postgres\StatementKind;
 use Fuzzphony\Engine\Postgres\TextConfigCache;
@@ -191,6 +192,8 @@ final readonly class SearchRunner
         }
         $profile = $query->rankingOverrides === [] ? $index->profile($query->profile) : $index->profile($query->profile)->with($query->rankingOverrides);
         (new FilterCompiler($index))->validate(...$conditions);
+        // with(): checked against what THIS viewer may ask for, before anything runs (an unknown and a hidden name fail alike)
+        $returning = $query->returning === null ? null : SourceFields::resolve($index, $query);
         foreach ($query->facets as $facet) {
             $index->assertFacetable($facet);
         }
@@ -259,6 +262,12 @@ final readonly class SearchRunner
             $hits = array_map(static fn(Hit $hit): Hit => $hit->withMatches($matches[self::keyOf($index, $hit)] ?? []), $hits);
         }
 
+        $fieldStatements = [];
+        if ($returning !== null && $hits !== []) {
+            // opt-in: one statement per source on the page, never run (and never in the statement list) otherwise
+            ['hits' => $hits, 'statements' => $fieldStatements] = (new SourceFields($this->session))->attach($index, $query, $hits, $returning);
+        }
+
         $result = new SearchResult(
             hits: $hits,
             total: $done->total,
@@ -273,7 +282,7 @@ final readonly class SearchRunner
             facets: $done->facets,
         );
 
-        return new SearchRun($result, $done->statements, $done->threshold, $done->rescue, $done->relaxed);
+        return new SearchRun($result, [...$done->statements, ...$fieldStatements], $done->threshold, $done->rescue, $done->relaxed);
     }
 
     /**

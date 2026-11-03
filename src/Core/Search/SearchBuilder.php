@@ -32,33 +32,33 @@ final readonly class SearchBuilder
 
     public function query(string $text): self
     {
-        return $this->with($this->query->withText($text));
+        return $this->next($this->query->withText($text));
     }
 
     public function where(string $filter, mixed $operatorOrValue, mixed $value = null): self
     {
-        return $this->with(func_num_args() === 2 ? $this->query->where($filter, $operatorOrValue) : $this->query->where($filter, $operatorOrValue, $value));
+        return $this->next(func_num_args() === 2 ? $this->query->where($filter, $operatorOrValue) : $this->query->where($filter, $operatorOrValue, $value));
     }
 
     /** @param list<mixed> $values */
     public function whereIn(string $filter, array $values): self
     {
-        return $this->with($this->query->whereIn($filter, $values));
+        return $this->next($this->query->whereIn($filter, $values));
     }
 
     public function whereBetween(string $filter, mixed $from, mixed $to): self
     {
-        return $this->with($this->query->whereBetween($filter, $from, $to));
+        return $this->next($this->query->whereBetween($filter, $from, $to));
     }
 
     public function whereNull(string $filter, bool $isNull = true): self
     {
-        return $this->with($this->query->whereNull($filter, $isNull));
+        return $this->next($this->query->whereNull($filter, $isNull));
     }
 
     public function forTenant(mixed $value): self
     {
-        return $this->with($this->query->forTenant($value));
+        return $this->next($this->query->forTenant($value));
     }
 
     /**
@@ -70,7 +70,7 @@ final readonly class SearchBuilder
      */
     public function asActor(Actor $actor): self
     {
-        return $this->with(SearchGate::withActor($this->index, $this->query, $actor));
+        return $this->next(SearchGate::withActor($this->index, $this->query, $actor));
     }
 
     /**
@@ -82,7 +82,7 @@ final readonly class SearchBuilder
      */
     public function asSystem(): self
     {
-        return $this->with($this->query->asSystem());
+        return $this->next($this->query->asSystem());
     }
 
     /**
@@ -91,19 +91,35 @@ final readonly class SearchBuilder
      */
     public function explainMatches(bool $explain = true): self
     {
-        return $this->with($this->query->explainMatches($explain));
+        return $this->next($this->query->explainMatches($explain));
+    }
+
+    /**
+     * Returns values of each hit's SOURCE row in Hit::$data (field => value), so an application can render a result row and build
+     * links without loading entities. The names are a subset of the `returnable` columns the index (or the hit's source) declares; no
+     * argument means all of them, calling it again adds. It costs one more statement per source on the page, read from the source
+     * query by the ids of the page (always fresh, nothing is copied into the index), only when asked for. A name that is not returnable,
+     * or that is a `granted` field the actor does not hold, is an InvalidQuery listing the names this actor may ask for. A field the
+     * hit's source does not return is null; a hit whose row vanished meanwhile has no data. Integers, floats and booleans come back as
+     * PHP ones, text and dates as strings (ISO 8601 for dates and timestamps), json and arrays as JSON strings.
+     */
+    public function with(string ...$fields): self
+    {
+        $asked = $this->query->returning;
+
+        return $this->next($this->query->returning($asked === null || $fields === [] ? $fields : ($asked === [] ? [] : array_values(array_unique([...$asked, ...$fields])))));
     }
 
     public function profile(string $profile): self
     {
         $this->index->profile($profile); // fail fast on typos
 
-        return $this->with($this->query->profile($profile));
+        return $this->next($this->query->profile($profile));
     }
 
     public function highlight(string ...$fields): self
     {
-        return $this->with($this->query->highlight(...$fields));
+        return $this->next($this->query->highlight(...$fields));
     }
 
     /** @param array<string, mixed> $overrides e.g. ['relevance' => ['min_score' => 0.1], 'typo' => ['mode' => 'always']] */
@@ -115,7 +131,7 @@ final readonly class SearchBuilder
             throw new InvalidQuery(sprintf('Index "%s": invalid thresholds for this query: %s', $this->index->name, implode(' ', $e->violations)), 0, $e);
         }
 
-        return $this->with($this->query->thresholds($overrides));
+        return $this->next($this->query->thresholds($overrides));
     }
 
     /** @param array<string, mixed> $overrides e.g. ['fuzzy' => 0.8, 'boost' => 0.1] on top of the chosen profile */
@@ -127,17 +143,17 @@ final readonly class SearchBuilder
             throw new InvalidQuery(sprintf('Index "%s": invalid ranking for this query: %s', $this->index->name, implode(' ', $e->violations)), 0, $e);
         }
 
-        return $this->with($this->query->ranking($overrides));
+        return $this->next($this->query->ranking($overrides));
     }
 
     public function limit(int $limit, int $offset = 0): self
     {
-        return $this->with($this->query->limit($limit, $offset));
+        return $this->next($this->query->limit($limit, $offset));
     }
 
     public function page(int $page, int $perPage = 20): self
     {
-        return $this->with($this->query->page($page, $perPage));
+        return $this->next($this->query->page($page, $perPage));
     }
 
     /**
@@ -150,7 +166,7 @@ final readonly class SearchBuilder
             $this->index->assertFacetable($name); // fail fast on typos and on filters that cannot be faceted
         }
 
-        return $this->with($this->query->facets(...$filters));
+        return $this->next($this->query->facets(...$filters));
     }
 
     /**
@@ -162,13 +178,13 @@ final readonly class SearchBuilder
      */
     public function asYouType(bool $asYouType = true): self
     {
-        return $this->with($this->query->asYouType($asYouType));
+        return $this->next($this->query->asYouType($asYouType));
     }
 
     /** The most values listed per facet (1 to 100, default 20). */
     public function facetValues(int $values): self
     {
-        return $this->with($this->query->facetValues($values));
+        return $this->next($this->query->facetValues($values));
     }
 
     /**
@@ -177,7 +193,7 @@ final readonly class SearchBuilder
      */
     public function exactCounts(bool $exact = true): self
     {
-        return $this->with($this->query->exactCounts($exact));
+        return $this->next($this->query->exactCounts($exact));
     }
 
     /**
@@ -186,7 +202,7 @@ final readonly class SearchBuilder
      */
     public function unlogged(): self
     {
-        return $this->with($this->query->unlogged());
+        return $this->next($this->query->unlogged());
     }
 
     /**
@@ -204,7 +220,7 @@ final readonly class SearchBuilder
         }
         $allowed = $this->query->allowedFields === null ? array_values(array_unique($fields)) : array_values(array_intersect($this->query->allowedFields, $fields));
 
-        return $this->with($this->query->restrictedTo($allowed));
+        return $this->next($this->query->restrictedTo($allowed));
     }
 
     public function get(): SearchResult
@@ -262,7 +278,7 @@ final readonly class SearchBuilder
         return $query;
     }
 
-    private function with(SearchQuery $query): self
+    private function next(SearchQuery $query): self
     {
         return new self($this->engine, $this->index, $query, $this->gate);
     }
