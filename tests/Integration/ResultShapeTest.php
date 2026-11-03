@@ -121,6 +121,37 @@ final class ResultShapeTest extends TestCase
         self::assertGreaterThan(0.0, $viaTypo[0]['similarity']);
     }
 
+    public function testMatchesFollowPhrasesFieldScopesExclusionsAndTypoNever(): void
+    {
+        $fz = $this->fuzzphony();
+        $phrase = self::matchesById($fz->in('shape_docs')->query('"wireless mouse"')->explainMatches()->asSystem()->get());
+        self::assertContains(['field' => 'title', 'word' => 'wireless', 'via' => 'exact', 'similarity' => null], $phrase[1]);
+        self::assertContains(['field' => 'title', 'word' => 'mouse', 'via' => 'exact', 'similarity' => null], $phrase[1]);
+
+        $scoped = self::matchesById($fz->in('shape_docs')->query('title:mouse')->explainMatches()->asSystem()->get());
+        self::assertContains(['field' => 'title', 'word' => 'mouse', 'via' => 'exact', 'similarity' => null], $scoped[1]);
+        self::assertNotContains('body', array_column($scoped[1], 'field'), 'only the scoped field is looked at');
+
+        $excluded = $fz->in('shape_docs')->query('desk -zebrafish')->explainMatches()->asSystem()->get();
+        foreach ($excluded->hits as $hit) {
+            self::assertNotContains('zebrafish', array_column(array_map(static fn(MatchedWord $m): array => $m->toArray(), $hit->matches ?? []), 'word'));
+        }
+
+        $off = self::matchesById($fz->in('shape_docs')->query('mouse')->thresholds(['typo' => ['mode' => 'never']])->explainMatches()->asSystem()->get());
+        self::assertNotContains('typo', array_column($off[1], 'via'));
+    }
+
+    public function testAWordThatMatchesTwiceIsListedOnceWithTheBestWay(): void
+    {
+        $fz = $this->fuzzphony();
+        foreach (['mouse mou*', 'mou* mouse'] as $query) {
+            $matches = self::matchesById($fz->in('shape_docs')->query($query)->explainMatches()->asSystem()->get());
+            $title = array_values(array_filter($matches[1], static fn(array $m): bool => $m['field'] === 'title' && $m['word'] === 'mouse'));
+
+            self::assertSame([['field' => 'title', 'word' => 'mouse', 'via' => 'exact', 'similarity' => null]], $title, $query);
+        }
+    }
+
     /** `tv` is shorter than typo.min_length, so the search typo-matches its synonym `telly` (word_similarity 0.333 >= the flat 0.3): the explanation names that match. */
     public function testAShortWordMatchedByTypoUnderAFlatSimilarityIsExplained(): void
     {

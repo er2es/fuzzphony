@@ -5,6 +5,8 @@ declare(strict_types=1);
 namespace Fuzzphony\Tests\Integration\Command;
 
 use Fuzzphony\Bundle\Command\SchemaCommand;
+use Fuzzphony\Core\Database\Connection;
+use Fuzzphony\Core\Exception\EngineFailure;
 use Fuzzphony\Core\Fuzzphony;
 use Fuzzphony\Core\Registry\IndexRegistry;
 use Fuzzphony\Core\Support\Coerce;
@@ -217,6 +219,65 @@ final class SchemaCommandTest extends TestCase
         self::assertStringContainsString('sync: manual', (string) $display);
         self::assertStringNotContainsString('statement(s) applied', (string) $display);
         self::assertNull($connection->fetchValue("SELECT to_regclass('fuzzphony_nt.fuzzphony_products')"), 'the apply is transactional: nothing was created');
+    }
+
+    private function failing(string $needle, ?array $rows = null): Connection
+    {
+        return new class ($this->context->connection, $needle, $rows) implements Connection {
+            /** @param list<array<string, mixed>>|null $rows */
+            public function __construct(private readonly Connection $inner, private readonly string $needle, private readonly ?array $rows) {}
+
+            public function fetchAll(string $sql, array $params = []): array
+            {
+                return $this->rows !== null && str_contains($sql, 'FROM pg_index AS i') ? $this->rows : $this->inner->fetchAll($sql, $params);
+            }
+
+            public function fetchValue(string $sql, array $params = []): mixed
+            {
+                return $this->inner->fetchValue($sql, $params);
+            }
+
+            public function execute(string $sql, array $params = []): int
+            {
+                if (str_contains($sql, $this->needle)) {
+                    throw new \PDOException('simulated failure');
+                }
+
+                return $this->inner->execute($sql, $params);
+            }
+
+            public function transactional(callable $callback): mixed
+            {
+                return $this->inner->transactional(fn(): mixed => $callback($this));
+            }
+
+            public function inTransaction(): bool
+            {
+                return $this->inner->inTransaction();
+            }
+        };
+    }
+
+    public function testAFailedCleanupDropIsAWarningAndTheApplyStillSucceeds(): void
+    {
+        $tester = new CommandTester(new SchemaCommand($this->context->fuzzphony, $this->failing('DROP INDEX CONCURRENTLY', [['name' => 'public.old_idx']])));
+
+        $status = $tester->execute(['--apply' => true], ['interactive' => false]);
+
+        self::assertSame(Command::SUCCESS, $status);
+        self::assertStringContainsString('public.old_idx', $tester->getDisplay(true));
+        self::assertStringContainsString('simulated failure', preg_replace('/\s+/', ' ', $tester->getDisplay(true)) ?? '');
+    }
+
+    public function testATriggerFailureThatIsNoPermissionProblemPassesAsItIs(): void
+    {
+        $tester = new CommandTester(new SchemaCommand(
+            new Fuzzphony($this->context->engine, new IndexRegistry([Indexes::products('queue')])),
+            $this->failing('TRIGGER'),
+        ));
+
+        $this->expectException(EngineFailure::class);
+        $tester->execute(['--apply' => true], ['interactive' => false]);
     }
 
     public function testCompletesIndexNames(): void
