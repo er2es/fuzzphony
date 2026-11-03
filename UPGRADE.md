@@ -3,6 +3,15 @@
 Before 1.0, a minor version may contain breaking changes. Each section lists what to change,
 and the [CHANGELOG](CHANGELOG.md) has the full list of changes.
 
+## From 0.10.x to 0.11.0
+
+### Added
+
+- **Index definition classes** (`#[AsIndexDefinition]`, public): several indexes per entity, see [Definition classes](docs/configuration.md#definition-classes). Nothing to do for
+  existing indexes: attribute, YAML and builder definitions, fingerprints and the schema are unchanged.
+- **`FuzzphonySearchFilter`** has an `index` argument (default: the index of the resource's entity).
+- `Fuzzphony::postgres()` also accepts the class names of definition classes next to `IndexDefinition` objects.
+
 ## From 0.9.13 to 0.10.0
 
 ### Checklist (the required steps, in this order)

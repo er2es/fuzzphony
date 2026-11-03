@@ -46,6 +46,19 @@ final class DoctorCommandReportTest extends TestCase
         self::assertStringContainsString('Problems found; see the fixes above.', $display);
     }
 
+    public function testTheSectionShowsWhereTheDefinitionCameFrom(): void
+    {
+        $engine = self::createStub(Engine::class);
+        $engine->method('inspect')->willReturnCallback(static fn(IndexDefinition $index): InspectionReport => new InspectionReport($index->name, [Check::ok('Table', 'fine')]));
+        $registry = new IndexRegistry([Indexes::products('manual')]);
+        $registry->annotateOrigin('products', 'definition class App\ProductAdminIndex');
+        $tester = new CommandTester(new DoctorCommand(new Fuzzphony($engine, $registry)));
+
+        $tester->execute([], ['interactive' => false]);
+
+        self::assertStringContainsString('Index "products" (definition class App\ProductAdminIndex)', $tester->getDisplay(true));
+    }
+
     /** @return iterable<string, array{list<Check>, bool, string, int}> */
     public static function outcomes(): iterable
     {
