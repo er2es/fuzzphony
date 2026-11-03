@@ -84,7 +84,7 @@ final readonly class Grants
             if ($index->hasFuzzy()) {
                 $grants[] = new Grant(Grant::TABLE, $this->names->vocabulary($index), ['SELECT'], sprintf('"did you mean" of "%s"', $index->name));
             }
-            if ($index->hasReturnable()) {
+            if ($index->hasReturnable() && $index->sync !== SyncMode::Trigger) { // sync: trigger grants the same tables below
                 // SearchBuilder::with() reads the returnable columns from the source query, as the search role
                 foreach ($this->sourceTables($index) as $table) {
                     $grants[] = new Grant(Grant::TABLE, $table, ['SELECT'], sprintf('with() of "%s" reads its returnable columns from the source', $index->name), true);
