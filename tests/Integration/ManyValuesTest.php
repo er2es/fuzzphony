@@ -216,4 +216,32 @@ final class ManyValuesTest extends TestCase
         self::assertSame([], self::ids($f->in('customers')->query('perth')->get()), 'the fourth value is beyond the limit');
         self::assertSame([], self::ids($f->in('customers')->where('city', 'Rome')->get()));
     }
+
+    public function testTheHitReportsWhichValueMatched(): void
+    {
+        $f = $this->install($this->definition());
+
+        $hit = $f->in('customers')->query('vienna')->explainMatches()->get()->hits[0];
+        self::assertSame(1, $hit->id);
+        self::assertCount(1, $hit->matches);
+        self::assertSame(['field' => 'city', 'word' => 'vienna', 'via' => 'exact', 'similarity' => null, 'value_ord' => 2, 'value' => 'Vienna'], $hit->matches[0]->toArray());
+
+        $typo = $f->in('customers')->query('szged')->explainMatches()->get()->hits[0];
+        self::assertSame(2, $typo->id);
+        self::assertSame('Szeged', $typo->matches[0]->value);
+        self::assertSame('typo', $typo->matches[0]->via);
+
+        $both = $f->in('customers')->query('alice vienna')->explainMatches()->get()->hits[0];
+        self::assertSame(['name', 'city'], array_map(static fn($m): string => $m->field, $both->matches));
+        self::assertNull($both->matches[0]->value, 'a single-valued field has no value info');
+    }
+
+    public function testTheHighlightShowsTheMatchingValue(): void
+    {
+        $f = $this->install($this->definition());
+
+        $hit = $f->in('customers')->query('debrecen')->highlight('city')->get()->hits[0];
+        self::assertStringContainsString('Debrecen', implode(' ', $hit->highlights));
+        self::assertStringContainsString('<mark>Debrecen</mark>', implode(' ', $hit->highlights));
+    }
 }
