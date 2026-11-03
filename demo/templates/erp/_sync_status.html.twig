@@ -1,0 +1,53 @@
+{# The polled part of the sync demonstration (sync_controller.js replaces it until the worker has refreshed the indexes). #}
+{% if status %}
+    <div {% if not status.done %}data-syncing{% endif %} class="stack">
+        <p hidden data-status>{% if status.done %}Done: people and site were refreshed.{% elseif status.slow %}Still syncing: the worker is slow.{% else %}Syncing: waiting for the worker.{% endif %}</p>
+        {% if status.slow %}
+            <p class="callout is-warn">Still syncing: the worker has not picked the change up yet ({{ status.elapsed|round }} s). It is safe in the queue and the indexes will follow; this panel keeps looking for a while. Reload the page to check again later.</p>
+        {% elseif not status.done %}
+            <p class="callout" aria-hidden="true"><span class="spinner"></span> Waiting for the worker to refresh the customer in the indexes…</p>
+        {% endif %}
+        <section aria-labelledby="idx-title">
+            <h3 id="idx-title" class="list-title">Moved from {{ status.from }} to {{ status.to }}: which indexes refreshed</h3>
+            <table class="erp-table">
+                <caption class="sr-only">Indexes and whether the change refreshed them</caption>
+                <thead><tr><th scope="col">Index</th><th scope="col">Result</th></tr></thead>
+                <tbody>
+                    {% for row in status.rows %}
+                        <tr>
+                            <th scope="row"><code>{{ row.index }}</code></th>
+                            <td>
+                                {% if row.index in ['people', 'site'] %}
+                                    {% if row.refreshed %}<span class="flag is-ok">refreshed</span> {{ row.ms }} ms after the change
+                                    {% elseif row.index in status.queued %}<span class="flag">queued</span> waiting for the worker
+                                    {% else %}<span class="flag">waiting</span>{% endif %}
+                                {% elseif row.index == 'orders' %}<span class="flag is-limit">not refreshed</span> the order of this customer is unchanged: <code>orders</code> does not read <code>erp_address</code>
+                                {% else %}<span class="flag is-limit">not refreshed</span> <code>companies</code> reads no address, and this customer is a person
+                                {% endif %}
+                            </td>
+                        </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </section>
+        <section aria-labelledby="ba-title">
+            <h3 id="ba-title" class="list-title">The search in <code>people</code> for {{ status.before.query }}</h3>
+            <div class="two-up">
+                <div class="list"><div class="row no-lead"><div class="row-body">
+                    <div class="row-title">Before</div>
+                    <div class="row-sub">{% if status.before.found %}customer #1 was found (rank {{ status.before.rank }}).{% else %}customer #1 is not among the {{ status.before.total }} hits.{% endif %}</div>
+                </div></div></div>
+                <div class="list"><div class="row no-lead"><div class="row-body">
+                    <div class="row-title">After</div>
+                    <div class="row-sub">
+                        {% if status.after is null %}waiting for the refresh…
+                        {% elseif status.after.found %}customer #1 is found (rank {{ status.after.rank }}){% if status.after.reason %}: {{ status.after.reason }}{% endif %}.
+                        {% else %}customer #1 is not among the {{ status.after.total }} hits.{% endif %}
+                    </div>
+                </div></div></div>
+            </div>
+        </section>
+    </div>
+{% else %}
+    <p class="muted">Nothing moved yet. Press one of the buttons.</p>
+{% endif %}

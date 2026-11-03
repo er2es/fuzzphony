@@ -1,0 +1,38 @@
+{# The sync demonstration: one address row, a few fixed cities, and what the library did about the change. #}
+<section class="stack" aria-labelledby="sync-title" data-controller="sync" data-sync-url-value="{{ path('erp_sync_status') }}" data-sync-active-value="{{ status and not status.done ? 'true' : 'false' }}">
+    <div>
+        <h2 id="sync-title">Move an address, watch the indexes follow</h2>
+        <p class="muted">The searches of this page read index tables, not the ERP tables. When a row of a table changes, a trigger puts the affected documents into a queue and the <code>worker</code> container re-indexes them. Move the address below to another city: only the indexes that read <code>erp_address</code> (<code>people</code> and <code>site</code>) refresh the customer; <code>orders</code> and <code>companies</code> do not, and the table carries one set of triggers for all of them.</p>
+        <p class="muted">Demo only: this is the one write of the demo. It is a POST with a token, five moves a minute at most, it changes the city of this one address to a city of a fixed list, and the database role may do nothing else (<code>GRANT UPDATE (city) ON erp_address</code>).</p>
+    </div>
+
+    {% if flash %}<p class="callout is-warn" role="alert">{{ flash }}</p>{% endif %}
+
+    {% if not address %}
+        <p class="callout">There is no ERP data in this demo (it was started with <code>DEMO_ERP=0</code>), so there is nothing to move.</p>
+    {% else %}
+        <div class="list">
+            <div class="row no-lead">
+                <div class="row-body">
+                    <div class="row-title">{{ address.customer }} · {{ address.kind }} address <small class="muted">(<code>erp_address</code> #{{ address.id }})</small></div>
+                    <div class="row-sub">{{ address.zip }} <strong>{{ address.city }}</strong>, {{ address.street }}</div>
+                </div>
+            </div>
+        </div>
+        <form method="post" action="{{ path('erp_sync') }}" class="chips" data-loading-message="Writing the change…">
+            <input type="hidden" name="_token" value="{{ csrf_token('erp_sync') }}">
+            {% for key, city in cities %}
+                <button type="submit" name="to" value="{{ key }}" class="button"{% if city == address.city %} disabled{% endif %}>Move this address to {{ city }}</button>
+            {% endfor %}
+            <button type="submit" name="to" value="undo" class="button primary"{% if address.city == original %} disabled{% endif %}>Undo (back to {{ original }})</button>
+        </form>
+    {% endif %}
+
+    <p class="sr-only" role="status" aria-live="polite" data-sync-target="status"></p>
+    <div data-sync-target="panel">{{ include('erp/_sync_status.html.twig') }}</div>
+
+    <section aria-labelledby="triggers-title">
+        <h3 id="triggers-title" class="list-title">Triggers on <code>erp_address</code></h3>
+        <p>{{ triggers.count }} triggers ({{ triggers.names|map(n => n|split('__')|last|split('_')|last)|join(', ') }}): <strong>one trigger set for {{ triggers.indexes|length }} {{ triggers.indexes|length == 1 ? 'index' : 'indexes' }}</strong> ({{ triggers.indexes|join(', ') }}). The indexes share the triggers of a table; a table watched by two indexes is not triggered twice.</p>
+    </section>
+</section>

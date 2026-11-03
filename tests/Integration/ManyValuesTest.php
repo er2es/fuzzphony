@@ -397,4 +397,44 @@ final class ManyValuesTest extends TestCase
         $this->connection->execute('DROP INDEX mv_address_customer');
         self::assertCount(2, array_filter($f->inspect('customers')->checks, $named), 'the field and the filter');
     }
+
+    public function testTheDoctorDoesNotLookForManyFieldsAndFiltersInTheSourceColumns(): void
+    {
+        $f = $this->install($this->definition());
+
+        $checks = [];
+        foreach ($f->inspect('customers')->checks as $check) {
+            $checks[$check->name] ??= $check;
+        }
+        self::assertSame(\Fuzzphony\Core\Inspection\CheckStatus::Ok, $checks['Field columns']->status, $checks['Field columns']->message);
+        self::assertArrayNotHasKey('Filter city', $checks, 'no source-column check for a many filter');
+        foreach ($f->inspect('customers')->checks as $check) {
+            self::assertNotSame(\Fuzzphony\Core\Inspection\CheckStatus::Error, $check->status, $check->name . ': ' . $check->message);
+            self::assertStringNotContainsString('Missing in source', $check->message);
+        }
+    }
+
+    public function testTheDoctorStillReportsAnOrdinaryFieldMissingFromTheSource(): void
+    {
+        $this->install($this->definition());
+        $broken = IndexDefinition::builder('customers')
+            ->fromTable('mv_customer')
+            ->field('name', 'A', fuzzy: true)
+            ->field('nickname', 'B')
+            ->field('city', 'C', fuzzy: true, many: ['from' => 'mv_address', 'key' => 'customer_id', 'column' => 'city'])
+            ->build();
+        $f = new Fuzzphony($this->engine, new IndexRegistry([$broken]));
+
+        $fieldColumns = null;
+        foreach ($f->inspect('customers')->checks as $check) {
+            if ($check->name === 'Field columns') {
+                $fieldColumns = $check;
+                break;
+            }
+        }
+        self::assertNotNull($fieldColumns);
+        self::assertSame(\Fuzzphony\Core\Inspection\CheckStatus::Error, $fieldColumns->status);
+        self::assertStringContainsString('nickname', $fieldColumns->message);
+        self::assertStringNotContainsString('city ->', $fieldColumns->message);
+    }
 }

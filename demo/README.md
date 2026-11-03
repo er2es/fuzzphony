@@ -87,6 +87,7 @@ Symfony: Twig + Stimulus via AssetMapper (no Node build), Live Components, DBAL.
 | **Search** (`/`) | One search field over the catalogue: results while you type, a typo or a half-typed word found, a calm bar when a typo is rescued (*Showing results for mouse* for `mpuse`), and a **Speed** view next to a plain `ILIKE`. |
 | **Relevance** (`/relevance`) | Why a search finds what was meant: typo tolerance by word length, synonyms, "did you mean". |
 | **Languages** (`/languages`) | One small catalogue in five languages, with the stem PostgreSQL made of every word and ILIKE's count next to Fuzzphony's. |
+| **ERP** (`/erp`) | The ERP data set: a search box each for people, companies and orders, a combined box (multi-source index against federated search) and a live sync demonstration ([below](#the-erp-page)). |
 | **Tune** (`/tune`) | Every ranking weight and threshold as a control, with a score breakdown per hit and the SQL. An info icon next to each label opens a tooltip: what the setting does and an example. It starts with `projector`, twelve products (added by `sql/demo_additions.sql`) that differ in title match, popularity, age, price and stock, so every ranking slider visibly reorders or shrinks the list; the chips under the field add `hedphones` (the typo settings) and `mouse` (the candidate limit shows in the total). |
 | **Under the hood** (`/under-the-hood/...`) | The **Config wizard**, **Benchmark**, **Doctor**, **Observability**, the **Synonyms** editor, **Analytics** (what was searched, and who searched what) and **Security** (below). |
 
@@ -176,7 +177,7 @@ Four indexes read them (all `sync: queue`, drained by the worker; every table a 
 
 | Index | Shows |
 |---|---|
-| `people` | a [definition class](../docs/configuration.md#definition-classes) ([`src/Search/PeopleAdminIndex.php`](src/Search/PeopleAdminIndex.php)): persons by `name`, `birth_name` and e-mail, with `city` and `street` as [several values](../docs/configuration.md#several-values-per-document-many) each from `erp_address` (`kovacs budapest`); a `created_at` filter; `returnable` name, e-mail, tax number |
+| `people` | a [definition class](../docs/configuration.md#definition-classes) ([`src/Search/PeopleAdminIndex.php`](src/Search/PeopleAdminIndex.php)): persons by `name`, `birth_name` and e-mail, with `city` (also a filter and facet) and `street` as [several values](../docs/configuration.md#several-values-per-document-many) each from `erp_address` (`kovacs budapest`); a `created_at` filter; `returnable` name, e-mail, tax number |
 | `companies` | companies with the legal form inside the name, `tax_no` and `phone` as [codes](../docs/searching.md#codes-and-numbers) (`12345678-2-41`), the contact persons as a many field; one hand-written watch on `erp_contact` |
 | `orders` | orders with a join to the customer: `number` as a code (`ORD-2025-000123`), the customer name fuzzy, `status`, `total` and `ordered_at` filters, recency by the order date |
 | `site` | ONE [multi-source index](../docs/configuration.md#several-sources-in-one-index) over the same tables with three sources (`person`, `company`, `order`), shared fields `title` and `text`, no entity: a hit says its `kind`, and `returnable` is per source (`Kovács János` returns all three kinds) |
@@ -184,6 +185,27 @@ Four indexes read them (all `sync: queue`, drained by the worker; every table a 
 The tables overlap on purpose: `erp_customer` is read by `people`, `companies`, `orders` and `site`, `erp_address` by `people` and `site`; a changed address refreshes only
 its customer in `people` and in `site`. The application role gets `SELECT` on the tables (needed for `->with()`); search them with
 `bin/console fuzzphony:search people "kovacs budapest"`.
+
+### The ERP page
+
+`/erp` (the menu entry **ERP**) shows the four indexes at work. It has five sections, one request each:
+
+- **People, Companies, Orders:** three separate admin-style search boxes, each against its own index with its own filters and facets (people: the city facet of the
+  `many` field and a created-in filter; companies: the contact persons as a field, `contact:simon`; orders: the status facet and a total range). The rows are drawn from
+  `with()` (`Hit::$data`: the page loads nothing from the database), the line under a row from `explainMatches()` (*found in the address: Budapest*, *found in the tax number:
+  12345678-2-41 (exact code)*), the link from `Hit::kind` and `Hit::id` to `/erp/{kind}/{id}`, a small read-only detail page (plain SQL).
+- **Combined:** one box and the same query in the multi-source index `site` and in a federated search over `people`, `companies` and `orders` (weights 1.0 / 1.2 / 0.8,
+  floors 2 / 2 / 1), side by side or one at a time; every hit shows its `index` and its `kind`. The difference is the table of
+  [Federated search or a multi-source index?](../docs/searching.md#federated-search).
+- **Sync:** the demonstration of a table's triggers. Move the address of one customer (`erp_address` #1) to Sopron, Győr or Zalaegerszeg, or undo it. The panel then reads, with
+  polling and a clear *still syncing* state when the worker is slow, which indexes refreshed the customer and after how many milliseconds (`people` and `site` do, `orders` and
+  `companies` do not: they do not read addresses), the search before and after, and the triggers of the table (*one trigger set for 2 indexes*, from `pg_trigger` and
+  `fuzzphony_watches`).
+
+The sync demonstration is the only write of the demo's ERP data. `docker/init.sh` grants the application role `UPDATE (city) ON erp_address` and nothing more on the ERP tables; the
+endpoint (`POST /erp/sync`) needs a CSRF token, is rate limited (five moves a minute for each client address, `framework.rate_limiter.fuzzphony_erp_sync`), and accepts only a key
+of a fixed list of cities (no free text) for that one row. The Config wizard has a second sample for these tables, `/under-the-hood/wizard?sample=erp` (*Load the ERP sample*): a
+joined source, `many` and `code` fields, `returnable` and column-aware watches, exported as YAML, builder and a definition class (`src/Service/ErpSampleConfig.php`).
 
 ## The stack
 

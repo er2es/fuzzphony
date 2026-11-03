@@ -1015,6 +1015,81 @@ check('who: the filter for System shows the catalogue searches only', systemOnly
 
 await secContext.close();
 
+// ERP page: three admin boxes, the combined box, the sync demonstration, the detail page, the wizard's ERP sample
+{
+    const erp = await context.newPage();
+    erp.setDefaultTimeout(15000);
+    await go(erp, BASE + '/erp');
+    check('erp: the menu has an ERP entry', (await erp.locator('.nav > a', { hasText: 'ERP' }).count()) === 1);
+    check('erp: the page says what it shows', /Shows:/.test(await erp.locator('.about').innerText()));
+    await erp.click('input[type=search]');
+    await erp.keyboard.type('kovacs budapest', { delay: 40 });
+    await erp.waitForSelector('#results .hit-row');
+    check('erp people: rows appear while typing, from with() data (name and e-mail)', (await erp.locator('#results .hit-row').count()) > 3 && /@/.test(await erp.locator('#results .row-sub').first().innerText()));
+    check('erp people: the matched value of the address is named', /found in the address: Budapest/.test(await erp.locator('#results .row-why').first().innerText()), await erp.locator('#results .row-why').first().innerText());
+    check('erp people: the city facet comes from the many field', (await erp.locator('#results .facet a').count()) >= 1);
+    const link = await erp.locator('#results .hit-row .row-title a').first().getAttribute('href');
+    check('erp people: the row links to /erp/people/{id}', /^\/erp\/people\/\d+$/.test(link ?? ''), link);
+    await erp.selectOption('select[name=created]', '2025');
+    await erp.waitForFunction(() => document.querySelector('#results .stat-caption') !== null);
+    check('erp people: the created filter keeps the search working', (await erp.locator('#results .stat-caption').count()) === 1 && (await erp.locator('#results .callout.is-bad').count()) === 0);
+    await go(erp, BASE + link);
+    check('erp detail: the customer, addresses and orders are listed', (await erp.locator('h1').innerText()).length > 2 && (await erp.locator('section[aria-labelledby=a] .row').count()) >= 1);
+    await go(erp, BASE + '/erp?tab=companies');
+    await erp.click('input[type=search]');
+    await erp.keyboard.type('10079190-1-12', { delay: 30 });
+    await erp.waitForSelector('#results .hit-row');
+    check('erp companies: a tax number finds the company as an exact code', (await erp.locator('#results .hit-row').count()) === 1 && /exact code/.test(await erp.locator('#results .row-why').first().innerText()), await erp.locator('#results .row-why').first().innerText());
+    await go(erp, BASE + '/erp?tab=companies&q=contact:simon');
+    check('erp companies: a contact person is searched as a field', (await erp.locator('#results .hit-row').count()) >= 1 && /contact person/.test(await erp.locator('#results .row-why').first().innerText()));
+    await go(erp, BASE + '/erp?tab=orders&q=ORD-2026-044127');
+    check('erp orders: an order number finds exactly that order', (await erp.locator('#results .hit-row').count()) === 1 && /ORD-2026-044127/.test(await erp.locator('#results .row-title').first().innerText()));
+    await go(erp, BASE + '/erp?tab=orders&q=ORD-2025');
+    check('erp orders: a beginning of a code finds orders, with a status facet', (await erp.locator('#results .hit-row').count()) > 5 && (await erp.locator('#results .facet a').count()) >= 3);
+    await erp.selectOption('select[name=total]', 'large');
+    await erp.waitForFunction(() => document.querySelector('#results .stat-caption') !== null);
+    check('erp orders: the total range filter works', (await erp.locator('#results .callout.is-bad').count()) === 0);
+    await go(erp, BASE + '/erp?tab=combined&q=kovacs');
+    check('erp combined: both answers side by side, each hit with an index and a kind badge', (await erp.locator('#results .two-up > section').count()) === 2 && (await erp.locator('#results .hit-row .flag').count()) >= 4);
+    const siteKinds = await erp.locator('#results section').first().locator('.flag.is-ok').allTextContents();
+    check('erp combined: the multi-source index says the kind of each hit (person, company, order)', siteKinds.length > 0 && siteKinds.every((k) => ['person', 'company', 'order'].includes(k.trim())), siteKinds.join(','));
+    await go(erp, BASE + '/erp?tab=combined&mode=federated&q=kft');
+    check('erp combined: the federated mode alone lists hits of an index each', (await erp.locator('#results section').count()) === 1 && (await erp.locator('#results .flag').count()) > 0);
+    check('erp combined: the difference table links the documentation', (await erp.locator('a[href*="searching.md#federated-search"]').count()) === 1);
+    await go(erp, BASE + '/erp?tab=combined&q=ORD-2025');
+    check('erp combined: order numbers are found as orders', (await erp.locator('#results .flag.is-ok', { hasText: 'order' }).count()) > 0);
+
+    // the sync demonstration: move an address, see which indexes refreshed, undo
+    await go(erp, BASE + '/erp?tab=sync');
+    check('erp sync: the page explains the triggers (one set for the indexes)', /one trigger set for 2 indexes/.test(await erp.locator('#triggers-title + p').innerText()));
+    if (await erp.getByRole('button', { name: 'Undo' }).isEnabled()) {
+        await erp.getByRole('button', { name: 'Undo' }).click();
+        await erp.waitForSelector('#idx-title');
+    }
+    await erp.getByRole('button', { name: 'Move this address to Sopron' }).click();
+    await erp.waitForFunction(() => document.querySelectorAll('[data-sync-target=panel] .flag.is-ok').length === 2, null, { timeout: 30000 });
+    const panel = await erp.locator('[data-sync-target=panel]').innerText();
+    check('erp sync: people and site were refreshed, orders and companies were not', /people[\s\S]*refreshed/.test(panel) && (panel.match(/not refreshed/gi) ?? []).length === 2, panel.slice(0, 200));
+    check('erp sync: the search finds the customer in the new city after the refresh', /is found[\s\S]*found in the address: Sopron/.test(panel), panel);
+    check('erp sync: the button for the moved city is disabled', await erp.getByRole('button', { name: 'Move this address to Sopron' }).isDisabled());
+    await erp.getByRole('button', { name: 'Undo' }).click();
+    await erp.waitForFunction(() => document.querySelectorAll('[data-sync-target=panel] .flag.is-ok').length === 2 && /Moved from Sopron/.test(document.querySelector('[data-sync-target=panel]').innerText), null, { timeout: 30000 });
+    check('erp sync: Undo puts the original city back', await erp.getByRole('button', { name: 'Undo' }).isDisabled());
+    const bad = await erp.request.post(BASE + '/erp/sync', { form: { to: 'sopron', _token: 'nope' } });
+    check('erp sync: a POST without a valid token is refused', bad.status() === 403, String(bad.status()));
+    check('erp sync: GET is not allowed', (await erp.request.get(BASE + '/erp/sync')).status() === 405);
+
+    // the wizard's ERP sample
+    await go(erp, BASE + '/under-the-hood/wizard');
+    await erp.getByRole('link', { name: 'Load the ERP sample' }).click();
+    await erp.waitForSelector('#decisions');
+    const erpYaml = await erp.locator('details pre').first().textContent();
+    check('wizard ERP sample: many fields, a code field, returnable and column-aware watches are in the YAML', /many:/.test(erpYaml) && /code: true/.test(erpYaml) && /returnable:/.test(erpYaml) && /columns:/.test(erpYaml), erpYaml.slice(0, 100));
+    check('wizard ERP sample: a definition class is offered and there is no error', /#\[AsIndexDefinition\('customers'\)\]/.test(await erp.locator('details pre').nth(2).textContent()) && (await erp.locator('.callout.is-bad').count()) === 0);
+    check('wizard ERP sample: notes per part', (await erp.locator('#decisions ~ ul .row').count()) >= 8);
+    await erp.close();
+}
+
 await browser.close();
 const failed = results.filter((ok) => !ok).length;
 console.log(failed === 0 ? `all ${results.length} checks passed` : `${failed} of ${results.length} checks failed`);

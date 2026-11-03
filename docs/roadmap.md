@@ -3,7 +3,7 @@
 What each version shipped and what comes next, up to 1.0. No dates are promised. Back to the [README](../README.md).
 
 Steps are ordered by what other things build on: the breaking changes were gathered in one release (0.10.0, released), so the
-additive work after it (0.11.0, next) and the stable 1.0.0 do not have to change the API again.
+additive work after it (0.11.0, in preparation) and the stable 1.0.0 do not have to change the API again.
 
 ## Done
 
@@ -107,23 +107,9 @@ additive work after it (0.11.0, next) and the stable 1.0.0 do not have to change
     ([Searching](searching.md#what-matched)), `code: true` for invoice numbers and SKUs, and `source: { query_file: ... }` for the SQL of a source query.
   - The demo follows: its catalogue pages say `->asSystem()`, the Security page compares the calls and the Analytics page marks rescued searches.
 - v0.10.1, a patch: the Benchmark workflow works with the 0.10 `granted` rule, `explainMatches()` explains a short word matched through its synonym, and the new security-sensitive code has stricter tests.
+- v0.11.0, several sources, additive: definition classes (`#[AsIndexDefinition]`) for several indexes of one entity; multi-source indexes (`sources:`, `kind`, typed ids, `Hit::$index`); `EntityLoader::loadHits()`; the doctor `Watches` check; federated floors (`atLeast`); `returnable` and `with()`; `many` values per document; operational gauges; and the ERP demo (data set, four indexes, the ERP page with separate and combined boxes, the sync demonstration, a second wizard sample).
 
 ## Next
-
-### v0.11.0: several sources, additive
-
-Today one index has one source (a table or one `SELECT`), and `#[Searchable]` is not repeatable. 0.11 lets one
-application search several places, with no breaking change:
-
-- Repeatable `#[Searchable]` or definition classes: several indexes for one entity (for example a public one and an
-  admin one).
-- An index with several sources and a `kind` column, usable as a filter and to load the right entity.
-- `watch` derived from joins, and composite keys in `watch`, so less has to be written by hand ([Sync](sync.md)).
-- An entity loader for several classes.
-- Federated search with normalised scores, so results from different indexes compare fairly
-  ([Searching](searching.md)).
-- A demo page with several indexes (separate search boxes and a combined one) and an ERP-like demo data set for it: orders,
-  customers, products and order lines.
 
 ### v1.0.0: stable
 

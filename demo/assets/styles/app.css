@@ -134,6 +134,7 @@
     .muted { color: var(--label-2); font-size: .875rem; }
     /* a link in small print is a target of its own: 24 px of height (WCAG 2.5.8), the padding costs no space in the line */
     .muted a, .crumb a, .caption a { padding-block: .3rem; }
+    .crumb a, .muted a { text-decoration: underline; }
     .s-ok { color: var(--ok); } .s-warning { color: var(--warn); } .s-error { color: var(--bad); }
 }
 
@@ -518,6 +519,16 @@
     .panels .stat-caption code { overflow-wrap: anywhere; }
     .facets { display: flex; flex-wrap: wrap; gap: .5rem; }
     .pane-bar { display: flex; align-items: center; justify-content: space-between; gap: 1rem; margin: 0; }
+    /* ERP page */
+    .erp-filter { display: flex; align-items: center; justify-content: center; gap: .6rem; font-size: .9375rem; color: var(--label-2); }
+    .erp-filter select { width: auto; min-width: 10rem; max-width: 100%; }
+    .erp-table { background: var(--surface); border-radius: var(--r-group); box-shadow: 0 0 0 .5px var(--hairline); overflow: hidden; font-size: .9375rem; }
+    .erp-table th, .erp-table td { padding: .6rem .9rem; text-align: left; vertical-align: top; border-top: .5px solid var(--hairline); }
+    .erp-table thead th { border-top: 0; color: var(--label-2); font-size: .8125rem; font-weight: 600; }
+    .erp-table tbody th { font-weight: 600; white-space: nowrap; }
+    @media (max-width: 40rem) { .erp-table th, .erp-table td { padding: .5rem .6rem; } .erp-table tbody th { white-space: normal; } }
+    .hit-row .row-title a { color: inherit; }
+    .hit-row .row-title a:hover { color: var(--accent); }
     .pane:has(#view-sql:checked) .panel-results, .pane:not(:has(#view-sql:checked)) .panel-sql { display: none; }
     .bar { display: flex; height: .4rem; margin-top: .45rem; border-radius: .2rem; overflow: hidden; background: var(--surface-2); }
     .bar span { display: block; }

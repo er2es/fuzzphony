@@ -1,0 +1,85 @@
+{% extends 'base.html.twig' %}
+{% import '_ui.html.twig' as ui %}
+{% set heading = tab == 'combined' ? 'Combined' : (tab == 'sync' ? 'Sync' : tabs[tab].label) %}
+{% block title %}{{ q != '' ? q ~ ' · ' }}{{ heading }} · ERP · Fuzzphony{% endblock %}
+
+{% block body %}
+{# One page, five sections: three admin boxes (each its own index), the combined box and the sync demonstration. Only the chosen section is rendered. #}
+{% set searching = tab != 'sync' %}
+<div class="page stack"{% if searching %} data-controller="live-search"{% endif %}>
+    <div class="hero">
+        <h1>ERP</h1>
+        <p class="lede">An ERP-like data set in plain tables, searched four ways: one box per kind, one box over all of them, and a table whose changes the indexes follow.</p>
+
+        <nav class="chips chips-center" aria-label="ERP sections">
+            {% for key, t in tabs %}
+                <a class="chip{{ key == tab ? ' is-current' }}" href="{{ path('erp', {tab: key}) }}"{% if key == tab %} aria-current="page"{% endif %} data-loading-message="Opening {{ t.label|lower }}…">{{ t.label }}</a>
+            {% endfor %}
+            <a class="chip{{ tab == 'combined' ? ' is-current' }}" href="{{ path('erp', {tab: 'combined'}) }}"{% if tab == 'combined' %} aria-current="page"{% endif %} data-loading-message="Opening the combined box…">Combined</a>
+            <a class="chip{{ tab == 'sync' ? ' is-current' }}" href="{{ path('erp', {tab: 'sync'}) }}"{% if tab == 'sync' %} aria-current="page"{% endif %} data-loading-message="Opening the sync demonstration…">Sync</a>
+        </nav>
+
+        {% if tab == 'sync' %}
+            <p class="about muted">Shows: a change to one table row reaches only the indexes that read it, and the triggers on the table are shared.</p>
+        {% elseif tab == 'combined' %}
+            <p class="about muted">Shows: the same query over three kinds of record, answered by one multi-source index and by a federated search over three indexes.</p>
+        {% else %}
+            <p class="about muted">Shows: {{ tabs[tab].about }} The rows come from <code>with()</code> (no database lookup by this page), the lines under them from <code>explainMatches()</code>.</p>
+        {% endif %}
+
+        {% if searching %}
+            <form method="get" action="{{ path('erp') }}" role="search" class="field-wrap" data-live-search-target="form">
+                <input type="hidden" name="tab" value="{{ tab }}">
+                {% if tab == 'combined' %}<input type="hidden" name="mode" value="{{ mode }}">{% endif %}
+                {% if tab == 'people' and filters.city != '' %}<input type="hidden" name="city" value="{{ filters.city }}">{% endif %}
+                {% if tab == 'orders' and filters.status != '' %}<input type="hidden" name="status" value="{{ filters.status }}">{% endif %}
+                {% set label = tab == 'combined' ? 'Search people, companies and orders' : tabs[tab].field %}
+                <div class="search-field">
+                    <svg class="icon" aria-hidden="true"><use href="#i-search"/></svg>
+                    <input type="search" name="q" value="{{ q }}" placeholder="{{ label }}" aria-label="{{ label }}" autocomplete="off" spellcheck="false" enterkeyhint="search" maxlength="100"
+                           {% if q == '' %}autofocus{% endif %} data-live-search-target="input" data-action="input->live-search#update">
+                    <button type="button" class="clear" aria-label="Clear the search" data-action="live-search#clear"><svg class="icon" aria-hidden="true"><use href="#i-clear"/></svg></button>
+                    <span class="field-spinner" aria-hidden="true"></span>
+                </div>
+                {% if tab == 'people' or tab == 'companies' %}
+                    <label class="erp-filter">Created
+                        <select name="created" data-action="change->live-search#update">
+                            <option value="">Any time</option>
+                            {% for key, option in created_options %}<option value="{{ key }}"{{ filters.created == key ? ' selected' }}>{{ option[0] }}</option>{% endfor %}
+                        </select>
+                    </label>
+                {% elseif tab == 'orders' %}
+                    <label class="erp-filter">Total
+                        <select name="total" data-action="change->live-search#update">
+                            <option value="">Any total</option>
+                            {% for key, option in total_options %}<option value="{{ key }}"{{ filters.total == key ? ' selected' }}>{{ option[0] }}</option>{% endfor %}
+                        </select>
+                    </label>
+                {% endif %}
+                <button type="submit" class="sr-only">Search</button>
+            </form>
+
+            <div class="examples-row" aria-label="Examples">
+                <span class="label">Try</span>
+                {% for label, example in examples %}
+                    <a class="chip" href="{{ path('erp', {tab: tab, mode: tab == 'combined' ? mode : null, q: example}) }}" data-action="live-search#example" data-live-search-q-param="{{ example }}"><code>{{ example }}</code> <small>{{ label }}</small></a>
+                {% endfor %}
+            </div>
+        {% endif %}
+    </div>
+
+    {% if tab == 'combined' %}
+        {{ include('erp/_difference.html.twig') }}
+    {% endif %}
+
+    {% if searching %}
+        <p class="sr-only" role="status" aria-live="polite" data-live-search-target="status"></p>
+        <p class="muted s-error live-error" role="status" data-live-search-target="notice" hidden>Could not update the results; the list below may be out of date. Try again.</p>
+        <div id="results" class="busy-region" data-live-search-target="region">
+            {{ include('erp/_region.html.twig') }}
+        </div>
+    {% else %}
+        {{ include('erp/_sync.html.twig') }}
+    {% endif %}
+</div>
+{% endblock %}

@@ -27,6 +27,7 @@ and a link. Measurements, proofs and test names belong to the pull request, [doc
 
 ### Changed
 
+- **Demo:** the ERP page (`/erp`): a search box each for people, companies and orders, a combined box (multi-source index against a federated search), a sync demonstration (move an address, see which indexes refreshed; the app role gets `UPDATE (city)` on `erp_address` only) and a second Config wizard sample (`?sample=erp`) ([demo README](demo/README.md#the-erp-page)).
 - **Demo:** an ERP data set of about 520 000 rows (`DEMO_ERP=0` leaves the tables empty) with the indexes `people` (a definition class), `companies`, `orders` and the multi-source `site` ([demo README](demo/README.md#the-erp-data-set)).
 - **Federated results:** `Hit::$index` is the index; `Hit::$kind` is the source inside it (the same as the index name for single-source indexes) ([UPGRADE](UPGRADE.md)).
 
