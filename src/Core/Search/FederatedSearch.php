@@ -38,7 +38,7 @@ final readonly class FederatedSearch
     /**
      * @internal
      *
-     * @param array<string, array{weight: float, configure: (\Closure(SearchBuilder): SearchBuilder)|null}> $indexes
+     * @param array<string, array{weight: float, atLeast: int, configure: (\Closure(SearchBuilder): SearchBuilder)|null}> $indexes
      */
     public function __construct(
         private Engine $engine,
@@ -56,20 +56,24 @@ final readonly class FederatedSearch
     /**
      * Adds an index to the search.
      *
-     * @param float                                         $weight    above 1.0 ranks the index's hits higher, below lower; must be positive
+     * @param float                                         $weight    above 1.0 ranks the index's hits higher, below lower; must be positive and finite
+     * @param int                                           $atLeast   a floor: the first page holds at least this many of the index's best hits (0 = none)
      * @param (\Closure(SearchBuilder): SearchBuilder)|null $configure what is specific to this index: filters, tenant, highlight, thresholds, profile
      */
-    public function index(string $index, float $weight = 1.0, ?\Closure $configure = null): self
+    public function index(string $index, float $weight = 1.0, ?\Closure $configure = null, int $atLeast = 0): self
     {
         $definition = $this->registry->get($index); // fail fast on an unknown index
         if (isset($this->indexes[$definition->name])) {
             throw new InvalidQuery(sprintf('Index "%s" is in this federated search twice.', $definition->name));
         }
-        if ($weight <= 0.0) {
-            throw new InvalidQuery(sprintf('The weight of index "%s" must be positive, got %s.', $definition->name, $weight));
+        if (!is_finite($weight) || $weight <= 0.0) {
+            throw new InvalidQuery(sprintf('The weight of index "%s" must be positive and finite, got %s.', $definition->name, $weight));
+        }
+        if ($atLeast < 0) {
+            throw new InvalidQuery(sprintf('The floor (atLeast) of index "%s" must not be negative, got %d.', $definition->name, $atLeast));
         }
 
-        return new self($this->engine, $this->registry, [...$this->indexes, $definition->name => ['weight' => $weight, 'configure' => $configure]], $this->text, $this->limit, $this->offset, $this->gate, $this->unlogged, $this->actor, $this->system);
+        return new self($this->engine, $this->registry, [...$this->indexes, $definition->name => ['weight' => $weight, 'atLeast' => $atLeast, 'configure' => $configure]], $this->text, $this->limit, $this->offset, $this->gate, $this->unlogged, $this->actor, $this->system);
     }
 
     public function query(string $text): self
@@ -117,6 +121,10 @@ final readonly class FederatedSearch
         if ($this->indexes === []) {
             throw new InvalidQuery('A federated search needs at least one index: call index().');
         }
+        $floorSum = array_sum(array_column($this->indexes, 'atLeast'));
+        if ($floorSum > $this->limit) {
+            throw new InvalidQuery(sprintf('The floors (atLeast) of the indexes add up to %d, more than the page size (limit %d): lower a floor or raise the limit.', $floorSum, $this->limit));
+        }
         $started = hrtime(true);
         $read = $this->offset + $this->limit;
         $results = [];
@@ -154,7 +162,7 @@ final readonly class FederatedSearch
         usort($candidates, static fn(array $a, array $b): int => [$b['score'], $a['order'], $a['rank']] <=> [$a['score'], $b['order'], $b['rank']]);
         $page = array_map(
             static fn(array $c): Hit => $c['hit']->withMergedScore($c['score']),
-            array_slice($candidates, $this->offset, $this->limit),
+            array_slice($this->withFloors($candidates, $results), $this->offset, $this->limit),
         );
 
         return new FederatedResult(
@@ -167,5 +175,53 @@ final readonly class FederatedSearch
             limit: $this->limit,
             offset: $this->offset,
         );
+    }
+
+    /**
+     * The merged list with the floors applied: the first `limit` entries are the first page, in which an index below its floor
+     * (atLeast, at most its hit count) gets its best hits promoted over the lowest-scored hits of indexes above their floor; the
+     * rest follows in merged order. It depends on the inputs and `limit` only, so every page of one search cuts the same list.
+     *
+     * @param list<array{score: float, order: int, rank: int, hit: Hit}> $candidates sorted by merged score
+     * @param array<string, SearchResult>                                $results
+     *
+     * @return list<array{score: float, order: int, rank: int, hit: Hit}>
+     */
+    private function withFloors(array $candidates, array $results): array
+    {
+        if (array_sum(array_column($this->indexes, 'atLeast')) === 0) {
+            return $candidates;
+        }
+        $names = array_keys($this->indexes);
+        $floor = [];
+        foreach ($this->indexes as $name => $options) {
+            $floor[array_search($name, $names, true)] = min($options['atLeast'], count($results[$name]->hits));
+        }
+        $first = array_slice($candidates, 0, $this->limit);
+        $count = array_fill_keys(array_keys($floor), 0);
+        foreach ($first as $c) {
+            ++$count[$c['order']];
+        }
+        foreach ($floor as $order => $wanted) {
+            for ($rank = $count[$order]; $rank < $wanted; ++$rank) {
+                $promoted = array_find($candidates, static fn(array $c): bool => $c['order'] === $order && $c['rank'] === $rank);
+                for ($victim = count($first) - 1; $victim >= 0; --$victim) {
+                    if ($count[$first[$victim]['order']] > $floor[$first[$victim]['order']]) {
+                        break;
+                    }
+                }
+                if ($promoted === null || $victim < 0) {
+                    break; // cannot happen: the floors add up to at most the limit
+                }
+                --$count[$first[$victim]['order']];
+                ++$count[$order];
+                array_splice($first, $victim, 1);
+                $first[] = $promoted;
+            }
+        }
+        usort($first, static fn(array $a, array $b): int => [$b['score'], $a['order'], $a['rank']] <=> [$a['score'], $b['order'], $b['rank']]);
+        $shown = array_map(static fn(array $c): string => $c['order'] . ':' . $c['rank'], $first);
+
+        return [...$first, ...array_filter($candidates, static fn(array $c): bool => !in_array($c['order'] . ':' . $c['rank'], $shown, true))];
     }
 }
