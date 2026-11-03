@@ -288,6 +288,8 @@ final readonly class SharedWatch
                 v_del text := '';
                 v_upd text := '';
                 v_diff text;
+                v_t1 text;
+                v_t2 text;
                 r record;
             BEGIN
                 SELECT count(*), coalesce(array_agg(DISTINCT w.key_column), '{}'), coalesce(bool_or(w.columns IS NULL), false)
@@ -313,10 +315,15 @@ final readonly class SharedWatch
                         v_upd := v_upd || format('INSERT INTO @LOG@ (tbl, xid, op, key_column, key) SELECT %1$L, v_x, ''U'', %2$L, r.%2$I::text FROM fz_new AS r; INSERT INTO @LOG@ (tbl, xid, op, key_column, key) SELECT %1$L, v_x, ''U'', %2$L, r.%2$I::text FROM fz_old AS r; ', p_tbl, v_k);
                     ELSE
                         SELECT string_agg(format('CASE WHEN r.%1$I IS DISTINCT FROM o.%1$I THEN %1$L END', x), ', ') INTO v_diff FROM unnest(v_cols) AS x;
+                        -- a big UPDATE runs as dynamic SQL: a plan cached for a 1-row firing (nested loop) would make a later bulk UPDATE in the same session crawl
+                        v_t1 := 'INSERT INTO @LOG@ (tbl, xid, op, key_column, key, chg) SELECT %1$L, %5$s, ''U'', %2$L, r.%2$I::text, x.chg FROM fz_new AS r LEFT JOIN fz_old AS o ON o.%2$I = r.%2$I CROSS JOIN LATERAL (SELECT CASE WHEN o.%2$I IS NULL THEN ''["*"]''::jsonb ELSE to_jsonb(array_remove(ARRAY[%3$s]::text[], NULL)) END AS chg) AS x WHERE %4$s OR jsonb_array_length(x.chg) > 0';
+                        v_t2 := 'INSERT INTO @LOG@ (tbl, xid, op, key_column, key, chg) SELECT %1$L, %5$s, ''U'', %2$L, r.%2$I::text, ''["*"]''::jsonb FROM fz_old AS r WHERE NOT EXISTS (SELECT 1 FROM fz_new AS n WHERE n.%2$I = r.%2$I)';
                         v_upd := v_upd || format(
-                            'INSERT INTO @LOG@ (tbl, xid, op, key_column, key, chg) SELECT %1$L, v_x, ''U'', %2$L, r.%2$I::text, x.chg FROM fz_new AS r LEFT JOIN fz_old AS o ON o.%2$I = r.%2$I CROSS JOIN LATERAL (SELECT CASE WHEN o.%2$I IS NULL THEN ''["*"]''::jsonb ELSE to_jsonb(array_remove(ARRAY[%3$s]::text[], NULL)) END AS chg) AS x WHERE %4$s OR jsonb_array_length(x.chg) > 0; '
-                            || 'INSERT INTO @LOG@ (tbl, xid, op, key_column, key, chg) SELECT %1$L, v_x, ''U'', %2$L, r.%2$I::text, ''["*"]''::jsonb FROM fz_old AS r WHERE NOT EXISTS (SELECT 1 FROM fz_new AS n WHERE n.%2$I = r.%2$I); ',
-                            p_tbl, v_k, v_diff, v_any::text);
+                            'IF (SELECT count(*) FROM fz_new) <= 64 THEN %1$s; %2$s; ELSE EXECUTE %3$L USING v_x; EXECUTE %4$L USING v_x; END IF; ',
+                            format(v_t1, p_tbl, v_k, v_diff, v_any::text, 'v_x'),
+                            format(v_t2, p_tbl, v_k, v_diff, v_any::text, 'v_x'),
+                            format(v_t1, p_tbl, v_k, v_diff, v_any::text, '$1'),
+                            format(v_t2, p_tbl, v_k, v_diff, v_any::text, '$1'));
                     END IF;
                 END LOOP;
                 EXECUTE format($b$CREATE OR REPLACE FUNCTION %1$s() RETURNS trigger LANGUAGE plpgsql SET search_path FROM CURRENT AS $fzb$

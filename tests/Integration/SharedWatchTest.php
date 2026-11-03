@@ -27,7 +27,7 @@ final class SharedWatchTest extends TestCase
         $this->connection = PostgresTestCase::connect();
         $this->engine = new PostgresEngine($this->connection);
         PostgresTestCase::createFixtures($this->connection, EngineConformanceTestCase::fixtureRows());
-        $this->connection->execute('DROP TABLE IF EXISTS fuzzphony_sw_a, fuzzphony_sw_b, fuzzphony_sw_c, fuzzphony_sw_a__vocab, fuzzphony_sw_b__vocab, fuzzphony_sw_c__vocab, fz_bad CASCADE');
+        $this->connection->execute('DROP TABLE IF EXISTS fuzzphony_sw_a, fuzzphony_sw_b, fuzzphony_sw_c, fuzzphony_sw_a__vocab, fuzzphony_sw_b__vocab, fuzzphony_sw_c__vocab, fuzzphony_sw_big, fuzzphony_sw_big__vocab, fz_bad CASCADE');
     }
 
     private function index(string $name, string $field, ?string $filter = null): IndexDefinition
@@ -319,5 +319,24 @@ final class SharedWatchTest extends TestCase
         self::assertCount(20, $fuzzphony->in('sw_b')->query('changed')->get()->ids());
         self::assertSame(1, $this->int("SELECT count(*) FROM fuzzphony_queue WHERE index_name = 'sw_a' AND attempts > 0"));
         self::assertSame(0, $this->int("SELECT count(*) FROM fuzzphony_queue WHERE index_name = 'sw_b'"));
+    }
+
+    public function testABulkUpdateAfterAOneRowWriteInTheSameSessionIsNotSlowedByACachedPlan(): void
+    {
+        $this->connection->execute('CREATE TABLE fuzzphony_sw_big (id int PRIMARY KEY, name text)');
+        $index = IndexDefinition::builder('sw_big')->fromTable('fuzzphony_sw_big')->field('name', 'A')->sync('queue')->build();
+        $this->install([$index]);
+        $this->connection->execute("ALTER TABLE fuzzphony_sw_big ALTER COLUMN tsv SET DEFAULT ''::tsvector");
+        $this->connection->execute("INSERT INTO fuzzphony_sw_big (id, name) SELECT g, 'n' || g FROM generate_series(1, 20000) g");
+        $this->connection->execute('DELETE FROM fuzzphony_watch_log');
+
+        $this->connection->execute("UPDATE fuzzphony_sw_big SET name = 'one' WHERE id = 1");
+        $started = microtime(true);
+        $this->connection->execute("UPDATE fuzzphony_sw_big SET name = name || 'x' WHERE id <= 20000");
+        $took = microtime(true) - $started;
+
+        self::assertLessThan(3.0, $took, 'a plan cached for the 1-row firing made this statement take many seconds');
+        self::assertSame(20001, $this->int("SELECT count(*) FROM fuzzphony_watch_log WHERE op = 'U' AND key_column = 'id'"));
+        self::assertSame(20000, $this->int('SELECT count(DISTINCT key) FROM fuzzphony_watch_log'));
     }
 }
