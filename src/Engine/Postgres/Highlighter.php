@@ -110,10 +110,12 @@ final class Highlighter
         } else {
             $typo = null;
         }
+        // a multi-source index looks each kind's ids up in its own source (not in the whole union)
+        $document = DocumentSql::select($index, $index->isMultiSource() ? sprintf('CAST(%s AS text[])', $params->add(Sql::arrayLiteral($ids))) : null);
         $sql = sprintf(
             'SELECT %s FROM (%s) AS d WHERE d.fz_id = ANY(CAST(%s AS %s[]))',
             implode(', ', $columns),
-            DocumentSql::select($index),
+            $document,
             $params->add(Sql::arrayLiteral($ids)),
             Types::id($index->idType),
         );

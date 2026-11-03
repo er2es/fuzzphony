@@ -200,11 +200,24 @@ final class Worker
      */
     private function rebuildIfRequested(IndexDefinition $index): int
     {
-        if (($this->backoff[$index->name][1] ?? 0.0) > ($this->clock)() || !$this->engine->rebuildRequested($index)) {
+        if (($this->backoff[$index->name][1] ?? 0.0) > ($this->clock)()) {
             return 0;
         }
+        $sources = [];
+        if (!$this->engine->rebuildRequested($index)) {
+            // a TRUNCATE of a table one source of a multi-source index reads asks for that source only
+            $sources = $index->isMultiSource() ? $this->engine->rebuildRequestedSources($index) : [];
+            if ($sources === []) {
+                return 0;
+            }
+        }
         try {
-            $this->reindexer->run($index, new ReindexOptions(pruneEmpty: true));
+            if ($sources === []) {
+                $this->reindexer->run($index, new ReindexOptions(pruneEmpty: true));
+            }
+            foreach ($sources as $source) {
+                $this->reindexer->run($index->withOnlySource($source), new ReindexOptions(pruneEmpty: true));
+            }
         } catch (RebuildAlreadyRunning) {
             return 0;
         } catch (\Throwable $e) {

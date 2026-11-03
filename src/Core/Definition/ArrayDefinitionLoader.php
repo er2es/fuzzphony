@@ -15,6 +15,8 @@ use Fuzzphony\Core\Support\Closest;
  *   products:
  *     source: { table: product, id: id }            # or { query: "SELECT ...", id: id } or { query_file: sql/catalog.sql }
  *     id_type: int
+ *     # or, instead of source / id_type / watch / class: several sources sharing the fields below
+ *     sources: { product: { query: "SELECT ...", watch: { ... }, entity: App\Product, id_type: int }, article: { table: article, id_type: uuid } }
  *     fields: { name: { weight: A, fuzzy: true }, description: C, salary: { weight: B, granted: ROLE_HR } }
  *     filters: { price: int, in_stock: bool }
  *     watch: { brand: { ids: "SELECT id FROM product WHERE brand_id = :id", columns: [name] } }
@@ -35,12 +37,13 @@ use Fuzzphony\Core\Support\Closest;
  */
 final class ArrayDefinitionLoader
 {
-    private const array KEYS = ['source', 'id_type', 'fields', 'filters', 'watch', 'sync', 'language', 'unaccent', 'boost', 'recency', 'profiles', 'thresholds', 'class', 'trigger_level', 'tenant', 'synonyms', 'log'];
+    private const array KEYS = ['source', 'sources', 'id_type', 'fields', 'filters', 'watch', 'sync', 'language', 'unaccent', 'boost', 'recency', 'profiles', 'thresholds', 'class', 'trigger_level', 'tenant', 'synonyms', 'log'];
 
     /** What an override can change on an index its attributes define; the other keys describe the index itself. */
     private const array OVERRIDABLE = ['watch', 'sync', 'language', 'unaccent', 'boost', 'recency', 'profiles', 'thresholds', 'trigger_level', 'tenant', 'synonyms', 'log'];
 
     private const array SOURCE_KEYS = ['table', 'query', 'query_file', 'id'];
+    private const array SOURCES_KEYS = ['table', 'query', 'query_file', 'id', 'watch', 'entity', 'id_type'];
     private const array FIELD_KEYS = ['weight', 'fuzzy', 'highlight', 'column', 'granted', 'code'];
     private const array FILTER_KEYS = ['type', 'column'];
     private const array WATCH_KEYS = ['ids', 'key', 'columns'];
@@ -56,13 +59,17 @@ final class ArrayDefinitionLoader
         $this->assertShape($name, $config, false);
         $builder = IndexDefinition::builder($name);
 
-        /** @var array{table?: string, query?: string, query_file?: string, id?: string} $source */
-        $source = $config['source'] ?? ['table' => $name];
-        match (true) {
-            isset($source['query']) => $builder->fromQuery($source['query'], $source['id'] ?? 'id'),
-            isset($source['query_file']) => $builder->fromQueryFile($source['query_file'], $this->baseDir, $source['id'] ?? 'id'),
-            default => $builder->fromTable($source['table'] ?? $name, $source['id'] ?? 'id'),
-        };
+        if (isset($config['sources'])) {
+            $this->sources($builder, $name, self::map($config['sources']));
+        } else {
+            /** @var array{table?: string, query?: string, query_file?: string, id?: string} $source */
+            $source = $config['source'] ?? ['table' => $name];
+            match (true) {
+                isset($source['query']) => $builder->fromQuery($source['query'], $source['id'] ?? 'id'),
+                isset($source['query_file']) => $builder->fromQueryFile($source['query_file'], $this->baseDir, $source['id'] ?? 'id'),
+                default => $builder->fromTable($source['table'] ?? $name, $source['id'] ?? 'id'),
+            };
+        }
 
         foreach (self::map($config['fields'] ?? []) as $field => $options) {
             $options = is_string($options) ? ['weight' => $options] : self::map($options);
@@ -83,6 +90,29 @@ final class ArrayDefinitionLoader
         }
 
         return $builder->build();
+    }
+
+    /** @param array<string, mixed> $sources */
+    private function sources(IndexBuilder $builder, string $index, array $sources): void
+    {
+        foreach ($sources as $source => $options) {
+            $options = self::map($options);
+            $watch = [];
+            foreach (self::map($options['watch'] ?? []) as $table => $entry) {
+                $entry = is_string($entry) ? ['ids' => $entry] : self::map($entry);
+                $watch[] = new Watch($table, self::str($entry['ids'] ?? null, 'SELECT :id'), self::str($entry['key'] ?? null, 'id'), self::stringList($index, $entry['columns'] ?? null));
+            }
+            $entity = isset($options['entity']) && is_string($options['entity']) ? $options['entity'] : null;
+            /** @var class-string|null $entity */
+            $idType = isset($options['id_type']) ? self::str($options['id_type'], '') : null;
+            $id = self::str($options['id'] ?? null, 'id');
+            $source = (string) $source;
+            match (true) {
+                isset($options['query']) => $builder->source($source, self::str($options['query'], ''), $entity, $watch, $idType, $id),
+                isset($options['query_file']) => $builder->source($source, QueryFile::read($index, self::str($options['query_file'], ''), $this->baseDir), $entity, $watch, $idType, $id),
+                default => $builder->sourceFromTable($source, self::str($options['table'] ?? null, $source), $entity, $watch, $idType, $id),
+            };
+        }
     }
 
     /**
@@ -125,6 +155,9 @@ final class ArrayDefinitionLoader
         }
         if (isset($config['thresholds'])) {
             $merged = $merged->withThresholds($this->scoped($name, 'thresholds', static fn(): Thresholds => $definition->thresholds->with(self::map($config['thresholds']))));
+        }
+        if ($definition->isMultiSource() && isset($config['watch'])) {
+            throw new InvalidDefinition($name, [sprintf('"watch" cannot be set by a YAML override on index "%s": its watches belong to its sources, declared where the index is defined.', $name)]);
         }
         $watches = $definition->watches;
         foreach (self::map($config['watch'] ?? []) as $table => $options) {
@@ -281,6 +314,7 @@ final class ArrayDefinitionLoader
             $problems[] = sprintf('"class" must be the name of an existing class, got %s.', self::describe($config['class']));
         }
         if (!$override) {
+            $this->assertSources($problems, $config);
             $this->assertSource($problems, $config['source'] ?? null);
             $this->assertEntries($problems, 'fields', $config['fields'] ?? null, 'a weight letter (A-D)', self::FIELD_KEYS, 'field', 'fields: { title: A, body: { weight: C, fuzzy: true } }');
             $this->assertEntries($problems, 'filters', $config['filters'] ?? null, 'a filter type', self::FILTER_KEYS, 'filter', 'filters: { price: int }');
@@ -300,6 +334,48 @@ final class ArrayDefinitionLoader
     {
         if ($value !== null && !is_bool($value)) {
             $problems[] = sprintf('%s must be true or false (a boolean, not a string), got %s.', $what, self::describe($value));
+        }
+    }
+
+    /**
+     * @param list<string>         $problems
+     * @param array<string, mixed> $config
+     */
+    private function assertSources(array &$problems, array $config): void
+    {
+        if (!isset($config['sources'])) {
+            return;
+        }
+        $sources = $config['sources'];
+        foreach (['source', 'watch', 'id_type', 'class'] as $key) {
+            if (isset($config[$key])) {
+                $problems[] = sprintf('"sources" and "%s" are exclusive: with several sources, "%s" belongs inside each source%s.', $key, $key, $key === 'source' ? ' (an index has one "source" or several "sources")' : '');
+            }
+        }
+        if (!self::isMap($sources) || $sources === []) {
+            $problems[] = sprintf('"sources" must be a map of source name => { query | query_file | table, watch, entity, id_type } (e.g. sources: { product: { table: product } }), got %s.', self::shape($sources));
+
+            return;
+        }
+        /** @var array<string, mixed> $sources */
+        foreach ($sources as $name => $options) {
+            $at = sprintf('Source "%s"', $name);
+            if (!is_array($options) || array_is_list($options) && $options !== []) {
+                $problems[] = sprintf('%s must be a map: { table: product } or { query: "SELECT ..." }, got %s.', $at, self::shape($options));
+
+                continue;
+            }
+            $this->assertKeys($problems, $at, array_keys($options), self::SOURCES_KEYS);
+            $given = array_filter(['table', 'query', 'query_file'], static fn(string $k): bool => isset($options[$k]));
+            if (count($given) > 1) {
+                $problems[] = sprintf('%s takes one of "table", "query" or "query_file", not %s.', $at, implode(' and ', $given));
+            }
+            if (isset($options['entity']) && (!is_string($options['entity']) || !class_exists($options['entity']))) {
+                $problems[] = sprintf('%s: "entity" must be the name of an existing class, got %s.', $at, self::describe($options['entity']));
+            }
+            if (isset($options['watch'])) {
+                $this->assertEntries($problems, 'watch', $options['watch'], 'a query returning the affected ids', self::WATCH_KEYS, 'watch', 'watch: { product: "SELECT :id" }');
+            }
         }
     }
 

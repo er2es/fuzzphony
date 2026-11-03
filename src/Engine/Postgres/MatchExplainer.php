@@ -85,7 +85,7 @@ final readonly class MatchExplainer
             implode(', ', $queryRows),
             $norm,
             self::MAX_CHARS,
-            DocumentSql::select($index),
+            DocumentSql::select($index, $index->isMultiSource() ? sprintf('CAST(%s AS text[])', $params->add(Sql::arrayLiteral($ids))) : null),
             implode(', ', $fieldRows),
             $params->add(Sql::arrayLiteral($ids)),
             Types::id($index->idType),

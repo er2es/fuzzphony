@@ -19,6 +19,7 @@ use Fuzzphony\Core\Search\Explanation;
 use Fuzzphony\Core\Search\SearchResult;
 use Fuzzphony\Core\Wizard\SourceIntrospector;
 use Fuzzphony\Engine\Postgres\Inspection\PostgresInspector;
+use Fuzzphony\Engine\Postgres\Inspection\SourceProbe;
 use Fuzzphony\Engine\Postgres\Schema\Names;
 use Fuzzphony\Engine\Postgres\Schema\PostgresSchemaGenerator;
 use Fuzzphony\Engine\Postgres\Search\FacetRunner;
@@ -107,6 +108,10 @@ final class PostgresEngine implements Engine
 
     public function indexSchema(IndexDefinition $index): SchemaPlan
     {
+        if ($index->isMultiSource()) {
+            SourceProbe::assertColumns($this->connection, $index);
+        }
+
         return $this->schema->index($index);
     }
 
@@ -199,6 +204,11 @@ final class PostgresEngine implements Engine
     public function queueSize(IndexDefinition $index): int
     {
         return $this->maintenance->queueSize($index);
+    }
+
+    public function rebuildRequestedSources(IndexDefinition $index): array
+    {
+        return $this->maintenance->rebuildRequestedSources($index);
     }
 
     public function rebuildRequested(IndexDefinition $index): bool

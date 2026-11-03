@@ -157,6 +157,21 @@ In `trigger` and `queue` mode a `TRUNCATE` is followed by a separate statement-l
 older version get the `TRUNCATE` trigger from `fuzzphony:schema --apply`
 (`fuzzphony:doctor` reports it missing until then).
 
+## Several sources in one index
+
+An index with [sources](configuration.md#several-sources-in-one-index) syncs per source. Every watch belongs to a source (the shared registry
+`fuzzphony_watches` records it in its `source` column), and a changed key goes through that source's own `ids` query into queue rows
+carrying the source's key (`product:42`). Two sources, or two indexes, that watch the same table each map the key their own way, and
+a change of the table refreshes both. `sync: trigger`, `queue`, `manual` and `orm` keep their meaning for the index as a whole; with
+`orm`, an entity is mapped to the source whose `entity:` it is.
+
+- A refresh rewrites only the rows it names: a changed product leaves the article rows alone.
+- A `TRUNCATE` of a table one source reads queues a rebuild of **that source only** (queue row `*:<source>`); the worker runs it in place,
+  keeping the rows of the other sources. Truncating the source's own table empties that source's rows (`kind`), not the index.
+- `fuzzphony:reindex <index>` rebuilds all sources into the `__next` table and swaps, as for any index. `fuzzphony:reindex <index> --source=<name>`
+  deletes the rows that source no longer returns and rewrites its rows in place (no swap, the other sources untouched) and reports the
+  documents per source. It takes the index's rebuild lock, so it does not run while a full reindex does.
+
 ## Partitioned tables
 
 Watch the partitioned parent. Writes through the parent are synced at both trigger levels.

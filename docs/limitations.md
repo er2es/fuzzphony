@@ -372,14 +372,9 @@ See [Keeping the index in sync](sync.md).
 Plain tables without entities work (see [Joins, several tables and several indexes](configuration.md#joins-several-tables-and-several-indexes)),
 but a few things take more writing than with one entity per index.
 
-- **A `UNION ALL` index needs a hand-written watch per table.** What happens: a table of the union without a watch is not
-  followed, and its changes never reach the index; there is no error. Why: Fuzzphony cannot derive the tables, or the id
-  prefix, from the query text. What to do: one `watch` per table, returning the prefixed id (`SELECT 'product-' || :id`),
-  and check it with a test that changes a row of each table.
-- **The hits of a union carry only a string id.** What happens: `'article-1'`, nothing says which table it is. `EntityLoader`
-  maps one class and does not skip foreign ids (it fails with a database error on an integer key). What to do: split the
-  id yourself and load each kind from its own table; for one search box over several kinds prefer one index per kind and a
-  [federated search](searching.md#federated-search).
+- **Several tables in one list: use sources.** A hand-written `UNION ALL` with prefixed ids and a prefixed watch per table still works, but
+  its hits carry only a string id and every watch is yours to get right. An index with
+  [several sources](configuration.md#several-sources-in-one-index) gives each hit its `kind` and typed id and syncs per source.
 - **A watch `key` must be one plain column.** What happens: an expression, or a composite key, is refused ("is not a valid
   column name"). What to do: key on one column of the group (`order_no`) and return all documents of that group with an
   `ids` query (the group is refreshed as a whole, more than the changed row), or key on the column that points at the
@@ -403,6 +398,23 @@ but a few things take more writing than with one entity per index.
 - **A database that does not allow triggers follows nothing by itself.** What happens: `sync: queue` and `trigger` fail at
   `schema --apply` (permission denied for the source table) and create nothing. What to do: `sync: manual` and a
   `fuzzphony:reindex` from cron or after an import, or `refresh()` for single documents.
+
+### Several sources in one index
+
+- **A query cannot be limited to some kinds.** What happens: a search of a multi-source index ranks all its sources; there is no `kinds(...)`
+  filter. Why: it is not built yet. What to do: filter on a column every source returns (a `kind` or `type` filter you declare), or search a
+  separate index.
+- **The stored key is text.** What happens: the sidecar key of a multi-source index is `<kind>:<id>` (columns `kind` and `src_id` carry the
+  parts), also for integer ids; `Hit::$id` is converted back with the source's `id_type`. Why: one key column for ids of different types.
+  What to do: nothing for a search; code that reads the sidecar table directly uses `kind` and `src_id`, and `refresh('site', ['product:5'])`
+  takes the key. There is no migration between the single and the multi-source layout: a single-source index that becomes a multi-source one
+  is a new layout (`schema --apply` then `reindex`).
+- **Older Fuzzphony code does not read a multi-source index.** What happens: its text key and extra columns are unknown to an earlier release.
+  What to do: upgrade every process (web, worker, console) before the first multi-source index is applied; there is no schema-level downgrade.
+- **An id repeated inside one source keeps one row.** What happens: if a source returns the same id twice, one document of that key is
+  indexed (the same as for a single source). What to do: make the source's ids unique (`DISTINCT ON`, or aggregate).
+- **A watch is per source.** What happens: a table a source reads without a `watch` is not followed (no error). Why: the tables of a query are
+  not derived. What to do: one `watch` per table per source, and check it with a test that changes a row of each.
 
 ### One id column per document
 

@@ -15,6 +15,8 @@ and a link. Measurements, proofs and test names belong to the pull request, [doc
 
 - **Index definition classes:** `#[AsIndexDefinition('products_admin', entity: Product::class)]` on a class with `build(IndexBuilder): void` gives an entity (or a legacy table)
   several indexes; found as Symfony services or given by class name to `Fuzzphony::postgres()`, cached like attribute indexes ([Configuration](docs/configuration.md#definition-classes)).
+- **Multi-source indexes:** `sources:` (YAML), `->source()` / `->sourceFromTable()` (builder, definition classes) put several `SELECT`s into one index with shared fields, one ranking,
+  per-source watches, entity and id type; hits carry `kind` and a typed `id`; `fuzzphony:reindex --source=` rebuilds one source ([Configuration](docs/configuration.md#several-sources-in-one-index)).
 - **`FuzzphonySearchFilter`** takes `index:` to search a named index; `fuzzphony:doctor` shows where each definition came from.
 
 ## [0.10.1] - 2026-11-03

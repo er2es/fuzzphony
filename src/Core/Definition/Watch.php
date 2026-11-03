@@ -27,5 +27,7 @@ final readonly class Watch
         public string $affectedIds = 'SELECT :id',
         public string $keyColumn = 'id',
         public ?array $columns = null,
+        /** The source of a multi-source index this watch belongs to; null for a single-source index. */
+        public ?string $source = null,
     ) {}
 }

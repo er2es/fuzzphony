@@ -136,6 +136,11 @@ abstract class UnusedEngine implements Engine
         throw new \LogicException('not used by this test');
     }
 
+    public function rebuildRequestedSources(IndexDefinition $index): array
+    {
+        throw new \LogicException('not used by this test');
+    }
+
     public function recordRebuildFailure(IndexDefinition $index, string $message): void
     {
         throw new \LogicException('not used by this test');

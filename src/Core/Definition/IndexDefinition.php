@@ -47,6 +47,15 @@ final readonly class IndexDefinition
         public Synonyms $synonyms = new Synonyms(),
         /** Whether searches on this index go to the search log; not part of the layout, so changing it needs no reindex. */
         public bool $log = true,
+        /**
+         * The sources of a multi-source index (empty: a single-source index, `$source` is its source). A multi-source index has
+         * `$idType` String (its stored key is the text `<kind>:<id>`), `$source` is its first source (never read for a multi-source one).
+         *
+         * @var list<IndexSource>
+         */
+        public array $sources = [],
+        /** Narrows the definition to one source for a per-source reindex (never part of a registered definition). */
+        public ?string $onlySource = null,
     ) {}
 
     public static function builder(string $name): IndexBuilder
@@ -142,6 +151,9 @@ final readonly class IndexDefinition
      */
     public function effectiveWatches(): array
     {
+        if ($this->sources !== []) {
+            return array_merge(...array_map(static fn(IndexSource $s): array => $s->effectiveWatches(), $this->sources));
+        }
         $watches = $this->watches;
         if ($this->source->table !== null) {
             $own = false;
@@ -154,6 +166,80 @@ final readonly class IndexDefinition
         }
 
         return $watches;
+    }
+
+    public function isMultiSource(): bool
+    {
+        return $this->sources !== [];
+    }
+
+    public function sourceNamed(string $name): ?IndexSource
+    {
+        foreach ($this->sources as $source) {
+            if ($source->name === $name) {
+                return $source;
+            }
+        }
+
+        return null;
+    }
+
+    /** The source that reads an entity class (a multi-source index: each source may name one). */
+    public function sourceForEntity(string $class): ?IndexSource
+    {
+        foreach ($this->sources as $source) {
+            if ($source->entityClass === $class) {
+                return $source;
+            }
+        }
+
+        return null;
+    }
+
+    /**
+     * The sources a run works on: all of them, or the one a per-source reindex is narrowed to.
+     *
+     * @return list<IndexSource>
+     */
+    public function activeSources(): array
+    {
+        return $this->onlySource === null ? $this->sources : array_values(array_filter($this->sources, fn(IndexSource $s): bool => $s->name === $this->onlySource));
+    }
+
+    /** The source a watch belongs to (a single-source index: its source). */
+    public function sourceOf(Watch $watch): Source
+    {
+        return ($watch->source !== null ? $this->sourceNamed($watch->source)?->source : null) ?? $this->source;
+    }
+
+    /**
+     * The kind and the typed id of a stored key: a multi-source index splits `<kind>:<id>` and converts the id by that source's
+     * id type; a single-source index's kind is its name.
+     *
+     * @return array{string, int|string}
+     */
+    public function parseKey(string $key): array
+    {
+        if ($this->sources === []) {
+            return [$this->name, $this->idType->cast($key)];
+        }
+        $at = strpos($key, ':');
+        $kind = $at === false ? '' : substr($key, 0, $at);
+        $raw = $at === false ? $key : substr($key, $at + 1);
+
+        return [$kind, ($this->sourceNamed($kind)->idType ?? IdType::String)->cast($raw)];
+    }
+
+    /** One source of a multi-source index as a single-source definition (the doctor checks each source on its own). */
+    public function forSource(IndexSource $source): self
+    {
+        return $this->copy(source: $source->source, idType: $source->idType, watches: $source->watches, entityClass: $source->entityClass ?? false, sources: []);
+    }
+
+    /** A copy narrowed to one source (a per-source reindex). */
+    public function withOnlySource(?string $name): self
+    {
+        return $this->copy(onlySource: $name === null ? '' : $name);
     }
 
     public function withName(string $name): self
@@ -242,6 +328,12 @@ final readonly class IndexDefinition
         return $this->copy(synonyms: $synonyms);
     }
 
+    /** @param list<IndexSource> $sources */
+    public function withSources(array $sources): self
+    {
+        return $this->copy(sources: $sources);
+    }
+
     public function withLog(bool $log): self
     {
         return $this->copy(log: $log);
@@ -254,6 +346,7 @@ final readonly class IndexDefinition
      * @param list<FieldDefinition>|null         $fields
      * @param list<FilterDefinition>|null        $filters
      * @param list<Watch>|null                   $watches
+     * @param list<IndexSource>|null             $sources
      * @param array<string, RankingProfile>|null $profiles
      * @param class-string|false|null            $entityClass
      */
@@ -275,6 +368,8 @@ final readonly class IndexDefinition
         string|false|null $tenant = false,
         ?Synonyms $synonyms = null,
         ?bool $log = null,
+        string|null $onlySource = null,
+        ?array $sources = null,
     ): self {
         return new self(
             name: $name ?? $this->name,
@@ -294,6 +389,8 @@ final readonly class IndexDefinition
             tenant: $tenant === false ? $this->tenant : $tenant,
             synonyms: $synonyms ?? $this->synonyms,
             log: $log ?? $this->log,
+            sources: $sources ?? $this->sources,
+            onlySource: $onlySource === null ? $this->onlySource : ($onlySource === '' ? null : $onlySource),
         );
     }
 }

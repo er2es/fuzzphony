@@ -249,34 +249,72 @@ of different indexes are not comparable ([limitations](limitations.md#scores-are
 rank: the best hit of each index first. The ids are those of each index (`people` 1 and `companies` 1 are different rows):
 use `$hit->kind` to tell them apart and load each kind from its own table.
 
-### One index over two tables (`UNION ALL`)
+### Several sources in one index
 
-One list with one ranking over unrelated tables is one index over a union with string ids:
+One list with one ranking over unrelated tables is **one index with several sources**: the index declares its fields, filters and
+settings once, and every source is a named `SELECT` that aliases its own columns to those fields. A hit says which source it comes
+from (`$hit->kind`) and carries that source's own id (an `int`, a uuid string, a composite text), so nothing is split by hand.
+
+```yaml
+fuzzphony:
+  indexes:
+    site:
+      sources:
+        product:                                   # the name is the kind of the hits (a lowercase identifier)
+          query: "SELECT id, name AS title, description AS body, account_id AS account FROM product"
+          watch: { product: "SELECT :id" }
+          entity: App\Entity\Product               # optional: the class this source's rows are
+        article:
+          query: "SELECT id, headline AS title, text AS body, owner_id AS account FROM article"
+          id_type: uuid                            # default: int
+          watch: { article: "SELECT :id" }
+        legacy:
+          query: "SELECT region || '-' || num AS id, label AS title, notes AS body, account FROM legacy_item"
+          id_type: string                          # a composite id built in SQL
+          watch:
+            legacy_item: { ids: "SELECT region || '-' || num FROM legacy_item WHERE pk = :id", key: pk }
+      fields: { title: { weight: A, fuzzy: true }, body: C }
+      filters: { account: int }
+      tenant: account
+```
+
+The same index with the builder, or in a [definition class](#definition-classes) (`build(IndexBuilder $b)`):
 
 ```php
-$everything = IndexDefinition::builder('everything')
-    ->fromQuery("SELECT 'product-' || p.id AS id, p.name AS title, '' AS body FROM product p
-                 UNION ALL
-                 SELECT 'article-' || a.id, a.title, a.body FROM article a")
-    ->idType('string')
-    ->watch('product', "SELECT 'product-' || :id")
-    ->watch('article', "SELECT 'article-' || :id")
+IndexDefinition::builder('site')
+    ->source('product', 'SELECT id, name AS title, description AS body, account_id AS account FROM product', entity: Product::class, watch: [new Watch('product')])
+    ->source('article', 'SELECT id, headline AS title, text AS body, owner_id AS account FROM article', watch: [new Watch('article')], idType: 'uuid')
+    ->sourceFromTable('note', 'note')                // a table whose columns already carry the field names; it is watched by itself
     ->field('title', 'A', fuzzy: true)
     ->field('body', 'C')
-    ->sync('trigger')
+    ->filter('account', 'int')
+    ->tenant('account')
     ->build();
 ```
 
-The schema, the triggers on both tables, `fuzzphony:reindex`, search, highlights and the doctor accepted it, and inserts,
-updates and deletes of either table reached the index. A hit's `id` is the string (`'article-1'`, `'product-1'`). Limits:
+What a source is:
 
-- **You split the id yourself** (`str_starts_with`, then the number). `EntityLoader` passes all ids to `findBy` on one
-  entity, so with these ids it fails (in the test with a database error, `invalid input syntax for type integer:
-  "article-1"`); load the rows yourself, one `findBy` per kind. The API Platform filter does the same `IN` on the ids and
-  was not tried, but is not meant for this.
-- A filter or field has to mean the same in both tables (select a constant or `NULL` for a column one side lacks).
-- Every table in the union needs its own watch that returns the prefixed id; a forgotten watch means stale hits, with no
-  error.
+- `query` / `query_file` / `table`: one of them. The `SELECT` must return `id` (or the column named by `id:`) and **every** field, filter,
+  boost and recency column of the index under the index's names (alias your own columns: `name AS title`). A missing column is an
+  `InvalidDefinition` naming the source and the column, found by a zero-row probe of each source when the schema is planned.
+- `watch`: the tables that change this source's documents, exactly as for a single source (`table => ids query`, `key`, `columns`).
+  A query source needs its own watches with `sync: queue` or `trigger`; the self-watch of a `table` source is automatic. Two sources
+  may watch the same table: each maps the changed key to its own documents, and a change refreshes both.
+- `entity`: the class of this source's rows. `sync: orm` maps an entity to its source (the key `product:5` is refreshed, not `5`), and the
+  registry finds the index by the class.
+- `id_type`: `int` (default), `uuid` or `string`; `Hit::$id` has that type. Ids need only be unique inside their source.
+
+`sources` replaces `source`, `id_type`, `watch` and `class` of the index: use either the single form or `sources`, not both. The index's
+other settings (`fields`, `filters`, `language`, `boost`, `recency`, `profiles`, `thresholds`, `tenant`, `sync`, ...) are declared once and
+apply to every source. Results, filters, facets, highlights, did-you-mean, restricted viewers (`granted` fields) and tenants behave as for a
+single source; a tenant filter column must come from every source.
+
+How it is stored: [Multi-source indexes: how it is stored](architecture.md#multi-source-indexes-how-it-is-stored). To refresh one document
+by hand, give its key: `$fuzzphony->refresh('site', ['product:5'])`. To rebuild one source only, `fuzzphony:reindex site --source=article`
+([commands](commands.md#commands)). Limits: [limitations](limitations.md#several-sources-in-one-index).
+
+This replaces the earlier recipe of one index over a hand-written `UNION ALL` with prefixed string ids and a prefixed watch per table:
+sources give the typed id, the kind, a per-source refresh, a per-source rebuild and per-source doctor checks, and need no id splitting.
 
 ### Legacy tables with a composite key
 
@@ -313,9 +351,19 @@ With `sync: queue` the apply stopped with `permission denied for table …` and 
 |---|---|
 | Labels of a related table searchable with the row (the brand name with the product) | one index, `source.query` with a join, a `watch` for each joined table |
 | Several kinds of things found in one search box, each shown as its own kind | one index per kind, searched with `federated()` |
-| One list of mixed rows with one ranking | one index over a `UNION ALL` with string ids (limits above) |
+| One list of mixed rows with one ranking, each row its own kind and id type | one index with [several sources](#several-sources-in-one-index) |
 | The same table with two configurations | two indexes with different names, in YAML or the builder |
 | A table with a composite key | a string id built in the query, a watch keyed on one column |
+
+Several sources or several indexes searched together?
+
+| | One index, several sources | Several indexes, `federated()` |
+|---|---|---|
+| Ranking | one text ranking over all rows (scores comparable) | merged by rank (scores of different indexes are not comparable) |
+| Fields and settings | declared once, shared | each index its own (weights, language, thresholds, profiles) |
+| Filters, facets, tenant | one set, every source returns it | per index |
+| Best when | the kinds are the same kind of text (products, articles, pages in one box) | the kinds differ (people, companies, orders), or an index also stands alone |
+
 
 ## Attributes
 

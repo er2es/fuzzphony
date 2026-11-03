@@ -233,8 +233,9 @@ final readonly class SearchRunner
 
         $hits = [];
         foreach ($rows as $row) {
-            $id = $index->idType->cast(Coerce::str($row['id']));
-            $hits[] = new Hit($index->name, $id, Coerce::float($row['score']), new ScoreBreakdown(
+            $key = Coerce::str($row['id']);
+            [$kind, $id] = $index->parseKey($key);
+            $hits[] = new Hit($kind, $id, Coerce::float($row['score']), new ScoreBreakdown(
                 textRank: Coerce::float($row['r_text']),
                 fuzzySimilarity: Coerce::float($row['r_fuzzy']),
                 relevance: Coerce::float($row['relevance']),
@@ -242,7 +243,7 @@ final readonly class SearchRunner
                 prefixBonus: Coerce::float($row['prefix_bonus']),
                 boostBonus: Coerce::float($row['boost_bonus']),
                 recencyBonus: Coerce::float($row['recency_bonus']),
-            ), $highlights[(string) $id] ?? []);
+            ), $highlights[$key] ?? []);
         }
 
         if ($query->explainMatches && $hits !== []) {
@@ -251,11 +252,11 @@ final readonly class SearchRunner
                 $index,
                 $query->allowedFields ?? $index->fieldNames(),
                 $root,
-                array_map(static fn(Hit $hit): int|string => $hit->id, $hits),
+                array_map(static fn(Hit $hit): int|string => $index->isMultiSource() ? self::keyOf($index, $hit) : $hit->id, $hits),
                 $thresholds,
                 $thresholds->typo->mode !== FuzzyMode::Never && $profile->fuzzy > 0.0,
             ), Hints::INDEX);
-            $hits = array_map(static fn(Hit $hit): Hit => $hit->withMatches($matches[(string) $hit->id] ?? []), $hits);
+            $hits = array_map(static fn(Hit $hit): Hit => $hit->withMatches($matches[self::keyOf($index, $hit)] ?? []), $hits);
         }
 
         $result = new SearchResult(
@@ -607,6 +608,12 @@ final readonly class SearchRunner
             array_map(static fn(array $r): int|string => $index->idType->cast(Coerce::str($r['id'])), $rows),
             $typo,
         ), Hints::INDEX);
+    }
+
+    /** The stored key of a hit: `<kind>:<id>` for a multi-source index, else its id. */
+    private static function keyOf(IndexDefinition $index, Hit $hit): string
+    {
+        return $index->sourceNamed($hit->kind)?->key($hit->id) ?? (string) $hit->id;
     }
 
     /** @param list<array<string, mixed>> $rows */

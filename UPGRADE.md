@@ -9,6 +9,7 @@ and the [CHANGELOG](CHANGELOG.md) has the full list of changes.
 
 - **Index definition classes** (`#[AsIndexDefinition]`, public): several indexes per entity, see [Definition classes](docs/configuration.md#definition-classes). Nothing to do for
   existing indexes: attribute, YAML and builder definitions, fingerprints and the schema are unchanged.
+- **Multi-source indexes** (`sources:` in YAML, `->source()` / `->sourceFromTable()` on the builder, also in a definition class): several named `SELECT`s share one set of fields, with their own watches, entity and id type; hits carry `kind` and the source's typed id; `fuzzphony:reindex <index> --source=<name>` rebuilds one source ([Configuration](docs/configuration.md#several-sources-in-one-index)). Nothing to do for existing indexes: a single-source index keeps its sidecar, statements and fingerprint. The shared watch registry `fuzzphony_watches` gets a `source` column (`fuzzphony:schema --apply` adds it). Public API added: `IndexSource`, `IndexBuilder::source()`, `IndexBuilder::sourceFromTable()`, `ReindexOptions::$source`, `ReindexResult::$perSource`. Apply the release to every process (web, worker, console) before the first multi-source index is applied: earlier code cannot read its text key, and there is no schema-level downgrade.
 - **`FuzzphonySearchFilter`** has an `index` argument (default: the index of the resource's entity).
 - `Fuzzphony::postgres()` also accepts the class names of definition classes next to `IndexDefinition` objects.
 

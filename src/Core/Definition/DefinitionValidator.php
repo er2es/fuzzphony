@@ -38,18 +38,21 @@ final class DefinitionValidator
             $v[] = sprintf('Index name "%s" must not contain "__" (two underscores): it is reserved for the internal "__next" and "__changes" objects of a rebuild. Use single underscores.', $index->name);
         }
 
-        $source = $index->source;
-        if ($source->table !== null && !Identifier::isTable($source->table)) {
-            $v[] = sprintf('Source table "%s" is not a valid identifier (use "table" or "schema.table").', $source->table);
-        }
-        if ($source->query !== null && preg_match('/^\s*(select|with)\b/i', $source->query) !== 1) {
-            $v[] = 'Source query must be a SELECT (or WITH ... SELECT) statement.';
-        }
-        if ($source->query !== null && str_contains($source->query, self::DOLLAR_QUOTE_TAG)) {
-            $v[] = sprintf('Source query must not contain "%s": it is embedded in generated function bodies quoted with that tag. Use another dollar-quote tag or a plain string literal.', self::DOLLAR_QUOTE_TAG);
-        }
-        if (!Identifier::isColumn($source->idColumn)) {
-            $v[] = sprintf('Id column "%s" is not a valid column name.', $source->idColumn);
+        if ($index->sources === []) {
+            array_push($v, ...self::validateSource($index, $index->source, $index->watches, ''));
+        } else {
+            $names = [];
+            foreach ($index->sources as $one) {
+                $label = sprintf('Source "%s": ', $one->name);
+                if (!Identifier::isName($one->name)) {
+                    $v[] = sprintf('Source name "%s" must match [a-z_][a-z0-9_]* (max 48 chars), e.g. "product": it is the kind of the hits and is stored in the key.', $one->name);
+                }
+                if (isset($names[$one->name])) {
+                    $v[] = sprintf('Source "%s" is defined twice.', $one->name);
+                }
+                $names[$one->name] = true;
+                array_push($v, ...self::validateSource($index, $one->source, $one->watches, $label));
+            }
         }
 
         if ($index->fields === []) {
@@ -102,33 +105,6 @@ final class DefinitionValidator
             }
         }
 
-        if ($source->isQuery() && $index->sync->usesTriggers() && $index->watches === []) {
-            $v[] = sprintf(
-                'Sync mode "%s" needs to know which tables to watch, but a query source cannot be watched automatically. '
-                . 'Add watch("main_table") plus one watch per joined table, e.g. watch("brand", "SELECT id FROM product WHERE brand_id = :id").',
-                $index->sync->value,
-            );
-        }
-        foreach ($index->watches as $watch) {
-            if (!Identifier::isTable($watch->table)) {
-                $v[] = sprintf('Watched table "%s" is not a valid identifier.', $watch->table);
-            }
-            if (!Identifier::isColumn($watch->keyColumn)) {
-                $v[] = sprintf('Watch key column "%s" is not a valid column name.', $watch->keyColumn);
-            }
-            if (preg_match_all('/:id\b/', $watch->affectedIds) !== 1 || preg_match('/^\s*select\b/i', $watch->affectedIds) !== 1) {
-                $v[] = sprintf('Watch on "%s": affectedIds must be a SELECT containing ":id" exactly once, e.g. "SELECT id FROM product WHERE brand_id = :id".', $watch->table);
-            }
-            if (str_contains($watch->affectedIds, self::DOLLAR_QUOTE_TAG)) {
-                $v[] = sprintf('Watch on "%s": affectedIds must not contain "%s": it is embedded in generated trigger functions quoted with that tag. Use another dollar-quote tag or a plain string literal.', $watch->table, self::DOLLAR_QUOTE_TAG);
-            }
-            foreach ($watch->columns ?? [] as $column) {
-                if (!Identifier::isColumn($column)) {
-                    $v[] = sprintf('Watch on "%s": column "%s" is not a valid column name.', $watch->table, $column);
-                }
-            }
-        }
-
         if (!Identifier::isName($index->text->language)) {
             $v[] = sprintf('Language "%s" must be a text search configuration name such as english, hungarian, german or simple.', $index->text->language);
         }
@@ -142,6 +118,58 @@ final class DefinitionValidator
             }
             if ($profile->recency > 0.0 && $index->recencyColumn === null) {
                 $v[] = sprintf('Profile "%s" uses recency, but the index has no recency column. Call recencyBy("published_at") or set recency to 0.', $name);
+            }
+        }
+
+        return $v;
+    }
+
+    /**
+     * The table / query / id column of one source and its watches (a multi-source index: each source, messages prefixed with its name).
+     *
+     * @param list<Watch> $watches
+     *
+     * @return list<string>
+     */
+    private static function validateSource(IndexDefinition $index, Source $source, array $watches, string $label): array
+    {
+        $v = [];
+        if ($source->table !== null && !Identifier::isTable($source->table)) {
+            $v[] = $label . sprintf('Source table "%s" is not a valid identifier (use "table" or "schema.table").', $source->table);
+        }
+        if ($source->query !== null && preg_match('/^\s*(select|with)\b/i', $source->query) !== 1) {
+            $v[] = $label . 'Source query must be a SELECT (or WITH ... SELECT) statement.';
+        }
+        if ($source->query !== null && str_contains($source->query, self::DOLLAR_QUOTE_TAG)) {
+            $v[] = $label . sprintf('Source query must not contain "%s": it is embedded in generated function bodies quoted with that tag. Use another dollar-quote tag or a plain string literal.', self::DOLLAR_QUOTE_TAG);
+        }
+        if (!Identifier::isColumn($source->idColumn)) {
+            $v[] = $label . sprintf('Id column "%s" is not a valid column name.', $source->idColumn);
+        }
+        if ($source->isQuery() && $index->sync->usesTriggers() && $watches === []) {
+            $v[] = $label . sprintf(
+                'Sync mode "%s" needs to know which tables to watch, but a query source cannot be watched automatically. '
+                . 'Add watch("main_table") plus one watch per joined table, e.g. watch("brand", "SELECT id FROM product WHERE brand_id = :id").',
+                $index->sync->value,
+            );
+        }
+        foreach ($watches as $watch) {
+            if (!Identifier::isTable($watch->table)) {
+                $v[] = $label . sprintf('Watched table "%s" is not a valid identifier.', $watch->table);
+            }
+            if (!Identifier::isColumn($watch->keyColumn)) {
+                $v[] = $label . sprintf('Watch key column "%s" is not a valid column name.', $watch->keyColumn);
+            }
+            if (preg_match_all('/:id\b/', $watch->affectedIds) !== 1 || preg_match('/^\s*select\b/i', $watch->affectedIds) !== 1) {
+                $v[] = $label . sprintf('Watch on "%s": affectedIds must be a SELECT containing ":id" exactly once, e.g. "SELECT id FROM product WHERE brand_id = :id".', $watch->table);
+            }
+            if (str_contains($watch->affectedIds, self::DOLLAR_QUOTE_TAG)) {
+                $v[] = $label . sprintf('Watch on "%s": affectedIds must not contain "%s": it is embedded in generated trigger functions quoted with that tag. Use another dollar-quote tag or a plain string literal.', $watch->table, self::DOLLAR_QUOTE_TAG);
+            }
+            foreach ($watch->columns ?? [] as $column) {
+                if (!Identifier::isColumn($column)) {
+                    $v[] = $label . sprintf('Watch on "%s": column "%s" is not a valid column name.', $watch->table, $column);
+                }
             }
         }
 
