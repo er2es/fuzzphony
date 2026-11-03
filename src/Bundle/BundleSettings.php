@@ -54,7 +54,21 @@ final readonly class BundleSettings
         public bool $authorizationEnabled,
         public string $indexAttribute,
         public bool $allowSystem = true,
+        /** The DBAL connection of fuzzphony:worker and the async refresh; the `connection` itself unless fuzzphony.connections.worker is set. */
+        public string $workerConnectionName = self::DEFAULTS['connection'],
+        /** The DBAL connection of fuzzphony:schema, :reindex, :doctor and the search log commands; the `connection` itself unless fuzzphony.connections.admin is set. */
+        public string $adminConnectionName = self::DEFAULTS['connection'],
     ) {}
+
+    public function hasSeparateWorker(): bool
+    {
+        return $this->workerConnectionName !== $this->connectionName;
+    }
+
+    public function hasSeparateAdmin(): bool
+    {
+        return $this->adminConnectionName !== $this->connectionName;
+    }
 
     /**
      * @param array<array-key, mixed> $config
@@ -76,9 +90,11 @@ final readonly class BundleSettings
         $authorization = self::section($config, 'authorization');
         $worker = self::section($config, 'worker');
         $ormSync = self::section($config, 'orm_sync');
+        $connections = self::section($config, 'connections');
+        $connection = self::text($config['connection'] ?? null, self::DEFAULTS['connection']);
 
         return new self(
-            self::text($config['connection'] ?? null, self::DEFAULTS['connection']),
+            $connection,
             // validated here, so an invalid name fails the container build instead of the first request
             new Names(self::text($config['extension_schema'] ?? null, self::DEFAULTS['extension_schema']), self::text($config['schema'] ?? null, self::DEFAULTS['schema'])),
             (bool) ($config['discover_entities'] ?? true),
@@ -100,6 +116,8 @@ final readonly class BundleSettings
             (bool) ($authorization['enabled'] ?? false),
             self::text($authorization['index_attribute'] ?? null, self::DEFAULTS['index_attribute']),
             ($authorization['allow_system'] ?? true) !== false,
+            self::text($connections['worker'] ?? null, $connection),
+            self::text($connections['admin'] ?? null, $connection),
         );
     }
 

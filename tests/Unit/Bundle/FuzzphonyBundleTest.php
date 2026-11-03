@@ -302,6 +302,17 @@ final class FuzzphonyBundleTest extends TestCase
         self::assertFalse($dedicated->hasParameter('fuzzphony.app_schema_filter'));
     }
 
+    public function testPrependRecordsTheDbalConnectionNamesForTheConnectionsCheck(): void
+    {
+        $named = $this->prepended([], ['dbal' => ['connections' => ['main' => [], 'reports' => []], 'default_connection' => 'main']]);
+        $single = $this->prepended([], ['dbal' => ['url' => 'pgsql://x']]);
+        $none = $this->prepended([], ['orm' => []]);
+
+        self::assertSame(['main', 'reports'], $named->getParameter('fuzzphony.dbal_connections'));
+        self::assertSame(['default'], $single->getParameter('fuzzphony.dbal_connections'));
+        self::assertFalse($none->hasParameter('fuzzphony.dbal_connections'), 'no dbal key: nothing is known, nothing is checked');
+    }
+
     /** @return iterable<string, array{array<string, mixed>}> */
     public static function ownFilters(): iterable
     {
@@ -476,7 +487,7 @@ final class FuzzphonyBundleTest extends TestCase
         self::assertEquals([$fuzzphony, 'q', 'default', 500, new Reference('fuzzphony.actor_resolver')], $container->getDefinition(FuzzphonySearchFilter::class)->getArguments());
         self::assertEquals([$fuzzphony, new Reference('fuzzphony.actor_resolver')], $container->getDefinition(SearchComponent::class)->getArguments());
         self::assertEquals([new Reference('fuzzphony.refresh_dispatcher'), new Reference('fuzzphony.registry')], $container->getDefinition('fuzzphony.orm_sync_listener')->getArguments());
-        self::assertEquals([$fuzzphony, $connection], $container->getDefinition(SchemaCommand::class)->getArguments());
+        self::assertEquals([$fuzzphony, $connection], array_slice($container->getDefinition(SchemaCommand::class)->getArguments(), 0, 2));
         self::assertEquals([$fuzzphony], $container->getDefinition(ReindexCommand::class)->getArguments());
         self::assertEquals([new Reference('fuzzphony.operator')], $container->getDefinition(SearchCommand::class)->getArguments());
         self::assertEquals(

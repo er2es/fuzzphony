@@ -49,6 +49,7 @@ use Fuzzphony\Core\Sync\ImmediateRefreshDispatcher;
 use Fuzzphony\Core\Sync\RefreshDispatcher;
 use Fuzzphony\Core\Wizard\SourceIntrospector;
 use Fuzzphony\Engine\Postgres\PostgresEngine;
+use Fuzzphony\Engine\Postgres\Schema\Grants;
 use Fuzzphony\Engine\Postgres\Schema\Names;
 use Fuzzphony\Engine\Postgres\Wizard\PostgresIntrospector;
 use Symfony\Component\Config\Definition\Configurator\DefinitionConfigurator;
@@ -70,6 +71,9 @@ use function Symfony\Component\DependencyInjection\Loader\Configurator\service_c
  *
  *   fuzzphony:
  *     connection: default          # DBAL connection name
+ *     connections:                 # optional: separate database users (docs/roles.md); each defaults to `connection`
+ *       worker: ~                  # fuzzphony:worker and the async refresh: reads the source tables, writes the index tables; no DDL
+ *       admin: ~                   # fuzzphony:schema, :reindex, :doctor and the search log commands: DDL, owns the objects
  *     extension_schema: public     # where pg_trgm / unaccent live
  *     schema: public               # where Fuzzphony's own tables and functions live (e.g. fuzzphony)
  *     discover_entities: true      # pick up #[Searchable] entities automatically
@@ -104,6 +108,9 @@ final class FuzzphonyBundle extends AbstractBundle
 
     private const string DOCTRINE_PARAMETER = 'fuzzphony.doctrine_orm';
 
+    /** The DBAL connection names DoctrineBundle is configured with (set by prependExtension(), for the check of fuzzphony.connections). */
+    private const string DBAL_CONNECTIONS_PARAMETER = 'fuzzphony.dbal_connections';
+
     /** The framework.rate_limiter entry the bundle prepends for `per: ip` without a `limiter` (service limiter.fuzzphony_ip). */
     private const string DEFAULT_IP_LIMITER = 'fuzzphony_ip';
 
@@ -118,6 +125,13 @@ final class FuzzphonyBundle extends AbstractBundle
         $definition->rootNode()
             ->children()
                 ->scalarNode('connection')->defaultValue(BundleSettings::DEFAULTS['connection'])->info('Doctrine DBAL connection name')->end()
+                ->arrayNode('connections')
+                    ->addDefaultsIfNotSet()
+                    ->children()
+                        ->scalarNode('worker')->defaultNull()->info('DBAL connection of fuzzphony:worker and the async refresh (a database user that reads the source tables and writes the index tables, no DDL); default: connection')->end()
+                        ->scalarNode('admin')->defaultNull()->info('DBAL connection of fuzzphony:schema, fuzzphony:reindex, fuzzphony:doctor and the search log commands (the user that owns the objects and may run DDL); default: connection')->end()
+                    ->end()
+                ->end()
                 ->scalarNode('extension_schema')->defaultValue(BundleSettings::DEFAULTS['extension_schema'])->info('Schema of the pg_trgm and unaccent extensions')->end()
                 ->scalarNode('schema')->defaultValue(BundleSettings::DEFAULTS['schema'])->info('Schema of Fuzzphony\'s own tables, functions and text search configurations (created by fuzzphony:schema --apply)')->end()
                 ->booleanNode('discover_entities')->defaultTrue()->info('Register every Doctrine entity with #[Searchable]')->end()
@@ -198,6 +212,10 @@ final class FuzzphonyBundle extends AbstractBundle
         // loadExtension() runs on a temporary builder that has no extensions registered, so it cannot ask hasExtension() itself.
         // It is told that the ORM is configured, not only DoctrineBundle: without `orm:` there is no entity manager service to wire to.
         $builder->setParameter(self::DOCTRINE_PARAMETER, array_filter($builder->getExtensionConfig('doctrine'), static fn(mixed $doctrine): bool => is_array($doctrine) && isset($doctrine['orm'])) !== []);
+        $known = self::dbalConnectionNames($builder->getExtensionConfig('doctrine'));
+        if ($known !== []) {
+            $builder->setParameter(self::DBAL_CONNECTIONS_PARAMETER, $known);
+        }
         $connection = 'default';
         $schema = 'public';
         foreach ($builder->getExtensionConfig('fuzzphony') as $config) {
@@ -252,6 +270,49 @@ final class FuzzphonyBundle extends AbstractBundle
             }
         }
         $builder->prependExtensionConfig('framework', ['rate_limiter' => [self::DEFAULT_IP_LIMITER => ['policy' => 'sliding_window', 'limit' => 600, 'interval' => '1 minute']]]);
+    }
+
+    /**
+     * The connection names DoctrineBundle gets from its raw configuration: the keys of `dbal.connections`, or "default" for the
+     * single-connection form. Empty when the configuration does not say (no `dbal`): then nothing can be checked.
+     *
+     * @param array<array-key, mixed> $configs
+     *
+     * @return list<string>
+     */
+    private static function dbalConnectionNames(array $configs): array
+    {
+        $names = [];
+        foreach ($configs as $doctrine) {
+            $dbal = is_array($doctrine) && is_array($doctrine['dbal'] ?? null) ? $doctrine['dbal'] : null;
+            if ($dbal === null) {
+                continue;
+            }
+            $named = is_array($dbal['connections'] ?? null) ? array_map(strval(...), array_keys($dbal['connections'])) : ['default'];
+            $names = [...$names, ...$named, ...(is_string($dbal['default_connection'] ?? null) ? [$dbal['default_connection']] : [])];
+        }
+
+        return array_values(array_unique($names));
+    }
+
+    /**
+     * `fuzzphony.connections.worker` / `.admin` must name a DBAL connection. Only checked when DoctrineBundle's configuration
+     * lists its connections (see prependExtension()); a name that is wrong anyway fails the container build with a missing service.
+     *
+     * @param list<string> $known
+     *
+     * @internal
+     */
+    public static function assertKnownConnections(BundleSettings $settings, array $known): void
+    {
+        if ($known === []) {
+            return;
+        }
+        foreach (['worker' => $settings->workerConnectionName, 'admin' => $settings->adminConnectionName] as $role => $name) {
+            if (!in_array($name, $known, true)) {
+                throw new InvalidConfiguration(sprintf('fuzzphony.connections.%s names the DBAL connection "%s", which is not configured. Configured connections: %s.', $role, $name, implode(', ', $known)));
+            }
+        }
     }
 
     /** @internal */
@@ -314,6 +375,8 @@ final class FuzzphonyBundle extends AbstractBundle
         // configure()'s tree guarantees the shapes; AbstractBundle declares $config as a plain array
         $settings = BundleSettings::fromConfig($config, self::DEFAULT_IP_LIMITER);
         self::assertGrantedNeedsAuthorization($settings->indexes, $settings->authorizationEnabled);
+        $known = $builder->hasParameter(self::DBAL_CONNECTIONS_PARAMETER) ? $builder->getParameter(self::DBAL_CONNECTIONS_PARAMETER) : [];
+        self::assertKnownConnections($settings, is_array($known) ? array_values(array_map(Coerce::str(...), $known)) : []);
 
         $this->registerConnection($services, $settings);
         $this->registerActorResolver($services, $settings);
@@ -334,12 +397,27 @@ final class FuzzphonyBundle extends AbstractBundle
         $this->registerConsole($services, $builder, $settings);
     }
 
+    /** The service of a role: its own when fuzzphony.connections gives the role another connection, otherwise the one everything shares. */
+    private static function roleService(bool $separate, string $own, string $shared): string
+    {
+        return $separate ? $own : $shared;
+    }
+
     /** The DBAL connection and the metrics collector. */
     private function registerConnection(DefaultsConfigurator $services, BundleSettings $settings): void
     {
         $services->set('fuzzphony.connection', DbalConnection::class)
             ->args([service(sprintf('doctrine.dbal.%s_connection', $settings->connectionName))]);
         $services->alias(Connection::class, 'fuzzphony.connection');
+        // the worker's and the admin's connection, only when fuzzphony.connections names another one (docs/roles.md);
+        // otherwise everything keeps using fuzzphony.connection (see roleService())
+        foreach (['worker' => $settings->workerConnectionName, 'admin' => $settings->adminConnectionName] as $role => $name) {
+            if ($name === $settings->connectionName) {
+                continue;
+            }
+            $services->set('fuzzphony.connection.' . $role, DbalConnection::class)
+                ->args([service(sprintf('doctrine.dbal.%s_connection', $name))]);
+        }
 
         // Decided when the service is built (MetricsCollectorFactory::create()), not here at
         // loadExtension() time: CLI and FPM share this compiled container but commonly disagree
@@ -456,6 +534,16 @@ final class FuzzphonyBundle extends AbstractBundle
         $services->alias(Fuzzphony::class, 'fuzzphony')->public();
         $services->set('fuzzphony.operator', Fuzzphony::class)
             ->args([service('fuzzphony.engine'), service('fuzzphony.registry'), service('fuzzphony.search_gate.operator')]);
+        // the same library on the worker's and on the admin's connection, only when fuzzphony.connections names another one
+        foreach (['worker' => $settings->hasSeparateWorker(), 'admin' => $settings->hasSeparateAdmin()] as $role => $separate) {
+            if (!$separate) {
+                continue;
+            }
+            $services->set('fuzzphony.engine.' . $role, PostgresEngine::class)
+                ->args([service('fuzzphony.connection.' . $role), $settings->names->extensionSchema, $settings->names->schema, service('fuzzphony.metrics'), $settings->searchLogEnabled, $settings->retentionDays]);
+            $services->set('fuzzphony.' . $role, Fuzzphony::class)
+                ->args([service('fuzzphony.engine.' . $role), service('fuzzphony.registry'), service('fuzzphony.search_gate')]);
+        }
 
         $services->set('fuzzphony.introspector', PostgresIntrospector::class)->args([service('fuzzphony.connection'), $settings->names->schema]);
         $services->alias(SourceIntrospector::class, 'fuzzphony.introspector');
@@ -477,7 +565,7 @@ final class FuzzphonyBundle extends AbstractBundle
         $services->alias(RefreshDispatcher::class, 'fuzzphony.refresh_dispatcher');
         if (interface_exists(\Symfony\Component\Messenger\MessageBusInterface::class)) {
             $services->set('fuzzphony.messenger.refresh_handler', RefreshDocumentsHandler::class)
-                ->args([service('fuzzphony'), service('fuzzphony.metrics')])
+                ->args([service(self::roleService($settings->hasSeparateWorker(), 'fuzzphony.worker', 'fuzzphony')), service('fuzzphony.metrics')])
                 ->tag('messenger.message_handler');
         }
     }
@@ -506,11 +594,12 @@ final class FuzzphonyBundle extends AbstractBundle
         $applicationSchemaFilter = $builder->hasParameter('fuzzphony.app_schema_filter')
             ? Coerce::str($builder->getParameter('fuzzphony.app_schema_filter'))
             : null;
+        $admin = self::roleService($settings->hasSeparateAdmin(), 'fuzzphony.admin', 'fuzzphony');
         $commands = [
-            SchemaCommand::class => [service('fuzzphony'), service('fuzzphony.connection')],
-            DoctorCommand::class => [service('fuzzphony'), $applicationSchemaFilter, $settings->names->schema, $settings->authorizationEnabled],
-            ReindexCommand::class => [service('fuzzphony')],
-            WorkerCommand::class => [service('fuzzphony'), $settings->workerBatchSize, $settings->workerIdleSleep, service('fuzzphony.metrics')],
+            SchemaCommand::class => [service($admin), service(self::roleService($settings->hasSeparateAdmin(), 'fuzzphony.connection.admin', 'fuzzphony.connection')), inline_service(Grants::class)->args([inline_service(Names::class)->args([$settings->names->extensionSchema, $settings->names->schema]), $settings->searchLogEnabled])],
+            DoctorCommand::class => [service($admin), $applicationSchemaFilter, $settings->names->schema, $settings->authorizationEnabled],
+            ReindexCommand::class => [service($admin)],
+            WorkerCommand::class => [service(self::roleService($settings->hasSeparateWorker(), 'fuzzphony.worker', 'fuzzphony')), $settings->workerBatchSize, $settings->workerIdleSleep, service('fuzzphony.metrics')],
             SearchCommand::class => [service('fuzzphony.operator')],
             WizardCommand::class => [service('fuzzphony.introspector'), service('fuzzphony.engine'), service('fuzzphony.connection')],
         ];
@@ -523,8 +612,8 @@ final class FuzzphonyBundle extends AbstractBundle
                 ->args([service('fuzzphony.search_log')])
                 ->tag('kernel.event_listener', ['event' => 'kernel.terminate'])
                 ->tag('kernel.event_listener', ['event' => 'console.terminate']);
-            $commands[AnalyticsCommand::class] = [service('fuzzphony')];
-            $commands[SearchLogPurgeCommand::class] = [service('fuzzphony'), $settings->retentionDays];
+            $commands[AnalyticsCommand::class] = [service($admin)];
+            $commands[SearchLogPurgeCommand::class] = [service($admin), $settings->retentionDays];
         }
         foreach ($commands as $class => $args) {
             $services->set($class)->args($args)->tag('console.command');
