@@ -120,6 +120,7 @@ services:
       DATABASE_URL: "postgresql://fuzzphony:${DEMO_DB_PASSWORD:-fuzzphony}@db:5432/fuzzphony?serverVersion=18&charset=utf8"
       DEMO_ROWS: ${DEMO_ROWS:-500000}
       DEMO_REINDEX: ${DEMO_REINDEX:-auto}
+      DEMO_ERP: ${DEMO_ERP:-1}
       # only read by init's safety check (refuse default secrets on a non-loopback address)
       DEMO_BIND: ${DEMO_BIND:-127.0.0.1}
       DEMO_DB_BIND: ${DEMO_DB_BIND:-127.0.0.1}

@@ -413,7 +413,7 @@ final class PostgresInspector
 
         $missing = [];
         foreach ($index->fields as $field) {
-            if (!isset($columns[$field->column()])) {
+            if ($field->many === null && !isset($columns[$field->column()])) {
                 $missing[] = sprintf('%s -> "%s"', $field->name, $field->column());
             }
         }
@@ -422,6 +422,9 @@ final class PostgresInspector
             : Check::error('Field columns', sprintf('Missing in source: %s. Available: %s.', implode(', ', $missing), $known));
 
         foreach ($index->filters as $filter) {
+            if ($filter->many !== null) {
+                continue; // the values come from the child table, not from a column of the source
+            }
             $type = $columns[$filter->column()] ?? null;
             $checks[] = match (true) {
                 $type === null => Check::error('Filter ' . $filter->name, sprintf('Column "%s" not found in source.', $filter->column())),

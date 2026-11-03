@@ -27,7 +27,12 @@ and a link. Measurements, proofs and test names belong to the pull request, [doc
 
 ### Changed
 
+- **Demo:** an ERP data set of about 520 000 rows (`DEMO_ERP=0` leaves the tables empty) with the indexes `people` (a definition class), `companies`, `orders` and the multi-source `site` ([demo README](demo/README.md#the-erp-data-set)).
 - **Federated results:** `Hit::$index` is the index; `Hit::$kind` is the source inside it (the same as the index name for single-source indexes) ([UPGRADE](UPGRADE.md)).
+
+### Fixed
+
+- **Doctor:** the `Field columns` and filter checks no longer report a `many` field or filter as missing from the source query (its values come from the child table).
 
 ## [0.10.1] - 2026-11-03
 
