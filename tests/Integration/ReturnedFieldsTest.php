@@ -92,7 +92,11 @@ final class ReturnedFieldsTest extends TestCase
         }]);
     }
 
-    /** @return array<int|string, Hit> */
+    /**
+     * @param list<Hit> $hits
+     *
+     * @return array<int|string, Hit>
+     */
     private static function byId(array $hits): array
     {
         $out = [];
@@ -103,10 +107,27 @@ final class ReturnedFieldsTest extends TestCase
         return $out;
     }
 
-    /** @return list<string> */
+    /**
+     * @param list<array{label: string, sql: string, params: array<string, scalar|null>}> $statements
+     *
+     * @return list<string>
+     */
     private static function labels(array $statements): array
     {
-        return array_map(static fn(array $s): string => $s['label'], $statements);
+        return array_values(array_map(static fn(array $s): string => $s['label'], $statements));
+    }
+
+    /**
+     * @param list<array{label: string, sql: string, params: array<string, scalar|null>}> $statements
+     *
+     * @return array{label: string, sql: string, params: array<string, scalar|null>}
+     */
+    private static function last(array $statements): array
+    {
+        $last = array_pop($statements);
+        self::assertNotNull($last);
+
+        return $last;
     }
 
     public function testTheSourceValuesComeBackTyped(): void
@@ -116,7 +137,7 @@ final class ReturnedFieldsTest extends TestCase
 
         self::assertSame(1, $hit->id);
         self::assertSame(['title' => 'Wireless mouse', 'slug' => 'wireless-mouse', 'price' => 19.9, 'qty' => 5, 'ratio' => 0.5, 'live' => true, 'released' => '2026-01-02', 'created' => '2026-01-02T03:04:05+00:00', 'tags' => '["a","b"]', 'meta' => '{"k":[1,2]}'], $hit->data);
-        self::assertSame($hit->data, $hit->toArray()['data']);
+        self::assertSame($hit->data, $hit->toArray()['data'] ?? null);
         self::assertStringContainsString('"data":{"title":"Wireless mouse"', json_encode($hit, JSON_THROW_ON_ERROR));
 
         $null = $fz->in('rf_items')->query('wired')->with('price', 'live', 'tags')->get()->hits[0];
@@ -147,7 +168,7 @@ final class ReturnedFieldsTest extends TestCase
         self::assertSame($without->result->ids(), $with->result->ids());
         self::assertSame($without->result->hits[0]->score, $with->result->hits[0]->score);
         self::assertSame($without->plan, $with->plan);
-        $statement = $with->statements[array_key_last($with->statements)];
+        $statement = self::last($with->statements);
         self::assertStringContainsString('"slug"', $statement['sql']);
         self::assertStringNotContainsString('mouse', $statement['sql'], 'the ids are bound, never inlined');
         self::assertSame(['p0' => '{1}'], $statement['params']);
@@ -208,7 +229,7 @@ final class ReturnedFieldsTest extends TestCase
     {
         $fz = $this->build();
         $explained = $fz->in('rf_tenant')->forTenant(1)->query('mouse')->with('slug')->explain();
-        $statement = $explained->statements[array_key_last($explained->statements)];
+        $statement = self::last($explained->statements);
         self::assertStringContainsString('d."tid"::bigint = CAST(', $statement['sql']);
         self::assertContains(1, $statement['params']);
 

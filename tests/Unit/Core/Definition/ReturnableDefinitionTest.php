@@ -83,6 +83,13 @@ final class ReturnableDefinitionTest extends TestCase
         IndexDefinition::builder('site')->sourceFromTable('item', 'item', returnable: ['bad name'])->field('title', 'A')->build();
     }
 
+    public function testAtMostFiftyColumns(): void
+    {
+        $this->expectException(InvalidDefinition::class);
+        $this->expectExceptionMessage('At most 50 returnable columns');
+        IndexDefinition::builder('items')->fromTable('item')->field('title', 'A')->returnable(...array_map(static fn(int $i): string => 'c' . $i, range(1, 51)))->build();
+    }
+
     public function testADuplicateInAWitherIsReported(): void
     {
         $this->expectException(InvalidDefinition::class);
@@ -133,7 +140,7 @@ final class ReturnableDefinitionTest extends TestCase
         self::assertSame([], $hit->data);
         self::assertArrayNotHasKey('data', $hit->toArray());
         self::assertSame(['slug' => 'a', 'price' => null], $with->data);
-        self::assertSame(['slug' => 'a', 'price' => null], $with->toArray()['data']);
-        self::assertSame(['slug' => 'a', 'price' => null], $with->jsonSerialize()['data']);
+        self::assertSame(['slug' => 'a', 'price' => null], ($with->toArray()['data'] ?? null));
+        self::assertSame(['slug' => 'a', 'price' => null], ($with->jsonSerialize()['data'] ?? null));
     }
 }

@@ -134,6 +134,9 @@ final class DefinitionValidator
     private static function validateReturnable(array $returnable, string $label): array
     {
         $v = [];
+        if (count($returnable) > 50) {
+            $v[] = $label . sprintf('At most 50 returnable columns are allowed, got %d.', count($returnable));
+        }
         $seen = [];
         foreach ($returnable as $column) {
             if (!Identifier::isColumn($column)) {

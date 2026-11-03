@@ -107,7 +107,7 @@ final readonly class SearchBuilder
     {
         $asked = $this->query->returning;
 
-        return $this->next($this->query->returning($asked === null || $fields === [] ? $fields : ($asked === [] ? [] : array_values(array_unique([...$asked, ...$fields])))));
+        return $this->next($this->query->returning($asked === null || $fields === [] ? array_values($fields) : ($asked === [] ? [] : array_values(array_unique([...$asked, ...$fields])))));
     }
 
     public function profile(string $profile): self
