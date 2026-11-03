@@ -381,7 +381,7 @@ but a few things take more writing than with one entity per index.
   document.
 - **A one-to-many join is folded in the source query.** What happens: a join that returns several rows for one id makes the
   id repeat. What to do: `string_agg(...) ... GROUP BY` in the query, one row per document.
-- **Every joined table needs its own watch.** What happens: nothing is derived from the join, a table you do not list is not
+- **Every joined table needs its own watch.** What happens (the doctor warns about a table with no watch, see [sync](sync.md#the-doctor-finds-the-tables-you-forgot-to-watch)): nothing is derived from the join, a table you do not list is not
   followed, and a watch without `columns` refreshes on every `UPDATE` of the table, also of columns the index does not
   use. What to do: list each joined table with an `ids` query (or `key`), and add `columns` where the table is written
   often ([Column-aware filtering](sync.md#column-aware-filtering)).
@@ -413,8 +413,8 @@ but a few things take more writing than with one entity per index.
   What to do: upgrade every process (web, worker, console) before the first multi-source index is applied; there is no schema-level downgrade.
 - **An id repeated inside one source keeps one row.** What happens: if a source returns the same id twice, one document of that key is
   indexed (the same as for a single source). What to do: make the source's ids unique (`DISTINCT ON`, or aggregate).
-- **A watch is per source.** What happens: a table a source reads without a `watch` is not followed (no error). Why: the tables of a query are
-  not derived. What to do: one `watch` per table per source, and check it with a test that changes a row of each.
+- **A watch is per source.** What happens: a table a source reads without a `watch` is not followed, and the doctor warns about it (`Watches`). Why: the
+  tables of a query are not derived at run time. What to do: one `watch` per table per source, and check it with a test that changes a row of each.
 
 ### One id column per document
 

@@ -7,6 +7,7 @@ namespace Fuzzphony\Tests\Integration;
 use Fuzzphony\Core\Database\Connection;
 use Fuzzphony\Core\Fuzzphony;
 use Fuzzphony\Core\Registry\IndexRegistry;
+use Fuzzphony\Core\Support\Coerce;
 use Fuzzphony\Core\Sync\Worker;
 use Fuzzphony\Engine\Postgres\PostgresEngine;
 use Fuzzphony\Tests\Conformance\EngineConformanceTestCase;
@@ -49,7 +50,7 @@ final class OperationalStatsTest extends TestCase
         $stats = $this->engine->operationalStats(Indexes::products('queue'));
 
         self::assertGreaterThan(0.0, $stats['fuzzphony.watch_log.entries']);
-        self::assertSame((float) $this->connection->fetchValue('SELECT count(*) FROM fuzzphony_watch_log'), $stats['fuzzphony.watch_log.entries']);
+        self::assertSame((float) Coerce::int($this->connection->fetchValue('SELECT count(*) FROM fuzzphony_watch_log')), $stats['fuzzphony.watch_log.entries']);
         self::assertGreaterThanOrEqual(120.0, $stats['fuzzphony.watch_log.oldest_age_seconds']);
     }
 

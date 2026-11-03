@@ -17,6 +17,8 @@ and a link. Measurements, proofs and test names belong to the pull request, [doc
   several indexes; found as Symfony services or given by class name to `Fuzzphony::postgres()`, cached like attribute indexes ([Configuration](docs/configuration.md#definition-classes)).
 - **Multi-source indexes:** `sources:` (YAML), `->source()` / `->sourceFromTable()` (builder, definition classes) put several `SELECT`s into one index with shared fields, one ranking,
   per-source watches, entity and id type; hits carry `kind` and a typed `id`; `fuzzphony:reindex --source=` rebuilds one source ([Configuration](docs/configuration.md#several-sources-in-one-index)).
+- **Doctor `Watches` check:** a table the source reads that no watch covers is a warning with a watch to adapt (found through the database's dependency catalog); `fuzzphony:doctor --fail-on=warning` fails CI on it ([Sync](docs/sync.md#the-doctor-finds-the-tables-you-forgot-to-watch)).
+- **Operational metrics:** gauges for the change log (size, age, quarantined rows) and the queue (failing items, oldest age), and `source`-labelled counters for multi-source rebuilds ([Observability](docs/observability.md)).
 - **`FuzzphonySearchFilter`** takes `index:` to search a named index; `fuzzphony:doctor` shows where each definition came from.
 
 ## [0.10.1] - 2026-11-03
