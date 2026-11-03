@@ -198,6 +198,28 @@ final class MultiTenantTest extends KernelTestCase
         // endregion
     }
 
+    public function testAForgetfulControllerSearchesAsTheTokenUserAndNeverSeesMoreThanThatUser(): void
+    {
+        $tokens = self::getContainer()->get('security.token_storage');
+        self::assertInstanceOf(TokenStorageInterface::class, $tokens);
+        $ids = function (?AppUser $user, bool $system = false) use ($tokens): array {
+            $tokens->setToken($user === null ? null : new UsernamePasswordToken($user, 'main', $user->getRoles()));
+            $builder = $this->fuzzphony()->in('tickets')->query('refund');   // no asActor(): the controller forgot it
+            $hits = ($system ? $builder->asSystem()->forTenant(1) : $builder)->get()->hits;
+            $tokens->setToken(null);
+
+            return array_map(static fn($hit): int|string => $hit->id, $hits);
+        };
+
+        self::assertSame([], $ids(self::ada()), 'the token user lacks the role of internal_note: the field stays hidden');
+        self::assertSame([1], $ids(new AppUser(new Account(1), 'hana', ['ROLE_USER', 'ROLE_SUPPORT_LEAD'])), 'with the role it is visible');
+        self::assertSame([1], $ids(null, system: true), 'asSystem() sees everything');
+
+        $tokens->setToken(null);
+        $this->expectException(ActorRequired::class);   // no token (CLI, worker) on a tenant-scoped index: anonymous has no tenant
+        $this->fuzzphony()->in('tickets')->query('refund')->get();
+    }
+
     public function testWhatARestrictedViewerStillLearns(): void
     {
         $tokens = self::getContainer()->get('security.token_storage');

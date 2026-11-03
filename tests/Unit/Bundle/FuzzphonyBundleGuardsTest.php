@@ -12,6 +12,7 @@ use Fuzzphony\Bundle\Security\RateLimitGuard;
 use Fuzzphony\Core\Analytics\IpMode;
 use Fuzzphony\Core\Analytics\NullSearchLog;
 use Fuzzphony\Core\Exception\InvalidConfiguration;
+use Fuzzphony\Core\Exception\InvalidDefinition;
 use Fuzzphony\Core\Fuzzphony;
 use Fuzzphony\Core\Search\SearchGate;
 use PHPUnit\Framework\TestCase;
@@ -133,6 +134,22 @@ final class FuzzphonyBundleGuardsTest extends TestCase
 
         self::assertSame([], $this->gateArguments($container)[4]);
         self::assertFalse($container->hasDefinition('fuzzphony.guard.authorization'));
+    }
+
+    public function testAllowSystemFalseIsPassedToTheGate(): void
+    {
+        $container = $this->buildContainer(['authorization' => ['allow_system' => false]]);
+
+        self::assertFalse($this->gateArguments($container)[7]);
+    }
+
+    public function testAGrantedFieldWithoutAuthorizationDoesNotBuild(): void
+    {
+        $indexes = ['docs' => ['fields' => ['title' => ['weight' => 'A'], 'secret' => ['weight' => 'C', 'granted' => 'ROLE_BOSS']]]];
+
+        FuzzphonyBundle::assertGrantedNeedsAuthorization($indexes, true);   // authorization on: fine
+        $this->expectException(InvalidDefinition::class);
+        FuzzphonyBundle::assertGrantedNeedsAuthorization($indexes, false);
     }
 
     public function testPerMustBeTenantUserOrIp(): void
