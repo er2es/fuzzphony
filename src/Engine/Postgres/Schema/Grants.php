@@ -57,9 +57,13 @@ final readonly class Grants
         $tables = [$this->names->queue(), $this->names->meta(), $this->names->watchLog(), $this->names->watches()];
         foreach ($indexes as $index) {
             $tables[] = $this->names->sidecar($index);
-            $index->hasFuzzy() && $tables[] = $this->names->vocabulary($index);
+            if ($index->hasFuzzy()) {
+                $tables[] = $this->names->vocabulary($index);
+            }
         }
-        $this->searchLog && $tables[] = $this->names->searchLog();
+        if ($this->searchLog) {
+            $tables[] = $this->names->searchLog();
+        }
 
         return array_values(array_unique($tables));
     }
@@ -77,7 +81,9 @@ final readonly class Grants
         $grants = [new Grant(Grant::FUNCTION, $this->names->normFunction() . '(text)', ['EXECUTE'], 'the query normaliser')];
         foreach ($indexes as $index) {
             $grants[] = new Grant(Grant::TABLE, $this->names->sidecar($index), ['SELECT'], sprintf('search "%s"', $index->name));
-            $index->hasFuzzy() && $grants[] = new Grant(Grant::TABLE, $this->names->vocabulary($index), ['SELECT'], sprintf('"did you mean" of "%s"', $index->name));
+            if ($index->hasFuzzy()) {
+                $grants[] = new Grant(Grant::TABLE, $this->names->vocabulary($index), ['SELECT'], sprintf('"did you mean" of "%s"', $index->name));
+            }
         }
         if (array_any($indexes, SharedWatch::applies(...))) {
             $grants[] = new Grant(Grant::TABLE, $this->names->watchLog(), ['INSERT'], 'the shared trigger of a watched table appends here as the role that writes the table');
@@ -122,7 +128,9 @@ final readonly class Grants
         ];
         foreach ($indexes as $index) {
             $grants[] = new Grant(Grant::TABLE, $n->sidecar($index), ['SELECT', 'INSERT', 'UPDATE', 'DELETE'], sprintf('refresh "%s"', $index->name));
-            $index->hasFuzzy() && $grants[] = new Grant(Grant::TABLE, $n->vocabulary($index), ['SELECT', 'INSERT', 'UPDATE', 'DELETE'], sprintf('the vocabulary of "%s"', $index->name));
+            if ($index->hasFuzzy()) {
+                $grants[] = new Grant(Grant::TABLE, $n->vocabulary($index), ['SELECT', 'INSERT', 'UPDATE', 'DELETE'], sprintf('the vocabulary of "%s"', $index->name));
+            }
             $grants[] = new Grant(Grant::FUNCTION, sprintf('%s(%s[])', $n->refreshFunction($index), Types::id($index->idType)), ['EXECUTE'], sprintf('refresh "%s"', $index->name));
             $grants[] = new Grant(Grant::FUNCTION, $n->drainFunction($index) . '()', ['EXECUTE'], sprintf('drain the watch log into the queue of "%s"', $index->name));
             foreach ($this->sourceTables($index) as $table) {
