@@ -109,9 +109,11 @@ final readonly class SearchGate
 
     private static function sameTenant(mixed $a, mixed $b): bool
     {
-        $scalar = static fn(mixed $v): bool => is_scalar($v) || $v instanceof \Stringable;
+        if ((is_scalar($a) || $a instanceof \Stringable) && (is_scalar($b) || $b instanceof \Stringable)) {
+            return (string) $a === (string) $b;
+        }
 
-        return $scalar($a) && $scalar($b) ? (string) $a === (string) $b : $a === $b;
+        return $a === $b;
     }
 
     /**

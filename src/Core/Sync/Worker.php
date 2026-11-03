@@ -10,7 +10,6 @@ use Fuzzphony\Core\Exception\RebuildAlreadyRunning;
 use Fuzzphony\Core\Observability\MetricsCollector;
 use Fuzzphony\Core\Observability\NullMetricsCollector;
 use Fuzzphony\Core\Support\ErrorSummary;
-use FuzzphonyCoreSupportrrorSummary;
 
 /**
  * @internal Drains the sync queue. Run it long-lived (supervisor/systemd) or with runOnce() from cron

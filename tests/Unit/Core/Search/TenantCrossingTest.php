@@ -10,6 +10,7 @@ use Fuzzphony\Core\Fuzzphony;
 use Fuzzphony\Core\Registry\IndexRegistry;
 use Fuzzphony\Core\Search\Actor;
 use Fuzzphony\Core\Search\ActorResolver;
+use Fuzzphony\Core\Search\SearchBuilder;
 use Fuzzphony\Core\Search\SearchGate;
 use Fuzzphony\Core\Search\SearchResult;
 use Fuzzphony\Tests\Fixtures\Indexes;
@@ -25,7 +26,7 @@ final class TenantCrossingTest extends TestCase
         $engine = self::createStub(Engine::class);
         $engine->method('search')->willReturn(new SearchResult([], 1, false, 1.0, false, [], 20, 0));
         $this->log = new RecordingSearchLog();
-        $resolver = $ambient === null ? null : new class($ambient) implements ActorResolver {
+        $resolver = $ambient === null ? null : new class ($ambient) implements ActorResolver {
             public function __construct(private Actor $actor) {}
 
             public function resolve(): Actor
@@ -40,13 +41,12 @@ final class TenantCrossingTest extends TestCase
     public function testAnExplicitActorCannotSearchAnotherTenantInEitherOrder(): void
     {
         $f = $this->fuzzphony();
-        $other = fn(callable $make) => $make($f->in('products')->query('mouse'));
         foreach ([
-            static fn($b) => $b->asActor(new Actor(tenant: 3, user: 'ada'))->forTenant(9),
-            static fn($b) => $b->forTenant(9)->asActor(new Actor(tenant: 3, user: 'ada')),
+            static fn(SearchBuilder $b): SearchBuilder => $b->asActor(new Actor(tenant: 3, user: 'ada'))->forTenant(9),
+            static fn(SearchBuilder $b): SearchBuilder => $b->forTenant(9)->asActor(new Actor(tenant: 3, user: 'ada')),
         ] as $make) {
             try {
-                $other($make)->get();
+                $make($f->in('products')->query('mouse'))->get();
                 self::fail('the search crossed into another tenant');
             } catch (AccessDenied $e) {
                 self::assertStringNotContainsString('9', $e->getMessage(), 'the refusal names no tenant');

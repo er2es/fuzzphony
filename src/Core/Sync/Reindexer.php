@@ -9,7 +9,6 @@ use Fuzzphony\Core\Engine\Engine;
 use Fuzzphony\Core\Exception\FuzzphonyException;
 use Fuzzphony\Core\Exception\InvalidArgument;
 use Fuzzphony\Core\Support\ErrorSummary;
-use FuzzphonyCoreSupportrrorSummary;
 
 /**
  * @internal Batched, resumable reindex using keyset pagination over source ids.
