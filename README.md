@@ -266,7 +266,7 @@ Details in [docs/limitations.md](https://github.com/er2es/fuzzphony/blob/main/do
 
 ## Roadmap
 
-Current: v0.10.0, the breaking release (security by default with an ambient actor, hits that know their index, a 76-type public API,
+Current: v0.10.0, the breaking release (security by default with an ambient actor, hits that know their index, a 77-type public API,
 grouped thresholds, a sturdier engine, and the additive API a custom frontend needs). PostgreSQL only before 1.0:
 
 - v0.11.0: several sources, additive: several indexes per entity, multi-source indexes with a `kind`, `watch` derived from joins,

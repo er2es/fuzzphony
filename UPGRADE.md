@@ -83,7 +83,7 @@ The details of each change follow.
 - **A batch the worker cannot refresh because of the data is split.** Only the ids that fail on their own stay queued, with `attempts`, `last_error`
   (exception class and SQLSTATE) and `failed_at` (three columns the apply adds to `fuzzphony_queue`) and a back-off from 60 s to an hour; the doctor names them. The
   worker's stderr shows the exception class and SQLSTATE only (the driver message used to be printed: a log scraper that matched it needs the SQLSTATE).
-- **The public API is smaller (76 types, [list](docs/architecture.md#public-api)).** Everything that is not on the list is tagged `@internal` and may change in any
+- **The public API is smaller (77 types, [list](docs/architecture.md#public-api)).** Everything that is not on the list is tagged `@internal` and may change in any
   release. If your code imports one of these, change it:
 
   | Was | Now |

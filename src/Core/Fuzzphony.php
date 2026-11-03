@@ -32,6 +32,7 @@ use Fuzzphony\Core\Schema\SchemaPlan;
 use Fuzzphony\Core\Search\Actor;
 use Fuzzphony\Core\Search\ActorResolver;
 use Fuzzphony\Core\Search\FederatedSearch;
+use Fuzzphony\Core\Search\FieldRestrictingGuard;
 use Fuzzphony\Core\Search\SearchBuilder;
 use Fuzzphony\Core\Search\SearchGate;
 use Fuzzphony\Core\Search\SearchGuard;
@@ -60,7 +61,7 @@ final readonly class Fuzzphony
      *                                               guards) a search that names no actor is anonymous. Every search is guarded as that actor
      * @param bool                  $allowSystem     false refuses asSystem() (AccessDenied)
      *
-     * @throws InvalidDefinition an index has a field with `granted` and there is no guard to check it (a granted field is only hidden by a guard)
+     * @throws InvalidDefinition an index has a field with `granted` and no guard that can restrict fields (a FieldRestrictingGuard, as the authorization guard is): a granted field is only hidden by such a guard
      */
     public static function postgres(
         Connection $connection,
@@ -79,8 +80,8 @@ final readonly class Fuzzphony
         bool $allowSystem = true,
     ): self {
         foreach ($indexes as $index) {
-            if ($guards === [] && $index->hasGrantedField()) {
-                throw new InvalidDefinition($index->name, ['a field has "granted" but no guard is configured: pass guards: [...] to Fuzzphony::postgres() (without one every viewer sees the field).']);
+            if ($index->hasGrantedField() && !array_any($guards, static fn(SearchGuard $guard): bool => $guard instanceof FieldRestrictingGuard)) {
+                throw new InvalidDefinition($index->name, ['a field has "granted" but no guard can restrict fields: pass an authorization guard (a FieldRestrictingGuard) in guards: [...] to Fuzzphony::postgres(); a rate limit alone shows the field to every viewer.']);
             }
         }
         $metrics ??= new NullMetricsCollector();

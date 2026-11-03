@@ -94,7 +94,7 @@ additive work after it (0.11.0, next) and the stable 1.0.0 do not have to change
     resolved), so a forgotten `asActor()` can no longer show a `granted` field; full access is the visible `->asSystem()`
     ([Security](security.md#the-actor)). A `granted` field without the authorization guard is an error, and `restrictedToFields()` can only narrow.
   - **Hits know their index.** `Hit::$kind` and a typed `Hit::$id`; `FederatedHit` is gone, a federated result holds plain `Hit`s with `mergedScore`.
-  - **A smaller API.** 76 public types ([list](architecture.md#public-api)); everything else is `@internal`. `Fuzzphony::postgres()`, `wizard()` and
+  - **A smaller API.** 77 public types ([list](architecture.md#public-api)); everything else is `@internal`. `Fuzzphony::postgres()`, `wizard()` and
     `resetCaches()` replace the constructors and the optional `Engine` interfaces (`Capabilities` and its siblings are gone).
   - **Names cleaned up.** `suggest()` is `complete()`, `useSuggestion` is `useDidYouMean`, and the eleven flat thresholds are four groups
     (`relevance`, `typo`, `rescue`, `limits`) ([Configuration](configuration.md)).

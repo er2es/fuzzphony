@@ -14,7 +14,7 @@ and a link. Measurements, proofs and test names belong to the pull request, [doc
 ## [0.10.0] - 2026-11-03
 
 The breaking release, gathered in one round so that 0.11 and 1.0 do not have to change the API again. The engine is sturdier (a mandatory schema apply, one
-trigger set and one change log per watched table, a worker that isolates unreadable rows), the API is smaller and safer (76 public types, a search always runs
+trigger set and one change log per watched table, a worker that isolates unreadable rows), the API is smaller and safer (77 public types, a search always runs
 as someone, grouped thresholds, renamed methods) and a custom frontend gets what it needs (`toArray()`/JSON, `explainMatches()`, `logSearch()`, database roles).
 Start with the checklist in [UPGRADE](UPGRADE.md#from-0913-to-0100). The demo follows the new API and runs on Symfony UX 3.6.
 
@@ -25,7 +25,7 @@ Start with the checklist in [UPGRADE](UPGRADE.md#from-0913-to-0100). The demo fo
 - **`restrictedToFields()` only narrows;** `Hit::$kind` and a typed `Hit::$id` replace `FederatedHit` (`mergedScore` on the hit).
 - **Thresholds are four named groups** (`relevance`, `typo`, `rescue`, `limits`); the flat names fail with the new key in the message ([UPGRADE](UPGRADE.md#from-0913-to-0100)).
 - **`Fuzzphony::suggest()` is `complete()`, `useSuggestion` is `useDidYouMean`, `--suggest` is `--complete`** (no aliases).
-- **The public API is 76 types:** the engine contract, the wizard's parts, the registry and the container types are `@internal`; `Fuzzphony::postgres()`, `wizard()`,
+- **The public API is 77 types:** the engine contract, the wizard's parts, the registry and the container types are `@internal`; `Fuzzphony::postgres()`, `wizard()`,
   `resetCaches()` and the optional `Engine` interfaces folded into `Engine` and `Connection` ([Public API](docs/architecture.md#public-api)).
 - **`fuzzphony:schema --apply` is mandatory after the upgrade:** a missing `tsv_capped`, `actor_ip` or `rescued` column throws `SchemaNotApplied`; the no-column fallbacks are gone.
 - **Index objects are named `fuzzphony_<index>__<kind>`** (no collision between `products_open` and the open-class objects of `products`); the apply renames them online.

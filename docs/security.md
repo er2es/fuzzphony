@@ -59,7 +59,7 @@ denied search), for an application where nothing may bypass the guards. Do not p
 
 A field with `granted: ROLE_HR` is hidden only by the authorization guard. An index with such a field while `fuzzphony.authorization.enabled` is
 false would show it to everybody, so it is an error: the container does not build (`InvalidDefinition`, "set fuzzphony.authorization.enabled: true"),
-`Fuzzphony::postgres()` refuses it without `guards:`, and `fuzzphony:doctor` reports it. Fields found by entity attributes are checked when
+`Fuzzphony::postgres()` refuses it unless one of the `guards:` can restrict fields (an authorization guard; a custom guard implements `FieldRestrictingGuard`: a rate limit alone returns every field and would show it), and `fuzzphony:doctor` reports it. Fields found by entity attributes are checked when
 the registry is built.
 
 ## The guards and their order

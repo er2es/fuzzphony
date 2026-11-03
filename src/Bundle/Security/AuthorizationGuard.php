@@ -8,7 +8,7 @@ use Fuzzphony\Core\Definition\IndexDefinition;
 use Fuzzphony\Core\Exception\AccessDenied;
 use Fuzzphony\Core\Search\Access;
 use Fuzzphony\Core\Search\Actor;
-use Fuzzphony\Core\Search\SearchGuard;
+use Fuzzphony\Core\Search\FieldRestrictingGuard;
 use Symfony\Component\Security\Core\Authentication\Token\Storage\TokenStorageInterface;
 use Symfony\Component\Security\Core\Authorization\AuthorizationCheckerInterface;
 use Symfony\Component\Security\Core\Exception\AuthenticationCredentialsNotFoundException;
@@ -18,7 +18,7 @@ use Symfony\Component\Security\Core\Exception\AuthenticationCredentialsNotFoundE
  *           isGranted(field.granted, indexName) for every field that names a role. No token fails closed: the guard
  *           checks the token storage itself, because the checker lets the voters decide for a NullToken.
  */
-final readonly class AuthorizationGuard implements SearchGuard
+final readonly class AuthorizationGuard implements FieldRestrictingGuard
 {
     public function __construct(
         private AuthorizationCheckerInterface $checker,
