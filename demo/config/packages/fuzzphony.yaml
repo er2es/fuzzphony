@@ -111,3 +111,92 @@ fuzzphony:
       source:
         query: "SELECT id, name, description, category FROM lang_product WHERE lang = 'hu'"
       language: hungarian
+
+    # The ERP-like data set (sql/erp.sql: customers, contacts, addresses, orders; DEMO_ERP=0 leaves the tables empty). The index
+    # `people` is a definition class (src/Search/PeopleAdminIndex.php: customers who are persons, with their cities and streets as
+    # several values each). The next three show a company index with a many field and a code, an index with a join, and ONE index
+    # over three sources. Every table a query reads is watched, by hand where the derived watch of a many field is not enough
+    # (`fuzzphony:doctor` has no Watches warning); the sync is the catalogue's: queue, drained by the worker.
+    companies:
+      source:
+        # phone: the main contact's number (a many field cannot be a code, so the code is one value of the company row)
+        query: |
+          SELECT cu.id, cu.name, cu.tax_no, cu.email, cu.created_at,
+                 (SELECT ct.phone FROM erp_contact ct WHERE ct.customer_id = cu.id ORDER BY ct.id LIMIT 1) AS phone
+          FROM erp_customer cu
+          WHERE cu.kind = 'company'
+      fields:
+        name: { weight: A, fuzzy: true }
+        tax_no: { weight: A, code: true }
+        phone: { weight: B, code: true }
+        email: C
+        contact:
+          weight: B
+          fuzzy: true
+          many: { from: erp_contact, key: customer_id, column: name, limit: 20 }
+      filters:
+        created_at: datetime
+      watch:
+        erp_customer: 'SELECT :id'
+        erp_contact: { ids: 'SELECT :id', key: customer_id }
+      returnable: [name, tax_no, email, phone]
+
+    orders:
+      source:
+        query: |
+          SELECT o.id, o.number, cu.name AS customer_name, o.status, o.total, o.ordered_at
+          FROM erp_order o
+          JOIN erp_customer cu ON cu.id = o.customer_id
+      fields:
+        number: { weight: A, code: true }
+        customer_name: { weight: B, fuzzy: true }
+      filters:
+        status: string
+        total: int
+        ordered_at: datetime
+      watch:
+        erp_order: 'SELECT :id'
+        erp_customer: 'SELECT id FROM erp_order WHERE customer_id = :id'
+      recency: ordered_at
+      returnable: [number, status, total, customer_name]
+
+    # One list over persons, companies and orders: each source aliases its own columns to the shared fields title and text.
+    # The hits say which source they come from (`kind`); erp_customer is read by two sources and erp_address by two indexes.
+    site:
+      sources:
+        person:
+          query: |
+            SELECT cu.id, cu.name AS title,
+                   cu.email || ' ' || coalesce(cu.birth_name, '') || ' ' ||
+                   coalesce((SELECT string_agg(DISTINCT ad.city, ' ') FROM erp_address ad WHERE ad.customer_id = cu.id), '') AS text,
+                   cu.email
+            FROM erp_customer cu
+            WHERE cu.kind = 'person'
+          watch:
+            erp_customer: 'SELECT :id'
+            erp_address: { ids: 'SELECT :id', key: customer_id }
+          returnable: [title, email]
+        company:
+          query: |
+            SELECT cu.id, cu.name AS title,
+                   cu.tax_no || ' ' ||
+                   coalesce((SELECT string_agg(ct.name, ' ') FROM erp_contact ct WHERE ct.customer_id = cu.id), '') AS text,
+                   cu.tax_no
+            FROM erp_customer cu
+            WHERE cu.kind = 'company'
+          watch:
+            erp_customer: 'SELECT :id'
+            erp_contact: { ids: 'SELECT :id', key: customer_id }
+          returnable: [title, tax_no]
+        order:
+          query: |
+            SELECT o.id, o.number AS title, cu.name || ' ' || o.status AS text, o.status, o.total
+            FROM erp_order o
+            JOIN erp_customer cu ON cu.id = o.customer_id
+          watch:
+            erp_order: 'SELECT :id'
+            erp_customer: 'SELECT id FROM erp_order WHERE customer_id = :id'
+          returnable: [title, status, total]
+      fields:
+        title: { weight: A, fuzzy: true }
+        text: C
