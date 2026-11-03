@@ -30,14 +30,14 @@ final class RelevanceController extends AbstractController
         $byLength = $flat = null;
         if ($q !== '') {
             // always: typo tolerance runs even when exact matching finds plenty, so the two columns differ only by the similarity rule
-            $search = $fuzzphony->in('catalog')->asSystem()->query($q)->highlight('name', 'brand', 'category')->limit(8)->unlogged()->thresholds(['typo' => ['mode' => 'always'], 'rescue' => ['correct_when_empty' => false]]); // no zero-result rescue: this page shows what each rule finds, `mpuse` included
+            $search = $fuzzphony->in('catalog')->asSystem()->query($q)->highlight('name', 'brand', 'category')->limit(8)->unlogged()->explainMatches()->thresholds(['typo' => ['mode' => 'always'], 'rescue' => ['correct_when_empty' => false]]); // no zero-result rescue: this page shows what each rule finds, `mpuse` included
             // unlogged: the page runs several searches of its own (typo tolerance forced on, a flat similarity, the suggestion); none is a search
             // somebody made, and the log would list them as ones that found nothing or as `mpuse` searched twice
             $byLength = $search->get();
             $flat = $search->thresholds(['typo' => ['similarity' => 0.3]])->get();
         }
-        // why each row was found, in words: the fields that carry a highlight, and for the typo-found rows the word pair and its similarity
-        $why = [$byLength === null ? [] : $reasons->explain($byLength->hits, $q, $byLength->interpretedAs), $flat === null ? [] : $reasons->explain($flat->hits, $q, $flat->interpretedAs)];
+        // why each row was found, in words: the fields that carry a highlight, and for the typo-found rows the word pair and its similarity (Hit::$matches, explainMatches())
+        $why = [$byLength === null ? [] : $reasons->explain($byLength->hits, $q), $flat === null ? [] : $reasons->explain($flat->hits, $q)];
         $rows = $catalog->rows(array_merge($byLength?->ids() ?? [], $flat?->ids() ?? []));
 
         return $this->render('relevance.html.twig', [

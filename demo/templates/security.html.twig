@@ -147,7 +147,7 @@
         <h2 id="compare" class="list-title">What a call that forgets <code>asActor()</code> sees</h2>
         <p class="muted">A search that names no actor is made as the application's current user, so a controller that forgets <code>-&gt;asActor()</code> is guarded like one that remembers. Where nobody can be resolved (a command, a worker, a test) the actor is anonymous: the guards still run, a tenant-scoped index refuses it. Only <code>asSystem()</code> skips the guards, on purpose and visibly.</p>
         {% if compare is null %}
-            {% if q != '' %}<a class="button small" href="{{ path('security', {as: viewerId, q: q, compare: 1}) }}" data-loading-message="Comparing the callsÖ">Compare the calls for ì{{ q }}î</a>{% else %}<p class="muted">Search for a word above, then compare the calls.</p>{% endif %}
+            {% if q != '' %}<a class="button small" href="{{ path('security', {as: viewerId, q: q, compare: 1}) }}" data-loading-message="Comparing the calls‚Ä¶">Compare the calls for ‚Äú{{ q }}‚Äù</a>{% else %}<p class="muted">Search for a word above, then compare the calls.</p>{% endif %}
         {% else %}
             <div class="table-card" tabindex="0" role="region" aria-label="The same search made four ways">
                 <table>
