@@ -349,6 +349,8 @@ The builder says the same with `->field('city', 'C', fuzzy: true, many: ['from' 
 `from` is the child table, `key` its column that holds the customer's id, `column` the value, `limit` how many values of one document are indexed
 (default 50) and `id` the child's primary key column (default `id`, the tie-breaker of the order). A bad option is refused with a hint,
 and `fuzzphony:schema` reads the child table without a row to check that it and its columns exist.
+**Index the child table's `key` column** (`CREATE INDEX ON address (customer_id)`; PostgreSQL does not create one for a foreign key): every refresh and every reindex batch looks up the
+values of a document by it, and the doctor warns when there is none.
 
 - **A search finds a customer by any of its values** (`budapest` finds the customer with a Budapest address, `szged` finds `Szeged` by typo,
   `city:vienna` scopes to the field). The field takes part in ranking as one field with the weight you gave it.

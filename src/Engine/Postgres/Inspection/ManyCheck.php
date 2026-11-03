@@ -48,6 +48,9 @@ final readonly class ManyCheck
 
                 continue;
             }
+            if (!$this->hasKeyIndex($many)) {
+                $checks[] = Check::warning($label, sprintf('The child table "%1$s" has no index that starts with "%2$s": every refresh of a document (and every reindex batch) scans the whole table.', $many->from, $many->key), sprintf('CREATE INDEX ON %s (%s);', Sql::ident($many->from), Sql::ident($many->key)));
+            }
             if (!$sidecarExists) {
                 continue;
             }
@@ -84,5 +87,14 @@ final readonly class ManyCheck
         }
 
         return $checks;
+    }
+
+    /** Whether a valid index of the child table starts with the key column (the lookup of one document's values). */
+    private function hasKeyIndex(ManyValues $many): bool
+    {
+        return $this->connection->fetchValue(
+            'SELECT EXISTS (SELECT 1 FROM pg_index AS i JOIN pg_attribute AS a ON a.attrelid = i.indrelid AND a.attnum = i.indkey[0] WHERE i.indrelid = to_regclass(:t) AND a.attname = :k AND i.indisvalid)',
+            ['t' => Sql::ident($many->from), 'k' => $many->key],
+        ) === true;
     }
 }

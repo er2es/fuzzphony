@@ -27,6 +27,7 @@ final class ManyValuesTest extends TestCase
         $this->drop();
         $this->connection->execute('CREATE TABLE mv_customer (id bigint PRIMARY KEY, name text NOT NULL, tid integer NOT NULL DEFAULT 1)');
         $this->connection->execute('CREATE TABLE mv_address (id serial PRIMARY KEY, customer_id bigint NOT NULL, city text, street text)');
+        $this->connection->execute('CREATE INDEX mv_address_customer ON mv_address (customer_id)');
         $this->connection->execute("INSERT INTO mv_customer (id, name, tid) VALUES (1, 'Alice Kovacs', 1), (2, 'Bob Nagy', 1), (3, 'Carol Szabo', 2), (4, 'Dave Toth', 2)");
         $this->connection->execute("INSERT INTO mv_address (customer_id, city) VALUES (1, 'Budapest'), (1, 'Vienna'), (1, 'Budapest'), (2, 'Debrecen'), (2, 'Szeged'), (3, 'Budapest')");
     }
@@ -385,5 +386,15 @@ final class ManyValuesTest extends TestCase
         $browseNarrowed = $f->in('customers')->where('city', 'Budapest')->facets('city')->get();
         self::assertSame($all, self::counts($browseNarrowed));
         self::assertSame(2, $browseNarrowed->total);
+    }
+
+    public function testTheDoctorWarnsWhenTheChildTableHasNoIndexOnItsKey(): void
+    {
+        $f = $this->install($this->definition());
+        $named = static fn($c): bool => str_contains($c->message, 'has no index that starts with "customer_id"');
+
+        self::assertSame([], array_filter($f->inspect('customers')->checks, $named));
+        $this->connection->execute('DROP INDEX mv_address_customer');
+        self::assertCount(2, array_filter($f->inspect('customers')->checks, $named), 'the field and the filter');
     }
 }
