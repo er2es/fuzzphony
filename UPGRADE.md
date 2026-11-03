@@ -131,6 +131,8 @@ and the [CHANGELOG](CHANGELOG.md) has the full list of changes.
   `fuzzphony.connections: { worker, admin }` (each defaults to `connection`, so nothing changes without it) runs `fuzzphony:worker` and the async refresh, and `fuzzphony:schema`,
   `:reindex`, `:doctor`, `:analytics` and `:search-log:purge`, as other DBAL connections; the doctor has a **Privileges** check (an **error** when a role in use lacks a grant, e.g. the
   worker's `UPDATE` on `fuzzphony_watch_log`, which the 0.10 drain needs). Nothing to do unless you want separate users: [Database roles](docs/roles.md).
+- **`Fuzzphony::indexes()` and `Fuzzphony::definition($index)`** (public): the names of the registered indexes and the `IndexDefinition` of one (unknown name: `UnknownIndex`), so an
+  application no longer needs the `@internal` `registry()`.
 - **`SearchResult::$correctedTo`**: the text the zero-result rescue ran (`$correctedFrom` is what the visitor typed); both null without a rescue.
 - **`SearchRecord::$rescued` / `LoggedSearch::$rescued`**: the search log marks the searches the rescue answered. The "found nothing" report still counts by hits
   (a rescued search found something). Needs `fuzzphony:schema --apply` (above).

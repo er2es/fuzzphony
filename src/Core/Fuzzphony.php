@@ -288,6 +288,26 @@ final readonly class Fuzzphony
         return new SearchAnalytics($this->engine, $this->registry);
     }
 
+    /**
+     * The names of the registered indexes.
+     *
+     * @return list<string>
+     */
+    public function indexes(): array
+    {
+        return array_keys($this->registry->all());
+    }
+
+    /**
+     * The definition of one index, by name or by entity class.
+     *
+     * @throws UnknownIndex when no such index is registered
+     */
+    public function definition(string $index): IndexDefinition
+    {
+        return $this->registry->get($index);
+    }
+
     /** @internal */
     public function registry(): IndexRegistry
     {

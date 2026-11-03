@@ -159,7 +159,7 @@ final class Playground
         if (!in_array($name, ['default', 'popular'], true)) {
             return;
         }
-        $this->applyProfile($this->fuzzphony->registry()->get('catalog')->profile($name));
+        $this->applyProfile($this->fuzzphony->definition('catalog')->profile($name));
     }
 
     private function applyProfile(RankingProfile $profile): void
