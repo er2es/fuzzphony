@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Fuzzphony\Tests\Integration;
 
+use Fuzzphony\Bundle\Command\ReindexCommand;
 use Fuzzphony\Core\Database\Connection;
 use Fuzzphony\Core\Definition\IndexBuilder;
 use Fuzzphony\Core\Definition\IndexDefinition;
@@ -17,6 +18,7 @@ use Fuzzphony\Core\Sync\Worker;
 use Fuzzphony\Engine\Postgres\PostgresEngine;
 use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\TestCase;
+use Symfony\Component\Console\Tester\CommandTester;
 
 /** An index with several sources (product with int ids, article with uuids, a legacy table with a composite text id) in one ranking. */
 final class MultiSourceIndexTest extends TestCase
@@ -383,5 +385,24 @@ final class MultiSourceIndexTest extends TestCase
         }
         $watches = $this->connection->fetchAll("SELECT source, tbl FROM fuzzphony_watches WHERE index_name = 'site' ORDER BY watch_no");
         self::assertSame(['product', 'product', 'article', 'article', 'legacy'], array_column($watches, 'source'));
+    }
+
+    public function testTheReindexCommandRebuildsOneSourceAndReportsEachCount(): void
+    {
+        $fuzzphony = $this->install($this->definition());
+        $tester = new CommandTester(new ReindexCommand($fuzzphony));
+
+        self::assertSame(0, $tester->execute(['index' => 'site', '--source' => 'article'], ['interactive' => false]), $tester->getDisplay());
+        self::assertStringContainsString('Reindexing "site" (source "article")', $tester->getDisplay());
+        self::assertStringContainsString('source "article": 2 documents', $tester->getDisplay());
+        self::assertStringNotContainsString('source "product"', $tester->getDisplay());
+
+        self::assertSame(0, $tester->execute(['index' => 'site'], ['interactive' => false]));
+        self::assertStringContainsString('source "product": 3 documents', $tester->getDisplay());
+        self::assertStringContainsString('source "legacy": 2 documents', $tester->getDisplay());
+
+        $tester->execute(['index' => 'site', '--source' => 'nothing'], ['interactive' => false]);
+        self::assertStringContainsString('has no source "nothing" (its sources: product, article, legacy): skipped', $tester->getDisplay());
+        self::assertSame(2, $tester->execute(['index' => 'site', '--source' => 'article', '--in-place' => true], ['interactive' => false]));
     }
 }

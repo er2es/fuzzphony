@@ -63,4 +63,30 @@ final class OrmSyncListenerIdTypesTest extends TestCase
         $listener->postPersist(new PostPersistEventArgs($entity, $em));
         $listener->postFlush(new PostFlushEventArgs(self::createStub(EntityManagerInterface::class)));
     }
+
+    public function testAMultiSourceIndexGetsTheKeyOfTheSourceThatReadsTheEntity(): void
+    {
+        $index = \Fuzzphony\Core\Definition\IndexDefinition::builder('site')
+            ->source('story', 'SELECT id, title FROM article', entity: Article::class, watch: [new \Fuzzphony\Core\Definition\Watch('article')])
+            ->source('page', 'SELECT id, title FROM page', watch: [new \Fuzzphony\Core\Definition\Watch('page')])
+            ->field('title', 'A')
+            ->sync('orm')
+            ->build();
+        $dispatcher = $this->createMock(RefreshDispatcher::class);
+        $dispatcher->expects(self::once())->method('dispatch')->willReturnCallback(
+            static function (mixed $dispatchedIndex, array $ids) use ($index): void {
+                self::assertSame($index, $dispatchedIndex);
+                self::assertSame(['story:5'], $ids);
+            },
+        );
+        $metadata = self::createStub(ClassMetadata::class);
+        $metadata->method('getIdentifierValues')->willReturn(['id' => 5]);
+        $em = self::createStub(EntityManagerInterface::class);
+        $em->method('isOpen')->willReturn(true);
+        $em->method('getClassMetadata')->willReturn($metadata);
+
+        $listener = new OrmSyncListener($dispatcher, new IndexRegistry([$index]));
+        $listener->postPersist(new PostPersistEventArgs(new Article(5, 'Five'), $em));
+        $listener->postFlush(new PostFlushEventArgs(self::createStub(EntityManagerInterface::class)));
+    }
 }
