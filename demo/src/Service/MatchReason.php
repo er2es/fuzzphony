@@ -79,20 +79,33 @@ final readonly class MatchReason
                 $best = $match;
             }
         }
+        $word = $best?->word;
+        $field = $best?->field;
+        $similarity = $best?->similarity ?? $hit->breakdown->fuzzySimilarity;
         if ($best === null) {
-            return sprintf('Matched by typo tolerance (similarity %.2f).', $hit->breakdown->fuzzySimilarity);
+            // explainMatches() names no typo word when the query word is shorter than typo.min_length (the search still found the row by
+            // its own rule): the highlighted word of the row is the one that matched
+            foreach (['name', 'brand', 'category'] as $candidate) {
+                if (preg_match('~<mark>(.*?)</mark>~su', $hit->highlights[$candidate] ?? '', $m) === 1) {
+                    [$field, $word] = [$candidate, mb_strtolower(html_entity_decode($m[1]))];
+                    break;
+                }
+            }
+            if ($word === null) {
+                return sprintf('Matched by typo tolerance (similarity %.2f).', $hit->breakdown->fuzzySimilarity);
+            }
         }
         $typed = null;
         $shared = 0;
         foreach ($words as $word) {
-            $common = count(array_intersect(self::trigrams($word), self::trigrams($best->word)));
+            $common = count(array_intersect(self::trigrams($word), self::trigrams($word)));
             if ($typed === null || $common > $shared) {
                 [$typed, $shared] = [$word, $common];
             }
         }
         $trigrams = $shared === 1 ? 'they share one trigram' : sprintf('they share %d trigrams', $shared);
 
-        return sprintf('Matched in %s by typo tolerance: “%s” ~ “%s”, similarity %.2f (%s).', $best->field, $best->word, $typed ?? '', $best->similarity ?? $hit->breakdown->fuzzySimilarity, $trigrams);
+        return sprintf('Matched in %s by typo tolerance: “%s” ~ “%s”, similarity %.2f (%s).', $field, $word, $typed ?? '', $similarity, $trigrams);
     }
 
     /** @return list<string> the distinct trigrams of a word, as pg_trgm sees them (two spaces before, one after) */

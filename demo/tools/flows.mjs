@@ -994,19 +994,22 @@ const cmp = await sec.locator('section[aria-labelledby=compare] tbody tr').evalu
 check('security compare: four calls are listed (no asActor, asActor(Ada), asActor(anonymous), asSystem)', cmp.length === 4 && /No asActor/.test(cmp[0][0]) && /asActor\(Ada\)/.test(cmp[1][0]) && /anonymous/.test(cmp[2][0]) && /asSystem/.test(cmp[3][0]), JSON.stringify(cmp.map((r) => r[0])));
 check('security compare: the call without asActor() runs as the signed-in viewer and sees the confidential field of HR', /Hana/.test(cmp[0][1]) && Number(cmp[0][2]) > 0 && Number(cmp[0][3]) > 0, JSON.stringify(cmp[0]));
 check('security compare: anonymous (a command, a worker) is refused with ActorRequired, asSystem() sees everything of the company', /refused ActorRequired/.test(cmp[2][2]) && Number(cmp[3][2]) >= Number(cmp[0][2]) && Number(cmp[3][3]) > 0, JSON.stringify([cmp[2], cmp[3]]));
-await go(sec, viewing('salary', 'ada', '&reset=1&compare=1'));
+await go(sec, viewing('salary', 'ada', '&reset=1'));
+await go(sec, viewing('salary', 'ada', '&compare=1'));
 const cmpAda = await sec.locator('section[aria-labelledby=compare] tbody tr').evaluateAll((trs) => trs.map((tr) => [...tr.querySelectorAll('th, td')].map((c) => c.innerText.trim().replace(/\s+/g, ' '))));
 check('security compare: without asActor() Ada does not see the confidential field, while asSystem() does', cmpAda.length === 4 && Number(cmpAda[0][3]) === 0 && Number(cmpAda[3][3]) > 0, JSON.stringify([cmpAda[0], cmpAda[3]]));
 await go(sec, viewing('salary', 'anonymous', '&compare=1'));
 check('security compare: with nobody signed in the call without asActor() is refused (no token)', /refused/.test(await sec.locator('section[aria-labelledby=compare] tbody tr').first().innerText()));
 
 const countOf = async (word) => (await listRows('?index=catalog')).filter((r) => r[4] === word);
-const rescueBefore = (await countOf('kpttle')).length;
+const newest = async () => (await listRows('?index=catalog')).slice(0, 8);
+const logBefore = await newest();
 await page.request.get(`${BASE}/?q=kpttle`);
-await page.waitForTimeout(600);
-const rescueRows = await countOf('kpttle');
-check('rescue log: a rescued search is listed with the mark "rescued" and the user (system)', rescueRows.length > 0 && rescueRows[0][6] === 'rescued' && rescueRows[0][1] === '(system)', JSON.stringify(rescueRows[0]));
-check('rescue log: it is recorded once, not run and logged twice', rescueBefore >= 15 || rescueRows.length === rescueBefore + 1, `${rescueBefore} -> ${rescueRows.length}`);
+await page.waitForTimeout(800);
+const logAfter = await newest();
+const newRows = [...Array(logAfter.length).keys()].find((k) => JSON.stringify(logAfter.slice(k, k + 4)) === JSON.stringify(logBefore.slice(0, 4)));
+check('rescue log: a rescued search is listed with the mark "rescued" and the user (system)', logAfter[0]?.[4] === 'kpttle' && logAfter[0][6] === 'rescued' && logAfter[0][1] === '(system)', JSON.stringify(logAfter[0]));
+check('rescue log: it is recorded once, not run and logged twice', newRows === 1, `${newRows} new row(s): ${logAfter.slice(0, 3).map((r) => r[4]).join(', ')}`);
 const systemOnly = await listRows('?who=(system)');
 check('who: the filter for System shows the catalogue searches only', systemOnly.length > 0 && systemOnly.every((r) => r[1] === '(system)' && r[3] === 'catalog'), systemOnly.slice(0, 2).map((r) => r.join('|')).join(' ; '));
 
