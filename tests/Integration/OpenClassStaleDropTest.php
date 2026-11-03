@@ -72,7 +72,8 @@ final class OpenClassStaleDropTest extends TestCase
 
         $tester = new CommandTester(new SchemaCommand($second, $this->connection));
         $tester->execute(['--apply' => true], ['interactive' => false]);
-        self::assertStringContainsString('restart long-running processes', $tester->getDisplay(true), 'the reminder is printed for a long name too');
+        // SymfonyStyle::warning() word-wraps its block at the terminal width (80 columns on CI): compare with the whitespace collapsed
+        self::assertStringContainsString('restart long-running processes', (string) preg_replace('/\s+/', ' ', $tester->getDisplay(true)), 'the reminder is printed for a long name too');
         $now = $this->openIndexes();
         self::assertCount(2, $now);
         self::assertSame([], array_intersect($old, $now));
