@@ -20,6 +20,7 @@ and a link. Measurements, proofs and test names belong to the pull request, [doc
 - **`Hit::$index`** names the index of a hit (`kind` is the source inside it); **`EntityLoader::loadHits()`** loads mixed hits, one query per entity class, in rank order ([Integrations](docs/integrations.md#loading-mixed-results)).
 - **Doctor `Watches` check:** a table the source reads that no watch covers is a warning with a watch to adapt (found through the database's dependency catalog); `fuzzphony:doctor --fail-on=warning` fails CI on it ([Sync](docs/sync.md#the-doctor-finds-the-tables-you-forgot-to-watch)).
 - **Operational metrics:** gauges for the change log (size, age, quarantined rows) and the queue (failing items, oldest age), and `source`-labelled counters for multi-source rebuilds ([Observability](docs/observability.md)).
+- **Federated floors:** `->index('articles', atLeast: 3)` guarantees an index its best hits on the first page, so a heavily weighted index cannot crowd it out; `weight` must be finite ([Federated search](docs/searching.md#federated-search)).
 - **`FuzzphonySearchFilter`** takes `index:` to search a named index; `fuzzphony:doctor` shows where each definition came from.
 
 ### Changed
