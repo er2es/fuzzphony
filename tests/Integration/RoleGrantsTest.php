@@ -261,6 +261,19 @@ final class RoleGrantsTest extends TestCase
         self::assertSame(CheckStatus::Ok, $this->privileges(['search' => $this->sessionOf('search'), 'worker' => $worker])->status, 'after the printed grants nothing is missing');
     }
 
+    public function testTheDoctorDoesNotFailOnAWatchesTableThatLacksTheNewColumns(): void
+    {
+        $this->applyAsSuperuser();
+        $this->grant('worker');
+        $this->connection->execute('ALTER TABLE ' . $this->names->watches() . ' DROP COLUMN bad_rows');
+
+        $check = $this->privileges(['worker' => $this->sessionOf('worker')]);
+
+        self::assertSame(CheckStatus::Error, $check->status);
+        self::assertStringContainsString('UPDATE on table ' . $this->names->watches(), $check->message);
+        $this->connection->execute('ALTER TABLE ' . $this->names->watches() . ' ADD COLUMN bad_rows bigint NOT NULL DEFAULT 0');
+    }
+
     public function testTheDoctorNeverReportsAnOwnerOrASuperuser(): void
     {
         $this->applyAsSuperuser();
