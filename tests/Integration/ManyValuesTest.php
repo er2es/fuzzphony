@@ -249,4 +249,42 @@ final class ManyValuesTest extends TestCase
         $typo = $f->in('customers')->query('szged')->highlight('city')->get()->hits[0];
         self::assertStringContainsString('Szeged', $typo->highlights['city'] ?? '');
     }
+
+    public function testAHiddenManyFieldChangesNothingForARestrictedViewer(): void
+    {
+        $index = IndexDefinition::builder('customers')
+            ->fromTable('mv_customer')
+            ->field('name', 'A', fuzzy: true)
+            ->field('city', 'C', fuzzy: true, granted: 'ROLE_CITY', many: ['from' => 'mv_address', 'key' => 'customer_id', 'column' => 'city'])
+            ->sync('manual')
+            ->build();
+        $f = new Fuzzphony($this->engine, new IndexRegistry([$index]));
+        $f->schema()->apply($this->connection);
+
+        $outcomes = [];
+        foreach (['none' => [], 'one' => ['Budapest'], 'matching' => ['Alice', 'Alice Kovacs', 'Budapest', 'Vienna'], 'many' => array_map(static fn(int $i): string => 'Town' . $i, range(1, 60))] as $variant => $cities) {
+            $this->connection->execute('DELETE FROM mv_address');
+            foreach ($cities as $city) {
+                $this->connection->execute('INSERT INTO mv_address (customer_id, city) VALUES (1, :c), (3, :c)', ['c' => $city]);
+            }
+            $f->reindex('customers');
+            foreach (['alice', 'alice OR bob', 'budapest', 'kovacs', 'alic', 'name:alice', 'alice -carol'] as $text) {
+                $explained = $f->in('customers')->query($text)->restrictedToFields('name')->explainMatches()->highlight('name')->explain();
+                $result = $explained->result;
+                $outcomes[$text][$variant] = [
+                    array_map(static fn($hit): array => [$hit->id, round($hit->score, 9), $hit->highlights, array_map(static fn($m): array => $m->toArray(), $hit->matches)], $result->hits),
+                    $result->total,
+                    $result->didYouMean,
+                    array_map(static fn(array $st): array => [$st['label'], $st['sql'], $st['params']], $explained->statements),
+                ];
+            }
+        }
+        foreach ($outcomes as $text => $byVariant) {
+            foreach ($byVariant as $variant => $outcome) {
+                self::assertSame($byVariant['none'], $outcome, sprintf('"%s": the hidden values (%s) changed the outcome', $text, $variant));
+            }
+        }
+        // and the viewer who holds the field does see the values
+        self::assertSame([1, 3], self::ids($f->in('customers')->query('town7')->get()));
+    }
 }
