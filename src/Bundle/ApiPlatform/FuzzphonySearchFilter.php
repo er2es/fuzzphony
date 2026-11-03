@@ -30,6 +30,8 @@ final class FuzzphonySearchFilter implements FilterInterface
         private readonly string $profile = 'default',
         private readonly int $maxResults = 500,
         private readonly ?ActorResolver $actors = null,
+        /** The index to search; default: the index of the resource's entity. Several indexes over one entity: name the one (#[ApiFilter(FuzzphonySearchFilter::class, arguments: ['index' => 'products_admin'])]). */
+        private readonly ?string $index = null,
     ) {}
 
     /** @param array<string, mixed> $context */
@@ -37,11 +39,11 @@ final class FuzzphonySearchFilter implements FilterInterface
     {
         $filters = $context['filters'] ?? null;
         $text = is_array($filters) ? ($filters[$this->parameterName] ?? null) : null;
-        if (!is_string($text) || trim($text) === '' || !$this->fuzzphony->registry()->has($resourceClass)) {
+        if (!is_string($text) || trim($text) === '' || !$this->fuzzphony->registry()->has($this->index ?? $resourceClass)) {
             return;
         }
 
-        $search = $this->fuzzphony->in($resourceClass)->query($text)->profile($this->profile)->limit(min(1000, max(1, $this->maxResults)));
+        $search = $this->fuzzphony->in($this->index ?? $resourceClass)->query($text)->profile($this->profile)->limit(min(1000, max(1, $this->maxResults)));
         if ($this->actors !== null) {
             $search = $search->asActor($this->actors->resolve()); // an ActorRequired becomes a 403 in SearchExceptionListener
         }

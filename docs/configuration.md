@@ -34,7 +34,8 @@ is one command.
 | Doctrine entities, one index per entity, over (mostly) that entity's table | attributes (`#[Searchable]` on the class) |
 | A legacy database without entities (plain tables, no ORM) | YAML (Symfony) or the builder (plain PHP) |
 | A source with joins, or over several tables | YAML or the builder (`source.query`, `watch`) |
-| Several indexes over the same table or entity (attributes are one per class) | the first by attributes if you like, the others in YAML or the builder under another name |
+| Several indexes over the same table or entity (attributes are one per class) | the first by attributes if you like, the others as [definition classes](#definition-classes) (code, with the builder) or in YAML under another name |
+| Fields, weights or filters that depend on code, not on a table (an admin index next to the public one) | a [definition class](#definition-classes) (`#[AsIndexDefinition]`) |
 | An attribute index whose `sync`, `language`, `boost`, `watch`, ... you want to change per environment | a YAML entry with the same name overrides those keys (see [YAML](#yaml)) |
 
 **A join goes in the source query.** Attributes only name a table, so for a join define the index in YAML (`source.query`)
@@ -78,6 +79,46 @@ With these four tables (checked with `sync: queue`), one change in each table qu
 customer change its own document, a company change the documents of its customers, an address or a contact change (insert, update
 or delete) its customer, and nothing else. A watch without `columns` refreshes on every `UPDATE` of its table, also of a
 column the index does not use (see [Column-aware filtering](sync.md#column-aware-filtering)).
+
+### Definition classes
+
+A class with `#[AsIndexDefinition]` and a `build(IndexBuilder $builder): void` method defines one index with the builder, so one entity
+(or a legacy table without an entity) can have several. The builder arrives with the index name and the `entity` already set; the result
+is an ordinary index (same validation, fingerprint, doctor, schema, sync). The public `products` index stays on the entity, an admin
+index over the same `Product` gets other fields and weights:
+
+```php
+use Fuzzphony\Core\Attribute\AsIndexDefinition;
+use Fuzzphony\Core\Definition\IndexBuilder;
+
+#[AsIndexDefinition('products_admin', entity: Product::class)]
+final class ProductAdminIndex
+{
+    public function build(IndexBuilder $b): void
+    {
+        $b->fromTable('product')->field('name', 'A', fuzzy: true)->field('sku', 'A', code: true)->filter('price', 'int');
+    }
+}
+```
+
+A legacy table has no entity: `#[AsIndexDefinition('orders')]` and `$b->fromTable('legacy_order', 'order_id')->field('customer', 'A')`.
+
+- **Symfony:** register the class as a service (`autoconfigure` is on in the default `config/services.yaml` `App\` resource, so
+  nothing else is needed); the tag `fuzzphony.index_definition` is added by the attribute. The class is built at discovery with a fresh
+  `IndexBuilder`.
+- **Plain PHP:** `Fuzzphony::postgres($connection, [$definition, ProductAdminIndex::class])`: a class name is instantiated without arguments.
+- **Entity link:** `$fuzzphony->in('products_admin')` searches that index; `EntityLoader::load($result, Product::class)` loads its hits (the
+  class of an index is `$fuzzphony->definition('products_admin')->entityClass`). `$fuzzphony->in(Product::class)` keeps answering with the
+  first index of the entity (the attribute one). For API Platform name the index: `#[ApiFilter(FuzzphonySearchFilter::class, arguments: ['index' => 'products_admin'])]`;
+  the Live Component takes `index="products_admin"`.
+- **Conflicts:** the same index name from an attribute and a definition class, or from two definition classes, is an `InvalidDefinition` that
+  names both sources. A YAML entry with the same name overrides the limited keys exactly as for an attribute index (see [YAML](#yaml)).
+- **Where it came from:** `fuzzphony:doctor` shows the source in the heading of each index (`attribute App\Entity\Product`,
+  `definition class App\Search\ProductAdminIndex`, plus ` + YAML` for an override).
+- **Cache rule:** in production the definitions are kept in `cache.system` like the attribute ones (dropped by `cache:clear`, never used by
+  the CLI, see [Attributes](#attributes)), so `build()` must be **pure and deterministic**: the same definition on every call, no
+  state, no clock or random values, nothing read from the request, no closure stored in the definition. Read configuration that
+  changes the index from YAML, not from `build()`.
 
 ### Several indexes
 

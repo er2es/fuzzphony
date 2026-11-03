@@ -6,6 +6,7 @@ namespace Fuzzphony\Core\Registry;
 
 use Fuzzphony\Core\Definition\DefinitionValidator;
 use Fuzzphony\Core\Definition\IndexDefinition;
+use Fuzzphony\Core\Exception\InvalidDefinition;
 use Fuzzphony\Core\Exception\UnknownIndex;
 
 /** @internal Looks indexes up by name or by entity class. */
@@ -15,6 +16,8 @@ final class IndexRegistry
     private array $byName = [];
     /** @var array<class-string, string> */
     private array $byClass = [];
+    /** @var array<string, string> where an index came from (only the indexes registered with an origin) */
+    private array $origins = [];
 
     /** @param iterable<IndexDefinition> $definitions */
     public function __construct(iterable $definitions = [])
@@ -24,13 +27,38 @@ final class IndexRegistry
         }
     }
 
-    public function register(IndexDefinition $definition): void
+    /**
+     * @param ?string $origin where the definition comes from ("attribute Product", "definition class App\X"); given, the name must be free:
+     *                        the same name from two sources is an error. Without an origin a registration replaces (an override, a plain list).
+     *
+     * @throws InvalidDefinition
+     */
+    public function register(IndexDefinition $definition, ?string $origin = null): void
     {
         DefinitionValidator::assertValid($definition);
+        if ($origin !== null && isset($this->byName[$definition->name])) {
+            throw new InvalidDefinition($definition->name, [sprintf('the index is defined twice: by %s and by %s.', $this->origins[$definition->name] ?? 'an earlier definition', $origin)]);
+        }
         $this->byName[$definition->name] = $definition;
-        if ($definition->entityClass !== null) {
+        if ($origin !== null) {
+            $this->origins[$definition->name] = $origin;
+        }
+        // the first index of an entity answers for the entity class (the attribute index, then the definition classes); the others are reached by name
+        if ($definition->entityClass !== null && ($this->byClass[$definition->entityClass] ?? $definition->name) === $definition->name) {
             $this->byClass[$definition->entityClass] = $definition->name;
         }
+    }
+
+    /** Records where a registered index came from, or adds to it ("YAML": the override of an attribute index). */
+    public function annotateOrigin(string $name, string $note): void
+    {
+        $this->origins[$name] = isset($this->origins[$name]) ? $this->origins[$name] . ' + ' . $note : $note;
+    }
+
+    /** Where an index was defined, when known ("attribute App\Product", "definition class App\X", "YAML", "attribute App\Product + YAML"); null for an index given as an object. */
+    public function origin(string $name): ?string
+    {
+        return $this->origins[$name] ?? null;
     }
 
     public function get(string $nameOrClass): IndexDefinition
