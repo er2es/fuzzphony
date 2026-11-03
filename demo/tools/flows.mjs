@@ -331,7 +331,7 @@ check('wizard: a "Load the sample configuration" button is offered', (await page
 await page.getByRole('link', { name: 'Load the sample configuration' }).click();
 await page.waitForSelector('#code');
 const sampleYaml = await page.locator('#code ~ details pre').first().innerText();
-check('wizard sample: the YAML has the fields, filters, profiles and thresholds', /fields:/.test(sampleYaml) && /fuzzy: true/.test(sampleYaml) && /filters:/.test(sampleYaml) && /exact_bonus: 0\.8/.test(sampleYaml) && /popular:/.test(sampleYaml) && /candidate_limit: 3000/.test(sampleYaml), sampleYaml.slice(0, 120));
+check('wizard sample: the YAML has the fields, filters, profiles and grouped thresholds', /fields:/.test(sampleYaml) && /fuzzy: true/.test(sampleYaml) && /filters:/.test(sampleYaml) && /exact_bonus: 0\.8/.test(sampleYaml) && /popular:/.test(sampleYaml) && /candidates: 3000/.test(sampleYaml), sampleYaml.slice(0, 120));
 check('wizard sample: the page says what each part does and has no error', (await page.locator('#decisions ~ ul .row').count()) >= 10 && (await page.locator('.callout.is-bad').count()) === 0);
 check('wizard sample: builder and attributes are there too (attributes explain why they cannot express it)', /RankingProfile/.test(await page.locator('details pre').nth(1).textContent()) && /cannot express/.test(await page.locator('details pre').nth(2).textContent()));
 await page.getByRole('link', { name: 'Tune it' }).click();
@@ -487,7 +487,7 @@ check('who: the newest search is first', allRows.length > 1 && allRows.every((r,
 const adaOnly = await listRows('?who=ada');
 check('who: the filter for one viewer shows only that viewer, and her search is there', adaOnly.length > 0 && adaOnly.every((r) => r[1] === 'Ada') && rowOf(adaOnly, adaWord).length === 1, adaOnly.map((r) => r[1]).join(', '));
 const anonOnly = await listRows('?who=anonymous');
-check('who: the filter for anonymous shows only searches without a user (the home page and the refused ones)', anonOnly.length > 0 && anonOnly.every((r) => r[1] === 'anonymous') && rowOf(anonOnly, anonWord).length === 1 && anonOnly.some((r) => r[3] === 'catalog'), anonOnly.map((r) => `${r[1]}/${r[3]}`).join(', '));
+check('who: the filter for anonymous shows only searches without a user (the refused ones: the catalogue pages are the user (system))', anonOnly.length > 0 && anonOnly.every((r) => r[1] === 'anonymous') && rowOf(anonOnly, anonWord).length === 1 && anonOnly.every((r) => r[3] === 'intranet'), anonOnly.map((r) => `${r[1]}/${r[3]}`).join(', '));
 const deniedOnly = await listRows('?status=denied');
 check('who: the filter for denied shows the refusals only', deniedOnly.length > 0 && deniedOnly.every((r) => r[6] === 'denied') && rowOf(deniedOnly, eveWord).length === 1 && rowOf(deniedOnly, adaWord).length === 0, deniedOnly.map((r) => r[6]).join(', '));
 const intranetOnly = await listRows('?index=intranet');
@@ -985,6 +985,30 @@ check('relevance: the caption explains the flat threshold', /single shared trigr
     check('tune tooltips: opening one shifts nothing in the layout', !moved);
     await phoneCtx.close();
 }
+
+// 0.10.0: a call that names no actor is made as the token user (the Security page compares the four kinds of call), and the catalogue pages
+// are the user "(system)". A rescued search is logged once and marked; Fuzzphony::logSearch() records it without a second run.
+await go(sec, viewing('', 'hana', '&reset=1'));
+await go(sec, viewing('salary', 'hana', '&compare=1'));
+const cmp = await sec.locator('section[aria-labelledby=compare] tbody tr').evaluateAll((trs) => trs.map((tr) => [...tr.querySelectorAll('th, td')].map((c) => c.innerText.trim().replace(/\s+/g, ' '))));
+check('security compare: four calls are listed (no asActor, asActor(Ada), asActor(anonymous), asSystem)', cmp.length === 4 && /No asActor/.test(cmp[0][0]) && /asActor\(Ada\)/.test(cmp[1][0]) && /anonymous/.test(cmp[2][0]) && /asSystem/.test(cmp[3][0]), JSON.stringify(cmp.map((r) => r[0])));
+check('security compare: the call without asActor() runs as the signed-in viewer and sees the confidential field of HR', /Hana/.test(cmp[0][1]) && Number(cmp[0][2]) > 0 && Number(cmp[0][3]) > 0, JSON.stringify(cmp[0]));
+check('security compare: anonymous (a command, a worker) is refused with ActorRequired, asSystem() sees everything of the company', /refused ActorRequired/.test(cmp[2][2]) && Number(cmp[3][2]) >= Number(cmp[0][2]) && Number(cmp[3][3]) > 0, JSON.stringify([cmp[2], cmp[3]]));
+await go(sec, viewing('salary', 'ada', '&reset=1&compare=1'));
+const cmpAda = await sec.locator('section[aria-labelledby=compare] tbody tr').evaluateAll((trs) => trs.map((tr) => [...tr.querySelectorAll('th, td')].map((c) => c.innerText.trim().replace(/\s+/g, ' '))));
+check('security compare: without asActor() Ada does not see the confidential field, while asSystem() does', cmpAda.length === 4 && Number(cmpAda[0][3]) === 0 && Number(cmpAda[3][3]) > 0, JSON.stringify([cmpAda[0], cmpAda[3]]));
+await go(sec, viewing('salary', 'anonymous', '&compare=1'));
+check('security compare: with nobody signed in the call without asActor() is refused (no token)', /refused/.test(await sec.locator('section[aria-labelledby=compare] tbody tr').first().innerText()));
+
+const countOf = async (word) => (await listRows('?index=catalog')).filter((r) => r[4] === word);
+const rescueBefore = (await countOf('kpttle')).length;
+await page.request.get(`${BASE}/?q=kpttle`);
+await page.waitForTimeout(600);
+const rescueRows = await countOf('kpttle');
+check('rescue log: a rescued search is listed with the mark "rescued" and the user (system)', rescueRows.length > 0 && rescueRows[0][6] === 'rescued' && rescueRows[0][1] === '(system)', JSON.stringify(rescueRows[0]));
+check('rescue log: it is recorded once, not run and logged twice', rescueBefore >= 15 || rescueRows.length === rescueBefore + 1, `${rescueBefore} -> ${rescueRows.length}`);
+const systemOnly = await listRows('?who=(system)');
+check('who: the filter for System shows the catalogue searches only', systemOnly.length > 0 && systemOnly.every((r) => r[1] === '(system)' && r[3] === 'catalog'), systemOnly.slice(0, 2).map((r) => r.join('|')).join(' ; '));
 
 await secContext.close();
 

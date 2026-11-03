@@ -44,7 +44,7 @@ final class AnalyticsController extends AbstractController
         }
 
         // The filters of the list are links (?index=&who=&status=); anything that is not on the lists falls back to "all".
-        $viewers = ['anonymous' => 'Anonymous'] + array_map(static fn(DemoUser $u): string => $u->name, DemoUser::all());
+        $viewers = ['anonymous' => 'Anonymous', '(system)' => 'System'] + array_map(static fn(DemoUser $u): string => $u->name, DemoUser::all());
         $index = $this->choice($request, 'index', self::INDEXES);
         $who = $this->choice($request, 'who', array_keys($viewers));
         $status = $this->choice($request, 'status', array_map(static fn(RecordStatus $s): string => $s->value, RecordStatus::cases()));

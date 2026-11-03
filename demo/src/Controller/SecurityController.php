@@ -88,9 +88,10 @@ final class SecurityController extends AbstractController
                     ->highlight('title', 'body', 'confidential')
                     ->limit(20)
                     ->get();
-                // Its SQL, from a search that is not an actor search: no guard runs (nothing is charged twice) and nothing is
+                // Its SQL, from a system search: no guard runs (a guarded one would charge the rate limit a second time) and nothing is
                 // logged (the typed text would be a second row), so it is given what the guards decided: the company and the fields.
                 $explanation = $fuzzphony->in(self::INDEX)
+                    ->asSystem()
                     ->forTenant($actor->tenant)
                     ->restrictedToFields(...$allowed)
                     ->query($q)
