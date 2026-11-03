@@ -101,10 +101,10 @@ final readonly class MatchReason
         }
         $typed = null;
         $shared = 0;
-        foreach ($words as $word) {
-            $common = count(array_intersect(self::trigrams($word), self::trigrams($word)));
+        foreach ($words as $queryWord) {
+            $common = count(array_intersect(self::trigrams($queryWord), self::trigrams($word)));
             if ($typed === null || $common > $shared) {
-                [$typed, $shared] = [$word, $common];
+                [$typed, $shared] = [$queryWord, $common];
             }
         }
         $trigrams = $shared === 1 ? 'they share one trigram' : sprintf('they share %d trigrams', $shared);
