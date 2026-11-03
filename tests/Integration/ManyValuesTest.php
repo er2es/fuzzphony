@@ -287,4 +287,27 @@ final class ManyValuesTest extends TestCase
         // and the viewer who holds the field does see the values
         self::assertSame([1, 3], self::ids($f->in('customers')->query('town7')->get()));
     }
+
+    public function testTheDoctorNamesDocumentsOverTheLimitWithoutValues(): void
+    {
+        $index = $this->definition(limit: 2);
+        $f = $this->install($index);
+
+        $report = $f->inspect('customers');
+        $values = array_values(array_filter($report->checks, static fn($c): bool => str_starts_with($c->name, 'Values ')));
+        self::assertNotSame([], $values);
+        $over = array_values(array_filter($values, static fn($c): bool => $c->status->value !== 'ok'));
+        self::assertCount(2, $over, 'the field and the filter');
+        self::assertStringContainsString('1 document(s) have more than 2 values', $over[0]->message);
+        foreach ($values as $check) {
+            self::assertStringNotContainsString('Budapest', $check->message);
+        }
+
+        $this->connection->execute('DELETE FROM fuzzphony_customers__values');
+        $stale = array_filter($f->inspect('customers')->checks, static fn($c): bool => str_contains($c->message, 'out of date'));
+        self::assertCount(1, $stale);
+        $this->connection->execute('DROP TABLE fuzzphony_customers__values');
+        $missing = array_filter($f->inspect('customers')->checks, static fn($c): bool => $c->name === 'Values table');
+        self::assertCount(1, $missing);
+    }
 }

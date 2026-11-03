@@ -99,6 +99,9 @@ final class PostgresInspector
         if ($sidecarExists && $index->hasFuzzy()) {
             $checks[] = $this->vocabulary($index);
         }
+        if ($index->hasMany()) {
+            array_push($checks, ...(new ManyCheck($this->connection, $this->names))->check($index, $sidecarExists, $options->deep));
+        }
         array_push($checks, ...$this->configuration($index));
         array_push($checks, ...$this->tenantScoping($index));
         array_push($checks, ...$this->columnAwareFiltering($index));
