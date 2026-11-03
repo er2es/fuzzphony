@@ -90,6 +90,40 @@ final class QueryFileTest extends TestCase
         $this->build(' ');
     }
 
+    public function testAnEmptyOrBlankPathSaysSoAndReadsNothing(): void
+    {
+        foreach (['', '  '] as $path) {
+            try {
+                $this->build($path);
+                self::fail('expected InvalidDefinition');
+            } catch (InvalidDefinition $e) {
+                self::assertStringContainsString('"query_file" must be the path of an SQL file, got an empty string.', $e->getMessage());
+            }
+        }
+    }
+
+    public function testASiblingDirectoryWithTheSamePrefixIsOutside(): void
+    {
+        mkdir($this->base . '/project-evil');
+        file_put_contents($this->base . '/project-evil/secret.sql', 'SELECT 1 AS id');
+        try {
+            $this->build('../project-evil/secret.sql');
+            self::fail('a sibling of the project directory was read');
+        } catch (InvalidDefinition $e) {
+            self::assertStringContainsString('must be a readable file inside the project directory', $e->getMessage());
+        } finally {
+            unlink($this->base . '/project-evil/secret.sql');
+            rmdir($this->base . '/project-evil');
+        }
+    }
+
+    public function testADirectoryIsNotAFile(): void
+    {
+        $this->expectException(InvalidDefinition::class);
+        $this->expectExceptionMessage('Query file "sql" cannot be used: it must be a readable file');
+        $this->build('sql');
+    }
+
     public function testTheFileContentIsPartOfTheFingerprint(): void
     {
         $before = Fingerprint::definition($this->build('sql/catalog.sql'));

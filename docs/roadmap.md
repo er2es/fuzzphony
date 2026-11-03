@@ -106,6 +106,7 @@ additive work after it (0.11.0, next) and the stable 1.0.0 do not have to change
     `toArray()` and JSON for results and hits ([Your own frontend](integrations.md#your-own-frontend)), `explainMatches()`
     ([Searching](searching.md#what-matched)), `code: true` for invoice numbers and SKUs, and `source: { query_file: ... }` for the SQL of a source query.
   - The demo follows: its catalogue pages say `->asSystem()`, the Security page compares the calls and the Analytics page marks rescued searches.
+- v0.10.1, a patch: the Benchmark workflow works with the 0.10 `granted` rule, `explainMatches()` explains a short word matched through its synonym, and the new security-sensitive code has stricter tests.
 
 ## Next
 

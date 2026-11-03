@@ -116,4 +116,32 @@ final class RegistryFactoryMutationsTest extends TestCase
 
         self::assertEquals($first->get('articles'), $second->get('articles'));
     }
+
+    public function testAGrantedFieldWithoutAuthorizationDoesNotBuild(): void
+    {
+        $yaml = ['secret_docs' => ['source' => ['query' => 'SELECT id, name, note FROM docs'], 'watch' => ['docs' => 'SELECT :id'], 'fields' => ['name' => ['weight' => 'A'], 'note' => ['weight' => 'B', 'granted' => 'ROLE_X']]]];
+
+        self::assertTrue(RegistryFactory::create($yaml, authorizationEnabled: true)->has('secret_docs'));
+        try {
+            RegistryFactory::create($yaml, authorizationEnabled: false);
+            self::fail('a granted field without authorization built');
+        } catch (\Fuzzphony\Core\Exception\InvalidDefinition $e) {
+            self::assertStringContainsString(RegistryFactory::GRANTED_WITHOUT_AUTHORIZATION, $e->getMessage());
+        }
+    }
+
+    public function testEveryCachedDefinitionIsServed(): void
+    {
+        $one = \Fuzzphony\Core\Definition\IndexDefinition::builder('one')->fromTable('t1')->field('name', 'A')->build();
+        $two = \Fuzzphony\Core\Definition\IndexDefinition::builder('two')->fromTable('t2')->field('name', 'A')->build();
+        $cache = new ArrayAdapter();
+        $cache->save($cache->getItem('fuzzphony_discovered_indexes')->set([$one, $two]));
+        $entityManager = $this->createMock(EntityManagerInterface::class);
+        $entityManager->expects(self::never())->method('getMetadataFactory');
+
+        $registry = RegistryFactory::create([], new DoctrineIndexDiscovery($entityManager), $cache, cacheInCli: true);
+
+        self::assertTrue($registry->has('one'));
+        self::assertTrue($registry->has('two'));
+    }
 }
