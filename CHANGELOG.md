@@ -18,6 +18,8 @@ and a link. Measurements, proofs and test names belong to the pull request, [doc
 
 ### Added
 
+- **Database roles:** `fuzzphony:schema --dump-grants` prints the least-privilege `GRANT`s (search, worker, admin), `fuzzphony.connections` gives the worker and the admin their own
+  DBAL connection (default: `connection`), and the doctor checks the privileges of the roles in use ([Database roles](docs/roles.md)).
 - **`SearchResult::$correctedTo`, `rescued` in the search log, `Fuzzphony::logSearch()`** (record a search without running it), **`toArray()`/JSON** for results, hits and facets, and the opt-in
   **`->explainMatches()`** (`Hit::$matches`: which word matched where and how) ([searching](docs/searching.md#what-matched), [analytics](docs/analytics.md)).
 - **`code: true` on a field** (`fields: { number: { weight: A, code: true } }`, `#[SearchField('A', code: true)]`, `->field('number', 'A', code: true)`): `INV-001`, `INV001`, `inv-001`, `001`, `AB-12/3`

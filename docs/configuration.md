@@ -566,6 +566,9 @@ automatic, see [UPGRADE.md](../UPGRADE.md#moving-to-a-dedicated-schema); the doc
 ```yaml
 fuzzphony:
   connection: default          # Doctrine DBAL connection name; "default" is Doctrine's own name for the first one
+  # connections: optional separate database users, so the application can stay read-only and DDL belongs to the user who deploys (docs/roles.md).
+  # Each defaults to `connection`; set nothing and everything runs as that one user. worker: fuzzphony:worker and the async refresh; admin: schema, reindex, doctor.
+  connections: { worker: ~, admin: ~ }
   extension_schema: public     # schema of pg_trgm and unaccent; "public" is where CREATE EXTENSION puts them unless told otherwise
   schema: public               # Fuzzphony's own schema, e.g. fuzzphony (see below); public so an upgrade moves nothing, a dedicated one is cleaner
   discover_entities: true      # register every Doctrine entity with #[Searchable]; false: only what you list
