@@ -49,7 +49,7 @@ final readonly class SharedWatch
                 "CREATE TABLE IF NOT EXISTS %s (\n    index_name text NOT NULL,\n    watch_no integer NOT NULL,\n    tbl text NOT NULL,\n    fn text NOT NULL,\n    key_column text NOT NULL,\n    columns jsonb,\n    cur_xid bigint NOT NULL,\n    bad_rows bigint NOT NULL DEFAULT 0,\n    bad_at timestamptz,\n    PRIMARY KEY (index_name, watch_no)\n)",
                 $this->names->watches(),
             ), 'Which index watches which table, how far in the change log it has read, and how many log rows it could not apply'),
-            new Statement(sprintf('ALTER TABLE %s ADD COLUMN IF NOT EXISTS bad_rows bigint NOT NULL DEFAULT 0, ADD COLUMN IF NOT EXISTS bad_at timestamptz', $this->names->watches()), 'Count of log rows with an unusable key (skipped, never retried)'),
+            ...array_map(fn(array $c): Statement => new Statement(sprintf('DO %1$s BEGIN IF NOT EXISTS (SELECT 1 FROM pg_attribute WHERE attrelid = to_regclass(%2$s) AND attname = %3$s AND NOT attisdropped) THEN ALTER TABLE %4$s ADD COLUMN %6$s %5$s; END IF; END %1$s', self::TAG, Sql::string($this->names->watches()), Sql::string($c[0]), $this->names->watches(), $c[1], $c[0]), 'Count of log rows with an unusable key (skipped, never retried)'), [['bad_rows', 'bigint NOT NULL DEFAULT 0'], ['bad_at', 'timestamptz']]),
             new Statement(sprintf('CREATE INDEX IF NOT EXISTS %s ON %s (tbl)', Sql::ident($this->names->watchLogIndexName() . '_w'), $this->names->watches()), 'Watches by table'),
             new Statement($this->installFunction(), 'Builds (or removes) the shared trigger of a watched table from the watches'),
         ];
