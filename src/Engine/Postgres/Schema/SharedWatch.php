@@ -166,6 +166,11 @@ final readonly class SharedWatch
             $cols = $columns($index, $watch);
             $tables[$tbl] = true;
             $relevant = $cols === null ? 'true' : sprintf("(r.op <> 'U' OR jsonb_exists_any(r.chg, ARRAY[%s]::text[]))", implode(', ', array_map(Sql::string(...), ['*', ...$cols])));
+            // a key that can be cast to the key column's type (v_kind: 1 smallint, 2 integer, 3 bigint, 4 uuid, otherwise no check)
+            $usable = "(r.key IS NULL OR CASE v_kind WHEN 1 THEN CASE WHEN r.key ~ '^-?[0-9]{1,30}\$' THEN r.key::numeric BETWEEN -32768 AND 32767 ELSE false END "
+                . "WHEN 2 THEN CASE WHEN r.key ~ '^-?[0-9]{1,30}\$' THEN r.key::numeric BETWEEN -2147483648 AND 2147483647 ELSE false END "
+                . "WHEN 3 THEN CASE WHEN r.key ~ '^-?[0-9]{1,30}\$' THEN r.key::numeric BETWEEN -9223372036854775808 AND 9223372036854775807 ELSE false END "
+                . "WHEN 4 THEN r.key ~* '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\$' ELSE true END)";
             $affected = (string) preg_replace('/:id\b/', 'k.' . Sql::ident($watch->keyColumn), $watch->affectedIds, 1);
             $range = sprintf('tbl = %s AND op = \'T\' AND xid >= v_lo AND xid < v_hi', Sql::string($tbl));
             $resync = sprintf("INSERT INTO %s (index_name, doc_id, queued_at) VALUES (%s, '*', clock_timestamp())\n                    ON CONFLICT (index_name, doc_id) DO UPDATE SET queued_at = clock_timestamp();", $queue, $name);
@@ -196,20 +201,28 @@ final readonly class SharedWatch
                         SELECT cur_xid INTO v_lo FROM %1$s WHERE index_name = %2$s AND watch_no = %3$d FOR UPDATE SKIP LOCKED;
                         IF FOUND AND v_lo < v_hi THEN
                             v_bad := 0;
-                            -- the key of a log row is text that any role with INSERT on the log can write: when one does not cast to the key's type,
-                            -- the batch is retried key by key and the unusable keys are skipped and counted (they can never succeed, so never retried)
+                            -- the key of a log row is text that any role with INSERT on the log can write. The keys that cannot be cast to the key's type are
+                            -- found once, set-based (anchored regexes by type), skipped and counted (they can never succeed, so never retried). A key type
+                            -- without such a check, or a surprise, falls back to retrying the batch key by key.
+                            v_kind := NULL;
+                            SELECT CASE a.atttypid WHEN 'int2'::regtype THEN 1 WHEN 'int4'::regtype THEN 2 WHEN 'int8'::regtype THEN 3 WHEN 'uuid'::regtype THEN 4 ELSE 0 END INTO v_kind
+                              FROM pg_attribute AS a WHERE a.attrelid = to_regclass(%11$s) AND a.attname = %9$s AND NOT a.attisdropped;
+                            SELECT count(*) INTO v_bad FROM %4$s AS r WHERE r.tbl = %11$s AND r.key_column = %9$s AND r.op <> 'T' AND r.xid >= v_lo AND r.xid < v_hi AND %12$s AND NOT %13$s;
                             BEGIN
                                 INSERT INTO %7$s (index_name, doc_id)
+                                WITH g AS MATERIALIZED (
+                                    SELECT DISTINCT r.key FROM %4$s AS r WHERE r.tbl = %11$s AND r.key_column = %9$s AND r.op <> 'T' AND r.xid >= v_lo AND r.xid < v_hi AND %12$s AND %13$s
+                                )
                                 SELECT DISTINCT %2$s, a.doc_id::text
-                                  FROM %4$s AS r
+                                  FROM g AS r
                                   CROSS JOIN LATERAL jsonb_populate_record(NULL::%8$s, jsonb_build_object(%9$s, r.key)) AS k
                                   CROSS JOIN LATERAL (%10$s) AS a(doc_id)
-                                 WHERE r.tbl = %11$s AND r.key_column = %9$s AND r.op <> 'T' AND r.xid >= v_lo AND r.xid < v_hi AND %12$s AND a.doc_id IS NOT NULL
+                                 WHERE a.doc_id IS NOT NULL
                                 ON CONFLICT (index_name, doc_id) DO NOTHING;
                                 GET DIAGNOSTICS v_m = ROW_COUNT;
                             EXCEPTION WHEN data_exception THEN
                                 v_m := 0;
-                                FOR v_key, v_cnt IN SELECT r.key, count(*) FROM %4$s AS r WHERE r.tbl = %11$s AND r.key_column = %9$s AND r.op <> 'T' AND r.xid >= v_lo AND r.xid < v_hi AND r.key IS NOT NULL AND %12$s GROUP BY r.key LOOP
+                                FOR v_key, v_cnt IN SELECT r.key, count(*) FROM %4$s AS r WHERE r.tbl = %11$s AND r.key_column = %9$s AND r.op <> 'T' AND r.xid >= v_lo AND r.xid < v_hi AND r.key IS NOT NULL AND %12$s AND %13$s GROUP BY r.key LOOP
                                     BEGIN
                                         INSERT INTO %7$s (index_name, doc_id)
                                         SELECT DISTINCT %2$s, a.doc_id::text
@@ -244,6 +257,7 @@ final readonly class SharedWatch
                 $affected,
                 Sql::string($tbl),
                 $relevant,
+                $usable,
             );
         }
         $prune = [];
@@ -258,7 +272,7 @@ final readonly class SharedWatch
         }
 
         return sprintf(
-            "CREATE OR REPLACE FUNCTION %1\$s() RETURNS integer\nLANGUAGE plpgsql SET search_path FROM CURRENT AS %2\$s\nDECLARE\n    v_hi bigint := pg_snapshot_xmin(pg_current_snapshot())::text::bigint;\n    v_lo bigint;\n    v_n integer := 0;\n    v_m integer;\n    v_m2 integer;\n    v_bad integer := 0;\n    v_cnt bigint;\n    v_key text;\n    v_done boolean := false;\nBEGIN\n%3\$s\n    IF v_done THEN\n        %4\$s\n    END IF;\n    RETURN v_n;\nEND\n%2\$s",
+            "CREATE OR REPLACE FUNCTION %1\$s() RETURNS integer\nLANGUAGE plpgsql SET search_path FROM CURRENT AS %2\$s\nDECLARE\n    v_hi bigint := pg_snapshot_xmin(pg_current_snapshot())::text::bigint;\n    v_lo bigint;\n    v_n integer := 0;\n    v_m integer;\n    v_m2 integer;\n    v_bad integer := 0;\n    v_kind integer;\n    v_cnt bigint;\n    v_key text;\n    v_done boolean := false;\nBEGIN\n%3\$s\n    IF v_done THEN\n        %4\$s\n    END IF;\n    RETURN v_n;\nEND\n%2\$s",
             $this->names->drainFunction($index),
             self::TAG,
             implode("\n", $body),
