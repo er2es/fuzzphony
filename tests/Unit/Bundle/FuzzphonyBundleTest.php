@@ -156,8 +156,13 @@ final class FuzzphonyBundleTest extends TestCase
         self::assertInstanceOf(Reference::class, $prod);
         self::assertSame('cache.system', (string) $prod);
         self::assertNull($debug, 'in debug mode an edited attribute must show up on the next request');
-        self::assertNull($noDiscovery, 'nothing is discovered, so nothing is cached');
-        self::assertNull($noOrm);
+        // the pool is also the cache of the definition classes (services with #[AsIndexDefinition]), which need neither the ORM nor the discovery;
+        // without discovery the registry factory never touches it for entities
+        self::assertInstanceOf(Reference::class, $noDiscovery);
+        self::assertInstanceOf(Reference::class, $noOrm);
+        self::assertSame('cache.system', (string) $noDiscovery);
+        self::assertSame('cache.system', (string) $noOrm);
+        self::assertInstanceOf(\Symfony\Component\DependencyInjection\Argument\TaggedIteratorArgument::class, $this->buildContainer(withOrm: false)->getDefinition('fuzzphony.registry')->getArgument(6), 'the definition classes are handed over lazily');
     }
 
     public function testTheRegistryCacheServesTheWebOnlyUnlessTheTestSeamIsSet(): void

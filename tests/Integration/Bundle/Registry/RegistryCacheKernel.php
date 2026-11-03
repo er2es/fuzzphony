@@ -30,9 +30,11 @@ final class RegistryCacheKernel extends Kernel
     /** How many times the metadata of all entities was enumerated (by any kernel of this process). */
     public static int $metadataEnumerations = 0;
 
-    /** @param list<class-string> $definitionClasses classes with #[AsIndexDefinition] registered as autoconfigured services */
-    /** @param bool $cacheInCli the test seam of RegistryFactory: the registry cache applies to web requests only, and this suite runs in the command line */
-    /** @param array<string, mixed> $fuzzphony the bundle's own configuration (indexes ...), none by default */
+    /**
+     * @param bool               $cacheInCli         the test seam of RegistryFactory: the registry cache applies to web requests only, and this suite runs in the command line
+     * @param array<string, mixed> $fuzzphony        the bundle's own configuration (indexes ...), none by default
+     * @param list<class-string> $definitionClasses classes with #[AsIndexDefinition] registered as autoconfigured services
+     */
     public function __construct(private readonly string $cacheDir, bool $debug, private readonly bool $cacheInCli = true, private readonly array $fuzzphony = [], private readonly array $definitionClasses = [])
     {
         parent::__construct('prod', $debug);

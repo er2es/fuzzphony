@@ -61,10 +61,9 @@ final class RegistryFactoryDefinitionClassesTest extends TestCase
         $fresh = RegistryFactory::create([], null, $cache, true, definitionClasses: [new ArticleAdminIndex()]);
 
         $neverIterated = new class implements \IteratorAggregate, \Countable {
-            public function getIterator(): \Generator
+            public function getIterator(): \Traversable
             {
                 throw new \LogicException('a warm cache must not instantiate the services');
-                yield;
             }
 
             public function count(): int
