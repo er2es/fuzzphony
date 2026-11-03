@@ -20,6 +20,7 @@ use Fuzzphony\Core\Exception\ActorRequired;
 use Fuzzphony\Core\Exception\InvalidArgument;
 use Fuzzphony\Core\Exception\InvalidDefinition;
 use Fuzzphony\Core\Exception\RateLimited;
+use Fuzzphony\Core\Exception\UnknownIndex;
 use Fuzzphony\Core\Inspection\InspectionReport;
 use Fuzzphony\Core\Inspection\InspectOptions;
 use Fuzzphony\Core\Observability\MetricsCollector;
@@ -286,6 +287,26 @@ final readonly class Fuzzphony
     public function analytics(): SearchAnalytics
     {
         return new SearchAnalytics($this->engine, $this->registry);
+    }
+
+    /**
+     * The names of the registered indexes.
+     *
+     * @return list<string>
+     */
+    public function indexes(): array
+    {
+        return array_keys($this->registry->all());
+    }
+
+    /**
+     * The definition of one index, by name or by entity class.
+     *
+     * @throws UnknownIndex when no such index is registered
+     */
+    public function definition(string $index): IndexDefinition
+    {
+        return $this->registry->get($index);
     }
 
     /** @internal */

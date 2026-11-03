@@ -61,7 +61,7 @@ final class SecurityController extends AbstractController
         $wasReset = $request->hasPreviousSession() && $request->hasSession() ? $request->getSession()->getFlashBag()->get('reset') !== [] : false;
 
         // The facts of this viewer, computed from the same checks the guards make.
-        $definition = $fuzzphony->registry()->get(self::INDEX);
+        $definition = $fuzzphony->definition(self::INDEX);
         $allowed = $forbidden = [];
         if ($viewer !== null && $checker->isGranted('FUZZPHONY_SEARCH', self::INDEX)) {
             foreach ($definition->fields as $field) {

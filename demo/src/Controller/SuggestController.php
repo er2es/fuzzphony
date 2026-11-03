@@ -32,7 +32,7 @@ final class SuggestController extends AbstractController
     public function __invoke(Request $request, Fuzzphony $fuzzphony, Catalog $catalog, Facets $facets, Languages $languages, CategoryStyle $styles): JsonResponse
     {
         $index = (string) $request->query->get('index', '');
-        if (!$fuzzphony->registry()->has($index)) {
+        if (!in_array($index, $fuzzphony->indexes(), true)) {
             throw $this->createNotFoundException(sprintf('Unknown index "%s".', $index));
         }
         $text = mb_substr((string) $request->query->get('q', ''), 0, self::MAX_QUERY);

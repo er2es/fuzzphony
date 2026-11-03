@@ -19,8 +19,8 @@
         "symfony/security-bundle": "^8.1",
         "symfony/stimulus-bundle": "^3.5",
         "symfony/twig-bundle": "^8.1",
-        "symfony/ux-live-component": "^3.5",
-        "symfony/ux-twig-component": "^3.5",
+        "symfony/ux-live-component": "^3.6",
+        "symfony/ux-twig-component": "^3.6",
         "symfony/yaml": "^8.1"
     },
     "repositories": [

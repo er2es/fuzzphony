@@ -40,7 +40,7 @@ reads `pg_trgm.word_similarity_threshold`; the SQL builders (`Sql\SearchSqlBuild
 From 1.0 the backward-compatibility promise covers exactly these 76 classes, interfaces and enums; everything else in
 `src/` is marked `@internal` and may change in any release. The engine contract (`Core\Engine\Engine`), the wizard's
 building blocks, the index registry, the search gate and the other container types are `@internal`: build the service
-with `Fuzzphony::postgres()` (or the bundle) and read the wizard through `Fuzzphony::wizard()`. The constructor of an
+with `Fuzzphony::postgres()` (or the bundle) and read the wizard through `Fuzzphony::wizard()`; `Fuzzphony::indexes()` and `Fuzzphony::definition()` list and read the registered indexes. The constructor of an
 output type (`SearchResult`, `ScoreBreakdown`, `SearchAnalytics`, `ReindexResult`, ...) is `@internal` too: a field
 added to a result is not a breaking change.
 
