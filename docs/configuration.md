@@ -311,7 +311,7 @@ single source; a tenant filter column must come from every source.
 
 How it is stored: [Multi-source indexes: how it is stored](architecture.md#multi-source-indexes-how-it-is-stored). To refresh one document
 by hand, give its key: `$fuzzphony->refresh('site', ['product:5'])`. To rebuild one source only, `fuzzphony:reindex site --source=article`
-([commands](commands.md#fuzzphonyreindex)). Limits: [limitations](limitations.md#several-sources-in-one-index).
+([commands](commands.md#commands)). Limits: [limitations](limitations.md#several-sources-in-one-index).
 
 This replaces the earlier recipe of one index over a hand-written `UNION ALL` with prefixed string ids and a prefixed watch per table:
 sources give the typed id, the kind, a per-source refresh, a per-source rebuild and per-source doctor checks, and need no id splitting.
