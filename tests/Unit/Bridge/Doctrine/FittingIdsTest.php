@@ -39,4 +39,18 @@ final class FittingIdsTest extends TestCase
         self::assertSame(['a-1', 2], EntityLoader::fittingIds(self::metadata('string'), 'id', ['a-1', 2]));
         self::assertSame(['a-1', 2], EntityLoader::fittingIds(self::metadata(null), 'id', ['a-1', 2]));
     }
+
+    public function testTheRangesIncludeTheirOwnEdgesAndNothingBeyond(): void
+    {
+        self::assertSame(['-32768', '-32767', '32767'], EntityLoader::fittingIds(self::metadata('smallint'), 'id', ['-32769', '-32768', '-32767', '32767', '32768']));
+        self::assertSame(['-2147483648', '2147483647'], EntityLoader::fittingIds(self::metadata('integer'), 'id', ['-2147483649', '-2147483648', '2147483647', '2147483648']));
+    }
+
+    public function testAUuidMustBeAWholeUuidInAnyCaseAndTheResultIsAList(): void
+    {
+        $lower = '123e4567-e89b-12d3-a456-426614174000';
+        $upper = strtoupper($lower);
+
+        self::assertSame([$lower, $upper], EntityLoader::fittingIds(self::metadata('uuid'), 'id', ['nope', $lower, $upper, $lower . 'x', 'x' . $lower]));
+    }
 }

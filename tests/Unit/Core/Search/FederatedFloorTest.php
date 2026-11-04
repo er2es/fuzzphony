@@ -92,6 +92,13 @@ final class FederatedFloorTest extends TestCase
         self::assertSame([1, 2, 3, 11, 12], self::ids($this->search($data)->index('products', weight: 10.0)->index('articles', atLeast: 2)->limit(5)->get()));
     }
 
+    public function testAFloorMayTakeTheOnlySlotOfAOnePage(): void
+    {
+        $data = ['products' => [1, 2], 'articles' => [11, 12]];
+
+        self::assertSame([11], self::ids($this->search($data)->index('products', weight: 10.0)->index('articles', atLeast: 1)->limit(1)->get()));
+    }
+
     public function testAFloorDoesNothingWhenTheIndexAlreadyRanksHigh(): void
     {
         $data = ['products' => [1, 2, 3], 'articles' => [11, 12, 13]];

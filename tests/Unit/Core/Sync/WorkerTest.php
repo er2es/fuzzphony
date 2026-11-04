@@ -68,6 +68,26 @@ final class WorkerTest extends TestCase
         self::assertSame(['requested', 'rebuild', 'queue'], $calls);
     }
 
+    public function testAFailedRebuildOfOneSourceIsCountedWithThatSource(): void
+    {
+        $site = IndexDefinition::builder('site')
+            ->sourceFromTable('item', 'item_t')
+            ->sourceFromTable('note', 'note_t')
+            ->field('title', 'A')
+            ->sync('manual')
+            ->build();
+        $engine = self::createStub(Engine::class);
+        $engine->method('rebuildRequested')->willReturn(false);
+        $engine->method('rebuildRequestedSources')->willReturn(['note']);
+        $engine->method('beginRebuild')->willThrowException(new \RuntimeException('boom'));
+        $metrics = new RecordingMetricsCollector();
+
+        self::assertSame(0, (new Worker($engine, static fn(): float => 0.0, $metrics))->runOnce([$site]));
+
+        $failures = array_values(array_filter($metrics->calls, static fn(array $c): bool => $c[1] === 'fuzzphony.worker.source_rebuild_failures'));
+        self::assertSame([['increment', 'fuzzphony.worker.source_rebuild_failures', 1.0, ['index' => 'site', 'source' => 'note']]], $failures);
+    }
+
     public function testARebuildAnotherRunHoldsIsLeftForTheNextCycle(): void
     {
         $engine = $this->createMock(Engine::class);

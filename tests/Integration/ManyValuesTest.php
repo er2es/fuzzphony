@@ -437,4 +437,67 @@ final class ManyValuesTest extends TestCase
         self::assertStringContainsString('nickname', $fieldColumns->message);
         self::assertStringNotContainsString('city ->', $fieldColumns->message);
     }
+
+    /** @return array<string, list<array{string, string}>> the "Values ..." checks by name: status and message */
+    private static function valueChecks(\Fuzzphony\Core\Inspection\InspectionReport $report): array
+    {
+        $out = [];
+        foreach ($report->checks as $check) {
+            if (str_starts_with($check->name, 'Values ')) {
+                $out[$check->name][] = [$check->status->value, $check->message];
+            }
+        }
+
+        return $out;
+    }
+
+    public function testAHealthyIndexGetsOneOkCheckPerFieldAndFilter(): void
+    {
+        $f = $this->install($this->definition());
+
+        self::assertSame([
+            'Values field "city"' => [['ok', '6 value(s), none over the limit of 50']],
+            'Values filter "city"' => [['ok', 'none over the limit of 50']],
+        ], self::valueChecks($f->inspect('customers')));
+    }
+
+    public function testEveryManyFieldIsCheckedNotOnlyTheFirst(): void
+    {
+        $index = IndexDefinition::builder('customers')
+            ->fromTable('mv_customer')
+            ->field('name', 'A')
+            ->field('city', 'C', many: ['from' => 'mv_address', 'key' => 'customer_id', 'column' => 'city'])
+            ->field('street', 'D', many: ['from' => 'mv_address', 'key' => 'customer_id', 'column' => 'street'])
+            ->sync('queue')
+            ->build();
+        $f = $this->install($index);
+
+        self::assertSame(['Values field "city"', 'Values field "street"'], array_keys(self::valueChecks($f->inspect('customers'))));
+    }
+
+    public function testAChildTableThatCannotBeReadIsAnErrorForEachOfItsUsers(): void
+    {
+        $f = $this->install($this->definition());
+        $this->connection->execute('DROP TABLE mv_address');
+
+        self::assertSame([
+            'Values field "city"' => [['error', 'The child table "mv_address" or one of its columns (customer_id, city, id) cannot be read.']],
+            'Values filter "city"' => [['error', 'The child table "mv_address" or one of its columns (customer_id, city, id) cannot be read.']],
+        ], self::valueChecks($f->inspect('customers')));
+    }
+
+    public function testABigChildTableWaitsForDeepAndTheLimitItselfIsStillCounted(): void
+    {
+        $f = $this->install($this->definition());
+        $setRows = fn(int $rows) => $this->connection->execute(sprintf("UPDATE pg_class SET reltuples = %d WHERE oid = 'mv_address'::regclass", $rows));
+
+        $setRows(1_000_000);
+        self::assertSame('ok', self::valueChecks($f->inspect('customers'))['Values field "city"'][0][0], 'exactly the cheap limit is still counted');
+        $setRows(1_000_001);
+        $skipped = self::valueChecks($f->inspect('customers'));
+        self::assertSame('skipped', $skipped['Values field "city"'][0][0]);
+        self::assertStringContainsString('run with --deep', $skipped['Values filter "city"'][0][1]);
+        $deep = self::valueChecks($f->inspect('customers', new \Fuzzphony\Core\Inspection\InspectOptions(deep: true)));
+        self::assertSame('ok', $deep['Values field "city"'][0][0]);
+    }
 }
