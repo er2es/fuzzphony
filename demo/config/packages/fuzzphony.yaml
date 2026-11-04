@@ -49,6 +49,8 @@ fuzzphony:
       language: english
       boost: popularity
       recency: published_at
+      # the header's search box (/magic) shows the first lines of a hit from the hit itself, with no lookup
+      returnable: [name, brand, category]
       profiles:
         popular: { boost: 0.03, recency: 0.3, recency_half_life_days: 60 }
       thresholds:
@@ -69,6 +71,7 @@ fuzzphony:
         confidential: { weight: C, fuzzy: true, granted: ROLE_HR }
       filters:
         company_id: int
+      returnable: [title, body]
       tenant: company_id
       watch:
         public.demo_note: 'SELECT :id'
@@ -87,6 +90,7 @@ fuzzphony:
         description: D
       watch:
         lang_product: 'SELECT :id'
+      returnable: [name, category]
       language: english
       # typo tolerance only when nothing matches exactly: on 31 products the default (fewer than 5 exact hits) would
       # mix typo matches into every stemming example
