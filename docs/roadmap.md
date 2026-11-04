@@ -111,6 +111,26 @@ additive work after it (0.11.0, in preparation) and the stable 1.0.0 do not have
 
 ## Next
 
+### v0.12.0: ranking by the best value (to be discussed before it starts)
+
+In 0.11 a `many` field (the addresses or phone numbers of one customer) ranks by the whole field: the query words may come
+from different values. The plan is to rank by the best single value:
+
+- One vector per value in the child table (`fuzzphony_<index>__values`), a GIN index on it, and the rank of a document is the rank
+  of its best value; "fő utca szeged" then ranks high only when one address holds all three words.
+- The highlight and `explainMatches()` show the value that gave the rank.
+- It costs disk (a vector and an index per value) and a slightly dearer rank, so it is likely to be switched on per field; the
+  default behaviour stays.
+- Follow-ups of `with()` if real use shows what is missing; the mutation-test gaps of the 0.11 round (`FacetRunner`, `Highlighter`,
+  `TypoMarker`, parts of `PostgresInspector`).
+
+### Ideas before 1.0, not yet decided
+
+- A smaller sidecar: leave out the `t_*` and `z_*` columns an index never needs, share the normalised text between `exact` and
+  `z_<field>`, skip filter indexes that are never used; each only where exactness and speed stay (a differential proof and timing first).
+- A `DefinitionProvider` extension point (definitions from outside the container).
+- An honest public benchmark against Meilisearch and Typesense, and a "migrating from Elasticsearch or Meilisearch" guide.
+
 ### v1.0.0: stable
 
 A stable API and a backward-compatibility promise. PostgreSQL only: no other engine is planned before 1.0.
@@ -130,6 +150,7 @@ Separate projects, in their own repositories:
 - Record linkage (`fuzzphony/record-linkage`): probabilistic matching of people and companies with explainable match
   scores; online lookup, batch and incremental deduplication; locale packs (hu, en, de).
 - A Laravel Scout driver over the same PostgreSQL engine.
+- Hybrid (lexical and semantic) search with pgvector.
 - An ERP-like demo as the showcase: orders, customers, products and order lines in several indexes, searched together and apart,
   with tenants and field authorization.
 
