@@ -3,7 +3,7 @@
 What each version shipped and what comes next, up to 1.0. No dates are promised. Back to the [README](../README.md).
 
 Steps are ordered by what other things build on: the breaking changes were gathered in one release (0.10.0, released), so the
-additive work after it (0.11.0, in preparation) and the stable 1.0.0 do not have to change the API again.
+additive work after it (0.11.0, released) and the stable 1.0.0 do not have to change the API again.
 
 ## Done
 

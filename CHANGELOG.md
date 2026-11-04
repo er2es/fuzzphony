@@ -11,6 +11,10 @@ and a link. Measurements, proofs and test names belong to the pull request, [doc
 
 ## [Unreleased]
 
+## [0.11.0] - 2026-11-04
+
+Several sources, additive: nothing breaks and existing indexes need nothing (an index that gains a source or a `many` field needs `fuzzphony:schema --apply` and a reindex). One index can now read several tables, a field can hold several values, a search can return source fields, and the demo shows it on an ERP data set. The review of the new code found and fixed the entries under **Fixed**.
+
 ### Added
 
 - **Index definition classes:** `#[AsIndexDefinition('products_admin', entity: Product::class)]` on a class with `build(IndexBuilder): void` gives an entity (or a legacy table)
@@ -1182,7 +1186,8 @@ on its own:
 - Sync modes: queue (default), trigger, ORM, manual; watches for joined tables.
 - Doctor with fixes; CLI commands for schema, reindex, worker, search and explain.
 
-[Unreleased]: https://github.com/er2es/fuzzphony/compare/v0.10.1...HEAD
+[Unreleased]: https://github.com/er2es/fuzzphony/compare/v0.11.0...HEAD
+[0.11.0]: https://github.com/er2es/fuzzphony/compare/v0.10.1...v0.11.0
 [0.10.1]: https://github.com/er2es/fuzzphony/compare/v0.10.0...v0.10.1
 [0.10.0]: https://github.com/er2es/fuzzphony/compare/v0.9.13...v0.10.0
 [0.9.13]: https://github.com/er2es/fuzzphony/compare/v0.9.12...v0.9.13
