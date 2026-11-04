@@ -10,8 +10,8 @@ use ApiPlatform\Metadata\Operation;
 use Doctrine\ORM\QueryBuilder;
 use Fuzzphony\Bridge\Doctrine\EntityLoader;
 use Fuzzphony\Core\Fuzzphony;
-use Fuzzphony\Core\Search\Hit;
 use Fuzzphony\Core\Search\ActorResolver;
+use Fuzzphony\Core\Search\Hit;
 
 /**
  * Relevance search for API Platform collections:
