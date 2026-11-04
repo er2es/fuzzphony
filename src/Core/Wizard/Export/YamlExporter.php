@@ -48,7 +48,7 @@ final class YamlExporter
 
     /**
      * A text of several lines as a block scalar that reads back as the same text: `|-` has no final newline, `|` one, `|+` more. A text that
-     * starts with a blank, or has a line made of blanks only, would need an indentation indicator: it is written as a double-quoted string.
+     * starts with a blank (space or tab), contains a carriage return, or is only newlines, would need an indentation indicator or cannot be a block scalar: it is written as a double-quoted string.
      */
     private function multiline(string $pad, string $label, string $value): string
     {

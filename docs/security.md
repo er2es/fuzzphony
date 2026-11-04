@@ -335,6 +335,9 @@ the search finds nothing. (Before 0.9 the error appeared only when there were hi
   that moved to another tenant since the last sync returns no data.
 - A returnable column that is not a `granted` field is returned to every viewer who may search the index. Do not list a column in `returnable` that
   some viewers must not see unless it is also a `granted` field (by name or by column).
+- `with()` reads the **current** row, not the indexed one: between a change of the row and the next sync, a hit can return the current values (for a row that
+  has since left the result set, say by an application flag). Only the tenant condition is checked again, so do not list a column in `returnable` whose
+  value must never be seen once the row stops matching.
 - The statement is read with the search role, which then needs `SELECT` on the source tables ([roles](roles.md)).
 
 ### `restrictedToFields()` in your own code
