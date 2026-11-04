@@ -42,18 +42,27 @@ final class FilterCompilerManyTest extends TestCase
         self::assertSame('NOT (' . $none . ')', self::sql((new SearchQuery())->where('city', '!=', null)));
     }
 
-    public function testOneValueAndItsNegation(): void
+    public function testOneValue(): void
     {
         self::assertSame('coalesce(s."f_city" @> ARRAY[:p0]::text[], false)', self::sql((new SearchQuery())->where('city', 'Budapest')));
-        self::assertSame('NOT coalesce(s."f_city" @> ARRAY[:p0]::text[], false)', self::sql((new SearchQuery())->where('city', '!=', 'Budapest')));
     }
 
-    public function testListsOfValuesAreAnOverlapAndItsNegation(): void
+    public function testNegationsOfAValueAreRefusedBecauseTheStoredValuesAreTruncated(): void
+    {
+        foreach ([['!=', 'Budapest', '!='], ['not in', ['a', 'b'], 'NOT IN'], ['not in', [], 'NOT IN']] as [$operator, $value, $shown]) {
+            try {
+                self::sql((new SearchQuery())->where('city', $operator, $value));
+                self::fail($shown . ' on a many filter');
+            } catch (InvalidQuery $e) {
+                self::assertStringContainsString('Filter "city" takes several values per document and stores only the first ones, so ' . $shown . ' could let through', $e->getMessage());
+            }
+        }
+    }
+
+    public function testListsOfValuesAreAnOverlap(): void
     {
         self::assertSame('coalesce(s."f_city" && ARRAY[:p0, :p1]::text[], false)', self::sql((new SearchQuery())->whereIn('city', ['a', 'b'])));
-        self::assertSame('NOT coalesce(s."f_city" && ARRAY[:p0, :p1]::text[], false)', self::sql((new SearchQuery())->where('city', 'not in', ['a', 'b'])));
         self::assertSame('FALSE', self::sql((new SearchQuery())->whereIn('city', [])));
-        self::assertSame('TRUE', self::sql((new SearchQuery())->where('city', 'not in', [])));
     }
 
     public function testNotInIsRefusedAsAnOrderingOperatorIsAndNamesTheOperator(): void
@@ -62,7 +71,7 @@ final class FilterCompilerManyTest extends TestCase
             self::sql((new SearchQuery())->where('city', '>', 'a'));
             self::fail('a range on a many filter');
         } catch (InvalidQuery $e) {
-            self::assertSame('Filter "city" takes several values per document: it supports =, !=, IN, NOT IN and null checks (any value matches), not >.', $e->getMessage());
+            self::assertSame('Filter "city" takes several values per document: it supports =, IN and null checks (any value matches), not >.', $e->getMessage());
         }
     }
 

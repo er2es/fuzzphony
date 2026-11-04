@@ -11,6 +11,7 @@ use Doctrine\ORM\QueryBuilder;
 use Fuzzphony\Bridge\Doctrine\EntityLoader;
 use Fuzzphony\Core\Fuzzphony;
 use Fuzzphony\Core\Search\ActorResolver;
+use Fuzzphony\Core\Search\Hit;
 
 /**
  * Relevance search for API Platform collections:
@@ -51,7 +52,7 @@ final class FuzzphonySearchFilter implements FilterInterface
         $alias = $queryBuilder->getRootAliases()[0];
         $metadata = $queryBuilder->getEntityManager()->getClassMetadata($resourceClass);
         $idField = $metadata->getSingleIdentifierFieldName();
-        $matching = EntityLoader::fittingIds($metadata, $idField, $result->ids()); // an id that cannot be an id of the entity matches nothing
+        $matching = EntityLoader::fittingIds($metadata, $idField, array_map(static fn(Hit $hit): int|string => $hit->id, EntityLoader::hitsOfClass($this->fuzzphony, $result->hits, $resourceClass))); // an id that cannot be an id of the entity matches nothing
 
         if ($matching === []) {
             $queryBuilder->andWhere('1 = 0');

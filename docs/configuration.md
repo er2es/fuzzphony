@@ -355,7 +355,7 @@ values of a document by it, and the doctor warns when there is none.
 - **A search finds a customer by any of its values** (`budapest` finds the customer with a Budapest address, `szged` finds `Szeged` by typo,
   `city:vienna` scopes to the field). The field takes part in ranking as one field with the weight you gave it.
 - **A many filter matches when any value does.** `->where('city', 'Budapest')` finds the customers with at least one Budapest address; a
-  customer with two counts once. `=`, `!=`, `IN`, `NOT IN` and the null checks work (a customer without a value is null); ranges do not,
+  customer with two counts once. `=`, `IN` and the null checks work (a customer without a value is null); ranges do not, and neither do `!=` and `NOT IN`: only the first `limit` values of a customer are stored, so a customer whose value lies past it would pass the negation (fail open), and the query is refused with an `InvalidQuery` naming the filter (exclude with a single-valued filter instead),
   and only `string` filters can be many. A facet over it counts **documents** per value, never values.
 - **The hit says which value matched**: with `explainMatches()` every `MatchedWord` of a many field carries `valueOrd` (the position of the
   value, from 0) and `value` (the stored text). `highlight('city')` shows the value that matches best, not the whole list.

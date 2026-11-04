@@ -79,12 +79,13 @@ final readonly class EntityLoader
      */
     public function load(SearchResult $result, string $class): array
     {
-        if ($result->hits === []) {
+        $hits = $this->fuzzphony === null ? $result->hits : self::hitsOfClass($this->fuzzphony, $result->hits, $class);
+        if ($hits === []) {
             return [];
         }
         $metadata = $this->entityManager->getClassMetadata($class);
         $idField = $metadata->getIdentifierFieldNames()[0];
-        $ids = self::fittingIds($metadata, $idField, $result->ids());
+        $ids = self::fittingIds($metadata, $idField, array_map(static fn(Hit $hit): int|string => $hit->id, $hits));
         if ($ids === []) {
             return [];
         }
@@ -95,13 +96,32 @@ final readonly class EntityLoader
         }
 
         $out = [];
-        foreach ($result->hits as $hit) {
+        foreach ($hits as $hit) {
             if (isset($entities[(string) $hit->id])) {
                 $out[] = ['hit' => $hit, 'entity' => $entities[(string) $hit->id]];
             }
         }
 
         return $out;
+    }
+
+    /**
+     * The hits whose id is an id of the entity class: on a multi-source index only the hits of the sources that read the class (a hit of
+     * another kind has an id of another table, never to be looked up as this entity); a single-source index: every hit.
+     *
+     * @param list<Hit> $hits
+     *
+     * @return list<Hit>
+     *
+     * @internal
+     */
+    public static function hitsOfClass(Fuzzphony $fuzzphony, array $hits, string $class): array
+    {
+        return array_values(array_filter($hits, static function (Hit $hit) use ($fuzzphony, $class): bool {
+            $definition = $fuzzphony->definition($hit->index);
+
+            return !$definition->isMultiSource() || $definition->sourceNamed($hit->kind)?->entityClass === $class;
+        }));
     }
 
     /**

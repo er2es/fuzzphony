@@ -6,6 +6,7 @@ namespace Fuzzphony\Tests\Integration;
 
 use Fuzzphony\Core\Database\Connection;
 use Fuzzphony\Core\Definition\IndexDefinition;
+use Fuzzphony\Core\Exception\InvalidQuery;
 use Fuzzphony\Core\Fuzzphony;
 use Fuzzphony\Core\Registry\IndexRegistry;
 use Fuzzphony\Core\Support\Coerce;
@@ -88,13 +89,26 @@ final class ManyValuesTest extends TestCase
         self::assertSame([1, 2, 3], self::ids($f->in('customers')->query('city:budapest OR city:debrecen')->get()));
     }
 
+    public function testNegationsOfAManyFilterAreRefusedNeverFailOpen(): void
+    {
+        $f = $this->install($this->definition());
+
+        foreach ([['!=', 'Vienna'], ['not in', ['Vienna']]] as [$operator, $value]) {
+            try {
+                $f->in('customers')->where('city', $operator, $value)->get();
+                self::fail($operator . ' on a many filter');
+            } catch (InvalidQuery $e) {
+                self::assertStringContainsString('Filter "city" takes several values per document', $e->getMessage());
+            }
+        }
+    }
+
     public function testTheFilterIsAnyMatchAndCountsDocuments(): void
     {
         $f = $this->install($this->definition());
 
         self::assertSame([1, 3], self::ids($f->in('customers')->where('city', 'Budapest')->get()));
         self::assertSame([1, 2], self::ids($f->in('customers')->whereIn('city', ['Vienna', 'Szeged'])->get()));
-        self::assertSame([2, 3, 4], self::ids($f->in('customers')->where('city', '!=', 'Vienna')->get()));
         self::assertSame([4], self::ids($f->in('customers')->whereNull('city')->get()));
 
         $facets = $f->in('customers')->query('alice OR bob OR carol')->facets('city')->get()->facets;
