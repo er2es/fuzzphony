@@ -42,7 +42,7 @@ foreach ($result as $hit) {
 }
 ```
 
-Status: pre-1.0 (v0.11.0). The API may still change before 1.0; 0.10.0 gathered the remaining breaking changes, 0.11.0 is additive. Breaking changes are listed in the
+Status: pre-1.0 (v0.11.1). The API may still change before 1.0; 0.10.0 gathered the remaining breaking changes, 0.11.0 is additive. Breaking changes are listed in the
 [CHANGELOG](https://github.com/er2es/fuzzphony/blob/main/CHANGELOG.md) and explained in
 [UPGRADE.md](https://github.com/er2es/fuzzphony/blob/main/UPGRADE.md).
 
@@ -268,7 +268,7 @@ Details in [docs/limitations.md](https://github.com/er2es/fuzzphony/blob/main/do
 
 ## Roadmap
 
-Current: v0.11.0, additive on v0.10.0 (definition classes, multi-source indexes with a `kind`, `with()` source fields, several values per
+Current: v0.11.1 (a demo patch), v0.11.0 was additive on v0.10.0 (definition classes, multi-source indexes with a `kind`, `with()` source fields, several values per
 document, and an ERP demo). PostgreSQL only before 1.0:
 
 - v0.12.0: ranking by the best single value of a field with several values (to be discussed first).

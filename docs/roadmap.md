@@ -108,13 +108,9 @@ additive work after it (0.11.0, released) and the stable 1.0.0 do not have to ch
   - The demo follows: its catalogue pages say `->asSystem()`, the Security page compares the calls and the Analytics page marks rescued searches.
 - v0.10.1, a patch: the Benchmark workflow works with the 0.10 `granted` rule, `explainMatches()` explains a short word matched through its synonym, and the new security-sensitive code has stricter tests.
 - v0.11.0, several sources, additive: definition classes (`#[AsIndexDefinition]`) for several indexes of one entity; multi-source indexes (`sources:`, `kind`, typed ids, `Hit::$index`); `EntityLoader::loadHits()`; the doctor `Watches` check; federated floors (`atLeast`); `returnable` and `with()`; `many` values per document; operational gauges; and the ERP demo (data set, four indexes, the ERP page with separate and combined boxes, the sync demonstration, a second wizard sample).
+- v0.11.1, a demo patch (the library is unchanged): a search box in the header of every page that searches every index of the demo at once (a federated search grouped per index; `/` or Ctrl+K opens it).
 
 ## Next
-
-### v0.11.1: a demo patch
-
-A search box in the demo's header that searches every index at once (a federated search, grouped per index, `/` or Ctrl+K opens
-it), and the loose ends of 0.11 (a test that failed once, the generated config reference).
 
 ### v0.12.0: ranking by the best value
 
