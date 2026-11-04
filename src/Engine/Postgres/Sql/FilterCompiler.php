@@ -81,7 +81,7 @@ final class FilterCompiler
             Operator::IsNotNull => 'NOT (' . $none . ')',
             Operator::Eq => $c->value === null ? $none : $one(),
             Operator::Neq => $c->value === null ? 'NOT (' . $none . ')' : 'NOT ' . $one(),
-            Operator::In, Operator::NotIn => $this->manyIn($c, $column, $bind),
+            Operator::In => $this->manyIn($c, $column, $bind),
             default => throw new InvalidQuery(sprintf('Filter "%s" takes several values per document: it supports =, IN and null checks (any value matches), not %s.', $c->filter, strtoupper($c->operator->value))),
         };
     }
@@ -96,11 +96,10 @@ final class FilterCompiler
             throw new InvalidQuery(sprintf('Filter "%s" accepts at most %d values in IN().', $c->filter, self::MAX_IN_VALUES));
         }
         if ($c->value === []) {
-            return $c->operator === Operator::In ? 'FALSE' : 'TRUE';
+            return 'FALSE';
         }
-        $any = sprintf('coalesce(%s && ARRAY[%s]::text[], false)', $column, implode(', ', array_map($bind, array_values($c->value))));
 
-        return $c->operator === Operator::In ? $any : 'NOT ' . $any;
+        return sprintf('coalesce(%s && ARRAY[%s]::text[], false)', $column, implode(', ', array_map($bind, array_values($c->value))));
     }
 
     /** @param \Closure(mixed): string $bind */

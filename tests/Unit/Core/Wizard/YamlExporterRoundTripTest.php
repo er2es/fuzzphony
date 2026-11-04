@@ -56,7 +56,7 @@ final class YamlExporterRoundTripTest extends TestCase
 
     public function testATextThatStartsWithABlankIsWrittenQuotedWithoutEscapingTextOrSlashes(): void
     {
-        $yaml = self::write(['note' => " \u{e9}/\u{151}\nline"], 0);
+        $yaml = self::write(['note' => " \u{e9}/\u{151}\nline"]);
 
         self::assertSame("note: \" \u{e9}/\u{151}\\nline\"\n", $yaml);
     }
