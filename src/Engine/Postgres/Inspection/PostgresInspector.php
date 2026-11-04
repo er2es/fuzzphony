@@ -707,6 +707,20 @@ final class PostgresInspector
                 $missing[] = $watch->table;
             }
         }
+        $absent = [];
+        foreach ($index->effectiveWatches() as $watch) {
+            if ($this->connection->fetchValue('SELECT to_regclass(:tbl) IS NULL', ['tbl' => Sql::ident($watch->table)]) === true) {
+                $absent[] = $watch->table;
+            }
+        }
+        if ($absent !== []) {
+            // the drain function names the table (its row type): it fails on every run, which a worker only shows as a repeating database error
+            return [Check::error(
+                'Shared change log',
+                sprintf('The watched table %s does not exist or is not on the search path: the drain of "%s" fails on every run and its changes never reach the queue.', implode(', ', array_unique($absent)), $index->name),
+                'create the table, or give the watch its schema-qualified name (schema.table); then run the apply again',
+            )];
+        }
         $function = $this->connection->fetchValue('SELECT to_regprocedure(:function) IS NOT NULL', ['function' => $this->names->drainFunction($index) . '()']) === true;
         if ($missing !== [] || !$function) {
             return [Check::error(
