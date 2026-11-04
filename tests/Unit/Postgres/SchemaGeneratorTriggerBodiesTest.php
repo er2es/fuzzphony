@@ -58,7 +58,7 @@ final class SchemaGeneratorTriggerBodiesTest extends TestCase
         $statement = self::items('trigger', 'statement');
         $row = self::items('trigger', 'row');
         $manual = self::items('manual', 'row');
-        $names = static fn(IndexDefinition $i): array => array_map(static fn(string $n): string => substr($n, strrpos($n, '__') + 2), $generator->obsoleteTriggerNames($i, $i->effectiveWatches()[0]));
+        $names = static fn(IndexDefinition $i): array => array_map(static fn(string $n): string => (string) preg_replace('/^.*__/', '', $n), $generator->obsoleteTriggerNames($i, $i->effectiveWatches()[0]));
 
         self::assertSame(['item'], $names($statement), 'the row trigger goes');
         self::assertSame(['item_ins', 'item_upd', 'item_del'], $names($row), 'the transition-table triggers go');

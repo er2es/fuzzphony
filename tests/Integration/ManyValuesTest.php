@@ -438,7 +438,7 @@ final class ManyValuesTest extends TestCase
         self::assertStringNotContainsString('city ->', $fieldColumns->message);
     }
 
-    /** @return array<string, array{string, string}> the "Values ..." checks by name: status and message */
+    /** @return array<string, list<array{string, string}>> the "Values ..." checks by name: status and message */
     private static function valueChecks(\Fuzzphony\Core\Inspection\InspectionReport $report): array
     {
         $out = [];

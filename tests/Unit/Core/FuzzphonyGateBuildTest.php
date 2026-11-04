@@ -26,7 +26,7 @@ final class FuzzphonyGateBuildTest extends TestCase
         return new RecordingConnection(static fn(): mixed => null);
     }
 
-    /** @return iterable<string, array{array<string, mixed>, bool}> */
+    /** @return iterable<string, array{\Closure(RecordingConnection): Fuzzphony, bool}> */
     public static function settings(): iterable
     {
         $guard = new class implements SearchGuard {
@@ -41,29 +41,35 @@ final class FuzzphonyGateBuildTest extends TestCase
                 return Actor::anonymous();
             }
         };
+        $indexes = [Indexes::products()];
 
-        yield 'nothing' => [[], false];
-        yield 'a guard' => [['guards' => [$guard]], true];
-        yield 'the search log' => [['searchLog' => true], true];
-        yield 'a log of its own' => [['log' => new RecordingSearchLog()], true];
-        yield 'a redaction' => [['redact' => ['email']], true];
-        yield 'an ip mode' => [['ipMode' => IpMode::Full], true];
-        yield 'an actor resolver' => [['actors' => $resolver], true];
-        yield 'system searches switched off' => [['allowSystem' => false], true];
+        yield 'nothing' => [static fn(RecordingConnection $c): Fuzzphony => Fuzzphony::postgres($c, $indexes), false];
+        yield 'a guard' => [static fn(RecordingConnection $c): Fuzzphony => Fuzzphony::postgres($c, $indexes, guards: [$guard]), true];
+        yield 'the search log' => [static fn(RecordingConnection $c): Fuzzphony => Fuzzphony::postgres($c, $indexes, searchLog: true), true];
+        yield 'a log of its own' => [static fn(RecordingConnection $c): Fuzzphony => Fuzzphony::postgres($c, $indexes, log: new RecordingSearchLog()), true];
+        yield 'a redaction' => [static fn(RecordingConnection $c): Fuzzphony => Fuzzphony::postgres($c, $indexes, redact: ['email']), true];
+        yield 'an ip mode' => [static fn(RecordingConnection $c): Fuzzphony => Fuzzphony::postgres($c, $indexes, ipMode: IpMode::Full), true];
+        yield 'an actor resolver' => [static fn(RecordingConnection $c): Fuzzphony => Fuzzphony::postgres($c, $indexes, actors: $resolver), true];
+        yield 'system searches switched off' => [static fn(RecordingConnection $c): Fuzzphony => Fuzzphony::postgres($c, $indexes, allowSystem: false), true];
     }
 
-    /** @param array<string, mixed> $settings */
+    /** @param \Closure(RecordingConnection): Fuzzphony $build */
     #[DataProvider('settings')]
-    public function testTheGateExistsExactlyWhenASettingNeedsIt(array $settings, bool $gate): void
+    public function testTheGateExistsExactlyWhenASettingNeedsIt(\Closure $build, bool $gate): void
     {
-        $fuzzphony = Fuzzphony::postgres(self::connection(), [Indexes::products()], ...$settings);
+        $fuzzphony = $build(self::connection());
 
         self::assertSame($gate, (new \ReflectionProperty(Fuzzphony::class, 'gate'))->getValue($fuzzphony) !== null);
     }
 
     public function testARedactionSettingBuildsARedactorAndNoneBuildsNone(): void
     {
-        $gateOf = static fn(Fuzzphony $f): object => (new \ReflectionProperty(Fuzzphony::class, 'gate'))->getValue($f) ?? throw new \LogicException('no gate');
+        $gateOf = static function (Fuzzphony $f): object {
+            $gate = (new \ReflectionProperty(Fuzzphony::class, 'gate'))->getValue($f);
+            self::assertIsObject($gate);
+
+            return $gate;
+        };
         $redactor = static fn(object $gate): mixed => (new \ReflectionProperty($gate, 'redactor'))->getValue($gate);
 
         self::assertNotNull($redactor($gateOf(Fuzzphony::postgres(self::connection(), [Indexes::products()], redact: ['email']))));

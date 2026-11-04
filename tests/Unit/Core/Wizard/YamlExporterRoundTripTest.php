@@ -25,6 +25,24 @@ final class YamlExporterRoundTripTest extends TestCase
         yield 'unicode and slashes stay readable' => ["SELECT id, '\u{e9}/\u{151}' AS title\n \nFROM item"];
     }
 
+    private static function at(mixed $value, string ...$path): mixed
+    {
+        foreach ($path as $key) {
+            self::assertIsArray($value);
+            $value = $value[$key] ?? null;
+        }
+
+        return $value;
+    }
+
+    private static function write(mixed $data): string
+    {
+        $out = (new \ReflectionMethod(YamlExporter::class, 'node'))->invoke(new YamlExporter(), $data, 0);
+        self::assertIsString($out);
+
+        return $out;
+    }
+
     #[DataProvider('queries')]
     public function testAMultilineQueryReadsBackAsTheSameText(string $query): void
     {
@@ -32,22 +50,20 @@ final class YamlExporterRoundTripTest extends TestCase
 
         $parsed = Yaml::parse((new YamlExporter())->export($index));
 
-        self::assertSame($index->source->query, $parsed['fuzzphony']['indexes']['items']['source']['query']);
+        self::assertIsArray($parsed);
+        self::assertSame($index->source->query, self::at($parsed, 'fuzzphony', 'indexes', 'items', 'source', 'query'));
     }
 
     public function testATextThatStartsWithABlankIsWrittenQuotedWithoutEscapingTextOrSlashes(): void
     {
-        $node = new \ReflectionMethod(YamlExporter::class, 'node');
-
-        $yaml = $node->invoke(new YamlExporter(), ['note' => " \u{e9}/\u{151}\nline"], 0);
+        $yaml = self::write(['note' => " \u{e9}/\u{151}\nline"], 0);
 
         self::assertSame("note: \" \u{e9}/\u{151}\\nline\"\n", $yaml);
     }
 
     public function testTheBlockIndicatorFollowsTheNumberOfFinalNewlines(): void
     {
-        $node = new \ReflectionMethod(YamlExporter::class, 'node');
-        $write = static fn(string $text): string => $node->invoke(new YamlExporter(), ['k' => $text], 0);
+        $write = static fn(string $text): string => self::write(['k' => $text]);
 
         self::assertSame("k: |-\n  a\n  b\n", $write("a\nb"));
         self::assertSame("k: |\n  a\n  b\n", $write("a\nb\n"));
@@ -58,9 +74,7 @@ final class YamlExporterRoundTripTest extends TestCase
     public function testListsOfMapsAndOfListsNestUnderTheirDash(): void
     {
         $data = ['rules' => [['name' => 'a', 'tags' => ['x', 'y']], ['name' => 'b']], 'grid' => [[['p' => 1]], ['q', 'r']]];
-        $node = new \ReflectionMethod(YamlExporter::class, 'node');
-
-        $yaml = $node->invoke(new YamlExporter(), $data, 0);
+        $yaml = self::write($data);
 
         self::assertSame($data, Yaml::parse($yaml));
         self::assertStringContainsString("rules:\n  -\n    name: a\n", $yaml);

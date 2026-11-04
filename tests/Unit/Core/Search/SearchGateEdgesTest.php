@@ -136,7 +136,7 @@ final class SearchGateEdgesTest extends TestCase
 
             public function gauge(string $event, float $value, array $labels = []): void {}
 
-            /** @var list<array<string, string>> */
+            /** @var list<array<string, bool|float|int|string>> */
             public array $labels = [];
         };
         $logger = $this->createMock(LoggerInterface::class);
