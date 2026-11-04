@@ -70,6 +70,26 @@ final class NamesTest extends TestCase
         self::assertSame('"public"."fuzzphony_german_stop"', $names->stopDictionary(new TextConfig('german')));
     }
 
+    public function testALongOpenClassIndexKeepsItsTailAndShortensTheSidecarPartWithItsOwnHash(): void
+    {
+        $names = new Names();
+        $index = IndexDefinition::builder(str_repeat('x', 40))->fromTable('t')->field('title')->build();
+        $sidecar = 'fuzzphony_' . str_repeat('x', 40);
+
+        $name = $names->indexName($index, 'open_fz_0123abcd');
+
+        self::assertSame(63, strlen($name));
+        self::assertSame(substr($sidecar, 0, 36) . '_' . hash('crc32b', $sidecar) . '__open_fz_0123abcd', $name);
+    }
+
+    public function testTheSyncFunctionOfASourceWatchNamesTheSource(): void
+    {
+        $index = IndexDefinition::builder('shop')->fromTable('t')->field('title')->build();
+
+        self::assertSame('fuzzphony_sync_shop__item__public_orders', (new Names())->syncFunctionName($index, new Watch('public.orders', source: 'item')));
+        self::assertSame('fuzzphony_sync_shop__public_orders', (new Names())->syncFunctionName($index, new Watch('public.orders')));
+    }
+
     public function testLongNamesAreCutToThePostgresLimitAndStayUnique(): void
     {
         $long = str_repeat('a', 70);
