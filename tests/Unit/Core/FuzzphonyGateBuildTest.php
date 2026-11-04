@@ -5,13 +5,13 @@ declare(strict_types=1);
 namespace Fuzzphony\Tests\Unit\Core;
 
 use Fuzzphony\Core\Analytics\IpMode;
+use Fuzzphony\Core\Definition\IndexDefinition;
 use Fuzzphony\Core\Exception\InvalidArgument;
 use Fuzzphony\Core\Fuzzphony;
+use Fuzzphony\Core\Search\Access;
 use Fuzzphony\Core\Search\Actor;
 use Fuzzphony\Core\Search\ActorResolver;
-use Fuzzphony\Core\Search\Access;
 use Fuzzphony\Core\Search\SearchGuard;
-use Fuzzphony\Core\Definition\IndexDefinition;
 use Fuzzphony\Tests\Fixtures\Indexes;
 use Fuzzphony\Tests\Unit\Core\Search\RecordingSearchLog;
 use Fuzzphony\Tests\Unit\Postgres\RecordingConnection;
