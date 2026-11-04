@@ -322,6 +322,24 @@ A highlight name is validated upfront, for everyone, before a hidden field is dr
 highlight an unknown or non-highlightable field is an error whatever the viewer may see, and even when
 the search finds nothing. (Before 0.9 the error appeared only when there were hits.)
 
+### Returned fields
+
+`SearchBuilder::with()` returns columns of the source row ([Searching](searching.md#returning-source-fields-with)); the rules are the ones of the search:
+
+- A `returnable` column that is also a `granted` index field (the field has that name, or reads that column: `field('pay', column: 'salary', granted: ...)` gates `salary`) is returned only to an actor who holds it. For anyone else it is **not there**:
+  `with('salary')` fails with the same `InvalidQuery` as a name that does not exist (the message lists only the columns this actor may ask for, so it
+  does not reveal that the column exists), and `with()` with no argument leaves it out. An actor without a guard answer (anonymous, a command) holds
+  no granted field.
+- `restrictedToFields()` narrows the returned granted columns like it narrows the search.
+- The ids come from the search, which is already tenant-scoped; a tenant-scoped index repeats its tenant condition on the source query too, so a row
+  that moved to another tenant since the last sync returns no data.
+- A returnable column that is not a `granted` field is returned to every viewer who may search the index. Do not list a column in `returnable` that
+  some viewers must not see unless it is also a `granted` field (by name or by column).
+- `with()` reads the **current** row, not the indexed one: between a change of the row and the next sync, a hit can return the current values (for a row that
+  has since left the result set, say by an application flag). Only the tenant condition is checked again, so do not list a column in `returnable` whose
+  value must never be seen once the row stops matching.
+- The statement is read with the search role, which then needs `SELECT` on the source tables ([roles](roles.md)).
+
 ### `restrictedToFields()` in your own code
 
 The same restriction is available to application code, with no guard:

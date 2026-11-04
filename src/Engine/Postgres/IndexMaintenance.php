@@ -46,6 +46,9 @@ final readonly class IndexMaintenance
     /** @return list<int|string> */
     public function sourceIds(IndexDefinition $index, int|string|null $after, int $limit): array
     {
+        if ($index->isMultiSource()) {
+            return $this->multiSourceIds($index, $after === null ? null : (string) $after, $limit);
+        }
         $params = ['limit' => $limit];
         $where = '';
         if ($after !== null) {
@@ -61,6 +64,51 @@ final readonly class IndexMaintenance
         return array_map(static fn(array $row): int|string => $index->idType->cast(Coerce::str($row['id'])), $rows);
     }
 
+    /**
+     * The stored keys of a multi-source index, source by source (in declaration order) and by the source's own key inside it, so a
+     * batch reads one source's index in order instead of sorting the union. `$after` is the last key of the previous batch.
+     *
+     * @return list<string>
+     */
+    private function multiSourceIds(IndexDefinition $index, ?string $after, int $limit): array
+    {
+        $sources = $index->activeSources();
+        $from = 0;
+        $afterId = null;
+        if ($after !== null) {
+            $kind = explode(':', $after, 2)[0];
+            foreach ($sources as $i => $source) {
+                if ($source->name === $kind) {
+                    $from = $i;
+                    $afterId = substr($after, strlen($kind) + 1);
+                }
+            }
+        }
+        $keys = [];
+        foreach (array_slice($sources, $from) as $i => $source) {
+            $params = ['limit' => $limit - count($keys)];
+            $where = '';
+            if ($i === 0 && $afterId !== null) {
+                $where = sprintf('WHERE d.%s > CAST(:after AS %s)', Sql::ident($source->source->idColumn), Types::id($source->idType));
+                $params['after'] = $afterId;
+            }
+            $rows = $this->guard->run('source ids', fn(): array => $this->connection->fetchAll(sprintf(
+                'SELECT d.%1$s::text AS id FROM (%2$s) AS d %3$s ORDER BY d.%1$s LIMIT :limit',
+                Sql::ident($source->source->idColumn),
+                $source->source->query ?? 'SELECT * FROM ' . Sql::ident((string) $source->source->table),
+                $where,
+            ), $params), 'Run "bin/console fuzzphony:doctor": it checks that the source can be queried.');
+            foreach ($rows as $row) {
+                $keys[] = $source->key(Coerce::str($row['id']));
+            }
+            if (count($keys) >= $limit) {
+                break;
+            }
+        }
+
+        return $keys;
+    }
+
     public function pruneOrphans(IndexDefinition $index, int $batchSize): int
     {
         if ($batchSize < 1) {
@@ -69,6 +117,31 @@ final readonly class IndexMaintenance
         // Keyset pagination over the sidecar: each statement checks (and locks) at most one batch,
         // and the whole run reads every indexed id once. Same anti-join as the refresh function.
         $sidecar = $this->names->sidecar($index);
+        if ($index->isMultiSource()) {
+            // the documents of the batch only are looked up (each kind's part in its own source); a narrowed run touches one kind
+            $kind = $index->onlySource;
+            $sql = fn(bool $first): string => sprintf(
+                <<<'SQL'
+                    WITH batch AS (
+                        SELECT s.id FROM %1$s AS s %2$s ORDER BY s.id LIMIT :limit
+                    ), removed AS (
+                        DELETE FROM %1$s AS s
+                        USING batch AS b
+                        WHERE s.id = b.id
+                          AND NOT EXISTS (SELECT 1 FROM (%3$s) AS doc WHERE doc.fz_id = b.id)
+                        RETURNING 1
+                    )
+                    SELECT (SELECT count(*) FROM batch) AS scanned,
+                           (SELECT b.id::text FROM batch AS b ORDER BY b.id DESC LIMIT 1) AS last,
+                           (SELECT count(*) FROM removed) AS removed
+                    SQL,
+                $sidecar,
+                self::where($first ? null : 's.id > CAST(:after AS text)', $kind === null ? null : 's.kind = ' . Sql::string($kind)),
+                DocumentSql::select($index, '(SELECT array_agg(x.id) FROM batch AS x)'),
+            );
+
+            return $this->pruneBatches($index, $sql, $batchSize);
+        }
         $sql = static fn(bool $first): string => sprintf(
             <<<'SQL'
                 WITH batch AS (
@@ -89,6 +162,22 @@ final readonly class IndexMaintenance
             DocumentSql::select($index),
         );
 
+        $removed = $this->pruneBatches($index, $sql, $batchSize);
+        if ($index->manyFields() !== []) {
+            // the values rows of the documents just removed (and of any that lost theirs some other way)
+            $this->guard->run('orphan pruning', fn(): int => $this->connection->execute(sprintf(
+                'DELETE FROM %1$s AS v WHERE NOT EXISTS (SELECT 1 FROM %2$s AS s WHERE s.id = v.doc)',
+                $this->names->values($index),
+                $sidecar,
+            )), Hints::SCHEMA_AND_DOCTOR);
+        }
+
+        return $removed;
+    }
+
+    /** @param \Closure(bool): string $sql the batch statement ($first: no keyset condition yet) */
+    private function pruneBatches(IndexDefinition $index, \Closure $sql, int $batchSize): int
+    {
         return $this->guard->run('orphan pruning', function () use ($index, $sql, $batchSize): int {
             $removed = 0;
             $after = null;
@@ -106,6 +195,13 @@ final readonly class IndexMaintenance
 
             return $removed;
         }, Hints::SCHEMA_AND_DOCTOR);
+    }
+
+    private static function where(?string ...$conditions): string
+    {
+        $conditions = array_filter($conditions, static fn(?string $c): bool => $c !== null);
+
+        return $conditions === [] ? '' : 'WHERE ' . implode(' AND ', $conditions);
     }
 
     public function recordReindex(IndexDefinition $index): void
@@ -150,7 +246,7 @@ final readonly class IndexMaintenance
                     DELETE FROM %1$s
                     WHERE (index_name, doc_id) IN (
                         SELECT index_name, doc_id FROM %1$s
-                        WHERE index_name = :index AND doc_id <> '*' AND %4$s
+                        WHERE index_name = :index AND %5$s AND %4$s
                         ORDER BY queued_at
                         LIMIT :limit
                         FOR UPDATE SKIP LOCKED
@@ -165,6 +261,7 @@ final readonly class IndexMaintenance
             $this->names->refreshFunction($index),
             Types::id($index->idType),
             self::DUE,
+            self::notARequest($index),
         );
 
         return $this->guard->run(
@@ -198,8 +295,9 @@ final readonly class IndexMaintenance
     {
         return Coerce::int($this->connection->transactional(function (Connection $c) use ($index, $limit): int {
             $rows = $c->fetchAll(sprintf(
-                "SELECT doc_id FROM %s WHERE index_name = :index AND doc_id <> '*' AND %s ORDER BY queued_at LIMIT :limit FOR UPDATE SKIP LOCKED",
+                'SELECT doc_id FROM %s WHERE index_name = :index AND %s AND %s ORDER BY queued_at LIMIT :limit FOR UPDATE SKIP LOCKED',
                 $this->names->queue(),
+                self::notARequest($index),
                 self::DUE,
             ), ['index' => $index->name, 'limit' => $limit]);
             $ids = array_map(static fn(array $row): string => Coerce::str($row['doc_id']), $rows);
@@ -268,6 +366,52 @@ final readonly class IndexMaintenance
         )) + $this->pendingChanges($index), 'Run "fuzzphony:schema --apply" to create the queue table.');
     }
 
+    /**
+     * The gauges of `OperationalStats`: one statement each, on the small queue, watches and change-log tables (the queue by its
+     * (index_name, queued_at) index, the log by the entries past the index's cursor). A statement that fails (a table or column of an
+     * older schema) leaves its gauges out; the worker never stops over a metric.
+     *
+     * @return array<string, float>
+     */
+    public function operationalStats(IndexDefinition $index): array
+    {
+        $stats = [];
+        try {
+            $row = $this->connection->fetchAll(
+                sprintf("SELECT count(*) FILTER (WHERE attempts > 0 AND doc_id <> '*') AS failing, coalesce(extract(epoch FROM now() - min(queued_at)), 0)::bigint AS oldest FROM %s WHERE index_name = :index", $this->names->queue()),
+                ['index' => $index->name],
+            )[0] ?? null;
+            if ($row !== null) {
+                $stats['fuzzphony.queue.failing_items'] = (float) Coerce::int($row['failing']);
+                $stats['fuzzphony.queue.oldest_age_seconds'] = (float) Coerce::int($row['oldest']);
+            }
+        } catch (\Throwable) {
+        }
+        if (!SharedWatch::applies($index)) {
+            return $stats;
+        }
+        try {
+            $row = $this->connection->fetchAll(
+                sprintf('SELECT count(l.tbl) AS entries, coalesce(extract(epoch FROM now() - min(l.at)), 0)::bigint AS oldest FROM %s AS w LEFT JOIN %s AS l ON l.tbl = w.tbl AND l.xid >= w.cur_xid WHERE w.index_name = :index', $this->names->watches(), $this->names->watchLog()),
+                ['index' => $index->name],
+            )[0] ?? null;
+            if ($row !== null) {
+                $stats['fuzzphony.watch_log.entries'] = (float) Coerce::int($row['entries']);
+                $stats['fuzzphony.watch_log.oldest_age_seconds'] = (float) Coerce::int($row['oldest']);
+            }
+        } catch (\Throwable) {
+        }
+        try {
+            $stats['fuzzphony.watch.bad_rows'] = (float) Coerce::int($this->connection->fetchValue(
+                sprintf('SELECT coalesce(sum(bad_rows), 0)::bigint FROM %s WHERE index_name = :index', $this->names->watches()),
+                ['index' => $index->name],
+            ));
+        } catch (\Throwable) {
+        }
+
+        return $stats;
+    }
+
     /** The entries of the shared log the index has not drained yet (they become queue rows at its next drain). */
     public function pendingChanges(IndexDefinition $index): int
     {
@@ -279,6 +423,37 @@ final readonly class IndexMaintenance
             sprintf('SELECT count(*) FROM %s AS w JOIN %s AS l ON l.tbl = w.tbl AND l.xid >= w.cur_xid WHERE w.index_name = :index', $this->names->watches(), $this->names->watchLog()),
             ['index' => $index->name],
         ));
+    }
+
+    /** The queue rows that are documents: not the rebuild requests (`*`, and for a multi-source index `*:<kind>`). */
+    private static function notARequest(IndexDefinition $index): string
+    {
+        return $index->isMultiSource() ? "doc_id <> '*' AND NOT starts_with(doc_id, '*:')" : "doc_id <> '*'";
+    }
+
+    /**
+     * The sources of a multi-source index a TRUNCATE asked a rebuild of (queue rows `*:<kind>`); empty for the other indexes, and
+     * when the whole index is to be rebuilt (the `*` row, see rebuildRequested()).
+     *
+     * @return list<string>
+     */
+    public function rebuildRequestedSources(IndexDefinition $index): array
+    {
+        if (!$index->isMultiSource()) {
+            return [];
+        }
+        try {
+            $this->drainChanges($index);
+        } catch (\Throwable) {
+            // the queue as it is decides
+        }
+        $rows = $this->guard->run('queue processing', fn(): array => $this->connection->fetchAll(
+            sprintf("SELECT substr(doc_id, 3) AS kind FROM %s WHERE index_name = :index AND starts_with(doc_id, '*:')", $this->names->queue()),
+            ['index' => $index->name],
+        ), Hints::SCHEMA_AND_DOCTOR);
+        $requested = array_map(static fn(array $row): string => Coerce::str($row['kind']), $rows);
+
+        return array_values(array_filter(array_map(static fn($source): string => $source->name, $index->sources), static fn(string $name): bool => in_array($name, $requested, true)));
     }
 
     public function rebuildRequested(IndexDefinition $index): bool

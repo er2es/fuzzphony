@@ -90,8 +90,9 @@ final class ResultShapeTest extends TestCase
         self::assertEquals($data, json_decode((string) json_encode($result), true), 'json_encode() writes toArray()');
         self::assertSame(['hits', 'total', 'totalIsLowerBound', 'facets', 'didYouMean', 'correctedFrom', 'correctedTo', 'warnings', 'tookMs'], array_keys($data));
         self::assertSame(4, $data['total']);
-        self::assertSame(['kind', 'id', 'score', 'breakdown', 'highlights', 'mergedScore', 'matches'], array_keys($data['hits'][0]));
+        self::assertSame(['index', 'kind', 'id', 'score', 'breakdown', 'highlights', 'mergedScore', 'matches'], array_keys($data['hits'][0]));
         self::assertSame('shape_docs', $data['hits'][0]['kind']);
+        self::assertSame('shape_docs', $data['hits'][0]['index']);
         self::assertIsInt($data['hits'][0]['id']);
         self::assertNull($data['hits'][0]['matches'], 'not asked for');
         self::assertSame([['value' => 1, 'count' => 2], ['value' => 2, 'count' => 2]], $data['facets']['tid']);
@@ -121,6 +122,42 @@ final class ResultShapeTest extends TestCase
         self::assertGreaterThan(0.0, $viaTypo[0]['similarity']);
     }
 
+    public function testMatchesFollowPhrasesFieldScopesExclusionsAndTypoNever(): void
+    {
+        $fz = $this->fuzzphony();
+        $phrase = self::matchesById($fz->in('shape_docs')->query('"wireless mouse"')->explainMatches()->asSystem()->get());
+        self::assertContains(['field' => 'title', 'word' => 'wireless', 'via' => 'exact', 'similarity' => null], $phrase[1]);
+        self::assertContains(['field' => 'title', 'word' => 'mouse', 'via' => 'exact', 'similarity' => null], $phrase[1]);
+
+        $scoped = self::matchesById($fz->in('shape_docs')->query('title:mouse')->explainMatches()->asSystem()->get());
+        self::assertContains(['field' => 'title', 'word' => 'mouse', 'via' => 'exact', 'similarity' => null], $scoped[1]);
+        self::assertNotContains('body', array_column($scoped[1], 'field'), 'only the scoped field is looked at');
+
+        $excluded = $fz->in('shape_docs')->query('desk -zebrafish')->explainMatches()->asSystem()->get();
+        foreach ($excluded->hits as $hit) {
+            self::assertNotContains('zebrafish', array_column(array_map(static fn(MatchedWord $m): array => $m->toArray(), $hit->matches ?? []), 'word'));
+        }
+
+        $onlyExclusion = $fz->in('shape_docs')->query('-zebrafish')->explainMatches()->asSystem()->get();
+        foreach ($onlyExclusion->hits as $hit) {
+            self::assertSame([], $hit->matches, 'nothing was looked for, so nothing matched');
+        }
+
+        $off = self::matchesById($fz->in('shape_docs')->query('mouse')->thresholds(['typo' => ['mode' => 'never']])->explainMatches()->asSystem()->get());
+        self::assertNotContains('typo', array_column($off[1], 'via'));
+    }
+
+    public function testAWordThatMatchesTwiceIsListedOnceWithTheBestWay(): void
+    {
+        $fz = $this->fuzzphony();
+        foreach (['mouse mou*', 'mou* mouse'] as $query) {
+            $matches = self::matchesById($fz->in('shape_docs')->query($query)->explainMatches()->asSystem()->get());
+            $title = array_values(array_filter($matches[1], static fn(array $m): bool => $m['field'] === 'title' && $m['word'] === 'mouse'));
+
+            self::assertSame([['field' => 'title', 'word' => 'mouse', 'via' => 'exact', 'similarity' => null]], $title, $query);
+        }
+    }
+
     /** `tv` is shorter than typo.min_length, so the search typo-matches its synonym `telly` (word_similarity 0.333 >= the flat 0.3): the explanation names that match. */
     public function testAShortWordMatchedByTypoUnderAFlatSimilarityIsExplained(): void
     {
@@ -130,6 +167,41 @@ final class ResultShapeTest extends TestCase
         $result = $fz->in('shape_docs')->query('tv')->thresholds(['typo' => ['mode' => 'always', 'similarity' => 0.3], 'rescue' => ['correct_when_empty' => false]])->explainMatches()->asSystem()->get();
         self::assertSame([5], $result->ids());
         self::assertSame([['field' => 'title', 'word' => 'tefal', 'via' => 'typo', 'similarity' => 0.333]], self::matchesById($result)[5]);
+    }
+
+    public function testTheMatchesOfAHitFollowTheFieldsAndThePositionsOfTheText(): void
+    {
+        $fz = $this->fuzzphony();
+        $matches = self::matchesById($fz->in('shape_docs')->query('desk wireless mouse')->explainMatches()->asSystem()->get());
+
+        self::assertSame(
+            [['title', 'wireless'], ['title', 'mouse'], ['body', 'mouse'], ['body', 'desk']],
+            array_map(static fn(array $m): array => [$m['field'], $m['word']], $matches[1]),
+        );
+    }
+
+    public function testAWordMatchedTwiceDoesNotHideTheWordsAfterIt(): void
+    {
+        $fz = $this->fuzzphony();
+        foreach (['mouse mou*', 'mou* mouse'] as $query) {
+            $matches = self::matchesById($fz->in('shape_docs')->query($query)->explainMatches()->asSystem()->get());
+
+            self::assertSame(
+                [['title', 'mouse'], ['body', 'mouse']],
+                array_map(static fn(array $m): array => [$m['field'], $m['word']], $matches[1]),
+                $query,
+            );
+            self::assertSame([['title', 'mousepad', 'prefix'], ['body', 'mouse', 'exact'], ['secret', 'mouse', 'exact']], array_map(static fn(array $m): array => [$m['field'], $m['word'], $m['via']], $matches[3]), $query);
+        }
+    }
+
+    public function testAScopeOnANameThatIsNoFieldSearchesEveryField(): void
+    {
+        $fz = $this->fuzzphony();
+        $matches = self::matchesById($fz->in('shape_docs')->query('nonesuch:mouse')->explainMatches()->asSystem()->get());
+
+        self::assertContains(['field' => 'title', 'word' => 'mouse', 'via' => 'exact', 'similarity' => null], $matches[1]);
+        self::assertContains(['field' => 'body', 'word' => 'mouse', 'via' => 'exact', 'similarity' => null], $matches[1]);
     }
 
     public function testMatchesAreOnlyComputedForThePageAndOnlyWhenAsked(): void

@@ -11,6 +11,7 @@ set -eu
 cd /app/demo
 : "${DEMO_ROWS:=500000}"
 : "${DEMO_REINDEX:=auto}"   # auto | always | never
+: "${DEMO_ERP:=1}"            # 1 seeds the ERP data set (about 520 000 rows), 0 creates its tables empty (a fast stack)
 log() { printf '[init] %s\n' "$*"; }
 APP_ROLE=fuzzphony_app
 APP_STATEMENT_TIMEOUT=5s
@@ -89,6 +90,19 @@ else
     note_seeded=1
 fi
 
+# The ERP-like data set (customers, contacts, addresses, orders, lines) behind the indexes people, companies, orders and site,
+# seeded the same way. DEMO_ERP=0 creates the tables without rows, so the indexes stay valid.
+erp_seeded=0
+if [ "$(psql -tAc "SELECT to_regclass('public.erp_customer') IS NOT NULL")" = t ]; then
+    log "ERP data set present, not seeding"
+else
+    customers=100000
+    [ "$DEMO_ERP" = 0 ] && customers=0
+    log "seeding the ERP data set ($customers customers, sql/erp.sql)"
+    PGOPTIONS='-c client_min_messages=warning' psql -q -1 -v ON_ERROR_STOP=1 -v customers="$customers" -f sql/erp.sql
+    erp_seeded=1
+fi
+
 log "applying the schema"
 php bin/console fuzzphony:schema --apply --no-interaction
 
@@ -101,8 +115,8 @@ needs_reindex() { # <index> <its source was just seeded: 0|1>
     case "$DEMO_REINDEX" in always) return 0 ;; never) return 1 ;; esac
     [ "$2" = 1 ] || [ "$(psql -tAc "SELECT EXISTS (SELECT 1 FROM fuzzphony.fuzzphony_$1)")" != t ]
 }
-for index in catalog lang_en lang_de lang_fr lang_es lang_hu intranet; do
-    case "$index" in catalog) fresh=$seeded ;; intranet) fresh=$note_seeded ;; *) fresh=$lang_seeded ;; esac
+for index in catalog lang_en lang_de lang_fr lang_es lang_hu intranet people companies orders site; do
+    case "$index" in catalog) fresh=$seeded ;; intranet) fresh=$note_seeded ;; people|companies|orders|site) fresh=$erp_seeded ;; *) fresh=$lang_seeded ;; esac
     if needs_reindex "$index" "$fresh"; then
         log "reindexing $index"
         php bin/console fuzzphony:reindex "$index" --batch=20000 --no-interaction
@@ -113,7 +127,7 @@ done
 
 # A full reindex fills the vocabulary ("did you mean"); an index that already existed (an upgraded demo volume) has an
 # empty one, because the table is new: fill just that.
-for index in catalog lang_en lang_de lang_fr lang_es lang_hu intranet; do
+for index in catalog lang_en lang_de lang_fr lang_es lang_hu intranet people companies orders site; do
     if [ "$(psql -tAc "SELECT NOT EXISTS (SELECT 1 FROM fuzzphony.fuzzphony_${index}__vocab)")" = t ]; then
         log "building the vocabulary of $index"
         php bin/console fuzzphony:reindex "$index" --vocabulary --no-interaction
@@ -129,6 +143,9 @@ GRANT USAGE ON SCHEMA public TO :"role";
 GRANT SELECT ON ALL TABLES IN SCHEMA public TO :"role";
 -- the tables the app writes outside Fuzzphony's schema: the synonym lists the /synonyms page edits
 GRANT INSERT, UPDATE, DELETE ON demo_synonym_entry, demo_synonym_version TO :"role";
+-- and the one write of the ERP page's sync demonstration (/erp?tab=sync): it moves an address to another city, nothing else (not even
+-- another column of that table: the other ERP tables stay read-only for the application)
+GRANT UPDATE (city) ON erp_address TO :"role";
 GRANT USAGE ON SCHEMA fuzzphony TO :"role";
 GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA fuzzphony TO :"role";
 SQL

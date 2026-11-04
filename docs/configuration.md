@@ -34,14 +34,16 @@ is one command.
 | Doctrine entities, one index per entity, over (mostly) that entity's table | attributes (`#[Searchable]` on the class) |
 | A legacy database without entities (plain tables, no ORM) | YAML (Symfony) or the builder (plain PHP) |
 | A source with joins, or over several tables | YAML or the builder (`source.query`, `watch`) |
-| Several indexes over the same table or entity (attributes are one per class) | the first by attributes if you like, the others in YAML or the builder under another name |
+| Several indexes over the same table or entity (attributes are one per class) | the first by attributes if you like, the others as [definition classes](#definition-classes) (code, with the builder) or in YAML under another name |
+| Fields, weights or filters that depend on code, not on a table (an admin index next to the public one) | a [definition class](#definition-classes) (`#[AsIndexDefinition]`) |
 | An attribute index whose `sync`, `language`, `boost`, `watch`, ... you want to change per environment | a YAML entry with the same name overrides those keys (see [YAML](#yaml)) |
 
 **A join goes in the source query.** Attributes only name a table, so for a join define the index in YAML (`source.query`)
 or with the builder (`fromQuery()`); the first example under [YAML](#yaml) and the one under
 [Builder](#builder-plain-php) are joined indexes. The query returns one row per document, with the id in a column
 (`id` by default; `source.id`, or the second argument of `fromQuery()`, names another). A one-to-many join (a customer's
-addresses) must be folded into the row (`string_agg(...)` and `GROUP BY`), or the id repeats.
+addresses) is best declared as [several values per document](#several-values-per-document-many); folding it into the row
+(`string_agg(...)` and `GROUP BY`) also works and is still fine when you never need the matched value, a per-value filter or a limit.
 
 **List every joined table in `watch`**, or a change in it is not followed. A watch answers "when a row of this table
 changes, which document ids are affected": `SELECT :id` for the table the documents are keyed on, a query for a joined table
@@ -78,6 +80,46 @@ With these four tables (checked with `sync: queue`), one change in each table qu
 customer change its own document, a company change the documents of its customers, an address or a contact change (insert, update
 or delete) its customer, and nothing else. A watch without `columns` refreshes on every `UPDATE` of its table, also of a
 column the index does not use (see [Column-aware filtering](sync.md#column-aware-filtering)).
+
+### Definition classes
+
+A class with `#[AsIndexDefinition]` and a `build(IndexBuilder $builder): void` method defines one index with the builder, so one entity
+(or a legacy table without an entity) can have several. The builder arrives with the index name and the `entity` already set; the result
+is an ordinary index (same validation, fingerprint, doctor, schema, sync). The public `products` index stays on the entity, an admin
+index over the same `Product` gets other fields and weights:
+
+```php
+use Fuzzphony\Core\Attribute\AsIndexDefinition;
+use Fuzzphony\Core\Definition\IndexBuilder;
+
+#[AsIndexDefinition('products_admin', entity: Product::class)]
+final class ProductAdminIndex
+{
+    public function build(IndexBuilder $b): void
+    {
+        $b->fromTable('product')->field('name', 'A', fuzzy: true)->field('sku', 'A', code: true)->filter('price', 'int');
+    }
+}
+```
+
+A legacy table has no entity: `#[AsIndexDefinition('orders')]` and `$b->fromTable('legacy_order', 'order_id')->field('customer', 'A')`.
+
+- **Symfony:** register the class as a service (`autoconfigure` is on in the default `config/services.yaml` `App\` resource, so
+  nothing else is needed); the tag `fuzzphony.index_definition` is added by the attribute. The class is built at discovery with a fresh
+  `IndexBuilder`.
+- **Plain PHP:** `Fuzzphony::postgres($connection, [$definition, ProductAdminIndex::class])`: a class name is instantiated without arguments.
+- **Entity link:** `$fuzzphony->in('products_admin')` searches that index; `EntityLoader::load($result, Product::class)` loads its hits (the
+  class of an index is `$fuzzphony->definition('products_admin')->entityClass`). `$fuzzphony->in(Product::class)` keeps answering with the
+  first index of the entity (the attribute one). For API Platform name the index: `#[ApiFilter(FuzzphonySearchFilter::class, arguments: ['index' => 'products_admin'])]`;
+  the Live Component takes `index="products_admin"`.
+- **Conflicts:** the same index name from an attribute and a definition class, or from two definition classes, is an `InvalidDefinition` that
+  names both sources. A YAML entry with the same name overrides the limited keys exactly as for an attribute index (see [YAML](#yaml)).
+- **Where it came from:** `fuzzphony:doctor` shows the source in the heading of each index (`attribute App\Entity\Product`,
+  `definition class App\Search\ProductAdminIndex`, plus ` + YAML` for an override).
+- **Cache rule:** in production the definitions are kept in `cache.system` like the attribute ones (dropped by `cache:clear`, never used by
+  the CLI, see [Attributes](#attributes)), so `build()` must be **pure and deterministic**: the same definition on every call, no
+  state, no clock or random values, nothing read from the request, no closure stored in the definition. Read configuration that
+  changes the index from YAML, not from `build()`.
 
 ### Several indexes
 
@@ -178,7 +220,7 @@ $people = $fuzzphony->in('people')->query('kovacs')->get();   // ids [1]
 
 $both = $fuzzphony->federated()->index('items')->index('people')->query('debrecen')->get();
 foreach ($both as $hit) {
-    echo $hit->kind, ' ', $hit->id, "\n";                    // items 2, people 1, people 2
+    echo $hit->index, ' ', $hit->id, "\n";                    // items 2, people 1, people 2
 }
 ```
 
@@ -199,43 +241,137 @@ $result = $fuzzphony->federated()
     ->get();
 
 foreach ($result as $hit) {
-    echo $hit->kind, ' ', $hit->id, ' ', $hit->mergedScore; // the index, its own id, the merged score
+    echo $hit->index, ' ', $hit->id, ' ', $hit->mergedScore; // the index, its own id, the merged score
 }
 ```
 
-A hit is the index's own `Hit` (`->id`, its own `->score` and highlights) with `->kind`, the index it comes from, and `->mergedScore`. The scores
+A hit is the index's own `Hit` (`->id`, its own `->score` and highlights) with `->index`, the index it comes from, `->kind`, the source inside that index (the index name for a single-source index), and `->mergedScore`. The scores
 of different indexes are not comparable ([limitations](limitations.md#scores-are-not-stable)), so the lists are merged by
 rank: the best hit of each index first. The ids are those of each index (`people` 1 and `companies` 1 are different rows):
-use `$hit->kind` to tell them apart and load each kind from its own table.
+use `$hit->index` (and `$hit->kind`) to tell them apart and load each from its own table, or let the [`EntityLoader`](integrations.md#loading-mixed-results) do it.
 
-### One index over two tables (`UNION ALL`)
+### Several sources in one index
 
-One list with one ranking over unrelated tables is one index over a union with string ids:
+One list with one ranking over unrelated tables is **one index with several sources**: the index declares its fields, filters and
+settings once, and every source is a named `SELECT` that aliases its own columns to those fields. A hit says which source it comes
+from (`$hit->kind`; `$hit->index` is the index) and carries that source's own id (an `int`, a uuid string, a composite text), so nothing is split by hand.
+
+```yaml
+fuzzphony:
+  indexes:
+    site:
+      sources:
+        product:                                   # the name is the kind of the hits (a lowercase identifier)
+          query: "SELECT id, name AS title, description AS body, account_id AS account FROM product"
+          watch: { product: "SELECT :id" }
+          entity: App\Entity\Product               # optional: the class this source's rows are
+        article:
+          query: "SELECT id, headline AS title, text AS body, owner_id AS account FROM article"
+          id_type: uuid                            # default: int
+          watch: { article: "SELECT :id" }
+        legacy:
+          query: "SELECT region || '-' || num AS id, label AS title, notes AS body, account FROM legacy_item"
+          id_type: string                          # a composite id built in SQL
+          watch:
+            legacy_item: { ids: "SELECT region || '-' || num FROM legacy_item WHERE pk = :id", key: pk }
+      fields: { title: { weight: A, fuzzy: true }, body: C }
+      filters: { account: int }
+      tenant: account
+```
+
+The same index with the builder, or in a [definition class](#definition-classes) (`build(IndexBuilder $b)`):
 
 ```php
-$everything = IndexDefinition::builder('everything')
-    ->fromQuery("SELECT 'product-' || p.id AS id, p.name AS title, '' AS body FROM product p
-                 UNION ALL
-                 SELECT 'article-' || a.id, a.title, a.body FROM article a")
-    ->idType('string')
-    ->watch('product', "SELECT 'product-' || :id")
-    ->watch('article', "SELECT 'article-' || :id")
+IndexDefinition::builder('site')
+    ->source('product', 'SELECT id, name AS title, description AS body, account_id AS account FROM product', entity: Product::class, watch: [new Watch('product')])
+    ->source('article', 'SELECT id, headline AS title, text AS body, owner_id AS account FROM article', watch: [new Watch('article')], idType: 'uuid')
+    ->sourceFromTable('note', 'note')                // a table whose columns already carry the field names; it is watched by itself
     ->field('title', 'A', fuzzy: true)
     ->field('body', 'C')
-    ->sync('trigger')
+    ->filter('account', 'int')
+    ->tenant('account')
     ->build();
 ```
 
-The schema, the triggers on both tables, `fuzzphony:reindex`, search, highlights and the doctor accepted it, and inserts,
-updates and deletes of either table reached the index. A hit's `id` is the string (`'article-1'`, `'product-1'`). Limits:
+What a source is:
 
-- **You split the id yourself** (`str_starts_with`, then the number). `EntityLoader` passes all ids to `findBy` on one
-  entity, so with these ids it fails (in the test with a database error, `invalid input syntax for type integer:
-  "article-1"`); load the rows yourself, one `findBy` per kind. The API Platform filter does the same `IN` on the ids and
-  was not tried, but is not meant for this.
-- A filter or field has to mean the same in both tables (select a constant or `NULL` for a column one side lacks).
-- Every table in the union needs its own watch that returns the prefixed id; a forgotten watch means stale hits, with no
-  error.
+- `query` / `query_file` / `table`: one of them. The `SELECT` must return `id` (or the column named by `id:`) and **every** field, filter,
+  boost and recency column of the index under the index's names (alias your own columns: `name AS title`). A missing column is an
+  `InvalidDefinition` naming the source and the column, found by a zero-row probe of each source when the schema is planned.
+- `watch`: the tables that change this source's documents, exactly as for a single source (`table => ids query`, `key`, `columns`).
+  A query source needs its own watches with `sync: queue` or `trigger`; the self-watch of a `table` source is automatic. Two sources
+  may watch the same table: each maps the changed key to its own documents, and a change refreshes both.
+- `entity`: the class of this source's rows. `sync: orm` maps an entity to its source (the key `product:5` is refreshed, not `5`), and the
+  registry finds the index by the class.
+- `id_type`: `int` (default), `uuid` or `string`; `Hit::$id` has that type. Ids need only be unique inside their source.
+
+`sources` replaces `source`, `id_type`, `watch` and `class` of the index: use either the single form or `sources`, not both. The index's
+other settings (`fields`, `filters`, `language`, `boost`, `recency`, `profiles`, `thresholds`, `tenant`, `sync`, ...) are declared once and
+apply to every source. Results, filters, facets, highlights, did-you-mean, restricted viewers (`granted` fields) and tenants behave as for a
+single source; a tenant filter column must come from every source.
+
+Loading the entities of mixed hits (one query per class, rank order kept):
+
+```php
+foreach ($entityLoader->loadHits($fuzzphony->in('site')->query('mouse')->get()) as $entity) {   // Product, Article, ...
+}
+```
+
+How it is stored: [Multi-source indexes: how it is stored](architecture.md#multi-source-indexes-how-it-is-stored). To refresh one document
+by hand, give its key: `$fuzzphony->refresh('site', ['product:5'])`. To rebuild one source only, `fuzzphony:reindex site --source=article`
+([commands](commands.md#commands)). Limits: [limitations](limitations.md#several-sources-in-one-index).
+
+This replaces the earlier recipe of one index over a hand-written `UNION ALL` with prefixed string ids and a prefixed watch per table:
+sources give the typed id, the kind, a per-source refresh, a per-source rebuild and per-source doctor checks, and need no id splitting.
+
+### Several values per document: many
+
+A customer has several addresses, a product several tags, a person several phone numbers. Declare the field (or a filter) with
+`many` and Fuzzphony reads the values from the child table, one row per value, instead of from a folded `string_agg(...)` column:
+
+```yaml
+fuzzphony:
+  indexes:
+    customers:
+      source: { table: customer }
+      fields:
+        name: { weight: A, fuzzy: true }
+        city:
+          weight: C
+          fuzzy: true
+          many: { from: address, key: customer_id, column: city, limit: 50 }
+      filters:
+        city: { type: string, many: { from: address, key: customer_id, column: city } }
+```
+
+The builder says the same with `->field('city', 'C', fuzzy: true, many: ['from' => 'address', 'key' => 'customer_id', 'column' => 'city'])`
+(or a `ManyValues` object) and `->filter('city', 'string', many: [...])`; a [definition class](#definition-classes) uses the same builder.
+`from` is the child table, `key` its column that holds the customer's id, `column` the value, `limit` how many values of one document are indexed
+(default 50) and `id` the child's primary key column (default `id`, the tie-breaker of the order). A bad option is refused with a hint,
+and `fuzzphony:schema` reads the child table without a row to check that it and its columns exist.
+**Index the child table's `key` column** (`CREATE INDEX ON address (customer_id)`; PostgreSQL does not create one for a foreign key): every refresh and every reindex batch looks up the
+values of a document by it, and the doctor warns when there is none.
+
+- **A search finds a customer by any of its values** (`budapest` finds the customer with a Budapest address, `szged` finds `Szeged` by typo,
+  `city:vienna` scopes to the field). The field takes part in ranking as one field with the weight you gave it.
+- **A many filter matches when any value does.** `->where('city', 'Budapest')` finds the customers with at least one Budapest address; a
+  customer with two counts once. `=`, `IN` and the null checks work (a customer without a value is null); ranges do not, and neither do `!=` and `NOT IN`: only the first `limit` values of a customer are stored, so a customer whose value lies past it would pass the negation (fail open), and the query is refused with an `InvalidQuery` naming the filter (exclude with a single-valued filter instead),
+  and only `string` filters can be many. A facet over it counts **documents** per value, never values.
+- **The hit says which value matched**: with `explainMatches()` every `MatchedWord` of a many field carries `valueOrd` (the position of the
+  value, from 0) and `value` (the stored text). `highlight('city')` shows the value that matches best, not the whole list.
+- **The limit is never silent.** Values are taken in the order of the column value, then of the child's primary key, and only the first `limit`
+  per document are indexed. `fuzzphony:doctor` reports how many documents have more (a count, never an id or a value).
+- **Sync is derived.** The child table is watched for you (its `key` column, and the value column for updates): changing, adding, moving or
+  deleting an address refreshes only that customer. All sync modes work; a `TRUNCATE` of the child table queues a rebuild of the index. A watch you
+  declare yourself on the child table replaces the derived one.
+- **Roles**: the worker (and the role that writes the child table under `sync: trigger`) needs the child table and the values table in its grants;
+  `fuzzphony:schema --dump-grants` prints them, and the doctor checks them.
+
+How it is stored: [architecture](architecture.md#one-to-many-values-how-they-are-stored-and-searched). Not supported (refused with a fix):
+a [multi-source](#several-sources-in-one-index) index, a `code` field, the primary field (the first A-weighted field), a many tenant filter.
+A field that is many cannot also name a `column`: the column of the values is `many.column`. Changing an existing field or filter to many needs
+`fuzzphony:schema --apply` and a `fuzzphony:reindex`; a filter that was single-valued has a different column type, so give the many filter a new
+name (or drop the index's table first). What it does not do: [ranks by the whole field, not the best value](limitations.md#several-values-per-document).
 
 ### Legacy tables with a composite key
 
@@ -272,9 +408,19 @@ With `sync: queue` the apply stopped with `permission denied for table …` and 
 |---|---|
 | Labels of a related table searchable with the row (the brand name with the product) | one index, `source.query` with a join, a `watch` for each joined table |
 | Several kinds of things found in one search box, each shown as its own kind | one index per kind, searched with `federated()` |
-| One list of mixed rows with one ranking | one index over a `UNION ALL` with string ids (limits above) |
+| One list of mixed rows with one ranking, each row its own kind and id type | one index with [several sources](#several-sources-in-one-index) |
 | The same table with two configurations | two indexes with different names, in YAML or the builder |
 | A table with a composite key | a string id built in the query, a watch keyed on one column |
+
+Several sources or several indexes searched together?
+
+| | One index, several sources | Several indexes, `federated()` |
+|---|---|---|
+| Ranking | one text ranking over all rows (scores comparable) | merged by rank (scores of different indexes are not comparable) |
+| Fields and settings | declared once, shared | each index its own (weights, language, thresholds, profiles) |
+| Filters, facets, tenant | one set, every source returns it | per index |
+| Best when | the kinds are the same kind of text (products, articles, pages in one box) | the kinds differ (people, companies, orders), or an index also stands alone |
+
 
 ## Attributes
 
@@ -679,6 +825,18 @@ Needs `symfony/security-bundle` (suggested; it provides the `security.authorizat
 service `security.authorization_checker`" message). With the default attribute and no voter every search is denied (fail closed), and so is a
 search without a Security token. A field is hidden from the viewers who are not granted its `granted:`
 attribute; see [Security](security.md#granted-a-field-only-some-viewers-may-search).
+
+### `returnable`: the columns a search may return
+
+`returnable` is an allow-list of source column names that `SearchBuilder::with()` may return in `Hit::$data` ([Searching](searching.md#returning-source-fields-with)).
+YAML `returnable: [title, slug, price]`, the builder's `->returnable('title', 'slug', 'price')` (definition classes use the builder), and for a
+multi-source index one list per source: `sources.<name>.returnable`, or `source('product', $sql, returnable: ['slug'])` /
+`sourceFromTable('article', 'article', returnable: ['url'])`. Every name must be a column the source query returns: `fuzzphony:schema --apply`
+probes the query (no row is read) and refuses a missing one with `InvalidDefinition` naming the source and the column, and the doctor checks it
+(`Returnable columns`). The list is part of the definition hash (changing it needs `schema --apply`, not a reindex: nothing is stored). Attributes
+cannot express it: use YAML or the builder (a YAML override of an attribute-defined index may set `returnable`; the wizard exports it to YAML and
+the builder, and falls back to YAML for the attribute style, as for profiles). A name that is also a `granted` field is returned only to actors who
+hold it. Without `returnable` an index cannot be asked for `with()`.
 
 ### `granted` on a field
 

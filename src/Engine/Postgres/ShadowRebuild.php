@@ -234,6 +234,10 @@ final class ShadowRebuild
      */
     private function possible(IndexDefinition $index): bool
     {
+        if ($index->onlySource !== null) {
+            return false; // one source is rebuilt in place: its rows are deleted and written again, not swapped
+        }
+
         return (bool) $this->connection->fetchValue(
             <<<'SQL'
                 SELECT has_schema_privilege(:schema, 'CREATE')

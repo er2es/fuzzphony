@@ -6,6 +6,7 @@ namespace Fuzzphony\Core\Sync;
 
 use Fuzzphony\Core\Definition\IndexDefinition;
 use Fuzzphony\Core\Engine\Engine;
+use Fuzzphony\Core\Engine\OperationalStats;
 use Fuzzphony\Core\Exception\RebuildAlreadyRunning;
 use Fuzzphony\Core\Observability\MetricsCollector;
 use Fuzzphony\Core\Observability\NullMetricsCollector;
@@ -91,6 +92,11 @@ final class Worker
             }
             $total += $this->rebuildIfRequested($index);
             $this->metrics->gauge('fuzzphony.queue.depth', (float) $this->engine->queueSize($index), ['index' => $index->name]);
+            if ($this->engine instanceof OperationalStats) {
+                foreach ($this->engine->operationalStats($index) as $gauge => $value) {
+                    $this->metrics->gauge($gauge, $value, ['index' => $index->name]);
+                }
+            }
             if (($this->queueBackoff[$index->name][1] ?? 0.0) > ($this->clock)()) {
                 continue; // its queue failed a moment ago: the other indexes go on, this one is tried again after the back-off
             }
@@ -200,15 +206,34 @@ final class Worker
      */
     private function rebuildIfRequested(IndexDefinition $index): int
     {
-        if (($this->backoff[$index->name][1] ?? 0.0) > ($this->clock)() || !$this->engine->rebuildRequested($index)) {
+        if (($this->backoff[$index->name][1] ?? 0.0) > ($this->clock)()) {
             return 0;
         }
+        $sources = [];
+        if (!$this->engine->rebuildRequested($index)) {
+            // a TRUNCATE of a table one source of a multi-source index reads asks for that source only
+            $sources = $index->isMultiSource() ? $this->engine->rebuildRequestedSources($index) : [];
+            if ($sources === []) {
+                return 0;
+            }
+        }
+        $current = null;
         try {
-            $this->reindexer->run($index, new ReindexOptions(pruneEmpty: true));
+            if ($sources === []) {
+                $this->reindexer->run($index, new ReindexOptions(pruneEmpty: true));
+            }
+            foreach ($sources as $source) {
+                $current = $source;
+                $result = $this->reindexer->run($index->withOnlySource($source), new ReindexOptions(pruneEmpty: true));
+                $this->metrics->increment('fuzzphony.reindex.documents', ['index' => $index->name, 'source' => $source], $result->written);
+            }
         } catch (RebuildAlreadyRunning) {
             return 0;
         } catch (\Throwable $e) {
             $this->failed($index, $e);
+            if ($current !== null) {
+                $this->metrics->increment('fuzzphony.worker.source_rebuild_failures', ['index' => $index->name, 'source' => $current]);
+            }
 
             return 0;
         }

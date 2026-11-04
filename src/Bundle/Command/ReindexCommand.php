@@ -4,8 +4,11 @@ declare(strict_types=1);
 
 namespace Fuzzphony\Bundle\Command;
 
+use Fuzzphony\Core\Definition\IndexSource;
 use Fuzzphony\Core\Exception\FuzzphonyException;
 use Fuzzphony\Core\Fuzzphony;
+use Fuzzphony\Core\Observability\MetricsCollector;
+use Fuzzphony\Core\Observability\NullMetricsCollector;
 use Fuzzphony\Core\Support\Coerce;
 use Fuzzphony\Core\Support\ErrorSummary;
 use Fuzzphony\Core\Sync\ReindexOptions;
@@ -25,8 +28,10 @@ use Symfony\Component\Console\Style\SymfonyStyle;
 #[AsCommand(name: 'fuzzphony:reindex', description: 'Rebuild index documents from the source in resumable batches')]
 final class ReindexCommand extends Command
 {
-    public function __construct(private readonly Fuzzphony $fuzzphony)
-    {
+    public function __construct(
+        private readonly Fuzzphony $fuzzphony,
+        private readonly MetricsCollector $metrics = new NullMetricsCollector(),
+    ) {
         parent::__construct();
     }
 
@@ -39,6 +44,7 @@ final class ReindexCommand extends Command
             ->addOption('in-place', null, InputOption::VALUE_NONE, 'Write the live index directly: no second copy on disk, but searches see a mix of old and new documents while it runs')
             ->addOption('no-prune', null, InputOption::VALUE_NONE, 'Do not remove indexed documents this session cannot see in the source (row-level security, search_path)')
             ->addOption('prune-empty', null, InputOption::VALUE_NONE, 'Prune even when the source returns no row at all (wipes the whole index)')
+            ->addOption('source', null, InputOption::VALUE_REQUIRED, 'A multi-source index: rebuild only the rows of this source, in place (no second copy)')
             ->addOption('vocabulary', null, InputOption::VALUE_NONE, 'Rebuild only the vocabulary ("did you mean") from the documents already indexed; no document is written')
             ->addOption('force', null, InputOption::VALUE_NONE, 'Skip the "--prune-empty" confirmation prompt (required in non-interactive runs)');
     }
@@ -52,6 +58,8 @@ final class ReindexCommand extends Command
         $inPlace = $input->getOption('in-place') === true;
         $pruneEmpty = $input->getOption('prune-empty') === true;
         $vocabularyOnly = $input->getOption('vocabulary') === true;
+        $source = $input->getOption('source');
+        $source = is_string($source) && $source !== '' ? $source : null;
         // an in-place run resumes in place: a full run resumed from its id would continue a stale rebuild
         $again = ($inPlace ? '--in-place ' : '') . ($noPrune ? '--no-prune ' : '');
 
@@ -60,12 +68,22 @@ final class ReindexCommand extends Command
 
             return Command::INVALID;
         }
+        if ($source !== null && ($vocabularyOnly || $inPlace)) {
+            $io->error('--source rebuilds one source in place by itself: it cannot be combined with --vocabulary or --in-place.');
+
+            return Command::INVALID;
+        }
         if ($pruneEmpty && !$this->confirmPruneEmpty($input, $io)) {
             return Command::FAILURE;
         }
 
         foreach (IndexArgument::resolve($this->fuzzphony, $input) as $index) {
-            $io->section(sprintf('Reindexing "%s"', $index->name));
+            if ($source !== null && $index->sourceNamed($source) === null) {
+                $io->writeln(sprintf('  <comment>"%s" has no source "%s"%s: skipped.</comment>', $index->name, $source, $index->isMultiSource() ? ' (its sources: ' . implode(', ', array_map(static fn(IndexSource $s): string => $s->name, $index->sources)) . ')' : ' (a single-source index)'));
+
+                continue;
+            }
+            $io->section(sprintf('Reindexing "%s"%s', $index->name, $source !== null ? sprintf(' (source "%s")', $source) : ''));
             $started = microtime(true);
             if ($vocabularyOnly) {
                 if (!$index->hasFuzzy()) {
@@ -97,6 +115,7 @@ final class ReindexCommand extends Command
                         $io->writeln(sprintf('  %s documents, %s/s, last id %s <comment>(resume: %s--from=%s)</comment>', number_format($done), number_format($rate), $last, $again, $last));
                     },
                     inPlace: $inPlace,
+                    source: $source,
                 ));
             } catch (FuzzphonyException $e) {
                 // a failed run keeps what it built (a full run: its rebuild), so resuming continues it
@@ -108,6 +127,10 @@ final class ReindexCommand extends Command
                 return Command::FAILURE;
             }
             $io->writeln(sprintf('  <info>%s documents in %.1fs</info>', number_format($result->written), microtime(true) - $started));
+            foreach ($result->perSource as $name => $count) {
+                $this->metrics->increment('fuzzphony.reindex.documents', ['index' => $index->name, 'source' => $name], $count);
+                $io->writeln(sprintf('  source "%s": %s documents', $name, number_format($count)));
+            }
             if ($result->vocabulary !== null) {
                 $io->writeln(sprintf('  %s words in the vocabulary ("did you mean")', number_format($result->vocabulary)));
             }

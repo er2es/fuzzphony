@@ -1,0 +1,21 @@
+{# The choice of the combined box and what separates the two answers. #}
+<section aria-labelledby="difference" class="stack">
+    <div class="results-head">
+        <h2 id="difference" class="list-title">One multi-source index or a federated search?</h2>
+        <nav class="segmented" aria-label="Show">
+            {% for key, label in modes %}
+                <a href="{{ path('erp', {tab: 'combined', mode: key, q: q ?: null}) }}"{% if key == mode %} aria-current="true"{% endif %} data-loading-message="Switching…">{{ label }}</a>
+            {% endfor %}
+        </nav>
+    </div>
+    <table class="erp-table">
+        <caption class="sr-only">Federated search compared with a multi-source index</caption>
+        <thead><tr><th scope="col"><span class="sr-only">Aspect</span></th><th scope="col">Multi-source index <code>site</code></th><th scope="col">Federated search</th></tr></thead>
+        <tbody>
+            <tr><th scope="row">Ranking</th><td>one ranking over all sources</td><td>each index ranks with its own statistics, merged by rank (weights {{ federation|map(f => f[0])|join(' / ') }}, floors {{ federation|map(f => f[1])|join(' / ') }})</td></tr>
+            <tr><th scope="row">Setup</th><td>one configuration, shared fields <code>title</code> and <code>text</code></td><td>filters, tenant, thresholds per index (<code>people</code>, <code>companies</code>, <code>orders</code>)</td></tr>
+            <tr><th scope="row">Use when</th><td>the parts are one kind of thing to rank together</td><td>the parts differ or already exist as indexes</td></tr>
+        </tbody>
+    </table>
+    <p class="muted">The same table is in the documentation: <a href="https://github.com/er2es/fuzzphony/blob/main/docs/searching.md#federated-search">Federated search or a multi-source index?</a> Every hit below says its <strong>index</strong> and its <strong>kind</strong>.</p>
+</section>

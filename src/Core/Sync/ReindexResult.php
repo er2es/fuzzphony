@@ -21,11 +21,17 @@ final readonly class ReindexResult
         public ?int $vocabulary = null,
         /** Why the vocabulary could not be rebuilt after a full run that itself succeeded; the documents are indexed and searchable. */
         public ?string $vocabularyError = null,
+        /**
+         * A multi-source index: the documents written (and seen in the source), by source; empty for a single-source index.
+         *
+         * @var array<string, int>
+         */
+        public array $perSource = [],
     ) {}
 
     /** @internal */
     public function withVocabulary(?int $words, ?string $error = null): self
     {
-        return new self($this->written, $this->pruned, $this->pruneSkippedEmptySource, $this->swapped, $words, $error);
+        return new self($this->written, $this->pruned, $this->pruneSkippedEmptySource, $this->swapped, $words, $error, $this->perSource);
     }
 }

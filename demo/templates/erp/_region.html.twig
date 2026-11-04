@@ -1,0 +1,80 @@
+{# The results of a section, swapped in place while the visitor types (live_search_controller.js). Rows come from Hit::$data, the lines from Hit::$matches. #}
+{% import '_ui.html.twig' as ui %}
+
+{% macro row(hit, q) %}
+    {% import '_ui.html.twig' as ui %}
+    {% set d = erp_row(hit) %}
+    {% set title %}<a href="{{ path('erp_detail', {kind: hit.kind, id: hit.id}) }}">{{ d.title }}</a>{% endset %}
+    {% set aside %}<div class="row-flags"><span class="flag" title="index">{{ hit.index }}</span>{% if hit.index == 'site' or hit.kind != hit.index %}<span class="flag is-ok" title="kind">{{ hit.kind }}</span>{% endif %}</div>{% endset %}
+    {% set below %}{% set why = erp_reasons(hit, q) %}{% if why %}<div class="row-why"><span class="why-label">Why:</span> {{ why|join(' · ') }}</div>{% endif %}{% endset %}
+    {{ ui.product_row('', title, d.sub, aside, null, below) }}
+{% endmacro %}
+{% import _self as r %}
+
+{% if error %}
+    <p class="callout is-bad" role="alert">{{ error }}</p>
+{% elseif q != '' and tab != 'combined' %}
+    <p hidden data-status>{{ result.total }} {{ result.total == 1 ? 'result' : 'results' }} for {{ q }}.</p>
+    <section class="results" aria-label="Results">
+        <div class="results-head">
+            <div class="stat">
+                <span class="stat-value">{{ result.tookMs < 10 ? result.tookMs|number_format(1) : result.tookMs|number_format(0) }}</span><span class="stat-unit">ms</span>
+                <span class="stat-caption">{{ result.total|number_format }}{{ result.totalIsLowerBound ? '+' }} {{ result.total == 1 ? 'hit' : 'hits' }}{% if result.usedFuzzy %} · typo tolerant{% endif %}</span>
+            </div>
+        </div>
+        {% if filters.city != '' or filters.status != '' %}
+            <div class="chips" aria-label="Chosen filters">
+                {% set chosen = filters.city ?: filters.status %}
+                <a class="token" href="{{ path('erp', {tab: tab, q: q}) }}" aria-label="Remove the filter {{ chosen }}">{{ chosen }}<svg class="icon" aria-hidden="true"><use href="#i-clear"/></svg></a>
+            </div>
+        {% endif %}
+        {% if result.warnings %}<div class="warnings">{% for w in result.warnings %}<p>{{ w }}</p>{% endfor %}</div>{% endif %}
+        {% if not hits %}
+            <div class="empty"><strong>Nothing found for “{{ q }}”</strong>Check the spelling or lift a filter.</div>
+        {% else %}
+            <div class="results-layout{{ facets ? '' : ' no-side' }}">
+                {% if facets %}
+                    <aside class="facets-side" aria-label="Narrow the results">
+                        <div>
+                            <h2 class="facet-title">{{ tab == 'people' ? 'City of an address' : 'Status' }}</h2>
+                            <div class="facet">
+                                {% for f in facets %}
+                                    {% set on = (tab == 'people' ? filters.city : filters.status) == f.value %}
+                                    <a href="{{ path('erp', {tab: tab, q: q, (tab == 'people' ? 'city' : 'status'): on ? null : f.value}) }}"{% if on %} aria-current="true"{% endif %}><span>{{ f.value }}</span><span>{{ f.count|number_format }}{{ result.totalIsLowerBound ? '+' }}</span></a>
+                                {% endfor %}
+                            </div>
+                        </div>
+                    </aside>
+                {% endif %}
+                <ul class="list" aria-label="Results">
+                    {% for hit in hits %}{{ r.row(hit, q) }}{% endfor %}
+                </ul>
+            </div>
+        {% endif %}
+    </section>
+{% elseif q != '' and tab == 'combined' %}
+    {% set both = mode == 'both' %}
+    <p hidden data-status>{% if site %}{{ site.total }} in the multi-source index. {% endif %}{% if federated %}{{ federated.total }} in the federated search.{% endif %}</p>
+    <div class="{{ both ? 'two-up' : 'stack' }}">
+        {% if site %}
+            <section aria-labelledby="site-h">
+                <h2 id="site-h" class="list-title">One multi-source index <code>site</code> · {{ site.total }}{{ site.totalIsLowerBound ? '+' }} hits · {{ site.tookMs|number_format(1) }} ms</h2>
+                {% if site.hits %}
+                    <ul class="list" aria-label="Multi-source index results">{% for hit in site.hits %}{{ r.row(hit, q) }}{% endfor %}</ul>
+                {% else %}
+                    <div class="empty"><strong>Nothing found</strong></div>
+                {% endif %}
+            </section>
+        {% endif %}
+        {% if federated %}
+            <section aria-labelledby="fed-h">
+                <h2 id="fed-h" class="list-title">Federated over people, companies and orders · {{ federated.total }}{{ federated.totalIsLowerBound ? '+' }} hits · {{ federated.tookMs|number_format(1) }} ms</h2>
+                {% if federated.hits %}
+                    <ul class="list" aria-label="Federated search results">{% for hit in federated.hits %}{{ r.row(hit, q) }}{% endfor %}</ul>
+                {% else %}
+                    <div class="empty"><strong>Nothing found</strong></div>
+                {% endif %}
+            </section>
+        {% endif %}
+    </div>
+{% endif %}

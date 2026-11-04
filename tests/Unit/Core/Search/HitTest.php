@@ -17,6 +17,9 @@ final class HitTest extends TestCase
         $string = new Hit('articles', 'a-7', 1.5, new ScoreBreakdown());
 
         self::assertSame('products', $int->kind);
+        self::assertSame('products', $int->index, 'a single-source hit: the index is the kind');
+        self::assertSame('site', (new Hit('product', 1, 1.0, new ScoreBreakdown(), index: 'site'))->withMergedScore(0.5)->withMatches([])->index);
+        self::assertSame(['index' => 'site', 'kind' => 'product'], array_intersect_key((new Hit('product', 1, 1.0, new ScoreBreakdown(), index: 'site'))->toArray(), ['index' => 1, 'kind' => 1]));
         self::assertSame(7, $int->id);
         self::assertSame('a-7', $string->id);
         self::assertNull($int->mergedScore);
@@ -38,7 +41,7 @@ final class HitTest extends TestCase
     {
         $hit = (new Hit('products', 7, 1.5, new ScoreBreakdown(textRank: 0.5), ['name' => '<mark>mouse</mark>']))->withMatches([new MatchedWord('name', 'mouse', MatchedWord::TYPO, 0.8)]);
 
-        self::assertSame(['kind', 'id', 'score', 'breakdown', 'highlights', 'mergedScore', 'matches'], array_keys($hit->toArray()));
+        self::assertSame(['index', 'kind', 'id', 'score', 'breakdown', 'highlights', 'mergedScore', 'matches'], array_keys($hit->toArray()));
         self::assertSame([['field' => 'name', 'word' => 'mouse', 'via' => 'typo', 'similarity' => 0.8]], $hit->toArray()['matches']);
         self::assertSame(json_encode($hit->toArray()), json_encode($hit));
         self::assertStringContainsString('"id":7', (string) json_encode($hit));

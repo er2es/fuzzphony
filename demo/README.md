@@ -87,6 +87,7 @@ Symfony: Twig + Stimulus via AssetMapper (no Node build), Live Components, DBAL.
 | **Search** (`/`) | One search field over the catalogue: results while you type, a typo or a half-typed word found, a calm bar when a typo is rescued (*Showing results for mouse* for `mpuse`), and a **Speed** view next to a plain `ILIKE`. |
 | **Relevance** (`/relevance`) | Why a search finds what was meant: typo tolerance by word length, synonyms, "did you mean". |
 | **Languages** (`/languages`) | One small catalogue in five languages, with the stem PostgreSQL made of every word and ILIKE's count next to Fuzzphony's. |
+| **ERP** (`/erp`) | The ERP data set: a search box each for people, companies and orders, a combined box (multi-source index against federated search) and a live sync demonstration ([below](#the-erp-page)). |
 | **Tune** (`/tune`) | Every ranking weight and threshold as a control, with a score breakdown per hit and the SQL. An info icon next to each label opens a tooltip: what the setting does and an example. It starts with `projector`, twelve products (added by `sql/demo_additions.sql`) that differ in title match, popularity, age, price and stock, so every ranking slider visibly reorders or shrinks the list; the chips under the field add `hedphones` (the typo settings) and `mouse` (the candidate limit shows in the total). |
 | **Under the hood** (`/under-the-hood/...`) | The **Config wizard**, **Benchmark**, **Doctor**, **Observability**, the **Synonyms** editor, **Analytics** (what was searched, and who searched what) and **Security** (below). |
 
@@ -157,6 +158,55 @@ when it is complete (`init` connects as the owner role, which may build next to 
 The `worker` connects as `fuzzphony_app`, which has no DDL rights: a rebuild job that a `TRUNCATE`
 queues runs in place there.
 
+## The ERP data set
+
+Next to the product catalogue the demo database holds an ERP-like data set of plain tables ([`sql/erp.sql`](sql/erp.sql): deterministic, generated
+in SQL, Hungarian names, companies with legal forms, cities and streets, order numbers like `ORD-2026-000123`; seeded once by `init`, like the catalogue,
+and left alone while `erp_customer` exists). `DEMO_ERP=0` creates the tables empty for a fast stack. It adds about 35 seconds to the first start
+on the default 500 000 products (about 4 s to seed, the rest to build its four indexes).
+
+| Table | Rows | What |
+|---|---|---|
+| `erp_customer` | 100 000 | 80 000 persons (`name`, `birth_name`, `email`) and 20 000 companies (`name` with `Kft.`/`Zrt.`/`Bt.`, `tax_no` such as `12345678-2-41`) |
+| `erp_contact` | 60 000 | three contact persons (name, role, phone, email) for every company |
+| `erp_address` | 150 000 | one or two per customer (billing, shipping): zip, city, street |
+| `erp_order` | 60 000 | `number`, `status`, `total`, `ordered_at` |
+| `erp_order_line` | 130 000 | one to three lines per order, `product_id` points at `bench_product` |
+
+Four indexes read them (all `sync: queue`, drained by the worker; every table a query reads is watched, so `fuzzphony:doctor --fail-on=warning` is clean):
+
+| Index | Shows |
+|---|---|
+| `people` | a [definition class](../docs/configuration.md#definition-classes) ([`src/Search/PeopleAdminIndex.php`](src/Search/PeopleAdminIndex.php)): persons by `name`, `birth_name` and e-mail, with `city` (also a filter and facet) and `street` as [several values](../docs/configuration.md#several-values-per-document-many) each from `erp_address` (`kovacs budapest`); a `created_at` filter; `returnable` name, e-mail, tax number |
+| `companies` | companies with the legal form inside the name, `tax_no` and `phone` as [codes](../docs/searching.md#codes-and-numbers) (`12345678-2-41`), the contact persons as a many field; one hand-written watch on `erp_contact` |
+| `orders` | orders with a join to the customer: `number` as a code (`ORD-2025-000123`), the customer name fuzzy, `status`, `total` and `ordered_at` filters, recency by the order date |
+| `site` | ONE [multi-source index](../docs/configuration.md#several-sources-in-one-index) over the same tables with three sources (`person`, `company`, `order`), shared fields `title` and `text`, no entity: a hit says its `kind`, and `returnable` is per source (`Kovács János` returns all three kinds) |
+
+The tables overlap on purpose: `erp_customer` is read by `people`, `companies`, `orders` and `site`, `erp_address` by `people` and `site`; a changed address refreshes only
+its customer in `people` and in `site`. The application role gets `SELECT` on the tables (needed for `->with()`); search them with
+`bin/console fuzzphony:search people "kovacs budapest"`.
+
+### The ERP page
+
+`/erp` (the menu entry **ERP**) shows the four indexes at work. It has five sections, one request each:
+
+- **People, Companies, Orders:** three separate admin-style search boxes, each against its own index with its own filters and facets (people: the city facet of the
+  `many` field and a created-in filter; companies: the contact persons as a field, `contact:simon`; orders: the status facet and a total range). The rows are drawn from
+  `with()` (`Hit::$data`: the page loads nothing from the database), the line under a row from `explainMatches()` (*found in the address: Budapest*, *found in the tax number:
+  12345678-2-41 (exact code)*), the link from `Hit::kind` and `Hit::id` to `/erp/{kind}/{id}`, a small read-only detail page (plain SQL).
+- **Combined:** one box and the same query in the multi-source index `site` and in a federated search over `people`, `companies` and `orders` (weights 1.0 / 1.2 / 0.8,
+  floors 2 / 2 / 1), side by side or one at a time; every hit shows its `index` and its `kind`. The difference is the table of
+  [Federated search or a multi-source index?](../docs/searching.md#federated-search).
+- **Sync:** the demonstration of a table's triggers. Move the address of one customer (`erp_address` #1) to Sopron, Győr or Zalaegerszeg, or undo it. The panel then reads, with
+  polling and a clear *still syncing* state when the worker is slow, which indexes refreshed the customer and after how many milliseconds (`people` and `site` do, `orders` and
+  `companies` do not: they do not read addresses), the search before and after, and the triggers of the table (*one trigger set for 2 indexes*, from `pg_trigger` and
+  `fuzzphony_watches`).
+
+The sync demonstration is the only write of the demo's ERP data. `docker/init.sh` grants the application role `UPDATE (city) ON erp_address` and nothing more on the ERP tables; the
+endpoint (`POST /erp/sync`) needs a CSRF token, is rate limited (five moves a minute for each client address, `framework.rate_limiter.fuzzphony_erp_sync`), and accepts only a key
+of a fixed list of cities (no free text) for that one row. The Config wizard has a second sample for these tables, `/under-the-hood/wizard?sample=erp` (*Load the ERP sample*): a
+joined source, `many` and `code` fields, `returnable` and column-aware watches, exported as YAML, builder and a definition class (`src/Service/ErpSampleConfig.php`).
+
 ## The stack
 
 | Service | Image | Role |
@@ -182,7 +232,7 @@ listed there use the library's defaults, shown here with "default".
 
 | Setting | Demo value | |
 |---|---|---|
-| Indexes | `catalog` (500 000 products), `lang_en`, `lang_de`, `lang_fr`, `lang_es`, `lang_hu` (31 products each), `intranet` (24 notes, tenant `company_id`, the Security page) | |
+| Indexes | `catalog` (500 000 products), `lang_en`, `lang_de`, `lang_fr`, `lang_es`, `lang_hu` (31 products each), `intranet` (24 notes, tenant `company_id`, the Security page), and the ERP indexes `people`, `companies`, `orders`, `site` (below) | |
 | Schema | `fuzzphony` | every index table, the sync queue, the version table, the functions and the text search configurations; the demo data stays in `public`; sidecar layout 2, applied (and upgraded from an older layout) by `fuzzphony:schema --apply` |
 | Extension schema | `public` (default) | where `pg_trgm` and `unaccent` live |
 | Sync mode | `queue` (default) | one shared trigger per watched table logs the changed keys, the `worker` service turns them into the changed ids and refreshes them; a `TRUNCATE` of `bench_brand` or `bench_category` becomes one `'*'` full-rebuild job instead of every product id, which the worker runs before the queued ids |
@@ -236,6 +286,7 @@ Several stacks side by side (a second checkout, a test run): `docker compose -p 
 | `DEMO_ALLOW_ANALYZE` / `DEMO_ALLOW_DEEP_DOCTOR` | `0` / `0` | enable EXPLAIN ANALYZE in the playground / `/doctor?deep=1` |
 | `DEMO_ROWS` | `500000` | catalogue size, used when the database is empty |
 | `DEMO_REINDEX` | `auto` | `always` reindexes on every start, `never` skips it |
+| `DEMO_ERP` | `1` | `0` creates the ERP tables empty instead of seeding about 520 000 rows (a faster first start; the ERP indexes stay valid and are empty) |
 | `DEMO_APP_SECRET`, `DEMO_DB_PASSWORD` | throwaway demo values | change both before exposing the stack |
 | `PHP_FPM_*` | see `.env.example` | pool size, see Tuning |
 

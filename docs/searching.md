@@ -171,6 +171,46 @@ null and the statements are exactly the ones of a search without it; with it the
 more than `limit` hits; at most 50 words per hit). A viewer who may not see a field gets no word of it and no name of it, whatever the
 query: the statement reads only the fields the viewer may search ([Security](security.md)).
 
+For a field with [several values per document](configuration.md#several-values-per-document-many) the statement reads the values one by one (from the
+index's values table) and each `MatchedWord` also carries `valueOrd` (the position of the value, from 0) and `value` (the stored text), so you can
+show "found in the Vienna address". A word that matches several values is listed once, with the first of them. `toArray()` and the JSON form add
+`value_ord` and `value` only for such a word; every other word is unchanged. The highlight of a many field (`highlight('city')`) shows the value that
+matches best instead of all of them.
+
+## Returning source fields: `with()`
+
+A result row usually needs a title, a slug, a price. `with()` returns those columns of the hit's **source row** in `Hit::$data`, so a page can be
+rendered and its links built without loading entities:
+
+```php
+// the index declares what may be returned: returnable: [title, slug, price]  (see Configuration)
+$result = $fuzzphony->in('products')->query('mouse')->limit(10)->with('title', 'slug', 'price')->get();
+
+foreach ($result->hits as $hit) {
+    echo $hit->data['title'], ' ', $hit->data['price'];   // 'Wireless mouse' 19.9
+}
+```
+
+- `with('title', 'slug')` takes a subset of the index's `returnable` columns; `with()` with no argument means all of them; calling it again adds.
+  A name that is not returnable is an `InvalidQuery` that lists the names you may ask for.
+- **Opt-in and fresh.** Without `with()` nothing changes: the statements and the results are the ones of a search without it, and `Hit::$data` is
+  `[]`. With it the engine runs **one more statement per source on the page**, over the ids of the page (never more than `limit`), reading the source
+  query itself: always the current value, nothing is copied into the index. `explain()` lists it as `returned fields: <source>`; every value is bound
+  and the column names come from the validated list.
+- **Types.** PostgreSQL types the values: integers, floats (a `numeric` is a float) and booleans come back as PHP ones, text as strings, dates and
+  timestamps as ISO 8601 strings (`2026-01-02`, `2026-01-02T03:04:05+00:00`), `json`/`jsonb` and arrays as compact JSON strings, `null` as `null`.
+  Keep to scalar columns for what you render.
+- **Several sources.** Each source declares its own `returnable` columns; a hit carries every name you asked for, `null` for one its source does
+  not return. A hit whose source row was deleted since the last sync has `data = []` (no exception).
+- **Viewers.** A returnable column that is also a `granted` field (same name) is returned only to an actor who holds it; for anyone else it is
+  an unknown name (the same `InvalidQuery`, and `with()` with no argument leaves it out). `restrictedToFields()` narrows it like the search.
+  A tenant-scoped index repeats its tenant condition on the source query. See [Security](security.md#returned-fields).
+- **Federated search.** Each index's `configure` closure may call `with()` (`->index('products', configure: fn($b) => $b->with('title'))`); the
+  merged hits keep their `data`. A federated search reads `offset + limit` hits per index, so the extra statement covers that many rows: keep
+  pages small.
+- **Roles.** The search role needs `SELECT` on the source tables of an index that declares `returnable` columns, and only of those
+  ([Database roles](roles.md)).
+
 ## Query syntax
 
 End-user search text never throws. Malformed input is repaired and reported in
@@ -488,6 +528,8 @@ foreach ($result->facets['category_id'] as $facet) {   // FacetValue: ->value, -
 }
 ```
 
+- A filter declared [`many`](configuration.md#several-values-per-document-many) (several values per document, from a child table) matches when any of
+  its values does and its facet counts **documents** per value: a customer with two Budapest addresses is one in `Budapest (1)`. `!=` and `NOT IN` are refused on it (the stored values are truncated at `limit`).
 - Facets can be string, int, bool and date filters (not float or datetime: every value would be its own
   group), and not the tenant filter. `facetValues($n)` keeps the `$n` most frequent values (1 to 100,
   default 20); values come as the filter's type (`int`, `bool`, ...), `null` for the documents without one.
@@ -537,6 +579,16 @@ $result->results['products']->total;   // each index's own SearchResult (facets,
   moves an index up (below 1.0 down). Ties go to the index added first. `$hit->mergedScore` is that
   fusion score (it is null in a single-index search); `$hit->score` is still the index's own score. The hits are plain `Hit`s: `kind`
   is the index each comes from.
+- **Weights** (`weight`, finite and above 0, default 1.0) scale the fusion score. Worked example: `products` has hits
+  `P1 P2 P3`, `articles` has `A1 A2 A3`. With equal weights the merged order is `P1 A1 P2 A2 P3 A3`; with
+  `->index('products', weight: 2.0)` every product (`2 / 63` at worst) outranks every article (`1 / 61` at best), so it is
+  `P1 P2 P3 A1 A2 A3`; with `weight: 0.5` it is `A1 A2 A3 P1 P2 P3`.
+- **Floors** (`->index('articles', atLeast: 3)`) guarantee that a heavy index cannot crowd out another: if the index has hits, the
+  page holds at least `min(atLeast, its hits)` of its best ones, even when the fusion would rank them lower. They replace the
+  lowest-scored hits of indexes that stay at or above their own floor; the page keeps the merged order. Floors that add up to more
+  than `limit` throw `InvalidQuery`. **Paging:** the floors shape the first `limit` hits of the list; the hits they push out follow
+  in merged order, and the next pages continue after them, so with the same `limit` no hit is shown twice or lost. Use the same
+  `limit` for every page of one search.
 - Each index is searched on its own, so its filters, tenant, thresholds, ranking profile and highlights
   are what the `configure` closure says (a tenant-scoped index needs `forTenant()` there, as always).
 - **Deep pages cost more:** page N reads the first `offset + limit` hits of every index and merges them,
@@ -547,6 +599,15 @@ $result->results['products']->total;   // each index's own SearchResult (facets,
   uses `search()`.
 - `unlogged()` keeps every per-index search out of the [search log](analytics.md#keeping-a-search-out-of-the-log)
   (a refusal is still recorded).
+- A [multi-source index](configuration.md#several-sources-in-one-index) can be one of the indexes: its hits carry `index` and `kind`.
+
+**Federated search or a multi-source index?**
+
+| | Federated search | Multi-source index |
+|---|---|---|
+| Ranking | each index ranks with its own statistics, merged by rank (weights, floors) | one ranking over all sources |
+| Per-part setup | filters, tenant, thresholds, profile per index | one configuration |
+| Use when | the parts differ (own tenant, fields, viewers) or already exist as indexes | the parts are one kind of thing to rank together |
 
 ## Empty-result relaxation
 
@@ -621,7 +682,7 @@ only: a word that exists only in the hidden field finds nothing, is not ranked o
 ## Hits and results as data
 
 A `Hit` has `kind` (the index it comes from; a federated search mixes them), a typed `id` (an `int` for an integer key, a `string` for a uuid or string key: the raw
-key, for you to load your rows with), `score`, `breakdown`, `highlights`, `mergedScore` (federated only) and `matches` (`explainMatches()` only). `SearchResult`,
+key, for you to load your rows with), `score`, `breakdown`, `highlights`, `mergedScore` (federated only), `matches` (`explainMatches()` only) and `data` ([`with()`](#returning-source-fields-with) only, left out of the JSON when empty). `SearchResult`,
 `Hit`, `FacetValue` and `MatchedWord` have `toArray()` and are `JsonSerializable`, with the same stable keys:
 
 ```php

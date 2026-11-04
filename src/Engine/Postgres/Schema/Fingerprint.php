@@ -7,6 +7,7 @@ namespace Fuzzphony\Engine\Postgres\Schema;
 use Fuzzphony\Core\Definition\FieldDefinition;
 use Fuzzphony\Core\Definition\FilterDefinition;
 use Fuzzphony\Core\Definition\IndexDefinition;
+use Fuzzphony\Core\Definition\IndexSource;
 use Fuzzphony\Core\Definition\Watch;
 
 /**
@@ -24,13 +25,14 @@ final class Fingerprint
             'filters' => self::filters($index),
             'id_type' => $index->idType->value,
             'watches' => array_map(static fn(Watch $w): array => [$w->table, $w->affectedIds, $w->keyColumn, $w->columns], $index->watches),
+            ...($index->isMultiSource() ? ['sources_watches' => array_map(static fn(IndexSource $s): array => array_map(static fn(Watch $w): array => [$w->table, $w->affectedIds, $w->keyColumn, $w->columns], $s->watches), $index->sources)] : []),
             'sync' => $index->sync->value,
             'trigger_level' => $index->triggerLevel->value,
             'text' => [$index->text->language, $index->text->unaccent],
             'boost' => $index->boostColumn,
             'recency' => $index->recencyColumn,
             'tenant' => $index->tenant,
-        ] + self::granted($index));
+        ] + self::granted($index) + self::returnable($index));
     }
 
     public static function documents(IndexDefinition $index): string
@@ -56,13 +58,17 @@ final class Fingerprint
     /** @return array{string|null, string|null, string} */
     private static function source(IndexDefinition $index): array
     {
+        if ($index->isMultiSource()) {
+            return [null, json_encode(array_map(static fn(IndexSource $s): array => [$s->name, $s->source->table, $s->source->query, $s->source->idColumn, $s->entityClass, $s->idType->value], $index->sources), JSON_THROW_ON_ERROR), ''];
+        }
+
         return [$index->source->table, $index->source->query, $index->source->idColumn];
     }
 
-    /** @return list<array{string, string, string, bool}|array{string, string, string, bool, true}> */
+    /** @return list<list<mixed>> */
     private static function fields(IndexDefinition $index): array
     {
-        return array_map(static fn(FieldDefinition $f): array => $f->code ? [$f->name, $f->column(), $f->weight->value, $f->fuzzy, true] : [$f->name, $f->column(), $f->weight->value, $f->fuzzy], $index->fields);
+        return array_map(static fn(FieldDefinition $f): array => $f->many !== null ? [$f->name, $f->column(), $f->weight->value, $f->fuzzy, $f->many->fingerprint()] : ($f->code ? [$f->name, $f->column(), $f->weight->value, $f->fuzzy, true] : [$f->name, $f->column(), $f->weight->value, $f->fuzzy]), $index->fields);
     }
 
     /**
@@ -81,10 +87,32 @@ final class Fingerprint
         return $granted === [] ? [] : ['granted' => $granted];
     }
 
-    /** @return list<array{string, string, string}> */
+    /**
+     * The returnable columns (what SearchBuilder::with() may return): absent for an index without any, so the hash of every such index
+     * stays what it was.
+     *
+     * @return array{returnable?: list<string>|array<string, list<string>>}
+     */
+    private static function returnable(IndexDefinition $index): array
+    {
+        if ($index->isMultiSource()) {
+            $each = [];
+            foreach ($index->sources as $source) {
+                if ($source->returnable !== []) {
+                    $each[$source->name] = $source->returnable;
+                }
+            }
+
+            return $each === [] ? [] : ['returnable' => $each];
+        }
+
+        return $index->returnable === [] ? [] : ['returnable' => $index->returnable];
+    }
+
+    /** @return list<list<mixed>> */
     private static function filters(IndexDefinition $index): array
     {
-        return array_map(static fn(FilterDefinition $f): array => [$f->name, $f->column(), $f->type->value], $index->filters);
+        return array_map(static fn(FilterDefinition $f): array => $f->many !== null ? [$f->name, $f->column(), $f->type->value, $f->many->fingerprint()] : [$f->name, $f->column(), $f->type->value], $index->filters);
     }
 
     /** @param array<string, mixed> $parts */

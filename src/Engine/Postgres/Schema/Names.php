@@ -179,7 +179,8 @@ final readonly class Names
 
     public function syncFunctionName(IndexDefinition $index, Watch $watch): string
     {
-        return self::limit(self::PREFIX . 'sync_' . $index->name . '__' . str_replace('.', '_', $watch->table));
+        // the two sources of a multi-source index that read one table each have their own function and triggers
+        return self::limit(self::PREFIX . 'sync_' . $index->name . '__' . ($watch->source !== null ? $watch->source . '__' : '') . str_replace('.', '_', $watch->table));
     }
 
     public function syncFunction(IndexDefinition $index, Watch $watch): string
@@ -196,6 +197,23 @@ final readonly class Names
     public function shadow(IndexDefinition $index): string
     {
         return $this->qualify($this->shadowName($index));
+    }
+
+    /** The child table of an index with several values per document: one row per value (only for an index that declares `many`). */
+    public function valuesName(IndexDefinition $index): string
+    {
+        return self::limit($this->sidecarName($index) . '__values');
+    }
+
+    public function values(IndexDefinition $index): string
+    {
+        return $this->qualify($this->valuesName($index));
+    }
+
+    /** An index (or the primary key, `pkey`) of the values table. */
+    public function valuesIndexName(IndexDefinition $index, string $suffix): string
+    {
+        return self::limit($this->valuesName($index) . '_' . $suffix);
     }
 
     /** The words of a fuzzy index and in how many documents each occurs: where "did you mean" (and later suggest()) read. */

@@ -9,6 +9,7 @@ use Fuzzphony\Core\Database\Connection;
 use Fuzzphony\Core\Definition\IndexDefinition;
 use Fuzzphony\Core\Definition\Synonyms;
 use Fuzzphony\Core\Engine\Engine;
+use Fuzzphony\Core\Engine\OperationalStats;
 use Fuzzphony\Core\Inspection\InspectionReport;
 use Fuzzphony\Core\Inspection\InspectOptions;
 use Fuzzphony\Core\Observability\MetricsCollector;
@@ -18,7 +19,9 @@ use Fuzzphony\Core\Schema\SchemaPlan;
 use Fuzzphony\Core\Search\Explanation;
 use Fuzzphony\Core\Search\SearchResult;
 use Fuzzphony\Core\Wizard\SourceIntrospector;
+use Fuzzphony\Engine\Postgres\Inspection\ManyProbe;
 use Fuzzphony\Engine\Postgres\Inspection\PostgresInspector;
+use Fuzzphony\Engine\Postgres\Inspection\SourceProbe;
 use Fuzzphony\Engine\Postgres\Schema\Names;
 use Fuzzphony\Engine\Postgres\Schema\PostgresSchemaGenerator;
 use Fuzzphony\Engine\Postgres\Search\FacetRunner;
@@ -37,7 +40,7 @@ use Fuzzphony\Engine\Postgres\Wizard\PostgresIntrospector;
  *
  * @internal
  */
-final class PostgresEngine implements Engine
+final class PostgresEngine implements Engine, OperationalStats
 {
     private readonly Names $names;
     private readonly PostgresSchemaGenerator $schema;
@@ -107,6 +110,13 @@ final class PostgresEngine implements Engine
 
     public function indexSchema(IndexDefinition $index): SchemaPlan
     {
+        if ($index->isMultiSource() || $index->returnable !== []) {
+            SourceProbe::assertColumns($this->connection, $index);
+        }
+        if ($index->hasMany()) {
+            ManyProbe::assertColumns($this->connection, $index);
+        }
+
         return $this->schema->index($index);
     }
 
@@ -199,6 +209,16 @@ final class PostgresEngine implements Engine
     public function queueSize(IndexDefinition $index): int
     {
         return $this->maintenance->queueSize($index);
+    }
+
+    public function operationalStats(IndexDefinition $index): array
+    {
+        return $this->maintenance->operationalStats($index);
+    }
+
+    public function rebuildRequestedSources(IndexDefinition $index): array
+    {
+        return $this->maintenance->rebuildRequestedSources($index);
     }
 
     public function rebuildRequested(IndexDefinition $index): bool

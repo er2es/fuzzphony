@@ -292,6 +292,17 @@ final class ZeroResultRescueTest extends TestCase
         self::assertNotSame([], $explanation->plan, 'the plan is the rescued search statement');
     }
 
+    public function testTheRescueCountIsLabelledWithTheIndexAndTheAnswerTakesRealTime(): void
+    {
+        $fuzzphony = $this->fuzzphony();
+        $result = $fuzzphony->in('products')->query('mpuse')->get();
+
+        $rescued = array_values(array_filter($this->metrics->calls, static fn(array $c): bool => $c[1] === 'fuzzphony.search.rescued'));
+        self::assertSame([['increment', 'fuzzphony.search.rescued', 1.0, ['index' => 'products']]], $rescued);
+        self::assertGreaterThan(0.0, $result->tookMs);
+        self::assertLessThan(60_000.0, $result->tookMs, 'milliseconds of both runs, not a clock reading');
+    }
+
     public function testThereIsAtMostOneRescueAttempt(): void
     {
         $fuzzphony = $this->fuzzphony();

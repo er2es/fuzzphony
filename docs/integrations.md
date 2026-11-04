@@ -8,12 +8,31 @@ Doctrine, API Platform, Symfony UX Live Component and Messenger. Back to the
 - `Fuzzphony\Bridge\Doctrine\EntityLoader` turns search results into entities with one query,
   keeping the ranking order. In `queue` mode it skips hits whose row no longer exists,
   and hits whose id cannot be an id of the entity (the string `article-1` of a federated result for an integer key); `FuzzphonySearchFilter` does the same.
+- `EntityLoader::loadHits()` loads hits of several sources or indexes without naming a class ([below](#loading-mixed-results)).
 - `Fuzzphony\Bridge\Doctrine\DbalConnection` runs Fuzzphony on an existing Doctrine DBAL
   connection. The Symfony bundle uses the connection named in `fuzzphony.connection` (default
   `default`).
 - `orm` sync mode refreshes documents after `flush()` through an ORM listener (see
   [Keeping the index in sync](sync.md)).
 - With the bundle, every Doctrine entity with `#[Searchable]` is registered as an index.
+
+### Loading mixed results
+
+A [multi-source index](configuration.md#several-sources-in-one-index) or a [federated search](searching.md#federated-search) returns hits of
+different entities. `loadHits()` needs no class: each hit's class is the `entity` of its source (`$hit->kind` inside the index
+`$hit->index`) or, for a single-source index, the `entity` of the index definition.
+
+```php
+$result = $fuzzphony->in('site')->query('mouse')->get();      // or ->federated()...->get(), or a list of Hit
+$entities = $loader->loadHits($result);                       // list<object>: Product, Article, Product, ... in rank order
+```
+
+- **One query per entity class**, not per hit: ids are grouped by class, and an id that cannot be an id of the class (a string for an
+  integer key) is skipped, as in `load()`. Typed ids work as they are: an `int` for the product, a uuid string for the article.
+- **Rank order** is kept across the classes. A hit is skipped, without an exception, when its entity was deleted meanwhile or when its
+  source or index names **no** entity class.
+- The loader needs the `Fuzzphony` service to find the definitions: the bundle wires it (`new EntityLoader($entityManager, $fuzzphony)`
+  without the bundle). `load($result, Article::class)` for a single class is unchanged.
 
 ## Doctrine Migrations
 
@@ -94,7 +113,7 @@ UI depends on:
 
 | `SearchResult` | What it is | Rendering |
 |---|---|---|
-| `hits` | `Hit` objects in rank order: `kind` (the index), `id` (typed: `int` or `string`), `score`, `highlights` (field => snippet), `matches` with `explainMatches()` | Load your own rows by `id` (`ids()` gives the list) |
+| `hits` | `Hit` objects in rank order: `kind` (the index), `id` (typed: `int` or `string`), `score`, `highlights` (field => snippet), `matches` with `explainMatches()`, `data` (field => value of the source row, with `with()`) | Load your own rows by `id` (`ids()` gives the list), or ask for the columns you render with [`with()`](searching.md#returning-source-fields-with) |
 | `total`, `totalIsLowerBound` | The number of matches; a lower bound when the search hit `limits.candidates` | Show `2000+` when `totalIsLowerBound` is true |
 | `hasMore()`, `limit`, `offset`, `page()` | Paging | A pager follows `hasMore()` |
 | `facets` | `filter => list<FacetValue>` (`value`, `count`) for the filters named in `facets()` | Counts are lower bounds when `totalIsLowerBound` |
@@ -104,7 +123,7 @@ UI depends on:
 | `usedFuzzy`, `interpretedAs`, `tookMs` | Diagnostics | Optional |
 
 **JSON without the glue.** `json_encode($result)` writes the whole result with stable keys (`hits`, `total`, `totalIsLowerBound`, `facets`, `didYouMean`,
-`correctedFrom`, `correctedTo`, `warnings`, `tookMs`; a hit has `kind`, `id`, `score`, `breakdown`, `highlights`, `mergedScore`, `matches`), also `$result->toArray()`: an endpoint can be
+`correctedFrom`, `correctedTo`, `warnings`, `tookMs`; a hit has `index`, `kind`, `id`, `score`, `breakdown`, `highlights`, `mergedScore`, `matches`, and `data` when `with()` returned something), also `$result->toArray()`: an endpoint can be
 `echo json_encode($fuzzphony->in('products')->query($q)->highlight('name')->get());`. The `highlights` are HTML (below), everything else is plain text. The example
 below builds its own shape on purpose, to show what each part is for.
 
@@ -197,6 +216,24 @@ For search-as-you-type, call the endpoint after a pause in typing, not on every 
 those searches should stay out of the [search log](analytics.md). A public endpoint needs a rate limit: with Symfony it is
 `fuzzphony.rate_limit.per: ip` ([Security](security.md#the-rate-limit)); without it, use your framework's. The template of the
 component (`src/Bundle/templates/components/Search.html.twig`) shows one way to render each part of the result.
+
+**A result row and its link without loading entities.** Declare `returnable: [title, slug]` on the index (on each source of a multi-source one) and ask for
+it; `kind` + `id` + `data` are then enough to build the link:
+
+```php
+$result = $fuzzphony->in('site')->query($q)->with('title', 'slug')->limit(10)->get();
+
+$rows = array_map(static fn(Hit $hit): array => [
+    'title' => $hit->highlights['title'] ?? htmlspecialchars((string) ($hit->data['title'] ?? '')),   // highlights are HTML, data is plain text
+    'url' => match ($hit->kind) {                  // the source of the hit
+        'product' => '/p/' . rawurlencode((string) $hit->data['slug']) . '-' . $hit->id,
+        'article' => '/blog/' . rawurlencode((string) $hit->data['slug']),
+        default => '/',
+    },
+], $result->hits);
+```
+
+`data` values are plain text from your own rows: escape them like any other. A hit whose row vanished since the last sync has `data = []`.
 
 ## Messenger
 

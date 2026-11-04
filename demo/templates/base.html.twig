@@ -33,6 +33,9 @@
             <a href="{{ path('languages') }}" data-loading-message="Opening languages…"{% if route == 'languages' %} aria-current="page"{% endif %}>
                 <svg class="icon nav-icon" aria-hidden="true"><use href="#i-globe"/></svg>Languages
             </a>
+            <a href="{{ path('erp') }}" data-loading-message="Opening ERP…"{% if route starts with 'erp' %} aria-current="page"{% endif %}>
+                <svg class="icon nav-icon" aria-hidden="true"><use href="#i-table"/></svg>ERP
+            </a>
             <a href="{{ path('tune') }}" data-loading-message="Opening tune…"{% if route == 'tune' %} aria-current="page"{% endif %}>
                 <svg class="icon nav-icon" aria-hidden="true"><use href="#i-sliders"/></svg>Tune
             </a>

@@ -357,7 +357,7 @@ final class ExportersTest extends TestCase
     public function testAttributeExportThrowsForUnsupportedSources(): void
     {
         $this->expectException(InvalidArgument::class);
-        $this->expectExceptionMessage('Only table sources without extra watches, ranking profiles and thresholds can be expressed with attributes; export YAML instead.');
+        $this->expectExceptionMessage('Only table sources without extra watches, several values per document (many), ranking profiles and thresholds can be expressed with attributes; export YAML instead.');
         (new AttributeExporter())->export(Indexes::products());
     }
 

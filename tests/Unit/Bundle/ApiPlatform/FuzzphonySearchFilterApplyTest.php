@@ -28,6 +28,8 @@ final class FuzzphonySearchFilterApplyTest extends TestCase
 {
     /** @var list<SearchQuery> */
     private array $queries = [];
+    /** @var list<string> */
+    private array $searchedIndexes = [];
 
     /** @return iterable<string, array{int|null, int}> */
     public static function maxResults(): iterable
@@ -64,6 +66,23 @@ final class FuzzphonySearchFilterApplyTest extends TestCase
 
         self::assertSame('mouse', $this->queries[0]->text);
         self::assertSame('popular', $this->queries[0]->profile);
+    }
+
+    public function testAnIndexCanBeNamedWhenTheEntityHasSeveral(): void
+    {
+        $filter = $this->filter(index: 'products_admin');
+
+        $filter->apply($this->queryBuilder(), new QueryNameGenerator(), \stdClass::class, null, ['filters' => ['q' => 'mouse']]);
+
+        self::assertSame(['products_admin'], $this->searchedIndexes);
+        self::assertSame('mouse', $this->queries[0]->text);
+    }
+
+    public function testWithoutTheOptionTheIndexOfTheResourceClassIsUsed(): void
+    {
+        $this->filter()->apply($this->queryBuilder(), new QueryNameGenerator(), 'products', null, ['filters' => ['q' => 'mouse']]);
+
+        self::assertSame(['products'], $this->searchedIndexes);
     }
 
     public function testTheSearchIsMadeAsTheResolvedActor(): void
@@ -147,19 +166,20 @@ final class FuzzphonySearchFilterApplyTest extends TestCase
     }
 
     /** @param list<int> $hits ids the engine finds */
-    private function filter(array $hits = [], string $parameterName = 'q', string $profile = 'default', ?int $maxResults = null, ?ActorResolver $actors = null, bool $tenant = false): FuzzphonySearchFilter
+    private function filter(array $hits = [], string $parameterName = 'q', string $profile = 'default', ?int $maxResults = null, ?ActorResolver $actors = null, bool $tenant = false, ?string $index = null): FuzzphonySearchFilter
     {
         $engine = self::createStub(Engine::class);
         $engine->method('search')->willReturnCallback(function (IndexDefinition $index, SearchQuery $query) use ($hits): SearchResult {
             $this->queries[] = $query;
+            $this->searchedIndexes[] = $index->name;
 
             return new SearchResult(array_map(static fn(int $id): Hit => new Hit('products', $id, 1.0, new ScoreBreakdown()), $hits), count($hits), false, 1.0, false, [], $query->limit, 0);
         });
-        $fuzzphony = new Fuzzphony($engine, new IndexRegistry([Indexes::products('manual', tenant: $tenant)]));
+        $fuzzphony = new Fuzzphony($engine, new IndexRegistry([Indexes::products('manual', tenant: $tenant), Indexes::products('manual', tenant: $tenant)->withName('products_admin')]));
 
         return $maxResults === null
-            ? new FuzzphonySearchFilter($fuzzphony, $parameterName, $profile, actors: $actors)
-            : new FuzzphonySearchFilter($fuzzphony, $parameterName, $profile, $maxResults, $actors);
+            ? new FuzzphonySearchFilter($fuzzphony, $parameterName, $profile, actors: $actors, index: $index)
+            : new FuzzphonySearchFilter($fuzzphony, $parameterName, $profile, $maxResults, $actors, $index);
     }
 
     private function queryBuilder(): QueryBuilder

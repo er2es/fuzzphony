@@ -60,6 +60,9 @@ final readonly class Grants
             if ($index->hasFuzzy()) {
                 $tables[] = $this->names->vocabulary($index);
             }
+            if ($index->manyFields() !== []) {
+                $tables[] = $this->names->values($index);
+            }
         }
         if ($this->searchLog) {
             $tables[] = $this->names->searchLog();
@@ -84,6 +87,15 @@ final readonly class Grants
             if ($index->hasFuzzy()) {
                 $grants[] = new Grant(Grant::TABLE, $this->names->vocabulary($index), ['SELECT'], sprintf('"did you mean" of "%s"', $index->name));
             }
+            if ($index->hasReturnable() && $index->sync !== SyncMode::Trigger) { // sync: trigger grants the same tables below
+                // SearchBuilder::with() reads the returnable columns from the source query, as the search role
+                foreach ($this->sourceTables($index) as $table) {
+                    $grants[] = new Grant(Grant::TABLE, $table, ['SELECT'], sprintf('with() of "%s" reads its returnable columns from the source', $index->name), true);
+                }
+            }
+            if ($index->manyFields() !== []) {
+                $grants[] = new Grant(Grant::TABLE, $this->names->values($index), ['SELECT'], sprintf('the matched value and the highlight of the several-valued fields of "%s"', $index->name));
+            }
         }
         if (array_any($indexes, SharedWatch::applies(...))) {
             $grants[] = new Grant(Grant::TABLE, $this->names->watchLog(), ['INSERT'], 'the shared trigger of a watched table appends here as the role that writes the table');
@@ -95,6 +107,9 @@ final readonly class Grants
             if ($index->sync === SyncMode::Trigger) {
                 // the refresh runs inside the writing statement, as the writing role: it needs what the worker needs for this index
                 $grants[] = new Grant(Grant::TABLE, $this->names->sidecar($index), ['INSERT', 'UPDATE', 'DELETE'], sprintf('sync: trigger refreshes "%s" inside the writing statement', $index->name));
+                if ($index->manyFields() !== []) {
+                    $grants[] = new Grant(Grant::TABLE, $this->names->values($index), ['INSERT', 'DELETE'], sprintf('sync: trigger rewrites the values rows of "%s" inside the writing statement', $index->name));
+                }
                 $grants[] = new Grant(Grant::FUNCTION, sprintf('%s(%s[])', $this->names->refreshFunction($index), Types::id($index->idType)), ['EXECUTE'], sprintf('sync: trigger refreshes "%s"', $index->name));
                 foreach ($this->sourceTables($index) as $table) {
                     $grants[] = new Grant(Grant::TABLE, $table, ['SELECT'], sprintf('the refresh of "%s" reads its source', $index->name), true);
@@ -132,6 +147,9 @@ final readonly class Grants
             $grants[] = new Grant(Grant::TABLE, $n->sidecar($index), ['SELECT', 'INSERT', 'UPDATE', 'DELETE'], sprintf('refresh "%s"', $index->name));
             if ($index->hasFuzzy()) {
                 $grants[] = new Grant(Grant::TABLE, $n->vocabulary($index), ['SELECT', 'INSERT', 'UPDATE', 'DELETE'], sprintf('the vocabulary of "%s"', $index->name));
+            }
+            if ($index->manyFields() !== []) {
+                $grants[] = new Grant(Grant::TABLE, $n->values($index), ['SELECT', 'INSERT', 'DELETE'], sprintf('the values rows (one per value of the several-valued fields) of "%s"', $index->name));
             }
             $grants[] = new Grant(Grant::FUNCTION, sprintf('%s(%s[])', $n->refreshFunction($index), Types::id($index->idType)), ['EXECUTE'], sprintf('refresh "%s"', $index->name));
             $grants[] = new Grant(Grant::FUNCTION, $n->drainFunction($index) . '()', ['EXECUTE'], sprintf('drain the watch log into the queue of "%s"', $index->name));
@@ -172,6 +190,12 @@ final readonly class Grants
     private function sourceTables(IndexDefinition $index): array
     {
         $tables = $index->source->table !== null ? [$index->source->table] : [];
+        foreach ($index->sources as $source) {
+            // a multi-source index: every source's own table (its watched tables come with effectiveWatches() below)
+            if ($source->source->table !== null) {
+                $tables[] = $source->source->table;
+            }
+        }
         foreach ($index->effectiveWatches() as $watch) {
             $tables[] = $watch->table;
         }

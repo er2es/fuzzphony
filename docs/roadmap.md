@@ -3,7 +3,7 @@
 What each version shipped and what comes next, up to 1.0. No dates are promised. Back to the [README](../README.md).
 
 Steps are ordered by what other things build on: the breaking changes were gathered in one release (0.10.0, released), so the
-additive work after it (0.11.0, next) and the stable 1.0.0 do not have to change the API again.
+additive work after it (0.11.0, released) and the stable 1.0.0 do not have to change the API again.
 
 ## Done
 
@@ -107,23 +107,29 @@ additive work after it (0.11.0, next) and the stable 1.0.0 do not have to change
     ([Searching](searching.md#what-matched)), `code: true` for invoice numbers and SKUs, and `source: { query_file: ... }` for the SQL of a source query.
   - The demo follows: its catalogue pages say `->asSystem()`, the Security page compares the calls and the Analytics page marks rescued searches.
 - v0.10.1, a patch: the Benchmark workflow works with the 0.10 `granted` rule, `explainMatches()` explains a short word matched through its synonym, and the new security-sensitive code has stricter tests.
+- v0.11.0, several sources, additive: definition classes (`#[AsIndexDefinition]`) for several indexes of one entity; multi-source indexes (`sources:`, `kind`, typed ids, `Hit::$index`); `EntityLoader::loadHits()`; the doctor `Watches` check; federated floors (`atLeast`); `returnable` and `with()`; `many` values per document; operational gauges; and the ERP demo (data set, four indexes, the ERP page with separate and combined boxes, the sync demonstration, a second wizard sample).
 
 ## Next
 
-### v0.11.0: several sources, additive
+### v0.12.0: ranking by the best value (to be discussed before it starts)
 
-Today one index has one source (a table or one `SELECT`), and `#[Searchable]` is not repeatable. 0.11 lets one
-application search several places, with no breaking change:
+In 0.11 a `many` field (the addresses or phone numbers of one customer) ranks by the whole field: the query words may come
+from different values. The plan is to rank by the best single value:
 
-- Repeatable `#[Searchable]` or definition classes: several indexes for one entity (for example a public one and an
-  admin one).
-- An index with several sources and a `kind` column, usable as a filter and to load the right entity.
-- `watch` derived from joins, and composite keys in `watch`, so less has to be written by hand ([Sync](sync.md)).
-- An entity loader for several classes.
-- Federated search with normalised scores, so results from different indexes compare fairly
-  ([Searching](searching.md)).
-- A demo page with several indexes (separate search boxes and a combined one) and an ERP-like demo data set for it: orders,
-  customers, products and order lines.
+- One vector per value in the child table (`fuzzphony_<index>__values`), a GIN index on it, and the rank of a document is the rank
+  of its best value; "fő utca szeged" then ranks high only when one address holds all three words.
+- The highlight and `explainMatches()` show the value that gave the rank.
+- It costs disk (a vector and an index per value) and a slightly dearer rank, so it is likely to be switched on per field; the
+  default behaviour stays.
+- Follow-ups of `with()` if real use shows what is missing; the mutation-test gaps of the 0.11 round (`FacetRunner`, `Highlighter`,
+  `TypoMarker`, parts of `PostgresInspector`).
+
+### Ideas before 1.0, not yet decided
+
+- A smaller sidecar: leave out the `t_*` and `z_*` columns an index never needs, share the normalised text between `exact` and
+  `z_<field>`, skip filter indexes that are never used; each only where exactness and speed stay (a differential proof and timing first).
+- A `DefinitionProvider` extension point (definitions from outside the container).
+- An honest public benchmark against Meilisearch and Typesense, and a "migrating from Elasticsearch or Meilisearch" guide.
 
 ### v1.0.0: stable
 
@@ -144,6 +150,7 @@ Separate projects, in their own repositories:
 - Record linkage (`fuzzphony/record-linkage`): probabilistic matching of people and companies with explainable match
   scores; online lookup, batch and incremental deduplication; locale packs (hu, en, de).
 - A Laravel Scout driver over the same PostgreSQL engine.
+- Hybrid (lexical and semantic) search with pgvector.
 - An ERP-like demo as the showcase: orders, customers, products and order lines in several indexes, searched together and apart,
   with tenants and field authorization.
 

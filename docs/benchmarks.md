@@ -246,3 +246,21 @@ Reading it: the stored `tsv` costs about 28% of the heap row, and a SQL-function
 ([why it stays](architecture.md#why-the-combined-vector-is-stored)). The per-field columns are what make field scoping exact and a restricted viewer's
 search as fast as an unrestricted one. A field with `fuzzy: false` has no `z_` column, and an index without `fuzzy` fields has neither `fz` nor its index. The open-class
 indexes are built only when a field is `granted`; an install without one pays nothing for them.
+
+## Several values per document (`many`)
+
+100 000 customers with 3 addresses each, the same data as a `many` field (child table, values table) and as a `string_agg` single field
+(the earlier recipe); median of 25 searches, limit 20, typo-tolerant fields, PostgreSQL 17 in Docker, `sync: trigger`.
+
+| Search | many | string_agg |
+|---|---|---|
+| strict, common word (`budapest`, 2 000 matches) | 21.7 ms | 20.2 ms |
+| strict, two words | 20.0 ms | 21.0 ms |
+| rare word | 83.6 ms | 78.7 ms |
+| typo (`budapset`) | 132 ms | 135 ms |
+| typo, two words | 111 ms | 110 ms |
+
+The searches read the same sidecar columns, so they cost the same. The price is on the write side and in size: refreshing one customer takes
+1.38 ms against 1.21 ms (it also rewrites its rows of the values table), a full reindex 7.9 s against 6.6 s, and the values table is 37 MB
+next to the 50 MB sidecar. Indexes without a `many` field are unchanged: the generated DDL is byte-identical and 1 854 searches (results and
+statement texts) compare identical with the previous release.

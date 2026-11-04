@@ -36,6 +36,19 @@ Triggers also watch joined tables, so renaming a brand reindexes its products:
 ->watch('brand', 'SELECT id FROM product WHERE brand_id = :id')
 ```
 
+### The doctor finds the tables you forgot to watch
+
+A joined table nobody watches is the quiet way to go stale: the index stays healthy, only its documents are old. `fuzzphony:doctor` lists the tables the source query reads
+(from PostgreSQL's dependency catalog, not by parsing your SQL; a view is followed down to its tables) and warns about each one that has no watch:
+
+```
+! Watches   the source query reads "address" but no watch covers it: a change there does not update the index.
+Fix for "Watches": add a watch (adapt the ids query: ...): watch: { address: 'SELECT id FROM customer WHERE <fk> = :id' }   or set sync: manual
+```
+
+The ids query is a template: Fuzzphony does not guess the join condition. A watched partitioned parent covers its partitions, `sync: manual` is not checked, and when the
+check cannot run it says `not checked: <reason>` instead of failing. `bin/console fuzzphony:doctor --fail-on=warning` fails a pipeline on it.
+
 ## Statement-level triggers
 
 Triggers are statement-level by default. They read PostgreSQL transition tables, so
@@ -156,6 +169,31 @@ In `trigger` and `queue` mode a `TRUNCATE` is followed by a separate statement-l
 `orm` and `manual` mode never see a `TRUNCATE`: run `fuzzphony:reindex`. Indexes set up with an
 older version get the `TRUNCATE` trigger from `fuzzphony:schema --apply`
 (`fuzzphony:doctor` reports it missing until then).
+
+## Child tables of `many` fields
+
+A field or filter declared [`many`](configuration.md#several-values-per-document-many) reads its values from a child table (`address` of a
+customer). That table's watch is **derived** from the declaration: you write no `watch` for it. The trigger logs the `key` column of the changed
+child row (`customer_id`: the old row on a delete, both the old and the new key when an address moves to another customer) through the shared
+change log, so the owning customer is the only document refreshed; an `UPDATE` that changes neither the value column nor the key is skipped. Every
+sync mode works (`trigger`, `queue`, `manual`, `orm`), and the refresh of a document rewrites that document's rows of the values table in the same
+transaction as its sidecar row. A `TRUNCATE` of the child table is a rebuild like any other joined table's. A watch you declare on the child table
+yourself replaces the derived one. The child table needs the same grants as any watched table ([roles](roles.md)).
+
+## Several sources in one index
+
+An index with [sources](configuration.md#several-sources-in-one-index) syncs per source. Every watch belongs to a source (the shared registry
+`fuzzphony_watches` records it in its `source` column), and a changed key goes through that source's own `ids` query into queue rows
+carrying the source's key (`product:42`). Two sources, or two indexes, that watch the same table each map the key their own way, and
+a change of the table refreshes both. `sync: trigger`, `queue`, `manual` and `orm` keep their meaning for the index as a whole; with
+`orm`, an entity is mapped to the source whose `entity:` it is. A flush refreshes every index that reads the entity class (several indexes of one entity, a multi-source index next to an attribute index).
+
+- A refresh rewrites only the rows it names: a changed product leaves the article rows alone.
+- A `TRUNCATE` of a table one source reads queues a rebuild of **that source only** (queue row `*:<source>`); the worker runs it in place,
+  keeping the rows of the other sources. Truncating the source's own table empties that source's rows (`kind`), not the index.
+- `fuzzphony:reindex <index>` rebuilds all sources into the `__next` table and swaps, as for any index. `fuzzphony:reindex <index> --source=<name>`
+  deletes the rows that source no longer returns and rewrites its rows in place (no swap, the other sources untouched) and reports the
+  documents per source. It takes the index's rebuild lock, so it does not run while a full reindex does.
 
 ## Partitioned tables
 

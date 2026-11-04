@@ -143,6 +143,14 @@ interface Engine
     public function rebuildRequested(IndexDefinition $index): bool;
 
     /**
+     * The sources of a multi-source index for which a rebuild was requested (a TRUNCATE of a table one source reads queues a
+     * rebuild of that source only); empty for a single-source index and when none is requested.
+     *
+     * @return list<string> source names
+     */
+    public function rebuildRequestedSources(IndexDefinition $index): array;
+
+    /**
      * Records that the full rebuild the worker ran for a request failed (when, how often in a row,
      * the message), for the doctor. The next full run that succeeds clears it. Engines without
      * such requests do nothing.

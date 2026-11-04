@@ -20,6 +20,9 @@ enum StatementKind
     /** The facets of one group. */
     case Facet;
 
+    /** The returnable source columns of one source on the page (SearchBuilder::with()). */
+    case Fields;
+
     /** Whether the statement is one of those that select the hits (what explain() shows the plan of). */
     public function isSearch(): bool
     {

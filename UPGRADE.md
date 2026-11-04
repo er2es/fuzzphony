@@ -3,6 +3,29 @@
 Before 1.0, a minor version may contain breaking changes. Each section lists what to change,
 and the [CHANGELOG](CHANGELOG.md) has the full list of changes.
 
+## From 0.10.x to 0.11.0
+
+### Added
+
+- **Index definition classes** (`#[AsIndexDefinition]`, public): several indexes per entity, see [Definition classes](docs/configuration.md#definition-classes). Nothing to do for
+  existing indexes: attribute, YAML and builder definitions, fingerprints and the schema are unchanged.
+- **Multi-source indexes** (`sources:` in YAML, `->source()` / `->sourceFromTable()` on the builder, also in a definition class): several named `SELECT`s share one set of fields, with their own watches, entity and id type; hits carry `kind` and the source's typed id; `fuzzphony:reindex <index> --source=<name>` rebuilds one source ([Configuration](docs/configuration.md#several-sources-in-one-index)). Nothing to do for existing indexes: a single-source index keeps its sidecar, statements and fingerprint. The shared watch registry `fuzzphony_watches` gets a `source` column (`fuzzphony:schema --apply` adds it). Public API added: `IndexSource`, `IndexBuilder::source()`, `IndexBuilder::sourceFromTable()`, `ReindexOptions::$source`, `ReindexResult::$perSource`. Apply the release to every process (web, worker, console) before the first multi-source index is applied: earlier code cannot read its text key, and there is no schema-level downgrade.
+- **`Hit::$index`** (new) names the index a hit comes from; `Hit::$kind` is the source inside it (the index name for a single-source index). Both are in `toArray()` / JSON (`index`, `kind`). `new Hit(...)` (internal) takes an optional trailing `index`.
+- **`EntityLoader::loadHits()`** loads the entities of mixed hits (several sources or indexes, several entity classes) with one query per class ([Integrations](docs/integrations.md#loading-mixed-results)).
+- **Doctor `Watches` check and `--fail-on`:** `fuzzphony:doctor` warns about every table a `queue` or `trigger` source reads that no watch covers (with a watch to adapt, or `sync: manual`);
+  `--fail-on=warning` (like `--strict`) fails a CI step on it. Nothing to apply; expect new warnings on indexes with an unwatched join ([Sync](docs/sync.md#the-doctor-finds-the-tables-you-forgot-to-watch)).
+- **New metrics:** the worker gauges `fuzzphony.watch_log.entries`, `fuzzphony.watch_log.oldest_age_seconds`, `fuzzphony.watch.bad_rows`, `fuzzphony.queue.failing_items`, `fuzzphony.queue.oldest_age_seconds`
+  (label `index`), and for multi-source indexes `fuzzphony.reindex.documents` and `fuzzphony.worker.source_rebuild_failures` (labels `index`, `source`); existing metrics keep their labels ([Observability](docs/observability.md)).
+- **Federated `atLeast` floor:** `->index('articles', atLeast: 3)` keeps at least that many of the index's best hits on the first page; `weight` now also refuses `NAN` and `INF` ([Federated search](docs/searching.md#federated-search)).
+- **Returned source fields:** an index declares `returnable: [title, slug]` (YAML; per source in a multi-source index; builder `->returnable()`) and a search asks `->with('title', 'slug')`; `Hit::$data` then holds the values of the hit's source row, read by the ids of the page with one extra statement per source, only when asked ([Searching](docs/searching.md#returning-source-fields-with)). Nothing to do for existing indexes. A returnable `granted` field is returned only to actors who hold it. The search role needs `SELECT` on the source tables of an index that declares `returnable` columns (`fuzzphony:schema --dump-grants --role=search`). Adding `returnable` changes the definition hash: run `fuzzphony:schema --apply` (no reindex).
+- **Several values per document (`many`):** a field or filter can take its values from a child table (`city: { weight: C, many: { from: address, key: customer_id, column: city } }`; builder `->field('city', 'C', many: [...])`, `->filter('city', 'string', many: [...])`, definition classes, public `ManyValues`). An index that declares it gets the table `fuzzphony_<index>__values`, a `text[]` column for a many filter and a derived watch of the child table: run `fuzzphony:schema --apply` and `fuzzphony:reindex <index>` for that index; the roles need the new grants (`fuzzphony:schema --dump-grants`). `MatchedWord` gets the optional `valueOrd` and `value`. Nothing to do for other indexes: their DDL, statements and results are unchanged. Changing an existing filter to many changes its column type: give it a new name. The string_agg recipe still works; `many` replaces it when you need the matched value, document-level filters or a limit ([Configuration](docs/configuration.md#several-values-per-document-many)).
+- **`FuzzphonySearchFilter`** has an `index` argument (default: the index of the resource's entity).
+- `Fuzzphony::postgres()` also accepts the class names of definition classes next to `IndexDefinition` objects.
+
+### Changed
+
+- **Federated results:** use `$hit->index` for the index a hit comes from. `$hit->kind` is the hit's source: equal to the index name for single-source indexes (nothing changes for them), the source name for a multi-source index.
+
 ## From 0.9.13 to 0.10.0
 
 ### Checklist (the required steps, in this order)
@@ -157,7 +180,7 @@ The details of each change follow.
 - **`Fuzzphony::logSearch($index, $text, $hits, $tookMs, $actor, $usedFuzzy, $rescued, $system)`** records a search that was answered elsewhere without running it (no engine call, no guard),
   with the redaction, IP mode and actor rules of a search. It throws `InvalidArgument` when the index has `log: false` or the search log is off, and returns the `LoggedSearch`.
 - **`toArray()` and `json_encode()` of `SearchResult`, `Hit`, `FacetValue`, `MatchedWord`** with stable keys (`hits`, `total`, `totalIsLowerBound`, `facets`, `didYouMean`,
-  `correctedFrom`, `correctedTo`, `warnings`, `tookMs`; a hit: `kind`, `id`, `score`, `breakdown`, `highlights`, `mergedScore`, `matches`). The highlights are already HTML-escaped
+  `correctedFrom`, `correctedTo`, `warnings`, `tookMs`; a hit: `index`, `kind`, `id`, `score`, `breakdown`, `highlights`, `mergedScore`, `matches`). The highlights are already HTML-escaped
   (`<mark>` only); everything else is plain text ([Your own frontend](docs/integrations.md#your-own-frontend)).
 - **`->explainMatches()`** on the search builder adds `Hit::$matches` to the hits of the returned page: which word of which field matched and how (`exact`, `stem`, `prefix`,
   `typo` with its similarity, `synonym`). One more statement over the page's ids, only when asked; a restricted viewer gets no hidden field and no hidden word ([searching](docs/searching.md#what-matched)).

@@ -11,6 +11,42 @@ and a link. Measurements, proofs and test names belong to the pull request, [doc
 
 ## [Unreleased]
 
+## [0.11.0] - 2026-11-04
+
+Several sources, additive: nothing breaks and existing indexes need nothing (an index that gains a source or a `many` field needs `fuzzphony:schema --apply` and a reindex). One index can now read several tables, a field can hold several values, a search can return source fields, and the demo shows it on an ERP data set. The review of the new code found and fixed the entries under **Fixed**.
+
+### Added
+
+- **Index definition classes:** `#[AsIndexDefinition('products_admin', entity: Product::class)]` on a class with `build(IndexBuilder): void` gives an entity (or a legacy table)
+  several indexes; found as Symfony services or given by class name to `Fuzzphony::postgres()`, cached like attribute indexes ([Configuration](docs/configuration.md#definition-classes)).
+- **Multi-source indexes:** `sources:` (YAML), `->source()` / `->sourceFromTable()` (builder, definition classes) put several `SELECT`s into one index with shared fields, one ranking,
+  per-source watches, entity and id type; hits carry `kind` and a typed `id`; `fuzzphony:reindex --source=` rebuilds one source ([Configuration](docs/configuration.md#several-sources-in-one-index)).
+- **`Hit::$index`** names the index of a hit (`kind` is the source inside it); **`EntityLoader::loadHits()`** loads mixed hits, one query per entity class, in rank order ([Integrations](docs/integrations.md#loading-mixed-results)).
+- **Doctor `Watches` check:** a table the source reads that no watch covers is a warning with a watch to adapt (found through the database's dependency catalog); `fuzzphony:doctor --fail-on=warning` fails CI on it ([Sync](docs/sync.md#the-doctor-finds-the-tables-you-forgot-to-watch)).
+- **Operational metrics:** gauges for the change log (size, age, quarantined rows) and the queue (failing items, oldest age), and `source`-labelled counters for multi-source rebuilds ([Observability](docs/observability.md)).
+- **Federated floors:** `->index('articles', atLeast: 3)` guarantees an index its best hits on the first page, so a heavily weighted index cannot crowd it out; `weight` must be finite ([Federated search](docs/searching.md#federated-search)).
+- **Returned source fields:** `returnable: [title, slug]` on an index (or on each source) and `->with('title', 'slug')` on a search fill `Hit::$data` from the source row, one extra statement per source, only when asked; a `granted` field only for actors who hold it ([Searching](docs/searching.md#returning-source-fields-with)).
+- **Several values per document:** `many: { from: address, key: customer_id, column: city }` on a field or a string filter reads the values from a child table (one row each, at most `limit`); search finds a customer by any value, filters and facets count documents, `explainMatches()` says which value matched, the doctor names documents over the limit, and the child table's sync is derived. Run `schema --apply` and a reindex for such an index ([Configuration](docs/configuration.md#several-values-per-document-many)).
+- **`FuzzphonySearchFilter`** takes `index:` to search a named index; `fuzzphony:doctor` shows where each definition came from.
+
+### Changed
+
+- **Demo:** the ERP page (`/erp`): a search box each for people, companies and orders, a combined box (multi-source index against a federated search), a sync demonstration (move an address, see which indexes refreshed; the app role gets `UPDATE (city)` on `erp_address` only) and a second Config wizard sample (`?sample=erp`) ([demo README](demo/README.md#the-erp-page)).
+- **Demo:** an ERP data set of about 520 000 rows (`DEMO_ERP=0` leaves the tables empty) with the indexes `people` (a definition class), `companies`, `orders` and the multi-source `site` ([demo README](demo/README.md#the-erp-data-set)).
+- **Federated results:** `Hit::$index` is the index; `Hit::$kind` is the source inside it (the same as the index name for single-source indexes) ([UPGRADE](UPGRADE.md)).
+
+### Fixed
+
+- **Demo ERP:** the results of a tab without a facet column (Companies) took a narrow column and wrapped letter by letter; the `Created` select now has the spacing of the other form rows.
+- **Doctor:** the `Shared change log` check is an error when a watched table does not exist or is not on the search path (the drain then fails on every run and only the database log said so); a schema-qualified watch (`schema.table`) is drained whatever the session's search path ([Sync](docs/sync.md)).
+- **Bundle:** a discovery cache that cannot be written (read-only `cache.system` directory) no longer fails or logs "Failed to save key" on every request; `cache:warmup` now fills it in prod, so an immutable image needs no change.
+- **Doctor:** the `Field columns` and filter checks no longer report a `many` field or filter as missing from the source query (its values come from the child table).
+- **Returned fields:** a `returnable` column that a `granted` field reads under another name (`field('pay', column: 'salary', granted: 'ROLE_HR')`) was returned by `with()` to viewers without the grant; it is now gated by that field ([Security](docs/security.md#returned-fields)).
+- **Sync `orm`:** a flush refreshed only the first index of an entity class; every index that reads the class (a second index of the entity, a multi-source index with the class as a source entity) is now refreshed ([Sync](docs/sync.md)).
+- **Docs:** [Security](docs/security.md#returned-fields) says that `with()` returns the current row of a hit, so between a change and the next sync only the tenant is re-checked.
+- **Several values (`many`):** `!=` and `NOT IN` on a `many` filter are refused with an `InvalidQuery` (only the first `limit` values are stored, so a document whose value lies past it passed the negation); `=`, `IN` and the null checks are unchanged ([Configuration](docs/configuration.md#several-values-per-document-many)).
+- **Multi-source indexes:** `EntityLoader::load()` and `FuzzphonySearchFilter` looked up the ids of hits of every kind as ids of the one entity (a `post:2` hit loaded the entity with id 2, possibly another tenant's row); they now use only the hits of the sources that read the entity class.
+
 ## [0.10.1] - 2026-11-03
 
 A patch release: the benchmark workflow works again and `explainMatches()` explains short words, plus test hardening.
@@ -1150,7 +1186,8 @@ on its own:
 - Sync modes: queue (default), trigger, ORM, manual; watches for joined tables.
 - Doctor with fixes; CLI commands for schema, reindex, worker, search and explain.
 
-[Unreleased]: https://github.com/er2es/fuzzphony/compare/v0.10.1...HEAD
+[Unreleased]: https://github.com/er2es/fuzzphony/compare/v0.11.0...HEAD
+[0.11.0]: https://github.com/er2es/fuzzphony/compare/v0.10.1...v0.11.0
 [0.10.1]: https://github.com/er2es/fuzzphony/compare/v0.10.0...v0.10.1
 [0.10.0]: https://github.com/er2es/fuzzphony/compare/v0.9.13...v0.10.0
 [0.9.13]: https://github.com/er2es/fuzzphony/compare/v0.9.12...v0.9.13

@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace App\Controller;
 
 use App\Service\Catalog;
+use App\Service\ErpSampleConfig;
 use App\Service\Examples;
 use App\Service\Measure;
 use App\Service\SampleConfig;
@@ -35,7 +36,7 @@ final class PagesController extends AbstractController
     }
 
     #[Route('/under-the-hood/wizard', name: 'wizard')]
-    public function wizard(Request $request, Fuzzphony $fuzzphony, SampleConfig $sample): Response
+    public function wizard(Request $request, Fuzzphony $fuzzphony, SampleConfig $sample, ErpSampleConfig $erpSample): Response
     {
         $wizard = $fuzzphony->wizard();
         $tables = $wizard->tables();
@@ -51,11 +52,16 @@ final class PagesController extends AbstractController
         $suggestion = $exports = null;
         $error = null;
         // ?sample=1: the sample configuration (src/Service/SampleConfig.php) instead of a table's suggestion
-        $isSample = $request->query->getBoolean('sample');
+        // ?sample=erp: the second sample, for the ERP tables (src/Service/ErpSampleConfig.php)
+        $isErp = (string) $request->query->get('sample') === 'erp';
+        $isSample = $isErp || $request->query->getBoolean('sample');
 
         if ($isSample) {
             try {
-                $exports = $this->exports($wizard, $sample->definition());
+                $exports = $this->exports($wizard, $isErp ? $erpSample->definition() : $sample->definition());
+                if ($isErp) {
+                    $exports['class'] = $erpSample->definitionClass($exports['builder']);
+                }
             } catch (FuzzphonyException $e) {
                 $error = $e->getMessage();
             }
@@ -78,11 +84,12 @@ final class PagesController extends AbstractController
             'suggestion' => $suggestion,
             'exports' => $exports,
             'error' => $error,
-            'sample' => $isSample ? SampleConfig::NOTES : null,
+            'sample' => $isErp ? ErpSampleConfig::NOTES : ($isSample ? SampleConfig::NOTES : null),
+            'sampleKind' => $isErp ? 'erp' : ($isSample ? 'catalogue' : null),
         ]);
     }
 
-    /** @return array{yaml: string, builder: string, attributes: string} */
+    /** @return array{yaml: string, builder: string, attributes: string, class?: string} */
     private function exports(Wizard $wizard, IndexDefinition $definition): array
     {
         return [

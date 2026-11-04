@@ -118,7 +118,13 @@ final class FuzzphonyBundleTest extends TestCase
 
         $container->compile();
         $container->set('doctrine.dbal.default_connection', self::createStub(DbalConnection::class));
-        $container->set('doctrine.orm.entity_manager', self::createStub(EntityManagerInterface::class));
+        // building the loader builds the registry, which asks the entity manager for its mapped classes (none here; an untyped stub on the oldest Doctrine would return null)
+        $metadataFactory = self::createStub(\Doctrine\ORM\Mapping\ClassMetadataFactory::class);
+        $metadataFactory->method('getAllMetadata')->willReturn([]);
+        $entityManager = self::createStub(EntityManagerInterface::class);
+        $entityManager->method('getMetadataFactory')->willReturn($metadataFactory);
+        $container->set('doctrine.orm.entity_manager', $entityManager);
+        $container->set('logger', self::createStub(\Psr\Log\LoggerInterface::class));
         self::assertInstanceOf(EntityLoader::class, $container->get(EntityLoader::class));
     }
 
@@ -156,8 +162,13 @@ final class FuzzphonyBundleTest extends TestCase
         self::assertInstanceOf(Reference::class, $prod);
         self::assertSame('cache.system', (string) $prod);
         self::assertNull($debug, 'in debug mode an edited attribute must show up on the next request');
-        self::assertNull($noDiscovery, 'nothing is discovered, so nothing is cached');
-        self::assertNull($noOrm);
+        // the pool is also the cache of the definition classes (services with #[AsIndexDefinition]), which need neither the ORM nor the discovery;
+        // without discovery the registry factory never touches it for entities
+        self::assertInstanceOf(Reference::class, $noDiscovery);
+        self::assertInstanceOf(Reference::class, $noOrm);
+        self::assertSame('cache.system', (string) $noDiscovery);
+        self::assertSame('cache.system', (string) $noOrm);
+        self::assertInstanceOf(\Symfony\Component\DependencyInjection\Argument\TaggedIteratorArgument::class, $this->buildContainer(withOrm: false)->getDefinition('fuzzphony.registry')->getArgument(6), 'the definition classes are handed over lazily');
     }
 
     public function testTheRegistryCacheServesTheWebOnlyUnlessTheTestSeamIsSet(): void
@@ -482,13 +493,13 @@ final class FuzzphonyBundleTest extends TestCase
         $connection = new Reference('fuzzphony.connection');
 
         self::assertEquals([new Reference('doctrine.orm.entity_manager')], $container->getDefinition('fuzzphony.discovery')->getArguments());
-        self::assertEquals([new Reference('doctrine.orm.entity_manager')], $container->getDefinition('fuzzphony.entity_loader')->getArguments());
+        self::assertEquals([new Reference('doctrine.orm.entity_manager'), $fuzzphony], $container->getDefinition('fuzzphony.entity_loader')->getArguments());
         self::assertEquals([new Reference('fuzzphony.engine')], $container->getDefinition('fuzzphony.refresh_dispatcher')->getArguments());
         self::assertEquals([$fuzzphony, 'q', 'default', 500, new Reference('fuzzphony.actor_resolver')], $container->getDefinition(FuzzphonySearchFilter::class)->getArguments());
         self::assertEquals([$fuzzphony, new Reference('fuzzphony.actor_resolver')], $container->getDefinition(SearchComponent::class)->getArguments());
         self::assertEquals([new Reference('fuzzphony.refresh_dispatcher'), new Reference('fuzzphony.registry')], $container->getDefinition('fuzzphony.orm_sync_listener')->getArguments());
         self::assertEquals([$fuzzphony, $connection], array_slice($container->getDefinition(SchemaCommand::class)->getArguments(), 0, 2));
-        self::assertEquals([$fuzzphony], $container->getDefinition(ReindexCommand::class)->getArguments());
+        self::assertEquals([$fuzzphony, new Reference('fuzzphony.metrics')], $container->getDefinition(ReindexCommand::class)->getArguments());
         self::assertEquals([new Reference('fuzzphony.operator')], $container->getDefinition(SearchCommand::class)->getArguments());
         self::assertEquals(
             [new Reference('fuzzphony.introspector'), new Reference('fuzzphony.engine'), $connection],

@@ -46,6 +46,19 @@ final class DoctorCommandReportTest extends TestCase
         self::assertStringContainsString('Problems found; see the fixes above.', $display);
     }
 
+    public function testTheSectionShowsWhereTheDefinitionCameFrom(): void
+    {
+        $engine = self::createStub(Engine::class);
+        $engine->method('inspect')->willReturnCallback(static fn(IndexDefinition $index): InspectionReport => new InspectionReport($index->name, [Check::ok('Table', 'fine')]));
+        $registry = new IndexRegistry([Indexes::products('manual')]);
+        $registry->annotateOrigin('products', 'definition class App\ProductAdminIndex');
+        $tester = new CommandTester(new DoctorCommand(new Fuzzphony($engine, $registry)));
+
+        $tester->execute([], ['interactive' => false]);
+
+        self::assertStringContainsString('Index "products" (definition class App\ProductAdminIndex)', $tester->getDisplay(true));
+    }
+
     /** @return iterable<string, array{list<Check>, bool, string, int}> */
     public static function outcomes(): iterable
     {
@@ -71,6 +84,31 @@ final class DoctorCommandReportTest extends TestCase
 
         self::assertSame($exit, $status, $tester->getDisplay(true));
         self::assertStringContainsString($message, $tester->getDisplay(true));
+    }
+
+    /** @param list<Check> $checks */
+    #[DataProvider('outcomes')]
+    public function testFailOnWarningIsTheLongFormOfStrict(array $checks, bool $strict, string $message, int $exit): void
+    {
+        $tester = $this->tester($checks);
+
+        $status = $tester->execute($strict ? ['--fail-on' => 'warning'] : ['--fail-on' => 'error'], ['interactive' => false]);
+
+        self::assertSame($exit, $status, $tester->getDisplay(true));
+    }
+
+    public function testFailOnWarningAlsoGovernsThePrometheusSnapshot(): void
+    {
+        self::assertSame(Command::FAILURE, $this->tester([Check::warning('A', 'x')])->execute(['--format' => 'prometheus', '--fail-on' => 'warning']));
+        self::assertSame(Command::SUCCESS, $this->tester([Check::warning('A', 'x')])->execute(['--format' => 'prometheus']));
+    }
+
+    public function testFailOnTakesErrorOrWarningOnly(): void
+    {
+        $tester = $this->tester([Check::ok('A', 'x')]);
+
+        self::assertSame(Command::INVALID, $tester->execute(['--fail-on' => 'notice']));
+        self::assertStringContainsString('--fail-on must be "error" or "warning"', $tester->getDisplay(true));
     }
 
     /** @param list<Check> $checks */

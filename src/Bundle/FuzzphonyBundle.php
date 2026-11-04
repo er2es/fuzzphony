@@ -25,6 +25,7 @@ use Fuzzphony\Bundle\EventListener\SearchLogFlushListener;
 use Fuzzphony\Bundle\Messenger\MessengerRefreshDispatcher;
 use Fuzzphony\Bundle\Messenger\RefreshDocumentsHandler;
 use Fuzzphony\Bundle\Observability\MetricsCollectorFactory;
+use Fuzzphony\Bundle\Registry\RegistryCacheWarmer;
 use Fuzzphony\Bundle\Registry\RegistryFactory;
 use Fuzzphony\Bundle\Security\AuthorizationGuard;
 use Fuzzphony\Bundle\Security\NullActorResolver;
@@ -35,6 +36,7 @@ use Fuzzphony\Bundle\Twig\SearchComponent;
 use Fuzzphony\Core\Analytics\IpMode;
 use Fuzzphony\Core\Analytics\NullSearchLog;
 use Fuzzphony\Core\Analytics\PatternQueryRedactor;
+use Fuzzphony\Core\Attribute\AsIndexDefinition;
 use Fuzzphony\Core\Database\Connection;
 use Fuzzphony\Core\Engine\Engine;
 use Fuzzphony\Core\Exception\InvalidConfiguration;
@@ -54,6 +56,7 @@ use Fuzzphony\Engine\Postgres\Schema\Grants;
 use Fuzzphony\Engine\Postgres\Schema\Names;
 use Fuzzphony\Engine\Postgres\Wizard\PostgresIntrospector;
 use Symfony\Component\Config\Definition\Configurator\DefinitionConfigurator;
+use Symfony\Component\DependencyInjection\ChildDefinition;
 use Symfony\Component\DependencyInjection\ContainerBuilder;
 use Symfony\Component\DependencyInjection\Loader\Configurator\ContainerConfigurator;
 use Symfony\Component\DependencyInjection\Loader\Configurator\DefaultsConfigurator;
@@ -66,6 +69,7 @@ use Symfony\Component\Security\Core\Authorization\AuthorizationCheckerInterface;
 use function Symfony\Component\DependencyInjection\Loader\Configurator\inline_service;
 use function Symfony\Component\DependencyInjection\Loader\Configurator\service;
 use function Symfony\Component\DependencyInjection\Loader\Configurator\service_closure;
+use function Symfony\Component\DependencyInjection\Loader\Configurator\tagged_iterator;
 
 /**
  * config/packages/fuzzphony.yaml — everything is optional:
@@ -107,6 +111,9 @@ final class FuzzphonyBundle extends AbstractBundle
 {
     protected string $extensionAlias = 'fuzzphony';
 
+    /** The tag of the services with #[AsIndexDefinition]. */
+    public const string INDEX_DEFINITION_TAG = 'fuzzphony.index_definition';
+
     private const string DOCTRINE_PARAMETER = 'fuzzphony.doctrine_orm';
 
     /** The DBAL connection names DoctrineBundle is configured with (set by prependExtension(), for the check of fuzzphony.connections). */
@@ -119,6 +126,18 @@ final class FuzzphonyBundle extends AbstractBundle
     public function getPath(): string
     {
         return __DIR__;
+    }
+
+    /** A service with #[AsIndexDefinition] is tagged for the registry: classes registered as services (autoconfigure) are found without any list. */
+    public function build(ContainerBuilder $container): void
+    {
+        parent::build($container);
+        $container->registerAttributeForAutoconfiguration(
+            AsIndexDefinition::class,
+            static function (ChildDefinition $definition): void {
+                $definition->addTag(self::INDEX_DEFINITION_TAG);
+            },
+        );
     }
 
     public function configure(DefinitionConfigurator $definition): void
@@ -510,24 +529,34 @@ final class FuzzphonyBundle extends AbstractBundle
             $services->set('fuzzphony.discovery', DoctrineIndexDiscovery::class)
                 ->args([service('doctrine.orm.entity_manager')]);
             $services->set('fuzzphony.entity_loader', EntityLoader::class)
-                ->args([service('doctrine.orm.entity_manager')]);
+                ->args([service('doctrine.orm.entity_manager'), service('fuzzphony')]);
             $services->alias(EntityLoader::class, 'fuzzphony.entity_loader')->public();
         }
 
+        $cache = $builder->hasParameter('kernel.debug') && $builder->getParameter('kernel.debug') === false ? service('cache.system')->nullOnInvalid() : null;
+        $projectDir = $builder->hasParameter('kernel.project_dir') && is_string($builder->getParameter('kernel.project_dir')) ? $builder->getParameter('kernel.project_dir') : null;
+        $discovery = $hasOrm && $settings->discoverEntities ? service('fuzzphony.discovery') : null;
         $services->set('fuzzphony.registry', IndexRegistry::class)
             ->factory([RegistryFactory::class, 'create'])
             ->args([
                 $settings->indexes,
-                $hasOrm && $settings->discoverEntities ? service('fuzzphony.discovery') : null,
+                $discovery,
                 // Prod only: discovery loads the metadata of every entity, so its result is kept in cache.system (cache:clear drops it).
                 // Without kernel.debug (or when it is unknown) nothing is cached and an edited attribute shows up on the next request.
-                $hasOrm && $settings->discoverEntities && $builder->hasParameter('kernel.debug') && $builder->getParameter('kernel.debug') === false ? service('cache.system')->nullOnInvalid() : null,
+                $cache,
                 // Web requests only: a command, a worker or a consumer (PHP_SAPI "cli") always discovers fresh. The parameter is a test seam
                 // (the real-kernel test proves the cache from the command line), not a configuration option.
                 $builder->hasParameter('fuzzphony.registry_cache_in_cli') && $builder->getParameter('fuzzphony.registry_cache_in_cli') === true,
-                $builder->hasParameter('kernel.project_dir') && is_string($builder->getParameter('kernel.project_dir')) ? $builder->getParameter('kernel.project_dir') : null,
+                $projectDir,
                 $settings->authorizationEnabled,
+                tagged_iterator(self::INDEX_DEFINITION_TAG),
             ]);
+        if ($cache !== null) {
+            // cache:warmup fills the discovery cache, so an immutable image with a read-only cache directory never writes it per request.
+            $services->set('fuzzphony.registry_cache_warmer', RegistryCacheWarmer::class)
+                ->args([$settings->indexes, $discovery, $cache, $projectDir, $settings->authorizationEnabled, tagged_iterator(self::INDEX_DEFINITION_TAG)])
+                ->tag('kernel.cache_warmer');
+        }
         $services->alias(IndexRegistry::class, 'fuzzphony.registry');
 
         $services->set('fuzzphony', Fuzzphony::class)
@@ -605,7 +634,7 @@ final class FuzzphonyBundle extends AbstractBundle
                 // the roles in use: the application's, the worker's, and the admin's only when it is a user of its own (an admin that is the application user is not asked for DDL)
                 ['search' => service('fuzzphony.connection'), 'worker' => service(self::roleService($settings->hasSeparateWorker(), 'fuzzphony.connection.worker', 'fuzzphony.connection')), ...($settings->hasSeparateAdmin() ? ['admin' => service('fuzzphony.connection.admin')] : [])],
             ])],
-            ReindexCommand::class => [service($admin)],
+            ReindexCommand::class => [service($admin), service('fuzzphony.metrics')],
             WorkerCommand::class => [service(self::roleService($settings->hasSeparateWorker(), 'fuzzphony.worker', 'fuzzphony')), $settings->workerBatchSize, $settings->workerIdleSleep, service('fuzzphony.metrics')],
             SearchCommand::class => [service('fuzzphony.operator')],
             WizardCommand::class => [service('fuzzphony.introspector'), service('fuzzphony.engine'), service('fuzzphony.connection')],

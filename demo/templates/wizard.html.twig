@@ -23,13 +23,20 @@
     {# The sample: a complete configuration of the demo catalogue (src/Service/SampleConfig.php), the wizard's output for it, and the same values in Tune. #}
     <div class="callout sample-offer" role="group" aria-labelledby="sample-title">
         <div class="callout-body">
-            <strong id="sample-title">{{ sample ? 'The sample configuration is loaded' : 'Or start from a sample' }}</strong>
-            <span class="muted">A complete definition of the demo catalogue: a joined source, weighted fields with typo tolerance, filters, watches, a language, popularity and recency, two ranking profiles and thresholds, with a note on synonyms.</span>
+            <strong id="sample-title">{{ sample ? (sampleKind == 'erp' ? 'The ERP sample is loaded' : 'The sample configuration is loaded') : 'Or start from a sample' }}</strong>
+            {% if sampleKind == 'erp' %}
+                <span class="muted">One index over the ERP tables: a source joined to the billing address, several values per customer (<code>many</code>) from two child tables, an exact <code>code</code> field, <code>returnable</code> columns and column-aware watches.</span>
+            {% else %}
+                <span class="muted">A complete definition of the demo catalogue: a joined source, weighted fields with typo tolerance, filters, watches, a language, popularity and recency, two ranking profiles and thresholds, with a note on synonyms.</span>
+            {% endif %}
         </div>
-        {% if sample %}
+        {% if sampleKind == 'catalogue' %}
             <a class="button primary" href="{{ path('tune', {start: 'sample'}) }}" data-loading-message="Opening Tune…">Tune it</a>
         {% else %}
-            <a class="button primary" href="{{ path('wizard', {sample: 1}) }}" data-loading-message="Loading the sample…">Load the sample configuration</a>
+            <a class="button{{ sampleKind ? '' : ' primary' }}" href="{{ path('wizard', {sample: 1}) }}" data-loading-message="Loading the sample…">Load the sample configuration</a>
+        {% endif %}
+        {% if sampleKind != 'erp' %}
+            <a class="button" href="{{ path('wizard', {sample: 'erp'}) }}" data-loading-message="Loading the ERP sample…">Load the ERP sample</a>
         {% endif %}
     </div>
 
@@ -79,11 +86,19 @@
                 <summary>Builder (plain PHP)<svg class="icon" aria-hidden="true"><use href="#i-chevron"/></svg></summary>
                 <pre tabindex="0">{{ exports.builder }}</pre>
             </details>
+            {% if exports.class is defined %}
+                <details class="disclosure">
+                    <summary>Definition class (src/Search/CustomerAdminIndex.php)<svg class="icon" aria-hidden="true"><use href="#i-chevron"/></svg></summary>
+                    <pre tabindex="0">{{ exports.class }}</pre>
+                </details>
+            {% endif %}
             <details class="disclosure">
                 <summary>Attributes<svg class="icon" aria-hidden="true"><use href="#i-chevron"/></svg></summary>
                 <pre tabindex="0">{{ exports.attributes }}</pre>
             </details>
-            {% if sample %}
+            {% if sampleKind == 'erp' %}
+                <p class="muted">Built with the library's public builder, so it is validated like any definition. It is not one of the demo's indexes: the <a href="{{ path('erp') }}">ERP page</a> searches those.</p>
+            {% elseif sample %}
                 <p class="muted">Loaded through the library's own loader, so it is validated like any configuration. The Tune page starts from its default profile and thresholds with <em>Start from: sample</em>.</p>
             {% else %}
                 <p class="muted">Same in the terminal: <code>bin/console fuzzphony:wizard {{ table }} --try</code></p>

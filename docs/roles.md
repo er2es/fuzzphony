@@ -26,12 +26,15 @@ Fuzzphony supports that with **three roles** and prints the exact `GRANT` statem
 | the database | `CONNECT` | `CONNECT` | `CONNECT`; `CREATE` when `schema` is not `public` | `CREATE SCHEMA IF NOT EXISTS` is checked against the database even when the schema exists |
 | sidecar table | S | S I U D | owner | search reads; the refresh writes |
 | vocabulary table (fuzzy indexes) | S | S I U D | owner | "did you mean" reads it |
+| values table (indexes with a `many` field) | S | S I D | owner | the matched value and the highlight read it; the refresh rewrites a document's rows (`sync: trigger`: the role that writes the child table needs I D too) |
+| child tables of the `many` fields | - | S | S, `TRIGGER` | they are watched tables: the worker reads them, the admin creates their trigger |
 | `fuzzphony_queue` | - | S I U D | owner | the drain fills it, the batch takes from it and records failures |
 | `fuzzphony_watch_log` | I | S **U** D | owner | the shared trigger appends as the role that writes a watched table; the worker's `DELETE ... FOR UPDATE SKIP LOCKED` needs `UPDATE` too |
 | `fuzzphony_watches` | - | S, U on `cur_xid`, `bad_rows`, `bad_at` only | owner | each index's position in the log; the worker cannot rewrite which table an index watches (the admin trusts those names) |
 | `fuzzphony_meta` | - | S U | owner | the worker records a failed rebuild; the reindex records its run |
 | `fuzzphony_search_log` (when enabled) | I | - | owner | searches write it; the analytics and purge commands run as the admin |
-| the source tables of an index | (the application's own rights) | S | S, `TRIGGER` | the worker runs the watch queries and rebuilds; the admin reindexes and creates the triggers |
+| the source tables of an index (every source's table and every watched table of a multi-source index) | (the application's own rights) | S | S, `TRIGGER` | the worker runs the watch queries and rebuilds; the admin reindexes and creates the triggers |
+| the source tables of an index with `returnable` columns | S, only for such an index | S | S, `TRIGGER` | `SearchBuilder::with()` reads the returned columns from the source query as the role that searches |
 | `EXECUTE` on `fuzzphony_norm`, `fuzzphony_refresh_<index>`, `fuzzphony_drain_<index>` | norm | all three | owner | functions are `PUBLIC` by default; granted explicitly so a `REVOKE ... FROM PUBLIC` does not break them |
 
 Notes that follow from the code:
@@ -52,7 +55,9 @@ Notes that follow from the code:
   it owns what it creates; for objects that exist already `--dump-grants --role=admin` prints the `ALTER TABLE ... OWNER TO` lines as comments.
 - **`CREATE EXTENSION`** needs a superuser, or, from PostgreSQL 13, `CREATE` on the database for the trusted `pg_trgm` and `unaccent`. If the extensions
   exist, `CREATE EXTENSION IF NOT EXISTS` needs nothing.
-- **A custom query source** (`source: { query: ... }`) lists its tables in `watch`; the grants cover the watched tables. A table the query reads
+- **Returned fields.** An index that declares `returnable` columns ([Searching](searching.md#returning-source-fields-with)) makes the search role read the source: `--dump-grants --role=search`
+  then prints `SELECT` on the source tables (the table of a `table` source and the watched tables), and only for such indexes. A table the query reads without watching it is yours to grant.
+- **A custom query source** (`source: { query: ... }`, or each of `sources`) lists its tables in `watch`; the grants cover the watched tables and the table of a `table` source. A table the query reads
   without watching it is yours to grant `SELECT` on.
 
 ## `fuzzphony:schema --dump-grants`

@@ -42,7 +42,7 @@ foreach ($result as $hit) {
 }
 ```
 
-Status: pre-1.0 (v0.10.1). The API may still change before 1.0; 0.10.0 gathered the remaining breaking changes. Breaking changes are listed in the
+Status: pre-1.0 (v0.11.0). The API may still change before 1.0; 0.10.0 gathered the remaining breaking changes, 0.11.0 is additive. Breaking changes are listed in the
 [CHANGELOG](https://github.com/er2es/fuzzphony/blob/main/CHANGELOG.md) and explained in
 [UPGRADE.md](https://github.com/er2es/fuzzphony/blob/main/UPGRADE.md).
 
@@ -56,6 +56,8 @@ cd fuzzphony/demo && docker compose up --build    # http://localhost:8000
 ```
 
 \* The demo, the documentation ([docs/](https://github.com/er2es/fuzzphony/blob/main/docs/README.md)), the tests and the benchmarks live in the Git repository only: `composer require fuzzphony/fuzzphony` installs just the library (`src/`). Clone the repository to run the demo and read the docs offline; the docs are also on [GitHub](https://github.com/er2es/fuzzphony/blob/main/docs/README.md).
+
+The demo also holds an ERP-like data set (people, companies, orders) with separate search boxes, a combined box and a live sync demonstration ([screenshot](docs/screenshots.md#erp)).
 
 The default catalogue has 500 000 products (about a minute to index). Windows (a Docker Compose build privilege prompt) and the
 large profile (1 000 000 products) are in the [demo README](https://github.com/er2es/fuzzphony/blob/main/demo/README.md).
@@ -266,11 +268,10 @@ Details in [docs/limitations.md](https://github.com/er2es/fuzzphony/blob/main/do
 
 ## Roadmap
 
-Current: v0.10.1, a patch on v0.10.0, the breaking release (security by default with an ambient actor, hits that know their index, a 77-type public API,
-grouped thresholds, a sturdier engine, and the additive API a custom frontend needs). PostgreSQL only before 1.0:
+Current: v0.11.0, additive on v0.10.0 (definition classes, multi-source indexes with a `kind`, `with()` source fields, several values per
+document, and an ERP demo). PostgreSQL only before 1.0:
 
-- v0.11.0: several sources, additive: several indexes per entity, multi-source indexes with a `kind`, `watch` derived from joins,
-  a combined search with normalised scores, and a demo page with an ERP-like data set (orders, customers, products, order lines).
+- v0.12.0: ranking by the best single value of a field with several values (to be discussed first).
 - v1.0.0: the stable API and the backward-compatibility promise.
 
 After 1.0, in separate projects: record linkage (matching people and companies across records, with explainable match scores), a

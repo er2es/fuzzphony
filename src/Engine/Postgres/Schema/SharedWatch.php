@@ -6,6 +6,7 @@ namespace Fuzzphony\Engine\Postgres\Schema;
 
 use Fuzzphony\Core\Definition\DefinitionValidator;
 use Fuzzphony\Core\Definition\IndexDefinition;
+use Fuzzphony\Core\Definition\IndexSource;
 use Fuzzphony\Core\Definition\SyncMode;
 use Fuzzphony\Core\Definition\TriggerLevel;
 use Fuzzphony\Core\Definition\Watch;
@@ -50,6 +51,7 @@ final readonly class SharedWatch
                 $this->names->watches(),
             ), 'Which index watches which table, how far in the change log it has read, and how many log rows it could not apply'),
             ...array_map(fn(array $c): Statement => new Statement(sprintf('DO %1$s BEGIN IF NOT EXISTS (SELECT 1 FROM pg_attribute WHERE attrelid = to_regclass(%2$s) AND attname = %3$s AND NOT attisdropped) THEN ALTER TABLE %4$s ADD COLUMN %6$s %5$s; END IF; END %1$s', self::TAG, Sql::string($this->names->watches()), Sql::string($c[0]), $this->names->watches(), $c[1], $c[0]), 'Count of log rows with an unusable key (skipped, never retried)'), [['bad_rows', 'bigint NOT NULL DEFAULT 0'], ['bad_at', 'timestamptz']]),
+            new Statement(sprintf('DO %1$s BEGIN IF NOT EXISTS (SELECT 1 FROM pg_attribute WHERE attrelid = to_regclass(%2$s) AND attname = \'source\' AND NOT attisdropped) THEN ALTER TABLE %3$s ADD COLUMN source text NOT NULL DEFAULT \'\'; END IF; END %1$s', self::TAG, Sql::string($this->names->watches()), $this->names->watches()), 'Which source of a multi-source index a watch belongs to (empty for a single-source index)'),
             new Statement(sprintf('CREATE INDEX IF NOT EXISTS %s ON %s (tbl)', Sql::ident($this->names->watchLogIndexName() . '_w'), $this->names->watches()), 'Watches by table'),
             new Statement($this->installFunction(), 'Builds (or removes) the shared trigger of a watched table from the watches'),
         ];
@@ -66,27 +68,31 @@ final readonly class SharedWatch
         $reg = $this->names->watches();
         $rows = [];
         $new = [];
+        $multi = $index->isMultiSource();
         if (self::applies($index)) {
             foreach ($index->effectiveWatches() as $no => $watch) {
                 $cols = $columns($index, $watch);
                 $tbl = Sql::string(Sql::ident($watch->table));
                 $fn = Sql::string($this->names->watchFunctionName($watch->table));
                 $rows[] = sprintf(
-                    '(%s, %d, %s, %s, %s, %s, pg_snapshot_xmin(pg_current_snapshot())::text::bigint)',
+                    '(%s, %d, %s, %s, %s, %s, pg_snapshot_xmin(pg_current_snapshot())::text::bigint%s)',
                     $name,
                     $no,
                     $tbl,
                     $fn,
                     Sql::string($watch->keyColumn),
                     $cols === null ? 'NULL::jsonb' : 'to_jsonb(ARRAY[' . implode(', ', array_map(Sql::string(...), $cols)) . ']::text[])',
+                    $multi ? ', ' . Sql::string((string) $watch->source) : '',
                 );
                 $new[] = sprintf('jsonb_build_array(%s, %s)', $tbl, $fn);
             }
         }
         $upsert = $rows === [] ? '' : sprintf(
-            "INSERT INTO %1\$s AS w (index_name, watch_no, tbl, fn, key_column, columns, cur_xid) VALUES\n        %2\$s\n        ON CONFLICT (index_name, watch_no) DO UPDATE SET fn = EXCLUDED.fn, key_column = EXCLUDED.key_column, columns = EXCLUDED.columns,\n            cur_xid = CASE WHEN w.tbl = EXCLUDED.tbl THEN w.cur_xid ELSE EXCLUDED.cur_xid END, tbl = EXCLUDED.tbl;",
+            "INSERT INTO %1\$s AS w (index_name, watch_no, tbl, fn, key_column, columns, cur_xid%3\$s) VALUES\n        %2\$s\n        ON CONFLICT (index_name, watch_no) DO UPDATE SET fn = EXCLUDED.fn, key_column = EXCLUDED.key_column, columns = EXCLUDED.columns,%4\$s\n            cur_xid = CASE WHEN w.tbl = EXCLUDED.tbl THEN w.cur_xid ELSE EXCLUDED.cur_xid END, tbl = EXCLUDED.tbl;",
             $reg,
             implode(",\n        ", $rows),
+            $multi ? ', source' : '',
+            $multi ? ' source = EXCLUDED.source,' : '',
         );
 
         return new Statement(sprintf(
@@ -173,14 +179,16 @@ final readonly class SharedWatch
                 . "WHEN 4 THEN r.key ~* '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\$' ELSE true END)";
             $affected = (string) preg_replace('/:id\b/', 'k.' . Sql::ident($watch->keyColumn), $watch->affectedIds, 1);
             $range = sprintf('tbl = %s AND op = \'T\' AND xid >= v_lo AND xid < v_hi', Sql::string($tbl));
-            $resync = sprintf("INSERT INTO %s (index_name, doc_id, queued_at) VALUES (%s, '*', clock_timestamp())\n                    ON CONFLICT (index_name, doc_id) DO UPDATE SET queued_at = clock_timestamp();", $queue, $name);
-            if ($index->source->table !== null && $watch->table === $index->source->table) {
+            $kind = $index->isMultiSource() ? $watch->source : null;
+            $resync = sprintf("INSERT INTO %s (index_name, doc_id, queued_at) VALUES (%s, %s, clock_timestamp())\n                    ON CONFLICT (index_name, doc_id) DO UPDATE SET queued_at = clock_timestamp();", $queue, $name, $kind === null ? "'*'" : Sql::string(IndexSource::rebuildRequestKey($kind)));
+            $ownTable = $index->sourceOf($watch)->table;
+            if ($ownTable !== null && $watch->table === $ownTable) {
                 $truncate = sprintf(
                     <<<'SQL'
                             IF NOT EXISTS (SELECT 1 FROM %1$s) THEN
-                                DELETE FROM %2$s;
+                                DELETE FROM %2$s%7$s;
                                 IF to_regclass(%3$s) IS NULL THEN
-                                    DELETE FROM %4$s WHERE ctid IN (SELECT ctid FROM %4$s WHERE index_name = %5$s FOR UPDATE SKIP LOCKED);
+                                    DELETE FROM %4$s WHERE ctid IN (SELECT ctid FROM %4$s WHERE index_name = %5$s%8$s FOR UPDATE SKIP LOCKED);
                                 END IF;
                             ELSE
                                 %6$s
@@ -192,6 +200,8 @@ final readonly class SharedWatch
                     $queue,
                     $name,
                     $resync,
+                    $kind === null ? '' : ' WHERE kind = ' . Sql::string($kind),
+                    $kind === null ? '' : ' AND starts_with(doc_id, ' . Sql::string($kind . ':') . ')',
                 );
             } else {
                 $truncate = '        ' . $resync;
@@ -213,7 +223,7 @@ final readonly class SharedWatch
                                 WITH g AS MATERIALIZED (
                                     SELECT DISTINCT r.key FROM %4$s AS r WHERE r.tbl = %11$s AND r.key_column = %9$s AND r.op <> 'T' AND r.xid >= v_lo AND r.xid < v_hi AND %12$s AND %13$s
                                 )
-                                SELECT DISTINCT %2$s, a.doc_id::text
+                                SELECT DISTINCT %2$s, %14$s
                                   FROM g AS r
                                   CROSS JOIN LATERAL jsonb_populate_record(NULL::%8$s, jsonb_build_object(%9$s, r.key)) AS k
                                   CROSS JOIN LATERAL (%10$s) AS a(doc_id)
@@ -225,7 +235,7 @@ final readonly class SharedWatch
                                 FOR v_key, v_cnt IN SELECT r.key, count(*) FROM %4$s AS r WHERE r.tbl = %11$s AND r.key_column = %9$s AND r.op <> 'T' AND r.xid >= v_lo AND r.xid < v_hi AND r.key IS NOT NULL AND %12$s AND %13$s GROUP BY r.key LOOP
                                     BEGIN
                                         INSERT INTO %7$s (index_name, doc_id)
-                                        SELECT DISTINCT %2$s, a.doc_id::text
+                                        SELECT DISTINCT %2$s, %14$s
                                           FROM jsonb_populate_record(NULL::%8$s, jsonb_build_object(%9$s, v_key)) AS k
                                           CROSS JOIN LATERAL (%10$s) AS a(doc_id)
                                          WHERE a.doc_id IS NOT NULL
@@ -258,6 +268,7 @@ final readonly class SharedWatch
                 Sql::string($tbl),
                 $relevant,
                 $usable,
+                $kind === null ? 'a.doc_id::text' : sprintf('%s || a.doc_id::text', Sql::string($kind . ':')),
             );
         }
         $prune = [];

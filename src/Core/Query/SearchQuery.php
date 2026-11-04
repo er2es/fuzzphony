@@ -22,6 +22,7 @@ final readonly class SearchQuery
      * @param array<string, mixed> $rankingOverrides   snake_case keys, see RankingProfile::with()
      * @param list<string>         $facets             filters to count the values of among the matches
      * @param list<string>|null    $allowedFields      field names the search is limited to; null = every field
+     * @param list<string>|null    $returning          returnable source columns to return with the hits; null = none, [] = all
      */
     public function __construct(
         public string $text = '',
@@ -50,6 +51,8 @@ final readonly class SearchQuery
         public bool $system = false,
         /** Explain which word matched where, for the returned page (SearchBuilder::explainMatches()). */
         public bool $explainMatches = false,
+        /** The returnable columns the hits carry (SearchBuilder::with()): null = not asked, [] = every returnable column. */
+        public ?array $returning = null,
     ) {
         if ($facetValues < 1 || $facetValues > 100) {
             throw new \Fuzzphony\Core\Exception\InvalidQuery(sprintf('Facet values must be between 1 and 100, got %d.', $facetValues));
@@ -120,6 +123,12 @@ final readonly class SearchQuery
     public function explainMatches(bool $explain = true): self
     {
         return $this->copy(explainMatches: $explain);
+    }
+
+    /** @param list<string> $fields */
+    public function returning(array $fields): self
+    {
+        return $this->copy(returning: $fields);
     }
 
     public function profile(string $profile): self
@@ -208,6 +217,7 @@ final readonly class SearchQuery
         $allowedFields = array_key_exists('allowedFields', $changes) ? self::stringList($changes['allowedFields']) : $this->allowedFields;
         $system = $changes['system'] ?? null;
         $explainMatches = $changes['explainMatches'] ?? null;
+        $returning = array_key_exists('returning', $changes) ? self::stringList($changes['returning']) : $this->returning;
 
         return new self(
             text: is_string($text) ? $text : $this->text,
@@ -228,6 +238,7 @@ final readonly class SearchQuery
             allowedFields: $allowedFields,
             system: is_bool($system) ? $system : $this->system,
             explainMatches: is_bool($explainMatches) ? $explainMatches : $this->explainMatches,
+            returning: $returning,
         );
     }
 

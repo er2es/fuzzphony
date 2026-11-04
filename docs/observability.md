@@ -93,8 +93,31 @@ services:
   [Search log and analytics](analytics.md#how-it-is-written-and-what-happens-when-it-fails).
 - `Worker`: `fuzzphony.queue.depth` (a gauge, once per cycle, reusing `queueSize()`),
   `fuzzphony.queue.processed` (a counter) and `fuzzphony.worker.rebuild_failures` (a counter).
+- Next to the queue depth, the worker reports per index (label `index` only) the health of the sync objects, each from one cheap statement on the small log and queue tables:
+  `fuzzphony.watch_log.entries` (changes the shared trigger logged and the index has not drained yet), `fuzzphony.watch_log.oldest_age_seconds` (the age of the oldest),
+  `fuzzphony.watch.bad_rows` (log rows with an unusable key, skipped and counted), `fuzzphony.queue.failing_items` (queue rows that failed at least once and wait for
+  their back-off) and `fuzzphony.queue.oldest_age_seconds`. An index with `sync: queue` only; the watch log gauges only where the shared log applies.
+- A multi-source index also reports the work of one source: `fuzzphony.reindex.documents` (a counter, labels `index` and `source`; a `fuzzphony:reindex`
+  run and the worker's rebuild after a `TRUNCATE`) and `fuzzphony.worker.source_rebuild_failures` (labels `index` and `source`; `fuzzphony.worker.rebuild_failures`
+  still counts it with the `index` label alone). Single-source indexes emit neither, and no existing metric changes its labels: a Prometheus metric has one label set.
 - `RefreshDocumentsHandler` (the ORM-sync Messenger handler): `fuzzphony.messenger.refresh.duration_ms`
   and `fuzzphony.messenger.refresh.errors`.
+
+### Alerting on a stuck change log
+
+The change log is drained by the worker; if it is not running, or cannot apply the log, the oldest entry keeps ageing. A Prometheus alert rule:
+
+```yaml
+- alert: FuzzphonyWatchLogStuck
+  expr: fuzzphony_watch_log_oldest_age_seconds > 300
+  for: 5m
+  annotations:
+    summary: 'Index {{ $labels.index }}: changes wait in the change log for more than 5 minutes (is the worker running?)'
+- alert: FuzzphonyQuarantinedRows
+  expr: increase(fuzzphony_watch_bad_rows[1h]) > 0
+```
+
+The Grafana sample dashboard has a panel for each of the gauges (`docs/grafana`).
 
 ## Cardinality
 
@@ -156,5 +179,5 @@ node_exporter's textfile collector directory:
 */5 * * * * bin/console fuzzphony:doctor --format=prometheus --strict > /var/lib/node_exporter/textfile/fuzzphony.prom
 ```
 
-The exit code still reflects `--strict` as usual; the Prometheus output is written to stdout either
+The exit code still reflects `--fail-on` (or `--strict`) as usual; the Prometheus output is written to stdout either
 way, so a monitoring system can alert on both the metrics and the command's own exit code.

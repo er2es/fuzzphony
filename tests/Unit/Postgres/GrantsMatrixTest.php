@@ -42,6 +42,19 @@ final class GrantsMatrixTest extends TestCase
         self::assertSame($head, self::sql($grants->for(GrantRole::Search, [self::index('row', 'manual')])), 'no queue, no shared trigger: nothing to append to');
     }
 
+    public function testTheSearchRoleReadsTheSourceOnlyForAnIndexWithReturnableColumns(): void
+    {
+        $grants = new Grants(new Names('public', 'fz_s'), false);
+        $plain = self::index('statement', 'manual');
+        $returning = $plain->withReturnable(['name']);
+
+        self::assertNotContains('GRANT SELECT ON TABLE "tt" TO "r"; [optional]', self::sql($grants->for(GrantRole::Search, [$plain])));
+        self::assertSame(
+            ['GRANT SELECT ON TABLE "tt" TO "r"; [optional]', 'GRANT SELECT ON TABLE "tu" TO "r"; [optional]'],
+            array_slice(self::sql($grants->for(GrantRole::Search, [$returning])), 4),
+        );
+    }
+
     public function testTheSearchRoleOfATriggerSyncAndOfATypoTolerantIndexWithTheSearchLog(): void
     {
         $grants = new Grants(new Names('public', 'fz_s'), true);
@@ -238,5 +251,24 @@ final class GrantsMatrixTest extends TestCase
 
         self::assertStringContainsString('ownership of "fz_s"."fuzzphony_t"', $result->message);
         self::assertStringContainsString('ownership of "fz_s"."fuzzphony_queue"', $result->message);
+    }
+
+    public function testTheWorkerAndTheAdminReadEveryTableOfEverySourceOfAMultiSourceIndex(): void
+    {
+        $index = IndexDefinition::builder('site')
+            ->sourceFromTable('article', 'art')
+            ->source('product', 'SELECT id, name FROM prod JOIN brand ON true', watch: [new \Fuzzphony\Core\Definition\Watch('prod'), new \Fuzzphony\Core\Definition\Watch('brand', 'SELECT id FROM prod WHERE brand_id = :id')])
+            ->field('name', 'A')
+            ->build();
+        $grants = new Grants(new Names('public', 'fz_s'), false);
+
+        $worker = self::sql($grants->for(GrantRole::Worker, [$index]));
+        $admin = self::sql($grants->for(GrantRole::Admin, [$index]));
+
+        foreach (['art', 'prod', 'brand'] as $table) {
+            self::assertContains(sprintf('GRANT SELECT ON TABLE "%s" TO "r"; [optional]', $table), $worker);
+            self::assertContains(sprintf('GRANT SELECT, TRIGGER ON TABLE "%s" TO "r"; [optional]', $table), $admin);
+        }
+        self::assertContains('GRANT EXECUTE ON FUNCTION "fz_s"."fuzzphony_refresh_site"(text[]) TO "r";', $worker);
     }
 }

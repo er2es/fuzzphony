@@ -44,6 +44,7 @@ final class FederatedSearchTest extends TestCase
 
         // "sony" is brand 3 and the brand of the headphones (3) and the torch (5): rank 1 of each index first, then the rest
         self::assertSame('products', $result->hits[0]->kind);
+        self::assertSame('products', $result->hits[0]->index);
         self::assertSame('brands:3', self::order($result)[1]);
         self::assertEqualsCanonicalizing(['products:3', 'products:5', 'brands:3'], self::order($result));
         self::assertSame($result->hits[0]->mergedScore, $result->hits[1]->mergedScore, 'rank 1 of each index');
@@ -61,6 +62,19 @@ final class FederatedSearchTest extends TestCase
         self::assertSame('products', $plain->hits[0]->kind, 'equal scores: the index added first');
         self::assertSame('brands:3', self::order($weighted)[0], 'the brand outranks the products with weight 2');
         self::assertSame(2.0 / (FederatedSearch::RANK_CONSTANT + 1), $weighted->hits[0]->mergedScore);
+    }
+
+    public function testAFloorKeepsALightIndexOnTheFirstPage(): void
+    {
+        $fuzzphony = $this->fuzzphony();
+        $light = static fn() => $fuzzphony->federated()->index('products')->query('sony')->limit(2);
+
+        $without = $light()->index('brands', weight: 0.01)->get();
+        $with = $light()->index('brands', weight: 0.01, atLeast: 1)->get();
+
+        self::assertSame(['products:3', 'products:5'], self::order($without));
+        self::assertEqualsCanonicalizing(['products:3', 'brands:3'], self::order($with));
+        self::assertSame(['products', 'brands'], array_map(static fn(\Fuzzphony\Core\Search\Hit $h): string => $h->index, $with->hits));
     }
 
     public function testEachIndexIsConfiguredOnItsOwnAndPagesAreSlicesOfTheMergedList(): void

@@ -33,6 +33,7 @@ use Fuzzphony\Engine\Postgres\Hints;
 use Fuzzphony\Engine\Postgres\MatchExplainer;
 use Fuzzphony\Engine\Postgres\Schema\Names;
 use Fuzzphony\Engine\Postgres\SearchSession;
+use Fuzzphony\Engine\Postgres\SourceFields;
 use Fuzzphony\Engine\Postgres\Sql\FilterCompiler;
 use Fuzzphony\Engine\Postgres\Sql\FuzzyQueryCompiler;
 use Fuzzphony\Engine\Postgres\Sql\SearchSqlBuilder;
@@ -191,6 +192,8 @@ final readonly class SearchRunner
         }
         $profile = $query->rankingOverrides === [] ? $index->profile($query->profile) : $index->profile($query->profile)->with($query->rankingOverrides);
         (new FilterCompiler($index))->validate(...$conditions);
+        // with(): checked against what THIS viewer may ask for, before anything runs (an unknown and a hidden name fail alike)
+        $returning = $query->returning === null ? null : SourceFields::resolve($index, $query);
         foreach ($query->facets as $facet) {
             $index->assertFacetable($facet);
         }
@@ -233,8 +236,9 @@ final readonly class SearchRunner
 
         $hits = [];
         foreach ($rows as $row) {
-            $id = $index->idType->cast(Coerce::str($row['id']));
-            $hits[] = new Hit($index->name, $id, Coerce::float($row['score']), new ScoreBreakdown(
+            $key = Coerce::str($row['id']);
+            [$kind, $id] = $index->parseKey($key);
+            $hits[] = new Hit($kind, $id, Coerce::float($row['score']), new ScoreBreakdown(
                 textRank: Coerce::float($row['r_text']),
                 fuzzySimilarity: Coerce::float($row['r_fuzzy']),
                 relevance: Coerce::float($row['relevance']),
@@ -242,7 +246,7 @@ final readonly class SearchRunner
                 prefixBonus: Coerce::float($row['prefix_bonus']),
                 boostBonus: Coerce::float($row['boost_bonus']),
                 recencyBonus: Coerce::float($row['recency_bonus']),
-            ), $highlights[(string) $id] ?? []);
+            ), $highlights[$key] ?? [], index: $index->name);
         }
 
         if ($query->explainMatches && $hits !== []) {
@@ -251,11 +255,17 @@ final readonly class SearchRunner
                 $index,
                 $query->allowedFields ?? $index->fieldNames(),
                 $root,
-                array_map(static fn(Hit $hit): int|string => $hit->id, $hits),
+                array_map(static fn(Hit $hit): int|string => $index->isMultiSource() ? self::keyOf($index, $hit) : $hit->id, $hits),
                 $thresholds,
                 $thresholds->typo->mode !== FuzzyMode::Never && $profile->fuzzy > 0.0,
             ), Hints::INDEX);
-            $hits = array_map(static fn(Hit $hit): Hit => $hit->withMatches($matches[(string) $hit->id] ?? []), $hits);
+            $hits = array_map(static fn(Hit $hit): Hit => $hit->withMatches($matches[self::keyOf($index, $hit)] ?? []), $hits);
+        }
+
+        $fieldStatements = [];
+        if ($returning !== null && $hits !== []) {
+            // opt-in: one statement per source on the page, never run (and never in the statement list) otherwise
+            ['hits' => $hits, 'statements' => $fieldStatements] = (new SourceFields($this->session))->attach($index, $query, $hits, $returning);
         }
 
         $result = new SearchResult(
@@ -272,7 +282,7 @@ final readonly class SearchRunner
             facets: $done->facets,
         );
 
-        return new SearchRun($result, $done->statements, $done->threshold, $done->rescue, $done->relaxed);
+        return new SearchRun($result, [...$done->statements, ...$fieldStatements], $done->threshold, $done->rescue, $done->relaxed);
     }
 
     /**
@@ -607,6 +617,12 @@ final readonly class SearchRunner
             array_map(static fn(array $r): int|string => $index->idType->cast(Coerce::str($r['id'])), $rows),
             $typo,
         ), Hints::INDEX);
+    }
+
+    /** The stored key of a hit: `<kind>:<id>` for a multi-source index, else its id. */
+    private static function keyOf(IndexDefinition $index, Hit $hit): string
+    {
+        return $index->sourceNamed($hit->kind)?->key($hit->id) ?? (string) $hit->id;
     }
 
     /** @param list<array<string, mixed>> $rows */

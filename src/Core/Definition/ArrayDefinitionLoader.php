@@ -15,8 +15,11 @@ use Fuzzphony\Core\Support\Closest;
  *   products:
  *     source: { table: product, id: id }            # or { query: "SELECT ...", id: id } or { query_file: sql/catalog.sql }
  *     id_type: int
+ *     # or, instead of source / id_type / watch / class: several sources sharing the fields below
+ *     sources: { product: { query: "SELECT ...", watch: { ... }, entity: App\Product, id_type: int }, article: { table: article, id_type: uuid } }
  *     fields: { name: { weight: A, fuzzy: true }, description: C, salary: { weight: B, granted: ROLE_HR } }
  *     filters: { price: int, in_stock: bool }
+ *     returnable: [name, slug, price]   # source columns SearchBuilder::with() may return (per source: sources.<name>.returnable)
  *     watch: { brand: { ids: "SELECT id FROM product WHERE brand_id = :id", columns: [name] } }
  *     sync: queue
  *     trigger_level: statement   # or row
@@ -35,14 +38,15 @@ use Fuzzphony\Core\Support\Closest;
  */
 final class ArrayDefinitionLoader
 {
-    private const array KEYS = ['source', 'id_type', 'fields', 'filters', 'watch', 'sync', 'language', 'unaccent', 'boost', 'recency', 'profiles', 'thresholds', 'class', 'trigger_level', 'tenant', 'synonyms', 'log'];
+    private const array KEYS = ['source', 'sources', 'id_type', 'fields', 'filters', 'watch', 'sync', 'language', 'unaccent', 'boost', 'recency', 'profiles', 'thresholds', 'class', 'trigger_level', 'tenant', 'synonyms', 'log', 'returnable'];
 
     /** What an override can change on an index its attributes define; the other keys describe the index itself. */
-    private const array OVERRIDABLE = ['watch', 'sync', 'language', 'unaccent', 'boost', 'recency', 'profiles', 'thresholds', 'trigger_level', 'tenant', 'synonyms', 'log'];
+    private const array OVERRIDABLE = ['watch', 'sync', 'language', 'unaccent', 'boost', 'recency', 'profiles', 'thresholds', 'trigger_level', 'tenant', 'synonyms', 'log', 'returnable'];
 
     private const array SOURCE_KEYS = ['table', 'query', 'query_file', 'id'];
-    private const array FIELD_KEYS = ['weight', 'fuzzy', 'highlight', 'column', 'granted', 'code'];
-    private const array FILTER_KEYS = ['type', 'column'];
+    private const array SOURCES_KEYS = ['table', 'query', 'query_file', 'id', 'watch', 'entity', 'id_type', 'returnable'];
+    private const array FIELD_KEYS = ['weight', 'fuzzy', 'highlight', 'column', 'granted', 'code', 'many'];
+    private const array FILTER_KEYS = ['type', 'column', 'many'];
     private const array WATCH_KEYS = ['ids', 'key', 'columns'];
     private const array STRING_KEYS = ['id_type', 'sync', 'trigger_level', 'language', 'boost', 'recency', 'tenant'];
     private const array BOOL_KEYS = ['unaccent', 'log'];
@@ -56,33 +60,62 @@ final class ArrayDefinitionLoader
         $this->assertShape($name, $config, false);
         $builder = IndexDefinition::builder($name);
 
-        /** @var array{table?: string, query?: string, query_file?: string, id?: string} $source */
-        $source = $config['source'] ?? ['table' => $name];
-        match (true) {
-            isset($source['query']) => $builder->fromQuery($source['query'], $source['id'] ?? 'id'),
-            isset($source['query_file']) => $builder->fromQueryFile($source['query_file'], $this->baseDir, $source['id'] ?? 'id'),
-            default => $builder->fromTable($source['table'] ?? $name, $source['id'] ?? 'id'),
-        };
+        if (isset($config['sources'])) {
+            $this->sources($builder, $name, self::map($config['sources']));
+        } else {
+            /** @var array{table?: string, query?: string, query_file?: string, id?: string} $source */
+            $source = $config['source'] ?? ['table' => $name];
+            match (true) {
+                isset($source['query']) => $builder->fromQuery($source['query'], $source['id'] ?? 'id'),
+                isset($source['query_file']) => $builder->fromQueryFile($source['query_file'], $this->baseDir, $source['id'] ?? 'id'),
+                default => $builder->fromTable($source['table'] ?? $name, $source['id'] ?? 'id'),
+            };
+        }
 
         foreach (self::map($config['fields'] ?? []) as $field => $options) {
             $options = is_string($options) ? ['weight' => $options] : self::map($options);
-            $builder->field($field, self::str($options['weight'] ?? null, 'B'), ($options['fuzzy'] ?? false) === true, ($options['highlight'] ?? true) === true, isset($options['column']) ? self::str($options['column'], '') : null, isset($options['granted']) ? self::str($options['granted'], '') : null, ($options['code'] ?? false) === true);
+            $builder->field($field, self::str($options['weight'] ?? null, 'B'), ($options['fuzzy'] ?? false) === true, ($options['highlight'] ?? true) === true, isset($options['column']) ? self::str($options['column'], '') : null, isset($options['granted']) ? self::str($options['granted'], '') : null, ($options['code'] ?? false) === true, isset($options['many']) && is_array($options['many']) ? $options['many'] : null);
         }
         foreach (self::map($config['filters'] ?? []) as $filter => $options) {
             $options = is_string($options) ? ['type' => $options] : self::map($options);
-            $builder->filter($filter, self::str($options['type'] ?? null, ''), isset($options['column']) ? self::str($options['column'], '') : null);
+            $builder->filter($filter, self::str($options['type'] ?? null, ''), isset($options['column']) ? self::str($options['column'], '') : null, isset($options['many']) && is_array($options['many']) ? $options['many'] : null);
         }
         foreach (self::map($config['watch'] ?? []) as $table => $options) {
             $options = is_string($options) ? ['ids' => $options] : self::map($options);
             $builder->watch($table, self::str($options['ids'] ?? null, 'SELECT :id'), self::str($options['key'] ?? null, 'id'), self::stringList($name, $options['columns'] ?? null));
         }
 
+        $builder->returnable(...self::returnableList($config['returnable'] ?? null));
         $this->apply($builder, $config, $name);
         if (is_string($config['class'] ?? null) && class_exists($config['class'])) {
             $builder->entity($config['class']);
         }
 
         return $builder->build();
+    }
+
+    /** @param array<string, mixed> $sources */
+    private function sources(IndexBuilder $builder, string $index, array $sources): void
+    {
+        foreach ($sources as $source => $options) {
+            $options = self::map($options);
+            $watch = [];
+            foreach (self::map($options['watch'] ?? []) as $table => $entry) {
+                $entry = is_string($entry) ? ['ids' => $entry] : self::map($entry);
+                $watch[] = new Watch($table, self::str($entry['ids'] ?? null, 'SELECT :id'), self::str($entry['key'] ?? null, 'id'), self::stringList($index, $entry['columns'] ?? null));
+            }
+            $entity = isset($options['entity']) && is_string($options['entity']) ? $options['entity'] : null;
+            /** @var class-string|null $entity */
+            $idType = isset($options['id_type']) ? self::str($options['id_type'], '') : null;
+            $id = self::str($options['id'] ?? null, 'id');
+            $returnable = self::returnableList($options['returnable'] ?? null);
+            $source = (string) $source;
+            match (true) {
+                isset($options['query']) => $builder->source($source, self::str($options['query'], ''), $entity, $watch, $idType, $id, $returnable),
+                isset($options['query_file']) => $builder->source($source, QueryFile::read($index, self::str($options['query_file'], ''), $this->baseDir), $entity, $watch, $idType, $id, $returnable),
+                default => $builder->sourceFromTable($source, self::str($options['table'] ?? null, $source), $entity, $watch, $idType, $id, $returnable),
+            };
+        }
     }
 
     /**
@@ -126,12 +159,21 @@ final class ArrayDefinitionLoader
         if (isset($config['thresholds'])) {
             $merged = $merged->withThresholds($this->scoped($name, 'thresholds', static fn(): Thresholds => $definition->thresholds->with(self::map($config['thresholds']))));
         }
+        if ($definition->isMultiSource() && isset($config['returnable'])) {
+            throw new InvalidDefinition($name, [sprintf('"returnable" cannot be set by a YAML override on index "%s": its columns belong to its sources, declared where the index is defined.', $name)]);
+        }
+        if ($definition->isMultiSource() && isset($config['watch'])) {
+            throw new InvalidDefinition($name, [sprintf('"watch" cannot be set by a YAML override on index "%s": its watches belong to its sources, declared where the index is defined.', $name)]);
+        }
         $watches = $definition->watches;
         foreach (self::map($config['watch'] ?? []) as $table => $options) {
             $options = is_string($options) ? ['ids' => $options] : self::map($options);
             $watches[] = new Watch($table, self::str($options['ids'] ?? null, 'SELECT :id'), self::str($options['key'] ?? null, 'id'), self::stringList($name, $options['columns'] ?? null));
         }
         $merged = $merged->withWatches($watches);
+        if (isset($config['returnable']) && !$definition->isMultiSource()) {
+            $merged = $merged->withReturnable(self::returnableList($config['returnable']));
+        }
         DefinitionValidator::assertValid($merged);
 
         return $merged;
@@ -249,6 +291,12 @@ final class ArrayDefinitionLoader
         )]);
     }
 
+    /** @return list<string> */
+    private static function returnableList(mixed $value): array
+    {
+        return is_array($value) ? array_values(array_filter($value, 'is_string')) : [];
+    }
+
     /**
      * Every structural problem of the configuration in one InvalidDefinition: unknown keys at every level (with a
      * "did you mean"), values of the wrong shape (a list where a map belongs, a string where a boolean belongs; the
@@ -281,11 +329,13 @@ final class ArrayDefinitionLoader
             $problems[] = sprintf('"class" must be the name of an existing class, got %s.', self::describe($config['class']));
         }
         if (!$override) {
+            $this->assertSources($problems, $config);
             $this->assertSource($problems, $config['source'] ?? null);
             $this->assertEntries($problems, 'fields', $config['fields'] ?? null, 'a weight letter (A-D)', self::FIELD_KEYS, 'field', 'fields: { title: A, body: { weight: C, fuzzy: true } }');
             $this->assertEntries($problems, 'filters', $config['filters'] ?? null, 'a filter type', self::FILTER_KEYS, 'filter', 'filters: { price: int }');
         }
         $this->assertEntries($problems, 'watch', $config['watch'] ?? null, 'a query returning the affected ids', self::WATCH_KEYS, 'watch', 'watch: { product: "SELECT :id" }');
+        self::assertReturnable($problems, '"returnable"', $config['returnable'] ?? null);
         $this->assertProfiles($problems, $config['profiles'] ?? null);
         if (isset($config['thresholds']) && !self::isMap($config['thresholds'])) {
             $problems[] = sprintf('"thresholds" must be a map of options (e.g. thresholds: { relevance: { min_score: 0.1 } }), got %s.', self::shape($config['thresholds']));
@@ -296,10 +346,61 @@ final class ArrayDefinitionLoader
     }
 
     /** @param list<string> $problems */
+    private static function assertReturnable(array &$problems, string $what, mixed $value): void
+    {
+        if ($value !== null && (!is_array($value) || !array_is_list($value) || array_filter($value, 'is_string') !== $value)) {
+            $problems[] = sprintf('%s must be a list of source column names (e.g. returnable: [title, slug, price]), got %s.', $what, self::shape($value));
+        }
+    }
+
+    /** @param list<string> $problems */
     private static function assertBool(array &$problems, string $what, mixed $value): void
     {
         if ($value !== null && !is_bool($value)) {
             $problems[] = sprintf('%s must be true or false (a boolean, not a string), got %s.', $what, self::describe($value));
+        }
+    }
+
+    /**
+     * @param list<string>         $problems
+     * @param array<string, mixed> $config
+     */
+    private function assertSources(array &$problems, array $config): void
+    {
+        if (!isset($config['sources'])) {
+            return;
+        }
+        $sources = $config['sources'];
+        foreach (['source', 'watch', 'id_type', 'class'] as $key) {
+            if (isset($config[$key])) {
+                $problems[] = sprintf('"sources" and "%s" are exclusive: with several sources, "%s" belongs inside each source%s.', $key, $key, $key === 'source' ? ' (an index has one "source" or several "sources")' : '');
+            }
+        }
+        if (!self::isMap($sources) || $sources === []) {
+            $problems[] = sprintf('"sources" must be a map of source name => { query | query_file | table, watch, entity, id_type } (e.g. sources: { product: { table: product } }), got %s.', self::shape($sources));
+
+            return;
+        }
+        /** @var array<string, mixed> $sources */
+        foreach ($sources as $name => $options) {
+            $at = sprintf('Source "%s"', $name);
+            if (!is_array($options) || array_is_list($options) && $options !== []) {
+                $problems[] = sprintf('%s must be a map: { table: product } or { query: "SELECT ..." }, got %s.', $at, self::shape($options));
+
+                continue;
+            }
+            $this->assertKeys($problems, $at, array_keys($options), self::SOURCES_KEYS);
+            $given = array_filter(['table', 'query', 'query_file'], static fn(string $k): bool => isset($options[$k]));
+            if (count($given) > 1) {
+                $problems[] = sprintf('%s takes one of "table", "query" or "query_file", not %s.', $at, implode(' and ', $given));
+            }
+            if (isset($options['entity']) && (!is_string($options['entity']) || !class_exists($options['entity']))) {
+                $problems[] = sprintf('%s: "entity" must be the name of an existing class, got %s.', $at, self::describe($options['entity']));
+            }
+            self::assertReturnable($problems, $at . ': "returnable"', $options['returnable'] ?? null);
+            if (isset($options['watch'])) {
+                $this->assertEntries($problems, 'watch', $options['watch'], 'a query returning the affected ids', self::WATCH_KEYS, 'watch', 'watch: { product: "SELECT :id" }');
+            }
         }
     }
 
@@ -355,6 +456,9 @@ final class ArrayDefinitionLoader
                 continue;
             }
             $this->assertKeys($problems, $at, array_keys($options), $allowed);
+            if (array_key_exists('many', $options)) {
+                $this->assertMany($problems, $at, $options['many']);
+            }
             if ($section === 'fields') {
                 self::assertBool($problems, $at . ' "fuzzy"', $options['fuzzy'] ?? null);
                 self::assertBool($problems, $at . ' "highlight"', $options['highlight'] ?? null);
@@ -364,6 +468,29 @@ final class ArrayDefinitionLoader
                     $problems[] = sprintf('%s "granted" must be a non-empty string, the attribute that unlocks the field (granted: ROLE_HR), got %s. Remove the key to leave the field open to everyone.', $at, self::describe($options['granted']));
                 }
             }
+        }
+    }
+
+    /** @param list<string> $problems */
+    private function assertMany(array &$problems, string $at, mixed $many): void
+    {
+        if (!self::isMap($many)) {
+            $problems[] = sprintf('%s "many" must be a map { from: address, key: customer_id, column: city, limit: 50 }, got %s.', $at, self::describe($many));
+
+            return;
+        }
+        /** @var array<string, mixed> $many */
+        $this->assertKeys($problems, $at . ' "many"', array_keys($many), ManyValues::KEYS);
+        foreach (['from', 'key', 'column'] as $required) {
+            if (!is_string($many[$required] ?? null) || $many[$required] === '') {
+                $problems[] = sprintf('%s "many" needs "%s" (a non-empty string), e.g. many: { from: address, key: customer_id, column: city }.', $at, $required);
+            }
+        }
+        if (array_key_exists('limit', $many) && !is_int($many['limit'])) {
+            $problems[] = sprintf('%s "many" "limit" must be an integer, got %s.', $at, self::describe($many['limit']));
+        }
+        if (array_key_exists('id', $many) && (!is_string($many['id']) || $many['id'] === '')) {
+            $problems[] = sprintf('%s "many" "id" must be the primary key column of the child table (a non-empty string), got %s.', $at, self::describe($many['id']));
         }
     }
 

@@ -52,11 +52,11 @@ final class Reindexer
             return $this->inPlace($index, $options);
         }
         try {
-            [$written, $seen] = $this->batches($index, $options, $this->engine->refreshShadow(...));
+            [$written, $seen, $perSource] = $this->batches($index, $options, $this->engine->refreshShadow(...));
             if (!$resumed && $seen === 0 && !$options->pruneEmpty) {
                 $this->engine->abortRebuild($index);
 
-                return new ReindexResult($written, pruneSkippedEmptySource: true);
+                return new ReindexResult($written, pruneSkippedEmptySource: true, perSource: $perSource);
             }
             $this->engine->finishRebuild($index);
         } catch (\Throwable $e) {
@@ -70,7 +70,7 @@ final class Reindexer
         }
         $this->engine->recordReindex($index);
 
-        return new ReindexResult($written, swapped: true);
+        return new ReindexResult($written, swapped: true, perSource: $perSource);
     }
 
     /** The vocabulary after a full run: a failure is reported, it does not undo the documents. */
@@ -98,16 +98,16 @@ final class Reindexer
 
     private function inPlace(IndexDefinition $index, ReindexOptions $options): ReindexResult
     {
-        [$written, $seen] = $this->batches($index, $options, $this->engine->refresh(...));
+        [$written, $seen, $perSource] = $this->batches($index, $options, $this->engine->refresh(...));
         if ($options->resumeAfter !== null || !$options->prune) {
-            $result = new ReindexResult($written);
+            $result = new ReindexResult($written, perSource: $perSource);
         } elseif ($seen === 0 && !$options->pruneEmpty) {
-            $result = new ReindexResult($written, pruneSkippedEmptySource: true);
+            $result = new ReindexResult($written, pruneSkippedEmptySource: true, perSource: $perSource);
         } else {
-            $result = new ReindexResult($written, $this->engine->pruneOrphans($index, $options->batchSize));
+            $result = new ReindexResult($written, $this->engine->pruneOrphans($index, $options->batchSize), perSource: $perSource);
         }
         // a resumed run covers part of the source; an empty one is likely a visibility problem (as for pruning)
-        if ($options->resumeAfter === null && ($seen > 0 || $options->pruneEmpty)) {
+        if ($index->onlySource === null && $options->resumeAfter === null && ($seen > 0 || $options->pruneEmpty)) {
             $this->engine->recordReindex($index);
         }
 
@@ -117,12 +117,13 @@ final class Reindexer
     /**
      * @param \Closure(IndexDefinition, list<int|string>): int $refresh
      *
-     * @return array{int, int} documents written, source ids seen
+     * @return array{int, int, array<string, int>} documents written, source ids seen, the ids seen by source (multi-source index)
      */
     private function batches(IndexDefinition $index, ReindexOptions $options, \Closure $refresh): array
     {
         $written = 0;
         $seen = 0;
+        $perSource = [];
         $after = $options->resumeAfter;
         do {
             $ids = $this->engine->sourceIds($index, $after, $options->batchSize);
@@ -130,6 +131,12 @@ final class Reindexer
                 break;
             }
             $seen += count($ids);
+            if ($index->isMultiSource()) {
+                foreach ($ids as $id) {
+                    $kind = explode(':', (string) $id, 2)[0];
+                    $perSource[$kind] = ($perSource[$kind] ?? 0) + 1;
+                }
+            }
             $written += $refresh($index, $ids);
             $after = $ids[array_key_last($ids)];
             if ($options->onBatch !== null) {
@@ -137,6 +144,6 @@ final class Reindexer
             }
         } while (count($ids) === $options->batchSize);
 
-        return [$written, $seen];
+        return [$written, $seen, $perSource];
     }
 }

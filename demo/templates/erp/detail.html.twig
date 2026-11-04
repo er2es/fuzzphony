@@ -1,0 +1,54 @@
+{% extends 'base.html.twig' %}
+{% block title %}{{ what == 'order' ? row.number : row.name }} · ERP · Fuzzphony{% endblock %}
+
+{% block body %}
+<div class="page stack">
+    <div class="hero">
+        <p class="crumb"><a href="{{ path('erp', {tab: what == 'order' ? 'orders' : (row.kind == 'company' ? 'companies' : 'people')}) }}">ERP</a> · {{ what == 'order' ? 'order' : row.kind }} #{{ row.id }}</p>
+        <h1>{{ what == 'order' ? row.number : row.name }}</h1>
+        <p class="lede">A plain read of the ERP tables (SQL, read-only). The search rows never come from here: they come from <code>with()</code>.</p>
+    </div>
+
+    {% if what == 'order' %}
+        <section aria-labelledby="o">
+            <h2 id="o" class="list-title">Order</h2>
+            <ul class="list">
+                <li class="row no-lead"><div class="row-body"><div class="row-title">{{ row.status }} · {{ row.total|number_format(0, '.', ' ') }} Ft</div><div class="row-sub">ordered {{ row.ordered_at|slice(0, 16) }} by <a href="{{ path('erp_detail', {kind: row.customer_kind, id: row.customer_id}) }}">{{ row.customer_name }}</a></div></div></li>
+            </ul>
+        </section>
+        <section aria-labelledby="l">
+            <h2 id="l" class="list-title">Lines</h2>
+            <ul class="list">
+                {% for l in lines %}<li class="row no-lead"><div class="row-body"><div class="row-title">{{ l.product ?? 'product' }}</div><div class="row-sub">{{ l.qty }} × {{ l.price|number_format(0, '.', ' ') }} Ft</div></div></li>{% else %}<li class="row no-lead"><span class="muted">No lines.</span></li>{% endfor %}
+            </ul>
+        </section>
+    {% else %}
+        <section aria-labelledby="c">
+            <h2 id="c" class="list-title">Customer</h2>
+            <ul class="list">
+                <li class="row no-lead"><div class="row-body"><div class="row-title">{{ row.name }}{% if row.birth_name and row.birth_name != row.name %} <small class="muted">(born {{ row.birth_name }})</small>{% endif %}</div><div class="row-sub">{{ row.email }}{% if row.tax_no %} · tax number {{ row.tax_no }}{% endif %} · created {{ row.created_at|slice(0, 10) }}</div></div></li>
+            </ul>
+        </section>
+        <section aria-labelledby="a">
+            <h2 id="a" class="list-title">Addresses</h2>
+            <ul class="list">
+                {% for a in addresses %}<li class="row no-lead"><div class="row-body"><div class="row-title">{{ a.zip }} {{ a.city }}, {{ a.street }}</div></div><span class="flag">{{ a.kind }}</span></li>{% endfor %}
+            </ul>
+        </section>
+        {% if contacts %}
+            <section aria-labelledby="k">
+                <h2 id="k" class="list-title">Contact persons</h2>
+                <ul class="list">
+                    {% for c in contacts %}<li class="row no-lead"><div class="row-body"><div class="row-title">{{ c.name }}</div><div class="row-sub">{{ c.role }} · {{ c.phone }} · {{ c.email }}</div></div></li>{% endfor %}
+                </ul>
+            </section>
+        {% endif %}
+        <section aria-labelledby="od">
+            <h2 id="od" class="list-title">Latest orders</h2>
+            <ul class="list">
+                {% for o in orders %}<li class="row no-lead"><div class="row-body"><div class="row-title"><a href="{{ path('erp_detail', {kind: 'order', id: o.id}) }}">{{ o.number }}</a></div><div class="row-sub">{{ o.status }} · {{ o.total|number_format(0, '.', ' ') }} Ft</div></div></li>{% else %}<li class="row no-lead"><span class="muted">No orders.</span></li>{% endfor %}
+            </ul>
+        </section>
+    {% endif %}
+</div>
+{% endblock %}

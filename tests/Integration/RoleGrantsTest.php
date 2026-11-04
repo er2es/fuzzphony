@@ -157,6 +157,38 @@ final class RoleGrantsTest extends TestCase
         self::assertGreaterThan($watched, Coerce::int($this->connection->fetchValue('SELECT count(*) FROM ' . $this->names->watchLog())), 'the shared trigger appended as the search role');
     }
 
+    public function testTheSearchRoleReadsTheReturnableColumnsOnlyWithTheSourceGrantsOfAnIndexThatDeclaresThem(): void
+    {
+        $this->applyAsSuperuser();
+        $returning = $this->index->withReturnable(['name', 'brand']);
+        $this->fuzzphony = new Fuzzphony($this->engine, new IndexRegistry([$returning]));
+        $this->grant('search');
+        $this->become('search');
+
+        // no SELECT on the source tables yet would fail: the dumped grants of an index with returnable columns include them
+        $hit = $this->fuzzphony->in('products')->query('mouse')->with('name', 'brand')->get()->hits[0];
+        self::assertArrayHasKey('name', $hit->data);
+        self::assertArrayHasKey('brand', $hit->data);
+        $this->connection->execute('RESET ROLE');
+        self::assertStringContainsString('fz_product', implode('|', $this->dump('search')));
+
+        // an index without returnable columns: the search role is not given the source (and cannot read it)
+        $this->connection->execute('REVOKE ALL ON fz_product, fz_brand FROM ' . $this->roles['search']);
+        $this->fuzzphony = new Fuzzphony($this->engine, new IndexRegistry([$this->index]));
+        self::assertStringNotContainsString('fz_product', implode('|', $this->dump('search')));
+        $this->become('search');
+        $this->assertDenied('SELECT * FROM fz_product');
+        $this->connection->execute('RESET ROLE');
+
+        // the doctor names the missing source grant of an index that declares returnable columns
+        $subjects = ['search' => $this->sessionOf('search')];
+        $privileges = new PrivilegeCheck($this->connection, new Grants($this->names, true), $subjects);
+        self::assertSame(CheckStatus::Ok, $privileges->check($this->index)->status);
+        $check = $privileges->check($returning);
+        self::assertSame(CheckStatus::Error, $check->status);
+        self::assertStringContainsString('SELECT on table "fz_product"', $check->message);
+    }
+
     public function testTheWorkerRoleDrainsAndRefreshesAndHasNoDdl(): void
     {
         $this->applyAsSuperuser();

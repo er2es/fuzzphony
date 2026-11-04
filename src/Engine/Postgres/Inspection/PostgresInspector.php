@@ -53,12 +53,23 @@ final class PostgresInspector
         $checks[] = $this->textConfig($index);
         $checks[] = $this->function($this->names->normFunction() . '(text)', 'Normaliser function');
 
-        $sourceColumns = $this->sourceColumns($index, $checks);
-        if ($sourceColumns !== null) {
-            array_push($checks, ...$this->sourceMapping($index, $sourceColumns));
-        }
-        if ($index->source->table !== null) {
-            $checks[] = $this->sourceKey($index);
+        $queryable = true;
+        foreach ($index->isMultiSource() ? $index->sources : [null] as $one) {
+            // a multi-source index: each source checked as a single-source one, its checks named after it
+            $part = $one === null ? $index : $index->forSource($one);
+            $partChecks = [];
+            $partColumns = $this->sourceColumns($part, $partChecks);
+            $queryable = $queryable && $partColumns !== null;
+            if ($partColumns !== null) {
+                array_push($partChecks, ...$this->sourceMapping($part, $partColumns));
+            }
+            if ($part->source->table !== null) {
+                $partChecks[] = $this->sourceKey($part);
+            }
+            if ($partColumns !== null) {
+                array_push($partChecks, ...(new WatchCoverage($this->connection, $this->names->schema))->check($part, $one?->name));
+            }
+            array_push($checks, ...($one === null ? $partChecks : array_map(static fn(Check $c): Check => new Check(sprintf('Source "%s": %s', $one->name, $c->name), $c->status, $c->message, $c->fix), $partChecks)));
         }
 
         $sidecarExists = $this->regclass($this->names->sidecar($index));
@@ -81,12 +92,15 @@ final class PostgresInspector
         $checks[] = $this->function($this->names->trackFunction($index) . '()', 'Rebuild change log function');
         array_push($checks, ...$this->triggers($index));
         $checks[] = $this->queue($index, $options);
-        if ($sidecarExists && $sourceColumns !== null) {
+        if ($sidecarExists && $queryable) {
             $checks[] = $this->coverage($index, $options);
             $checks[] = $this->orphans($index, $options);
         }
         if ($sidecarExists && $index->hasFuzzy()) {
             $checks[] = $this->vocabulary($index);
+        }
+        if ($index->hasMany()) {
+            array_push($checks, ...(new ManyCheck($this->connection, $this->names))->check($index, $sidecarExists, $options->deep));
         }
         array_push($checks, ...$this->configuration($index));
         array_push($checks, ...$this->tenantScoping($index));
@@ -399,7 +413,7 @@ final class PostgresInspector
 
         $missing = [];
         foreach ($index->fields as $field) {
-            if (!isset($columns[$field->column()])) {
+            if ($field->many === null && !isset($columns[$field->column()])) {
                 $missing[] = sprintf('%s -> "%s"', $field->name, $field->column());
             }
         }
@@ -408,6 +422,9 @@ final class PostgresInspector
             : Check::error('Field columns', sprintf('Missing in source: %s. Available: %s.', implode(', ', $missing), $known));
 
         foreach ($index->filters as $filter) {
+            if ($filter->many !== null) {
+                continue; // the values come from the child table, not from a column of the source
+            }
             $type = $columns[$filter->column()] ?? null;
             $checks[] = match (true) {
                 $type === null => Check::error('Filter ' . $filter->name, sprintf('Column "%s" not found in source.', $filter->column())),
@@ -417,6 +434,13 @@ final class PostgresInspector
                 ),
                 default => Check::ok('Filter ' . $filter->name, sprintf('%s (%s)', $filter->column(), $type)),
             };
+        }
+
+        if ($index->returnable !== []) {
+            $absent = array_values(array_filter($index->returnable, static fn(string $c): bool => !isset($columns[$c])));
+            $checks[] = $absent === []
+                ? Check::ok('Returnable columns', sprintf('%d column(s) returned by with()', count($index->returnable)))
+                : Check::error('Returnable columns', sprintf('Missing in source: %s. Available: %s.', implode(', ', $absent), $known));
         }
 
         foreach (['Boost column' => [$index->boostColumn, FilterType::Float], 'Recency column' => [$index->recencyColumn, FilterType::DateTime]] as $label => [$column, $type]) {
@@ -620,7 +644,7 @@ final class PostgresInspector
                 ['table' => Sql::ident($watch->table)],
             );
             $state = array_column($rows, 'tgenabled', 'tgname');
-            $label = 'Sync trigger on ' . $watch->table;
+            $label = 'Sync trigger on ' . $watch->table . ($watch->source !== null ? sprintf(' (%s)', $watch->source) : '');
             $shared = SharedWatch::applies($index);
             $expected = $shared
                 ? array_map(fn(string $kind): string => $this->names->watchTriggerName($watch->table, $kind), ['ins', 'upd', 'del', 'trn'])
@@ -682,6 +706,20 @@ final class PostgresInspector
             if (($known[$no] ?? null) !== Sql::ident($watch->table)) {
                 $missing[] = $watch->table;
             }
+        }
+        $absent = [];
+        foreach ($index->effectiveWatches() as $watch) {
+            if ($this->connection->fetchValue('SELECT to_regclass(:tbl) IS NULL', ['tbl' => Sql::ident($watch->table)]) === true) {
+                $absent[] = $watch->table;
+            }
+        }
+        if ($absent !== []) {
+            // the drain function names the table (its row type): it fails on every run, which a worker only shows as a repeating database error
+            return [Check::error(
+                'Shared change log',
+                sprintf('The watched table %s does not exist or is not on the search path: the drain of "%s" fails on every run and its changes never reach the queue.', implode(', ', array_unique($absent)), $index->name),
+                'create the table, or give the watch its schema-qualified name (schema.table); then run the apply again',
+            )];
         }
         $function = $this->connection->fetchValue('SELECT to_regprocedure(:function) IS NOT NULL', ['function' => $this->names->drainFunction($index) . '()']) === true;
         if ($missing !== [] || !$function) {
@@ -819,6 +857,9 @@ final class PostgresInspector
 
     private function coverage(IndexDefinition $index, InspectOptions $options): Check
     {
+        if ($index->isMultiSource()) {
+            return $this->multiCoverage($index, $options);
+        }
         if ($options->deep) {
             $source = Coerce::int($this->connection->fetchValue(sprintf('SELECT count(*) FROM (%s) AS d', DocumentSql::raw($index))));
             $indexed = Coerce::int($this->connection->fetchValue(sprintf('SELECT count(*) FROM %s', $this->names->sidecar($index))));
@@ -841,6 +882,38 @@ final class PostgresInspector
         return $ratio < 0.95 || $ratio > 1.05
             ? Check::warning('Coverage', sprintf('%d of %d documents indexed (%.1f%%, %s).', $indexed, $source, $ratio * 100, $how), sprintf('bin/console fuzzphony:reindex %s', $index->name))
             : Check::ok('Coverage', sprintf('%d of %d documents indexed (%.1f%%, %s)', $indexed, $source, $ratio * 100, $how));
+    }
+
+    /** Each source's row count against the sidecar rows of its kind (exact with --deep, else the estimates of table sources). */
+    private function multiCoverage(IndexDefinition $index, InspectOptions $options): Check
+    {
+        $parts = [];
+        $off = false;
+        foreach ($index->sources as $one) {
+            $part = $index->forSource($one);
+            if ($options->deep) {
+                $source = Coerce::int($this->connection->fetchValue(sprintf('SELECT count(*) FROM (%s) AS d', DocumentSql::raw($part))));
+                $indexed = Coerce::int($this->connection->fetchValue(sprintf('SELECT count(*) FROM %s WHERE kind = :kind', $this->names->sidecar($index)), ['kind' => $one->name]));
+                $how = 'exact';
+            } elseif ($one->source->table === null) {
+                $parts[] = sprintf('%s: no estimate for a query source', $one->name);
+
+                continue;
+            } else {
+                $source = Coerce::int($this->connection->fetchValue('SELECT greatest(reltuples, 0)::bigint FROM pg_class WHERE oid = to_regclass(:t)', ['t' => $one->source->table]));
+                // the sidecar's own estimate is for all kinds: the rows of this kind are counted (an index on kind)
+                $indexed = Coerce::int($this->connection->fetchValue(sprintf('SELECT count(*) FROM %s WHERE kind = :kind', $this->names->sidecar($index)), ['kind' => $one->name]));
+                $how = 'estimated';
+            }
+            $ratio = $source === 0 ? 1.0 : $indexed / $source;
+            $off = $off || $ratio < 0.95 || $ratio > 1.05;
+            $parts[] = sprintf('%s: %d of %d (%s)', $one->name, $indexed, $source, $how);
+        }
+        $message = implode('; ', $parts);
+
+        return $off
+            ? Check::warning('Coverage', $message . '.', sprintf('bin/console fuzzphony:reindex %s --source=<source>', $index->name))
+            : Check::ok('Coverage', $message);
     }
 
     /** Indexed documents whose id the source no longer returns: exact only, so --deep only. */

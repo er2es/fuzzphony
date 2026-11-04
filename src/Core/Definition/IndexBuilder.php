@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Fuzzphony\Core\Definition;
 
+use Fuzzphony\Core\Exception\InvalidDefinition;
 use Fuzzphony\Core\Ranking\RankingProfile;
 use Fuzzphony\Core\Ranking\Thresholds;
 
@@ -40,6 +41,12 @@ final class IndexBuilder
     private Thresholds $thresholds;
     /** @var class-string|null */
     private ?string $entityClass = null;
+    /** @var list<IndexSource> */
+    private array $sources = [];
+    /** @var list<string> */
+    private array $sourceProblems = [];
+    /** @var list<string> */
+    private array $returnable = [];
 
     public function __construct(private readonly string $name)
     {
@@ -77,18 +84,87 @@ final class IndexBuilder
         return $this->fromQuery(QueryFile::read($this->name, $path, $baseDir), $idColumn);
     }
 
-    public function field(string $name, Weight|string $weight = Weight::B, bool $fuzzy = false, bool $highlight = true, ?string $column = null, ?string $granted = null, bool $code = false): self
+    /**
+     * A source of a multi-source index: a SELECT returning `id` and every field and filter column of the index (alias your own
+     * columns to the common names). The name is the `kind` of its hits. The SQL is trusted developer input (see fromQuery()).
+     *
+     * @param array<array-key, mixed>      $watch  Watch objects, or table => "SELECT ... :id" / table => { ids, key, columns } as in YAML
+     * @param class-string|null            $entity
+     * @param list<string>                 $returnable columns of this source a search may return with SearchBuilder::with()
+     */
+    public function source(string $name, string $sql, ?string $entity = null, array $watch = [], IdType|string|null $idType = null, string $idColumn = 'id', array $returnable = []): self
     {
-        $weight = $weight instanceof Weight ? $weight : EnumOption::parse(Weight::class, strtoupper($weight), $this->name, 'weight', sprintf(' of field "%s"', $name));
-        $this->fields[] = new FieldDefinition($name, $weight, $fuzzy, $highlight, $column, $granted, $code);
+        return $this->addSource($name, Source::query($sql, $idColumn), $entity, $watch, $idType, $returnable);
+    }
+
+    /**
+     * A source of a multi-source index read straight from a table (its columns must carry the index's field and filter names, or
+     * the `column:` of each); the table is watched automatically.
+     *
+     * @param array<array-key, mixed> $watch
+     * @param class-string|null       $entity
+     * @param list<string>            $returnable columns of this source a search may return with SearchBuilder::with()
+     */
+    public function sourceFromTable(string $name, string $table, ?string $entity = null, array $watch = [], IdType|string|null $idType = null, string $idColumn = 'id', array $returnable = []): self
+    {
+        return $this->addSource($name, Source::table($table, $idColumn), $entity, $watch, $idType, $returnable);
+    }
+
+    /**
+     * @param array<array-key, mixed> $watch
+     * @param class-string|null       $entity
+     * @param list<string>            $returnable
+     */
+    private function addSource(string $name, Source $source, ?string $entity, array $watch, IdType|string|null $idType, array $returnable = []): self
+    {
+        $type = $idType === null ? IdType::Int : ($idType instanceof IdType ? $idType : EnumOption::parse(IdType::class, $idType, $this->name, 'id type', sprintf(' of source "%s"', $name)));
+        $this->sources[] = new IndexSource($name, $source, $this->watchList($name, $watch), $entity, $type, array_values(array_unique($returnable)));
 
         return $this;
     }
 
-    public function filter(string $name, FilterType|string $type, ?string $column = null): self
+    /**
+     * @param array<array-key, mixed> $watch
+     *
+     * @return list<Watch>
+     */
+    private function watchList(string $source, array $watch): array
+    {
+        $list = [];
+        foreach ($watch as $key => $entry) {
+            if ($entry instanceof Watch) {
+                $list[] = $entry;
+            } elseif (is_string($key) && is_string($entry)) {
+                $list[] = new Watch($key, $entry);
+            } elseif (is_string($key) && is_array($entry)) {
+                $columns = $entry['columns'] ?? null;
+                if ($columns !== null && (!is_array($columns) || array_filter($columns, 'is_string') !== $columns)) {
+                    $this->sourceProblems[] = sprintf('Source "%s": watch on "%s": "columns" must be a list of strings.', $source, $key);
+                    $columns = null;
+                }
+                $list[] = new Watch($key, is_string($entry['ids'] ?? null) ? $entry['ids'] : 'SELECT :id', is_string($entry['key'] ?? null) ? $entry['key'] : 'id', $columns === null || $columns === [] ? null : array_values($columns));
+            } else {
+                $this->sourceProblems[] = sprintf('Source "%s": a watch is a Watch object or table => "SELECT ... :id" / table => { ids, key, columns }.', $source);
+            }
+        }
+
+        return $list;
+    }
+
+    /** @param ManyValues|array<array-key, mixed>|null $many the values come from a child table: ManyValues, or ['from' => ..., 'key' => ..., 'column' => ..., 'limit' => 50] */
+    public function field(string $name, Weight|string $weight = Weight::B, bool $fuzzy = false, bool $highlight = true, ?string $column = null, ?string $granted = null, bool $code = false, ManyValues|array|null $many = null): self
+    {
+        $weight = $weight instanceof Weight ? $weight : EnumOption::parse(Weight::class, strtoupper($weight), $this->name, 'weight', sprintf(' of field "%s"', $name));
+        $this->fields[] = new FieldDefinition($name, $weight, $fuzzy, $highlight, $column, $granted, $code, is_array($many) ? ManyValues::fromArray($this->name, sprintf('Field "%s"', $name), $many) : $many);
+
+        return $this;
+    }
+
+    /** @param ManyValues|array<array-key, mixed>|null $many see field() */
+    public function filter(string $name, FilterType|string $type, ?string $column = null, ManyValues|array|null $many = null): self
     {
         $type = $type instanceof FilterType ? $type : EnumOption::parse(FilterType::class, $type, $this->name, 'filter type', sprintf(' of filter "%s"', $name));
-        $this->filters[] = new FilterDefinition($name, $type, $column);
+        $this->filters[] = new FilterDefinition($name, $type, $column, is_array($many) ? ManyValues::fromArray($this->name, sprintf('Filter "%s"', $name), $many) : $many);
 
         return $this;
     }
@@ -211,8 +287,23 @@ final class IndexBuilder
         return $this;
     }
 
+    /**
+     * The columns of the source a search may return with SearchBuilder::with() (Hit::$data): an allow-list of names the source query
+     * returns, so an application can render a result row without loading entities. On a multi-source index give it per source instead
+     * (source(..., returnable: [...])). A name that is also a `granted` field is only returned to an actor who holds it.
+     */
+    public function returnable(string ...$columns): self
+    {
+        $this->returnable = array_values(array_unique([...$this->returnable, ...$columns]));
+
+        return $this;
+    }
+
     public function build(): IndexDefinition
     {
+        if ($this->sources !== []) {
+            return $this->buildMultiSource();
+        }
         $definition = new IndexDefinition(
             name: $this->name,
             source: $this->source ?? Source::table($this->name),
@@ -231,6 +322,51 @@ final class IndexBuilder
             tenant: $this->tenant,
             synonyms: $this->synonyms,
             log: $this->log,
+            returnable: $this->returnable,
+        );
+        DefinitionValidator::assertValid($definition);
+
+        return $definition;
+    }
+
+    private function buildMultiSource(): IndexDefinition
+    {
+        $problems = $this->sourceProblems;
+        if ($this->source !== null) {
+            $problems[] = 'An index has either one source (fromTable / fromQuery) or several (source / sourceFromTable), not both.';
+        }
+        if ($this->watches !== []) {
+            $problems[] = 'An index with sources declares its watches inside each source (source(..., watch: [...])), not on the index.';
+        }
+        if ($this->entityClass !== null) {
+            $problems[] = 'An index with sources declares the entity class inside each source (source(..., entity: Product::class)), not on the index.';
+        }
+        if ($this->idType !== IdType::Int) {
+            $problems[] = 'An index with sources declares the id type inside each source (source(..., idType: ...)), not on the index.';
+        }
+        if ($this->returnable !== []) {
+            $problems[] = 'An index with sources declares the returnable columns inside each source (source(..., returnable: ["title"])), not on the index.';
+        }
+        if ($problems !== []) {
+            throw new InvalidDefinition($this->name, $problems);
+        }
+        $definition = new IndexDefinition(
+            name: $this->name,
+            source: $this->sources[0]->source,
+            fields: $this->fields,
+            filters: $this->filters,
+            idType: IdType::String,
+            sync: $this->sync,
+            text: $this->text,
+            boostColumn: $this->boost,
+            recencyColumn: $this->recency,
+            profiles: $this->profiles + ['default' => new RankingProfile()],
+            thresholds: $this->thresholds,
+            triggerLevel: $this->triggerLevel,
+            tenant: $this->tenant,
+            synonyms: $this->synonyms,
+            log: $this->log,
+            sources: $this->sources,
         );
         DefinitionValidator::assertValid($definition);
 
