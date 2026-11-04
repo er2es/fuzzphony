@@ -27,7 +27,7 @@ final readonly class SourceFields
 
     /**
      * The returnable columns this search asks for. A `granted` field is returnable only to a viewer who may see it (the fields of
-     * SearchQuery::$allowedFields, after the guards and restrictedToFields()); the others get the same InvalidQuery for it as for an
+     * SearchQuery::$allowedFields, after the guards and restrictedToFields()); a returnable column is gated by the granted field of that name or that reads that column; the others get the same InvalidQuery for it as for an
      * unknown name, listing only what they may ask for.
      *
      * @return list<string>
@@ -37,9 +37,17 @@ final readonly class SourceFields
     public static function resolve(IndexDefinition $index, SearchQuery $query): array
     {
         $visible = array_values(array_filter($index->returnableNames(), static function (string $name) use ($index, $query): bool {
-            $field = $index->field($name);
+            if ($query->allowedFields === null) {
+                return true;
+            }
+            // a returnable name is a COLUMN: any granted field that is called that or reads that column gates it (a field may rename its column)
+            foreach ($index->fields as $field) {
+                if ($field->granted !== null && ($field->name === $name || $field->column() === $name) && !in_array($field->name, $query->allowedFields, true)) {
+                    return false;
+                }
+            }
 
-            return $field === null || $field->granted === null || $query->allowedFields === null || in_array($name, $query->allowedFields, true);
+            return true;
         }));
         if ($visible === []) {
             throw new InvalidQuery(sprintf('Index "%s" has no returnable columns for this search: declare `returnable: [title, slug]` in its definition to use with().', $index->name));

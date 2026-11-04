@@ -37,6 +37,21 @@ final class SourceFieldsTest extends TestCase
         return new Hit($kind, $id, 1.0, new ScoreBreakdown());
     }
 
+    public function testAGrantedFieldWithAnotherColumnNameGatesItsColumn(): void
+    {
+        $index = IndexDefinition::builder('staff')
+            ->fromQuery('SELECT id, name, salary FROM emp')
+            ->field('name', 'A')
+            ->field('pay', 'C', column: 'salary', granted: 'ROLE_HR')
+            ->sync('manual')
+            ->returnable('name', 'salary')
+            ->build();
+
+        self::assertSame(['name'], SourceFields::resolve($index, (new SearchQuery('x'))->restrictedTo(['name'])), 'the clerk does not get the salary column');
+        self::assertSame(['name', 'salary'], SourceFields::resolve($index, (new SearchQuery('x'))->restrictedTo(['name', 'pay'])), 'the HR viewer does');
+        self::assertSame(['name', 'salary'], SourceFields::resolve($index, new SearchQuery('x')), 'an unrestricted (system) search does');
+    }
+
     public function testAHiddenGrantedFieldLeavesAListWithoutGaps(): void
     {
         $query = (new SearchQuery('x'))->restrictedTo(['title', 'slug', 'url']);
