@@ -17,6 +17,8 @@ final class IndexRegistry
     private array $byName = [];
     /** @var array<class-string, string> */
     private array $byClass = [];
+    /** @var array<class-string, list<string>> every index that reads an entity class (as its entity or the entity of a source) */
+    private array $allByClass = [];
     /** @var array<string, string> where an index came from (only the indexes registered with an origin) */
     private array $origins = [];
 
@@ -46,6 +48,9 @@ final class IndexRegistry
         }
         // the first index of an entity answers for the entity class (the attribute index, then the definition classes); the others are reached by name
         foreach ([$definition->entityClass, ...array_map(static fn(IndexSource $s): ?string => $s->entityClass, $definition->sources)] as $class) {
+            if ($class !== null && !in_array($definition->name, $this->allByClass[$class] ?? [], true)) {
+                $this->allByClass[$class][] = $definition->name;
+            }
             if ($class !== null && ($this->byClass[$class] ?? $definition->name) === $definition->name) {
                 $this->byClass[$class] = $definition->name;
             }
@@ -69,6 +74,24 @@ final class IndexRegistry
         $name = $this->byClass[$nameOrClass] ?? $nameOrClass;
 
         return $this->byName[$name] ?? throw new UnknownIndex($nameOrClass, array_keys($this->byName));
+    }
+
+    /**
+     * EVERY index that reads an entity class (as its entity or as the entity of one of its sources), in registration order; get() answers for the first only.
+     *
+     * @return list<IndexDefinition>
+     */
+    public function allFor(string $class): array
+    {
+        $out = [];
+        foreach ($this->allByClass[$class] ?? [] as $name) {
+            $definition = $this->byName[$name];
+            if ($definition->entityClass === $class || $definition->sourceForEntity($class) !== null) { // a later registration under the same name may have dropped the class
+                $out[] = $definition;
+            }
+        }
+
+        return $out;
     }
 
     public function has(string $nameOrClass): bool

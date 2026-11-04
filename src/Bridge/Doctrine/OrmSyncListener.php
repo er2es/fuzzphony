@@ -74,20 +74,26 @@ final class OrmSyncListener
         if (!$this->registry->has($class) || count($identifier) !== 1) {
             return;
         }
-        $index = $this->registry->get($class);
         $id = reset($identifier);
-        if ($index->sync !== SyncMode::Orm || !(is_int($id) || is_string($id) || $id instanceof \Stringable)) {
+        if (!(is_int($id) || is_string($id) || $id instanceof \Stringable)) {
             return;
         }
         $id = $id instanceof \Stringable ? (string) $id : $id;
-        if ($index->isMultiSource()) {
-            // the source that reads this entity class decides the kind of the stored key
-            $source = $index->sourceForEntity($class);
-            if ($source === null) {
-                return;
+        // every index that reads the class is refreshed (several indexes per entity, a multi-source index next to an attribute index)
+        foreach ($this->registry->allFor($class) as $index) {
+            if ($index->sync !== SyncMode::Orm) {
+                continue;
             }
-            $id = $source->key($id);
+            $key = $id;
+            if ($index->isMultiSource()) {
+                // the source that reads this entity class decides the kind of the stored key
+                $source = $index->sourceForEntity($class);
+                if ($source === null) {
+                    continue;
+                }
+                $key = $source->key($id);
+            }
+            $this->pending[$index->name][(string) $key] = [$key, \WeakReference::create($manager)];
         }
-        $this->pending[$index->name][(string) $id] = [$id, \WeakReference::create($manager)];
     }
 }

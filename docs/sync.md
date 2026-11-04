@@ -186,7 +186,7 @@ An index with [sources](configuration.md#several-sources-in-one-index) syncs per
 `fuzzphony_watches` records it in its `source` column), and a changed key goes through that source's own `ids` query into queue rows
 carrying the source's key (`product:42`). Two sources, or two indexes, that watch the same table each map the key their own way, and
 a change of the table refreshes both. `sync: trigger`, `queue`, `manual` and `orm` keep their meaning for the index as a whole; with
-`orm`, an entity is mapped to the source whose `entity:` it is.
+`orm`, an entity is mapped to the source whose `entity:` it is. A flush refreshes every index that reads the entity class (several indexes of one entity, a multi-source index next to an attribute index).
 
 - A refresh rewrites only the rows it names: a changed product leaves the article rows alone.
 - A `TRUNCATE` of a table one source reads queues a rebuild of **that source only** (queue row `*:<source>`); the worker runs it in place,
