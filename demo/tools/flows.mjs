@@ -1176,6 +1176,7 @@ await secContext.close();
     await m.keyboard.press('Escape');
     await m.waitForFunction(() => !document.querySelector('dialog.magic').open);
     check('magic: Escape closes it', (await m.locator('dialog.magic[open]').count()) === 0);
+    await m.waitForTimeout(150); // the close event is a task of its own
     check('magic: and the cursor goes back to what had it (the page, not the field)', await m.evaluate(() => !document.activeElement?.closest('dialog.magic')), await m.evaluate(() => document.activeElement?.outerHTML.slice(0, 80)));
     await m.locator('.magic-open').click();
     await m.waitForSelector('dialog.magic[open]');

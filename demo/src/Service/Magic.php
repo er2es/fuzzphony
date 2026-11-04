@@ -57,14 +57,13 @@ final class Magic
     {
         $d = $hit->data;
         $text = static fn (string $key): string => isset($d[$key]) ? (string) $d[$key] : '';
-        $join = static fn (array $parts): string => implode(' · ', array_filter($parts, static fn (string $p): bool => $p !== ''));
         if (isset(Erp::TABS[$hit->index])) {
             $row = Erp::describe($hit);
 
             return ['title' => $row['title'], 'sub' => $row['sub'], 'kind' => $hit->kind, 'url' => ['erp_detail', ['kind' => $hit->kind, 'id' => $hit->id]]];
         }
         [$title, $sub] = match ($hit->index) {
-            'catalog' => [$text('name'), $join([$text('brand'), $text('category')])],
+            'catalog' => [$text('name'), implode(' · ', array_filter([$text('brand'), $text('category')], static fn (string $p): bool => $p !== ''))],
             'intranet' => [$text('title'), mb_strimwidth($text('body'), 0, 90, '…')],
             default => [$text('name'), $text('category')],
         };
