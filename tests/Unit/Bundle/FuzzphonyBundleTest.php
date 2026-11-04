@@ -118,7 +118,12 @@ final class FuzzphonyBundleTest extends TestCase
 
         $container->compile();
         $container->set('doctrine.dbal.default_connection', self::createStub(DbalConnection::class));
-        $container->set('doctrine.orm.entity_manager', self::createStub(EntityManagerInterface::class));
+        // building the loader builds the registry, which asks the entity manager for its mapped classes (none here; an untyped stub on the oldest Doctrine would return null)
+        $metadataFactory = self::createStub(\Doctrine\ORM\Mapping\ClassMetadataFactory::class);
+        $metadataFactory->method('getAllMetadata')->willReturn([]);
+        $entityManager = self::createStub(EntityManagerInterface::class);
+        $entityManager->method('getMetadataFactory')->willReturn($metadataFactory);
+        $container->set('doctrine.orm.entity_manager', $entityManager);
         $container->set('logger', self::createStub(\Psr\Log\LoggerInterface::class));
         self::assertInstanceOf(EntityLoader::class, $container->get(EntityLoader::class));
     }

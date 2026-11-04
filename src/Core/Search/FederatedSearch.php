@@ -67,7 +67,7 @@ final readonly class FederatedSearch
             throw new InvalidQuery(sprintf('Index "%s" is in this federated search twice.', $definition->name));
         }
         if (!is_finite($weight) || $weight <= 0.0) {
-            throw new InvalidQuery(sprintf('The weight of index "%s" must be positive and finite, got %s.', $definition->name, $weight));
+            throw new InvalidQuery(sprintf('The weight of index "%s" must be positive and finite, got %s.', $definition->name, var_export($weight, true)));
         }
         if ($atLeast < 0) {
             throw new InvalidQuery(sprintf('The floor (atLeast) of index "%s" must not be negative, got %d.', $definition->name, $atLeast));
