@@ -169,6 +169,41 @@ final class ResultShapeTest extends TestCase
         self::assertSame([['field' => 'title', 'word' => 'tefal', 'via' => 'typo', 'similarity' => 0.333]], self::matchesById($result)[5]);
     }
 
+    public function testTheMatchesOfAHitFollowTheFieldsAndThePositionsOfTheText(): void
+    {
+        $fz = $this->fuzzphony();
+        $matches = self::matchesById($fz->in('shape_docs')->query('desk wireless mouse')->explainMatches()->asSystem()->get());
+
+        self::assertSame(
+            [['title', 'wireless'], ['title', 'mouse'], ['body', 'mouse'], ['body', 'desk']],
+            array_map(static fn(array $m): array => [$m['field'], $m['word']], $matches[1]),
+        );
+    }
+
+    public function testAWordMatchedTwiceDoesNotHideTheWordsAfterIt(): void
+    {
+        $fz = $this->fuzzphony();
+        foreach (['mouse mou*', 'mou* mouse'] as $query) {
+            $matches = self::matchesById($fz->in('shape_docs')->query($query)->explainMatches()->asSystem()->get());
+
+            self::assertSame(
+                [['title', 'mouse'], ['body', 'mouse']],
+                array_map(static fn(array $m): array => [$m['field'], $m['word']], $matches[1]),
+                $query,
+            );
+            self::assertSame([['title', 'mousepad', 'prefix'], ['body', 'mouse', 'exact'], ['secret', 'mouse', 'exact']], array_map(static fn(array $m): array => [$m['field'], $m['word'], $m['via']], $matches[3]), $query);
+        }
+    }
+
+    public function testAScopeOnANameThatIsNoFieldSearchesEveryField(): void
+    {
+        $fz = $this->fuzzphony();
+        $matches = self::matchesById($fz->in('shape_docs')->query('nonesuch:mouse')->explainMatches()->asSystem()->get());
+
+        self::assertContains(['field' => 'title', 'word' => 'mouse', 'via' => 'exact', 'similarity' => null], $matches[1]);
+        self::assertContains(['field' => 'body', 'word' => 'mouse', 'via' => 'exact', 'similarity' => null], $matches[1]);
+    }
+
     public function testMatchesAreOnlyComputedForThePageAndOnlyWhenAsked(): void
     {
         $fz = $this->fuzzphony();
