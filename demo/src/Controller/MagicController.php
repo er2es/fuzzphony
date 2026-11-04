@@ -34,7 +34,7 @@ final class MagicController extends AbstractController
     private const int FLOOR = 3;
 
     /** How many rows of an index the box shows; the link "all N" goes to the rest. */
-    private const int SHOWN = 4;
+    private const int SHOWN = 3;
 
     /** The federated search without the language index: index => weight. RRF ranks by position, so the weight is how much an index's hits count. */
     private const array WEIGHTS = ['people' => 1.0, 'companies' => 1.0, 'orders' => 0.8, 'catalog' => 1.0];

@@ -3,16 +3,16 @@
 <dialog class="magic" aria-labelledby="magic-title" data-magic-target="dialog" data-action="click->magic#backdrop close->magic#closed">
     <h2 id="magic-title" class="sr-only">Search every index</h2>
     <div class="magic-head">
-        <div class="search-field">
+        <div class="magic-field">
             <svg class="icon" aria-hidden="true"><use href="#i-search"/></svg>
             <input type="text" inputmode="search" enterkeyhint="search" autocomplete="off" spellcheck="false" maxlength="100"
                    role="combobox" aria-label="Search people, companies, orders, the catalogue, notes and products" aria-autocomplete="list" aria-expanded="false" aria-controls="magic-list" aria-haspopup="listbox"
                    placeholder="Search everything: kovacs, kft, ORD-2025, wireless mouse"
                    data-magic-target="input" data-action="input->magic#update keydown->magic#key">
-            <button type="button" class="clear" aria-label="Clear the search" data-action="magic#clear"><svg class="icon" aria-hidden="true"><use href="#i-clear"/></svg></button>
-            <span class="field-spinner" aria-hidden="true" data-magic-target="spinner"></span>
+            <button type="button" class="magic-clear" aria-label="Clear the search" data-action="magic#clear"><svg class="icon" aria-hidden="true"><use href="#i-clear"/></svg></button>
+            <span class="magic-spinner" aria-hidden="true" data-magic-target="spinner"></span>
         </div>
-        <button type="button" class="magic-close" data-action="magic#close"><span class="sr-only">Close the search</span><svg class="icon" aria-hidden="true"><use href="#i-clear"/></svg><kbd aria-hidden="true">Esc</kbd></button>
+        <button type="button" class="magic-close" data-action="magic#close"><span class="magic-close-text">Close</span><kbd aria-hidden="true">Esc</kbd></button>
     </div>
     <p class="sr-only" role="status" aria-live="polite" data-magic-target="status"></p>
     <div class="magic-body" id="magic-list" role="listbox" aria-label="Results" data-magic-target="list"></div>

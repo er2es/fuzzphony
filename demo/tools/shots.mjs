@@ -114,5 +114,47 @@ for (const flow of flows) {
         await context.close();
     }
 }
+// the header's search box, open with results: every width, both colour schemes; screenshot, axe, overflow and console as for a page
+const magic = JSON.parse(process.env.MAGIC ?? JSON.stringify([
+    { name: 'magic-people', path: '/erp', type: 'kovacs' },
+    { name: 'magic-catalogue', path: '/', type: 'wireless mouse' },
+    { name: 'magic-empty', path: '/languages?lang=hu', type: '' },
+]));
+for (const box of magic) {
+    if (ONLY && !ONLY.includes(box.name)) continue;
+    for (const [vpName, viewport] of Object.entries(viewports)) {
+        for (const scheme of ['light', 'dark']) {
+            const context = await browser.newContext({ viewport, colorScheme: scheme, reducedMotion: 'reduce' });
+            const p = await context.newPage();
+            const messages = [];
+            p.on('console', (m) => ['error', 'warning'].includes(m.type()) && !m.text().includes('Cross-Origin-Opener-Policy') && messages.push(`${m.type()}: ${m.text()}`));
+            p.on('pageerror', (e) => messages.push(`pageerror: ${e.message}`));
+            await p.goto(BASE + box.path, { waitUntil: 'load', timeout: 10000 }).catch(() => p.goto(BASE + box.path, { waitUntil: 'load', timeout: 30000 }));
+            await p.waitForLoadState('networkidle', { timeout: 8000 }).catch(() => {});
+            await p.keyboard.press('Control+k');
+            await p.waitForSelector('dialog.magic[open]');
+            if (box.type !== '') {
+                await p.locator('dialog.magic input').pressSequentially(box.type, { delay: 40 });
+                await p.waitForSelector('dialog.magic .magic-group');
+                await p.waitForFunction(() => !document.querySelector('.magic-spinner').classList.contains('is-on'));
+            }
+            await p.waitForTimeout(400);
+            await p.screenshot({ path: `${OUT}/${box.name}-${vpName}-${scheme}.png` });
+            const overflow = await p.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth);
+            if (overflow > 0) {
+                console.log(`! ${box.name} ${vpName} ${scheme}: horizontal overflow of ${overflow}px`);
+                failures++;
+            }
+            const result = await new AxeBuilder({ page: p }).withTags(['wcag2a', 'wcag2aa', 'wcag21a', 'wcag21aa', 'wcag22aa', 'best-practice']).analyze();
+            for (const v of result.violations) {
+                console.log(`! axe ${box.name} ${vpName} ${scheme}: ${v.id} (${v.impact}) x${v.nodes.length}: ${v.help}`);
+                for (const n of v.nodes.slice(0, 3)) console.log(`    ${n.html.slice(0, 140)}`);
+                failures++;
+            }
+            for (const m of messages) console.log(`! console ${box.name} ${vpName} ${scheme}: ${m}`);
+            await context.close();
+        }
+    }
+}
 await browser.close();
 console.log(failures === 0 ? 'no problems found' : `${failures} problem(s)`);

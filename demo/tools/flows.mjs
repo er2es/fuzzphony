@@ -1,6 +1,7 @@
 // Behaviour of the interface that screenshots cannot show: the results appear in place while typing, the field's clear button and
 // the "/" shortcut, the suggestion panel with the keyboard, a facet, the Speed view. Run like shots.mjs (see there); exits 1 on a failure.
 import { chromium } from 'playwright';
+import AxeBuilder from '@axe-core/playwright';
 
 const BASE = process.env.BASE ?? 'http://host.docker.internal:8099';
 const browser = await chromium.launch();
@@ -1104,6 +1105,224 @@ await secContext.close();
     check('wizard ERP sample: a definition class is offered and there is no error', /#\[AsIndexDefinition\('customers'\)\]/.test(await erp.locator('details pre').nth(2).textContent()) && (await erp.locator('.callout.is-bad').count()) === 0);
     check('wizard ERP sample: notes per part', (await erp.locator('#decisions ~ ul .row').count()) >= 8);
     await erp.close();
+}
+
+// The search box of the header (every page): one text over every index, the hits grouped by index.
+{
+    const magicOpen = async (pg, how = 'Control+k') => {
+        await pg.keyboard.press(how);
+        await pg.waitForSelector('dialog.magic[open]');
+    };
+    const typeIn = async (pg, text) => {
+        // the answer of the text (an older group on screen is no answer): wait for its request to be done and the spinner off
+        const answered = pg.waitForResponse((r) => r.url().includes('/magic?') && new URL(r.url()).searchParams.get('q') === text);
+        await pg.locator('dialog.magic input').fill('');
+        await pg.locator('dialog.magic input').pressSequentially(text, { delay: 40 });
+        await answered;
+        await pg.waitForFunction(() => !document.querySelector('.magic-spinner').classList.contains('is-on'));
+    };
+    const groupTitles = (pg) => pg.locator('dialog.magic .magic-heading > span:first-child').allTextContents();
+    const mctx = await browser.newContext({ viewport: { width: 1280, height: 800 }, reducedMotion: 'reduce' });
+    const m = await mctx.newPage();
+    m.setDefaultTimeout(8000);
+    const magicRequests = [];
+    m.on('request', (r) => r.url().includes('/magic?') && magicRequests.push(r.url()));
+    await go(m, BASE + '/');
+    check('magic: the header has a button for it, with an accessible name and the keyboard shortcut', (await m.locator('.toolbar button.magic-open[aria-haspopup=dialog][aria-label="Search everything"]').count()) === 1 && (await m.locator('.magic-open').getAttribute('aria-keyshortcuts')) === 'Control+K Meta+K');
+    check('magic: the dialog is closed at first', (await m.locator('dialog.magic[open]').count()) === 0);
+    await magicOpen(m);
+    check('magic: Ctrl+K opens it (a modal dialog) and the cursor is in its field', await m.evaluate(() => document.activeElement === document.querySelector('dialog.magic input') && document.querySelector('dialog.magic').matches(':modal')));
+    check('magic: the field is a combobox over a listbox, named', await m.evaluate(() => { const i = document.querySelector('dialog.magic input'); return i.getAttribute('role') === 'combobox' && i.getAttribute('aria-controls') === 'magic-list' && document.getElementById('magic-list').getAttribute('role') === 'listbox' && i.getAttribute('aria-label').length > 10 && document.querySelector('dialog.magic').getAttribute('aria-labelledby') === 'magic-title'; }));
+    check('magic: before typing it shows the help and example chips, and links the ERP combined tab', (await m.locator('dialog.magic .magic-state .chip').count()) >= 4 && (await m.locator('dialog.magic .magic-foot a[href*="tab=combined"]').count()) === 1);
+    await m.locator('dialog.magic .magic-state .chip', { hasText: 'kovacs' }).click();
+    await m.waitForSelector('dialog.magic .magic-group');
+    check('magic: an example chip fills the field and searches', (await m.locator('dialog.magic input').inputValue()) === 'kovacs' && (await m.locator('dialog.magic .magic-item').count()) > 0);
+
+    await typeIn(m, 'kovacs');
+    const titles = await groupTitles(m);
+    check('magic: "kovacs" is grouped by index: people, companies and orders', ['People', 'Companies', 'Orders'].every((t) => titles.includes(t)), titles.join(','));
+    check('magic: the groups hold only rows of their own index (each group has a role=group named by its heading)', await m.evaluate(() => [...document.querySelectorAll('dialog.magic .magic-group')].every((g) => g.getAttribute('role') === 'group' && document.getElementById(g.getAttribute('aria-labelledby'))?.parentElement === g)));
+    const counts = await m.locator('dialog.magic .magic-count').allTextContents();
+    check('magic: every group says how many hits it has', counts.length === titles.length && counts.every((c) => /^[\d,]+\+? hits?$/.test(c.trim())), counts.join(','));
+    check('magic: a group shows at most three rows, and a link to all of them in the index page with the text', await m.evaluate(() => [...document.querySelectorAll('dialog.magic .magic-group')].every((g) => g.querySelectorAll('.magic-item:not(.magic-all)').length <= 3 && /^All [\d,]+\+? in /.test(g.querySelector('.magic-all').textContent))));
+    check('magic: "all in People" goes to the People tab of the ERP page with the text', (await m.locator('dialog.magic .magic-group[data-index=people] .magic-all').getAttribute('href')) === '/erp?tab=people&q=kovacs');
+    check('magic: the people rows link to the detail page', await m.evaluate(() => [...document.querySelectorAll('dialog.magic .magic-group[data-index=people] .magic-item:not(.magic-all)')].every((a) => /^\/erp\/people\/\d+$/.test(a.getAttribute('href')))));
+    check('magic: the orders rows link to the order page', await m.evaluate(() => [...document.querySelectorAll('dialog.magic .magic-group[data-index=orders] .magic-item:not(.magic-all)')].every((a) => /^\/erp\/orders\/\d+$/.test(a.getAttribute('href')))));
+    check('magic: no badge where the kind is the index (a single-source index)', (await m.locator('dialog.magic .magic-item .flag').count()) === 0);
+    check('magic: a title and a line under it on a row', await m.evaluate(() => { const a = document.querySelector('dialog.magic .magic-group[data-index=people] .magic-item'); return a.querySelector('.magic-title').textContent.length > 2 && a.querySelector('.magic-sub').textContent.includes('@'); }));
+    check('magic: the footer names the viewer of the intranet notes and the time', /Intranet notes as Ada · [\d.,]+ ms/.test(await m.locator('dialog.magic [data-magic-target=note]').innerText()), await m.locator('dialog.magic [data-magic-target=note]').innerText());
+
+    // the keyboard
+    await m.locator('dialog.magic input').focus();
+    await m.keyboard.press('ArrowDown');
+    const first = await m.evaluate(() => { const a = document.querySelector('dialog.magic .magic-item.is-active'); return { id: a?.id, sel: a?.getAttribute('aria-selected'), ad: document.querySelector('dialog.magic input').getAttribute('aria-activedescendant'), href: a?.getAttribute('href'), firstId: document.querySelector('dialog.magic .magic-item').id }; });
+    check('magic: ArrowDown marks the first row and the field points at it (aria-activedescendant)', first.id === first.firstId && first.sel === 'true' && first.ad === first.id, JSON.stringify(first));
+    await m.keyboard.press('ArrowDown');
+    check('magic: ArrowDown again moves to the next', (await m.evaluate(() => document.querySelectorAll('dialog.magic .magic-item')[1].classList.contains('is-active'))) === true);
+    await m.keyboard.press('ArrowUp');
+    await m.keyboard.press('ArrowUp');
+    const wrapped = await m.evaluate(() => { const all = [...document.querySelectorAll('dialog.magic .magic-item')]; return all.at(-1).classList.contains('is-active') && all.filter((a) => a.classList.contains('is-active')).length === 1; });
+    check('magic: ArrowUp from the top wraps to the last link', wrapped);
+    await m.keyboard.press('Home');
+    await m.keyboard.press('Enter');
+    await m.waitForURL(/\/erp\/people\/\d+/);
+    check('magic: Enter follows the marked row (the person page)', /\/erp\/people\/\d+$/.test(m.url()), m.url());
+
+    // Escape, the focus goes back, "/" on a page without a field of its own
+    await go(m, BASE + '/under-the-hood/doctor');
+    await m.keyboard.press('/');
+    await m.waitForSelector('dialog.magic[open]');
+    check('magic: "/" opens it on a page that has no search field of its own', true);
+    await m.keyboard.press('Escape');
+    await m.waitForFunction(() => !document.querySelector('dialog.magic').open);
+    check('magic: Escape closes it', (await m.locator('dialog.magic[open]').count()) === 0);
+    check('magic: and the cursor goes back to what had it (the page, not the field)', await m.evaluate(() => !document.activeElement?.closest('dialog.magic')), await m.evaluate(() => document.activeElement?.outerHTML.slice(0, 80)));
+    await m.locator('.magic-open').click();
+    await m.waitForSelector('dialog.magic[open]');
+    check('magic: the header button opens it too', true);
+    await m.keyboard.press('Tab');
+    await m.keyboard.press('Tab');
+    await m.keyboard.press('Tab');
+    await m.keyboard.press('Tab');
+    check('magic: the focus stays inside while it is open (a modal)', await m.evaluate(() => document.activeElement?.closest('dialog.magic') !== null));
+    await m.mouse.click(5, 400);
+    await m.waitForFunction(() => !document.querySelector('dialog.magic').open);
+    check('magic: a click on the backdrop closes it', true);
+    await go(m, BASE + '/');
+    await m.keyboard.press('/');
+    check('magic: "/" on a page with its own field still focuses that field', (await m.evaluate(() => document.activeElement?.matches('input[type=search]'))) === true && (await m.locator('dialog.magic[open]').count()) === 0);
+    await m.keyboard.press('Escape');
+
+    // the catalogue and the debounce
+    await magicOpen(m);
+    magicRequests.length = 0;
+    await m.locator('dialog.magic input').pressSequentially('wireless mouse', { delay: 30 });
+    await m.waitForSelector('dialog.magic .magic-group[data-index=catalog]');
+    await m.waitForTimeout(400);
+    check('magic: typing waits for a pause: 14 keystrokes are not 14 requests', magicRequests.length >= 1 && magicRequests.length <= 4, String(magicRequests.length));
+    check('magic: the results are those of the whole text (the catalogue group is there and holds the words)', (await groupTitles(m)).includes('Catalogue') && /mouse/i.test(await m.locator('dialog.magic .magic-group[data-index=catalog] .magic-title').first().innerText()));
+    check('magic: a catalogue row links to the catalogue page with its name', /^\/\?q=/.test((await m.locator('dialog.magic .magic-group[data-index=catalog] .magic-item').first().getAttribute('href')) ?? ''));
+    check('magic: "all in Catalogue" goes to the catalogue with the typed text', (await m.locator('dialog.magic .magic-group[data-index=catalog] .magic-all').getAttribute('href')) === '/?q=wireless%20mouse');
+    const live = await m.locator('dialog.magic [role=status]').innerText();
+    check('magic: a status line for screen readers says how many hits in how many indexes', /^[\d,]+ hits in \d indexes?\.$/.test(live), live);
+
+    // nothing found, an error, clear
+    await typeIn(m, 'qzxjvkw');
+    check('magic: nothing found says so, and keeps the example chips', /Nothing found for “qzxjvkw”/.test(await m.locator('dialog.magic .magic-state').innerText()) && (await m.locator('dialog.magic .magic-state .chip').count()) >= 4);
+    await m.locator('dialog.magic .magic-clear').click();
+    check('magic: the clear button empties the field and shows the help again', (await m.locator('dialog.magic input').inputValue()) === '' && (await m.locator('dialog.magic .magic-group').count()) === 0 && /One box for the whole demo/.test(await m.locator('dialog.magic .magic-state').innerText()));
+    await m.route('**/magic?*', (route) => route.fulfill({ status: 500, contentType: 'application/json', body: '{"error":"The search is down."}' }));
+    await m.locator('dialog.magic input').fill('kovacs');
+    await m.locator('dialog.magic input').press('x');
+    await m.waitForSelector('dialog.magic .magic-state.is-error');
+    check('magic: an error is shown as an alert, not as empty results', (await m.locator('dialog.magic [role=alert]').innerText()) === 'The search is down.');
+    await m.unroute('**/magic?*');
+    await m.route('**/magic?*', (route) => route.abort());
+    await m.locator('dialog.magic input').press('y');
+    await m.waitForFunction(() => /could not be reached/.test(document.querySelector('dialog.magic .magic-state').innerText));
+    check('magic: an unreachable server is an error too', true);
+    await m.unroute('**/magic?*');
+    await typeIn(m, 'kovacs');
+    check('magic: and the next text searches again after an error', (await m.locator('dialog.magic .magic-group').count()) > 0);
+    const axeOpen = await new AxeBuilder({ page: m }).withTags(['wcag2a', 'wcag2aa', 'wcag21a', 'wcag21aa', 'wcag22aa', 'best-practice']).analyze();
+    check('magic: the open dialog with results has no axe violation', axeOpen.violations.length === 0, axeOpen.violations.map((v) => `${v.id}: ${v.nodes[0].html.slice(0, 100)}`).join(' | '));
+    check('magic: and no horizontal overflow', (await m.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth)) === 0);
+    await m.keyboard.press('Escape');
+    await mctx.close();
+
+    // the endpoint
+    const api = await browser.newContext();
+    const empty = await (await api.request.get(BASE + '/magic?q=')).json();
+    check('magic endpoint: an empty text is an empty answer', empty.groups.length === 0 && empty.q === '');
+    check('magic endpoint: only GET', (await api.request.post(BASE + '/magic?q=kovacs')).status() === 405);
+    const long = await (await api.request.get(BASE + '/magic?q=' + 'a'.repeat(300))).json();
+    check('magic endpoint: a long text is cut to 100 characters', long.q.length === 100);
+    const kov = await (await api.request.get(BASE + '/magic?q=kovacs')).json();
+    check('magic endpoint: no raw row lookups needed: every row has its title, line, kind and url', kov.groups.every((g) => g.rows.every((r) => r.title !== '' && typeof r.sub === 'string' && r.kind && r.url.startsWith('/'))));
+    check('magic endpoint: the language index of the page is searched, not all five: only one language group at most', ((await (await api.request.get(BASE + '/magic?q=lamp&lang=de')).json()).groups.filter((g) => g.index.startsWith('lang_')).length) <= 1);
+    await api.close();
+
+    // the language follows the page, the intranet follows the viewer (each context is a new visitor: Ada first)
+    const lang = await browser.newContext({ viewport: { width: 1280, height: 800 }, reducedMotion: 'reduce' });
+    const lp = await lang.newPage();
+    lp.setDefaultTimeout(8000);
+    await go(lp, BASE + '/languages?lang=hu');
+    await magicOpen(lp);
+    await typeIn(lp, 'lámpa');
+    const hu = await groupTitles(lp);
+    check('magic: on the Hungarian page the language group is the Hungarian products', hu.includes('Hungarian products') && !hu.some((t) => /English|German|French|Spanish/.test(t)), hu.join(','));
+    check('magic: its "all" link opens the Languages page in Hungarian with the text', /^\/languages\?lang=hu&q=/.test((await lp.locator('dialog.magic .magic-group[data-index=lang_hu] .magic-all').getAttribute('href')) ?? ''));
+    await lp.keyboard.press('Escape');
+    await go(lp, BASE + '/languages?lang=de');
+    await magicOpen(lp);
+    await typeIn(lp, 'Haus');
+    check('magic: on the German page it is the German products', (await groupTitles(lp)).includes('German products'));
+    await lp.keyboard.press('Escape');
+    await go(lp, BASE + '/');
+    await magicOpen(lp);
+    await typeIn(lp, 'lamp');
+    check('magic: elsewhere it is English', (await groupTitles(lp)).includes('English products'));
+    await lp.keyboard.press('Escape');
+
+    await lp.waitForTimeout(10500); // the endpoint's rate limit window
+    const asViewer = async (id, text) => {
+        await go(lp, BASE + `/under-the-hood/security?as=${id}`);
+        await go(lp, BASE + '/');
+        await magicOpen(lp);
+        await typeIn(lp, text);
+        const t = await groupTitles(lp);
+        const note = await lp.locator('dialog.magic [data-magic-target=note]').innerText();
+        await lp.keyboard.press('Escape');
+
+        return { t, note };
+    };
+    const ada = await asViewer('ada', 'budget');
+    check('magic: Ada (ROLE_USER) gets the intranet notes group', ada.t.includes('Intranet notes') && /as Ada/.test(ada.note), ada.t.join(',') + ' / ' + ada.note);
+    const eve = await asViewer('eve', 'budget');
+    check('magic: Eve (no ROLE_USER) gets no intranet group, the other indexes still answer', !eve.t.includes('Intranet notes') && /as Eve/.test(eve.note), eve.t.join(',') + ' / ' + eve.note);
+    const nobody = await asViewer('anonymous', 'kovacs');
+    check('magic: anonymous gets no intranet group and the note says nobody is signed in', !nobody.t.includes('Intranet notes') && /nobody is signed in/.test(nobody.note) && nobody.t.includes('People'), nobody.t.join(',') + ' / ' + nobody.note);
+    const hana = await asViewer('hana', 'salary');
+    check('magic: Hana (HR) gets the intranet group', hana.t.includes('Intranet notes') && /as Hana/.test(hana.note), hana.t.join(','));
+    const ids = (r) => r.groups.filter((g) => g.index === 'intranet').flatMap((g) => g.rows.map((x) => x.title)).join('|');
+    const hanaRows = await (await lp.request.get(BASE + '/magic?q=budget')).json();
+    const hanaSalary = await (await lp.request.get(BASE + '/magic?q=salary')).json();
+    await go(lp, BASE + '/under-the-hood/security?as=ada');
+    const adaSalary = await (await lp.request.get(BASE + '/magic?q=salary')).json();
+    check('magic: a word only in the confidential field finds a note for Hana (ROLE_HR) and none for Ada (the field is not searched for her)', ids(hanaSalary) !== '' && ids(adaSalary) === '', ids(hanaSalary) + ' / ' + ids(adaSalary));
+    await go(lp, BASE + '/under-the-hood/security?as=bob');
+    const bobRows = await (await lp.request.get(BASE + '/magic?q=budget')).json();
+    check('magic: Bob (the other company) sees other notes than Hana (the tenant is the viewer\'s company)', ids(hanaRows) !== '' && ids(bobRows) !== '' && ids(hanaRows) !== ids(bobRows), ids(hanaRows) + ' vs ' + ids(bobRows));
+    await lang.close();
+
+    // a phone: a full-screen sheet
+    const phone = await browser.newContext({ viewport: { width: 390, height: 844 }, reducedMotion: 'reduce', hasTouch: true });
+    const ph = await phone.newPage();
+    ph.setDefaultTimeout(8000);
+    await go(ph, BASE + '/erp');
+    check('magic: on a phone the header button is a touch target of at least 44 px', (await ph.locator('.magic-open').boundingBox()).width >= 44 && (await ph.locator('.magic-open').boundingBox()).height >= 44);
+    await ph.locator('.magic-open').tap();
+    await ph.waitForSelector('dialog.magic[open]');
+    await ph.locator('dialog.magic input').pressSequentially('kovacs', { delay: 40 });
+    await ph.waitForSelector('dialog.magic .magic-group');
+    const box = await ph.locator('dialog.magic').boundingBox();
+    check('magic: on a phone it is a full-screen sheet', box.width === 390 && box.height === 844 && box.x === 0 && box.y === 0, JSON.stringify(box));
+    check('magic: the sheet has a Close button with a visible label and no horizontal overflow', (await ph.locator('dialog.magic .magic-close-text').isVisible()) && (await ph.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth)) === 0);
+    const axePhone = await new AxeBuilder({ page: ph }).withTags(['wcag2a', 'wcag2aa', 'wcag21a', 'wcag21aa', 'wcag22aa', 'best-practice']).analyze();
+    check('magic: the phone sheet has no axe violation', axePhone.violations.length === 0, axePhone.violations.map((v) => `${v.id}: ${v.nodes[0].html.slice(0, 100)}`).join(' | '));
+    await ph.locator('dialog.magic .magic-close').tap();
+    await ph.waitForFunction(() => !document.querySelector('dialog.magic').open);
+    check('magic: Close closes the sheet', true);
+    await phone.close();
+
+    // the endpoint is rate limited for each client address (last: it uses up the window)
+    const burst = await browser.newContext();
+    const codes = await Promise.all(Array.from({ length: 90 }, () => burst.request.get(BASE + '/magic?q=kovacs').then((r) => r.status())));
+    check('magic endpoint: it is rate limited (429 with Retry-After) past 60 searches in 10 seconds', codes.includes(429) && codes.includes(200), String(codes.filter((c) => c === 429).length));
+    const limited = await burst.request.get(BASE + '/magic?q=kovacs');
+    check('magic endpoint: the refusal says when to try again', limited.status() !== 429 || (Number(limited.headers()['retry-after']) >= 1 && /Try again/.test((await limited.json()).error)));
+    await burst.close();
+    await new Promise((r) => setTimeout(r, 10500));
 }
 
 await browser.close();

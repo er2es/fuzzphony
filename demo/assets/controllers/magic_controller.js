@@ -59,6 +59,10 @@ export default class extends Controller {
         clearTimeout(this.timer);
         this.abort?.abort();
         this.spinnerTarget.classList.remove('is-on');
+        // the browser puts the cursor back on what had it; where nothing had it ("/" from the page), it goes to the header button, not into the hidden field
+        if (this.dialogTarget.contains(document.activeElement)) {
+            this.openerTarget.focus();
+        }
     }
 
     /** A click on the backdrop (the dialog element itself, outside its content box) closes it. */
@@ -125,6 +129,7 @@ export default class extends Controller {
         this.active = -1;
         this.stateTarget.hidden = false;
         this.stateTarget.classList.toggle('is-error', kind === 'error');
+        this.stateTarget.classList.toggle('is-none', kind === 'none');
         this.ledeTarget.textContent = message;
         if (kind === 'error') {
             this.ledeTarget.setAttribute('role', 'alert');

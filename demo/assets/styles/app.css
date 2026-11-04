@@ -154,7 +154,7 @@
     /* the links are centred on the page; the brand sits at the left edge of the bar and takes the same room on the right (1fr auto 1fr), so the centre does not move. Where
        the bar is too narrow for that (the links would run into the brand), the brand gets a line of its own above the centred links. */
     .toolbar-inner { max-width: 70rem; margin: 0 auto; padding: 0 1.25rem; min-height: 3.25rem; display: grid; grid-template-columns: 1fr auto 1fr; align-items: center; gap: 1.75rem; }
-    .toolbar-inner > .wordmark { justify-self: start; }
+    .toolbar-inner .wordmark { justify-self: start; }
     .toolbar-inner > .nav { justify-self: center; }
     .toolbar-inner > .theme-switch { justify-self: end; }
     .theme-switch { display: inline-flex; gap: .125rem; padding: .125rem; border-radius: .6rem; background: var(--surface-2); }
@@ -167,7 +167,7 @@
     html[data-theme=dark] .theme-switch button[data-theme-value-param=dark] { background: var(--surface); color: var(--accent); box-shadow: var(--shadow-1); }
     @media (max-width: 48rem) {
         .toolbar-inner { grid-template-columns: 1fr auto 1fr; grid-template-areas: ". brand theme" "nav nav nav"; justify-items: center; gap: .1rem; padding-block: .45rem; }
-        .toolbar-inner > .wordmark { grid-area: brand; justify-self: center; }
+        .toolbar-inner .wordmark { grid-area: brand; justify-self: center; }
         .toolbar-inner > .nav { grid-area: nav; }
         .toolbar-inner > .theme-switch { grid-area: theme; }
     }
@@ -367,15 +367,15 @@
     }
 
     /* the header's search box (magic_controller.js): the button in the toolbar, and a modal dialog with the results grouped by index */
-    .toolbar-end { justify-self: end; display: inline-flex; align-items: center; gap: .5rem; }
+    .toolbar-start { justify-self: start; display: inline-flex; align-items: center; gap: .75rem; }
     .magic-open { margin: 0; min-height: 2.25rem; padding: 0 .6rem; gap: .45rem; border: 0; border-radius: .6rem; background: var(--surface-2); color: var(--label-2); cursor: pointer; }
     .magic-open:hover { background: color-mix(in srgb, var(--label) 10%, var(--surface-2)); color: var(--label); }
     .magic-open .icon { width: 1.125rem; height: 1.125rem; }
     .magic-open kbd { border: 0; background: none; padding: 0; font-size: .75rem; color: inherit; }
     @media (max-width: 64rem) { .magic-open kbd { display: none; } .magic-open { width: 2.25rem; padding: 0; } }
     @media (max-width: 48rem) {
-        .toolbar-end { display: contents; }
-        .toolbar-inner > .toolbar-end > .magic-open { grid-area: magic; justify-self: start; width: 2.75rem; min-height: 2.75rem; }
+        .toolbar-start { display: contents; }
+        .toolbar-inner > .toolbar-start > .magic-open { grid-area: magic; justify-self: start; width: 2.75rem; min-height: 2.75rem; }
     }
     @media (max-width: 48rem) { .toolbar-inner { grid-template-areas: "magic brand theme" "nav nav nav"; } }
 
@@ -386,15 +386,29 @@
     .magic[open] { display: flex; flex-direction: column; animation: panel-in var(--t-base) var(--ease); }
     .magic::backdrop { background: rgb(0 0 0 / .4); -webkit-backdrop-filter: blur(3px); backdrop-filter: blur(3px); }
     .magic-head { display: flex; align-items: center; gap: .5rem; padding: .75rem; border-bottom: .5px solid var(--hairline); }
-    .magic-head .search-field { flex: 1; min-width: 0; height: 3.25rem; box-shadow: none; }
-    .magic-head .search-field input {
-        flex: 1; min-width: 0; height: 100%; padding: 0; border: 0; border-radius: 0; background: transparent; box-shadow: none; color: inherit;
+    .magic-field {
+        position: relative; display: flex; flex: 1; min-width: 0; align-items: center; height: 3.25rem; padding: 0 .75rem 0 3.25rem; background: var(--surface);
+        border: .5px solid var(--hairline); border-radius: var(--r-field);
+    }
+    .magic-field:focus-within { border-color: var(--accent); box-shadow: 0 0 0 4px color-mix(in srgb, var(--accent) 22%, transparent); }
+    .magic-field > .icon { position: absolute; left: 1.1rem; top: 50%; translate: 0 -50%; width: 1.4rem; height: 1.4rem; color: var(--label-2); pointer-events: none; }
+    .magic-field input {
+        flex: 1; min-width: 0; height: 100%; padding: 0; border: 0; border-radius: 0; background: transparent; box-shadow: none; outline: none; color: inherit;
         font: inherit; font-size: 1.125rem; letter-spacing: -.01em; -webkit-appearance: none; appearance: none;
     }
-    .magic-head .search-field input:focus { box-shadow: none; outline: none; }
-    .magic .field-spinner.is-on { opacity: 1; }
+    .magic-field input::placeholder { color: var(--label-2); opacity: 1; }
+    .magic-clear { width: 2.75rem; height: 2.75rem; min-height: 0; padding: 0; border-radius: 50%; background: none; color: var(--label-2); }
+    .magic-clear:hover { background: none; color: var(--label); }
+    .magic-field input:placeholder-shown ~ .magic-clear { display: none; }
+    .magic-spinner {
+        position: absolute; right: 3.6rem; top: 50%; translate: 0 -50%; width: 1.1rem; height: 1.1rem; border: 2px solid var(--separator); border-top-color: var(--accent);
+        border-radius: 50%; opacity: 0; pointer-events: none; animation: spin .7s linear infinite; transition: opacity var(--t-fast) var(--ease);
+    }
+    .magic-field input:placeholder-shown ~ .magic-spinner { right: 1.15rem; }
+    .magic-spinner.is-on { opacity: 1; }
+    @media (prefers-reduced-motion: reduce) { .magic-spinner { animation: none; border-top-color: var(--separator); border-right-color: var(--accent); } }
     .magic-close { margin: 0; min-height: 2.75rem; min-width: 2.75rem; padding: 0 .5rem; border: 0; background: none; color: var(--label-2); }
-    .magic-close .icon { display: none; width: 1.4rem; height: 1.4rem; }
+    .magic-close-text { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
     .magic-body { flex: 1; min-height: 0; overflow-y: auto; overscroll-behavior: contain; }
     .magic-body:empty { display: none; }
     .magic-group + .magic-group { border-top: .5px solid var(--hairline); }
@@ -404,6 +418,7 @@
     .magic-item:hover { text-decoration: none; }
     .magic-item:hover, .magic-item.is-active { background: color-mix(in srgb, var(--accent) 12%, transparent); }
     .magic-main { display: grid; min-width: 0; flex: 1; }
+    .magic-title { font-size: .9375rem; }
     .magic-title, .magic-sub { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
     .magic-sub { font-size: .8125rem; color: var(--label-2); }
     .magic-all { min-height: 2.25rem; justify-content: flex-start; font-size: .875rem; font-weight: 500; color: var(--accent); }
@@ -415,7 +430,7 @@
     .magic-foot a { text-decoration: underline; }
     @media (max-width: 40rem) {
         .magic { width: 100vw; height: 100dvh; max-height: none; margin: 0; border: 0; border-radius: 0; inset: 0; }
-        .magic-close .icon { display: block; }
+        .magic-close-text { position: static; width: auto; height: auto; overflow: visible; clip: auto; font-size: 1rem; color: var(--accent); }
         .magic-close kbd, .magic-foot > :first-child { display: none; }
         .magic-head { padding: max(.75rem, env(safe-area-inset-top)) .75rem .75rem; }
         .magic-foot { padding-bottom: calc(.65rem + env(safe-area-inset-bottom)); }

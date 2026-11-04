@@ -22,7 +22,12 @@
 {% set under = {wizard: 'Config wizard', benchmark: 'Benchmark', doctor: 'Doctor', observability: 'Observability', synonyms: 'Synonyms', analytics: 'Analytics', security: 'Security'} %}
 <header class="toolbar">
     <div class="toolbar-inner">
-        <a class="wordmark" href="{{ path('search') }}">Fuzzphony</a>
+        <div class="toolbar-start">
+            <a class="wordmark" href="{{ path('search') }}">Fuzzphony</a>
+        <button type="button" class="magic-open" aria-haspopup="dialog" aria-keyshortcuts="Control+K Meta+K" aria-label="Search everything" title="Search every index at once" data-magic-target="opener" data-action="magic#open">
+            <svg class="icon" aria-hidden="true"><use href="#i-search"/></svg><kbd data-magic-target="hint" aria-hidden="true">Ctrl K</kbd>
+        </button>
+        </div>
         <nav class="nav" aria-label="Pages">
             <a href="{{ path('search') }}" data-loading-message="Opening search…"{% if route == 'search' %} aria-current="page"{% endif %}>
                 <svg class="icon nav-icon" aria-hidden="true"><use href="#i-search"/></svg>Search
@@ -52,19 +57,13 @@
                 </div>
             </details>
         </nav>
-        <div class="toolbar-end">
-        <button type="button" class="magic-open" aria-haspopup="dialog" aria-keyshortcuts="Control+K Meta+K" aria-label="Search everything" title="Search every index at once" data-magic-target="opener" data-action="magic#open">
-            <svg class="icon" aria-hidden="true"><use href="#i-search"/></svg><kbd data-magic-target="hint" aria-hidden="true">Ctrl K</kbd>
-        </button>
         <div class="theme-switch" role="group" aria-label="Colour scheme" data-controller="theme">
             <button type="button" aria-pressed="true" aria-label="System" title="System" data-theme-target="button" data-action="theme#choose" data-theme-value-param="system"><svg class="icon" aria-hidden="true"><use href="#i-display"/></svg></button>
             <button type="button" aria-pressed="false" aria-label="Light" title="Light" data-theme-target="button" data-action="theme#choose" data-theme-value-param="light"><svg class="icon" aria-hidden="true"><use href="#i-sun"/></svg></button>
             <button type="button" aria-pressed="false" aria-label="Dark" title="Dark" data-theme-target="button" data-action="theme#choose" data-theme-value-param="dark"><svg class="icon" aria-hidden="true"><use href="#i-moon"/></svg></button>
         </div>
-        </div>
     </div>
 </header>
-{{ include('_magic.html.twig') }}
 <main id="main" tabindex="-1">{% block body %}{% endblock %}</main>
 <footer class="site-footer">
     <div class="footer-inner">
@@ -78,5 +77,7 @@
         </nav>
     </div>
 </footer>
+{# last in the page: the page's own search field, chips and clear button come first for every script that looks for the first one #}
+{{ include('_magic.html.twig') }}
 </body>
 </html>
