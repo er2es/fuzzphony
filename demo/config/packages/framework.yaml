@@ -21,6 +21,12 @@ framework:
             limit: 5
             interval: '1 minute'
             cache_pool: app.rate_limit_cache
+        # The header's search box (/magic) searches six indexes at once on every keystroke: sixty requests in ten seconds for each client address.
+        fuzzphony_magic:
+            policy: fixed_window
+            limit: 60
+            interval: '10 seconds'
+            cache_pool: app.rate_limit_cache
     # No trusted_proxies on purpose: nginx talks FastCGI to php-fpm and sets REMOTE_ADDR to the client's address, so
     # Request::getClientIp() (what search_log.ip stores, masked) is right as it is. A trusted_proxies list that holds the private
     # ranges would be harmful here: Docker Desktop's gateway (the client's address) is private, so a forged X-Forwarded-For

@@ -80,3 +80,9 @@ Moving one address to another city: which indexes refreshed, after how many mill
 The wizard's second sample, for the ERP tables: a joined source, `many` and `code` fields, `returnable`, column-aware watches and a definition class.
 
 ![Config wizard: the ERP sample with a note per part](image/wizard-erp.png)
+
+## The search box in the header
+
+The button at the left of the bar (Ctrl+K, or `/` on a page without a search field) opens one box over the whole demo. `kovacs` is searched in every index at once (a [federated search](searching.md#federated-search) with weights and a floor of three hits for each index): the people, the companies and the orders that have a Kovács in them, each group with its own hit count and an "All N in ..." link to that index's page. The arrow keys move through the rows, Enter opens one, Escape closes; the footer says whose intranet notes were searched and how long the whole search took.
+
+![The search box in the header: "kovacs" found in people, companies and orders, grouped by index with hit counts](image/magic-search.png)
