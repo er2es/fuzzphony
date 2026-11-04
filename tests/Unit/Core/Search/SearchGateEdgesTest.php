@@ -129,20 +129,54 @@ final class SearchGateEdgesTest extends TestCase
             public function increment(string $event, array $labels = [], int $by = 1): void
             {
                 $this->events[] = $event;
+                $this->labels[] = $labels;
             }
 
             public function observe(string $event, float $value, array $labels = []): void {}
 
             public function gauge(string $event, float $value, array $labels = []): void {}
+
+            /** @var list<array<string, string>> */
+            public array $labels = [];
         };
         $logger = $this->createMock(LoggerInterface::class);
-        $logger->expects(self::once())->method('error')->with(self::stringContains('could not record'), self::anything());
+        $logger->expects(self::once())->method('error')->with(
+            self::stringContains('could not record'),
+            ['message' => 'log store is down', 'index' => 'products'],
+        );
         $gate = new SearchGate(metrics: $metrics, logger: $logger, log: $log);
 
         $logged = $gate->logSearch(Indexes::products(), (new SearchQuery('mouse'))->withActor(new Actor(user: 'ada')), 3, 2.0, false, false);
 
         self::assertSame(3, $logged->hits);
         self::assertSame(['fuzzphony.search_log.failed'], $metrics->events);
+        self::assertSame([['index' => 'products']], $metrics->labels);
+    }
+
+    public function testALogThatFailsIsSurvivedWithoutALogger(): void
+    {
+        $log = new class implements SearchLog {
+            public function record(SearchRecord $record): void
+            {
+                throw new \RuntimeException('log store is down');
+            }
+        };
+        $gate = new SearchGate(log: $log);
+
+        $logged = $gate->logSearch(Indexes::products(), (new SearchQuery('mouse'))->withActor(new Actor(user: 'ada')), 3, 2.0, false, false);
+
+        self::assertSame(3, $logged->hits);
+    }
+
+    public function testTheTenantTheCallerNamedIsLoggedBeforeTheActorsOnAnUnscopedIndex(): void
+    {
+        $log = new RecordingSearchLog();
+        $gate = new SearchGate(log: $log);
+        $query = (new SearchQuery('mouse'))->withActor(new Actor(tenant: 3, user: 'ada'))->forTenant(9);
+
+        $gate->logSearch(Indexes::products(), $query, 1, 1.0, false, false);
+
+        self::assertSame(9, $log->records[0]->tenant);
     }
 
     public function testTheLoggedCountsAndTimesAreNeverNegativeNorRounded(): void

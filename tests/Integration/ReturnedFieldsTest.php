@@ -250,6 +250,48 @@ final class ReturnedFieldsTest extends TestCase
         self::assertSame([], $hits[0]->data);
     }
 
+    public function testEveryHitOfAPageKeepsItsPlaceWhenTheRowsAreGone(): void
+    {
+        $fz = $this->build();
+        $this->connection->execute('DELETE FROM rf_item');
+        $this->connection->execute('DELETE FROM rf_article');
+        $hits = $fz->in('rf_site')->query('mouse')->with('slug', 'url')->get()->hits;
+
+        self::assertCount(2, $hits);
+        foreach ($hits as $hit) {
+            self::assertSame([], $hit->data);
+        }
+    }
+
+    public function testAVanishedRowOfASourceThatReturnsNoneOfTheNamesStillGetsNullData(): void
+    {
+        $fz = $this->build();
+        $this->connection->execute('DELETE FROM rf_article');
+        $hits = self::byId($fz->in('rf_site')->query('mouse')->with('slug')->get()->hits);
+
+        self::assertSame(['slug' => null], $hits[self::ARTICLE]->data);
+        self::assertSame(['slug' => 'wireless-mouse'], $hits[1]->data);
+    }
+
+    public function testTheValueOfASourceColumnMayNestSixArraysUnderTheRowObject(): void
+    {
+        $this->connection->execute("INSERT INTO rf_item VALUES (3, 'Deep mouse', 'deep', NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, '[[[[[[1]]]]]]', 1)");
+        $fz = $this->build();
+
+        $hits = self::byId($fz->in('rf_items')->query('deep')->with('meta')->get()->hits);
+
+        self::assertSame('[[[[[[1]]]]]]', $hits[3]->data['meta']);
+    }
+
+    public function testAValueNestedDeeperThanTheLimitFailsLoudlyNeverSilently(): void
+    {
+        $this->connection->execute("INSERT INTO rf_item VALUES (3, 'Deep mouse', 'deep', NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, '[[[[[[[1]]]]]]]', 1)");
+        $fz = $this->build();
+
+        $this->expectException(\JsonException::class);
+        $fz->in('rf_items')->query('deep')->with('meta')->get();
+    }
+
     public function testAMultiSourceIndexReadsEachSourceOnceAndNullsWhatASourceDoesNotReturn(): void
     {
         $fz = $this->build();
