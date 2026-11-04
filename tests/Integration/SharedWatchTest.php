@@ -339,4 +339,41 @@ final class SharedWatchTest extends TestCase
         self::assertSame(20001, $this->int("SELECT count(*) FROM fuzzphony_watch_log WHERE op = 'U' AND key_column = 'id'"));
         self::assertSame(20000, $this->int('SELECT count(DISTINCT key) FROM fuzzphony_watch_log'));
     }
+
+    public function testASchemaQualifiedWatchDrainsWhateverTheSearchPathOfTheSessionIs(): void
+    {
+        $this->connection->execute('DROP SCHEMA IF EXISTS fz_sw_erp CASCADE');
+        $this->connection->execute('CREATE SCHEMA fz_sw_erp');
+        $this->connection->execute('CREATE TABLE fz_sw_erp.erp_customer (id bigint PRIMARY KEY, label text NOT NULL)');
+        $this->connection->execute("INSERT INTO fz_sw_erp.erp_customer SELECT i, 'customer ' || i FROM generate_series(1, 5) AS i");
+        $index = IndexDefinition::builder('sw_a')->fromQuery('SELECT c.id, c.label FROM fz_sw_erp.erp_customer c')->watch('fz_sw_erp.erp_customer')->field('label', 'A')->sync('queue')->build();
+
+        try {
+            $fuzzphony = $this->install([$index]);
+            $this->connection->execute("UPDATE fz_sw_erp.erp_customer SET label = 'renamed ' || label WHERE id = 2");
+            $this->connection->execute('SET search_path TO pg_catalog'); // the schema of the table is not on the path of the session that drains
+
+            try {
+                self::assertSame(1, $this->work($index));
+            } finally {
+                $this->connection->execute('SET search_path TO DEFAULT');
+            }
+            self::assertSame([2], $fuzzphony->in('sw_a')->query('renamed')->get()->ids());
+        } finally {
+            $this->connection->execute('DROP SCHEMA fz_sw_erp CASCADE');
+        }
+    }
+
+    public function testTheDoctorNamesAWatchedTableThatTheDrainCannotResolve(): void
+    {
+        $this->bad();
+        $index = $this->badSource('sw_a');
+        $fuzzphony = $this->install([$index]);
+        $this->connection->execute('DROP TABLE fz_bad CASCADE');
+
+        $check = array_values(array_filter($fuzzphony->inspect('sw_a')->checks, static fn(Check $c): bool => $c->name === 'Shared change log'))[0];
+
+        self::assertSame(CheckStatus::Error, $check->status);
+        self::assertStringContainsString('The watched table fz_bad does not exist or is not on the search path', $check->message);
+    }
 }

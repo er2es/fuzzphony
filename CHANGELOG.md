@@ -33,6 +33,8 @@ and a link. Measurements, proofs and test names belong to the pull request, [doc
 
 ### Fixed
 
+- **Demo ERP:** the results of a tab without a facet column (Companies) took a narrow column and wrapped letter by letter; the `Created` select now has the spacing of the other form rows.
+- **Doctor:** the `Shared change log` check is an error when a watched table does not exist or is not on the search path (the drain then fails on every run and only the database log said so); a schema-qualified watch (`schema.table`) is drained whatever the session's search path ([Sync](docs/sync.md)).
 - **Bundle:** a discovery cache that cannot be written (read-only `cache.system` directory) no longer fails or logs "Failed to save key" on every request; `cache:warmup` now fills it in prod, so an immutable image needs no change.
 - **Doctor:** the `Field columns` and filter checks no longer report a `many` field or filter as missing from the source query (its values come from the child table).
 
