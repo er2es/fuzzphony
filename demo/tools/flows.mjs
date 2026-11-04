@@ -1042,6 +1042,21 @@ await secContext.close();
     check('erp companies: a tax number finds the company as an exact code', (await erp.locator('#results .hit-row').count()) === 1 && /exact code/.test(await erp.locator('#results .row-why').first().innerText()), await erp.locator('#results .row-why').first().innerText());
     await go(erp, BASE + '/erp?tab=companies&q=contact:simon');
     check('erp companies: a contact person is searched as a field', (await erp.locator('#results .hit-row').count()) >= 1 && /contact person/.test(await erp.locator('#results .row-why').first().innerText()));
+    // the result list takes the width of the page whether or not there is a facet column (companies have none), at a laptop and a phone width
+    for (const [w, h] of [[1280, 800], [375, 800]]) {
+        await erp.setViewportSize({ width: w, height: h });
+        for (const url of ['/erp?tab=companies&q=simon', '/erp?tab=people&q=kovacs', '/erp?tab=orders&q=ORD-2025', '/erp?tab=combined&q=kovacs']) {
+            await go(erp, BASE + url);
+            await erp.waitForSelector('#results .list');
+            const g = await erp.evaluate(() => {
+                const l = document.querySelector('#results .list').getBoundingClientRect();
+                const m = document.querySelector('.page').getBoundingClientRect();
+                return { w: l.width, left: l.left, right: l.right, pw: m.width, pl: m.left, pr: m.right, over: document.documentElement.scrollWidth - document.documentElement.clientWidth };
+            });
+            check(`erp layout ${w} px ${url}: the list is wide (>= 280 px, >= 40% of the page), inside the page, no horizontal scroll`, g.w >= 280 && g.w >= 0.4 * g.pw && g.left >= g.pl - 1 && g.right <= g.pr + 1 && g.over <= 0, JSON.stringify(g));
+        }
+    }
+    await erp.setViewportSize({ width: 1280, height: 720 });
     await go(erp, BASE + '/erp?tab=orders&q=ORD-2026-044127');
     check('erp orders: an order number finds exactly that order', (await erp.locator('#results .hit-row').count()) === 1 && /ORD-2026-044127/.test(await erp.locator('#results .row-title').first().innerText()));
     await go(erp, BASE + '/erp?tab=orders&q=ORD-2025');

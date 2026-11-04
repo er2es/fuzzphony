@@ -32,7 +32,7 @@
         {% if not hits %}
             <div class="empty"><strong>Nothing found for “{{ q }}”</strong>Check the spelling or lift a filter.</div>
         {% else %}
-            <div class="results-layout">
+            <div class="results-layout{{ facets ? '' : ' no-side' }}">
                 {% if facets %}
                     <aside class="facets-side" aria-label="Narrow the results">
                         <div>
