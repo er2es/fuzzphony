@@ -39,6 +39,7 @@ and a link. Measurements, proofs and test names belong to the pull request, [doc
 - **Doctor:** the `Field columns` and filter checks no longer report a `many` field or filter as missing from the source query (its values come from the child table).
 - **Returned fields:** a `returnable` column that a `granted` field reads under another name (`field('pay', column: 'salary', granted: 'ROLE_HR')`) was returned by `with()` to viewers without the grant; it is now gated by that field ([Security](docs/security.md#returned-fields)).
 - **Sync `orm`:** a flush refreshed only the first index of an entity class; every index that reads the class (a second index of the entity, a multi-source index with the class as a source entity) is now refreshed ([Sync](docs/sync.md)).
+- **Several values (`many`):** `!=` and `NOT IN` on a `many` filter are refused with an `InvalidQuery` (only the first `limit` values are stored, so a document whose value lies past it passed the negation); `=`, `IN` and the null checks are unchanged ([Configuration](docs/configuration.md#several-values-per-document-many)).
 - **Multi-source indexes:** `EntityLoader::load()` and `FuzzphonySearchFilter` looked up the ids of hits of every kind as ids of the one entity (a `post:2` hit loaded the entity with id 2, possibly another tenant's row); they now use only the hits of the sources that read the entity class.
 
 ## [0.10.1] - 2026-11-03

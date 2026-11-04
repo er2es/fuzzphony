@@ -529,7 +529,7 @@ foreach ($result->facets['category_id'] as $facet) {   // FacetValue: ->value, -
 ```
 
 - A filter declared [`many`](configuration.md#several-values-per-document-many) (several values per document, from a child table) matches when any of
-  its values does and its facet counts **documents** per value: a customer with two Budapest addresses is one in `Budapest (1)`.
+  its values does and its facet counts **documents** per value: a customer with two Budapest addresses is one in `Budapest (1)`. `!=` and `NOT IN` are refused on it (the stored values are truncated at `limit`).
 - Facets can be string, int, bool and date filters (not float or datetime: every value would be its own
   group), and not the tenant filter. `facetValues($n)` keeps the `$n` most frequent values (1 to 100,
   default 20); values come as the filter's type (`int`, `bool`, ...), `null` for the documents without one.

@@ -70,6 +70,10 @@ final class FilterCompiler
     private function many(Condition $c, string $column, \Closure $bind): string
     {
         $none = sprintf('coalesce(cardinality(%s), 0) = 0', $column);
+        if ($c->operator === Operator::NotIn || ($c->operator === Operator::Neq && $c->value !== null)) {
+            // only the first `limit` values of a document are stored: a document whose value lies past it would pass the negation (fail open)
+            throw new InvalidQuery(sprintf('Filter "%s" takes several values per document and stores only the first ones, so %s could let through a document that has the value. Use a positive filter (=, IN) or a single-valued filter for exclusions.', $c->filter, $c->operator === Operator::Neq ? '!=' : 'NOT IN'));
+        }
         $one = fn(): string => sprintf('coalesce(%s @> ARRAY[%s]::text[], false)', $column, $bind($c->value));
 
         return match ($c->operator) {
@@ -78,7 +82,7 @@ final class FilterCompiler
             Operator::Eq => $c->value === null ? $none : $one(),
             Operator::Neq => $c->value === null ? 'NOT (' . $none . ')' : 'NOT ' . $one(),
             Operator::In, Operator::NotIn => $this->manyIn($c, $column, $bind),
-            default => throw new InvalidQuery(sprintf('Filter "%s" takes several values per document: it supports =, !=, IN, NOT IN and null checks (any value matches), not %s.', $c->filter, strtoupper($c->operator->value))),
+            default => throw new InvalidQuery(sprintf('Filter "%s" takes several values per document: it supports =, IN and null checks (any value matches), not %s.', $c->filter, strtoupper($c->operator->value))),
         };
     }
 
