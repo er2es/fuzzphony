@@ -36,6 +36,7 @@ final class WatchCoverageTest extends TestCase
     protected function tearDown(): void
     {
         $this->connection->execute('DROP VIEW IF EXISTS wc_customer_v');
+        $this->connection->execute('DROP SCHEMA IF EXISTS wc_s CASCADE');
         $this->connection->execute('DROP TABLE IF EXISTS wc_customer, wc_address, wc_note, wc_event, wc_event_1, fuzzphony_wc, fuzzphony_wc__next, fuzzphony_wc__changes, fuzzphony_wc__vocab CASCADE');
     }
 
@@ -109,6 +110,51 @@ final class WatchCoverageTest extends TestCase
 
         self::assertCount(1, $checks);
         self::assertSame(CheckStatus::Ok, $checks[0]->status);
+    }
+
+    public function testAnUnwatchedPartitionIsAWarning(): void
+    {
+        $index = IndexDefinition::builder('wc')->fromQuery('SELECT e.id, e.title, n.title AS body FROM wc_event_1 e JOIN wc_note n ON n.id = e.id')->field('title', 'A')->field('body', 'C')->sync('queue')->watch('wc_note')->build();
+        $checks = $this->watches($index)['Watches'] ?? [];
+
+        self::assertCount(1, $checks);
+        self::assertSame(CheckStatus::Warning, $checks[0]->status);
+        self::assertStringContainsString('"wc_event_1"', $checks[0]->message);
+    }
+
+    public function testACoveredPartitionDoesNotHideTheTablesAfterIt(): void
+    {
+        $index = IndexDefinition::builder('wc')->fromQuery('SELECT e.id, e.title, n.title AS body FROM wc_event_1 e JOIN wc_note n ON n.id = e.id')->field('title', 'A')->field('body', 'C')->sync('queue')->watch('wc_event')->build();
+        $checks = $this->watches($index)['Watches'] ?? [];
+
+        self::assertCount(1, $checks);
+        self::assertSame(CheckStatus::Warning, $checks[0]->status);
+        self::assertStringContainsString('"wc_note"', $checks[0]->message);
+    }
+
+    public function testATableOutsideThePublicSchemaIsNamedWithItsSchema(): void
+    {
+        $this->connection->execute('CREATE SCHEMA wc_s');
+        $this->connection->execute('CREATE TABLE wc_s.thing (id bigint PRIMARY KEY, label text)');
+        $index = IndexDefinition::builder('wc')->fromQuery('SELECT c.id, c.name AS title, t.label AS body FROM wc_customer c JOIN wc_s.thing t ON t.id = c.id')->field('title', 'A')->field('body', 'C')->sync('queue')->watch('wc_customer')->build();
+        $checks = $this->watches($index)['Watches'] ?? [];
+
+        self::assertCount(1, $checks);
+        self::assertStringContainsString('reads "wc_s.thing" but', $checks[0]->message);
+        self::assertStringContainsString("watch: { wc_s.thing: 'SELECT id FROM <source-table> WHERE <fk> = :id' }", (string) $checks[0]->fix);
+        self::assertStringContainsString('affects; :id is that row', (string) $checks[0]->fix);
+        self::assertStringContainsString('a changed row of "wc_s.thing" affects', (string) $checks[0]->fix);
+    }
+
+    public function testTheFixTemplateNamesTheTableOfATableSource(): void
+    {
+        // a view cannot carry the triggers, so the schema is not applied: only the inspection of the watches matters here
+        $index = IndexDefinition::builder('wc')->fromTable('wc_customer_v')->field('name', 'A')->field('city', 'C')->sync('queue')->build();
+        $fuzzphony = new Fuzzphony(new PostgresEngine($this->connection), new IndexRegistry([$index]));
+        $checks = array_values(array_filter($fuzzphony->inspect('wc', new InspectOptions())->checks, static fn(Check $c): bool => $c->name === 'Watches'));
+
+        self::assertNotSame([], $checks);
+        self::assertStringContainsString("'SELECT id FROM wc_customer_v WHERE <fk> = :id'", (string) $checks[0]->fix);
     }
 
     public function testAMultiSourceIndexNamesTheSourceThatMissesAWatch(): void
