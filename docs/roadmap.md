@@ -111,18 +111,27 @@ additive work after it (0.11.0, released) and the stable 1.0.0 do not have to ch
 
 ## Next
 
-### v0.12.0: ranking by the best value (to be discussed before it starts)
+### v0.11.1: a demo patch
 
-In 0.11 a `many` field (the addresses or phone numbers of one customer) ranks by the whole field: the query words may come
-from different values. The plan is to rank by the best single value:
+A search box in the demo's header that searches every index at once (a federated search, grouped per index, `/` or Ctrl+K opens
+it), and the loose ends of 0.11 (a test that failed once, the generated config reference).
 
-- One vector per value in the child table (`fuzzphony_<index>__values`), a GIN index on it, and the rank of a document is the rank
-  of its best value; "fő utca szeged" then ranks high only when one address holds all three words.
-- The highlight and `explainMatches()` show the value that gave the rank.
-- It costs disk (a vector and an index per value) and a slightly dearer rank, so it is likely to be switched on per field; the
-  default behaviour stays.
-- Follow-ups of `with()` if real use shows what is missing; the mutation-test gaps of the 0.11 round (`FacetRunner`, `Highlighter`,
-  `TypoMarker`, parts of `PostgresInspector`).
+### v0.12.0: ranking by the best value
+
+In 0.11 a `many` field (the addresses or phone numbers of one customer) ranks by the whole field, and its words may come from
+different values. 0.12 adds ranking by the best single value, decided as follows:
+
+- **Storage:** one vector per value in the child table (`fuzzphony_<index>__values`) with a GIN index; the rank of a document is the
+  rank of its best value. The highlight and `explainMatches()` show the value that gave the rank.
+- **Per field, off by default:** `many: { ..., rank: best }` switches it on. A field without it keeps byte-identical storage and
+  search, so no 0.11 index needs a reindex and nobody pays the extra disk and index.
+- **Strictness per search:** the default match is as in 0.11 (the words may come from different values; with `rank: best` only the
+  rank changes). `->manyMatch('single')` asks that ONE value holds all the words of the field's part of the query: with the addresses
+  "Budapest, Fő utca 1" and "Szeged, Kossuth tér 2", "fő utca szeged" then finds nobody, "fő utca budapest" finds the customer. It
+  needs `rank: best` on the field (a clear error otherwise).
+- **Also in 0.12:** follow-ups of `with()` (aliases, returning the values of a `many` field, batching), the mutation-test gaps of the 0.11
+  round (`FacetRunner`, `Highlighter`, `TypoMarker`, parts of `PostgresInspector`), and the first step of a smaller sidecar (see below),
+  only with a differential proof and timing that show speed and exactness unchanged.
 
 ### Ideas before 1.0, not yet decided
 

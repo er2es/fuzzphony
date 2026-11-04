@@ -953,7 +953,7 @@ use Symfony\Component\Config\Loader\ParamConfigurator as Param;
  *             token_handler?: Param|string|array{
  *                 id?: scalar|Param|null,
  *                 oidc_user_info?: Param|string|array{
- *                     base_uri?: scalar|Param|null, // Base URI of the userinfo endpoint on the OIDC server, or the OIDC server URI to use the discovery (require "discovery" to be configured).
+ *                     base_uri?: scalar|Param|null, // Base URI of the userinfo endpoint on the OIDC server, or the OIDC server URI to use the discovery (require "discovery" to be configured). The latter must end with a slash when it has a path, as the discovery path is resolved against it as a relative URL.
  *                     discovery?: array{ // Enable the OIDC discovery.
  *                         cache?: array{
  *                             id?: scalar|Param|null, // Cache service id to use to cache the OIDC discovery configuration.
@@ -1254,6 +1254,10 @@ use Symfony\Component\Config\Loader\ParamConfigurator as Param;
  * }
  * @psalm-type FuzzphonyConfig = array{
  *     connection?: scalar|Param|null, // Doctrine DBAL connection name // Default: "default"
+ *     connections?: array{
+ *         worker?: scalar|Param|null, // DBAL connection of fuzzphony:worker and the async refresh (a database user that reads the source tables and writes the index tables, no DDL); default: connection // Default: null
+ *         admin?: scalar|Param|null, // DBAL connection of fuzzphony:schema, fuzzphony:reindex, fuzzphony:doctor and the search log commands (the user that owns the objects and may run DDL); default: connection // Default: null
+ *     },
  *     extension_schema?: scalar|Param|null, // Schema of the pg_trgm and unaccent extensions // Default: "public"
  *     schema?: scalar|Param|null, // Schema of Fuzzphony's own tables, functions and text search configurations (created by fuzzphony:schema --apply) // Default: "public"
  *     discover_entities?: bool|Param, // Register every Doctrine entity with #[Searchable] // Default: true
@@ -1274,13 +1278,15 @@ use Symfony\Component\Config\Loader\ParamConfigurator as Param;
  *         enabled?: bool|Param, // Record every search (who, what, how many hits) in fuzzphony_search_log; run fuzzphony:schema --apply after enabling // Default: false
  *         retention_days?: int|Param, // fuzzphony:search-log:purge deletes older rows // Default: 90
  *         redact?: list<scalar|Param|null>,
+ *         ip?: "off"|"masked"|"full"|Param, // Keep the client IP (Request::getClientIp(), so framework.trusted_proxies applies) with each search: off, masked (IPv4 /24, IPv6 /48) or full; it is personal data. Run fuzzphony:schema --apply after enabling // Default: "off"
  *     },
  *     rate_limit?: array{
- *         limiter?: scalar|Param|null, // Name of a framework.rate_limiter entry (service limiter.<name>); empty = no rate limit // Default: null
- *         per?: "tenant"|"user"|Param, // Whose searches share one bucket; an actor without that key is not limited // Default: "tenant"
+ *         limiter?: scalar|Param|null, // Name of a framework.rate_limiter entry (service limiter.<name>); empty = no rate limit, except per: ip, which then prepends a default entry (600 a minute, sliding window) // Default: null
+ *         per?: "tenant"|"user"|"ip"|Param, // Whose searches share one bucket: a tenant, a user or a client IP (Request::getClientIp(), so framework.trusted_proxies applies; an IPv6 address by its /64); an actor without that key is not limited // Default: "tenant"
  *     },
  *     authorization?: array{
  *         enabled?: bool|Param, // Check the index and the fields (granted: ...) with Symfony authorization before every search // Default: false
+ *         allow_system?: bool|Param, // Honour SearchBuilder::asSystem() (a search that skips the guards and sees every field, logged as "(system)"); false refuses it with AccessDenied // Default: true
  *         index_attribute?: scalar|Param|null, // Checked with isGranted(attribute, indexName) before every search; write a voter for it, or name an existing attribute such as ROLE_USER // Default: "FUZZPHONY_SEARCH"
  *     },
  *     indexes?: array<string, mixed>,
