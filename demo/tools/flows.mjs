@@ -1128,7 +1128,7 @@ await secContext.close();
     const magicRequests = [];
     m.on('request', (r) => r.url().includes('/magic?') && magicRequests.push(r.url()));
     await go(m, BASE + '/');
-    check('magic: the header has a button for it, with an accessible name and the keyboard shortcut', (await m.locator('.toolbar button.magic-open[aria-haspopup=dialog][aria-label="Search everything"]').count()) === 1 && (await m.locator('.magic-open').getAttribute('aria-keyshortcuts')) === 'Control+K Meta+K');
+    check('magic: the header has a button for it, with an accessible name and the keyboard shortcut', (await m.locator('.toolbar button.magic-open[aria-haspopup=dialog]', { hasText: 'Search everything' }).count()) === 1 && (await m.locator('.magic-open').getAttribute('aria-keyshortcuts')) === 'Control+K Meta+K');
     check('magic: the dialog is closed at first', (await m.locator('dialog.magic[open]').count()) === 0);
     await magicOpen(m);
     check('magic: Ctrl+K opens it (a modal dialog) and the cursor is in its field', await m.evaluate(() => document.activeElement === document.querySelector('dialog.magic input') && document.querySelector('dialog.magic').matches(':modal')));
