@@ -1,0 +1,32 @@
+{# The search box of the header (assets/controllers/magic_controller.js): a modal <dialog> (the browser traps the focus and closes it on Escape),
+   a combobox over a listbox of the hits of every index, grouped by index. The rows are built by the script with textContent from /magic's JSON. #}
+<dialog class="magic" aria-labelledby="magic-title" data-magic-target="dialog" data-action="click->magic#backdrop close->magic#closed">
+    <h2 id="magic-title" class="sr-only">Search every index</h2>
+    <div class="magic-head">
+        <div class="magic-field">
+            <svg class="icon" aria-hidden="true"><use href="#i-search"/></svg>
+            <input type="text" inputmode="search" enterkeyhint="search" autocomplete="off" spellcheck="false" maxlength="100"
+                   role="combobox" aria-label="Search people, companies, orders, the catalogue, notes and products" aria-autocomplete="list" aria-expanded="false" aria-controls="magic-list" aria-haspopup="listbox"
+                   placeholder="Search everything: kovacs, kft, ORD-2025, wireless mouse"
+                   data-magic-target="input" data-action="input->magic#update keydown->magic#key">
+            <button type="button" class="magic-clear" aria-label="Clear the search" data-action="magic#clear"><svg class="icon" aria-hidden="true"><use href="#i-clear"/></svg></button>
+            <span class="magic-spinner" aria-hidden="true" data-magic-target="spinner"></span>
+        </div>
+        <button type="button" class="magic-close" data-action="magic#close"><span class="magic-close-text">Close</span><kbd aria-hidden="true">Esc</kbd></button>
+    </div>
+    <p class="sr-only" role="status" aria-live="polite" data-magic-target="status"></p>
+    <div class="magic-body" id="magic-list" role="listbox" aria-label="Results" data-magic-target="list"></div>
+    <div class="magic-state" data-magic-target="state">
+        <p data-magic-target="lede">One box for the whole demo: people, companies, orders, the catalogue, the intranet notes and the products of the page's language, searched at once (a federated search) and grouped by index.</p>
+        <div class="chips" aria-label="Examples">
+            {% for label, example in constant('App\\Service\\Magic::EXAMPLES') %}
+                <button type="button" class="chip" data-action="magic#example" data-magic-example-param="{{ example }}"><code>{{ example }}</code> <small>{{ label }}</small></button>
+            {% endfor %}
+        </div>
+    </div>
+    <p class="magic-foot">
+        <span><kbd aria-hidden="true">↑</kbd> <kbd aria-hidden="true">↓</kbd> move, <kbd aria-hidden="true">Enter</kbd> opens</span>
+        <span data-magic-target="note"></span>
+        <a href="{{ path('erp', {tab: 'combined'}) }}">Compare with one multi-source index</a>
+    </p>
+</dialog>

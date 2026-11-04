@@ -1,13 +1,14 @@
 # The Security page (/under-the-hood/security) is the demo's only use of Symfony Security, and the worked example of
-# docs/security.md. Five fixed viewers (no passwords, nothing from a form): the firewall covers that page only, so every
-# other page of the demo runs as before. The viewer is chosen on the page and kept in the session.
+# docs/security.md. Five fixed viewers (no passwords, nothing from a form): the firewall covers that page and the
+# header search box's endpoint (/magic: its intranet group follows the viewer) only, so every other page of the demo runs as before.
+# The viewer is chosen on the Security page and kept in the session.
 security:
     providers:
         demo_viewers:
             id: App\Security\DemoUserProvider
     firewalls:
         main:
-            pattern: ^/under-the-hood/security
+            pattern: ^/(under-the-hood/security|magic$)
             stateless: true # the authenticator reads the session on every request: there is no token to refresh
             provider: demo_viewers
             custom_authenticators:

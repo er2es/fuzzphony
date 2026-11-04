@@ -11,6 +11,10 @@ and a link. Measurements, proofs and test names belong to the pull request, [doc
 
 ## [Unreleased]
 
+### Added
+
+- **Demo: a search box in the header of every page** that searches every index of the demo at once (people, companies, orders, the catalogue, the intranet notes and the products of the page's language) with `Fuzzphony::federated()`, weights and `atLeast` floors; results grouped per index with hit counts and an "all N in ..." link; opened with Ctrl/Cmd+K, or `/` on a page without a search field ([demo README](demo/README.md#the-search-box-in-the-header), [screenshot](docs/screenshots.md#the-search-box-in-the-header)).
+
 ## [0.11.0] - 2026-11-04
 
 Several sources, additive: nothing breaks and existing indexes need nothing (an index that gains a source or a `many` field needs `fuzzphony:schema --apply` and a reindex). One index can now read several tables, a field can hold several values, a search can return source fields, and the demo shows it on an ERP data set. The review of the new code found and fixed the entries under **Fixed**.

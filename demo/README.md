@@ -158,6 +158,12 @@ when it is complete (`init` connects as the owner role, which may build next to 
 The `worker` connects as `fuzzphony_app`, which has no DDL rights: a rebuild job that a `TRUNCATE`
 queues runs in place there.
 
+### The search box in the header
+
+Every page has a search button in the header (Ctrl/Cmd+K anywhere, `/` on a page that has no search field of its own; where there is one, `/` still focuses it). It opens a modal dialog that searches **every index of the demo at once**: people, companies, orders, the catalogue, the intranet notes and the products of the page's language (the Languages page's `lang`; English elsewhere, not all five), but not `site`, which repeats people, companies and orders. The search is `Fuzzphony::federated()` with a weight and an `atLeast` floor of three for every index ([`MagicController`](src/Controller/MagicController.php)); the hits are grouped by index with the index's hit count and an "All N in ..." link to that index's own page with the text. A row is built from `Hit::$data` (`returnable` fields: no lookup in the database), shows a badge only where the `kind` differs from the index, and links to the ERP detail page, or to the index's page with its title. As you type it asks after 150 ms of quiet and cancels the request it replaces; the endpoint (`GET /magic`) is limited to 60 searches in 10 seconds for each client address.
+
+The intranet group follows the viewer of the Security page (`/under-the-hood/security`): it is searched in the viewer's company and the fields the guards allow (`confidential` for HR only) and left out for a viewer without `ROLE_USER` or nobody; the box says whose notes it searched. The ERP page's Combined tab stays the comparison of one multi-source index with a federated search. Keyboard: arrows, Home, End and Enter move through the rows and the "All" links, Escape closes; on a phone it is a full-screen sheet. [`tools/flows.mjs`](tools/flows.mjs) and [`tools/shots.mjs`](tools/shots.mjs) check it (the dialog is in the screenshot sweep at every width and scheme).
+
 ## The ERP data set
 
 Next to the product catalogue the demo database holds an ERP-like data set of plain tables ([`sql/erp.sql`](sql/erp.sql): deterministic, generated
