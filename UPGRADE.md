@@ -11,7 +11,8 @@ Additive: nothing is removed or renamed, and an index that uses none of the new 
 
 1. `composer update fuzzphony/fuzzphony`.
 2. `bin/console fuzzphony:schema --apply` (as the owner role; or `--dump-migration` for your own migration tool). On every index it adds one idempotent
-   statement that drops the value-count column of a field that is not `rank: best` (a no-op when there is none, so the apply output shows one more step per index).
+   statement that drops a value-count column no `rank: best` field expects, and on an index with a `many` field one more that drops a stale `<values>_best_...` index
+   (both are no-ops when there is nothing to drop, so the apply output shows one or two more steps per index; the rest of the generated SQL is unchanged).
 3. Only for an index that gets **`many: { rank: best }`** (opt-in, per field): the apply also builds a partial GIN index on the values table and adds the
    count column `n_<field>` to the index table. Results are right at once; then run **`bin/console fuzzphony:reindex <index>`** (it rebuilds next to the live index and swaps it in: no downtime) to write the counts. Until then a search reads the
    values of every candidate (slower; the doctor warns). Turning the option off again drops the index and the column at the next apply.
