@@ -838,6 +838,11 @@ cannot express it: use YAML or the builder (a YAML override of an attribute-defi
 the builder, and falls back to YAML for the attribute style, as for profiles). A name that is also a `granted` field is returned only to actors who
 hold it. Without `returnable` an index cannot be asked for `with()`.
 
+An entry may be an **alias**: YAML `returnable: { url: slug, title: title }` (a map, or a list with some `alias: column` entries), builder
+`->returnable(['url' => 'slug', 'title'])`. The alias and the column follow the column-name rules, at most 50 entries per index or source, and a name
+cannot mean two columns. The name of a `many` field returns the field's values as a list (no source column of that name is needed). The definition hash
+changes only when an alias differs from its column.
+
 ### `granted` on a field
 
 `granted: ROLE_HR` marks a field that only some viewers may search and see. It is set in every definition

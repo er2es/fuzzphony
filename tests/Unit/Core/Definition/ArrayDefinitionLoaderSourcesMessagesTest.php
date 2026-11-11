@@ -82,7 +82,7 @@ final class ArrayDefinitionLoaderSourcesMessagesTest extends TestCase
     {
         $expected = 'Source "a": "returnable" must be a list of source column names (e.g. returnable: [title, slug, price])';
 
-        self::assertStringContainsString($expected, self::problems(['sources' => ['a' => ['table' => 'x', 'returnable' => ['k' => 'title']]], 'fields' => ['title' => 'A']]));
+        self::assertStringContainsString($expected, self::problems(['sources' => ['a' => ['table' => 'x', 'returnable' => ['k' => 5]]], 'fields' => ['title' => 'A']]));
         self::assertStringContainsString($expected, self::problems(['sources' => ['a' => ['table' => 'x', 'returnable' => ['title', 5]]], 'fields' => ['title' => 'A']]));
         self::assertStringContainsString($expected, self::problems(['sources' => ['a' => ['table' => 'x', 'returnable' => 'title']], 'fields' => ['title' => 'A']]));
     }

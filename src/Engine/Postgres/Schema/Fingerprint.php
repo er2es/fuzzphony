@@ -91,22 +91,26 @@ final class Fingerprint
      * The returnable columns (what SearchBuilder::with() may return): absent for an index without any, so the hash of every such index
      * stays what it was.
      *
-     * @return array{returnable?: list<string>|array<string, list<string>>}
+     * @return array<string, mixed>
      */
     private static function returnable(IndexDefinition $index): array
     {
         if ($index->isMultiSource()) {
             $each = [];
+            $as = [];
             foreach ($index->sources as $source) {
                 if ($source->returnable !== []) {
                     $each[$source->name] = $source->returnable;
                 }
+                if ($source->returnableAs !== []) {
+                    $as[$source->name] = $source->returnableAs;
+                }
             }
 
-            return $each === [] ? [] : ['returnable' => $each];
+            return ($each === [] ? [] : ['returnable' => $each]) + ($as === [] ? [] : ['returnable_as' => $as]);
         }
 
-        return $index->returnable === [] ? [] : ['returnable' => $index->returnable];
+        return ($index->returnable === [] ? [] : ['returnable' => $index->returnable]) + ($index->returnableAs === [] ? [] : ['returnable_as' => $index->returnableAs]);
     }
 
     /** @return list<list<mixed>> */

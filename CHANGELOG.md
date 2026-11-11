@@ -11,6 +11,10 @@ and a link. Measurements, proofs and test names belong to the pull request, [doc
 
 ## [Unreleased]
 
+### Added
+
+- **`with()` aliases and many values:** `returnable: { url: slug }` returns a column under another name, a `many` field's name returns its values as a `list<string>`, and the whole page is read in one statement. Granted fields stay gated by name and by column ([searching](docs/searching.md#returning-source-fields-with), [UPGRADE](UPGRADE.md)).
+
 ## [0.11.1] - 2026-11-04
 
 A demo patch: the library is unchanged.

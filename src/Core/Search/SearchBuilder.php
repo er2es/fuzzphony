@@ -97,11 +97,11 @@ final readonly class SearchBuilder
     /**
      * Returns values of each hit's SOURCE row in Hit::$data (field => value), so an application can render a result row and build
      * links without loading entities. The names are a subset of the `returnable` columns the index (or the hit's source) declares; no
-     * argument means all of them, calling it again adds. It costs one more statement per source on the page, read from the source
+     * argument means all of them, calling it again adds. It costs one more statement per page (one SELECT per source on it), read from the source
      * query by the ids of the page (always fresh, nothing is copied into the index), only when asked for. A name that is not returnable,
      * or that is a `granted` field the actor does not hold, is an InvalidQuery listing the names this actor may ask for. A field the
      * hit's source does not return is null; a hit whose row vanished meanwhile has no data. Integers, floats and booleans come back as
-     * PHP ones, text and dates as strings (ISO 8601 for dates and timestamps), json and arrays as JSON strings.
+     * PHP ones, text and dates as strings (ISO 8601 for dates and timestamps), json and arrays as JSON strings, a many field as a list of strings.
      */
     public function with(string ...$fields): self
     {

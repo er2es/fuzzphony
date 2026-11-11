@@ -83,11 +83,9 @@ final class SourceFieldsTest extends TestCase
         $query = new SearchQuery('x');
         $hits = [self::hit('items', 7), self::hit('items', 7), self::hit('items', 9)];
 
-        $out = self::fields()->statements(self::index(), $query, $hits, ['title', 'slug']);
+        $statement = self::fields()->statement(self::index(), $query, $hits, ['title', 'slug']);
 
-        self::assertCount(1, $out);
-        self::assertSame('items', $out[0]['kind']);
-        $statement = $out[0]['statement'];
+        self::assertNotNull($statement);
         self::assertSame('returned fields: items', $statement->label);
         self::assertStringContainsString('WHERE d."id" = ANY (CAST(', $statement->sql);
         self::assertStringContainsString('d."id"::text AS fz_id', $statement->sql);

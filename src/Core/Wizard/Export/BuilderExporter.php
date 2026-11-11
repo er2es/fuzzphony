@@ -81,8 +81,8 @@ final class BuilderExporter
         if (!$index->log) {
             $lines[] = '    ->log(false)';
         }
-        if ($index->returnable !== []) {
-            $lines[] = sprintf('    ->returnable(%s)', implode(', ', array_map($e, $index->returnable)));
+        if ($index->returnable !== [] || $index->returnableAs !== []) {
+            $lines[] = sprintf('    ->returnable(%s)', implode(', ', array_map($e, $index->returnableAs === [] ? $index->returnable : [...$index->returnable, $index->returnableAs])));
         }
         if (!$index->synonyms->isEmpty()) {
             $lines[] = sprintf('    ->synonyms(%s)', $e($index->synonyms->toEntries()));

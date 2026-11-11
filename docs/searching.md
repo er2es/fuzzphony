@@ -194,9 +194,15 @@ foreach ($result->hits as $hit) {
 - `with('title', 'slug')` takes a subset of the index's `returnable` columns; `with()` with no argument means all of them; calling it again adds.
   A name that is not returnable is an `InvalidQuery` that lists the names you may ask for.
 - **Opt-in and fresh.** Without `with()` nothing changes: the statements and the results are the ones of a search without it, and `Hit::$data` is
-  `[]`. With it the engine runs **one more statement per source on the page**, over the ids of the page (never more than `limit`), reading the source
-  query itself: always the current value, nothing is copied into the index. `explain()` lists it as `returned fields: <source>`; every value is bound
-  and the column names come from the validated list.
+  `[]`. With it the engine runs **one more statement per page** (a `UNION ALL` of one SELECT per source on it), over the ids of the page (never more than
+  `limit`), reading the source query itself: always the current value, nothing is copied into the index. `explain()` lists it once, as
+  `returned fields: <index>`; every value is bound and the column names come from the validated list.
+- **Aliases.** `returnable` may rename a column: `returnable: { url: slug, title: title }` (YAML; mixed with plain names is fine, a list entry is its
+  own alias), builder `->returnable(['url' => 'slug', 'title'])`. You ask `with('url')` and `Hit::$data` is keyed `url`; the real name `slug` is not
+  returnable unless it is listed too. A multi-source index uses one alias set: each source maps it to its own column (`link: slug` in one,
+  `link: url` in another). Grants follow the column (see [Security](security.md#returned-fields)).
+- **Several values.** Name a `many` field in `returnable` and `with('city')` returns its values as a `list<string>`: the first `limit` of the field,
+  in the order of the index (value, then the child's primary key), read from the child table in the same statement; no child row gives `[]`.
 - **Types.** PostgreSQL types the values: integers, floats (a `numeric` is a float) and booleans come back as PHP ones, text as strings, dates and
   timestamps as ISO 8601 strings (`2026-01-02`, `2026-01-02T03:04:05+00:00`), `json`/`jsonb` and arrays as compact JSON strings, `null` as `null`.
   Keep to scalar columns for what you render.

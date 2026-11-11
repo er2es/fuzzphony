@@ -436,10 +436,10 @@ final class PostgresInspector
             };
         }
 
-        if ($index->returnable !== []) {
-            $absent = array_values(array_filter($index->returnable, static fn(string $c): bool => !isset($columns[$c])));
+        if ($index->hasReturnable()) {
+            $absent = array_values(array_filter($index->returnableSourceColumns(), static fn(string $c): bool => !isset($columns[$c])));
             $checks[] = $absent === []
-                ? Check::ok('Returnable columns', sprintf('%d column(s) returned by with()', count($index->returnable)))
+                ? Check::ok('Returnable columns', sprintf('%d column(s) returned by with()', count($index->returnableNames())))
                 : Check::error('Returnable columns', sprintf('Missing in source: %s. Available: %s.', implode(', ', $absent), $known));
         }
 
