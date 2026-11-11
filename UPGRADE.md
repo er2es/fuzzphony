@@ -20,7 +20,9 @@ and the [CHANGELOG](CHANGELOG.md) has the full list of changes.
 
 - `returnable` accepts aliases (`{ url: slug }`, `->returnable(['url' => 'slug'])`) and the name of a `many` field (its values come back as a `list<string>`); `Hit::$data` is now typed `array<string, scalar|list<string>|null>`. An index with a many field that is also a returnable column name now returns the many values instead of the source column: rename one of them.
 - `with()` reads the whole page in **one** statement (`UNION ALL` of one SELECT per source): `explain()` shows one `returned fields: <index>` instead of one per source, and `SourceFields::statements()` is now `statement()` (internal). Nothing to do, unless you assert the statement labels.
-- A `returnable` many field makes the search role read its child table: `fuzzphony:schema --dump-grants --role=search` lists it.
+- A `returnable` many field makes the search role read its child table: `fuzzphony:schema --dump-grants --role=search` lists it (a `SELECT` on the whole table).
+- **A many field follows the visibility of the search in `with()`:** a viewer restricted with `restrictedToFields()` (or by a guard) to other fields can no longer ask for it: it is
+  refused like an unknown name and left out of `with()` with no argument. Ordinary returnable columns are unchanged.
 
 ## From 0.10.x to 0.11.0
 

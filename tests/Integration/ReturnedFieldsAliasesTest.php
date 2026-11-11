@@ -207,6 +207,38 @@ final class ReturnedFieldsAliasesTest extends TestCase
         self::assertSame([], $hr->with('tags')->get()->hits[0]->data['tags'], 'no child row: an empty list, never null');
     }
 
+    public function testAManyFieldFollowsTheVisibilityOfTheSearchInWith(): void
+    {
+        $fz = $this->build();
+        $hr = fn() => $fz->in('rfa_g')->query('mouse')->asActor(new Actor(user: 'hr'));
+
+        // granted and held, unrestricted: returned
+        self::assertSame(['alpha', 'mid', 'zeta'], $hr()->with()->get()->hits[0]->data['tags']);
+        // restricted to a field other than the many one: left out of with(), refused by name like an unknown column
+        self::assertSame(['title' => 'Wireless mouse'], $hr()->restrictedToFields('title')->with()->get()->hits[0]->data);
+        try {
+            $hr()->restrictedToFields('title')->with('tags')->get();
+            self::fail('a many field outside restrictedToFields() was returned');
+        } catch (InvalidQuery $e) {
+            self::assertStringContainsString('cannot return "tags"', $e->getMessage());
+        }
+
+        // a many field that is not granted at all: the same rule for a viewer restricted to the other field
+        $index = IndexDefinition::builder('rfa_g')
+            ->fromQuery('SELECT id, title, slug FROM rfa_item')
+            ->field('title', 'A')
+            ->field('tags', 'C', many: new ManyValues('rfa_tag', 'item_id', 'label', 3))
+            ->language('english')
+            ->sync('manual')
+            ->returnable('title', 'tags')
+            ->build();
+        $open = new Fuzzphony(new PostgresEngine($this->connection), new IndexRegistry([$index]));
+        self::assertSame(['alpha', 'mid', 'zeta'], $open->in('rfa_g')->query('mouse')->with('tags')->get()->hits[0]->data['tags']);
+        self::assertSame(['title' => 'Wireless mouse'], $open->in('rfa_g')->query('mouse')->restrictedToFields('title')->with()->get()->hits[0]->data);
+        $this->expectException(InvalidQuery::class);
+        $open->in('rfa_g')->query('mouse')->restrictedToFields('title')->with('tags')->get();
+    }
+
     /**
      * @param list<Hit> $hits
      *
