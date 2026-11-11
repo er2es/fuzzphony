@@ -30,6 +30,7 @@ use Fuzzphony\Core\Support\Coerce;
 use Fuzzphony\Engine\Postgres\EngineGuard;
 use Fuzzphony\Engine\Postgres\Highlighter;
 use Fuzzphony\Engine\Postgres\Hints;
+use Fuzzphony\Engine\Postgres\ManyMatchFields;
 use Fuzzphony\Engine\Postgres\MatchExplainer;
 use Fuzzphony\Engine\Postgres\Schema\Names;
 use Fuzzphony\Engine\Postgres\SearchSession;
@@ -194,6 +195,11 @@ final readonly class SearchRunner
         (new FilterCompiler($index))->validate(...$conditions);
         // with(): checked against what THIS viewer may ask for, before anything runs (an unknown and a hidden name fail alike)
         $returning = $query->returning === null ? null : SourceFields::resolve($index, $query);
+        // manyMatch(): validated against what THIS viewer may search (a hidden name fails like an unknown one)
+        if (ManyMatchFields::resolve($index, $query) !== []) {
+            // P3/P4 replace this refusal with the best-value rank and the single-value predicate
+            throw new InvalidQuery('manyMatch(\'single\') is not implemented in this build yet: the definition and query API are in place, the search itself is not.');
+        }
         foreach ($query->facets as $facet) {
             $index->assertFacetable($facet);
         }

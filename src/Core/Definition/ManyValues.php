@@ -21,7 +21,7 @@ final readonly class ManyValues
     public const int DEFAULT_LIMIT = 50;
     public const int MAX_LIMIT = 10000;
 
-    public const array KEYS = ['from', 'key', 'column', 'limit', 'id'];
+    public const array KEYS = ['from', 'key', 'column', 'limit', 'id', 'rank'];
 
     public function __construct(
         /** The child table (optionally schema-qualified). */
@@ -34,6 +34,8 @@ final readonly class ManyValues
         public int $limit = self::DEFAULT_LIMIT,
         /** The child's primary key column: the tie-breaker of the value order. */
         public string $id = 'id',
+        /** Whole: the values are ranked as one text (the default); Best: the field ranks through its best single value (fields only). */
+        public ManyRank $rank = ManyRank::Whole,
     ) {}
 
     /**
@@ -60,6 +62,15 @@ final readonly class ManyValues
         if (array_key_exists('limit', $config) && !is_int($config['limit'])) {
             $problems[] = sprintf('%s: many "limit" must be an integer between 1 and %d.', $what, self::MAX_LIMIT);
         }
+        $rank = ManyRank::Whole;
+        if (array_key_exists('rank', $config)) {
+            $parsed = $config['rank'] instanceof ManyRank ? $config['rank'] : (is_string($config['rank']) ? ManyRank::tryFrom($config['rank']) : null);
+            if ($parsed === null) {
+                $problems[] = self::rankProblem($what, $config['rank']);
+            } else {
+                $rank = $parsed;
+            }
+        }
         if ($problems !== []) {
             throw new InvalidDefinition($index, $problems);
         }
@@ -70,6 +81,20 @@ final readonly class ManyValues
             is_string($config['column'] ?? null) ? $config['column'] : '',
             is_int($config['limit'] ?? null) ? $config['limit'] : self::DEFAULT_LIMIT,
             is_string($config['id'] ?? null) ? $config['id'] : 'id',
+            $rank,
+        );
+    }
+
+    /** The message for a "rank" that is neither "whole" nor "best" (also the definition loader's). */
+    public static function rankProblem(string $what, mixed $got): string
+    {
+        $closest = is_string($got) ? Closest::of($got, array_column(ManyRank::cases(), 'value')) : null;
+
+        return sprintf(
+            '%s: many "rank" must be "whole" (the default: the values ranked as one text) or "best" (the best single value), got %s.%s',
+            $what,
+            is_scalar($got) ? var_export($got, true) : get_debug_type($got),
+            $closest === null ? '' : sprintf(' Did you mean "%s"?', $closest),
         );
     }
 
@@ -92,13 +117,28 @@ final readonly class ManyValues
         return $v;
     }
 
-    /** @return array{string, string, string, int, string} */
+    /**
+     * The definition fingerprint: the rank is part of it only when it is Best, so every 0.11 definition keeps its hash.
+     *
+     * @return array{string, string, string, int, string}|array{string, string, string, int, string, string}
+     */
     public function fingerprint(): array
+    {
+        return $this->rank === ManyRank::Best ? [...$this->documentsFingerprint(), 'best'] : $this->documentsFingerprint();
+    }
+
+    /**
+     * What the stored documents depend on: the rank only changes how a search reads the values table, so it is not in here (turning it on
+     * needs `schema --apply`, never a reindex).
+     *
+     * @return array{string, string, string, int, string}
+     */
+    public function documentsFingerprint(): array
     {
         return [$this->from, $this->key, $this->column, $this->limit, $this->id];
     }
 
-    /** @return array{from: string, key: string, column: string, limit?: int, id?: string} */
+    /** @return array{from: string, key: string, column: string, limit?: int, id?: string, rank?: string} */
     public function toArray(): array
     {
         $array = ['from' => $this->from, 'key' => $this->key, 'column' => $this->column];
@@ -107,6 +147,9 @@ final readonly class ManyValues
         }
         if ($this->id !== 'id') {
             $array['id'] = $this->id;
+        }
+        if ($this->rank === ManyRank::Best) {
+            $array['rank'] = $this->rank->value;
         }
 
         return $array;

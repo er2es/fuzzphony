@@ -457,7 +457,7 @@ final class ArrayDefinitionLoader
             }
             $this->assertKeys($problems, $at, array_keys($options), $allowed);
             if (array_key_exists('many', $options)) {
-                $this->assertMany($problems, $at, $options['many']);
+                $this->assertMany($problems, $at, $options['many'], $section === 'fields');
             }
             if ($section === 'fields') {
                 self::assertBool($problems, $at . ' "fuzzy"', $options['fuzzy'] ?? null);
@@ -472,7 +472,7 @@ final class ArrayDefinitionLoader
     }
 
     /** @param list<string> $problems */
-    private function assertMany(array &$problems, string $at, mixed $many): void
+    private function assertMany(array &$problems, string $at, mixed $many, bool $isField): void
     {
         if (!self::isMap($many)) {
             $problems[] = sprintf('%s "many" must be a map { from: address, key: customer_id, column: city, limit: 50 }, got %s.', $at, self::describe($many));
@@ -491,6 +491,13 @@ final class ArrayDefinitionLoader
         }
         if (array_key_exists('id', $many) && (!is_string($many['id']) || $many['id'] === '')) {
             $problems[] = sprintf('%s "many" "id" must be the primary key column of the child table (a non-empty string), got %s.', $at, self::describe($many['id']));
+        }
+        if (array_key_exists('rank', $many)) {
+            if (!is_string($many['rank']) || ManyRank::tryFrom($many['rank']) === null) {
+                $problems[] = ManyValues::rankProblem($at, $many['rank']);
+            } elseif (!$isField) {
+                $problems[] = sprintf('%s: many "rank" applies to fields only (a filter does not rank).', $at);
+            }
         }
     }
 

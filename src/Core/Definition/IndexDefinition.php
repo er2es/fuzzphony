@@ -186,6 +186,12 @@ final readonly class IndexDefinition
         return array_values(array_filter($this->fields, static fn(FieldDefinition $f): bool => $f->many !== null));
     }
 
+    /** @return list<FieldDefinition> the many fields that rank through their best single value (`many: { rank: best }`) */
+    public function manyBestFields(): array
+    {
+        return array_values(array_filter($this->fields, static fn(FieldDefinition $f): bool => $f->many?->rank === ManyRank::Best));
+    }
+
     /** @return list<FilterDefinition> the filters whose values come from a child table */
     public function manyFilters(): array
     {

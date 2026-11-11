@@ -110,7 +110,7 @@ final class ArrayDefinitionLoaderSourcesMessagesTest extends TestCase
     {
         $message = self::problems(['source' => ['table' => 't'], 'fields' => ['title' => 'A', 'city' => ['weight' => 'C', 'many' => ['key' => 'k', 'column' => 'c', 'colum' => 'x', 'id' => 5]]]]);
 
-        self::assertStringContainsString('Field "city" "many": unknown option(s): colum. Allowed: from, key, column, limit, id.', $message);
+        self::assertStringContainsString('Field "city" "many": unknown option(s): colum. Allowed: from, key, column, limit, id, rank.', $message);
         self::assertStringContainsString('Field "city" "many" needs "from" (a non-empty string), e.g. many: { from: address, key: customer_id, column: city }.', $message);
         self::assertStringNotContainsString('needs "key"', $message);
         self::assertStringContainsString('Field "city" "many" "id" must be the primary key column of the child table (a non-empty string), got 5.', $message);

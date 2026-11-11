@@ -39,7 +39,7 @@ final class Fingerprint
     {
         return self::hash([
             'source' => self::source($index),
-            'fields' => self::fields($index),
+            'fields' => self::fields($index, true),
             'filters' => self::filters($index),
             'text' => [$index->text->language, $index->text->unaccent],
             'boost' => $index->boostColumn,
@@ -65,10 +65,14 @@ final class Fingerprint
         return [$index->source->table, $index->source->query, $index->source->idColumn];
     }
 
-    /** @return list<list<mixed>> */
-    private static function fields(IndexDefinition $index): array
+    /**
+     * @param bool $forDocuments the documents hash leaves a many field's rank out (it changes no stored document)
+     *
+     * @return list<list<mixed>>
+     */
+    private static function fields(IndexDefinition $index, bool $forDocuments = false): array
     {
-        return array_map(static fn(FieldDefinition $f): array => $f->many !== null ? [$f->name, $f->column(), $f->weight->value, $f->fuzzy, $f->many->fingerprint()] : ($f->code ? [$f->name, $f->column(), $f->weight->value, $f->fuzzy, true] : [$f->name, $f->column(), $f->weight->value, $f->fuzzy]), $index->fields);
+        return array_map(static fn(FieldDefinition $f): array => $f->many !== null ? [$f->name, $f->column(), $f->weight->value, $f->fuzzy, $forDocuments ? $f->many->documentsFingerprint() : $f->many->fingerprint()] : ($f->code ? [$f->name, $f->column(), $f->weight->value, $f->fuzzy, true] : [$f->name, $f->column(), $f->weight->value, $f->fuzzy]), $index->fields);
     }
 
     /**

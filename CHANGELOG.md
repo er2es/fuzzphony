@@ -11,6 +11,11 @@ and a link. Measurements, proofs and test names belong to the pull request, [doc
 
 ## [Unreleased]
 
+### Added
+
+- **`many: { rank: best }` and `manyMatch('single')`:** a many field can rank through its best single value and a search can require one value to hold
+  every word. Opt-in per field; `fuzzphony:schema --apply` adds a partial index on the values table, no reindex ([configuration](docs/configuration.md#several-values-per-document-many)).
+
 ## [0.11.1] - 2026-11-04
 
 A demo patch: the library is unchanged.
