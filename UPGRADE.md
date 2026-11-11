@@ -15,6 +15,8 @@ and the [CHANGELOG](CHANGELOG.md) has the full list of changes.
   [Several values per document](docs/configuration.md#several-values-per-document-many).
   With it, the field's highlight shows the value the hit was ranked by, and `ScoreBreakdown::$bestValues` (new, `array<string, int>`, filled with
   `explainMatches()` only) gives its position; code that builds a `ScoreBreakdown` itself is unaffected (the parameter is last and optional).
+  `manyMatch('single')` needs nothing more than the option (no reindex of its own); a search without it is unchanged
+  ([Several values, one address](docs/searching.md#several-values-one-address-manymatch)).
 
 ### with()
 

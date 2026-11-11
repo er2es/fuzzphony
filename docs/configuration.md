@@ -357,7 +357,8 @@ values of a document by it, and the doctor warns when there is none.
 - **`rank: best` ranks by the best single value.** `many: { from: address, key: customer_id, column: city, rank: best }` (builder:
   `many: [..., 'rank' => 'best']` or `new ManyValues(..., rank: ManyRank::Best)`; `rank: whole` is the default, the values ranked as one text).
   With it the field contributes to the text rank through its best value, never the sum of several values, and a search can ask
-  [`manyMatch('single')`](searching.md#several-values-one-address-manymatch). Fields only (a filter does not rank). It adds a partial GIN index on
+  [`manyMatch('single')`](searching.md#several-values-one-address-manymatch) (one value must hold every word the document needs from the
+  field; code API, per search). Fields only (a filter does not rank). It adds a partial GIN index on
   the values table and a value count column (`n_<field>`) to the index table per such field: `fuzzphony:schema --apply` creates them (and drops
   the index and the count column when you turn the option off: a count nothing maintains is never kept, so switching back cannot trust a stale one; the doctor warns if one is left). Results are right at once; **run a reindex** afterwards so the counts are written: a document with
   one value then skips the per-value ranking (its best value is the whole field), until then its values are read (the doctor warns). Several

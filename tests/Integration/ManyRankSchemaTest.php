@@ -192,13 +192,12 @@ final class ManyRankSchemaTest extends TestCase
         }
     }
 
-    public function testManyMatchSingleIsRefusedUntilTheSearchImplementsIt(): void
+    public function testManyMatchSingleRunsOnTheSchema(): void
     {
         $f = $this->install($this->definition(['city' => 'best']));
 
-        $this->expectException(InvalidQuery::class);
-        $this->expectExceptionMessage('not implemented');
-        $f->in('rcust')->query('fo utca szeged')->manyMatch('single')->get();
+        $ids = array_map(static fn($h): int|string => $h->id, $f->in('rcust')->query('kiss szeged')->manyMatch('single')->get()->hits);
+        self::assertSame([1], $ids, 'the name and one city value');
     }
 
     public function testManyMatchNamesAreCheckedAndAHiddenViewerGetsThePlainSearch(): void

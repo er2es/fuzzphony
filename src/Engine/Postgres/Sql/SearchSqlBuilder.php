@@ -6,7 +6,12 @@ namespace Fuzzphony\Engine\Postgres\Sql;
 
 use Fuzzphony\Core\Definition\FilterType;
 use Fuzzphony\Core\Definition\IndexDefinition;
+use Fuzzphony\Core\Query\Ast\AllOf;
+use Fuzzphony\Core\Query\Ast\AnyOf;
+use Fuzzphony\Core\Query\Ast\FieldScoped;
 use Fuzzphony\Core\Query\Ast\Node;
+use Fuzzphony\Core\Query\Ast\Not;
+use Fuzzphony\Core\Query\Ast\Term;
 use Fuzzphony\Core\Query\Filter\Condition;
 use Fuzzphony\Core\Ranking\RankingProfile;
 use Fuzzphony\Core\Ranking\Thresholds;
@@ -62,6 +67,14 @@ final class SearchSqlBuilder
          * @var list<string>
          */
         private readonly array $bestValues = [],
+        /**
+         * manyMatch('single'): the rank: best fields (visible to the viewer, ManyMatchFields::resolve()) of which ONE value must hold
+         * every word the document needs from the field (singleValue()); [] keeps every statement as it was. Needs the parsed query
+         * ($scopedRoot) in every ranked statement.
+         *
+         * @var list<string>
+         */
+        private readonly array $single = [],
     ) {}
 
     /**
@@ -273,6 +286,17 @@ final class SearchSqlBuilder
         if ($fuzzy !== null) {
             array_push($q, ...$fuzzy->columns);
         }
+        $fuzzyPredicate = $fuzzy?->predicate;
+        if ($this->single !== [] && $scopedRoot !== null) {
+            // manyMatch('single'): the full-text branch and the typo branch (and so the totals, facets and candidates) keep a document
+            // only when one value of each named field holds the field's words (singleValue())
+            if ($tsquery !== null && !self::oneWord($scopedRoot) && ($exists = $this->singleValue($scopedRoot, $params, $emptyQueries, $thresholds, false, $q)) !== null) {
+                $strict[] = $exists;
+            }
+            if ($fuzzyPredicate !== null && $fuzzyRoot !== null && ($exists = $this->singleValue($fuzzyRoot, $params, $emptyQueries, $thresholds, true, $q)) !== null) {
+                $fuzzyPredicate .= ' AND ' . $exists;
+            }
+        }
         // MATERIALIZED: one row computed once, and the planner must not see the per-word values (see FuzzyQueryCompiler)
         $ctes = ['q AS MATERIALIZED (SELECT ' . implode(', ', $q) . ')'];
 
@@ -369,7 +393,7 @@ final class SearchSqlBuilder
                 $fuzzy->score,
                 $orderedFuzzy ? ', (' . $this->visibleTextSize() . ')::bigint AS w' : '',
                 $table,
-                $fuzzy->predicate,
+                $fuzzyPredicate,
                 $filterSql,
                 $cap,
             );
@@ -385,7 +409,7 @@ final class SearchSqlBuilder
                     $bonuses[2],
                     $bonuses[3],
                     $table,
-                    $fuzzy->predicate,
+                    $fuzzyPredicate,
                     $filterSql,
                     // the rows the work budget allows, by what the first matches weigh in the fields the viewer may see (never a hidden field)
                     sprintf(
@@ -823,6 +847,75 @@ SELECT
         );
 
         return ['sql' => $sql, 'params' => $params->all()];
+    }
+
+    /**
+     * manyMatch('single') (spec 0.12 section 5.3): one value of each named field must hold every word the document needs from it.
+     *
+     *   (s.n_F <= 1 OR EXISTS (SELECT 1 FROM (SELECT ''::tsvector AS t, ''::text AS z
+     *                          UNION ALL SELECT v.t, v.z FROM <values> AS v WHERE v.doc = s.id AND v.field = 'F') AS v1 [CROSS JOIN ... AS v2]
+     *           WHERE <the positive part of the query, word by word on the visible fields' own columns, F's bound to v1.t / v1.z>))
+     *
+     * The empty row is "no value needed" (every word in another field); several named fields are their values' cross product (at most
+     * `limit` x `limit` rows per candidate). Only the viewer's visible fields' columns are read (FuzzyQueryCompiler::withinValues() on
+     * a compiler made with them), and only the rows of a named field, which ManyMatchFields made sure the viewer may see. An excluded
+     * word is not in it: the statement's own predicate excludes the document when any value holds it. The q columns it adds are
+     * named after `$fuzzy` (`me…`, `mf…`).
+     *
+     * @param list<string> $emptyQueries
+     * @param list<string> $q            the q columns, extended
+     */
+    private function singleValue(Node $root, ParameterBag $params, array $emptyQueries, Thresholds $thresholds, bool $fuzzy, array &$q): ?string
+    {
+        $aliases = [];
+        $from = [];
+        $few = [];
+        foreach ($this->single as $i => $field) {
+            $aliases[$field] = 'v' . ($i + 1);
+            // the empty row first: a document whose words are all in other fields passes without reading a value
+            $from[] = sprintf(
+                "(SELECT ''::tsvector AS t, ''::text AS z UNION ALL SELECT v.t, v.z FROM %s AS v WHERE v.doc = s.id AND v.field = %s) AS %s",
+                $this->names->values($this->index),
+                Sql::string($field),
+                $aliases[$field],
+            );
+            $few[] = sprintf('s.%s <= 1', Sql::ident($this->names->valueCountName($field)));
+        }
+        $compiler = new FuzzyQueryCompiler($this->index, $thresholds, $this->names, [], $this->allowedFields ?? $this->index->fieldNames(), $this->transpositions);
+        $within = $compiler->withinValues($root, $params, $emptyQueries, $aliases, $fuzzy, $fuzzy ? 'mf' : 'me');
+        if ($within === null) {
+            return null;
+        }
+        array_push($q, ...$within['columns']);
+
+        // A document with at most one value in each named field (its stored count; NULL before the reindex wrote it: the values are
+        // read) cannot have its words spread over values: the statement's own predicate decides it, as in the default mode.
+        return sprintf('(%s OR EXISTS (SELECT 1 FROM %s WHERE %s))', implode(' AND ', $few), implode(' CROSS JOIN ', $from), $within['predicate']);
+    }
+
+    /**
+     * Whether the positive part of the query is ONE word of one lexeme (`budapest`, `address:szeged`, `buda*`): a full-text match of it
+     * is in one value (or in another field) by definition, so the single-value check of the full-text branch can only agree.
+     */
+    private static function oneWord(Node $root): bool
+    {
+        $leaves = self::positive($root);
+        if (count($leaves) !== 1) {
+            return false;
+        }
+        $leaf = $leaves[0] instanceof FieldScoped ? $leaves[0]->node : $leaves[0];
+
+        return $leaf instanceof Term && count(TsQueryCompiler::lexemes($leaf->text)) === 1;
+    }
+
+    /** @return list<Node> the positive leaves */
+    private static function positive(Node $node): array
+    {
+        return match (true) {
+            $node instanceof Not => [],
+            $node instanceof AllOf, $node instanceof AnyOf => array_merge([], ...array_map(self::positive(...), $node->nodes)),
+            default => [$node],
+        };
     }
 
     /**

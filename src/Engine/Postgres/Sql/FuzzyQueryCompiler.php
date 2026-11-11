@@ -93,6 +93,8 @@ final class FuzzyQueryCompiler
     private bool $readsWordThreshold = false;
     /** @var bool|null whether the lookups go through the open-class indexes (open()), asked once */
     private ?bool $open = null;
+    /** @var array<string, string> withinValues(): field => alias of the value row whose `t` / `z` stand for the field's own columns */
+    private array $values = [];
 
     /**
      * @param list<string>|null $allowedFields the fields a restricted viewer may see (SearchQuery::$allowedFields): every
@@ -423,6 +425,54 @@ final class FuzzyQueryCompiler
     }
 
     /**
+     * manyMatch('single'): the positive part of the query in the per-field form a restricted viewer's recheck has (every word checked
+     * against each allowed field's own column, a scoped word against its field's, a phrase within a field or the allowed fields joined),
+     * with the columns of the fields in `$values` replaced by one value row (`<alias>.t`, `<alias>.z`). No lookup part (the statement's
+     * own predicate finds the candidates), no candidate ids (a typo word is its similarity on the columns), and an excluded part sets no
+     * condition here (`true`): the statement's own predicate excludes a document when ANY value holds the word. Built on a compiler made
+     * with the viewer's visible fields as $allowedFields (every field for an unrestricted viewer). Null when nothing positive is left.
+     *
+     * @param list<string>          $emptyQueries leaf tsqueries the text configuration reduces to nothing (stop words)
+     * @param array<string, string> $values       field => alias of its value row
+     * @param bool                  $fuzzy        typo-tolerant words as in compile() (the typo branch), else exact only (the full-text one)
+     * @param string                $prefix       of the q column names, distinct from every other compile's of the statement
+     *
+     * @return array{predicate: string, columns: list<string>}|null
+     */
+    public function withinValues(Node $node, ParameterBag $params, array $emptyQueries, array $values, bool $fuzzy, string $prefix): ?array
+    {
+        $this->columns = [];
+        $this->values = $values;
+        $this->exactOnly = !$fuzzy;
+        $this->prefix = $prefix;
+        $this->allocateVariants($fuzzy ? $this->trigramLeaves($node, $emptyQueries) : []);
+        $compiled = $this->node($node, $params, $emptyQueries);
+        $this->values = [];
+        $this->exactOnly = false;
+        $this->prefix = '';
+
+        return $compiled === null ? null : ['predicate' => $compiled['predicate'], 'columns' => $this->columns];
+    }
+
+    /** Whether withinValues() is compiling. */
+    private function within(): bool
+    {
+        return $this->values !== [];
+    }
+
+    /** The tsvector column of a field: its own, or its value row's in withinValues(). */
+    private function vector(FieldDefinition $field): string
+    {
+        return isset($this->values[$field->name]) ? $this->values[$field->name] . '.t' : 's.' . $this->names->fieldVector($field->name);
+    }
+
+    /** The typo-tolerant text column of a field: its own, or its value row's in withinValues(). */
+    private function fuzzyColumn(FieldDefinition $field): string
+    {
+        return isset($this->values[$field->name]) ? $this->values[$field->name] . '.z' : 's.' . $this->names->fieldFuzzy($field->name);
+    }
+
+    /**
      * The condition each leaf has in the search, one per leaf and in order, for the empty-result
      * relaxation probe: exact or trigram (as in the fuzzy branch) when $fuzzy is true and the
      * word is long enough, else exact only; null for a leaf reduced to nothing (a stop word).
@@ -470,6 +520,8 @@ final class FuzzyQueryCompiler
     private function node(Node $node, ParameterBag $params, array $empty): ?array
     {
         return match (true) {
+            // withinValues(): an excluded part is the statement's own predicate's (the whole document), no condition on one value
+            $node instanceof Not && $this->within() => ['predicate' => 'true', 'score' => null, 'partial' => false],
             $node instanceof AllOf => $this->group($node->nodes, true, $params, $empty),
             $node instanceof AnyOf => $this->group($node->nodes, false, $params, $empty),
             $node instanceof Not && $this->wordByWord($node->node) => $this->excluded($node->node, $params, $empty),
@@ -536,7 +588,9 @@ final class FuzzyQueryCompiler
         $score = $threshold === null ? $trigram['similarity'] : sprintf('CASE WHEN %1$s >= %2$s THEN %1$s ELSE 0.0 END', $trigram['similarity'], $threshold);
         $key = $this->candidateKey($node);
         $ids = $this->candidates[$key] ?? null;
-        $this->readsWordThreshold = $this->readsWordThreshold || $ids === null;
+        // withinValues() judges the word on the columns (its similarity), never by the candidate ids of the whole document
+        $ids = $this->within() ? null : $ids;
+        $this->readsWordThreshold = $this->readsWordThreshold || ($ids === null && !$this->within());
         $condition = $ids === null
             ? $trigram['condition']
             : sprintf('s.id = ANY(%s)', $this->column('id', sprintf('CAST(%s AS %s[])', $params->add(Sql::arrayLiteral($ids)), Types::id($this->index->idType))));
@@ -636,9 +690,10 @@ final class FuzzyQueryCompiler
         if ($this->allowed === null && $field === null && count($targets) === count($this->index->fields)) {
             return 's.tsv @@ ' . $query();
         }
-        $checks = array_map(fn(FieldDefinition $f): string => sprintf('s.%s @@ %s', $this->names->fieldVector($f->name), $query()), $targets);
+        $checks = array_map(fn(FieldDefinition $f): string => sprintf('%s @@ %s', $this->vector($f), $query()), $targets);
+        $check = count($checks) === 1 ? $checks[0] : '(' . implode(' OR ', $checks) . ')';
 
-        return sprintf('(%s AND %s)', $this->vectorLookup($query()), count($checks) === 1 ? $checks[0] : '(' . implode(' OR ', $checks) . ')');
+        return $this->within() ? ($checks === [] ? 'false' : $check) : sprintf('(%s AND %s)', $this->vectorLookup($query()), $check);
     }
 
     /**
@@ -656,19 +711,26 @@ final class FuzzyQueryCompiler
             // match and the score, is the best of the allowed fuzzy fields' own columns. needle() made sure there is one.
             // A null $threshold means the thresholds fix fuzzySimilarity (both callers pass the per-length recheck otherwise).
             $similarities = array_map(
-                fn(FieldDefinition $f): string => sprintf('%s.word_similarity(%s, s.%s)', $schema, $norm, $this->names->fieldFuzzy($f->name)),
+                fn(FieldDefinition $f): string => sprintf('%s.word_similarity(%s, %s)', $schema, $norm, $this->fuzzyColumn($f)),
                 $this->fuzzyAllowed(null),
             );
             $similarity = count($similarities) === 1 ? $similarities[0] : 'GREATEST(' . implode(', ', $similarities) . ')';
+            $least = $threshold ?? Sql::float((float) $this->thresholds->typo->similarity);
 
             return [
-                'condition' => sprintf('(%s OPERATOR(%s.<%%) %s AND %s >= %s)', $norm, $schema, $this->trigramColumn(), $similarity, $threshold ?? Sql::float((float) $this->thresholds->typo->similarity)),
+                'condition' => $this->within()
+                    ? sprintf('%s >= %s', $similarity, $least)
+                    : sprintf('(%s OPERATOR(%s.<%%) %s AND %s >= %s)', $norm, $schema, $this->trigramColumn(), $similarity, $least),
                 'similarity' => $similarity,
             ];
         }
         // a scoped word of a restricted viewer is one of the allowed fields (needle()): its own column, as below
-        $column = $field === null ? 's.fz' : 's.' . $this->names->fieldFuzzy($field->name);
+        $column = $field === null ? 's.fz' : $this->fuzzyColumn($field);
         $similarity = sprintf('%s.word_similarity(%s, %s)', $schema, $norm, $column);
+        if ($this->within()) {
+            // withinValues() always has $allowed, so this is a scoped word: its similarity on its own column (or value row)
+            return ['condition' => sprintf('%s >= %s', $similarity, $threshold ?? Sql::float((float) $this->thresholds->typo->similarity)), 'similarity' => $similarity];
+        }
         $recheck = $threshold === null ? '' : sprintf(' AND %s >= %s', $similarity, $threshold);
         $lookup = $this->trigramColumn();
         $trigram = $field === null
@@ -794,7 +856,17 @@ final class FuzzyQueryCompiler
             }
             $config = $this->names->regconfig($this->index->text);
             $query = $this->column('ft', sprintf('to_tsquery(%s, %s)', $config, $params->add($tsquery)));
-            $checks = array_map(fn(FieldDefinition $f): string => sprintf('s.%s @@ %s', $this->names->fieldVector($f->name), $query), $targets);
+            $checks = array_map(fn(FieldDefinition $f): string => sprintf('%s @@ %s', $this->vector($f), $query), $targets);
+            if (str_contains($tsquery, '<->') && $field === null && count($targets) > 1) {
+                // A phrase may span two allowed fields, as it does in the whole tsv: it is also read from the allowed fields'
+                // vectors joined in the index's order, as if the hidden fields did not exist (what a hidden field holds, or
+                // lacks, never decides).
+                $checks[] = sprintf('(%s) @@ %s', implode(' || ', array_map($this->vector(...), $targets)), $query);
+            }
+            $check = count($checks) === 1 ? $checks[0] : '(' . implode(' OR ', $checks) . ')';
+            if ($this->within()) {
+                return $check; // the statement's own predicate finds the candidates
+            }
             $lookup = $query;
             // The candidates come from the words alone (phrases ANDed, no weight labels), never from the phrase or the weights on
             // tsv: its positions are capped (16 383) after the fields joined before it, so a long hidden field in front of an
@@ -804,16 +876,8 @@ final class FuzzyQueryCompiler
             if ($loose !== $tsquery) {
                 $lookup = $this->column('fl', sprintf('to_tsquery(%s, %s)', $config, $params->add($loose)));
             }
-            if (str_contains($tsquery, '<->')) {
-                if ($field === null && count($targets) > 1) {
-                    // A phrase may span two allowed fields, as it does in the whole tsv: it is also read from the allowed fields'
-                    // vectors joined in the index's order, as if the hidden fields did not exist (what a hidden field holds, or
-                    // lacks, never decides).
-                    $checks[] = sprintf('(%s) @@ %s', implode(' || ', array_map(fn(FieldDefinition $f): string => 's.' . $this->names->fieldVector($f->name), $targets)), $query);
-                }
-            }
 
-            return sprintf('(%s AND %s)', $this->vectorLookup($lookup), count($checks) === 1 ? $checks[0] : '(' . implode(' OR ', $checks) . ')');
+            return sprintf('(%s AND %s)', $this->vectorLookup($lookup), $check);
         }
         $config = $this->names->regconfig($this->index->text);
         $query = $this->column('ft', sprintf('to_tsquery(%s, %s)', $config, $params->add($tsquery)));
