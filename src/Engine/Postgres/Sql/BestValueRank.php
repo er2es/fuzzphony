@@ -72,37 +72,72 @@ final readonly class BestValueRank
      */
     public function rank(string $fallback, string $weights, string $rankQuery): string
     {
-        // The field's own vector holds every lexeme of its values: a document none of whose values holds a query word is not looked up.
-        // A document with ONE value (its count, Names::valueCountName()) is not looked up either: the value's vector is the field's, so the
-        // substituted vector is the viewer's own and its rank is the whole-field one (the fallback; for an unrestricted viewer only when
-        // `tsv` is not capped, where the fallback may read other vectors). With one field that is the fallback itself (NULL), with several
-        // it takes part in greatest() as what it is.
-        $one = count($this->fields) === 1 ? 'NULL' : $fallback;
-        $parts = array_map(fn(string $field): string => sprintf(
-            'CASE WHEN NOT s.%1$s @@ q.tsany THEN NULL WHEN s.%2$s = 1%3$s THEN %4$s ELSE (SELECT max(%5$s) FROM %6$s AS v WHERE v.doc = s.id AND v.field = %7$s AND v.t @@ q.tsany) END',
-            $this->names->fieldVector($field),
-            Sql::ident($this->names->valueCountName($field)),
-            $this->allowed === null ? sprintf(' AND s.%s IS FALSE', PostgresSchemaGenerator::CAPPED_COLUMN) : '',
-            $one,
-            $this->valueRank($field, $weights, $rankQuery),
-            $this->names->values($this->index),
-            Sql::string($field),
-        ), $this->fields);
+        $parts = array_map(fn(string $field): string => $this->part($field, $fallback, $weights, $rankQuery), $this->fields);
 
         return sprintf('coalesce(nullif(%s, 0), %s)', count($parts) === 1 ? $parts[0] : 'greatest(' . implode(', ', $parts) . ')', $fallback);
     }
 
     /**
-     * The position (`ord`) of the field's best value for the sidecar row `s`: the first of the highest rank among the values that hold a
-     * query word, NULL when no value gives a rank (the document is ranked on the whole field).
+     * The position (`ord`) of the field's best value for the sidecar row `s`, only when the field's best-value rank is the one that
+     * produced the document's text rank: the first field (in the index's order) whose rank equals the greatest and is above 0, through a
+     * real lookup of its values (not the whole-field rank of a one-value document or a stale count). NULL otherwise. Only the fields the
+     * viewer may see take part, like in rank().
+     *
+     * @param string $fallback the whole-field rank, as passed to rank()
      */
-    public function bestOrd(string $field, string $weights, string $rankQuery): string
+    public function bestOrd(string $field, string $fallback, string $weights, string $rankQuery): string
     {
+        $mine = $this->part($field, $fallback, $weights, $rankQuery);
+        $parts = array_map(fn(string $name): string => $this->part($name, $fallback, $weights, $rankQuery), $this->fields);
+        $all = count($parts) === 1 ? $mine : 'greatest(' . implode(', ', $parts) . ')';
+        $earlier = [];
+        foreach ($this->fields as $i => $name) {
+            if ($name === $field) {
+                break;
+            }
+            $earlier[] = sprintf('(%s) IS DISTINCT FROM (%s)', $parts[$i], $mine);
+        }
+
         return sprintf(
-            '(SELECT b.ord FROM (SELECT v.ord, %s AS r FROM %s AS v WHERE v.doc = s.id AND v.field = %s AND v.t @@ q.tsany) AS b WHERE b.r > 0 ORDER BY b.r DESC, b.ord LIMIT 1)',
+            'CASE WHEN s.%s @@ q.tsany AND NOT coalesce(%s, false) AND coalesce((%s) = %s AND (%s) > 0, false)%s THEN (SELECT b.ord FROM (SELECT v.ord, %s AS r FROM %s AS v WHERE v.doc = s.id AND v.field = %s AND v.t @@ q.tsany) AS b WHERE b.r > 0 ORDER BY b.r DESC, b.ord LIMIT 1) END',
+            $this->names->fieldVector($field),
+            $this->oneValue($field),
+            $mine,
+            $all,
+            $mine,
+            $earlier === [] ? '' : ' AND ' . implode(' AND ', $earlier),
             $this->valueRank($field, $weights, $rankQuery),
             $this->names->values($this->index),
             Sql::string($field),
+        );
+    }
+
+    /** The rank of one field in greatest(): NULL when no value holds a query word, the whole-field rank of a one-value document, else its best value's. */
+    private function part(string $field, string $fallback, string $weights, string $rankQuery): string
+    {
+        // The field's own vector holds every lexeme of its values: a document none of whose values holds a query word is not looked up.
+        // A document with ONE value (its count, Names::valueCountName()) is not looked up either: the value's vector is the field's, so the
+        // substituted vector is the viewer's own and its rank is the whole-field one (the fallback; for an unrestricted viewer only when
+        // `tsv` is not capped, where the fallback may read other vectors). With one field that is the fallback itself (NULL), with several
+        // it takes part in greatest() as what it is.
+        return sprintf(
+            'CASE WHEN NOT s.%1$s @@ q.tsany THEN NULL WHEN %2$s THEN %3$s ELSE (SELECT max(%4$s) FROM %5$s AS v WHERE v.doc = s.id AND v.field = %6$s AND v.t @@ q.tsany) END',
+            $this->names->fieldVector($field),
+            $this->oneValue($field),
+            count($this->fields) === 1 ? 'NULL' : $fallback,
+            $this->valueRank($field, $weights, $rankQuery),
+            $this->names->values($this->index),
+            Sql::string($field),
+        );
+    }
+
+    /** The condition under which a document counts as having one value of the field (no lookup of its values). */
+    private function oneValue(string $field): string
+    {
+        return sprintf(
+            's.%s = 1%s',
+            Sql::ident($this->names->valueCountName($field)),
+            $this->allowed === null ? sprintf(' AND s.%s IS FALSE', PostgresSchemaGenerator::CAPPED_COLUMN) : '',
         );
     }
 

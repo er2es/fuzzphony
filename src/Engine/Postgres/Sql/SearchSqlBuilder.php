@@ -317,9 +317,10 @@ final class SearchSqlBuilder
             $fast = $ordered ? 'fts_fast' : 'fts';
             $rank = $this->textRank($profile, $positional, $rankQuery);
             if ($best !== null) {
-                $rank = $best->rank($rank, self::tsRankWeights($profile), $rankQuery);
+                $whole = $rank;
+                $rank = $best->rank($whole, self::tsRankWeights($profile), $rankQuery);
                 foreach (array_values(array_intersect($best->fields, $this->bestValues)) as $field) {
-                    $bestOrds[$field] = $best->bestOrd($field, self::tsRankWeights($profile), $rankQuery);
+                    $bestOrds[$field] = $best->bestOrd($field, $whole, self::tsRankWeights($profile), $rankQuery);
                 }
             }
             $rank .= '::double precision';

@@ -89,6 +89,17 @@ final class ManyBestRankTest extends TestCase
         return array_map(static fn($h): int|string => $h->id, $result->hits);
     }
 
+    private static function hit(SearchResult $result, int $id): \Fuzzphony\Core\Search\Hit
+    {
+        foreach ($result->hits as $hit) {
+            if ($hit->id === $id) {
+                return $hit;
+            }
+        }
+
+        self::fail('no hit ' . $id);
+    }
+
     /** @return array<int|string, float> id => text rank */
     private static function ranks(SearchResult $result): array
     {
@@ -109,7 +120,7 @@ final class ManyBestRankTest extends TestCase
         self::assertSame([2, 1], self::order($best), 'both customers in the default mode, the one-address match first');
         self::assertSame(self::ranks($whole)[1], self::ranks($best)[1], 'the words spread over two addresses: the 0.11 rank (no extra penalty)');
         self::assertGreaterThan(self::ranks($whole)[2], self::ranks($best)[2] + 1e-12, 'the one-address match is ranked on its value');
-        self::assertSame(['address' => 0], $best->hits[0]->breakdown->bestValues);
+        self::assertSame([], $best->hits[0]->breakdown->bestValues, 'a one-value document: ranked on the whole field, no best value named');
         self::assertSame([], $best->hits[1]->breakdown->bestValues, 'no single value holds a cover: no best value');
     }
 
@@ -143,7 +154,7 @@ final class ManyBestRankTest extends TestCase
 
         $kft = self::strict($f->in('bcust')->query('szeged fo ter'))->explainMatches()->get();
         self::assertSame([4, 1], self::order($kft), 'name + one value first; customer 1 has the words spread over its addresses');
-        self::assertSame(['address' => 0], $kft->hits[0]->breakdown->bestValues);
+        self::assertSame([], $kft->hits[0]->breakdown->bestValues, 'a one-value document is ranked on the whole field: no best value named');
         self::assertSame([], $kft->hits[1]->breakdown->bestValues);
 
         foreach (['kossuth fo', 'kiss anna', 'nagy', 'kiss OR nagy', 'address:szeged', 'tóth -edit'] as $text) {
@@ -172,7 +183,7 @@ final class ManyBestRankTest extends TestCase
 
         $prefix = self::strict($f->in('bcust')->query('fo utca sze')->asYouType())->explainMatches()->get();
         self::assertSame([2, 1], self::order($prefix));
-        self::assertSame(['address' => 0], $prefix->hits[0]->breakdown->bestValues);
+        self::assertSame([], $prefix->hits[0]->breakdown->bestValues, 'one value: the whole-field rank');
     }
 
     public function testTheHighlightAndTheBestValueStayOffUnlessAsked(): void
@@ -241,7 +252,7 @@ final class ManyBestRankTest extends TestCase
         self::assertSame([], self::order(self::strict($f->in('bcust')->query('zala'))->get()), 'the second value (by order) is past the limit');
         $best = self::strict($f->in('bcust')->query('fo utca szeged'))->explainMatches()->get();
         self::assertSame([2], self::order($best), 'customer 1 keeps only its first address (Budapest): Szeged is past the limit');
-        self::assertSame(['address' => 0], $best->hits[0]->breakdown->bestValues);
+        self::assertSame([], $best->hits[0]->breakdown->bestValues, 'one value left: the whole-field rank');
     }
 
     public function testAHiddenBestFieldChangesNothingForARestrictedViewer(): void
@@ -274,6 +285,72 @@ final class ManyBestRankTest extends TestCase
                 self::assertSame($byVariant['none/bcust'] ?? null, $outcome, sprintf('"%s": the hidden values (%s) changed the outcome', $text, $variant));
             }
         }
+    }
+
+    /** @param string $winner the field with a second value holding the word: the other one ranks higher (it keeps more of the document) */
+    private function twoFields(string $tagWeight, ?string $tagGranted = null, string $winner = 'tag'): Fuzzphony
+    {
+        $this->connection->execute('CREATE TABLE mb_tag (id serial PRIMARY KEY, customer_id bigint NOT NULL, line text)');
+        $this->connection->execute('CREATE INDEX mb_tag_customer ON mb_tag (customer_id)');
+        $this->connection->execute("INSERT INTO mb_tag (customer_id, line) VALUES (1, 'alpha'), (1, 'Szeged beta'), (3, 'gamma')");
+        $this->connection->execute($winner === 'tag' ? "INSERT INTO mb_address (customer_id, line) VALUES (1, 'Szeged, Fő utca 3')" : "INSERT INTO mb_tag (customer_id, line) VALUES (1, 'Szeged gamma')");
+
+        return $this->install([IndexDefinition::builder('bcust')->fromTable('mb_customer')
+            ->field('name', 'A')
+            ->field('address', 'C', many: ['from' => 'mb_address', 'key' => 'customer_id', 'column' => 'line', 'rank' => 'best'])
+            ->field('tag', $tagWeight, granted: $tagGranted, many: ['from' => 'mb_tag', 'key' => 'customer_id', 'column' => 'line', 'rank' => 'best'])
+            ->sync('manual')->build()]);
+    }
+
+    public function testOnlyTheFieldThatProducedTheRankIsNamed(): void
+    {
+        try {
+            $f = $this->twoFields('B');
+            $win = self::strict($f->in('bcust')->query('szeged'))->explainMatches()->highlight('address', 'tag')->get();
+            self::assertSame(['tag' => 1], self::hit($win, 1)->breakdown->bestValues, 'the heavier tag field gave the rank, the address did not');
+            self::assertSame('<mark>Szeged</mark> beta', self::hit($win, 1)->highlights['tag'] ?? null);
+            self::assertSame('<mark>Szeged</mark>, Fő utca 3', self::hit($win, 1)->highlights['address'] ?? null, 'the other field: its plain highlight');
+        } finally {
+            $this->connection->execute('DROP TABLE IF EXISTS mb_tag CASCADE');
+        }
+    }
+
+    public function testTheFirstFieldNamesItselfWhenItsRankWins(): void
+    {
+        try {
+            $f = $this->twoFields('B', null, 'address');
+            $win = self::strict($f->in('bcust')->query('szeged'))->explainMatches()->get();
+            self::assertSame(['address' => 1], self::hit($win, 1)->breakdown->bestValues, 'the address field gave the rank');
+        } finally {
+            $this->connection->execute('DROP TABLE IF EXISTS mb_tag CASCADE');
+        }
+    }
+
+    public function testAHiddenBestFieldNeverDecidesWhichValueIsNamed(): void
+    {
+        try {
+            $f = $this->twoFields('B', 'ROLE_TAG');
+            $viewer = self::strict($f->in('bcust')->query('szeged'))->restrictedToFields('name', 'address')->explainMatches()->highlight('address')->get();
+            self::assertSame(['address' => 1], self::hit($viewer, 1)->breakdown->bestValues, 'the viewer who cannot see tag: the address, whatever tag holds');
+            self::assertSame('<mark>Szeged</mark>, Fő utca 3', self::hit($viewer, 1)->highlights['address'] ?? null, 'the named value (ord 1)');
+            $both = self::strict($f->in('bcust')->query('szeged'))->explainMatches()->get();
+            self::assertSame(['tag' => 1], self::hit($both, 1)->breakdown->bestValues);
+        } finally {
+            $this->connection->execute('DROP TABLE IF EXISTS mb_tag CASCADE');
+        }
+    }
+
+    public function testAStaleOrMissingCountNamesNoValue(): void
+    {
+        $f = $this->both();
+        // the stale count says one value, the whole-field rank is used
+        $this->connection->execute('UPDATE fuzzphony_bcust SET n_address = 1 WHERE id = 1');
+        $stale = self::strict($f->in('bcust')->query('kossuth'))->explainMatches()->get();
+        self::assertSame([], self::hit($stale, 1)->breakdown->bestValues);
+        // no count: the values are read and the best one is named
+        $this->connection->execute('UPDATE fuzzphony_bcust SET n_address = NULL WHERE id = 1');
+        $none = self::strict($f->in('bcust')->query('kossuth'))->explainMatches()->get();
+        self::assertSame(['address' => 1], self::hit($none, 1)->breakdown->bestValues);
     }
 
     public function testAHiddenOtherFieldChangesNothingForAViewerOfTheBestField(): void
