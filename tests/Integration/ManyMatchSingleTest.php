@@ -33,9 +33,9 @@ final class ManyMatchSingleTest extends TestCase
         $this->connection->execute('CREATE TABLE ms_address (id serial PRIMARY KEY, customer_id bigint NOT NULL, line text)');
         $this->connection->execute('CREATE TABLE ms_tag (id serial PRIMARY KEY, customer_id bigint NOT NULL, tag text)');
         $this->connection->execute("INSERT INTO ms_customer (id, name, tid, kind) VALUES (1, 'Kiss Anna', 1, 'person'), (2, 'Nagy Béla', 1, 'person'), (3, 'Tóth Ede', 1, 'person'),
-            (4, 'Szeged Kft', 1, 'company'), (6, 'Kovács Zoltán', 2, 'person')");
+            (4, 'Szeged Kft', 1, 'company')");
         $this->connection->execute("INSERT INTO ms_address (customer_id, line) VALUES (1, 'Budapest, Fő utca 1'), (1, 'Szeged, Kossuth tér 2'), (2, 'Fő utca, Szeged'),
-            (3, 'Budapest, Fő utca 7'), (3, 'Budapest, Fő utca 9'), (4, 'Pécs, Fő tér 1'), (6, 'Fő utca, Szeged')");
+            (3, 'Budapest, Fő utca 7'), (3, 'Budapest, Fő utca 9'), (4, 'Pécs, Fő tér 1')");
         $this->connection->execute("INSERT INTO ms_tag (customer_id, tag) VALUES (2, 'red car'), (2, 'blue bike'), (3, 'red bike')");
     }
 
@@ -274,6 +274,8 @@ final class ManyMatchSingleTest extends TestCase
 
     public function testTheTenantConditionStands(): void
     {
+        $this->connection->execute("INSERT INTO ms_customer (id, name, tid) VALUES (6, 'Kovács Zoltán', 2)");
+        $this->connection->execute("INSERT INTO ms_address (customer_id, line) VALUES (6, 'Fő utca, Szeged')");
         $f = $this->install([self::definition('tcust', tenant: true)]);
 
         $one = self::exact($f->in('tcust')->query('fo utca szeged')->forTenant(1))->manyMatch('single')->facets('kind')->get();
