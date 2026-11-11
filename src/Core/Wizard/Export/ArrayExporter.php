@@ -78,8 +78,8 @@ final class ArrayExporter
         if (!$index->log) {
             $out['log'] = false;
         }
-        if ($index->returnable !== []) {
-            $out['returnable'] = $index->returnable;
+        if ($index->returnable !== [] || $index->returnableAs !== []) {
+            $out['returnable'] = $index->returnableAs === [] ? $index->returnable : [...array_combine($index->returnable, $index->returnable), ...$index->returnableAs];
         }
         if (!$index->synonyms->isEmpty()) {
             $out['synonyms'] = $index->synonyms->toEntries();

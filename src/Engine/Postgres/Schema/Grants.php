@@ -93,6 +93,12 @@ final readonly class Grants
                     $grants[] = new Grant(Grant::TABLE, $table, ['SELECT'], sprintf('with() of "%s" reads its returnable columns from the source', $index->name), true);
                 }
             }
+            if ($index->hasReturnable()) {
+                // the values of a returnable many field are read from its child table
+                foreach (array_unique(array_map(static fn(\Fuzzphony\Core\Definition\FieldDefinition $f): string => Sql::ident($f->many->from ?? ''), $index->returnableManyFields())) as $table) {
+                    $grants[] = new Grant(Grant::TABLE, $table, ['SELECT'], sprintf('with() of "%s" reads the values of its returnable several-valued fields', $index->name), true);
+                }
+            }
             if ($index->manyFields() !== []) {
                 $grants[] = new Grant(Grant::TABLE, $this->names->values($index), ['SELECT'], sprintf('the matched value and the highlight of the several-valued fields of "%s"', $index->name));
             }

@@ -22,7 +22,7 @@ final class SourceProbe
     {
         $problems = [];
         // a single-source index is probed only for its returnable columns (the rest of its mapping is the doctor's)
-        foreach ($index->isMultiSource() ? $index->sources : ($index->returnable === [] ? [] : [null]) as $one) {
+        foreach ($index->isMultiSource() ? $index->sources : ($index->hasReturnable() ? [null] : []) as $one) {
             $part = $one === null ? $index : $index->forSource($one);
             $name = $one->name ?? $index->name;
             $view = 'fuzzphony_probe_' . bin2hex(random_bytes(4));
@@ -59,7 +59,7 @@ final class SourceProbe
                     $needed['recency'] = $index->recencyColumn;
                 }
             }
-            foreach ($part->returnable as $column) {
+            foreach ($part->returnableSourceColumns() as $column) {
                 $needed['returnable column "' . $column . '"'] = $column;
             }
             foreach ($needed as $what => $column) {

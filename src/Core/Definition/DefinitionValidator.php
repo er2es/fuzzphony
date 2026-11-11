@@ -52,10 +52,10 @@ final class DefinitionValidator
                 }
                 $names[$one->name] = true;
                 array_push($v, ...self::validateSource($index, $one->source, $one->watches, $label));
-                array_push($v, ...self::validateReturnable($one->returnable, $label));
+                array_push($v, ...self::validateReturnable($one->returnable, $label, $one->returnableAs));
             }
         }
-        array_push($v, ...self::validateReturnable($index->returnable, ''));
+        array_push($v, ...self::validateReturnable($index->returnable, '', $index->returnableAs));
 
         if ($index->fields === []) {
             $v[] = 'At least one searchable field is required, e.g. ->field("name", "A").';
@@ -184,17 +184,29 @@ final class DefinitionValidator
     }
 
     /**
-     * @param list<string> $returnable
+     * @param list<string>          $returnable
+     * @param array<string, string> $aliases    alias => column
      *
      * @return list<string>
      */
-    private static function validateReturnable(array $returnable, string $label): array
+    private static function validateReturnable(array $returnable, string $label, array $aliases = []): array
     {
         $v = [];
-        if (count($returnable) > 50) {
-            $v[] = $label . sprintf('At most 50 returnable columns are allowed, got %d.', count($returnable));
+        if (count($returnable) + count($aliases) > 50) {
+            $v[] = $label . sprintf('At most 50 returnable columns are allowed, got %d.', count($returnable) + count($aliases));
         }
         $seen = [];
+        foreach ($aliases as $alias => $column) {
+            if (!Identifier::isColumn((string) $alias)) {
+                $v[] = $label . sprintf('Returnable alias "%s" is not a valid column name.', $alias);
+            }
+            if (!Identifier::isColumn($column)) {
+                $v[] = $label . sprintf('Returnable column "%s" (alias "%s") is not a valid column name.', $column, $alias);
+            }
+            if (in_array((string) $alias, $returnable, true)) {
+                $v[] = $label . sprintf('Returnable name "%s" is listed twice.', $alias);
+            }
+        }
         foreach ($returnable as $column) {
             if (!Identifier::isColumn($column)) {
                 $v[] = $label . sprintf('Returnable column "%s" is not a valid column name.', $column);

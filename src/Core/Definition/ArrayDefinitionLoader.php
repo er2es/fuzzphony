@@ -85,7 +85,7 @@ final class ArrayDefinitionLoader
             $builder->watch($table, self::str($options['ids'] ?? null, 'SELECT :id'), self::str($options['key'] ?? null, 'id'), self::stringList($name, $options['columns'] ?? null));
         }
 
-        $builder->returnable(...self::returnableList($config['returnable'] ?? null));
+        $builder->returnable(self::returnableList($config['returnable'] ?? null));
         $this->apply($builder, $config, $name);
         if (is_string($config['class'] ?? null) && class_exists($config['class'])) {
             $builder->entity($config['class']);
@@ -172,7 +172,9 @@ final class ArrayDefinitionLoader
         }
         $merged = $merged->withWatches($watches);
         if (isset($config['returnable']) && !$definition->isMultiSource()) {
-            $merged = $merged->withReturnable(self::returnableList($config['returnable']));
+            ['map' => $map] = Returnable::normalise(self::returnableList($config['returnable']));
+            ['plain' => $plain, 'aliases' => $aliases] = Returnable::split($map);
+            $merged = $merged->withReturnable($plain, $aliases);
         }
         DefinitionValidator::assertValid($merged);
 
@@ -291,10 +293,10 @@ final class ArrayDefinitionLoader
         )]);
     }
 
-    /** @return list<string> */
+    /** @return array<array-key, string> a list of names, or alias => column */
     private static function returnableList(mixed $value): array
     {
-        return is_array($value) ? array_values(array_filter($value, 'is_string')) : [];
+        return is_array($value) ? array_filter($value, 'is_string') : [];
     }
 
     /**
@@ -348,8 +350,8 @@ final class ArrayDefinitionLoader
     /** @param list<string> $problems */
     private static function assertReturnable(array &$problems, string $what, mixed $value): void
     {
-        if ($value !== null && (!is_array($value) || !array_is_list($value) || array_filter($value, 'is_string') !== $value)) {
-            $problems[] = sprintf('%s must be a list of source column names (e.g. returnable: [title, slug, price]), got %s.', $what, self::shape($value));
+        if ($value !== null && (!is_array($value) || array_filter($value, 'is_string') !== $value)) {
+            $problems[] = sprintf('%s must be a list of source column names (e.g. returnable: [title, slug, price]; `alias: column` entries rename one), got %s.', $what, self::shape($value));
         }
     }
 
