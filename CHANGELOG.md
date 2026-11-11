@@ -11,6 +11,8 @@ and a link. Measurements, proofs and test names belong to the pull request, [doc
 
 ## [Unreleased]
 
+## [0.12.0] - 2026-11-11
+
 Additive on 0.11: a field with several values (`many`) can rank by its best single value and a search can require one value to hold every word, `with()` returns
 aliases and many values in one statement, and the demo's People tab shows the difference. Nothing is required of an index that does not opt in; the checklist is in [UPGRADE.md](UPGRADE.md).
 
@@ -1220,7 +1222,8 @@ on its own:
 - Sync modes: queue (default), trigger, ORM, manual; watches for joined tables.
 - Doctor with fixes; CLI commands for schema, reindex, worker, search and explain.
 
-[Unreleased]: https://github.com/er2es/fuzzphony/compare/v0.11.1...HEAD
+[Unreleased]: https://github.com/er2es/fuzzphony/compare/v0.12.0...HEAD
+[0.12.0]: https://github.com/er2es/fuzzphony/compare/v0.11.1...v0.12.0
 [0.11.1]: https://github.com/er2es/fuzzphony/compare/v0.11.0...v0.11.1
 [0.11.0]: https://github.com/er2es/fuzzphony/compare/v0.10.1...v0.11.0
 [0.10.1]: https://github.com/er2es/fuzzphony/compare/v0.10.0...v0.10.1
