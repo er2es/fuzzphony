@@ -426,7 +426,8 @@ A field or filter declared [`many`](configuration.md#several-values-per-document
   vector keeps every search exactly as fast as for a plain field. What to do: declare the field [`rank: best`](configuration.md#several-values-per-document-many)
   (a partial index on the values table, `schema --apply`, no reindex); a document whose words are spread over several values keeps its whole-field rank,
   and a typo-tolerant match is still scored on the whole field. Ranking a candidate then also reads its values that hold a query word (at most `limit`),
-  so the [scan budget](#ranking-of-very-common-words) counts each such field like one more word of the query.
+  so the [scan budget](#ranking-of-very-common-words) counts each such field like two more words of the query, and a search
+  whose words are in the field costs up to about twice as much ([benchmarks](benchmarks.md#ranking-by-the-best-value-rank-best)).
 - **A phrase can match across two values.** What happens: `"budapest vienna"` also matches a customer whose values are `Budapest` and `Vienna`, because the
   values are read one after the other. What to do: nothing; a phrase over several values is rarely meant.
 - **Only the first `limit` values of a document are indexed** (50 by default, in the order of the value, then of the child's primary key). The doctor
