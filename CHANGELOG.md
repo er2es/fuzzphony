@@ -29,6 +29,8 @@ and a link. Measurements, proofs and test names belong to the pull request, [doc
 - **`rank: best` value counts could go stale and rank wrongly:** `schema --apply` now drops the count column of a field that leaves `rank: best` (the doctor warns about a left-over or a count that differs from the values), so switching back never trusts an old count ([configuration](docs/configuration.md#several-values-per-document-many)).
 - **A reindex or drain with `rank: best` no longer scans the child table for the counts:** the key column is compared uncast, so its index is used.
 - **`schema --apply` no longer drops an index of yours on the values table** (only the `<values>_best_...` indexes of a field that is not `rank: best`).
+- **`manyMatch('single')` no longer depends on how many values a document has:** a typo word over a field boundary (`kisanna` for "Kiss" + "Anna utca 1") was kept for a document with one value and dropped for one with two; it is now never held by one value ([searching](docs/searching.md#several-values-one-address-manymatch)).
+- **`manyMatch('single')` with several fields no longer reads every combination of their values:** only the values that hold a word of the query take part (same results), and at most 3 fields are checked together (more: `InvalidQuery`, name the fields) ([searching](docs/searching.md#several-values-one-address-manymatch)).
 - **Docs:** the search role's `SELECT` on a child or values table covers the whole table ([roles](docs/roles.md#the-matrix)).
 
 ## [0.11.1] - 2026-11-04

@@ -21,6 +21,14 @@ use PHPUnit\Framework\TestCase;
  */
 final class ManyMatchSingleTest extends TestCase
 {
+    /** testOnlyTheValuesThatCanHoldAWordAreReadTheResultsStay(): the results before the prefilter */
+    private const RECORDED = [[1, 2], [1, 2], [1, 2], [1, 2], [1, 2], [1, 2], [2, 3], [2, 3], [3], [3], [3], [3], [2], [2], [2], [2], [2], [2], [1], [1], [1], [1], [1], [1],
+        [1, 2], [1, 2], [1, 2], [1, 2], [1, 2], [1, 2], [1, 2], [1, 2], [1, 2], [1, 2], [1, 2], [1, 2], [1, 3], [1, 3], [1, 3], [1, 3], [1, 3], [1, 3],
+        [1, 2, 3], [1, 2, 3], [1, 2, 3], [1, 2, 3], [1, 2, 3], [1, 2, 3], [1, 2], [1, 2], [1, 2], [1, 2], [1, 2], [1, 2], [1, 2, 3], [1, 2, 3], [1, 2, 3],
+        [1, 2, 3], [1, 2, 3], [1, 2, 3], [1, 2, 3], [1, 2], [1, 2, 3], [1, 2], [1, 2, 3], [1, 2], [1, 2], [1, 2], [1, 2], [1, 2], [1, 2], [1, 2], [2], [2],
+        [2], [2], [2], [2], [1], [1], [1], [1], [1], [1]];
+
+
     private Connection $connection;
     private PostgresEngine $engine;
 
@@ -37,6 +45,8 @@ final class ManyMatchSingleTest extends TestCase
         $this->connection->execute("INSERT INTO ms_address (customer_id, line) VALUES (1, 'Budapest, Fő utca 1'), (1, 'Szeged, Kossuth tér 2'), (2, 'Fő utca, Szeged'),
             (3, 'Budapest, Fő utca 7'), (3, 'Budapest, Fő utca 9'), (4, 'Pécs, Fő tér 1')");
         $this->connection->execute("INSERT INTO ms_tag (customer_id, tag) VALUES (2, 'red car'), (2, 'blue bike'), (3, 'red bike')");
+        $this->connection->execute('CREATE TABLE ms_label (id serial PRIMARY KEY, customer_id bigint NOT NULL, label text)');
+        $this->connection->execute("INSERT INTO ms_label (customer_id, label) VALUES (1, 'red szeged'), (1, 'utca blue'), (2, 'fo label'), (3, 'blue utca'), (3, 'kossuth red')");
     }
 
     protected function tearDown(): void
@@ -50,15 +60,20 @@ final class ManyMatchSingleTest extends TestCase
         foreach (['scust', 'tcust', 'other'] as $index) {
             array_push($tables, 'fuzzphony_' . $index, 'fuzzphony_' . $index . '__next', 'fuzzphony_' . $index . '__changes', 'fuzzphony_' . $index . '__vocab', 'fuzzphony_' . $index . '__values');
         }
-        $this->connection->execute('DROP TABLE IF EXISTS ' . implode(', ', $tables) . ', ms_tag, ms_address, ms_customer, fuzzphony_queue, fuzzphony_watches, fuzzphony_watch_log, fuzzphony_meta CASCADE');
+        $this->connection->execute('DROP TABLE IF EXISTS ' . implode(', ', $tables) . ', ms_label, ms_tag, ms_address, ms_customer, fuzzphony_queue, fuzzphony_watches, fuzzphony_watch_log, fuzzphony_meta CASCADE');
     }
 
-    private static function definition(string $name = 'scust', ?string $granted = null, int $limit = 50, bool $note = false, bool $tenant = false): IndexDefinition
+    /** @param int $labels how many more rank: best fields over ms_label (label, label2, ...) */
+    private static function definition(string $name = 'scust', ?string $granted = null, int $limit = 50, bool $note = false, bool $tenant = false, int $labels = 0): IndexDefinition
     {
         $builder = IndexDefinition::builder($name)->fromTable('ms_customer')
             ->field('name', 'A', fuzzy: true)
             ->field('address', 'C', fuzzy: true, granted: $granted, many: ['from' => 'ms_address', 'key' => 'customer_id', 'column' => 'line', 'limit' => $limit, 'rank' => 'best'])
-            ->field('tag', 'D', many: ['from' => 'ms_tag', 'key' => 'customer_id', 'column' => 'tag', 'rank' => 'best'])
+            ->field('tag', 'D', many: ['from' => 'ms_tag', 'key' => 'customer_id', 'column' => 'tag', 'rank' => 'best']);
+        for ($i = 1; $i <= $labels; ++$i) {
+            $builder->field($i === 1 ? 'label' : 'label' . $i, 'D', fuzzy: true, many: ['from' => 'ms_label', 'key' => 'customer_id', 'column' => 'label', 'rank' => 'best']);
+        }
+        $builder
             ->filter('kind', 'string')
             ->filter('tid', 'int');
         if ($note) {
@@ -134,6 +149,112 @@ final class ManyMatchSingleTest extends TestCase
         self::assertSame($with, array_map(fn(string $text): array => $this->single($f, $text), $texts));
     }
 
+    public function testATypoWordOverAFieldBoundaryIsHeldByNoValue(): void
+    {
+        $this->connection->execute("INSERT INTO ms_customer (id, name) VALUES (5, 'Kiss'), (6, 'Kiss')");
+        $this->connection->execute("INSERT INTO ms_address (customer_id, line) VALUES (5, 'Anna utca 1'), (6, 'Anna utca 1'), (6, 'Pécs tér 9')");
+        $f = $this->install([self::definition()]);
+        $always = static fn(SearchBuilder $b): SearchBuilder => $b->thresholds(['typo' => ['mode' => 'always']]);
+        $default = self::ids($always($f->in('scust')->query('kisanna'))->get());
+        self::assertContains(5, $default, 'the default typo match reads every field joined');
+        self::assertContains(6, $default);
+
+        $strict = static fn(): array => array_values(array_intersect([5, 6], self::ids($always($f->in('scust')->query('kisanna'))->manyMatch('single')->get())));
+        self::assertSame([], $strict(), 'no one field holds the word: whatever the number of values');
+        $this->connection->execute('UPDATE fuzzphony_scust SET n_address = NULL, n_tag = NULL');
+        self::assertSame([], $strict());
+    }
+
+    public function testTheValueCountsNeverChangeTheResult(): void
+    {
+        $this->connection->execute("INSERT INTO ms_customer (id, name) VALUES (5, 'Kiss'), (6, 'Kiss')");
+        $this->connection->execute("INSERT INTO ms_address (customer_id, line) VALUES (5, 'Anna utca 1'), (6, 'Anna utca 1'), (6, 'Pécs tér 9')");
+        $f = $this->install([self::definition()]);
+        $texts = ['kisanna', 'fo utca szeged', 'fo utca szgeed', 'kiss anna', 'kis ana', 'kiss szeged', '"kiss anna"', 'anna utca', 'nagy blue', 'fo utca sze*', 'red bkie'];
+        $run = function () use ($f, $texts): array {
+            $out = [];
+            foreach ($texts as $text) {
+                foreach (['always', 'fallback', 'never'] as $mode) {
+                    foreach ([null, ['name', 'address'], ['name', 'address', 'tag']] as $visible) {
+                        $search = $f->in('scust')->query($text)->thresholds(['typo' => ['mode' => $mode]])->manyMatch('single');
+                        $result = ($visible === null ? $search : $search->restrictedToFields(...$visible))->get();
+                        $out[sprintf('%s %s %s', $text, $mode, json_encode($visible))] = [array_map(static fn($h): array => [$h->id, round($h->score, 9)], $result->hits), $result->total];
+                    }
+                }
+            }
+
+            return $out;
+        };
+        $filled = $run();
+        $this->connection->execute('UPDATE fuzzphony_scust SET n_address = NULL, n_tag = NULL');
+        self::assertSame($filled, $run(), 'the counts filled or not: the same documents, scores and totals');
+    }
+
+    /**
+     * The values of a named field are read only when they can hold a word of the query (the prefilter): the results are those of the
+     * statement that read every value, recorded before the prefilter, for one, two and three named fields, exact and typo-tolerant.
+     */
+    public function testOnlyTheValuesThatCanHoldAWordAreReadTheResultsStay(): void
+    {
+        $f = $this->install([self::definition(labels: 1)]);
+        $texts = ['fo utca szeged', 'red bike', 'fo utca szeged blue bike', 'kossuth szeged red', 'szeged red', '"fo utca" szeged', 'fo utca budapest red',
+            'kiss OR "fo utca" bike', 'address:szeged red', 'blue utca', 'szgeed red bkie', 'fo utca sze*', 'utca blue -kossuth', '"utca blue" kiss'];
+        $out = [];
+        foreach ($texts as $text) {
+            foreach ([['address'], ['address', 'tag'], ['address', 'tag', 'label']] as $fields) {
+                foreach (['never', 'always'] as $mode) {
+                    $out[] = self::ids($f->in('scust')->query($text)->thresholds(['typo' => ['mode' => $mode]])->manyMatch('single', ...$fields)->get());
+                }
+            }
+        }
+        self::assertSame(self::RECORDED, $out);
+    }
+
+    /**
+     * 300 documents of 30 addresses (`alpha street n` / `beta road n`) and 30 tags that hold no word of the query: no address holds both
+     * words, so every document reads its values. Before the prefilter a second named field multiplied the rows by its values (31 x 31
+     * per document); now the tags that hold no word are not read and the cost stays near the one of the address alone.
+     */
+    public function testASecondFieldWhoseValuesHoldNoWordCostsNearlyNothing(): void
+    {
+        $this->connection->execute("INSERT INTO ms_customer (id, name) SELECT g, 'Kiss' FROM generate_series(100, 399) g");
+        $this->connection->execute("INSERT INTO ms_address (customer_id, line) SELECT g, CASE WHEN i % 2 = 0 THEN 'alpha street ' || i ELSE 'beta road ' || i END FROM generate_series(100, 399) g, generate_series(1, 30) i");
+        $this->connection->execute("INSERT INTO ms_tag (customer_id, tag) SELECT g, 'gamma tag ' || i FROM generate_series(100, 399) g, generate_series(1, 30) i");
+        $f = $this->install([self::definition()]);
+        $this->connection->execute('ANALYZE fuzzphony_scust, fuzzphony_scust__values');
+        $time = function (string ...$fields) use ($f): float {
+            $runs = [];
+            for ($i = 0; $i < 5; ++$i) {
+                $start = hrtime(true);
+                $result = self::exact($f->in('scust')->query('alpha beta'))->exactCounts()->manyMatch('single', ...$fields)->get();
+                $runs[] = (hrtime(true) - $start) / 1e6;
+                self::assertSame(0, $result->total);
+            }
+            sort($runs);
+
+            return $runs[2];
+        };
+        $time('address');
+        $one = $time('address');
+        $two = $time('address', 'tag');
+        self::assertLessThan(max(4 * $one, 50.0), $two, sprintf('address %.1f ms, address + tag %.1f ms: the tags that hold no word are not read', $one, $two));
+    }
+
+    public function testAtMostThreeFieldsAreCheckedTogether(): void
+    {
+        $f = $this->install([self::definition(granted: 'ROLE_ADDRESS', labels: 2)]);
+
+        try {
+            $this->single($f, 'fo utca');
+            self::fail('expected InvalidQuery');
+        } catch (InvalidQuery $e) {
+            self::assertSame("manyMatch(): at most 3 fields can be checked together, 4 would be (address, tag, label, label2); name the ones that must hold the words in one value: manyMatch('single', ...).", $e->getMessage());
+        }
+        self::assertSame([1, 2], $this->single($f, 'utca szeged', 'address', 'label'));
+        // a viewer who cannot see the address has three such fields: the hidden one never counts
+        self::assertSame([2], self::ids(self::exact($f->in('scust')->query('fo label'))->restrictedToFields('name', 'tag', 'label', 'label2')->manyMatch('single')->get()));
+    }
+
     public function testAnExcludedWordExcludesTheDocumentWhenAnyValueHoldsIt(): void
     {
         $f = $this->install([self::definition()]);
@@ -188,8 +309,10 @@ final class ManyMatchSingleTest extends TestCase
         $plain = $f->in('scust')->query('fo utca szgeed')->thresholds(['typo' => ['mode' => 'always']])->explain();
         $explained = $f->in('scust')->query('fo utca szgeed')->thresholds(['typo' => ['mode' => 'always']])->manyMatch('single')->explain();
         $sql = implode("\n", array_column($explained->statements, 'sql'));
-        self::assertSame(3, substr_count($sql, '(s."n_address" <= 1 AND s."n_tag" <= 1 OR EXISTS (SELECT 1 FROM (SELECT \'\'::tsvector AS t, \'\'::text AS z UNION ALL SELECT v.t, v.z FROM "public"."fuzzphony_scust__values" AS v WHERE v.doc = s.id AND v.field = \'address\') AS v1'), 'the full-text branch (its fast and ordered selections) and the typo branch, the address field');
-        self::assertSame(3, substr_count($sql, "v.field = 'tag') AS v2"), 'and the tag field, in the same EXISTS');
+        $exists = 'EXISTS (SELECT 1 FROM (SELECT \'\'::tsvector AS t, \'\'::text AS z UNION ALL SELECT v.t, v.z FROM "public"."fuzzphony_scust__values" AS v WHERE v.doc = s.id AND v.field = \'address\'';
+        self::assertSame(2, substr_count($sql, '(s."n_address" <= 1 AND s."n_tag" <= 1 OR ' . $exists), 'the full-text branch (its fast and ordered selections): a document with one value passes on the count');
+        self::assertSame(3, substr_count($sql, $exists), 'and the typo branch, without the count: the address field');
+        self::assertSame(3, preg_match_all("/v\\.field = 'tag' AND \\([^()]*\\)\\) AS v2/", $sql), 'and the tag field, in the same EXISTS, each read only where a value holds a word');
         self::assertStringNotContainsString('UNION ALL SELECT v.t, v.z', implode("\n", array_column($plain->statements, 'sql')));
 
         $result = self::exact($f->in('scust')->query('kossuth szeged'))->manyMatch('single')->explainMatches()->highlight('address')->get();
