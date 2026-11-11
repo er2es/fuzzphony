@@ -304,7 +304,10 @@ leaks. A word that exists only in a hidden field is:
 - **not matched**: the document is not found by it (not exactly, not as a prefix, not through a
   synonym, not as a typo, and not through a field-scoped `salary:high`, which finds nothing);
 - **not ranked**: the score, the exact and prefix bonuses and the score breakdown ignore the hidden
-  field, so two documents that differ only in a hidden field score the same;
+  field, so two documents that differ only in a hidden field score the same. A hidden
+  [`rank: best`](configuration.md#several-values-per-document-many) field never enters the statement (it is the one of
+  `rank: whole`, the values table is not read), and a visible one is ranked with only the visible fields around its value,
+  so its best value (`ScoreBreakdown::$bestValues`, the highlight) never depends on a hidden field;
 - **not highlighted**: a hit never shows a snippet of a hidden field;
 - **not suggested**: a restricted viewer gets no "did you mean" and `complete()` returns `[]`, because
   the vocabulary holds the words of every field; for the same reason a restricted viewer's search that finds nothing is
