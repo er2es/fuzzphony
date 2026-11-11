@@ -199,7 +199,9 @@ or that the viewer may not see (the message lists only the fields the viewer may
 How a word counts in the single-value mode: every positive word must be in one of the document's other visible fields or in the SAME value of
 each named field (`kiss szeged` finds Kiss Anna with a Szeged address; `szeged fo ter` finds "Szeged Kft" whose one address is "Pécs, Fő tér 1").
 A phrase must be inside one field or one value; a word scoped to the field (`address:szeged address:fo`) must be in that value; a typo-tolerant
-word (`fo utca szgeed`) is judged by its similarity to that value, and the last word of a search-as-you-type is a prefix inside it. With two named
+word (`fo utca szgeed`) is judged by its similarity to that value or to one other visible field, never to several fields joined: `kisanna` over
+the name "Kiss" and the address "Anna utca 1" matches in the default mode (the typo text is every field joined) but not in the single-value mode,
+whatever the number of addresses. The last word of a search-as-you-type is a prefix inside the value. With two named
 fields, one value of each is chosen together (every pair is tried). Totals, facets and the candidates follow the mode; the rank is the
 [best-value rank](configuration.md#several-values-per-document-many) (the matching value is the best one by construction), and `explainMatches()` / the highlight show it.
 Only the first `limit` values of a document are stored, so a value past the limit never satisfies the mode (as it never matches in the default mode).

@@ -438,7 +438,9 @@ A field or filter declared [`many`](configuration.md#several-values-per-document
 - **`manyMatch('single')` reads the values of every candidate.** What happens: the mode checks, for each document the search's own words find, its
   values of the named fields one by one (with two named fields every pair: up to `limit` x `limit` rows per document), so a search whose words match
   many documents costs more than the default mode ([benchmarks](benchmarks.md#ranking-by-the-best-value-rank-best)). An excluded word is judged on
-  the whole document (excluded when any value holds it), not per value. The empty-result relaxation and "did you mean" judge the words on their own.
+  the whole document (excluded when any value holds it), not per value. A typo-tolerant word must be similar to one value or one other field: a typo
+  over a field boundary (`kisanna` for the name "Kiss" and the address "Anna utca 1") matches in the default mode only. The empty-result relaxation
+  and "did you mean" judge the words on their own.
   What to do: name only the field that must be one value (`manyMatch('single', 'addresses')`), keep `limit` near the real number of values.
 - **Filters on a many field are not hidden by `granted`.** What happens: `granted` hides a searchable field; a filter is a separate declaration and
   filters are never role-gated. What to do: do not declare a many filter over a column a viewer may not see.

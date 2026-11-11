@@ -852,7 +852,7 @@ SELECT
     /**
      * manyMatch('single') (spec 0.12 section 5.3): one value of each named field must hold every word the document needs from it.
      *
-     *   (s.n_F <= 1 OR EXISTS (SELECT 1 FROM (SELECT ''::tsvector AS t, ''::text AS z
+     *   ([full-text branch: s.n_F <= 1 OR] EXISTS (SELECT 1 FROM (SELECT ''::tsvector AS t, ''::text AS z
      *                          UNION ALL SELECT v.t, v.z FROM <values> AS v WHERE v.doc = s.id AND v.field = 'F') AS v1 [CROSS JOIN ... AS v2]
      *           WHERE <the positive part of the query, word by word on the visible fields' own columns, F's bound to v1.t / v1.z>))
      *
@@ -887,10 +887,16 @@ SELECT
             return null;
         }
         array_push($q, ...$within['columns']);
+        $exists = sprintf('EXISTS (SELECT 1 FROM %s WHERE %s)', implode(' CROSS JOIN ', $from), $within['predicate']);
 
-        // A document with at most one value in each named field (its stored count; NULL before the reindex wrote it: the values are
-        // read) cannot have its words spread over values: the statement's own predicate decides it, as in the default mode.
-        return sprintf('(%s OR EXISTS (SELECT 1 FROM %s WHERE %s))', implode(' AND ', $few), implode(' CROSS JOIN ', $from), $within['predicate']);
+        // The full-text branch: a document with at most one value in each named field (its stored count; NULL before the reindex
+        // wrote it: the values are read) passes on the statement's own predicate, which is then exactly the per-field form: every
+        // word is a lexeme of one field's column (tsv is the fields joined, so a phrase over a field boundary is the per-field
+        // form's joined vectors), and the one value is the field's whole column. The typo branch has no such shortcut: its own
+        // predicate reads `fz` (every field joined) for an unrestricted viewer, where a typo word can match ACROSS a field boundary
+        // ("kisanna" over the name "Kiss" and the address "Anna utca 1"), which the per-field form never does; the result must not
+        // depend on how many values a document has, nor on whether the count is filled.
+        return $fuzzy ? $exists : sprintf('(%s OR %s)', implode(' AND ', $few), $exists);
     }
 
     /**
