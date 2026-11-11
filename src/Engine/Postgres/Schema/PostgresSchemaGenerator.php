@@ -447,6 +447,10 @@ ON CONFLICT (index_name) DO UPDATE SET layout_version = EXCLUDED.layout_version,
                 $columns[$this->names->fieldFuzzyName($field->name)] = "text NOT NULL DEFAULT ''";
             }
         }
+        foreach ($index->manyBestFields() as $field) {
+            // NULL = not known (written before the column existed): the document's values are read, a reindex fills it
+            $columns[$this->names->valueCountName($field->name)] = 'smallint';
+        }
         if ($index->boostColumn !== null) {
             $columns['boost'] = 'double precision';
         }
@@ -671,6 +675,19 @@ ON CONFLICT (index_name) DO UPDATE SET layout_version = EXCLUDED.layout_version,
                 $columns[] = $this->names->fieldFuzzyName($field->name);
                 $values[] = sprintf("coalesce(%s, '')", $this->fieldFuzzyExpression($field));
             }
+        }
+        foreach ($index->manyBestFields() as $field) {
+            // the number of values the values table gets for the document (see valuesRefresh(): the non-null ones, at most `limit`)
+            $many = $field->many ?? throw new \LogicException('A rank: best field has many values.');
+            $columns[] = $this->names->valueCountName($field->name);
+            $values[] = sprintf(
+                'least(%d, (SELECT count(*) FROM %s AS c WHERE c.%s::%s = doc.fz_id AND c.%s IS NOT NULL))::smallint',
+                $many->limit,
+                Sql::ident($many->from),
+                Sql::ident($many->key),
+                Types::id($index->idType),
+                Sql::ident($many->column),
+            );
         }
         if ($index->boostColumn !== null) {
             $columns[] = 'boost';

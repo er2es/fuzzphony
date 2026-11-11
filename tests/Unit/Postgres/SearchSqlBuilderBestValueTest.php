@@ -54,7 +54,7 @@ final class SearchSqlBuilderBestValueTest extends TestCase
 
         self::assertStringContainsString("to_tsquery('\"public\".\"fuzzphony_english\"'::regconfig, :p1) AS tsany", $sql);
         self::assertStringContainsString(
-            'coalesce(nullif(CASE WHEN s."t_city" @@ q.tsany THEN (SELECT max(ts_rank_cd(' . self::W . ', s."t_name" || v.t || s."t_phone" || s."t_note", q.tsq, 32)) FROM "public"."fuzzphony_people__values" AS v'
+            'coalesce(nullif(CASE WHEN NOT s."t_city" @@ q.tsany THEN NULL WHEN s."n_city" = 1 AND s.tsv_capped IS FALSE THEN NULL ELSE (SELECT max(ts_rank_cd(' . self::W . ', s."t_name" || v.t || s."t_phone" || s."t_note", q.tsq, 32)) FROM "public"."fuzzphony_people__values" AS v'
             . " WHERE v.doc = s.id AND v.field = 'city' AND v.t @@ q.tsany) END, 0), ts_rank_cd(" . self::W . ', s.tsv, q.tsq, 32))::double precision AS r_text',
             $sql,
         );
@@ -65,8 +65,10 @@ final class SearchSqlBuilderBestValueTest extends TestCase
     {
         $sql = self::ranked(self::index('best', 'best'), null, 'szeged');
 
-        self::assertStringContainsString("coalesce(nullif(greatest(CASE WHEN s.\"t_city\" @@ q.tsany THEN (SELECT max(ts_rank_cd(" . self::W . ', s."t_name" || v.t || s."t_phone" || s."t_note", q.tsq, 32))', $sql);
-        self::assertStringContainsString("v.field = 'city' AND v.t @@ q.tsany) END, CASE WHEN s.\"t_phone\" @@ q.tsany THEN (SELECT max(ts_rank_cd(" . self::W . ', s."t_name" || s."t_city" || v.t || s."t_note", q.tsq, 32))', $sql);
+        // with several fields a document with one value takes part with the whole-field rank (what its substitution gives)
+        $whole = 'ts_rank_cd(' . self::W . ', s.tsv, q.tsq, 32)';
+        self::assertStringContainsString('coalesce(nullif(greatest(CASE WHEN NOT s."t_city" @@ q.tsany THEN NULL WHEN s."n_city" = 1 AND s.tsv_capped IS FALSE THEN ' . $whole . ' ELSE (SELECT max(ts_rank_cd(' . self::W . ', s."t_name" || v.t || s."t_phone" || s."t_note", q.tsq, 32))', $sql);
+        self::assertStringContainsString("v.field = 'city' AND v.t @@ q.tsany) END, CASE WHEN NOT s.\"t_phone\" @@ q.tsany THEN NULL WHEN s.\"n_phone\" = 1 AND s.tsv_capped IS FALSE THEN " . $whole . ' ELSE (SELECT max(ts_rank_cd(' . self::W . ', s."t_name" || s."t_city" || v.t || s."t_note", q.tsq, 32))', $sql);
         self::assertStringContainsString("v.field = 'phone' AND v.t @@ q.tsany) END), 0), ", $sql);
     }
 
@@ -78,6 +80,7 @@ final class SearchSqlBuilderBestValueTest extends TestCase
         self::assertStringNotContainsString("v.field = 'phone'", $sql, 'a field the viewer may not see never takes part');
         self::assertDoesNotMatchRegularExpression('/t_phone|t_note/', $sql);
         self::assertStringContainsString('(s."t_name" || s."t_city"), q.tsq, 32)', $sql, 'the fallback: the visible vector');
+        self::assertStringContainsString('WHEN s."n_city" = 1 THEN NULL ELSE', $sql, 'one value: the visible vector is the substituted one, capped or not');
     }
 
     public function testTheRankQueryWithoutExclusionsAndPrefixesAndLabelsReachTheValues(): void

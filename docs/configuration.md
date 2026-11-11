@@ -358,8 +358,10 @@ values of a document by it, and the doctor warns when there is none.
   `many: [..., 'rank' => 'best']` or `new ManyValues(..., rank: ManyRank::Best)`; `rank: whole` is the default, the values ranked as one text).
   With it the field contributes to the text rank through its best value, never the sum of several values, and a search can ask
   [`manyMatch('single')`](searching.md#several-values-one-address-manymatch). Fields only (a filter does not rank). It adds a partial GIN index on
-  the values table per such field: `fuzzphony:schema --apply` creates it (and drops it when you turn the option off); **no reindex** is needed,
-  because the documents do not change. Several `rank: best` fields in one index each rank through their own best value, the best of them counts.
+  the values table and a value count column (`n_<field>`) to the index table per such field: `fuzzphony:schema --apply` creates them (and drops
+  the index when you turn the option off). Results are right at once; **run a reindex** afterwards so the counts are written: a document with
+  one value then skips the per-value ranking (its best value is the whole field), until then its values are read (the doctor warns). Several
+  `rank: best` fields in one index each rank through their own best value, the best of them counts.
 - **A many filter matches when any value does.** `->where('city', 'Budapest')` finds the customers with at least one Budapest address; a
   customer with two counts once. `=`, `IN` and the null checks work (a customer without a value is null); ranges do not, and neither do `!=` and `NOT IN`: only the first `limit` values of a customer are stored, so a customer whose value lies past it would pass the negation (fail open), and the query is refused with an `InvalidQuery` naming the filter (exclude with a single-valued filter instead),
   and only `string` filters can be many. A facet over it counts **documents** per value, never values.

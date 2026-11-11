@@ -188,6 +188,43 @@ final class ManyBestRankTest extends TestCase
         self::assertSame('Szeged, <mark>Fő</mark> <mark>utca</mark> 5', str_replace('<mark>Szeged</mark>', 'Szeged', $marked->result->hits[0]->highlights['address'] ?? ''));
     }
 
+    /** @return array<int, int|null> customer => the stored value count of its address field */
+    private function counts(string $index): array
+    {
+        $out = [];
+        foreach ($this->connection->fetchAll(sprintf('SELECT id, n_address FROM fuzzphony_%s ORDER BY id', $index)) as $row) {
+            $out[\Fuzzphony\Core\Support\Coerce::int($row['id'])] = $row['n_address'] === null ? null : \Fuzzphony\Core\Support\Coerce::int($row['n_address']);
+        }
+
+        return $out;
+    }
+
+    public function testTheValueCountIsStoredAndKeptUpToDateByTheDrain(): void
+    {
+        $index = self::definition('bcust', 'best', limit: 2)->withSync(\Fuzzphony\Core\Definition\SyncMode::Queue);
+        $f = $this->install([$index, self::definition('wcust', 'whole')]);
+        self::assertSame([1 => 2, 2 => 1, 3 => 2, 4 => 1, 5 => 1], $this->counts('bcust'), 'one and several values');
+        self::assertStringNotContainsString('n_address', implode(',', array_column($this->connection->fetchAll("SELECT attname FROM pg_attribute WHERE attrelid = 'fuzzphony_wcust'::regclass"), 'attname')), 'rank: whole has no count');
+
+        $worker = new \Fuzzphony\Core\Sync\Worker($this->engine);
+        $this->connection->execute("INSERT INTO mb_address (customer_id, line) VALUES (2, 'Szeged, Fő utca 6'), (2, 'Debrecen, Fő utca 8'), (5, NULL)");
+        $worker->runOnce([$index]);
+        self::assertSame([1 => 2, 2 => 2, 3 => 2, 4 => 1, 5 => 1], $this->counts('bcust'), 'at most the limit; a NULL value is not counted');
+        $this->connection->execute('UPDATE mb_address SET customer_id = 4 WHERE customer_id = 3');
+        $worker->runOnce([$index]);
+        self::assertSame([1 => 2, 2 => 2, 3 => 0, 4 => 2, 5 => 1], $this->counts('bcust'), 'a moved child row recounts both owners');
+        $this->connection->execute('DELETE FROM mb_address WHERE customer_id = 1');
+        $worker->runOnce([$index]);
+        self::assertSame(0, $this->counts('bcust')[1]);
+
+        // ranks with and without the counts (NULL: the values are read) are the same
+        $ranked = fn(): array => array_map(static fn($h): array => [$h->id, $h->score], self::strict($f->in('bcust')->query('fo utca szeged OR budapest OR fo'))->get()->hits);
+        $with = $ranked();
+        $this->connection->execute('UPDATE fuzzphony_bcust SET n_address = NULL');
+        self::assertSame($with, $ranked());
+        self::assertStringContainsString('no value count yet', implode(' ', array_map(static fn($c): string => $c->message, $f->inspect('bcust')->checks)));
+    }
+
     public function testFederatedRanksByTheBestValue(): void
     {
         $f = $this->install([self::definition('bcust', 'best'), IndexDefinition::builder('other')->fromTable('mb_customer')->field('name', 'A')->sync('manual')->build()]);

@@ -7,6 +7,7 @@ namespace Fuzzphony\Engine\Postgres\Sql;
 use Fuzzphony\Core\Definition\FieldDefinition;
 use Fuzzphony\Core\Definition\IndexDefinition;
 use Fuzzphony\Engine\Postgres\Schema\Names;
+use Fuzzphony\Engine\Postgres\Schema\PostgresSchemaGenerator;
 
 /**
  * @internal The text rank of a document with a `many: { rank: best }` field: the field counts through its BEST single value. For each
@@ -71,10 +72,18 @@ final readonly class BestValueRank
      */
     public function rank(string $fallback, string $weights, string $rankQuery): string
     {
-        // the field's own vector holds every lexeme of its values: a document none of whose values holds a query word is not looked up
+        // The field's own vector holds every lexeme of its values: a document none of whose values holds a query word is not looked up.
+        // A document with ONE value (its count, Names::valueCountName()) is not looked up either: the value's vector is the field's, so the
+        // substituted vector is the viewer's own and its rank is the whole-field one (the fallback; for an unrestricted viewer only when
+        // `tsv` is not capped, where the fallback may read other vectors). With one field that is the fallback itself (NULL), with several
+        // it takes part in greatest() as what it is.
+        $one = count($this->fields) === 1 ? 'NULL' : $fallback;
         $parts = array_map(fn(string $field): string => sprintf(
-            'CASE WHEN s.%s @@ q.tsany THEN (SELECT max(%s) FROM %s AS v WHERE v.doc = s.id AND v.field = %s AND v.t @@ q.tsany) END',
+            'CASE WHEN NOT s.%1$s @@ q.tsany THEN NULL WHEN s.%2$s = 1%3$s THEN %4$s ELSE (SELECT max(%5$s) FROM %6$s AS v WHERE v.doc = s.id AND v.field = %7$s AND v.t @@ q.tsany) END',
             $this->names->fieldVector($field),
+            Sql::ident($this->names->valueCountName($field)),
+            $this->allowed === null ? sprintf(' AND s.%s IS FALSE', PostgresSchemaGenerator::CAPPED_COLUMN) : '',
+            $one,
             $this->valueRank($field, $weights, $rankQuery),
             $this->names->values($this->index),
             Sql::string($field),

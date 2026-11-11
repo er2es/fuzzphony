@@ -155,7 +155,10 @@ Only an index that declares one pays for it; every other index keeps its layout,
   by `doc`) after the sidecar write, in its own transaction. They answer "which value matched" (`explainMatches()`) and the highlight of the best
   value; a search joins them only for a field declared `rank: best`, which adds one partial GIN per such field
   (`<values>_best_<field>` ON `t` WHERE `field = '<field>'`, created and dropped by `schema --apply`, checked by the doctor as "Values ranking").
-  The option changes no stored document, so turning it on or off needs no reindex (the documents fingerprint leaves it out).
+  The option also adds a sidecar column `n_<field>` with the document's number of values (written by the refresh function of such an index only):
+  a document with one value is ranked on the whole field, which is then exactly its best value, without reading the values table. Its stored
+  vectors do not change, so the documents fingerprint leaves the option out; a NULL count (a document written before the option) only means its
+  values are read, and the doctor suggests a reindex.
 - A many filter is a `text[]` column `f_<name>` of the sidecar with a GIN index: `city = 'Budapest'` is `f_city @> ARRAY[...]` (any match),
   a facet unnests the array, so it counts documents, never values (the array holds distinct values).
 - The watch of the child table is derived from `from` and `key` (columns: the value column and the key): a change logs the owning document
