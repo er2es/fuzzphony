@@ -47,10 +47,12 @@ final class Highlighter
      * @param list<int|string> $ids
      * @param TypoPlan|null    $typo   the typo-tolerant words and the page's ids the strict branch did not find: their fields get
      *                                 the typo marks (see typoMarks()); null: ts_headline's output as it is
+     * @param array<string, array<string, int>> $bestValues id => field => position of the value a `many: { rank: best }` field
+     *                                                       ranked the hit by (SearchSqlBuilder): that value is the one shown
      *
      * @return array<string, array<string, string>> id => field => html
      */
-    public function highlight(IndexDefinition $index, array $fields, string $tsquery, array $ids, ?TypoPlan $typo = null): array
+    public function highlight(IndexDefinition $index, array $fields, string $tsquery, array $ids, ?TypoPlan $typo = null, array $bestValues = []): array
     {
         if ($fields === [] || $ids === []) {
             return [];
@@ -119,7 +121,7 @@ final class Highlighter
             if ($many === null) {
                 continue;
             }
-            $best[$name] = fn(string $id): string => sprintf(
+            $whole = fn(string $id): string => sprintf(
                 'coalesce((SELECT mv.v FROM %1$s AS mv WHERE mv.doc = %2$s AND mv.field = %3$s AND mv.t @@ to_tsquery(%4$s, %5$s) ORDER BY ts_rank_cd(mv.t, to_tsquery(%4$s, %6$s)) DESC, mv.ord LIMIT 1), %7$s)',
                 $this->names->values($index),
                 $id,
@@ -128,6 +130,16 @@ final class Highlighter
                 $params->add($tsquery),
                 $params->add($tsquery),
                 DocumentSql::manyText($index, $many),
+            );
+            $ords = array_filter(array_map(static fn(array $fields): ?int => $fields[$name] ?? null, $bestValues), static fn(?int $ord): bool => $ord !== null);
+            // rank: best: the value the hit was ranked by (its best single value), else the rule above
+            $best[$name] = $ords === [] ? $whole : fn(string $id): string => sprintf(
+                'coalesce((SELECT mv.v FROM %1$s AS mv WHERE mv.doc = %2$s AND mv.field = %3$s AND mv.ord = (CAST(%4$s AS jsonb) ->> (%2$s)::text)::integer), %5$s)',
+                $this->names->values($index),
+                $id,
+                $params->add($name),
+                $params->add((string) json_encode($ords, JSON_FORCE_OBJECT)),
+                $whole($id),
             );
         }
         $document = DocumentSql::select($index, $index->isMultiSource() ? sprintf('CAST(%s AS text[])', $params->add(Sql::arrayLiteral($ids))) : null, $best);

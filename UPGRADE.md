@@ -9,8 +9,12 @@ and the [CHANGELOG](CHANGELOG.md) has the full list of changes.
 
 - **`many: { rank: best }`** (new option of a many field; `ManyRank`, public) ranks the field through its best single value, and **`SearchBuilder::manyMatch('single'|'any', ...$fields)`**
   asks that one value holds every word needed from the field. An index that does not use them is unchanged: same schema, same statements, same results.
-  To opt in, add the key and run `fuzzphony:schema --apply` (a partial GIN index on the values table, built on the existing rows); **no reindex**. See
+  To opt in, add the key and run `fuzzphony:schema --apply` (a partial GIN index on the values table, built on the existing rows, and a value count
+  column on the index table); results are right at once, then **run `fuzzphony:reindex <index>`** to write the counts (until then a search reads the
+  values of every candidate, slower; the doctor warns). An index without the option gets neither. See
   [Several values per document](docs/configuration.md#several-values-per-document-many).
+  With it, the field's highlight shows the value the hit was ranked by, and `ScoreBreakdown::$bestValues` (new, `array<string, int>`, filled with
+  `explainMatches()` only) gives its position; code that builds a `ScoreBreakdown` itself is unaffected (the parameter is last and optional).
 
 ### with()
 

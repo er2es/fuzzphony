@@ -144,13 +144,21 @@ Only an index that declares one pays for it; every other index keeps its layout,
 - The document SELECT (`DocumentSql`) reads the values of a many field as one text, the first `limit` values by `ORDER BY column, id` joined
   with a space (no value is silently dropped past the limit: the doctor names the documents over it). The sidecar columns (`t_<field>`, `tsv`,
   `fz`, `z_<field>`) are built from that text exactly as for a plain field, so the candidate lookup, the fuzzy lookups, the highlight and the
-  restricted-viewer machinery (a `granted` many field) work unchanged. Ranking therefore treats the field as a whole, not by its best value.
+  restricted-viewer machinery (a `granted` many field) work unchanged. Ranking therefore treats the field as a whole by default. For a field
+  declared `rank: best` that the viewer may see, the text rank of a full-text candidate is
+  `coalesce(nullif(greatest(R_F, ...), 0), <whole-field rank>)`, where `R_F` is the highest `ts_rank_cd` of the viewer's visible vector with the
+  field's `t_<field>` replaced by one value's `t` (`s.t_a || v.t || s.t_c`), over the values that hold a positive query word (`v.t @@ q.tsany`, a
+  correlated read of the values table by its primary key): same function, weights and normalisation, so the score scale is unchanged
+  (`Engine\Postgres\Sql\BestValueRank`). A field the viewer may not see never enters the statement.
 - A child table `fuzzphony_<index>__values (doc, field, ord, v, t, z)` holds one row per value (primary key `(doc, field, ord)`; `t` is the
   field's weighted vector of the value, `z` its normalised text). The refresh function rewrites the rows of the refreshed documents (DELETE + INSERT
   by `doc`) after the sidecar write, in its own transaction. They answer "which value matched" (`explainMatches()`) and the highlight of the best
   value; a search joins them only for a field declared `rank: best`, which adds one partial GIN per such field
   (`<values>_best_<field>` ON `t` WHERE `field = '<field>'`, created and dropped by `schema --apply`, checked by the doctor as "Values ranking").
-  The option changes no stored document, so turning it on or off needs no reindex (the documents fingerprint leaves it out).
+  The option also adds a sidecar column `n_<field>` with the document's number of values (written by the refresh function of such an index only):
+  a document with one value is ranked on the whole field, which is then exactly its best value, without reading the values table. Its stored
+  vectors do not change, so the documents fingerprint leaves the option out; a NULL count (a document written before the option) only means its
+  values are read, and the doctor suggests a reindex.
 - A many filter is a `text[]` column `f_<name>` of the sidecar with a GIN index: `city = 'Budapest'` is `f_city @> ARRAY[...]` (any match),
   a facet unnests the array, so it counts documents, never values (the array holds distinct values).
 - The watch of the child table is derived from `from` and `key` (columns: the value column and the key): a change logs the owning document

@@ -55,6 +55,13 @@ final class SearchSqlBuilder
         private readonly int $scanBudget = self::SCAN_BUDGET,
         /** @var (\Closure(): bool)|null whether the open-class indexes may serve a restricted viewer's lookups (FuzzyQueryCompiler, OpenClass) */
         private readonly ?\Closure $openClass = null,
+        /**
+         * The rank: best fields whose best value's position the ranked statement reports for the page's rows (`bv_<field>` columns:
+         * explainMatches()' ScoreBreakdown::$bestValues, the highlight's shown value); only the ones the viewer may see take part.
+         *
+         * @var list<string>
+         */
+        private readonly array $bestValues = [],
     ) {}
 
     /**
@@ -121,7 +128,7 @@ final class SearchSqlBuilder
      */
     public function ranked(?string $tsquery, string $plain, ?Node $fuzzyRoot, array $conditions, RankingProfile $profile, Thresholds $thresholds, int $limit, int $offset, array $emptyQueries = [], ?Node $scopedRoot = null, bool $withCandidates = false, ?array $wide = null): array
     {
-        ['ctes' => $ctes, 'params' => $params, 'fuzzy' => $fuzzy, 'fast' => $fast, 'fuzzyFast' => $fuzzyFast, 'wideFacet' => $wideFacet] = $this->scored($tsquery, $plain, $fuzzyRoot, $conditions, $profile, $thresholds, $emptyQueries, $scopedRoot, false, self::window($thresholds, $limit, $offset), $wide);
+        ['ctes' => $ctes, 'params' => $params, 'fuzzy' => $fuzzy, 'fast' => $fast, 'fuzzyFast' => $fuzzyFast, 'wideFacet' => $wideFacet, 'bestOrds' => $bestOrds] = $this->scored($tsquery, $plain, $fuzzyRoot, $conditions, $profile, $thresholds, $emptyQueries, $scopedRoot, false, self::window($thresholds, $limit, $offset), $wide);
 
         $counts = [];
         // what the fast selection found: it hit its limit exactly when the matches were cut off, whatever the ordered one kept
@@ -141,12 +148,18 @@ final class SearchSqlBuilder
             $offset,
         );
 
+        // the best value of a rank: best field, for the page's rows only (see $bestValues)
+        $bestColumns = '';
+        foreach ($bestOrds as $field => $ord) {
+            $bestColumns .= sprintf(', (SELECT %s FROM %s AS s CROSS JOIN q WHERE s.id = page.id) AS %s', $ord, $this->names->sidecar($this->index), Sql::ident('bv_' . $field));
+        }
         // The meta row always exists, so totals are known even for pages past the end.
         $sql = sprintf(
-            "WITH %s\nSELECT m.total, m.fts_n, m.fuzzy_n%s%s, page.*\nFROM (SELECT (SELECT count(*) FROM scored WHERE relevance >= %s) AS total, %s) AS m\nLEFT JOIN page ON TRUE\nORDER BY page.score DESC NULLS LAST, page.id",
+            "WITH %s\nSELECT m.total, m.fts_n, m.fuzzy_n%s%s, page.*%s\nFROM (SELECT (SELECT count(*) FROM scored WHERE relevance >= %s) AS total, %s) AS m\nLEFT JOIN page ON TRUE\nORDER BY page.score DESC NULLS LAST, page.id",
             implode(",\n", $ctes),
             $withCandidates ? ', m.cand_ids' : '',
             $wideFacet !== null ? ', m.wide_facet' : '',
+            $bestColumns,
             $minScore,
             implode(', ', $counts),
         );
@@ -171,7 +184,7 @@ final class SearchSqlBuilder
      *
      * @param array{conditions: list<Condition>, filter: string, values: int}|null $wide one facet that leaves conditions out, carried by the strict selection (wideSelection())
      *
-     * @return array{ctes: list<string>, params: ParameterBag, fuzzy: ?FuzzyMatch, fast: string, fuzzyFast: string, wideFacet: ?string}
+     * @return array{ctes: list<string>, params: ParameterBag, fuzzy: ?FuzzyMatch, fast: string, fuzzyFast: string, wideFacet: ?string, bestOrds: array<string, string>}
      */
     private function scored(?string $tsquery, string $plain, ?Node $fuzzyRoot, array $conditions, RankingProfile $profile, Thresholds $thresholds, array $emptyQueries, ?Node $scopedRoot, bool $uncapped, ?int $window = null, ?array $wide = null): array
     {
@@ -196,6 +209,7 @@ final class SearchSqlBuilder
         // document that matches, so the rank is the same), see TsQueryCompiler::withoutExclusions()
         $rankQuery = 'q.tsq';
         $operands = 1;
+        $best = new BestValueRank($this->index, $this->names, $this->allowedFields);
         if ($tsquery !== null) {
             $q[] = sprintf('to_tsquery(%s, %s) AS tsq', $config, $params->add($tsquery));
             $rankForm = TsQueryCompiler::withoutExclusions($tsquery);
@@ -204,6 +218,15 @@ final class SearchSqlBuilder
                 $rankQuery = 'q.tsr';
             }
             $operands = TsQueryCompiler::operands($rankForm);
+            // a many field with rank: best ranks by its best single value (BestValueRank): one more q column with the positive words
+            // OR-ed, and the work of a ranked document grows with the fields, so the scan budget counts each like BestValueRank::OPERANDS words
+            $any = $best->fields === [] ? null : BestValueRank::anyQuery($rankForm);
+            if ($any !== null) {
+                $q[] = sprintf('to_tsquery(%s, %s) AS tsany', $config, $params->add($any));
+                $operands += BestValueRank::OPERANDS * count($best->fields);
+            } else {
+                $best = null;
+            }
             if ($this->allowedFields !== null || $positional) {
                 // An excluded word would exclude by every field, the hidden ones too: the lookup is the positive part
                 // only (a superset), the recheck below decides; nothing positive to look up leaves the recheck alone.
@@ -265,9 +288,17 @@ final class SearchSqlBuilder
         $filterSql = $filters->compile($conditions, $params);
         $fast = 'fts';
         $wideFacet = null;
+        $bestOrds = [];
         if ($tsquery !== null) {
             $fast = $ordered ? 'fts_fast' : 'fts';
-            $rank = $this->textRank($profile, $positional, $rankQuery) . '::double precision';
+            $rank = $this->textRank($profile, $positional, $rankQuery);
+            if ($best !== null) {
+                $rank = $best->rank($rank, self::tsRankWeights($profile), $rankQuery);
+                foreach (array_values(array_intersect($best->fields, $this->bestValues)) as $field) {
+                    $bestOrds[$field] = $best->bestOrd($field, self::tsRankWeights($profile), $rankQuery);
+                }
+            }
+            $rank .= '::double precision';
             $where = implode(' AND ', $strict) . ' AND ' . $filterSql;
             $n = (int) $window;
             $min = $fuzzy === null && $thresholds->relevance->minScore > 0.0 ? sprintf(' AND %s * w.r_text >= %s', Sql::float($profile->text), Sql::float($thresholds->relevance->minScore)) : '';
@@ -427,7 +458,7 @@ final class SearchSqlBuilder
             $table,
         );
 
-        return ['ctes' => $ctes, 'params' => $params, 'fuzzy' => $fuzzy, 'fast' => $fast, 'fuzzyFast' => $fuzzyFast, 'wideFacet' => $wideFacet];
+        return ['ctes' => $ctes, 'params' => $params, 'fuzzy' => $fuzzy, 'fast' => $fast, 'fuzzyFast' => $fuzzyFast, 'wideFacet' => $wideFacet, 'bestOrds' => $bestOrds];
     }
 
     /**

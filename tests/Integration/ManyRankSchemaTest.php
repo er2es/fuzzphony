@@ -108,7 +108,7 @@ final class ManyRankSchemaTest extends TestCase
         self::assertSame([[], []], [$first, $second]);
     }
 
-    public function testSwitchingItOnNeedsNoReindexAndOffDropsTheIndex(): void
+    public function testSwitchingItOnNeedsNoReindexForCorrectResultsAndOffDropsTheIndex(): void
     {
         $whole = $this->definition([]);
         $best = $this->definition(['city' => 'best', 'street' => 'best']);
@@ -119,8 +119,14 @@ final class ManyRankSchemaTest extends TestCase
         $f = $this->install($best, reindex: false);
         self::assertCount(2, $this->valuesIndexes());
         self::assertSame($rows, Coerce::int($this->connection->fetchValue('SELECT count(*) FROM fuzzphony_rcust__values')), 'the documents are untouched');
-        $reindex = array_filter($f->inspect('rcust')->checks, static fn($c): bool => str_contains($c->message, 'reindex') && $c->status->value !== 'ok');
-        self::assertSame([], array_values($reindex), 'the doctor asks for no reindex');
+        $reindex = array_values(array_filter($f->inspect('rcust')->checks, static fn($c): bool => str_contains($c->message, 'reindex') && $c->status->value !== 'ok'));
+        self::assertSame(['warning', 'warning'], array_map(static fn($c): string => $c->status->value, $reindex), 'only the value counts are missing (speed, not results)');
+        self::assertStringContainsString('no value count yet', $reindex[0]->message);
+        $ranked = static fn(): array => array_map(static fn($h): array => [$h->id, $h->score], $f->in('rcust')->query('szeged OR fo utca')->thresholds(['typo' => ['mode' => 'never']])->get()->hits);
+        $before = $ranked();
+        $f->reindex('rcust');
+        self::assertSame($before, $ranked(), 'a document without its count ranks as with it (the count only saves work)');
+        self::assertSame([], array_values(array_filter($f->inspect('rcust')->checks, static fn($c): bool => str_contains($c->message, 'value count'))), 'a reindex writes the counts');
 
         $this->install($this->definition(['street' => 'best']), reindex: false);
         self::assertSame([(new Names())->valuesBestIndexName($best, 'street')], $this->valuesIndexes(), 'the index of the field switched off is dropped');
@@ -170,14 +176,17 @@ final class ManyRankSchemaTest extends TestCase
 
         self::assertSame($plain, $whole);
         self::assertStringNotContainsString('values_best', $plain);
-        // the opt-in plan differs by the index statement and the recorded definition fingerprint only
-        $extra = array_values(array_filter($best, static fn(string $sql): bool => str_contains($sql, 'values_best_city') && str_starts_with($sql, 'CREATE INDEX')));
-        self::assertSame(['CREATE INDEX CONCURRENTLY IF NOT EXISTS "fuzzphony_rcust__values_best_city" ON "public"."fuzzphony_rcust__values" USING gin (t) WHERE field = \'city\''], $extra);
-        $rest = array_values(array_filter($best, static fn(string $sql): bool => !str_contains($sql, 'values_best_city') || str_starts_with($sql, 'DROP INDEX')));
+        self::assertStringNotContainsString('n_city', $plain);
+        // the opt-in plan differs by the index statement, the value count column (the table, its ADD COLUMN, the refresh functions) and
+        // the recorded definition fingerprint only
+        $extra = array_values(array_filter($best, static fn(string $sql): bool => (str_contains($sql, 'values_best_city') && str_starts_with($sql, 'CREATE INDEX')) || (str_contains($sql, '"n_city"') && str_contains($sql, 'ADD COLUMN'))));
+        self::assertCount(2, $extra);
+        self::assertSame('CREATE INDEX CONCURRENTLY IF NOT EXISTS "fuzzphony_rcust__values_best_city" ON "public"."fuzzphony_rcust__values" USING gin (t) WHERE field = \'city\'', $extra[1]);
+        $rest = array_values(array_filter($best, static fn(string $sql): bool => !in_array($sql, $extra, true)));
         $plainStatements = array_map(static fn($s): string => $s->sql, $generator->index($this->definition([]))->statements);
         self::assertSame(count($plainStatements), count($rest));
         foreach ($plainStatements as $i => $sql) {
-            if (!str_contains($sql, 'fuzzphony_meta')) {
+            if (!str_contains($sql, 'fuzzphony_meta') && !str_contains($rest[$i], '"n_city"')) {
                 self::assertSame($sql, $rest[$i], 'statement ' . $i);
             }
         }

@@ -222,6 +222,15 @@ final readonly class Names
         return $this->valuesIndexName($index, 'best_' . $field);
     }
 
+    /**
+     * The sidecar column with the number of values a `rank: best` field holds for the document (at most `limit`; NULL = not known, a
+     * document written before the column existed): a document with one value is ranked on the whole field, which is then the same.
+     */
+    public function valueCountName(string $field): string
+    {
+        return self::limit('n_' . $field);
+    }
+
     /** The words of a fuzzy index and in how many documents each occurs: where "did you mean" (and later suggest()) read. */
     public function vocabularyName(IndexDefinition $index): string
     {

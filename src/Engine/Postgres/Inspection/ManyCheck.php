@@ -103,9 +103,9 @@ final readonly class ManyCheck
         $checks = [];
         $expected = [];
         foreach ($index->manyBestFields() as $field) {
+            $label = sprintf('Values ranking "%s"', $field->name);
             $name = $this->names->valuesBestIndexName($index, $field->name);
             $expected[] = $name;
-            $label = sprintf('Values ranking "%s"', $field->name);
             $row = $this->connection->fetchAll(
                 'SELECT i.indisvalid AS valid, pg_relation_size(i.indexrelid) AS bytes FROM pg_index AS i WHERE i.indexrelid = to_regclass(:i) AND i.indrelid = to_regclass(:t)',
                 ['i' => Sql::ident($this->names->schema . '.' . $name), 't' => $this->names->values($index)],
@@ -116,6 +116,7 @@ final readonly class ManyCheck
                 continue;
             }
             $checks[] = Check::ok($label, sprintf('index %s present, %s', $name, self::size(Coerce::int($row['bytes']))));
+            array_push($checks, ...$this->unknownCounts($index, $field->name, $label));
         }
         $stale = array_map(Coerce::str(...), array_column($this->connection->fetchAll(
             'SELECT c.relname FROM pg_index AS i JOIN pg_class AS c ON c.oid = i.indexrelid WHERE i.indrelid = to_regclass(:t) AND NOT i.indisprimary AND (c.relname ~ :a OR c.relname ~ :b) ORDER BY c.relname',
@@ -126,6 +127,27 @@ final readonly class ManyCheck
         }
 
         return $checks;
+    }
+
+    /**
+     * Documents whose value count (Names::valueCountName()) is not known: written before the field was declared `rank: best`. They rank
+     * correctly (their values are read) but miss the shortcut of a document with one value until a reindex writes the count.
+     *
+     * @return list<Check>
+     */
+    private function unknownCounts(IndexDefinition $index, string $field, string $label): array
+    {
+        $column = $this->names->valueCountName($field);
+        $exists = $this->connection->fetchAll(
+            'SELECT 1 FROM pg_attribute WHERE attrelid = to_regclass(:t) AND attname = :c AND NOT attisdropped',
+            ['t' => $this->names->sidecar($index), 'c' => $column],
+        ) !== [];
+        if (!$exists) {
+            return []; // the sidecar columns check reports a missing column
+        }
+        $unknown = $this->connection->fetchAll(sprintf('SELECT 1 FROM %s WHERE %s IS NULL LIMIT 1', $this->names->sidecar($index), Sql::ident($column))) !== [];
+
+        return $unknown ? [Check::warning($label, 'Some documents have no value count yet (written before "rank: best"): they rank correctly but read their values even when they have one; a reindex writes the count.', sprintf('bin/console fuzzphony:reindex %s', $index->name))] : [];
     }
 
     private static function size(int $bytes): string

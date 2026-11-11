@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Fuzzphony\Engine\Postgres\Search;
 
+use Fuzzphony\Core\Definition\FieldDefinition;
 use Fuzzphony\Core\Definition\IndexDefinition;
 use Fuzzphony\Core\Query\Filter\Condition;
 use Fuzzphony\Core\Query\SearchQuery;
@@ -38,7 +39,20 @@ final readonly class SearchContext
      */
     public function builder(array $candidates = []): SearchSqlBuilder
     {
-        return new SearchSqlBuilder($this->index, $this->names, $candidates, $this->query->allowedFields, true, openClass: $this->openClass);
+        return new SearchSqlBuilder($this->index, $this->names, $candidates, $this->query->allowedFields, true, openClass: $this->openClass, bestValues: $this->bestValueFields());
+    }
+
+    /**
+     * The rank: best fields whose best value the ranked statement reports for the page: every one with explainMatches()
+     * (ScoreBreakdown::$bestValues), else the highlighted ones (the value shown); the builder keeps only those the viewer may see.
+     *
+     * @return list<string>
+     */
+    public function bestValueFields(): array
+    {
+        $best = array_map(static fn(FieldDefinition $f): string => $f->name, $this->index->manyBestFields());
+
+        return $this->query->explainMatches ? $best : array_values(array_intersect($best, $this->query->highlight));
     }
 
     public function fuzzy(): FuzzyQueryCompiler

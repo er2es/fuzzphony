@@ -16,6 +16,13 @@ final readonly class ScoreBreakdown
         public float $prefixBonus = 0.0,
         public float $boostBonus = 0.0,
         public float $recencyBonus = 0.0,
+        /**
+         * With explainMatches(): for each `many: { rank: best }` field the viewer may see whose best single value gave the text rank, the
+         * position of that value (MatchedWord::$valueOrd numbering, from 0); a field whose document kept the whole-field rank is absent.
+         *
+         * @var array<string, int>
+         */
+        public array $bestValues = [],
     ) {}
 
     public function total(): float

@@ -15,7 +15,12 @@ and a link. Measurements, proofs and test names belong to the pull request, [doc
 
 - **`with()` aliases and many values:** `returnable: { url: slug }` returns a column under another name, a `many` field's name returns its values as a `list<string>`, and the whole page is read in one statement. Granted fields stay gated by name and by column ([searching](docs/searching.md#returning-source-fields-with), [UPGRADE](UPGRADE.md)).
 - **`many: { rank: best }` and `manyMatch('single')`:** a many field can rank through its best single value and a search can require one value to hold
-  every word. Opt-in per field; `fuzzphony:schema --apply` adds a partial index on the values table, no reindex ([configuration](docs/configuration.md#several-values-per-document-many)).
+  every word. Opt-in per field; `fuzzphony:schema --apply` adds a partial index and a count column, then a reindex writes the counts ([configuration](docs/configuration.md#several-values-per-document-many)).
+- **`ScoreBreakdown::$bestValues`:** with `explainMatches()`, the position of the value each `rank: best` field ranked the hit by ([searching](docs/searching.md#what-matched)).
+
+### Changed
+
+- **The highlight of a `rank: best` field shows the value the hit was ranked by** (its best single value, words of other fields included); other many fields are unchanged ([searching](docs/searching.md#what-matched)).
 
 ## [0.11.1] - 2026-11-04
 

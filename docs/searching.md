@@ -177,6 +177,15 @@ show "found in the Vienna address". A word that matches several values is listed
 `value_ord` and `value` only for such a word; every other word is unchanged. The highlight of a many field (`highlight('city')`) shows the value that
 matches best instead of all of them.
 
+A field declared [`rank: best`](configuration.md#several-values-per-document-many) ranks a document by its best single value: the text rank is
+computed as for the whole document with that field holding only one of its values, for each value that holds a word of the query, and the highest
+counts (several matching values rank like one; with several `rank: best` fields the best of them counts). Words of other fields still count with it
+(`kiss szeged`: the name and one address). A document none of whose values holds a query word, or whose words are spread over several values (`fo utca`
+in one address, `szeged` in another), keeps the whole-field rank; it is still found, a single-value match usually ranks above it. The score scale,
+the profiles and `min_score` are unchanged. With `explainMatches()`, `ScoreBreakdown::$bestValues` maps each such field the viewer may see to the
+position (`valueOrd`, from 0) of the value that gave the rank (absent when the whole-field rank was used), and the highlight of the field shows that
+value. A typo-tolerant match is scored on the whole field as before (the typo similarity is already a best match per word).
+
 ### Several values, one address: `manyMatch()`
 
 For a many field declared with [`rank: best`](configuration.md#several-values-per-document-many), `->manyMatch('single')` keeps only the documents where
