@@ -57,8 +57,8 @@ final readonly class InterfaceExtension
     }
 
     #[AsTwigFunction('erp_reasons')]
-    public function erpReasons(Hit $hit, string $query = ''): array
+    public function erpReasons(Hit $hit, string $query = '', bool $strict = false, string $city = ''): array
     {
-        return Erp::reasons($hit, $query);
+        return Erp::reasons($hit, $query, $strict, $city);
     }
 }

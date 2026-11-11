@@ -152,7 +152,7 @@ final readonly class Erp
      *
      * @return list<string>
      */
-    public static function reasons(Hit $hit, string $query = ''): array
+    public static function reasons(Hit $hit, string $query = '', bool $strict = false, string $city = ''): array
     {
         $lines = [];
         // a code (tax number, phone, order number) typed whole, or its beginning, matches as a code: the row says so
@@ -168,8 +168,13 @@ final readonly class Erp
         $best = static fn (MatchedWord $m): bool => $m->valueOrd !== null && ($hit->breakdown->bestValues[$m->field] ?? null) === $m->valueOrd;
         usort($matches, static fn (MatchedWord $a, MatchedWord $b): int => $best($b) <=> $best($a));
         foreach ($matches as $m) {
+            // strict mode: only the address that holds all the words counts; an address with just one of the words is not a match of the search
+            if ($strict && $m->field === 'address' && $m->valueOrd !== null && !$best($m)) {
+                continue;
+            }
             $where = self::FIELD_LABELS[$m->field] ?? $m->field;
             $line = match (true) {
+                $strict && $m->value !== null && $best($m) => 'one address holds all the words: ' . $m->value,
                 $m->value !== null && $best($m) && count(array_unique(array_filter(array_map(static fn (MatchedWord $o): ?int => $o->valueOrd, $matches), static fn (?int $o): bool => $o !== null))) > 1 => 'found in the best address: ' . $m->value,
                 $m->value !== null => sprintf('found in %s: %s', $where, $m->value),
                 in_array($m->field, self::CODES, true) => sprintf('found in %s: %s (%s)', $where, $m->word, $m->via === MatchedWord::EXACT ? 'exact code' : 'beginning of a code'),
@@ -179,7 +184,19 @@ final readonly class Erp
             $lines[$line] = true;
         }
 
-        return array_slice(array_keys($lines), 0, 3);
+        $lines = array_slice(array_keys($lines), 0, 3);
+        // the city filter holds for ANY address of the person, so it may be another address than the one the words matched: say which one
+        if ($city !== '') {
+            $addresses = $hit->data['address'] ?? [];
+            foreach (is_array($addresses) ? $addresses : [$addresses] as $address) {
+                if (is_string($address) && mb_stripos($address, $city) !== false) {
+                    $lines[] = sprintf('city filter %s: %s', $city, $address);
+                    break;
+                }
+            }
+        }
+
+        return $lines;
     }
 
     /** @return array<string, mixed>|null the customer row, or null */
