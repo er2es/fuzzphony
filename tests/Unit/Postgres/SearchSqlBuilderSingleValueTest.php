@@ -71,4 +71,15 @@ final class SearchSqlBuilderSingleValueTest extends TestCase
         self::assertStringNotContainsString('q.tsf', self::ranked(null, 'city:szeged name:kiss', ['city']));
         self::assertStringNotContainsString('q.tsf', self::ranked(null, 'phone:1234 phone:5678', ['city']), 'a field outside the mode');
     }
+
+    public function testOneWordNeedsNoCheckInTheFullTextBranch(): void
+    {
+        foreach (['szeged', 'city:szeged', 'szeg*', 'szeged -kossuth'] as $text) {
+            self::assertStringNotContainsString('UNION ALL SELECT v.t', self::ranked(null, $text, ['city']), $text);
+        }
+        foreach (['"fo utca"', 'usb-c', 'szeged OR kossuth', 'fo utca'] as $text) {
+            self::assertStringContainsString('UNION ALL SELECT v.t', self::ranked(null, $text, ['city']), $text);
+        }
+        self::assertStringContainsString('UNION ALL SELECT v.t', self::ranked(['name', 'city'], 'szeged', ['city'], true), 'the typo branch keeps it');
+    }
 }

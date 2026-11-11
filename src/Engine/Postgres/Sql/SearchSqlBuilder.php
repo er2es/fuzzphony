@@ -11,6 +11,7 @@ use Fuzzphony\Core\Query\Ast\AnyOf;
 use Fuzzphony\Core\Query\Ast\FieldScoped;
 use Fuzzphony\Core\Query\Ast\Node;
 use Fuzzphony\Core\Query\Ast\Not;
+use Fuzzphony\Core\Query\Ast\Term;
 use Fuzzphony\Core\Query\Filter\Condition;
 use Fuzzphony\Core\Ranking\RankingProfile;
 use Fuzzphony\Core\Ranking\Thresholds;
@@ -289,7 +290,7 @@ final class SearchSqlBuilder
         if ($this->single !== [] && $scopedRoot !== null) {
             // manyMatch('single'): the full-text branch and the typo branch (and so the totals, facets and candidates) keep a document
             // only when one value of each named field holds the field's words (singleValue())
-            if ($tsquery !== null && ($exists = $this->singleValue($scopedRoot, $params, $emptyQueries, $thresholds, false, $q)) !== null) {
+            if ($tsquery !== null && !self::oneWord($scopedRoot) && ($exists = $this->singleValue($scopedRoot, $params, $emptyQueries, $thresholds, false, $q)) !== null) {
                 $strict[] = $exists;
                 $first = $this->valuesFirst($scopedRoot, $params, $config, $q);
                 if ($first !== null) {
@@ -916,6 +917,31 @@ SELECT
         $q[] = sprintf('to_tsquery(%s, %s) AS tsf', $config, $params->add($words));
 
         return sprintf('s.id IN (SELECT v.doc FROM %s AS v WHERE v.field = %s AND v.t @@ q.tsf)', $this->names->values($this->index), Sql::string($fields[0]));
+    }
+
+    /**
+     * Whether the positive part of the query is ONE word of one lexeme (`budapest`, `address:szeged`, `buda*`): a full-text match of it
+     * is in one value (or in another field) by definition, so the single-value check of the full-text branch can only agree.
+     */
+    private static function oneWord(Node $root): bool
+    {
+        $leaves = self::positive($root);
+        if (count($leaves) !== 1) {
+            return false;
+        }
+        $leaf = $leaves[0] instanceof FieldScoped ? $leaves[0]->node : $leaves[0];
+
+        return $leaf instanceof Term && count(TsQueryCompiler::lexemes($leaf->text)) === 1;
+    }
+
+    /** @return list<Node> the positive leaves */
+    private static function positive(Node $node): array
+    {
+        return match (true) {
+            $node instanceof Not => [],
+            $node instanceof AllOf, $node instanceof AnyOf => array_merge([], ...array_map(self::positive(...), $node->nodes)),
+            default => [$node],
+        };
     }
 
     /**
