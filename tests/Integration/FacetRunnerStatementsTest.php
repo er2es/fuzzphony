@@ -7,10 +7,10 @@ namespace Fuzzphony\Tests\Integration;
 use Fuzzphony\Core\Database\Connection;
 use Fuzzphony\Core\Definition\IndexDefinition;
 use Fuzzphony\Core\Fuzzphony;
-use Fuzzphony\Core\Query\SearchQuery;
 use Fuzzphony\Core\Registry\IndexRegistry;
 use Fuzzphony\Core\Search\FacetValue;
 use Fuzzphony\Core\Search\SearchBuilder;
+use Fuzzphony\Core\Support\Coerce;
 use Fuzzphony\Engine\Postgres\PostgresEngine;
 use PHPUnit\Framework\TestCase;
 
@@ -20,12 +20,10 @@ use PHPUnit\Framework\TestCase;
  */
 final class FacetRunnerStatementsTest extends TestCase
 {
-    
-
     private Connection $connection;
     private InterceptingConnection $log;
     private Fuzzphony $fuzzphony;
-    
+
 
     protected function setUp(): void
     {
@@ -80,10 +78,19 @@ final class FacetRunnerStatementsTest extends TestCase
         return $builder->build();
     }
 
-    /** @return list<string> the SQL of the statements a search runs */
-    private function sqls(\Closure $search): array
+    private function resetLog(): void
     {
         $this->log->log = [];
+    }
+
+    /**
+     * @param \Closure(SearchBuilder): SearchBuilder $search
+     *
+     * @return list<string> the SQL of the statements a search runs
+     */
+    private function sqls(\Closure $search): array
+    {
+        $this->resetLog();
         $search($this->fuzzphony->in('facet_docs'))->get();
 
         return array_map(static fn(array $entry): string => $entry[0], $this->log->log);
@@ -98,7 +105,7 @@ final class FacetRunnerStatementsTest extends TestCase
     {
         $counts = [];
         foreach ($this->connection->fetchAll(sprintf("SELECT %s AS v, count(*) AS n FROM fz_facet_doc WHERE name LIKE '%%%s%%' AND %s GROUP BY 1", $column, $word, $where)) as $row) {
-            $counts[var_export($column === 'size' && $row['v'] !== null ? (int) $row['v'] : $row['v'], true)] = (int) $row['n'];
+            $counts[var_export($column === 'size' && $row['v'] !== null ? Coerce::int($row['v']) : $row['v'], true)] = Coerce::int($row['n']);
         }
 
         return $counts;
@@ -119,12 +126,6 @@ final class FacetRunnerStatementsTest extends TestCase
         return $counts;
     }
 
-    /** @return list<string> */
-    private function labels(\Closure $search): array
-    {
-        return array_map(static fn(array $s): string => $s['label'], $search($this->fuzzphony->in('facet_docs'))->explain()->statements);
-    }
-
     public function testFacetsThatKeepEveryConditionCountTheCandidatesOfThePageAndNothingElseIsSet(): void
     {
         $sqls = $this->sqls(static fn(SearchBuilder $b): SearchBuilder => $b->query('mouse')->facets('color', 'size'));
@@ -134,10 +135,10 @@ final class FacetRunnerStatementsTest extends TestCase
         self::assertStringContainsString('WHERE s.id = ANY(CAST(:p0 AS bigint[]))', $sqls[1], 'the ids of the page');
         self::assertEquals(self::truth('color'), self::counts($result->facets['color']));
         self::assertEquals(self::truth('size'), self::counts($result->facets['size']));
-        $this->log->log = [];
+        $this->resetLog();
         $this->fuzzphony->in('facet_docs')->query('mouse')->facets('color', 'size')->get();
         $bound = array_values(array_filter($this->log->log[1][1], static fn(mixed $p): bool => is_string($p) && str_starts_with($p, '{')));
-        self::assertMatchesRegularExpression('/^\{\d+(,\d+)*\}$/', $bound[0], 'integer ids go in as numbers');
+        self::assertMatchesRegularExpression('/^\{\d+(,\d+)*\}$/', (string) $bound[0], 'integer ids go in as numbers');
     }
 
     public function testAChosenFacetIsCountedByThePageStatementItselfAndTheOthersFollow(): void
@@ -147,8 +148,12 @@ final class FacetRunnerStatementsTest extends TestCase
 
         self::assertEquals(self::truth('color'), self::counts($result->facets['color']), 'what another colour would find');
         self::assertEquals(self::truth('size', "color = 'red'"), self::counts($result->facets['size']), 'under the colour chosen');
-$sqls = $this->sqls($search);        self::assertStringContainsString('wide_facet', $sqls[0], 'the page statement counts the colour in its own scan');        $facetStatements = array_values(array_filter($sqls, static fn(string $sql): bool => str_starts_with($sql, 'WITH fc AS')));
-        self::assertSame([], array_values(array_filter(array_slice($sqls, 1), static fn(string $sql): bool => str_contains($sql, 'f_color'))), 'no statement of its own for the colour');        self::assertCount(1, $facetStatements, 'one statement for the other facet, none for the colour');        self::assertStringContainsString('f_size', $facetStatements[0]);
+        $sqls = $this->sqls($search);
+        self::assertStringContainsString('wide_facet', $sqls[0], 'the page statement counts the colour in its own scan');
+        $facetStatements = array_values(array_filter($sqls, static fn(string $sql): bool => str_starts_with($sql, 'WITH fc AS')));
+        self::assertSame([], array_values(array_filter(array_slice($sqls, 1), static fn(string $sql): bool => str_contains($sql, 'f_color'))), 'no statement of its own for the colour');
+        self::assertCount(1, $facetStatements, 'one statement for the other facet, none for the colour');
+        self::assertStringContainsString('f_size', $facetStatements[0]);
     }
 
     public function testAFacetThatLeavesAConditionOutIsCountedByAStatementOfItsOwnWhenThePageHasNoRow(): void
@@ -172,7 +177,7 @@ $sqls = $this->sqls($search);        self::assertStringContainsString('wide_face
 
     public function testTheFacetsOfATypoSearchCountTheCandidatesOfThePage(): void
     {
-        $this->log->log = [];
+        $this->resetLog();
         $result = $this->fuzzphony->in('facet_docs')->query('wireles mose')->facets('color', 'size')->get();
         $sqls = array_map(static fn(array $entry): string => $entry[0], $this->log->log);
         $at = array_keys(array_filter($sqls, static fn(string $sql): bool => str_starts_with($sql, 'WITH fc AS')));

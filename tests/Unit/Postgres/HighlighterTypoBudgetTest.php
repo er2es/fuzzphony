@@ -29,6 +29,22 @@ final class HighlighterTypoBudgetTest extends TestCase
         return array_values(array_filter($connection->log[1][1], static fn(mixed $p): bool => is_string($p) && str_starts_with($p, '{')));
     }
 
+    /** @param array<int|string, array<string, string>> $out */
+    private static function nameOf(array $out, int $id): string
+    {
+        return $out[$id]['name'];
+    }
+
+    /**
+     * @param array<int|string, array<string, string>> $out
+     *
+     * @return array<string, string>
+     */
+    private static function nameRow(array $out, int $id): array
+    {
+        return $out[$id];
+    }
+
     private static function codeIndex(): IndexDefinition
     {
         return IndexDefinition::builder('codes')
@@ -49,7 +65,7 @@ final class HighlighterTypoBudgetTest extends TestCase
 
         [$sql, $params] = $connection->log[0];
         self::assertSame(1, preg_match('/translate\(coalesce\(d\."fld_sku"::text, \'\'\), :(p\d+), \'\'\) END AS "c_sku"/', $sql, $m), 'the plain text of a short code is a column of its own');
-        self::assertSame(self::S . self::E, $params[$m[1]], 'the two markers, in this order, are what is removed from it');
+        self::assertSame(self::S . self::E, $params[$m[1] ?? ""], 'the two markers, in this order, are what is removed from it');
     }
 
     public function testAShortTextIsShownWholeAndALongOneAsTwoFragments(): void
@@ -100,7 +116,7 @@ final class HighlighterTypoBudgetTest extends TestCase
 
         $out = (new Highlighter($connection))->highlight(Indexes::products(), ['name', 'brand'], "'hedphon'", [1], self::plan());
 
-        self::assertSame(['name' => 'Plain', 'brand' => 'Wireless <mark>Headphones</mark>'], $out['1']);
+        self::assertSame(["name" => "Plain", "brand" => "Wireless <mark>Headphones</mark>"], self::nameRow($out, 1));
     }
 
     public function testASkippedRowDoesNotStopTheRowsAfterIt(): void
@@ -189,9 +205,9 @@ final class HighlighterTypoBudgetTest extends TestCase
 
         $out = (new Highlighter($connection))->highlight(Indexes::products(), ['name'], "'hedphon'", range(1, 101), self::plan());
 
-        self::assertStringContainsString('<mark>ab1</mark>', $out['1']['name']);
-        self::assertStringContainsString('<mark>ab1</mark>', $out['100']['name'], 'a hit that costs exactly what is left is still worked on');
-        self::assertSame('Plain', $out['101']['name'], 'the budget is spent: ts_headline\'s snippet stays');
+        self::assertStringContainsString('<mark>ab1</mark>', self::nameOf($out, 1));
+        self::assertStringContainsString('<mark>ab1</mark>', self::nameOf($out, 100), 'a hit that costs exactly what is left is still worked on');
+        self::assertSame('Plain', self::nameOf($out, 101), 'the budget is spent: ts_headline\'s snippet stays');
     }
 
     public function testAHitIsSkippedByItsOwnCostNotByTheCostOfItsSnippet(): void
@@ -219,9 +235,9 @@ final class HighlighterTypoBudgetTest extends TestCase
 
         $out = (new Highlighter($connection))->highlight(Indexes::products(), ['name'], "'hedphon'", range(1, 5), self::plan());
 
-        self::assertStringContainsString('<mark>w1x1</mark>', $out['1']['name']);
-        self::assertStringContainsString('<mark>w2x1</mark>', $out['2']['name']);
-        self::assertStringContainsString('<mark>w4x1</mark>', $out['4']['name']);
-        self::assertSame('Plain', $out['5']['name']);
+        self::assertStringContainsString('<mark>w1x1</mark>', self::nameOf($out, 1));
+        self::assertStringContainsString('<mark>w2x1</mark>', self::nameOf($out, 2));
+        self::assertStringContainsString('<mark>w4x1</mark>', self::nameOf($out, 4));
+        self::assertSame('Plain', self::nameOf($out, 5));
     }
 }
