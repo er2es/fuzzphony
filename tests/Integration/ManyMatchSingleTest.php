@@ -260,7 +260,7 @@ final class ManyMatchSingleTest extends TestCase
                     $explained->result->total,
                     array_map(static fn(array $st): array => [$st['label'], $st['sql'], $st['params']], $explained->statements),
                 ];
-                self::assertStringNotContainsString('t_note', $explained->statements[array_key_last($explained->statements)]['sql']);
+                self::assertStringNotContainsString('t_note', implode(' ', array_column($explained->statements, 'sql')));
             }
         }
         foreach ($outcomes as $text => $byVariant) {
