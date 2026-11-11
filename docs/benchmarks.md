@@ -290,3 +290,21 @@ values table and one ranking per matching value, about as much as two more words
 field. A typo-tolerant match is ranked on the whole field and costs nothing more. The count saved most on the common word (`budapest` 1.82 to
 1.57); a covering index of the values by document with their vectors (`(doc) INCLUDE (t)`, 33 MB) and ranking a value alone when the other fields
 hold no query word changed nothing measurable and are not used.
+
+`manyMatch('single')` on the same data (default mode = `rank: best` above, measured in the same run; median of 20):
+
+| Search | best | single | single / best | hits best / single |
+|---|---|---|---|---|
+| `kiss` (no word in the field) | 34.0 ms | 34.3 ms | 1.01 | 2 000 / 2 000 |
+| `fo utca szeged` | 16.9 ms | 14.2 ms | 0.84 | 980 / 588 |
+| `address:szeged address:kossuth` | 16.0 ms | 14.1 ms | 0.88 | 1 374 / 982 |
+| `budapest` (one word: no check needed) | 149 ms | 153 ms | 1.03 | 2 000 / 2 000 |
+| `kossuth lajos utca` | 145 ms | 166 ms | 1.14 | 2 000 / 2 000 |
+| `"petofi sandor"` | 114 ms | 150 ms | 1.32 | 2 000 / 2 000 |
+| `kossuth la`, as you type | 195 ms | 223 ms | 1.15 | 2 000 / 2 000 |
+| `szgeed fo`, typo | 56.3 ms | 65.0 ms | 1.15 | 1 372 / 980 |
+
+The check costs nothing for a document with one value (its stored count) or whose words are all in other fields (the empty row is tried
+first), and nothing for a query of one word. Otherwise it reads the candidate's values of the field once more; a search that keeps fewer
+documents can be faster than the default mode, because fewer are ranked. A lookup that starts from the values table (`s.id IN (...)` over the
+partial GIN index, for words all scoped to the field) measured slower (17.5 against 15.4 ms) and is not used.
