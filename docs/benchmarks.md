@@ -267,6 +267,10 @@ statement texts) compare identical with the previous release.
 
 ### Ranking by the best value (`rank: best`)
 
+In one line: a search whose words are in a `rank: best` field costs **1.4 to 2 times** a `rank: whole` search (on 54 000 matches of a common word about
+50 ms more), a search whose words are elsewhere 1.0 to 1.15 times, and the match set, total and facets never change. It is the price of ranking each value of
+every candidate; the option is per field, so only the fields where it matters pay it.
+
 200 000 customers of the demo's ERP data (`demo/sql/erp.sql`, 1.5 addresses each, each address one value `zip city, street`), one index
 searched through `rank: whole` and `rank: best` definitions of the same tables; median and p95 of 20 warm searches, limit 20, PostgreSQL 17 in
 Docker on a laptop. The partial GIN index of the field is 8.5 MB next to the 58 MB values table (300 000 values).

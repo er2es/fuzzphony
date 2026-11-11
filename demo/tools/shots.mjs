@@ -28,6 +28,7 @@ const pages = JSON.parse(process.env.PAGES ?? JSON.stringify([
     { name: 'wizard-sample', path: '/under-the-hood/wizard?sample=1' },
     { name: 'wizard-erp', path: '/under-the-hood/wizard?sample=erp' },
     { name: 'erp', path: '/erp?tab=people&q=kovacs+budapest' },
+    { name: 'erp-best-address', path: '/erp?tab=people&q=f%C5%91+utca+szeged&single=1' }, // the two switches of the People tab: one address must match all words
     { name: 'erp-companies', path: '/erp?tab=companies&q=10079190-1-12' },
     { name: 'erp-orders', path: '/erp?tab=orders&q=ORD-2025' },
     { name: 'erp-combined', path: '/erp?tab=combined&q=kovacs' },

@@ -74,6 +74,12 @@ final class ErpController extends AbstractController
     private function single(Request $request, Fuzzphony $fuzzphony, string $tab, string $q): array
     {
         $index = Erp::TABS[$tab]['index'];
+        // People: "One address must match all words" needs the best-address ranking, so it takes it along; the ranking alone is the default
+        $single = $tab === 'people' && $request->query->get('single') === '1';
+        $best = $tab === 'people' && ($single || $request->query->get('best', '1') !== '0');
+        if ($tab === 'people' && !$best) {
+            $index = Erp::PEOPLE_WHOLE;
+        }
         $city = mb_substr(trim((string) $request->query->get('city', '')), 0, 60);
         $status = mb_substr(trim((string) $request->query->get('status', '')), 0, 20);
         $created = (string) $request->query->get('created', '');
@@ -85,7 +91,10 @@ final class ErpController extends AbstractController
         $facets = [];
         $result = null;
         if ($q !== '') {
-            $search = $fuzzphony->in($index)->asSystem()->query($q)->asYouType()->with()->explainMatches()->limit(15)->unlogged();
+            $search = $fuzzphony->in($index)->asSystem()->query($q)->asYouType()->with()->explainMatches()->highlight(...Erp::HIGHLIGHTED[$tab])->limit(15)->unlogged();
+            if ($single) {
+                $search = $search->manyMatch('single');
+            }
             if ($tab === 'people') {
                 $search = $search->facets('city');
                 if ($filters['city'] !== '') {
@@ -107,7 +116,7 @@ final class ErpController extends AbstractController
             $facets = $result->facets[$tab === 'people' ? 'city' : 'status'] ?? [];
         }
 
-        return ['result' => $result, 'hits' => $result->hits ?? [], 'facets' => $facets, 'filters' => $filters, 'created_options' => Erp::CREATED, 'total_options' => Erp::TOTALS, 'examples' => Erp::TABS[$tab]['examples']];
+        return ['result' => $result, 'hits' => $result->hits ?? [], 'facets' => $facets, 'filters' => $filters, 'best' => $best, 'single' => $single, 'created_options' => Erp::CREATED, 'total_options' => Erp::TOTALS, 'examples' => Erp::TABS[$tab]['examples']];
     }
 
     /**
@@ -204,7 +213,7 @@ final class ErpController extends AbstractController
         return $this->redirectToRoute('erp', ['tab' => 'sync'], Response::HTTP_SEE_OTHER);
     }
 
-    #[Route('/erp/{kind}/{id}', name: 'erp_detail', requirements: ['kind' => 'people|person|companies|company|orders|order', 'id' => '\d+'], methods: ['GET'])]
+    #[Route('/erp/{kind}/{id}', name: 'erp_detail', requirements: ['kind' => 'people|people_whole|person|companies|company|orders|order', 'id' => '\d+'], methods: ['GET'])]
     public function detail(string $kind, int $id, Erp $erp): Response
     {
         if (Erp::tableOf($kind) === 'order') {

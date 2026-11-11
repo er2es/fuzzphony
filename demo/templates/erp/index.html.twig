@@ -56,13 +56,20 @@
                         </select>
                     </label>
                 {% endif %}
+                {% if tab == 'people' %}
+                    <fieldset class="erp-switches">
+                        <legend class="sr-only">How the addresses of a person count</legend>
+                        <label class="check"><input type="hidden" name="best" value="0"><input type="checkbox" name="best" value="1"{{ best ? ' checked' }} data-action="change->live-search#update"><span>Rank by the best address</span></label>
+                        <label class="check"><input type="checkbox" name="single" value="1"{{ single ? ' checked' }} data-action="change->live-search#update"><span>One address must match all words</span></label>
+                    </fieldset>
+                {% endif %}
                 <button type="submit" class="sr-only">Search</button>
             </form>
 
             <div class="examples-row" aria-label="Examples">
                 <span class="label">Try</span>
                 {% for label, example in examples %}
-                    <a class="chip" href="{{ path('erp', {tab: tab, mode: tab == 'combined' ? mode : null, q: example}) }}" data-action="live-search#example" data-live-search-q-param="{{ example }}"><code>{{ example }}</code> <small>{{ label }}</small></a>
+                    <a class="chip" href="{{ path('erp', {tab: tab, mode: tab == 'combined' ? mode : null, best: tab == 'people' and not best ? '0' : null, single: tab == 'people' and single ? '1' : null, q: example}) }}" data-action="live-search#example" data-live-search-q-param="{{ example }}"><code>{{ example }}</code> <small>{{ label }}</small></a>
                 {% endfor %}
             </div>
         {% endif %}
