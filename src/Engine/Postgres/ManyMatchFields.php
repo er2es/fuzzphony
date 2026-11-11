@@ -15,6 +15,9 @@ use Fuzzphony\Core\Query\SearchQuery;
  */
 final class ManyMatchFields
 {
+    /** The most fields one single-value check reads together (their values' cross product). */
+    public const int MAX_FIELDS = 3;
+
     /**
      * @return list<string> empty when the mode is "any" or the viewer sees no field with rank: best (the search is then the default one)
      *
@@ -37,6 +40,12 @@ final class ManyMatchFields
             }
         }
 
-        return $query->manyMatchFields === [] ? $visible : $query->manyMatchFields;
+        $fields = $query->manyMatchFields === [] ? $visible : $query->manyMatchFields;
+        if (count($fields) > self::MAX_FIELDS) {
+            // the single-value check reads every combination of the fields' matching values: bounded by the number of fields
+            throw new InvalidQuery(sprintf('manyMatch(): at most %d fields can be checked together, %d would be (%s); name the ones that must hold the words in one value: manyMatch(\'single\', ...).', self::MAX_FIELDS, count($fields), implode(', ', $fields)));
+        }
+
+        return $fields;
     }
 }

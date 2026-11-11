@@ -436,7 +436,8 @@ A field or filter declared [`many`](configuration.md#several-values-per-document
   reports the documents over the limit; raise `many.limit` and reindex if you need more. `manyMatch('single')` sees the same values: one past the
   limit never satisfies it.
 - **`manyMatch('single')` reads the values of every candidate.** What happens: the mode checks, for each document the search's own words find, its
-  values of the named fields one by one (with two named fields every pair: up to `limit` x `limit` rows per document), so a search whose words match
+  values of the named fields that hold a word of the query (or are like a typo-tolerant one) one by one; with two named fields every pair of those
+  (up to `limit` x `limit` rows per document when every value holds a word; at most 3 fields together, more are refused), so a search whose words match
   many documents costs more than the default mode ([benchmarks](benchmarks.md#ranking-by-the-best-value-rank-best)). An excluded word is judged on
   the whole document (excluded when any value holds it), not per value. A typo-tolerant word must be similar to one value or one other field: a typo
   over a field boundary (`kisanna` for the name "Kiss" and the address "Anna utca 1") matches in the default mode only. The empty-result relaxation

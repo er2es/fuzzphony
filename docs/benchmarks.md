@@ -304,7 +304,9 @@ hold no query word changed nothing measurable and are not used.
 | `kossuth la`, as you type | 195 ms | 223 ms | 1.15 | 2 000 / 2 000 |
 | `szgeed fo`, typo | 56.3 ms | 65.0 ms | 1.15 | 1 372 / 980 |
 
-The check costs nothing for a document with one value (its stored count) or whose words are all in other fields (the empty row is tried
-first), and nothing for a query of one word. Otherwise it reads the candidate's values of the field once more; a search that keeps fewer
+The full-text check costs nothing for a document with one value (its stored count) or whose words are all in other fields (the empty row is tried
+first), and nothing for a query of one word; the typo check always reads the values (a typo word must not match over a field boundary).
+Only the values that hold a word of the query take part, so a second named field whose values hold none adds almost nothing (1 000
+documents of 50 addresses and 50 tags, `alpha beta` where no address holds both: address + tag 652 ms before, 48 ms now; address alone 33 ms). Otherwise it reads the candidate's values of the field once more; a search that keeps fewer
 documents can be faster than the default mode, because fewer are ranked. A lookup that starts from the values table (`s.id IN (...)` over the
 partial GIN index, for words all scoped to the field) measured slower (17.5 against 15.4 ms) and is not used.

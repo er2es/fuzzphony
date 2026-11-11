@@ -11,6 +11,7 @@ use Fuzzphony\Core\Query\Ast\AnyOf;
 use Fuzzphony\Core\Query\Ast\FieldScoped;
 use Fuzzphony\Core\Query\Ast\Node;
 use Fuzzphony\Core\Query\Ast\Not;
+use Fuzzphony\Core\Query\Ast\Phrase;
 use Fuzzphony\Core\Query\Ast\Term;
 use Fuzzphony\Core\Query\Filter\Condition;
 use Fuzzphony\Core\Ranking\RankingProfile;
@@ -867,26 +868,40 @@ SELECT
      */
     private function singleValue(Node $root, ParameterBag $params, array $emptyQueries, Thresholds $thresholds, bool $fuzzy, array &$q): ?string
     {
+        $prefix = $fuzzy ? 'mf' : 'me';
         $aliases = [];
-        $from = [];
-        $few = [];
         foreach ($this->single as $i => $field) {
             $aliases[$field] = 'v' . ($i + 1);
-            // the empty row first: a document whose words are all in other fields passes without reading a value
-            $from[] = sprintf(
-                "(SELECT ''::tsvector AS t, ''::text AS z UNION ALL SELECT v.t, v.z FROM %s AS v WHERE v.doc = s.id AND v.field = %s) AS %s",
-                $this->names->values($this->index),
-                Sql::string($field),
-                $aliases[$field],
-            );
-            $few[] = sprintf('s.%s <= 1', Sql::ident($this->names->valueCountName($field)));
         }
         $compiler = new FuzzyQueryCompiler($this->index, $thresholds, $this->names, [], $this->allowedFields ?? $this->index->fieldNames(), $this->transpositions);
-        $within = $compiler->withinValues($root, $params, $emptyQueries, $aliases, $fuzzy, $fuzzy ? 'mf' : 'me');
+        $within = $compiler->withinValues($root, $params, $emptyQueries, $aliases, $fuzzy, $prefix);
         if ($within === null) {
             return null;
         }
         array_push($q, ...$within['columns']);
+        $words = self::mayHold($root);
+        $from = [];
+        $few = [];
+        foreach ($this->single as $i => $field) {
+            // Only the values that can hold a word of the query take part: every leaf, and each lexeme of a leaf of several (a
+            // phrase over the field's boundary needs one of them), on the value alone (a compiler that sees the field only). Exact:
+            // a value that holds none satisfies no word the empty row does not, and joined between two columns it can only part
+            // a phrase, so the empty row passes whenever it would; the cross product of several fields spans only these values.
+            $holds = (new FuzzyQueryCompiler($this->index, $thresholds, $this->names, [], [$field], $this->transpositions))
+                ->withinValues(new AnyOf($words), $params, $emptyQueries, [$field => 'v'], $fuzzy, $prefix . 'r' . ($i + 1));
+            if ($holds !== null) {
+                array_push($q, ...$holds['columns']);
+            }
+            // the empty row first: a document whose words are all in other fields passes without reading a value
+            $from[] = sprintf(
+                "(SELECT ''::tsvector AS t, ''::text AS z UNION ALL SELECT v.t, v.z FROM %s AS v WHERE v.doc = s.id AND v.field = %s%s) AS %s",
+                $this->names->values($this->index),
+                Sql::string($field),
+                $holds === null ? '' : ' AND ' . $holds['predicate'],
+                $aliases[$field],
+            );
+            $few[] = sprintf('s.%s <= 1', Sql::ident($this->names->valueCountName($field)));
+        }
         $exists = sprintf('EXISTS (SELECT 1 FROM %s WHERE %s)', implode(' CROSS JOIN ', $from), $within['predicate']);
 
         // The full-text branch: a document with at most one value in each named field (its stored count; NULL before the reindex
@@ -912,6 +927,31 @@ SELECT
         $leaf = $leaves[0] instanceof FieldScoped ? $leaves[0]->node : $leaves[0];
 
         return $leaf instanceof Term && count(TsQueryCompiler::lexemes($leaf->text)) === 1;
+    }
+
+    /**
+     * The words a value must hold one of to take part in the single-value check: the positive leaves, and for a leaf of several lexemes
+     * (a phrase, `usb-c`) each lexeme as a prefix word (a superset: the value may hold one end of a phrase over a boundary).
+     *
+     * @return list<Node>
+     */
+    private static function mayHold(Node $root): array
+    {
+        $words = [];
+        foreach (self::positive($root) as $leaf) {
+            $words[] = $leaf;
+            $inner = $leaf instanceof FieldScoped ? $leaf->node : $leaf;
+            assert($inner instanceof Term || $inner instanceof Phrase, 'a positive leaf is a word or a phrase, scoped or not');
+            $lexemes = TsQueryCompiler::lexemes($inner instanceof Term ? $inner->text : implode(' ', $inner->words));
+            if (count($lexemes) > 1) {
+                foreach ($lexemes as $lexeme) {
+                    $term = new Term($lexeme, true, true);
+                    $words[] = $leaf instanceof FieldScoped ? new FieldScoped($leaf->field, $term) : $term;
+                }
+            }
+        }
+
+        return $words;
     }
 
     /** @return list<Node> the positive leaves */

@@ -202,7 +202,9 @@ A phrase must be inside one field or one value; a word scoped to the field (`add
 word (`fo utca szgeed`) is judged by its similarity to that value or to one other visible field, never to several fields joined: `kisanna` over
 the name "Kiss" and the address "Anna utca 1" matches in the default mode (the typo text is every field joined) but not in the single-value mode,
 whatever the number of addresses. The last word of a search-as-you-type is a prefix inside the value. With two named
-fields, one value of each is chosen together (every pair is tried). Totals, facets and the candidates follow the mode; the rank is the
+fields, one value of each is chosen together (every pair of the values that hold a word of the query is tried); at most 3 fields are checked
+together: with more (named, or every `rank: best` field the viewer sees when none is named) the search is refused with `InvalidQuery`; name
+the ones that must hold the words in one value. Totals, facets and the candidates follow the mode; the rank is the
 [best-value rank](configuration.md#several-values-per-document-many) (the matching value is the best one by construction), and `explainMatches()` / the highlight show it.
 Only the first `limit` values of a document are stored, so a value past the limit never satisfies the mode (as it never matches in the default mode).
 The empty-result relaxation and "did you mean" judge each word on its own, as in the default mode: a search with no single-value match can
