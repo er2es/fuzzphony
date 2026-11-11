@@ -57,6 +57,7 @@ Notes that follow from the code:
   exist, `CREATE EXTENSION IF NOT EXISTS` needs nothing.
 - **Returned fields.** An index that declares `returnable` columns ([Searching](searching.md#returning-source-fields-with)) makes the search role read the source: `--dump-grants --role=search`
   then prints `SELECT` on the source tables (the table of a `table` source and the watched tables), and only for such indexes. A table the query reads without watching it is yours to grant.
+  A `returnable` **many field** also makes it print `SELECT` on the field's child table (`many.from`), and the values table of any index with a `many` field is granted `SELECT` too. Both grants are on the **whole table**: every column and the rows of every tenant, because the search role cannot be limited to the rows of one document or tenant in PostgreSQL's grants; the library's statements select the value column, `doc` and the key only, and repeat the tenant condition. If that is too much for the search role, expose a view of the child table to it instead.
 - **A custom query source** (`source: { query: ... }`, or each of `sources`) lists its tables in `watch`; the grants cover the watched tables and the table of a `table` source. A table the query reads
   without watching it is yours to grant `SELECT` on.
 

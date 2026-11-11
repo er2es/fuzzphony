@@ -7,6 +7,7 @@ namespace Fuzzphony\Engine\Postgres\Inspection;
 use Fuzzphony\Core\Database\Connection;
 use Fuzzphony\Core\Definition\FieldDefinition;
 use Fuzzphony\Core\Definition\IndexDefinition;
+use Fuzzphony\Core\Definition\ManyRank;
 use Fuzzphony\Core\Definition\ManyValues;
 use Fuzzphony\Core\Inspection\Check;
 use Fuzzphony\Core\Support\Coerce;
@@ -117,11 +118,17 @@ final readonly class ManyCheck
             }
             $checks[] = Check::ok($label, sprintf('index %s present, %s', $name, self::size(Coerce::int($row['bytes']))));
             array_push($checks, ...$this->unknownCounts($index, $field->name, $label));
+            array_push($checks, ...$this->wrongCounts($index, $field, $label));
         }
         $stale = array_map(Coerce::str(...), array_column($this->connection->fetchAll(
-            'SELECT c.relname FROM pg_index AS i JOIN pg_class AS c ON c.oid = i.indexrelid WHERE i.indrelid = to_regclass(:t) AND NOT i.indisprimary AND (c.relname ~ :a OR c.relname ~ :b) ORDER BY c.relname',
-            ['t' => $this->names->values($index), 'a' => '_best_', 'b' => '_[0-9a-f]{8}$'],
+            'SELECT c.relname FROM pg_index AS i JOIN pg_class AS c ON c.oid = i.indexrelid WHERE i.indrelid = to_regclass(:t) AND NOT i.indisprimary AND starts_with(c.relname, :p) ORDER BY c.relname',
+            ['t' => $this->names->values($index), 'p' => substr($this->names->valuesName($index) . '_best_', 0, Names::MAX_IDENTIFIER_BYTES - 9)],
         ), 'relname'));
+        foreach ($index->manyFields() as $field) {
+            if ($field->many?->rank !== ManyRank::Best) {
+                array_push($checks, ...$this->staleCount($index, $field->name));
+            }
+        }
         foreach (array_diff($stale, $expected) as $name) {
             $checks[] = Check::warning('Values ranking', sprintf('The index %s of the values table is not expected by any field with "rank: best": it costs writes for nothing.', $name), 'bin/console fuzzphony:schema --apply');
         }
@@ -148,6 +155,48 @@ final readonly class ManyCheck
         $unknown = $this->connection->fetchAll(sprintf('SELECT 1 FROM %s WHERE %s IS NULL LIMIT 1', $this->names->sidecar($index), Sql::ident($column))) !== [];
 
         return $unknown ? [Check::warning($label, 'Some documents have no value count yet (written before "rank: best"): they rank correctly but read their values even when they have one; a reindex writes the count.', sprintf('bin/console fuzzphony:reindex %s', $index->name))] : [];
+    }
+
+    /**
+     * The value count of a field that is not `rank: best` (any more): nothing maintains it, so it is stale and would be trusted if the field switched back.
+     *
+     * @return list<Check>
+     */
+    private function staleCount(IndexDefinition $index, string $field): array
+    {
+        $column = $this->names->valueCountName($field);
+        $exists = $this->connection->fetchAll(
+            'SELECT 1 FROM pg_attribute WHERE attrelid = to_regclass(:t) AND attname = :c AND NOT attisdropped',
+            ['t' => $this->names->sidecar($index), 'c' => $column],
+        ) !== [];
+
+        return $exists ? [Check::warning(sprintf('Values ranking "%s"', $field), sprintf('The column %s (the value count of a "rank: best" field) is still there although the field is not declared with it: nothing keeps it current, and switching back would trust stale counts (a wrong ranking).', $column), 'bin/console fuzzphony:schema --apply')] : [];
+    }
+
+    /**
+     * A sample of the stored value counts against the values table: a count that differs is stale (it would pick the one-value shortcut or skip the per-value rank wrongly).
+     *
+     * @return list<Check>
+     */
+    private function wrongCounts(IndexDefinition $index, FieldDefinition $field, string $label): array
+    {
+        $many = $field->many;
+        $column = $this->names->valueCountName($field->name);
+        $exists = $many !== null && $this->connection->fetchAll(
+            'SELECT 1 FROM pg_attribute WHERE attrelid = to_regclass(:t) AND attname = :c AND NOT attisdropped',
+            ['t' => $this->names->sidecar($index), 'c' => $column],
+        ) !== [];
+        if (!$exists) {
+            return [];
+        }
+        $wrong = $this->connection->fetchAll(sprintf(
+            'SELECT 1 FROM (SELECT id, %1$s AS n FROM %2$s WHERE %1$s IS NOT NULL LIMIT 500) AS s WHERE s.n <> (SELECT count(*) FROM %3$s AS v WHERE v.doc = s.id AND v.field = :f) LIMIT 1',
+            Sql::ident($column),
+            $this->names->sidecar($index),
+            $this->names->values($index),
+        ), ['f' => $field->name]) !== [];
+
+        return $wrong ? [Check::warning($label, sprintf('The stored value counts (%s) of some documents differ from their values (stale, e.g. from a time the field was not "rank: best"): they would rank by the wrong shortcut.', $column), sprintf('bin/console fuzzphony:reindex %s', $index->name))] : [];
     }
 
     private static function size(int $bytes): string

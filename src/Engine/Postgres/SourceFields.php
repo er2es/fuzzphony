@@ -54,7 +54,7 @@ final readonly class SourceFields
         return array_values(array_filter($visible, static fn(string $name): bool => in_array($name, $asked, true)));
     }
 
-    /** Whether this viewer may read a returnable name: no granted field he lacks is called that, or reads a column it maps to (in any source). */
+    /** Whether this viewer may read a returnable name: no granted field he lacks, and no many field outside his visible fields, is called that or reads a column it maps to (in any source). */
     private static function mayRead(IndexDefinition $index, SearchQuery $query, string $name): bool
     {
         if ($query->allowedFields === null) {
@@ -62,7 +62,8 @@ final readonly class SourceFields
         }
         $keys = [$name, ...$index->returnableColumnsOf($name)];
         foreach ($index->fields as $field) {
-            if ($field->granted !== null && (in_array($field->name, $keys, true) || in_array($field->column(), $keys, true)) && !in_array($field->name, $query->allowedFields, true)) {
+            // a granted field the viewer lacks, and a many field he cannot search (restrictedToFields() included): its values are a data path of their own, so with() follows the search
+            if (($field->granted !== null || $field->many !== null) && (in_array($field->name, $keys, true) || in_array($field->column(), $keys, true)) && !in_array($field->name, $query->allowedFields, true)) {
                 return false;
             }
         }

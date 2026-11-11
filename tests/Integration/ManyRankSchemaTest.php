@@ -186,7 +186,7 @@ final class ManyRankSchemaTest extends TestCase
         $plainStatements = array_map(static fn($s): string => $s->sql, $generator->index($this->definition([]))->statements);
         self::assertSame(count($plainStatements), count($rest));
         foreach ($plainStatements as $i => $sql) {
-            if (!str_contains($sql, 'fuzzphony_meta') && !str_contains($rest[$i], '"n_city"')) {
+            if (!str_contains($sql, 'fuzzphony_meta') && !str_contains($rest[$i], '"n_city"') && !str_contains($sql, "'^n_'")) {
                 self::assertSame($sql, $rest[$i], 'statement ' . $i);
             }
         }

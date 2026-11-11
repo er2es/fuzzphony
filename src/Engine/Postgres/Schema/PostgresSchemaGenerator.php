@@ -264,14 +264,25 @@ final class PostgresSchemaGenerator
                 'Drop a values index of a field that is no longer declared with many: { rank: best }',
                 transactional: false,
                 forEach: sprintf(
-                    'SELECT quote_ident(n.nspname) || \'.\' || quote_ident(c.relname) AS name FROM pg_index AS i JOIN pg_class AS c ON c.oid = i.indexrelid JOIN pg_namespace AS n ON n.oid = c.relnamespace WHERE i.indrelid = to_regclass(%1$s) AND NOT i.indisprimary AND (c.relname ~ %2$s OR c.relname ~ %3$s) AND c.relname <> ALL (%4$s)',
+                    'SELECT quote_ident(n.nspname) || \'.\' || quote_ident(c.relname) AS name FROM pg_index AS i JOIN pg_class AS c ON c.oid = i.indexrelid JOIN pg_namespace AS n ON n.oid = c.relnamespace WHERE i.indrelid = to_regclass(%1$s) AND NOT i.indisprimary AND left(c.relname, length(%2$s)) = %2$s AND c.relname <> ALL (%3$s)',
                     Sql::string($this->names->values($index)),
-                    Sql::string('_best_'),
-                    Sql::string('_[0-9a-f]{8}$'),
+                    Sql::string(substr($this->names->valuesName($index) . '_best_', 0, Names::MAX_IDENTIFIER_BYTES - 9)), // a long name is cut to this much and gets a hash tail (Names::limit()): ours all start with it
                     'ARRAY[' . implode(', ', array_map(Sql::string(...), ['', ...array_map(fn(FieldDefinition $f): string => $this->names->valuesBestIndexName($index, $f->name), $index->manyBestFields())])) . ']::text[]',
                 ),
             );
         }
+        // a field that left `rank: best` (or is gone) no longer maintains its value count: a stale one would be trusted when it switches back (the one-value
+        // shortcut), so the column goes: the same state a full reindex leaves (the shadow table is built without it). Idempotent; a table without such a column is not locked
+        $statements[] = new Statement(
+            sprintf(
+                'DO %1$s DECLARE r record; BEGIN FOR r IN SELECT attname FROM pg_attribute WHERE attrelid = to_regclass(%2$s) AND attname ~ \'^n_\' AND NOT attisdropped AND attname <> ALL (%3$s) LOOP EXECUTE format(\'ALTER TABLE %4$s DROP COLUMN %%I\', r.attname); END LOOP; END %1$s',
+                self::TAG,
+                Sql::string($table),
+                'ARRAY[' . implode(', ', array_map(Sql::string(...), ['', ...array_map(fn(FieldDefinition $f): string => $this->names->valueCountName($f->name), $index->manyBestFields())])) . ']::text[]',
+                str_replace("'", "''", $table),
+            ),
+            'Drop the value count column of a field that is no longer declared with many: { rank: best }',
+        );
         foreach ($this->layoutSteps($index) as $target => [$step, $why]) {
             $statements[] = new Statement(sprintf(
                 'DO %1$s BEGIN IF to_regclass(%2$s) IS NOT NULL THEN IF (SELECT layout_version FROM %3$s WHERE index_name = %4$s) < %5$d THEN %6$s END IF; END IF; END %1$s',
@@ -677,15 +688,14 @@ ON CONFLICT (index_name) DO UPDATE SET layout_version = EXCLUDED.layout_version,
             }
         }
         foreach ($index->manyBestFields() as $field) {
-            // the number of values the values table gets for the document (see valuesRefresh(): the non-null ones, at most `limit`)
+            // the number of values the values table gets for the document (see valuesRefresh(): the non-null ones, at most `limit`); the key is compared as it is, with no cast on the child column, so its index serves the count
             $many = $field->many ?? throw new \LogicException('A rank: best field has many values.');
             $columns[] = $this->names->valueCountName($field->name);
             $values[] = sprintf(
-                'least(%d, (SELECT count(*) FROM %s AS c WHERE c.%s::%s = doc.fz_id AND c.%s IS NOT NULL))::smallint',
+                'least(%d, (SELECT count(*) FROM %s AS c WHERE c.%s = doc.fz_id AND c.%s IS NOT NULL))::smallint',
                 $many->limit,
                 Sql::ident($many->from),
                 Sql::ident($many->key),
-                Types::id($index->idType),
                 Sql::ident($many->column),
             );
         }
