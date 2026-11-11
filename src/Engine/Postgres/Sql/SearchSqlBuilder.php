@@ -6,7 +6,11 @@ namespace Fuzzphony\Engine\Postgres\Sql;
 
 use Fuzzphony\Core\Definition\FilterType;
 use Fuzzphony\Core\Definition\IndexDefinition;
+use Fuzzphony\Core\Query\Ast\AllOf;
+use Fuzzphony\Core\Query\Ast\AnyOf;
+use Fuzzphony\Core\Query\Ast\FieldScoped;
 use Fuzzphony\Core\Query\Ast\Node;
+use Fuzzphony\Core\Query\Ast\Not;
 use Fuzzphony\Core\Query\Filter\Condition;
 use Fuzzphony\Core\Ranking\RankingProfile;
 use Fuzzphony\Core\Ranking\Thresholds;
@@ -62,6 +66,14 @@ final class SearchSqlBuilder
          * @var list<string>
          */
         private readonly array $bestValues = [],
+        /**
+         * manyMatch('single'): the rank: best fields (visible to the viewer, ManyMatchFields::resolve()) of which ONE value must hold
+         * every word the document needs from the field (singleValue()); [] keeps every statement as it was. Needs the parsed query
+         * ($scopedRoot) in every ranked statement.
+         *
+         * @var list<string>
+         */
+        private readonly array $single = [],
     ) {}
 
     /**
@@ -273,6 +285,21 @@ final class SearchSqlBuilder
         if ($fuzzy !== null) {
             array_push($q, ...$fuzzy->columns);
         }
+        $fuzzyPredicate = $fuzzy?->predicate;
+        if ($this->single !== [] && $scopedRoot !== null) {
+            // manyMatch('single'): the full-text branch and the typo branch (and so the totals, facets and candidates) keep a document
+            // only when one value of each named field holds the field's words (singleValue())
+            if ($tsquery !== null && ($exists = $this->singleValue($scopedRoot, $params, $emptyQueries, $thresholds, false, $q)) !== null) {
+                $strict[] = $exists;
+                $first = $this->valuesFirst($scopedRoot, $params, $config, $q);
+                if ($first !== null) {
+                    $strict[] = $first;
+                }
+            }
+            if ($fuzzyPredicate !== null && $fuzzyRoot !== null && ($exists = $this->singleValue($fuzzyRoot, $params, $emptyQueries, $thresholds, true, $q)) !== null) {
+                $fuzzyPredicate .= ' AND ' . $exists;
+            }
+        }
         // MATERIALIZED: one row computed once, and the planner must not see the per-word values (see FuzzyQueryCompiler)
         $ctes = ['q AS MATERIALIZED (SELECT ' . implode(', ', $q) . ')'];
 
@@ -369,7 +396,7 @@ final class SearchSqlBuilder
                 $fuzzy->score,
                 $orderedFuzzy ? ', (' . $this->visibleTextSize() . ')::bigint AS w' : '',
                 $table,
-                $fuzzy->predicate,
+                $fuzzyPredicate,
                 $filterSql,
                 $cap,
             );
@@ -385,7 +412,7 @@ final class SearchSqlBuilder
                     $bonuses[2],
                     $bonuses[3],
                     $table,
-                    $fuzzy->predicate,
+                    $fuzzyPredicate,
                     $filterSql,
                     // the rows the work budget allows, by what the first matches weigh in the fields the viewer may see (never a hidden field)
                     sprintf(
@@ -823,6 +850,82 @@ SELECT
         );
 
         return ['sql' => $sql, 'params' => $params->all()];
+    }
+
+    /**
+     * manyMatch('single') (spec 0.12 section 5.3): one value of each named field must hold every word the document needs from it.
+     *
+     *   EXISTS (SELECT 1 FROM (SELECT v.t, v.z FROM <values> AS v WHERE v.doc = s.id AND v.field = 'F'
+     *                          UNION ALL SELECT ''::tsvector, ''::text) AS v1 [CROSS JOIN ... AS v2]
+     *           WHERE <the positive part of the query, word by word on the visible fields' own columns, F's bound to v1.t / v1.z>)
+     *
+     * The empty row is "no value needed" (every word in another field); several named fields are their values' cross product (at most
+     * `limit` x `limit` rows per candidate). Only the viewer's visible fields' columns are read (FuzzyQueryCompiler::withinValues() on
+     * a compiler made with them), and only the rows of a named field, which ManyMatchFields made sure the viewer may see. An excluded
+     * word is not in it: the statement's own predicate excludes the document when any value holds it. The q columns it adds are
+     * named after `$fuzzy` (`me…`, `mf…`).
+     *
+     * @param list<string> $emptyQueries
+     * @param list<string> $q            the q columns, extended
+     */
+    private function singleValue(Node $root, ParameterBag $params, array $emptyQueries, Thresholds $thresholds, bool $fuzzy, array &$q): ?string
+    {
+        $aliases = [];
+        $from = [];
+        foreach ($this->single as $i => $field) {
+            $aliases[$field] = 'v' . ($i + 1);
+            $from[] = sprintf(
+                "(SELECT v.t, v.z FROM %s AS v WHERE v.doc = s.id AND v.field = %s UNION ALL SELECT ''::tsvector, ''::text) AS %s",
+                $this->names->values($this->index),
+                Sql::string($field),
+                $aliases[$field],
+            );
+        }
+        $compiler = new FuzzyQueryCompiler($this->index, $thresholds, $this->names, [], $this->allowedFields ?? $this->index->fieldNames(), $this->transpositions);
+        $within = $compiler->withinValues($root, $params, $emptyQueries, $aliases, $fuzzy, $fuzzy ? 'mf' : 'me');
+        if ($within === null) {
+            return null;
+        }
+        array_push($q, ...$within['columns']);
+
+        return sprintf('EXISTS (SELECT 1 FROM %s WHERE %s)', implode(' CROSS JOIN ', $from), $within['predicate']);
+    }
+
+    /**
+     * The values-first lookup of manyMatch('single'): when every positive word is scoped to ONE named field, the documents are also
+     * those with a value holding the words (`s.id IN (...)` over the values table and its partial GIN on `t`), AND-ed with the
+     * statement's conditions (the tenant's included). The planner chooses whether to start from it. Null otherwise.
+     *
+     * @param list<string> $q the q columns, extended
+     */
+    private function valuesFirst(Node $root, ParameterBag $params, string $config, array &$q): ?string
+    {
+        $fields = array_unique(self::scopes($root));
+        if (count($fields) !== 1 || !in_array($fields[0], $this->single, true)) {
+            return null;
+        }
+        $words = (new TsQueryCompiler($this->index, true, true))->compile($root);
+        if ($words === null) {
+            return null;
+        }
+        $q[] = sprintf('to_tsquery(%s, %s) AS tsf', $config, $params->add($words));
+
+        return sprintf('s.id IN (SELECT v.doc FROM %s AS v WHERE v.field = %s AND v.t @@ q.tsf)', $this->names->values($this->index), Sql::string($fields[0]));
+    }
+
+    /**
+     * The field each positive leaf is scoped to ('' for an unscoped one).
+     *
+     * @return list<string>
+     */
+    private static function scopes(Node $node): array
+    {
+        return match (true) {
+            $node instanceof Not => [],
+            $node instanceof AllOf, $node instanceof AnyOf => array_merge([], ...array_map(self::scopes(...), $node->nodes)),
+            $node instanceof FieldScoped => [$node->field],
+            default => [''],
+        };
     }
 
     /**

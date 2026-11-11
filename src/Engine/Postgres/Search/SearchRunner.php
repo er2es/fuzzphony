@@ -196,10 +196,7 @@ final readonly class SearchRunner
         // with(): checked against what THIS viewer may ask for, before anything runs (an unknown and a hidden name fail alike)
         $returning = $query->returning === null ? null : SourceFields::resolve($index, $query);
         // manyMatch(): validated against what THIS viewer may search (a hidden name fails like an unknown one)
-        if (ManyMatchFields::resolve($index, $query) !== []) {
-            // P3/P4 replace this refusal with the best-value rank and the single-value predicate
-            throw new InvalidQuery('manyMatch(\'single\') is not implemented in this build yet: the definition and query API are in place, the search itself is not.');
-        }
+        ManyMatchFields::resolve($index, $query);
         foreach ($query->facets as $facet) {
             $index->assertFacetable($facet);
         }
@@ -417,7 +414,9 @@ final readonly class SearchRunner
             // a word scoped to a field the index has is rechecked against that field's own column
             // (a restricted viewer's every word against the allowed fields', see SearchSqlBuilder)
             // (so is a phrase on an index with several fields: tsv caps its positions, see SearchSqlBuilder)
-            $scopedRoot = $compiler->hasFieldScope($root) || $query->allowedFields !== null || (count($index->fields) > 1 && $compiler->hasSequence($root)) ? $root : null;
+            $scopedRoot = $compiler->hasFieldScope($root) || $query->allowedFields !== null || (count($index->fields) > 1 && $compiler->hasSequence($root))
+                // and manyMatch('single'): its predicate is compiled from the parsed query (SearchSqlBuilder::singleValue())
+                || $c->single() !== [] ? $root : null;
         }
         $plain = implode(' ', TsQueryCompiler::lexemes(implode(' ', NodeInspector::positiveWords($root, null, $query->asYouType))));
 
