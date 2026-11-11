@@ -39,7 +39,7 @@ final class Fingerprint
     {
         return self::hash([
             'source' => self::source($index),
-            'fields' => self::fields($index),
+            'fields' => self::fields($index, true),
             'filters' => self::filters($index),
             'text' => [$index->text->language, $index->text->unaccent],
             'boost' => $index->boostColumn,
@@ -65,10 +65,14 @@ final class Fingerprint
         return [$index->source->table, $index->source->query, $index->source->idColumn];
     }
 
-    /** @return list<list<mixed>> */
-    private static function fields(IndexDefinition $index): array
+    /**
+     * @param bool $forDocuments the documents hash leaves a many field's rank out (it changes no stored document)
+     *
+     * @return list<list<mixed>>
+     */
+    private static function fields(IndexDefinition $index, bool $forDocuments = false): array
     {
-        return array_map(static fn(FieldDefinition $f): array => $f->many !== null ? [$f->name, $f->column(), $f->weight->value, $f->fuzzy, $f->many->fingerprint()] : ($f->code ? [$f->name, $f->column(), $f->weight->value, $f->fuzzy, true] : [$f->name, $f->column(), $f->weight->value, $f->fuzzy]), $index->fields);
+        return array_map(static fn(FieldDefinition $f): array => $f->many !== null ? [$f->name, $f->column(), $f->weight->value, $f->fuzzy, $forDocuments ? $f->many->documentsFingerprint() : $f->many->fingerprint()] : ($f->code ? [$f->name, $f->column(), $f->weight->value, $f->fuzzy, true] : [$f->name, $f->column(), $f->weight->value, $f->fuzzy]), $index->fields);
     }
 
     /**
@@ -91,22 +95,26 @@ final class Fingerprint
      * The returnable columns (what SearchBuilder::with() may return): absent for an index without any, so the hash of every such index
      * stays what it was.
      *
-     * @return array{returnable?: list<string>|array<string, list<string>>}
+     * @return array<string, mixed>
      */
     private static function returnable(IndexDefinition $index): array
     {
         if ($index->isMultiSource()) {
             $each = [];
+            $as = [];
             foreach ($index->sources as $source) {
                 if ($source->returnable !== []) {
                     $each[$source->name] = $source->returnable;
                 }
+                if ($source->returnableAs !== []) {
+                    $as[$source->name] = $source->returnableAs;
+                }
             }
 
-            return $each === [] ? [] : ['returnable' => $each];
+            return ($each === [] ? [] : ['returnable' => $each]) + ($as === [] ? [] : ['returnable_as' => $as]);
         }
 
-        return $index->returnable === [] ? [] : ['returnable' => $index->returnable];
+        return ($index->returnable === [] ? [] : ['returnable' => $index->returnable]) + ($index->returnableAs === [] ? [] : ['returnable_as' => $index->returnableAs]);
     }
 
     /** @return list<list<mixed>> */

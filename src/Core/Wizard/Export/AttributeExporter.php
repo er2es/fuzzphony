@@ -23,7 +23,7 @@ final class AttributeExporter
 {
     public function supports(IndexDefinition $index): bool
     {
-        return $index->source->table !== null && $index->watches === [] && $index->returnable === [] && !$index->hasMany() && !$this->hasProfilesOrThresholds($index);
+        return $index->source->table !== null && $index->watches === [] && $index->returnable === [] && $index->returnableAs === [] && !$index->hasMany() && !$this->hasProfilesOrThresholds($index);
     }
 
     private function hasProfilesOrThresholds(IndexDefinition $index): bool

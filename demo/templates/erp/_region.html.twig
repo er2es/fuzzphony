@@ -6,7 +6,7 @@
     {% set d = erp_row(hit) %}
     {% set title %}<a href="{{ path('erp_detail', {kind: hit.kind, id: hit.id}) }}">{{ d.title }}</a>{% endset %}
     {% set aside %}<div class="row-flags"><span class="flag" title="index">{{ hit.index }}</span>{% if hit.index == 'site' or hit.kind != hit.index %}<span class="flag is-ok" title="kind">{{ hit.kind }}</span>{% endif %}</div>{% endset %}
-    {% set below %}{% set why = erp_reasons(hit, q) %}{% if why %}<div class="row-why"><span class="why-label">Why:</span> {{ why|join(' · ') }}</div>{% endif %}{% endset %}
+    {% set below %}{% for l in erp_lines(hit) %}<div class="row-match"><span class="match-label">{{ l.label }}</span> {{ l.html|raw }}</div>{% endfor %}{% set why = erp_reasons(hit, q) %}{% if why %}<div class="row-why"><span class="why-label">Why:</span> {{ why|join(' · ') }}</div>{% endif %}{% endset %}
     {{ ui.product_row('', title, d.sub, aside, null, below) }}
 {% endmacro %}
 {% import _self as r %}
@@ -27,6 +27,13 @@
                 {% set chosen = filters.city ?: filters.status %}
                 <a class="token" href="{{ path('erp', {tab: tab, q: q}) }}" aria-label="Remove the filter {{ chosen }}">{{ chosen }}<svg class="icon" aria-hidden="true"><use href="#i-clear"/></svg></a>
             </div>
+        {% endif %}
+        {% if tab == 'people' %}
+            <p class="erp-why" data-address-note>
+                {% if single %}What this shows: <code>manyMatch('single')</code> keeps only the people with one address that holds every word; people whose words are spread over two addresses drop out.
+                {% elseif best %}What this shows: <code>rank: best</code> ranks a person by their best single address, so one address with every word comes before words spread over two addresses. The same people are found.
+                {% else %}What this shows: with the default ranking all addresses of a person count as one text, so words spread over two addresses rank like words in one.{% endif %}
+            </p>
         {% endif %}
         {% if result.warnings %}<div class="warnings">{% for w in result.warnings %}<p>{{ w }}</p>{% endfor %}</div>{% endif %}
         {% if not hits %}

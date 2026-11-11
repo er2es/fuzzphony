@@ -298,15 +298,15 @@ final class ReturnedFieldsTest extends TestCase
         $explained = $fz->in('rf_site')->query('mouse')->with('slug', 'price', 'url')->explain();
         $hits = self::byId($explained->result->hits);
 
-        $labels = array_slice(self::labels($explained->statements), -2);
-        sort($labels);
-        self::assertSame(['returned fields: article', 'returned fields: item'], $labels);
+        self::assertSame(['returned fields: rf_site'], array_slice(self::labels($explained->statements), -1));
+        self::assertSame(1, count(array_filter(self::labels($explained->statements), static fn(string $l): bool => str_starts_with($l, 'returned fields'))), 'one statement for the whole page, whatever the sources');
+        self::assertStringContainsString('UNION ALL', self::last($explained->statements)['sql']);
         self::assertSame(['slug' => 'wireless-mouse', 'price' => 19.9, 'url' => null], $hits[1]->data);
         self::assertSame(['slug' => null, 'price' => null, 'url' => '/articles/choosing-a-mouse'], $hits[self::ARTICLE]->data);
         self::assertSame('article', $hits[self::ARTICLE]->kind);
 
         $only = $fz->in('rf_site')->query('keyboard')->with('slug')->explain();
-        self::assertSame(1, count(array_filter(self::labels($only->statements), static fn(string $l): bool => str_starts_with($l, 'returned fields'))), 'one statement per source on the page');
+        self::assertSame(1, count(array_filter(self::labels($only->statements), static fn(string $l): bool => str_starts_with($l, 'returned fields'))), 'one statement for the page');
     }
 
     public function testAWithoutResultsRunsNoStatement(): void

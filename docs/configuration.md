@@ -353,7 +353,16 @@ and `fuzzphony:schema` reads the child table without a row to check that it and 
 values of a document by it, and the doctor warns when there is none.
 
 - **A search finds a customer by any of its values** (`budapest` finds the customer with a Budapest address, `szged` finds `Szeged` by typo,
-  `city:vienna` scopes to the field). The field takes part in ranking as one field with the weight you gave it.
+  `city:vienna` scopes to the field). The field takes part in ranking as one field with the weight you gave it (see `rank` below).
+- **`rank: best` ranks by the best single value.** `many: { from: address, key: customer_id, column: city, rank: best }` (builder:
+  `many: [..., 'rank' => 'best']` or `new ManyValues(..., rank: ManyRank::Best)`; `rank: whole` is the default, the values ranked as one text).
+  With it the field contributes to the text rank through its best value, never the sum of several values, and a search can ask
+  [`manyMatch('single')`](searching.md#several-values-one-address-manymatch) (one value must hold every word the document needs from the
+  field; code API, per search). Fields only (a filter does not rank). It adds a partial GIN index on
+  the values table and a value count column (`n_<field>`) to the index table per such field: `fuzzphony:schema --apply` creates them (and drops
+  the index and the count column when you turn the option off: a count nothing maintains is never kept, so switching back cannot trust a stale one; the doctor warns if one is left). Results are right at once; **run a reindex** afterwards so the counts are written: a document with
+  one value then skips the per-value ranking (its best value is the whole field), until then its values are read (the doctor warns). Several
+  `rank: best` fields in one index each rank through their own best value, the best of them counts.
 - **A many filter matches when any value does.** `->where('city', 'Budapest')` finds the customers with at least one Budapest address; a
   customer with two counts once. `=`, `IN` and the null checks work (a customer without a value is null); ranges do not, and neither do `!=` and `NOT IN`: only the first `limit` values of a customer are stored, so a customer whose value lies past it would pass the negation (fail open), and the query is refused with an `InvalidQuery` naming the filter (exclude with a single-valued filter instead),
   and only `string` filters can be many. A facet over it counts **documents** per value, never values.
@@ -837,6 +846,11 @@ probes the query (no row is read) and refuses a missing one with `InvalidDefinit
 cannot express it: use YAML or the builder (a YAML override of an attribute-defined index may set `returnable`; the wizard exports it to YAML and
 the builder, and falls back to YAML for the attribute style, as for profiles). A name that is also a `granted` field is returned only to actors who
 hold it. Without `returnable` an index cannot be asked for `with()`.
+
+An entry may be an **alias**: YAML `returnable: { url: slug, title: title }` (a map, or a list with some `alias: column` entries), builder
+`->returnable(['url' => 'slug', 'title'])`. The alias and the column follow the column-name rules, at most 50 entries per index or source, and a name
+cannot mean two columns. The name of a `many` field returns the field's values as a list (no source column of that name is needed). The definition hash
+changes only when an alias differs from its column.
 
 ### `granted` on a field
 

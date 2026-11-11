@@ -71,6 +71,10 @@ The ERP page searches an ERP-like data set with one box for people, companies an
 
 ![ERP: people found by name and city, with the matched address named under each row](image/erp.png)
 
+![ERP, people: "fő utca szeged" with the switches Rank by the best address and One address must match all words; each row names the address that matched](image/erp-best-address.png)
+
+The two switches of the People tab: the same search ranked by the best single address (`rank: best`) or by all addresses together, and with `manyMatch('single')` only the people whose one address holds every word.
+
 ![ERP, combined: the same query in the multi-source index and in a federated search, each hit with its index and kind](image/erp-combined.png)
 
 Moving one address to another city: which indexes refreshed, after how many milliseconds, the search before and after, and the shared triggers of the table.

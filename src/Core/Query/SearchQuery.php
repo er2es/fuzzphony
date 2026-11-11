@@ -23,6 +23,7 @@ final readonly class SearchQuery
      * @param list<string>         $facets             filters to count the values of among the matches
      * @param list<string>|null    $allowedFields      field names the search is limited to; null = every field
      * @param list<string>|null    $returning          returnable source columns to return with the hits; null = none, [] = all
+     * @param list<string>         $manyMatchFields    many fields (rank: best) the manyMatch mode applies to; [] = every visible one
      */
     public function __construct(
         public string $text = '',
@@ -53,6 +54,10 @@ final readonly class SearchQuery
         public bool $explainMatches = false,
         /** The returnable columns the hits carry (SearchBuilder::with()): null = not asked, [] = every returnable column. */
         public ?array $returning = null,
+        /** What a search asks of the many fields with `rank: best` (SearchBuilder::manyMatch()). */
+        public ManyMatch $manyMatch = ManyMatch::Any,
+        /** The many fields manyMatch() names; [] = every one the viewer may search. */
+        public array $manyMatchFields = [],
     ) {
         if ($facetValues < 1 || $facetValues > 100) {
             throw new \Fuzzphony\Core\Exception\InvalidQuery(sprintf('Facet values must be between 1 and 100, got %d.', $facetValues));
@@ -123,6 +128,12 @@ final readonly class SearchQuery
     public function explainMatches(bool $explain = true): self
     {
         return $this->copy(explainMatches: $explain);
+    }
+
+    /** @param list<string> $fields */
+    public function withManyMatch(ManyMatch $mode, array $fields = []): self
+    {
+        return $this->copy(manyMatch: $mode, manyMatchFields: $fields);
     }
 
     /** @param list<string> $fields */
@@ -218,6 +229,8 @@ final readonly class SearchQuery
         $system = $changes['system'] ?? null;
         $explainMatches = $changes['explainMatches'] ?? null;
         $returning = array_key_exists('returning', $changes) ? self::stringList($changes['returning']) : $this->returning;
+        $manyMatch = $changes['manyMatch'] ?? null;
+        $manyMatchFields = $changes['manyMatchFields'] ?? null;
 
         return new self(
             text: is_string($text) ? $text : $this->text,
@@ -239,6 +252,8 @@ final readonly class SearchQuery
             system: is_bool($system) ? $system : $this->system,
             explainMatches: is_bool($explainMatches) ? $explainMatches : $this->explainMatches,
             returning: $returning,
+            manyMatch: $manyMatch instanceof ManyMatch ? $manyMatch : $this->manyMatch,
+            manyMatchFields: self::stringList($manyMatchFields) ?? $this->manyMatchFields,
         );
     }
 

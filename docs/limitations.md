@@ -421,13 +421,28 @@ but a few things take more writing than with one entity per index.
 
 A field or filter declared [`many`](configuration.md#several-values-per-document-many) is indexed from a child table. Four things to know.
 
-- **It ranks by the whole field, not the best value.** What happens: the values of a field are indexed together as one text, so the field's
+- **By default it ranks by the whole field, not the best value.** What happens: the values of a field are indexed together as one text, so the field's
   rank is that of the field as a whole (a customer with the matching word in one of many values ranks like one matching a longer text). Why: one combined
-  vector keeps every search exactly as fast as for a plain field. What to do: nothing, or put the value that matters most in its own plain field.
+  vector keeps every search exactly as fast as for a plain field. What to do: declare the field [`rank: best`](configuration.md#several-values-per-document-many)
+  (a partial index on the values table and a count column, `schema --apply`, then a reindex for the speed); a document whose words are spread over
+  several values keeps its whole-field rank, and a typo-tolerant match is still scored on the whole field. Ranking a candidate with more than one value
+  then also reads its values that hold a query word (at most `limit`), so the [scan budget](#ranking-of-very-common-words) counts each such field like
+  two more words of the query, and a search whose words are in the field costs about 1.4 to 1.9 times as much
+  ([benchmarks](benchmarks.md#ranking-by-the-best-value-rank-best)).
 - **A phrase can match across two values.** What happens: `"budapest vienna"` also matches a customer whose values are `Budapest` and `Vienna`, because the
-  values are read one after the other. What to do: nothing; a phrase over several values is rarely meant.
+  values are read one after the other. What to do: nothing; a phrase over several values is rarely meant, and
+  [`manyMatch('single')`](searching.md#several-values-one-address-manymatch) keeps a phrase inside one value.
 - **Only the first `limit` values of a document are indexed** (50 by default, in the order of the value, then of the child's primary key). The doctor
-  reports the documents over the limit; raise `many.limit` and reindex if you need more.
+  reports the documents over the limit; raise `many.limit` and reindex if you need more. `manyMatch('single')` sees the same values: one past the
+  limit never satisfies it.
+- **`manyMatch('single')` reads the values of every candidate.** What happens: the mode checks, for each document the search's own words find, its
+  values of the named fields that hold a word of the query (or are like a typo-tolerant one) one by one; with two named fields every pair of those
+  (up to `limit` x `limit` rows per document when every value holds a word; at most 3 fields together, more are refused), so a search whose words match
+  many documents costs more than the default mode ([benchmarks](benchmarks.md#ranking-by-the-best-value-rank-best)). An excluded word is judged on
+  the whole document (excluded when any value holds it), not per value. A typo-tolerant word must be similar to one value or one other field: a typo
+  over a field boundary (`kisanna` for the name "Kiss" and the address "Anna utca 1") matches in the default mode only. The empty-result relaxation
+  and "did you mean" judge the words on their own.
+  What to do: name only the field that must be one value (`manyMatch('single', 'addresses')`), keep `limit` near the real number of values.
 - **Filters on a many field are not hidden by `granted`.** What happens: `granted` hides a searchable field; a filter is a separate declaration and
   filters are never role-gated. What to do: do not declare a many filter over a column a viewer may not see.
 

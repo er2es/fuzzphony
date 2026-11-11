@@ -85,7 +85,7 @@ final class ArrayDefinitionLoader
             $builder->watch($table, self::str($options['ids'] ?? null, 'SELECT :id'), self::str($options['key'] ?? null, 'id'), self::stringList($name, $options['columns'] ?? null));
         }
 
-        $builder->returnable(...self::returnableList($config['returnable'] ?? null));
+        $builder->returnable(self::returnableList($config['returnable'] ?? null));
         $this->apply($builder, $config, $name);
         if (is_string($config['class'] ?? null) && class_exists($config['class'])) {
             $builder->entity($config['class']);
@@ -172,7 +172,9 @@ final class ArrayDefinitionLoader
         }
         $merged = $merged->withWatches($watches);
         if (isset($config['returnable']) && !$definition->isMultiSource()) {
-            $merged = $merged->withReturnable(self::returnableList($config['returnable']));
+            ['map' => $map] = Returnable::normalise(self::returnableList($config['returnable']));
+            ['plain' => $plain, 'aliases' => $aliases] = Returnable::split($map);
+            $merged = $merged->withReturnable($plain, $aliases);
         }
         DefinitionValidator::assertValid($merged);
 
@@ -291,10 +293,10 @@ final class ArrayDefinitionLoader
         )]);
     }
 
-    /** @return list<string> */
+    /** @return array<array-key, string> a list of names, or alias => column */
     private static function returnableList(mixed $value): array
     {
-        return is_array($value) ? array_values(array_filter($value, 'is_string')) : [];
+        return is_array($value) ? array_filter($value, 'is_string') : [];
     }
 
     /**
@@ -348,8 +350,8 @@ final class ArrayDefinitionLoader
     /** @param list<string> $problems */
     private static function assertReturnable(array &$problems, string $what, mixed $value): void
     {
-        if ($value !== null && (!is_array($value) || !array_is_list($value) || array_filter($value, 'is_string') !== $value)) {
-            $problems[] = sprintf('%s must be a list of source column names (e.g. returnable: [title, slug, price]), got %s.', $what, self::shape($value));
+        if ($value !== null && (!is_array($value) || array_filter($value, 'is_string') !== $value)) {
+            $problems[] = sprintf('%s must be a list of source column names (e.g. returnable: [title, slug, price]) or a map of alias: column, got %s.', $what, self::shape($value));
         }
     }
 
@@ -457,7 +459,7 @@ final class ArrayDefinitionLoader
             }
             $this->assertKeys($problems, $at, array_keys($options), $allowed);
             if (array_key_exists('many', $options)) {
-                $this->assertMany($problems, $at, $options['many']);
+                $this->assertMany($problems, $at, $options['many'], $section === 'fields');
             }
             if ($section === 'fields') {
                 self::assertBool($problems, $at . ' "fuzzy"', $options['fuzzy'] ?? null);
@@ -472,7 +474,7 @@ final class ArrayDefinitionLoader
     }
 
     /** @param list<string> $problems */
-    private function assertMany(array &$problems, string $at, mixed $many): void
+    private function assertMany(array &$problems, string $at, mixed $many, bool $isField): void
     {
         if (!self::isMap($many)) {
             $problems[] = sprintf('%s "many" must be a map { from: address, key: customer_id, column: city, limit: 50 }, got %s.', $at, self::describe($many));
@@ -491,6 +493,13 @@ final class ArrayDefinitionLoader
         }
         if (array_key_exists('id', $many) && (!is_string($many['id']) || $many['id'] === '')) {
             $problems[] = sprintf('%s "many" "id" must be the primary key column of the child table (a non-empty string), got %s.', $at, self::describe($many['id']));
+        }
+        if (array_key_exists('rank', $many)) {
+            if (!is_string($many['rank']) || ManyRank::tryFrom($many['rank']) === null) {
+                $problems[] = ManyValues::rankProblem($at, $many['rank']);
+            } elseif (!$isField) {
+                $problems[] = sprintf('%s: many "rank" applies to fields only (a filter does not rank).', $at);
+            }
         }
     }
 

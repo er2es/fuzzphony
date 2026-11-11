@@ -169,21 +169,22 @@ The intranet group follows the viewer of the Security page (`/under-the-hood/sec
 Next to the product catalogue the demo database holds an ERP-like data set of plain tables ([`sql/erp.sql`](sql/erp.sql): deterministic, generated
 in SQL, Hungarian names, companies with legal forms, cities and streets, order numbers like `ORD-2026-000123`; seeded once by `init`, like the catalogue,
 and left alone while `erp_customer` exists). `DEMO_ERP=0` creates the tables empty for a fast stack. It adds about 35 seconds to the first start
-on the default 500 000 products (about 4 s to seed, the rest to build its four indexes).
+on the default 500 000 products (about 4 s to seed, the rest to build its five indexes).
 
 | Table | Rows | What |
 |---|---|---|
 | `erp_customer` | 100 000 | 80 000 persons (`name`, `birth_name`, `email`) and 20 000 companies (`name` with `Kft.`/`Zrt.`/`Bt.`, `tax_no` such as `12345678-2-41`) |
 | `erp_contact` | 60 000 | three contact persons (name, role, phone, email) for every company |
-| `erp_address` | 150 000 | one or two per customer (billing, shipping): zip, city, street |
+| `erp_address` | 150 000 | one or two per customer (billing, shipping): zip, city, street, and `line`, the three as one text (a generated column; `init` adds it to an older volume) |
 | `erp_order` | 60 000 | `number`, `status`, `total`, `ordered_at` |
 | `erp_order_line` | 130 000 | one to three lines per order, `product_id` points at `bench_product` |
 
-Four indexes read them (all `sync: queue`, drained by the worker; every table a query reads is watched, so `fuzzphony:doctor --fail-on=warning` is clean):
+Five indexes read them (`sync: queue` except `people_whole`, drained by the worker; every table a query reads is watched, so `fuzzphony:doctor --fail-on=warning` is clean):
 
 | Index | Shows |
 |---|---|
-| `people` | a [definition class](../docs/configuration.md#definition-classes) ([`src/Search/PeopleAdminIndex.php`](src/Search/PeopleAdminIndex.php)): persons by `name`, `birth_name` and e-mail, with `city` (also a filter and facet) and `street` as [several values](../docs/configuration.md#several-values-per-document-many) each from `erp_address` (`kovacs budapest`); a `created_at` filter; `returnable` name, e-mail, tax number |
+| `people` | a [definition class](../docs/configuration.md#definition-classes) ([`src/Search/PeopleAdminIndex.php`](src/Search/PeopleAdminIndex.php)): persons by `name`, `birth_name` and e-mail, with the `address` of every `erp_address` row (the generated `line`, one value each) as a [many field](../docs/configuration.md#several-values-per-document-many) declared **`rank: best`** (`kovacs budapest`, `fő utca szeged`); `city` as a many filter and facet; a `created_at` filter; `returnable` name, e-mail, tax number |
+| `people_whole` | the same definition with the default ranking of the address (`rank: whole`, [`src/Search/PeopleWholeIndex.php`](src/Search/PeopleWholeIndex.php)), `sync: manual`: a snapshot filled by the first start, there only so the People tab can compare the two rankings (it is not kept in sync, and the sync demonstration does not touch it) |
 | `companies` | companies with the legal form inside the name, `tax_no` and `phone` as [codes](../docs/searching.md#codes-and-numbers) (`12345678-2-41`), the contact persons as a many field; one hand-written watch on `erp_contact` |
 | `orders` | orders with a join to the customer: `number` as a code (`ORD-2025-000123`), the customer name fuzzy, `status`, `total` and `ordered_at` filters, recency by the order date |
 | `site` | ONE [multi-source index](../docs/configuration.md#several-sources-in-one-index) over the same tables with three sources (`person`, `company`, `order`), shared fields `title` and `text`, no entity: a hit says its `kind`, and `returnable` is per source (`Kovács János` returns all three kinds) |
@@ -194,12 +195,17 @@ its customer in `people` and in `site`. The application role gets `SELECT` on th
 
 ### The ERP page
 
-`/erp` (the menu entry **ERP**) shows the four indexes at work. It has five sections, one request each:
+`/erp` (the menu entry **ERP**) shows the indexes at work. It has five sections, one request each:
 
 - **People, Companies, Orders:** three separate admin-style search boxes, each against its own index with its own filters and facets (people: the city facet of the
-  `many` field and a created-in filter; companies: the contact persons as a field, `contact:simon`; orders: the status facet and a total range). The rows are drawn from
+  `many` field, a created-in filter and two switches, see below; companies: the contact persons as a field, `contact:simon`; orders: the status facet and a total range). The rows are drawn from
   `with()` (`Hit::$data`: the page loads nothing from the database), the line under a row from `explainMatches()` (*found in the address: Budapest*, *found in the tax number:
   12345678-2-41 (exact code)*), the link from `Hit::kind` and `Hit::id` to `/erp/{kind}/{id}`, a small read-only detail page (plain SQL).
+- **The two switches of People** (both use the real engine, nothing is simulated): **Rank by the best address** (on by default) searches `people`, whose address field is
+  `rank: best`; off, it searches `people_whole`, the same data with the default ranking. **One address must match all words** adds `->manyMatch('single')` (it needs the best-address
+  ranking and takes it along). The chip `fő utca szeged` shows the difference: about 490 people have the three words, 294 of them in one address and 196 with `Fő utca` in one address
+  and `Szeged` in the other (two addresses); the switch keeps the 294, the ranking puts a single address with every word before words spread over two. The line under a row names the
+  address (the one the ranking chose is *the best address* when the person has several that match), from `explainMatches()` and `ScoreBreakdown::$bestValues`.
 - **Combined:** one box and the same query in the multi-source index `site` and in a federated search over `people`, `companies` and `orders` (weights 1.0 / 1.2 / 0.8,
   floors 2 / 2 / 1), side by side or one at a time; every hit shows its `index` and its `kind`. The difference is the table of
   [Federated search or a multi-source index?](../docs/searching.md#federated-search).

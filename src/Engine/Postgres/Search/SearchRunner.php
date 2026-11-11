@@ -30,6 +30,7 @@ use Fuzzphony\Core\Support\Coerce;
 use Fuzzphony\Engine\Postgres\EngineGuard;
 use Fuzzphony\Engine\Postgres\Highlighter;
 use Fuzzphony\Engine\Postgres\Hints;
+use Fuzzphony\Engine\Postgres\ManyMatchFields;
 use Fuzzphony\Engine\Postgres\MatchExplainer;
 use Fuzzphony\Engine\Postgres\Schema\Names;
 use Fuzzphony\Engine\Postgres\SearchSession;
@@ -194,6 +195,8 @@ final readonly class SearchRunner
         (new FilterCompiler($index))->validate(...$conditions);
         // with(): checked against what THIS viewer may ask for, before anything runs (an unknown and a hidden name fail alike)
         $returning = $query->returning === null ? null : SourceFields::resolve($index, $query);
+        // manyMatch(): validated against what THIS viewer may search (a hidden name fails like an unknown one)
+        ManyMatchFields::resolve($index, $query);
         foreach ($query->facets as $facet) {
             $index->assertFacetable($facet);
         }
@@ -246,6 +249,7 @@ final readonly class SearchRunner
                 prefixBonus: Coerce::float($row['prefix_bonus']),
                 boostBonus: Coerce::float($row['boost_bonus']),
                 recencyBonus: Coerce::float($row['recency_bonus']),
+                bestValues: $query->explainMatches ? self::bestValues($context, $row) : [],
             ), $highlights[$key] ?? [], index: $index->name);
         }
 
@@ -410,7 +414,9 @@ final readonly class SearchRunner
             // a word scoped to a field the index has is rechecked against that field's own column
             // (a restricted viewer's every word against the allowed fields', see SearchSqlBuilder)
             // (so is a phrase on an index with several fields: tsv caps its positions, see SearchSqlBuilder)
-            $scopedRoot = $compiler->hasFieldScope($root) || $query->allowedFields !== null || (count($index->fields) > 1 && $compiler->hasSequence($root)) ? $root : null;
+            $scopedRoot = $compiler->hasFieldScope($root) || $query->allowedFields !== null || (count($index->fields) > 1 && $compiler->hasSequence($root))
+                // and manyMatch('single'): its predicate is compiled from the parsed query (SearchSqlBuilder::singleValue())
+                || $c->single() !== [] ? $root : null;
         }
         $plain = implode(' ', TsQueryCompiler::lexemes(implode(' ', NodeInspector::positiveWords($root, null, $query->asYouType))));
 
@@ -616,7 +622,28 @@ final readonly class SearchRunner
             $done->tsquery,
             array_map(static fn(array $r): int|string => $index->idType->cast(Coerce::str($r['id'])), $rows),
             $typo,
+            array_filter(array_combine(array_map(static fn(array $r): string => Coerce::str($r['id']), $rows), array_map(static fn(array $r): array => self::bestValues($c, $r), $rows))),
         ), Hints::INDEX);
+    }
+
+    /**
+     * The best value of each rank: best field the ranked statement reported for a row (SearchSqlBuilder `bv_<field>`): the fields whose
+     * best single value gave the text rank, with the value's position.
+     *
+     * @param array<string, mixed> $row
+     *
+     * @return array<string, int>
+     */
+    private static function bestValues(SearchContext $c, array $row): array
+    {
+        $best = [];
+        foreach ($c->bestValueFields() as $field) {
+            if (isset($row['bv_' . $field])) {
+                $best[$field] = Coerce::int($row['bv_' . $field]);
+            }
+        }
+
+        return $best;
     }
 
     /** The stored key of a hit: `<kind>:<id>` for a multi-source index, else its id. */

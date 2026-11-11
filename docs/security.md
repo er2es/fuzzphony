@@ -304,7 +304,14 @@ leaks. A word that exists only in a hidden field is:
 - **not matched**: the document is not found by it (not exactly, not as a prefix, not through a
   synonym, not as a typo, and not through a field-scoped `salary:high`, which finds nothing);
 - **not ranked**: the score, the exact and prefix bonuses and the score breakdown ignore the hidden
-  field, so two documents that differ only in a hidden field score the same;
+  field, so two documents that differ only in a hidden field score the same. A hidden
+  [`rank: best`](configuration.md#several-values-per-document-many) field never enters the statement (it is the one of
+  `rank: whole`, the values table is not read), and a visible one is ranked with only the visible fields around its value,
+  so its best value (`ScoreBreakdown::$bestValues`, the highlight) never depends on a hidden field.
+  [`manyMatch('single')`](searching.md#several-values-one-address-manymatch) applies only to the fields the viewer may see: a hidden field named
+  there is refused exactly like an unknown name (the message lists the visible ones), a viewer who sees none gets the default statement, and
+  the single-value check reads the visible fields' own columns and the value rows of the named visible fields only (each correlated to a
+  document that passed the tenant and the filters);
 - **not highlighted**: a hit never shows a snippet of a hidden field;
 - **not suggested**: a restricted viewer gets no "did you mean" and `complete()` returns `[]`, because
   the vocabulary holds the words of every field; for the same reason a restricted viewer's search that finds nothing is
@@ -328,9 +335,13 @@ the search finds nothing. (Before 0.9 the error appeared only when there were hi
 
 - A `returnable` column that is also a `granted` index field (the field has that name, or reads that column: `field('pay', column: 'salary', granted: ...)` gates `salary`) is returned only to an actor who holds it. For anyone else it is **not there**:
   `with('salary')` fails with the same `InvalidQuery` as a name that does not exist (the message lists only the columns this actor may ask for, so it
-  does not reveal that the column exists), and `with()` with no argument leaves it out. An actor without a guard answer (anonymous, a command) holds
+  does not reveal that the column exists), and `with()` with no argument leaves it out. An **alias** is gated by the column it reads, by its own name
+  and, in a multi-source index, by the column of every source: it cannot reach a granted column under another name, and `with()` accepts only the
+  returnable names, never a column that is merely read by an alias. A returnable **many field** is gated by the field of that name (granted: the same
+  rule; an ungranted one is returned only to a viewer whose visible fields (`restrictedToFields()`, a guard) include it, so `with()` follows the search for a many field: outside them it is refused like an unknown name and left out of `with()` with no argument), and its child table is read with the search role (`SELECT` on it is part of `--dump-grants`, on the **whole** table: all its columns and every tenant's rows, as the grant of the values table is; give the role a view if that is too wide). A tenant-scoped index repeats the tenant
+  condition on every source SELECT of the one statement. An actor without a guard answer (anonymous, a command) holds
   no granted field.
-- `restrictedToFields()` narrows the returned granted columns like it narrows the search.
+- `restrictedToFields()` narrows the returned granted columns and the returned many fields like it narrows the search (an ordinary returnable column keeps the rule below).
 - The ids come from the search, which is already tenant-scoped; a tenant-scoped index repeats its tenant condition on the source query too, so a row
   that moved to another tenant since the last sync returns no data.
 - A returnable column that is not a `granted` field is returned to every viewer who may search the index. Do not list a column in `returnable` that

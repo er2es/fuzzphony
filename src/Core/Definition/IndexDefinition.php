@@ -63,6 +63,12 @@ final readonly class IndexDefinition
          * @var list<string>
          */
         public array $returnable = [],
+        /**
+         * The returnable columns that are returned under another name (alias => column, Hit::$data is keyed by the alias).
+         *
+         * @var array<string, string>
+         */
+        public array $returnableAs = [],
     ) {}
 
     public static function builder(string $name): IndexBuilder
@@ -186,6 +192,12 @@ final readonly class IndexDefinition
         return array_values(array_filter($this->fields, static fn(FieldDefinition $f): bool => $f->many !== null));
     }
 
+    /** @return list<FieldDefinition> the many fields that rank through their best single value (`many: { rank: best }`) */
+    public function manyBestFields(): array
+    {
+        return array_values(array_filter($this->fields, static fn(FieldDefinition $f): bool => $f->many?->rank === ManyRank::Best));
+    }
+
     /** @return list<FilterDefinition> the filters whose values come from a child table */
     public function manyFilters(): array
     {
@@ -253,10 +265,10 @@ final readonly class IndexDefinition
     public function returnableNames(): array
     {
         if ($this->sources === []) {
-            return $this->returnable;
+            return [...$this->returnable, ...array_keys($this->returnableAs)];
         }
 
-        return array_values(array_unique(array_merge([], ...array_map(static fn(IndexSource $s): array => $s->returnable, $this->sources))));
+        return array_values(array_unique(array_merge([], ...array_map(static fn(IndexSource $s): array => [...$s->returnable, ...array_keys($s->returnableAs)], $this->sources))));
     }
 
     /**
@@ -266,7 +278,88 @@ final readonly class IndexDefinition
      */
     public function returnableOf(string $kind): array
     {
-        return $this->sources === [] ? $this->returnable : ($this->sourceNamed($kind)->returnable ?? []);
+        if ($this->sources === []) {
+            return [...$this->returnable, ...array_keys($this->returnableAs)];
+        }
+        $source = $this->sourceNamed($kind);
+
+        return $source === null ? [] : [...$source->returnable, ...array_keys($source->returnableAs)];
+    }
+
+    /**
+     * The source column a returnable name reads (the name itself unless it is an alias); null when the kind does not return that name.
+     */
+    public function returnableColumn(string $kind, string $name): ?string
+    {
+        if ($this->sources === []) {
+            $plain = $this->returnable;
+            $aliases = $this->returnableAs;
+        } else {
+            $source = $this->sourceNamed($kind);
+            $plain = $source->returnable ?? [];
+            $aliases = $source->returnableAs ?? [];
+        }
+
+        return $aliases[$name] ?? (in_array($name, $plain, true) ? $name : null);
+    }
+
+    /**
+     * Every column a returnable name of the whole index may read (one per source for a multi-source index), for the gate that must
+     * see through an alias.
+     *
+     * @return list<string>
+     */
+    public function returnableColumnsOf(string $name): array
+    {
+        $columns = [];
+        foreach ($this->sources === [] ? [''] : array_map(static fn(IndexSource $s): string => $s->name, $this->sources) as $kind) {
+            $column = $this->returnableColumn($kind, $name);
+            if ($column !== null) {
+                $columns[] = $column;
+            }
+        }
+
+        return array_values(array_unique($columns));
+    }
+
+    /**
+     * The many fields with() may return the values of (a returnable name that is a many field, directly or through an alias).
+     *
+     * @return list<FieldDefinition>
+     */
+    public function returnableManyFields(): array
+    {
+        $out = [];
+        foreach ($this->returnableNames() as $name) {
+            foreach ($this->returnableColumnsOf($name) as $column) {
+                $field = $this->field($column);
+                if ($field?->many !== null) {
+                    $out[$field->name] = $field;
+                }
+            }
+        }
+
+        return array_values($out);
+    }
+
+    /**
+     * The plain source columns the returnable declaration reads, aliases resolved, many fields left out (they are not source columns):
+     * what the doctor and the schema check must find in the source query.
+     *
+     * @return list<string>
+     */
+    public function returnableSourceColumns(): array
+    {
+        $out = [];
+        foreach ($this->returnableNames() as $name) {
+            foreach ($this->returnableColumnsOf($name) as $column) {
+                if ($this->field($column)?->many === null) {
+                    $out[] = $column;
+                }
+            }
+        }
+
+        return array_values(array_unique($out));
     }
 
     /** The source that reads an entity class (a multi-source index: each source may name one). */
@@ -318,7 +411,7 @@ final readonly class IndexDefinition
     /** One source of a multi-source index as a single-source definition (the doctor checks each source on its own). */
     public function forSource(IndexSource $source): self
     {
-        return $this->copy(source: $source->source, idType: $source->idType, watches: $source->watches, entityClass: $source->entityClass ?? false, sources: [], returnable: $source->returnable);
+        return $this->copy(source: $source->source, idType: $source->idType, watches: $source->watches, entityClass: $source->entityClass ?? false, sources: [], returnable: $source->returnable, returnableAs: $source->returnableAs);
     }
 
     /** A copy narrowed to one source (a per-source reindex). */
@@ -419,10 +512,13 @@ final readonly class IndexDefinition
         return $this->copy(sources: $sources);
     }
 
-    /** @param list<string> $returnable */
-    public function withReturnable(array $returnable): self
+    /**
+     * @param list<string>          $returnable
+     * @param array<string, string> $returnableAs
+     */
+    public function withReturnable(array $returnable, array $returnableAs = []): self
     {
-        return $this->copy(returnable: $returnable);
+        return $this->copy(returnable: $returnable, returnableAs: $returnableAs);
     }
 
     public function withLog(bool $log): self
@@ -439,6 +535,7 @@ final readonly class IndexDefinition
      * @param list<Watch>|null                   $watches
      * @param list<IndexSource>|null             $sources
      * @param list<string>|null                  $returnable
+     * @param array<string, string>|null         $returnableAs
      * @param array<string, RankingProfile>|null $profiles
      * @param class-string|false|null            $entityClass
      */
@@ -463,6 +560,7 @@ final readonly class IndexDefinition
         string|null $onlySource = null,
         ?array $sources = null,
         ?array $returnable = null,
+        ?array $returnableAs = null,
     ): self {
         return new self(
             name: $name ?? $this->name,
@@ -485,6 +583,7 @@ final readonly class IndexDefinition
             sources: $sources ?? $this->sources,
             onlySource: $onlySource === null ? $this->onlySource : ($onlySource === '' ? null : $onlySource),
             returnable: $returnable ?? $this->returnable,
+            returnableAs: $returnableAs ?? $this->returnableAs,
         );
     }
 }

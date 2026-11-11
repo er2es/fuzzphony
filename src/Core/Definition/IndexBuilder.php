@@ -46,7 +46,11 @@ final class IndexBuilder
     /** @var list<string> */
     private array $sourceProblems = [];
     /** @var list<string> */
+    /** @var array<string, string> name => column */
     private array $returnable = [];
+
+    /** @var list<string> */
+    private array $returnableClashes = [];
 
     public function __construct(private readonly string $name)
     {
@@ -90,7 +94,7 @@ final class IndexBuilder
      *
      * @param array<array-key, mixed>      $watch  Watch objects, or table => "SELECT ... :id" / table => { ids, key, columns } as in YAML
      * @param class-string|null            $entity
-     * @param list<string>                 $returnable columns of this source a search may return with SearchBuilder::with()
+     * @param array<array-key, string>        $returnable columns of this source (a list, or alias => column) a search may return with SearchBuilder::with()
      */
     public function source(string $name, string $sql, ?string $entity = null, array $watch = [], IdType|string|null $idType = null, string $idColumn = 'id', array $returnable = []): self
     {
@@ -103,7 +107,7 @@ final class IndexBuilder
      *
      * @param array<array-key, mixed> $watch
      * @param class-string|null       $entity
-     * @param list<string>            $returnable columns of this source a search may return with SearchBuilder::with()
+     * @param array<array-key, string>   $returnable columns of this source (a list, or alias => column) a search may return with SearchBuilder::with()
      */
     public function sourceFromTable(string $name, string $table, ?string $entity = null, array $watch = [], IdType|string|null $idType = null, string $idColumn = 'id', array $returnable = []): self
     {
@@ -113,12 +117,17 @@ final class IndexBuilder
     /**
      * @param array<array-key, mixed> $watch
      * @param class-string|null       $entity
-     * @param list<string>            $returnable
+     * @param array<array-key, string> $returnable
      */
     private function addSource(string $name, Source $source, ?string $entity, array $watch, IdType|string|null $idType, array $returnable = []): self
     {
         $type = $idType === null ? IdType::Int : ($idType instanceof IdType ? $idType : EnumOption::parse(IdType::class, $idType, $this->name, 'id type', sprintf(' of source "%s"', $name)));
-        $this->sources[] = new IndexSource($name, $source, $this->watchList($name, $watch), $entity, $type, array_values(array_unique($returnable)));
+        ['map' => $map, 'clashes' => $clashes] = Returnable::normalise($returnable);
+        foreach ($clashes as $clash) {
+            $this->sourceProblems[] = sprintf('Source "%s": %s', $name, $clash);
+        }
+        ['plain' => $plain, 'aliases' => $aliases] = Returnable::split($map);
+        $this->sources[] = new IndexSource($name, $source, $this->watchList($name, $watch), $entity, $type, $plain, $aliases);
 
         return $this;
     }
@@ -290,11 +299,17 @@ final class IndexBuilder
     /**
      * The columns of the source a search may return with SearchBuilder::with() (Hit::$data): an allow-list of names the source query
      * returns, so an application can render a result row without loading entities. On a multi-source index give it per source instead
-     * (source(..., returnable: [...])). A name that is also a `granted` field is only returned to an actor who holds it.
+     * (source(..., returnable: [...])). A name that is also a `granted` field is only returned to an actor who holds it. An entry may
+     * be an alias: `->returnable(['url' => 'slug', 'title'])` returns the column `slug` as `url` (a many field's name returns its values).
+     *
+     * @param string|array<array-key, string> ...$columns
      */
-    public function returnable(string ...$columns): self
+    public function returnable(string|array ...$columns): self
     {
-        $this->returnable = array_values(array_unique([...$this->returnable, ...$columns]));
+        foreach ($columns as $entry) {
+            ['map' => $this->returnable, 'clashes' => $clashes] = Returnable::normalise(is_array($entry) ? $entry : [$entry], $this->returnable);
+            array_push($this->returnableClashes, ...$clashes);
+        }
 
         return $this;
     }
@@ -304,6 +319,10 @@ final class IndexBuilder
         if ($this->sources !== []) {
             return $this->buildMultiSource();
         }
+        if ($this->returnableClashes !== []) {
+            throw new InvalidDefinition($this->name, $this->returnableClashes);
+        }
+        ['plain' => $plain, 'aliases' => $aliases] = Returnable::split($this->returnable);
         $definition = new IndexDefinition(
             name: $this->name,
             source: $this->source ?? Source::table($this->name),
@@ -322,7 +341,8 @@ final class IndexBuilder
             tenant: $this->tenant,
             synonyms: $this->synonyms,
             log: $this->log,
-            returnable: $this->returnable,
+            returnable: $plain,
+            returnableAs: $aliases,
         );
         DefinitionValidator::assertValid($definition);
 

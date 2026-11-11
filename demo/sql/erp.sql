@@ -32,7 +32,9 @@ CREATE TABLE erp_address (
     kind        text NOT NULL CHECK (kind IN ('billing', 'shipping')),
     zip         text NOT NULL,
     city        text NOT NULL,
-    street      text NOT NULL
+    street      text NOT NULL,
+    -- the whole address as one text: the one value of the field `address` of the index people (docker/init.sh adds it to an older volume)
+    line        text GENERATED ALWAYS AS (zip || ' ' || city || ', ' || street) STORED
 );
 CREATE TABLE erp_order (
     id          bigint PRIMARY KEY,

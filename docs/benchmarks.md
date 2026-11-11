@@ -264,3 +264,53 @@ The searches read the same sidecar columns, so they cost the same. The price is 
 1.38 ms against 1.21 ms (it also rewrites its rows of the values table), a full reindex 7.9 s against 6.6 s, and the values table is 37 MB
 next to the 50 MB sidecar. Indexes without a `many` field are unchanged: the generated DDL is byte-identical and 1 854 searches (results and
 statement texts) compare identical with the previous release.
+
+### Ranking by the best value (`rank: best`)
+
+In one line: a search whose words are in a `rank: best` field costs **1.4 to 2 times** a `rank: whole` search (on 54 000 matches of a common word about
+50 ms more), a search whose words are elsewhere 1.0 to 1.15 times, and the match set, total and facets never change. It is the price of ranking each value of
+every candidate; the option is per field, so only the fields where it matters pay it.
+
+200 000 customers of the demo's ERP data (`demo/sql/erp.sql`, 1.5 addresses each, each address one value `zip city, street`), one index
+searched through `rank: whole` and `rank: best` definitions of the same tables; median and p95 of 20 warm searches, limit 20, PostgreSQL 17 in
+Docker on a laptop. The partial GIN index of the field is 8.5 MB next to the 58 MB values table (300 000 values).
+
+| Search | whole | best | best / whole |
+|---|---|---|---|
+| `kiss` (no word in the field) | 16.4 ms | 17.4 ms | 1.06 |
+| `nagy anna budapest` | 1.9 ms | 2.2 ms | 1.15 |
+| `fo utca szeged` (980 matches) | 10.4 ms | 16.5 ms | 1.58 |
+| `fo utca szeged`, restricted to name + address | 11.7 ms | 17.4 ms | 1.48 |
+| `kossuth lajos utca` (13 333 matches) | 79.3 ms | 125 ms | 1.57 |
+| `address:szeged` (12 745 matches) | 42.6 ms | 82.9 ms | 1.95 |
+| `"petofi sandor"` | 51.0 ms | 96.0 ms | 1.88 |
+| `budapest` (53 923 matches) | 88.5 ms | 139 ms | 1.57 |
+| `kossuth la`, as you type | 126 ms | 170 ms | 1.35 |
+| `szgeed fo`, typo | 53.0 ms | 53.0 ms | 1.00 |
+
+A search whose words are not in the field costs the same (the field's own vector says so before the values are read), and so does a document
+with one value (its stored count says so: its best value is the whole field). Every other full-text candidate costs a primary-key probe of the
+values table and one ranking per matching value, about as much as two more words of the query, which is what the scan budget counts for such a
+field. A typo-tolerant match is ranked on the whole field and costs nothing more. The count saved most on the common word (`budapest` 1.82 to
+1.57); a covering index of the values by document with their vectors (`(doc) INCLUDE (t)`, 33 MB) and ranking a value alone when the other fields
+hold no query word changed nothing measurable and are not used.
+
+`manyMatch('single')` on the same data (default mode = `rank: best` above, measured in the same run; median of 20):
+
+| Search | best | single | single / best | hits best / single |
+|---|---|---|---|---|
+| `kiss` (no word in the field) | 34.0 ms | 34.3 ms | 1.01 | 2 000 / 2 000 |
+| `fo utca szeged` | 16.9 ms | 14.2 ms | 0.84 | 980 / 588 |
+| `address:szeged address:kossuth` | 16.0 ms | 14.1 ms | 0.88 | 1 374 / 982 |
+| `budapest` (one word: no check needed) | 149 ms | 153 ms | 1.03 | 2 000 / 2 000 |
+| `kossuth lajos utca` | 145 ms | 166 ms | 1.14 | 2 000 / 2 000 |
+| `"petofi sandor"` | 114 ms | 150 ms | 1.32 | 2 000 / 2 000 |
+| `kossuth la`, as you type | 195 ms | 223 ms | 1.15 | 2 000 / 2 000 |
+| `szgeed fo`, typo | 56.3 ms | 65.0 ms | 1.15 | 1 372 / 980 |
+
+The full-text check costs nothing for a document with one value (its stored count) or whose words are all in other fields (the empty row is tried
+first), and nothing for a query of one word; the typo check always reads the values (a typo word must not match over a field boundary).
+Only the values that hold a word of the query take part, so a second named field whose values hold none adds almost nothing (1 000
+documents of 50 addresses and 50 tags, `alpha beta` where no address holds both: address + tag 652 ms before, 48 ms now; address alone 33 ms). Otherwise it reads the candidate's values of the field once more; a search that keeps fewer
+documents can be faster than the default mode, because fewer are ranked. A lookup that starts from the values table (`s.id IN (...)` over the
+partial GIN index, for words all scoped to the field) measured slower (17.5 against 15.4 ms) and is not used.

@@ -8,6 +8,7 @@ use Fuzzphony\Core\Definition\IndexDefinition;
 use Fuzzphony\Core\Engine\Engine;
 use Fuzzphony\Core\Exception\InvalidDefinition;
 use Fuzzphony\Core\Exception\InvalidQuery;
+use Fuzzphony\Core\Query\ManyMatch;
 use Fuzzphony\Core\Query\SearchQuery;
 use Fuzzphony\Core\Query\Typeahead;
 
@@ -97,17 +98,41 @@ final readonly class SearchBuilder
     /**
      * Returns values of each hit's SOURCE row in Hit::$data (field => value), so an application can render a result row and build
      * links without loading entities. The names are a subset of the `returnable` columns the index (or the hit's source) declares; no
-     * argument means all of them, calling it again adds. It costs one more statement per source on the page, read from the source
+     * argument means all of them, calling it again adds. It costs one more statement per page (one SELECT per source on it), read from the source
      * query by the ids of the page (always fresh, nothing is copied into the index), only when asked for. A name that is not returnable,
      * or that is a `granted` field the actor does not hold, is an InvalidQuery listing the names this actor may ask for. A field the
      * hit's source does not return is null; a hit whose row vanished meanwhile has no data. Integers, floats and booleans come back as
-     * PHP ones, text and dates as strings (ISO 8601 for dates and timestamps), json and arrays as JSON strings.
+     * PHP ones, text and dates as strings (ISO 8601 for dates and timestamps), json and arrays as JSON strings, a many field as a list of strings.
      */
     public function with(string ...$fields): self
     {
         $asked = $this->query->returning;
 
         return $this->next($this->query->returning($asked === null || $fields === [] ? array_values($fields) : ($asked === [] ? [] : array_values(array_unique([...$asked, ...$fields])))));
+    }
+
+    /**
+     * What a search asks of the many fields declared with `many: { rank: best }`. "any" (the default) accepts every document that
+     * matches; "single" additionally needs ONE value of the field to hold every word the document needs from it (a street AND a
+     * city in the same address, not the street of one address and the city of another). Named fields limit the mode to them, none
+     * means every such field the viewer may search ("any" takes none). The mode is refused when the index has no such field
+     * (decided from the definition only); a name that is no such field, or one the viewer may not see, is refused when the search
+     * runs, listing only the fields the viewer may ask for.
+     */
+    public function manyMatch(ManyMatch|string $mode, string ...$fields): self
+    {
+        $parsed = $mode instanceof ManyMatch ? $mode : ManyMatch::tryFrom($mode);
+        if ($parsed === null) {
+            throw new InvalidQuery(sprintf('manyMatch() takes "any" or "single", got "%s".', is_string($mode) ? $mode : ''));
+        }
+        if ($parsed === ManyMatch::Any && $fields !== []) {
+            throw new InvalidQuery('manyMatch(\'any\') takes no fields.');
+        }
+        if ($parsed === ManyMatch::Single && $this->index->manyBestFields() === []) {
+            throw new InvalidQuery(sprintf('Index "%s" has no field with many: { rank: best }: manyMatch(\'single\') needs one (declare it and run fuzzphony:schema --apply).', $this->index->name));
+        }
+
+        return $this->next($this->query->withManyMatch($parsed, array_values(array_unique($fields))));
     }
 
     public function profile(string $profile): self

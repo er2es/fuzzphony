@@ -4,11 +4,13 @@ declare(strict_types=1);
 
 namespace Fuzzphony\Engine\Postgres\Search;
 
+use Fuzzphony\Core\Definition\FieldDefinition;
 use Fuzzphony\Core\Definition\IndexDefinition;
 use Fuzzphony\Core\Query\Filter\Condition;
 use Fuzzphony\Core\Query\SearchQuery;
 use Fuzzphony\Core\Ranking\RankingProfile;
 use Fuzzphony\Core\Ranking\Thresholds;
+use Fuzzphony\Engine\Postgres\ManyMatchFields;
 use Fuzzphony\Engine\Postgres\Schema\Names;
 use Fuzzphony\Engine\Postgres\Sql\FuzzyQueryCompiler;
 use Fuzzphony\Engine\Postgres\Sql\SearchSqlBuilder;
@@ -38,7 +40,31 @@ final readonly class SearchContext
      */
     public function builder(array $candidates = []): SearchSqlBuilder
     {
-        return new SearchSqlBuilder($this->index, $this->names, $candidates, $this->query->allowedFields, true, openClass: $this->openClass);
+        return new SearchSqlBuilder($this->index, $this->names, $candidates, $this->query->allowedFields, true, openClass: $this->openClass, bestValues: $this->bestValueFields(), single: $this->single());
+    }
+
+    /**
+     * The rank: best fields whose best value the ranked statement reports for the page: every one with explainMatches()
+     * (ScoreBreakdown::$bestValues), else the highlighted ones (the value shown); the builder keeps only those the viewer may see.
+     *
+     * @return list<string>
+     */
+    public function bestValueFields(): array
+    {
+        $best = array_map(static fn(FieldDefinition $f): string => $f->name, $this->index->manyBestFields());
+
+        return $this->query->explainMatches ? $best : array_values(array_intersect($best, $this->query->highlight));
+    }
+
+    /**
+     * manyMatch('single'): the rank: best fields of which one value must hold the words, for THIS viewer (ManyMatchFields: the named or
+     * every visible one; [] for the default mode and for a viewer who sees none, whose statements are the default ones).
+     *
+     * @return list<string>
+     */
+    public function single(): array
+    {
+        return ManyMatchFields::resolve($this->index, $this->query);
     }
 
     public function fuzzy(): FuzzyQueryCompiler

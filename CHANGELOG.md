@@ -11,6 +11,34 @@ and a link. Measurements, proofs and test names belong to the pull request, [doc
 
 ## [Unreleased]
 
+## [0.12.0] - 2026-11-11
+
+Additive on 0.11: a field with several values (`many`) can rank by its best single value and a search can require one value to hold every word, `with()` returns
+aliases and many values in one statement, and the demo's People tab shows the difference. Nothing is required of an index that does not opt in; the checklist is in [UPGRADE.md](UPGRADE.md).
+
+### Added
+
+- **`with()` aliases and many values:** `returnable: { url: slug }` returns a column under another name, a `many` field's name returns its values as a `list<string>`, and the whole page is read in one statement. Granted fields stay gated by name and by column ([searching](docs/searching.md#returning-source-fields-with), [UPGRADE](UPGRADE.md)).
+- **`many: { rank: best }` and `manyMatch('single')`:** a many field can rank through its best single value and a search can require one value to hold
+  every word (typos and as-you-type within the value, exclusions on the whole document). Opt-in per field; `fuzzphony:schema --apply` adds a partial index and a count column, then a reindex writes the counts ([configuration](docs/configuration.md#several-values-per-document-many), [searching](docs/searching.md#several-values-one-address-manymatch)).
+- **`ScoreBreakdown::$bestValues`:** with `explainMatches()`, the position of the value each `rank: best` field ranked the hit by ([searching](docs/searching.md#what-matched)).
+- **Demo: two switches on the ERP People tab** (*Rank by the best address*, *One address must match all words*) use `rank: best` and `manyMatch('single')` on the demo's `people` index (the address is now one value `zip city, street`); a second index `people_whole` holds the default ranking for the comparison ([demo README](demo/README.md#the-erp-page)).
+
+### Changed
+
+- **The highlight of a `rank: best` field shows the value the hit was ranked by** (its best single value, words of other fields included); other many fields are unchanged ([searching](docs/searching.md#what-matched)).
+
+### Fixed
+
+- **`ScoreBreakdown::$bestValues` and the highlight name a value only when it gave the rank:** a one-value document, a stale count or a field whose best-value rank did not win (several `rank: best` fields: the highest, by field order on a tie) names none, and a hidden field never decides it ([searching](docs/searching.md#what-matched)).
+- **`with()` of a many field follows the search's visibility:** a viewer restricted to other fields (`restrictedToFields()`, a guard) no longer gets its values ([security](docs/security.md#returned-fields)).
+- **`rank: best` value counts could go stale and rank wrongly:** `schema --apply` now drops the count column of a field that leaves `rank: best` (the doctor warns about a left-over or a count that differs from the values), so switching back never trusts an old count ([configuration](docs/configuration.md#several-values-per-document-many)).
+- **A reindex or drain with `rank: best` no longer scans the child table for the counts:** the key column is compared uncast, so its index is used.
+- **`schema --apply` no longer drops an index of yours on the values table** (only the `<values>_best_...` indexes of a field that is not `rank: best`).
+- **`manyMatch('single')` no longer depends on how many values a document has:** a typo word over a field boundary (`kisanna` for "Kiss" + "Anna utca 1") was kept for a document with one value and dropped for one with two; it is now never held by one value ([searching](docs/searching.md#several-values-one-address-manymatch)).
+- **`manyMatch('single')` with several fields no longer reads every combination of their values:** only the values that hold a word of the query take part (same results), and at most 3 fields are checked together (more: `InvalidQuery`, name the fields) ([searching](docs/searching.md#several-values-one-address-manymatch)).
+- **Docs:** the search role's `SELECT` on a child or values table covers the whole table ([roles](docs/roles.md#the-matrix)).
+
 ## [0.11.1] - 2026-11-04
 
 A demo patch: the library is unchanged.
@@ -1194,7 +1222,8 @@ on its own:
 - Sync modes: queue (default), trigger, ORM, manual; watches for joined tables.
 - Doctor with fixes; CLI commands for schema, reindex, worker, search and explain.
 
-[Unreleased]: https://github.com/er2es/fuzzphony/compare/v0.11.1...HEAD
+[Unreleased]: https://github.com/er2es/fuzzphony/compare/v0.12.0...HEAD
+[0.12.0]: https://github.com/er2es/fuzzphony/compare/v0.11.1...v0.12.0
 [0.11.1]: https://github.com/er2es/fuzzphony/compare/v0.11.0...v0.11.1
 [0.11.0]: https://github.com/er2es/fuzzphony/compare/v0.10.1...v0.11.0
 [0.10.1]: https://github.com/er2es/fuzzphony/compare/v0.10.0...v0.10.1

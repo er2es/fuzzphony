@@ -37,7 +37,7 @@ reads `pg_trgm.word_similarity_threshold`; the SQL builders (`Sql\SearchSqlBuild
 
 ## Public API
 
-From 1.0 the backward-compatibility promise covers exactly these 80 classes, interfaces and enums; everything else in
+From 1.0 the backward-compatibility promise covers exactly these 82 classes, interfaces and enums; everything else in
 `src/` is marked `@internal` and may change in any release. The engine contract (`Core\Engine\Engine`), the wizard's
 building blocks, the index registry, the search gate and the other container types are `@internal`: build the service
 with `Fuzzphony::postgres()` (or the bundle) and read the wizard through `Fuzzphony::wizard()`; `Fuzzphony::indexes()` and `Fuzzphony::definition()` list and read the registered indexes. The constructor of an
@@ -49,7 +49,7 @@ added to a result is not a breaking change.
   `Fuzzphony\Core\Attribute\SearchFilter`, `Fuzzphony\Core\Attribute\AsIndexDefinition`
 - Definitions: `Fuzzphony\Core\Definition\IndexDefinition`, `Fuzzphony\Core\Definition\IndexBuilder`,
   `Fuzzphony\Core\Definition\Source`, `Fuzzphony\Core\Definition\IndexSource`, `Fuzzphony\Core\Definition\FieldDefinition`,
-  `Fuzzphony\Core\Definition\FilterDefinition`, `Fuzzphony\Core\Definition\ManyValues`, `Fuzzphony\Core\Definition\Watch`,
+  `Fuzzphony\Core\Definition\FilterDefinition`, `Fuzzphony\Core\Definition\ManyValues`, `Fuzzphony\Core\Definition\ManyRank`, `Fuzzphony\Core\Definition\Watch`,
   `Fuzzphony\Core\Definition\Synonyms`,
   `Fuzzphony\Core\Definition\TextConfig`, `Fuzzphony\Core\Definition\Weight`,
   `Fuzzphony\Core\Definition\FilterType`, `Fuzzphony\Core\Definition\IdType`,
@@ -59,7 +59,7 @@ added to a result is not a breaking change.
   `Fuzzphony\Core\Search\Explanation`, `Fuzzphony\Core\Search\FacetValue`,
   `Fuzzphony\Core\Search\Actor`, `Fuzzphony\Core\Search\ActorResolver`,
   `Fuzzphony\Core\Search\SearchGuard`, `Fuzzphony\Core\Search\FieldRestrictingGuard`, `Fuzzphony\Core\Search\Access`,
-  `Fuzzphony\Core\Search\FederatedSearch`, `Fuzzphony\Core\Search\FederatedResult`
+  `Fuzzphony\Core\Search\FederatedSearch`, `Fuzzphony\Core\Search\FederatedResult`, `Fuzzphony\Core\Query\ManyMatch`
 - Search log: `Fuzzphony\Core\Analytics\SearchLog`, `Fuzzphony\Core\Analytics\SearchRecord`,
   `Fuzzphony\Core\Analytics\RecordStatus`, `Fuzzphony\Core\Analytics\QueryRedactor`,
   `Fuzzphony\Core\Analytics\SearchAnalytics`, `Fuzzphony\Core\Analytics\IpMode`,
@@ -144,10 +144,23 @@ Only an index that declares one pays for it; every other index keeps its layout,
 - The document SELECT (`DocumentSql`) reads the values of a many field as one text, the first `limit` values by `ORDER BY column, id` joined
   with a space (no value is silently dropped past the limit: the doctor names the documents over it). The sidecar columns (`t_<field>`, `tsv`,
   `fz`, `z_<field>`) are built from that text exactly as for a plain field, so the candidate lookup, the fuzzy lookups, the highlight and the
-  restricted-viewer machinery (a `granted` many field) work unchanged. Ranking therefore treats the field as a whole, not by its best value.
-- A child table `fuzzphony_<index>__values (doc, field, ord, v, t, z)` holds one row per value (primary key `(doc, field, ord)`, GIN on `t`,
-  trigram on `z`). The refresh function rewrites the rows of the refreshed documents (DELETE + INSERT by `doc`) after the sidecar write, in its
-  own transaction. They answer "which value matched" (`explainMatches()`) and the highlight of the best value; searches never join them.
+  restricted-viewer machinery (a `granted` many field) work unchanged. Ranking therefore treats the field as a whole by default. For a field
+  declared `rank: best` that the viewer may see, the text rank of a full-text candidate is
+  `coalesce(nullif(greatest(R_F, ...), 0), <whole-field rank>)`, where `R_F` is the highest `ts_rank_cd` of the viewer's visible vector with the
+  field's `t_<field>` replaced by one value's `t` (`s.t_a || v.t || s.t_c`), over the values that hold a positive query word (`v.t @@ q.tsany`, a
+  correlated read of the values table by its primary key): same function, weights and normalisation, so the score scale is unchanged
+  (`Engine\Postgres\Sql\BestValueRank`). A field the viewer may not see never enters the statement.
+- A child table `fuzzphony_<index>__values (doc, field, ord, v, t, z)` holds one row per value (primary key `(doc, field, ord)`; `t` is the
+  field's weighted vector of the value, `z` its normalised text). The refresh function rewrites the rows of the refreshed documents (DELETE + INSERT
+  by `doc`) after the sidecar write, in its own transaction. They answer "which value matched" (`explainMatches()`) and the highlight of the best
+  value; a search joins them only for a field declared `rank: best`, which adds one partial GIN per such field
+  (`<values>_best_<field>` ON `t` WHERE `field = '<field>'`, created and dropped by `schema --apply`, checked by the doctor as "Values ranking").
+  The option also adds a sidecar column `n_<field>` with the document's number of values (written by the refresh function of such an index only):
+  a document with one value is ranked on the whole field, which is then exactly its best value, without reading the values table. Its stored
+  vectors do not change, so the documents fingerprint leaves the option out; a NULL count (a document written before the option) only means its
+  values are read, and the doctor suggests a reindex. The column is dropped by `schema --apply` when a field leaves `rank: best` (a full reindex builds the
+  shadow table without it too), and the doctor compares a sample of the counts with the values table. The count reads the child table by the plain key
+  column (no cast on it), so an index on the key serves it.
 - A many filter is a `text[]` column `f_<name>` of the sidecar with a GIN index: `city = 'Budapest'` is `f_city @> ARRAY[...]` (any match),
   a facet unnests the array, so it counts documents, never values (the array holds distinct values).
 - The watch of the child table is derived from `from` and `key` (columns: the value column and the key): a change logs the owning document

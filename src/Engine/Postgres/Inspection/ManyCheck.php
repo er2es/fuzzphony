@@ -7,6 +7,7 @@ namespace Fuzzphony\Engine\Postgres\Inspection;
 use Fuzzphony\Core\Database\Connection;
 use Fuzzphony\Core\Definition\FieldDefinition;
 use Fuzzphony\Core\Definition\IndexDefinition;
+use Fuzzphony\Core\Definition\ManyRank;
 use Fuzzphony\Core\Definition\ManyValues;
 use Fuzzphony\Core\Inspection\Check;
 use Fuzzphony\Core\Support\Coerce;
@@ -33,6 +34,9 @@ final readonly class ManyCheck
         $valuesExists = $this->connection->fetchValue('SELECT to_regclass(:t) IS NOT NULL', ['t' => $this->names->values($index)]) === true;
         if ($index->manyFields() !== [] && !$valuesExists) {
             $checks[] = Check::error('Values table', sprintf('Table %s does not exist: documents cannot be rewritten with their several values.', $this->names->values($index)), 'bin/console fuzzphony:schema --apply');
+        }
+        if ($valuesExists) {
+            array_push($checks, ...$this->rankingChecks($index));
         }
         foreach ([...$index->manyFields(), ...$index->manyFilters()] as $one) {
             $many = $one->many;
@@ -87,6 +91,117 @@ final readonly class ManyCheck
         }
 
         return $checks;
+    }
+
+    /**
+     * "Values ranking" of each field declared `rank: best`: its partial GIN index on the values table must exist and be valid (an error with the fix
+     * otherwise); one that no declared field expects is a warning; the size is reported.
+     *
+     * @return list<Check>
+     */
+    private function rankingChecks(IndexDefinition $index): array
+    {
+        $checks = [];
+        $expected = [];
+        foreach ($index->manyBestFields() as $field) {
+            $label = sprintf('Values ranking "%s"', $field->name);
+            $name = $this->names->valuesBestIndexName($index, $field->name);
+            $expected[] = $name;
+            $row = $this->connection->fetchAll(
+                'SELECT i.indisvalid AS valid, pg_relation_size(i.indexrelid) AS bytes FROM pg_index AS i WHERE i.indexrelid = to_regclass(:i) AND i.indrelid = to_regclass(:t)',
+                ['i' => Sql::ident($this->names->schema . '.' . $name), 't' => $this->names->values($index)],
+            )[0] ?? null;
+            if ($row === null || $row['valid'] !== true) {
+                $checks[] = Check::error($label, sprintf('The index %s of the values table is %s: a "rank: best" field cannot rank by its best value without it.', $name, $row === null ? 'missing' : 'not valid (an interrupted build)'), 'bin/console fuzzphony:schema --apply');
+
+                continue;
+            }
+            $checks[] = Check::ok($label, sprintf('index %s present, %s', $name, self::size(Coerce::int($row['bytes']))));
+            array_push($checks, ...$this->unknownCounts($index, $field->name, $label));
+            array_push($checks, ...$this->wrongCounts($index, $field, $label));
+        }
+        $stale = array_map(Coerce::str(...), array_column($this->connection->fetchAll(
+            'SELECT c.relname FROM pg_index AS i JOIN pg_class AS c ON c.oid = i.indexrelid WHERE i.indrelid = to_regclass(:t) AND NOT i.indisprimary AND starts_with(c.relname, :p) ORDER BY c.relname',
+            ['t' => $this->names->values($index), 'p' => substr($this->names->valuesName($index) . '_best_', 0, Names::MAX_IDENTIFIER_BYTES - 9)],
+        ), 'relname'));
+        foreach ($index->manyFields() as $field) {
+            if ($field->many?->rank !== ManyRank::Best) {
+                array_push($checks, ...$this->staleCount($index, $field->name));
+            }
+        }
+        foreach (array_diff($stale, $expected) as $name) {
+            $checks[] = Check::warning('Values ranking', sprintf('The index %s of the values table is not expected by any field with "rank: best": it costs writes for nothing.', $name), 'bin/console fuzzphony:schema --apply');
+        }
+
+        return $checks;
+    }
+
+    /**
+     * Documents whose value count (Names::valueCountName()) is not known: written before the field was declared `rank: best`. They rank
+     * correctly (their values are read) but miss the shortcut of a document with one value until a reindex writes the count.
+     *
+     * @return list<Check>
+     */
+    private function unknownCounts(IndexDefinition $index, string $field, string $label): array
+    {
+        $column = $this->names->valueCountName($field);
+        $exists = $this->connection->fetchAll(
+            'SELECT 1 FROM pg_attribute WHERE attrelid = to_regclass(:t) AND attname = :c AND NOT attisdropped',
+            ['t' => $this->names->sidecar($index), 'c' => $column],
+        ) !== [];
+        if (!$exists) {
+            return []; // the sidecar columns check reports a missing column
+        }
+        $unknown = $this->connection->fetchAll(sprintf('SELECT 1 FROM %s WHERE %s IS NULL LIMIT 1', $this->names->sidecar($index), Sql::ident($column))) !== [];
+
+        return $unknown ? [Check::warning($label, 'Some documents have no value count yet (written before "rank: best"): they rank correctly but read their values even when they have one; a reindex writes the count.', sprintf('bin/console fuzzphony:reindex %s', $index->name))] : [];
+    }
+
+    /**
+     * The value count of a field that is not `rank: best` (any more): nothing maintains it, so it is stale and would be trusted if the field switched back.
+     *
+     * @return list<Check>
+     */
+    private function staleCount(IndexDefinition $index, string $field): array
+    {
+        $column = $this->names->valueCountName($field);
+        $exists = $this->connection->fetchAll(
+            'SELECT 1 FROM pg_attribute WHERE attrelid = to_regclass(:t) AND attname = :c AND NOT attisdropped',
+            ['t' => $this->names->sidecar($index), 'c' => $column],
+        ) !== [];
+
+        return $exists ? [Check::warning(sprintf('Values ranking "%s"', $field), sprintf('The column %s (the value count of a "rank: best" field) is still there although the field is not declared with it: nothing keeps it current, and switching back would trust stale counts (a wrong ranking).', $column), 'bin/console fuzzphony:schema --apply')] : [];
+    }
+
+    /**
+     * A sample of the stored value counts against the values table: a count that differs is stale (it would pick the one-value shortcut or skip the per-value rank wrongly).
+     *
+     * @return list<Check>
+     */
+    private function wrongCounts(IndexDefinition $index, FieldDefinition $field, string $label): array
+    {
+        $many = $field->many;
+        $column = $this->names->valueCountName($field->name);
+        $exists = $many !== null && $this->connection->fetchAll(
+            'SELECT 1 FROM pg_attribute WHERE attrelid = to_regclass(:t) AND attname = :c AND NOT attisdropped',
+            ['t' => $this->names->sidecar($index), 'c' => $column],
+        ) !== [];
+        if (!$exists) {
+            return [];
+        }
+        $wrong = $this->connection->fetchAll(sprintf(
+            'SELECT 1 FROM (SELECT id, %1$s AS n FROM %2$s WHERE %1$s IS NOT NULL LIMIT 500) AS s WHERE s.n <> (SELECT count(*) FROM %3$s AS v WHERE v.doc = s.id AND v.field = :f) LIMIT 1',
+            Sql::ident($column),
+            $this->names->sidecar($index),
+            $this->names->values($index),
+        ), ['f' => $field->name]) !== [];
+
+        return $wrong ? [Check::warning($label, sprintf('The stored value counts (%s) of some documents differ from their values (stale, e.g. from a time the field was not "rank: best"): they would rank by the wrong shortcut.', $column), sprintf('bin/console fuzzphony:reindex %s', $index->name))] : [];
+    }
+
+    private static function size(int $bytes): string
+    {
+        return $bytes >= 1_048_576 ? sprintf('%.1f MB', $bytes / 1_048_576) : sprintf('%d kB', (int) round($bytes / 1024));
     }
 
     /** Whether a valid index of the child table starts with the key column (the lookup of one document's values). */

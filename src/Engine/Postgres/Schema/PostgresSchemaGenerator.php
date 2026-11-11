@@ -222,6 +222,14 @@ final class PostgresSchemaGenerator
                 transactional: false,
             );
         }
+        foreach ($index->manyBestFields() as $field) {
+            // the values table is small next to the sidecar and has its own partial GIN per field that ranks through its best value
+            $statements[] = new Statement(
+                sprintf('CREATE INDEX CONCURRENTLY IF NOT EXISTS %s ON %s USING gin (t) WHERE field = %s', Sql::ident($this->names->valuesBestIndexName($index, $field->name)), $this->names->values($index), Sql::string($field->name)),
+                sprintf('Index of the values of "%s": its best single value ranks a document (many: { rank: best })', $field->name),
+                transactional: false,
+            );
+        }
         if ($index->hasFuzzy()) {
             $statements[] = new Statement(
                 sprintf('CREATE INDEX CONCURRENTLY IF NOT EXISTS %s ON %s USING gin (word %s.gin_trgm_ops)', Sql::ident($this->names->vocabularyIndexName($index)), $this->names->vocabulary($index), $this->names->extension()),
@@ -248,6 +256,32 @@ final class PostgresSchemaGenerator
                 'ARRAY[' . implode(', ', array_map(Sql::string(...), [...OpenClass::expectedNames($index, $this->names), ''])) . ']::text[]',
                 'ARRAY[' . implode(', ', array_map(Sql::string(...), ['', ...$this->legacyIndexNames($index)])) . ']::text[]',
             ),
+        );
+        if ($index->manyFields() !== []) {
+            // the partial index of a field that no longer ranks through its best value (or is gone): the names are read when the plan is applied
+            $statements[] = new Statement(
+                'DROP INDEX CONCURRENTLY IF EXISTS {name}',
+                'Drop a values index of a field that is no longer declared with many: { rank: best }',
+                transactional: false,
+                forEach: sprintf(
+                    'SELECT quote_ident(n.nspname) || \'.\' || quote_ident(c.relname) AS name FROM pg_index AS i JOIN pg_class AS c ON c.oid = i.indexrelid JOIN pg_namespace AS n ON n.oid = c.relnamespace WHERE i.indrelid = to_regclass(%1$s) AND NOT i.indisprimary AND left(c.relname, length(%2$s)) = %2$s AND c.relname <> ALL (%3$s)',
+                    Sql::string($this->names->values($index)),
+                    Sql::string(substr($this->names->valuesName($index) . '_best_', 0, Names::MAX_IDENTIFIER_BYTES - 9)), // a long name is cut to this much and gets a hash tail (Names::limit()): ours all start with it
+                    'ARRAY[' . implode(', ', array_map(Sql::string(...), ['', ...array_map(fn(FieldDefinition $f): string => $this->names->valuesBestIndexName($index, $f->name), $index->manyBestFields())])) . ']::text[]',
+                ),
+            );
+        }
+        // a field that left `rank: best` (or is gone) no longer maintains its value count: a stale one would be trusted when it switches back (the one-value
+        // shortcut), so the column goes: the same state a full reindex leaves (the shadow table is built without it). Idempotent; a table without such a column is not locked
+        $statements[] = new Statement(
+            sprintf(
+                'DO %1$s DECLARE r record; BEGIN FOR r IN SELECT attname FROM pg_attribute WHERE attrelid = to_regclass(%2$s) AND attname ~ \'^n_\' AND NOT attisdropped AND attname <> ALL (%3$s) LOOP EXECUTE format(\'ALTER TABLE %4$s DROP COLUMN %%I\', r.attname); END LOOP; END %1$s',
+                self::TAG,
+                Sql::string($table),
+                'ARRAY[' . implode(', ', array_map(Sql::string(...), ['', ...array_map(fn(FieldDefinition $f): string => $this->names->valueCountName($f->name), $index->manyBestFields())])) . ']::text[]',
+                str_replace("'", "''", $table),
+            ),
+            'Drop the value count column of a field that is no longer declared with many: { rank: best }',
         );
         foreach ($this->layoutSteps($index) as $target => [$step, $why]) {
             $statements[] = new Statement(sprintf(
@@ -423,6 +457,10 @@ ON CONFLICT (index_name) DO UPDATE SET layout_version = EXCLUDED.layout_version,
             if ($field->fuzzy) {
                 $columns[$this->names->fieldFuzzyName($field->name)] = "text NOT NULL DEFAULT ''";
             }
+        }
+        foreach ($index->manyBestFields() as $field) {
+            // NULL = not known (written before the column existed): the document's values are read, a reindex fills it
+            $columns[$this->names->valueCountName($field->name)] = 'smallint';
         }
         if ($index->boostColumn !== null) {
             $columns['boost'] = 'double precision';
@@ -648,6 +686,18 @@ ON CONFLICT (index_name) DO UPDATE SET layout_version = EXCLUDED.layout_version,
                 $columns[] = $this->names->fieldFuzzyName($field->name);
                 $values[] = sprintf("coalesce(%s, '')", $this->fieldFuzzyExpression($field));
             }
+        }
+        foreach ($index->manyBestFields() as $field) {
+            // the number of values the values table gets for the document (see valuesRefresh(): the non-null ones, at most `limit`); the key is compared as it is, with no cast on the child column, so its index serves the count
+            $many = $field->many ?? throw new \LogicException('A rank: best field has many values.');
+            $columns[] = $this->names->valueCountName($field->name);
+            $values[] = sprintf(
+                'least(%d, (SELECT count(*) FROM %s AS c WHERE c.%s = doc.fz_id AND c.%s IS NOT NULL))::smallint',
+                $many->limit,
+                Sql::ident($many->from),
+                Sql::ident($many->key),
+                Sql::ident($many->column),
+            );
         }
         if ($index->boostColumn !== null) {
             $columns[] = 'boost';

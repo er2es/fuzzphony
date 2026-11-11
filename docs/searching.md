@@ -177,6 +177,41 @@ show "found in the Vienna address". A word that matches several values is listed
 `value_ord` and `value` only for such a word; every other word is unchanged. The highlight of a many field (`highlight('city')`) shows the value that
 matches best instead of all of them.
 
+A field declared [`rank: best`](configuration.md#several-values-per-document-many) ranks a document by its best single value: the text rank is
+computed as for the whole document with that field holding only one of its values, for each value that holds a word of the query, and the highest
+counts (several matching values rank like one; with several `rank: best` fields the best of them counts). Words of other fields still count with it
+(`kiss szeged`: the name and one address). A document none of whose values holds a query word, or whose words are spread over several values (`fo utca`
+in one address, `szeged` in another), keeps the whole-field rank; it is still found, a single-value match usually ranks above it. The score scale,
+the profiles and `min_score` are unchanged. With `explainMatches()`, `ScoreBreakdown::$bestValues` maps each such field the viewer may see to the
+position (`valueOrd`, from 0) of the value that gave the rank, and the highlight of the field shows that value. A field is named only when its best-value
+rank is the one that produced the document's text rank: with several `rank: best` fields the highest counts (the first in the index's order on a tie), and
+none is named when the whole-field rank was used (a document with one value, a stale count, words spread over several values). Only the fields the viewer
+may see take part. A typo-tolerant match is scored on the whole field as before (the typo similarity is already a best match per word).
+
+### Several values, one address: `manyMatch()`
+
+For a many field declared with [`rank: best`](configuration.md#several-values-per-document-many), `->manyMatch('single')` keeps only the documents where
+ONE value holds every word the document needs from that field (`fo utca szeged` finds the customer whose single address has all three, not the one
+with `Fo utca` in one address and `Szeged` in another). `->manyMatch('single', 'addresses')` limits the mode to the named fields; none means every such
+field the viewer may search; `manyMatch('any')` is the default (a document matches when its values together do). A word you exclude (`-kossuth`)
+excludes the document when ANY of its values holds it. Refused with `InvalidQuery` when the index has no `rank: best` field (decided from the
+definition, never from what the viewer may see), for a mode other than `any` / `single`, for fields given to `any`, and for a name that is no such field
+or that the viewer may not see (the message lists only the fields the viewer may ask for); a viewer who sees none of them gets the plain search.
+
+How a word counts in the single-value mode: every positive word must be in one of the document's other visible fields or in the SAME value of
+each named field (`kiss szeged` finds Kiss Anna with a Szeged address; `szeged fo ter` finds "Szeged Kft" whose one address is "Pécs, Fő tér 1").
+A phrase must be inside one field or one value; a word scoped to the field (`address:szeged address:fo`) must be in that value; a typo-tolerant
+word (`fo utca szgeed`) is judged by its similarity to that value or to one other visible field, never to several fields joined: `kisanna` over
+the name "Kiss" and the address "Anna utca 1" matches in the default mode (the typo text is every field joined) but not in the single-value mode,
+whatever the number of addresses. The last word of a search-as-you-type is a prefix inside the value. With two named
+fields, one value of each is chosen together (every pair of the values that hold a word of the query is tried); at most 3 fields are checked
+together: with more (named, or every `rank: best` field the viewer sees when none is named) the search is refused with `InvalidQuery`; name
+the ones that must hold the words in one value. Totals, facets and the candidates follow the mode; the rank is the
+[best-value rank](configuration.md#several-values-per-document-many) (the matching value is the best one by construction), and `explainMatches()` / the highlight show it.
+Only the first `limit` values of a document are stored, so a value past the limit never satisfies the mode (as it never matches in the default mode).
+The empty-result relaxation and "did you mean" judge each word on its own, as in the default mode: a search with no single-value match can
+be relaxed to fewer words. Cost: [benchmarks](benchmarks.md#ranking-by-the-best-value-rank-best).
+
 ## Returning source fields: `with()`
 
 A result row usually needs a title, a slug, a price. `with()` returns those columns of the hit's **source row** in `Hit::$data`, so a page can be
@@ -194,9 +229,15 @@ foreach ($result->hits as $hit) {
 - `with('title', 'slug')` takes a subset of the index's `returnable` columns; `with()` with no argument means all of them; calling it again adds.
   A name that is not returnable is an `InvalidQuery` that lists the names you may ask for.
 - **Opt-in and fresh.** Without `with()` nothing changes: the statements and the results are the ones of a search without it, and `Hit::$data` is
-  `[]`. With it the engine runs **one more statement per source on the page**, over the ids of the page (never more than `limit`), reading the source
-  query itself: always the current value, nothing is copied into the index. `explain()` lists it as `returned fields: <source>`; every value is bound
-  and the column names come from the validated list.
+  `[]`. With it the engine runs **one more statement per page** (a `UNION ALL` of one SELECT per source on it), over the ids of the page (never more than
+  `limit`), reading the source query itself: always the current value, nothing is copied into the index. `explain()` lists it once, as
+  `returned fields: <index>`; every value is bound and the column names come from the validated list.
+- **Aliases.** `returnable` may rename a column: `returnable: { url: slug, title: title }` (YAML; mixed with plain names is fine, a list entry is its
+  own alias), builder `->returnable(['url' => 'slug', 'title'])`. You ask `with('url')` and `Hit::$data` is keyed `url`; the real name `slug` is not
+  returnable unless it is listed too. A multi-source index uses one alias set: each source maps it to its own column (`link: slug` in one,
+  `link: url` in another). Grants follow the column (see [Security](security.md#returned-fields)).
+- **Several values.** Name a `many` field in `returnable` and `with('city')` returns its values as a `list<string>`: the first `limit` of the field,
+  in the order of the index (value, then the child's primary key), read from the child table in the same statement; no child row gives `[]`.
 - **Types.** PostgreSQL types the values: integers, floats (a `numeric` is a float) and booleans come back as PHP ones, text as strings, dates and
   timestamps as ISO 8601 strings (`2026-01-02`, `2026-01-02T03:04:05+00:00`), `json`/`jsonb` and arrays as compact JSON strings, `null` as `null`.
   Keep to scalar columns for what you render.
