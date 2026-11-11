@@ -196,6 +196,16 @@ excludes the document when ANY of its values holds it. Refused with `InvalidQuer
 definition, never from what the viewer may see), for a mode other than `any` / `single`, for fields given to `any`, and for a name that is no such field
 or that the viewer may not see (the message lists only the fields the viewer may ask for); a viewer who sees none of them gets the plain search.
 
+How a word counts in the single-value mode: every positive word must be in one of the document's other visible fields or in the SAME value of
+each named field (`kiss szeged` finds Kiss Anna with a Szeged address; `szeged fo ter` finds "Szeged Kft" whose one address is "Pécs, Fő tér 1").
+A phrase must be inside one field or one value; a word scoped to the field (`address:szeged address:fo`) must be in that value; a typo-tolerant
+word (`fo utca szgeed`) is judged by its similarity to that value, and the last word of a search-as-you-type is a prefix inside it. With two named
+fields, one value of each is chosen together (every pair is tried). Totals, facets and the candidates follow the mode; the rank is the
+[best-value rank](configuration.md#several-values-per-document-many) (the matching value is the best one by construction), and `explainMatches()` / the highlight show it.
+Only the first `limit` values of a document are stored, so a value past the limit never satisfies the mode (as it never matches in the default mode).
+The empty-result relaxation and "did you mean" judge each word on its own, as in the default mode: a search with no single-value match can
+be relaxed to fewer words. Cost: [benchmarks](benchmarks.md#ranking-by-the-best-value-rank-best).
+
 ## Returning source fields: `with()`
 
 A result row usually needs a title, a slug, a price. `with()` returns those columns of the hit's **source row** in `Hit::$data`, so a page can be

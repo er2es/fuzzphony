@@ -307,7 +307,11 @@ leaks. A word that exists only in a hidden field is:
   field, so two documents that differ only in a hidden field score the same. A hidden
   [`rank: best`](configuration.md#several-values-per-document-many) field never enters the statement (it is the one of
   `rank: whole`, the values table is not read), and a visible one is ranked with only the visible fields around its value,
-  so its best value (`ScoreBreakdown::$bestValues`, the highlight) never depends on a hidden field;
+  so its best value (`ScoreBreakdown::$bestValues`, the highlight) never depends on a hidden field.
+  [`manyMatch('single')`](searching.md#several-values-one-address-manymatch) applies only to the fields the viewer may see: a hidden field named
+  there is refused exactly like an unknown name (the message lists the visible ones), a viewer who sees none gets the default statement, and
+  the single-value check reads the visible fields' own columns and the value rows of the named visible fields only (each correlated to a
+  document that passed the tenant and the filters);
 - **not highlighted**: a hit never shows a snippet of a hidden field;
 - **not suggested**: a restricted viewer gets no "did you mean" and `complete()` returns `[]`, because
   the vocabulary holds the words of every field; for the same reason a restricted viewer's search that finds nothing is
