@@ -328,7 +328,11 @@ the search finds nothing. (Before 0.9 the error appeared only when there were hi
 
 - A `returnable` column that is also a `granted` index field (the field has that name, or reads that column: `field('pay', column: 'salary', granted: ...)` gates `salary`) is returned only to an actor who holds it. For anyone else it is **not there**:
   `with('salary')` fails with the same `InvalidQuery` as a name that does not exist (the message lists only the columns this actor may ask for, so it
-  does not reveal that the column exists), and `with()` with no argument leaves it out. An actor without a guard answer (anonymous, a command) holds
+  does not reveal that the column exists), and `with()` with no argument leaves it out. An **alias** is gated by the column it reads, by its own name
+  and, in a multi-source index, by the column of every source: it cannot reach a granted column under another name, and `with()` accepts only the
+  returnable names, never a column that is merely read by an alias. A returnable **many field** is gated by the field of that name (granted: the same
+  rule), and its child table is read with the search role (`SELECT` on it is part of `--dump-grants`). A tenant-scoped index repeats the tenant
+  condition on every source SELECT of the one statement. An actor without a guard answer (anonymous, a command) holds
   no granted field.
 - `restrictedToFields()` narrows the returned granted columns like it narrows the search.
 - The ids come from the search, which is already tenant-scoped; a tenant-scoped index repeats its tenant condition on the source query too, so a row
