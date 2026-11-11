@@ -19,8 +19,8 @@ final readonly class Erp
     public const array TABS = [
         'people' => [
             'index' => 'people', 'label' => 'People', 'field' => 'Search people',
-            'about' => 'Persons by name, birth name, e-mail and every city and street of their addresses (several values per person).',
-            'examples' => ['name' => 'kovacs', 'city of an address' => 'kovacs budapest', 'a typo' => 'kovacz nora'],
+            'about' => 'Persons by name, birth name, e-mail and their addresses (several values per person, each address one value).',
+            'examples' => ['name' => 'kovacs', 'city of an address' => 'kovacs budapest', 'a typo' => 'kovacz nora', 'two addresses or one' => 'fő utca szeged'],
         ],
         'companies' => [
             'index' => 'companies', 'label' => 'Companies', 'field' => 'Search companies',
@@ -33,6 +33,9 @@ final readonly class Erp
             'examples' => ['order number' => 'ORD-2026-044127', 'a beginning' => 'ORD-2025', 'customer' => 'kovacs'],
         ],
     ];
+
+    /** The index of the People tab with the default ranking of the address field (src/Search/PeopleWholeIndex.php), for the comparison. */
+    public const string PEOPLE_WHOLE = 'people_whole';
 
     /** The date filter of People and Companies: key => [label, from, to] (both inclusive, ISO dates). */
     public const array CREATED = [
@@ -53,14 +56,14 @@ final readonly class Erp
 
     /** Which table a kind (the index name of a single-source index, the source name of the multi-source `site`) is read from. */
     private const array KINDS = [
-        'people' => 'customer', 'person' => 'customer',
+        'people' => 'customer', 'people_whole' => 'customer', 'person' => 'customer',
         'companies' => 'customer', 'company' => 'customer',
         'orders' => 'order', 'order' => 'order',
     ];
 
     /** How the page names a field in "found in ...". */
     private const array FIELD_LABELS = [
-        'city' => 'the address', 'street' => 'the address', 'contact' => 'a contact person', 'name' => 'the name', 'birth_name' => 'the birth name',
+        'address' => 'the address', 'city' => 'the address', 'street' => 'the address', 'contact' => 'a contact person', 'name' => 'the name', 'birth_name' => 'the birth name',
         'email' => 'the e-mail', 'tax_no' => 'the tax number', 'phone' => 'the phone', 'number' => 'the order number',
         'customer_name' => 'the customer', 'title' => 'the title', 'text' => 'the text',
     ];
@@ -82,7 +85,7 @@ final readonly class Erp
         $ft = static fn (mixed $n): string => number_format((int) $n, 0, '.', ' ') . ' Ft';
 
         return match ($hit->kind) {
-            'people', 'person' => ['title' => $text('name') ?: $text('title'), 'sub' => self::join([$text('email'), $text('tax_no')]), 'label' => 'person'],
+            'people', 'people_whole', 'person' => ['title' => $text('name') ?: $text('title'), 'sub' => self::join([$text('email'), $text('tax_no')]), 'label' => 'person'],
             'companies', 'company' => ['title' => $text('name') ?: $text('title'), 'sub' => self::join([$text('tax_no'), $text('email'), $text('phone')]), 'label' => 'company'],
             'orders', 'order' => [
                 'title' => $text('number') ?: $text('title'),
@@ -122,9 +125,14 @@ final readonly class Erp
                 $lines[sprintf('found in %s: %s (%s)', self::FIELD_LABELS[$code], $hit->data[$code], $value === $typed ? 'exact code' : 'beginning of a code')] = true;
             }
         }
-        foreach ($hit->matches ?? [] as $m) {
+        // the value a `rank: best` field ranked by (ScoreBreakdown::$bestValues: field => position of the value) comes first and says so
+        $matches = $hit->matches ?? [];
+        $best = static fn (MatchedWord $m): bool => $m->valueOrd !== null && ($hit->breakdown->bestValues[$m->field] ?? null) === $m->valueOrd;
+        usort($matches, static fn (MatchedWord $a, MatchedWord $b): int => $best($b) <=> $best($a));
+        foreach ($matches as $m) {
             $where = self::FIELD_LABELS[$m->field] ?? $m->field;
             $line = match (true) {
+                $m->value !== null && $best($m) && count(array_unique(array_filter(array_map(static fn (MatchedWord $o): ?int => $o->valueOrd, $matches), static fn (?int $o): bool => $o !== null))) > 1 => 'found in the best address: ' . $m->value,
                 $m->value !== null => sprintf('found in %s: %s', $where, $m->value),
                 in_array($m->field, self::CODES, true) => sprintf('found in %s: %s (%s)', $where, $m->word, $m->via === MatchedWord::EXACT ? 'exact code' : 'beginning of a code'),
                 $m->via === MatchedWord::TYPO => sprintf('found in %s: %s (a close spelling)', $where, $m->word),

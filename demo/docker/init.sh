@@ -103,6 +103,15 @@ else
     erp_seeded=1
 fi
 
+# `erp_address.line` (zip, city and street as one text) is the one value of the `address` field of the index people. A volume
+# seeded before it existed gets the column here (a generated one: it follows the columns, nothing to keep in sync), and people is
+# indexed again below because its definition changed.
+if [ "$(psql -tAc "SELECT to_regclass('public.erp_address') IS NOT NULL AND NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'erp_address' AND column_name = 'line')")" = t ]; then
+    log "adding erp_address.line (the one address text of the index people)"
+    psql -q -v ON_ERROR_STOP=1 -c "ALTER TABLE erp_address ADD COLUMN line text GENERATED ALWAYS AS (zip || ' ' || city || ', ' || street) STORED"
+    erp_seeded=1
+fi
+
 log "applying the schema"
 php bin/console fuzzphony:schema --apply --no-interaction
 
@@ -115,8 +124,8 @@ needs_reindex() { # <index> <its source was just seeded: 0|1>
     case "$DEMO_REINDEX" in always) return 0 ;; never) return 1 ;; esac
     [ "$2" = 1 ] || [ "$(psql -tAc "SELECT EXISTS (SELECT 1 FROM fuzzphony.fuzzphony_$1)")" != t ]
 }
-for index in catalog lang_en lang_de lang_fr lang_es lang_hu intranet people companies orders site; do
-    case "$index" in catalog) fresh=$seeded ;; intranet) fresh=$note_seeded ;; people|companies|orders|site) fresh=$erp_seeded ;; *) fresh=$lang_seeded ;; esac
+for index in catalog lang_en lang_de lang_fr lang_es lang_hu intranet people people_whole companies orders site; do
+    case "$index" in catalog) fresh=$seeded ;; intranet) fresh=$note_seeded ;; people|people_whole|companies|orders|site) fresh=$erp_seeded ;; *) fresh=$lang_seeded ;; esac
     if needs_reindex "$index" "$fresh"; then
         log "reindexing $index"
         php bin/console fuzzphony:reindex "$index" --batch=20000 --no-interaction
@@ -127,7 +136,7 @@ done
 
 # A full reindex fills the vocabulary ("did you mean"); an index that already existed (an upgraded demo volume) has an
 # empty one, because the table is new: fill just that.
-for index in catalog lang_en lang_de lang_fr lang_es lang_hu intranet people companies orders site; do
+for index in catalog lang_en lang_de lang_fr lang_es lang_hu intranet people people_whole companies orders site; do
     if [ "$(psql -tAc "SELECT NOT EXISTS (SELECT 1 FROM fuzzphony.fuzzphony_${index}__vocab)")" = t ]; then
         log "building the vocabulary of $index"
         php bin/console fuzzphony:reindex "$index" --vocabulary --no-interaction

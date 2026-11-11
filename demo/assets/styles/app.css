@@ -593,6 +593,9 @@
     /* ERP page */
     .erp-filter { margin-top: 1.1rem; display: flex; align-items: center; justify-content: center; gap: .6rem; font-size: .9375rem; color: var(--label-2); }
     .erp-filter select { width: auto; min-width: 10rem; max-width: 100%; }
+    .erp-switches { margin: .9rem 0 0; border: 0; padding: 0; display: flex; flex-wrap: wrap; align-items: center; justify-content: center; gap: .5rem 1.5rem; font-size: .9375rem; color: var(--label-2); }
+    .erp-switches label { display: inline-flex; align-items: center; gap: .5rem; cursor: pointer; }
+    .erp-why { margin: 0; font-size: .9375rem; color: var(--label-2); }
     .erp-table { background: var(--surface); border-radius: var(--r-group); box-shadow: 0 0 0 .5px var(--hairline); overflow: hidden; font-size: .9375rem; }
     .erp-table th, .erp-table td { padding: .6rem .9rem; text-align: left; vertical-align: top; border-top: .5px solid var(--hairline); }
     .erp-table thead th { border-top: 0; color: var(--label-2); font-size: .8125rem; font-weight: 600; }

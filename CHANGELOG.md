@@ -20,6 +20,7 @@ aliases and many values in one statement, and the demo's People tab shows the di
 - **`many: { rank: best }` and `manyMatch('single')`:** a many field can rank through its best single value and a search can require one value to hold
   every word (typos and as-you-type within the value, exclusions on the whole document). Opt-in per field; `fuzzphony:schema --apply` adds a partial index and a count column, then a reindex writes the counts ([configuration](docs/configuration.md#several-values-per-document-many), [searching](docs/searching.md#several-values-one-address-manymatch)).
 - **`ScoreBreakdown::$bestValues`:** with `explainMatches()`, the position of the value each `rank: best` field ranked the hit by ([searching](docs/searching.md#what-matched)).
+- **Demo: two switches on the ERP People tab** (*Rank by the best address*, *One address must match all words*) use `rank: best` and `manyMatch('single')` on the demo's `people` index (the address is now one value `zip city, street`); a second index `people_whole` holds the default ranking for the comparison ([demo README](demo/README.md#the-erp-page)).
 
 ### Changed
 
