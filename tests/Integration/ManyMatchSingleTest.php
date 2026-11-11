@@ -122,6 +122,18 @@ final class ManyMatchSingleTest extends TestCase
         self::assertSame([], $this->single($f, 'address:kossuth address:fo'));
     }
 
+    public function testWithoutTheValueCountsTheValuesAreRead(): void
+    {
+        $f = $this->install([self::definition()]);
+        $texts = ['fo utca szeged', 'fo utca budapest', 'kiss szeged', 'szeged fo ter', 'kossuth fo', 'red bike', 'fo utca sze*'];
+        $with = array_map(fn(string $text): array => $this->single($f, $text), $texts);
+
+        $this->connection->execute('UPDATE fuzzphony_scust SET n_address = NULL, n_tag = NULL');
+        self::assertSame($with, array_map(fn(string $text): array => $this->single($f, $text), $texts), 'a document with one value passes on the count or on its value alike');
+        $this->connection->execute('UPDATE fuzzphony_scust SET n_address = 5, n_tag = 5');
+        self::assertSame($with, array_map(fn(string $text): array => $this->single($f, $text), $texts));
+    }
+
     public function testAnExcludedWordExcludesTheDocumentWhenAnyValueHoldsIt(): void
     {
         $f = $this->install([self::definition()]);
@@ -176,9 +188,9 @@ final class ManyMatchSingleTest extends TestCase
         $plain = $f->in('scust')->query('fo utca szgeed')->thresholds(['typo' => ['mode' => 'always']])->explain();
         $explained = $f->in('scust')->query('fo utca szgeed')->thresholds(['typo' => ['mode' => 'always']])->manyMatch('single')->explain();
         $sql = implode("\n", array_column($explained->statements, 'sql'));
-        self::assertSame(3, substr_count($sql, 'EXISTS (SELECT 1 FROM (SELECT v.t, v.z FROM "public"."fuzzphony_scust__values" AS v WHERE v.doc = s.id AND v.field = \'address\''), 'the full-text branch (its fast and ordered selections) and the typo branch, the address field');
-        self::assertSame(3, substr_count($sql, "v.field = 'tag' UNION ALL SELECT ''::tsvector, ''::text) AS v2"), 'and the tag field, in the same EXISTS');
-        self::assertStringNotContainsString('EXISTS (SELECT 1 FROM (SELECT v.t', implode("\n", array_column($plain->statements, 'sql')));
+        self::assertSame(3, substr_count($sql, '(s."n_address" <= 1 AND s."n_tag" <= 1 OR EXISTS (SELECT 1 FROM (SELECT \'\'::tsvector AS t, \'\'::text AS z UNION ALL SELECT v.t, v.z FROM "public"."fuzzphony_scust__values" AS v WHERE v.doc = s.id AND v.field = \'address\') AS v1'), 'the full-text branch (its fast and ordered selections) and the typo branch, the address field');
+        self::assertSame(3, substr_count($sql, "v.field = 'tag') AS v2"), 'and the tag field, in the same EXISTS');
+        self::assertStringNotContainsString('UNION ALL SELECT v.t, v.z', implode("\n", array_column($plain->statements, 'sql')));
 
         $result = self::exact($f->in('scust')->query('kossuth szeged'))->manyMatch('single')->explainMatches()->highlight('address')->get();
         self::assertSame([1], self::ids($result));

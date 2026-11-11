@@ -855,9 +855,9 @@ SELECT
     /**
      * manyMatch('single') (spec 0.12 section 5.3): one value of each named field must hold every word the document needs from it.
      *
-     *   EXISTS (SELECT 1 FROM (SELECT v.t, v.z FROM <values> AS v WHERE v.doc = s.id AND v.field = 'F'
-     *                          UNION ALL SELECT ''::tsvector, ''::text) AS v1 [CROSS JOIN ... AS v2]
-     *           WHERE <the positive part of the query, word by word on the visible fields' own columns, F's bound to v1.t / v1.z>)
+     *   (s.n_F <= 1 OR EXISTS (SELECT 1 FROM (SELECT ''::tsvector AS t, ''::text AS z
+     *                          UNION ALL SELECT v.t, v.z FROM <values> AS v WHERE v.doc = s.id AND v.field = 'F') AS v1 [CROSS JOIN ... AS v2]
+     *           WHERE <the positive part of the query, word by word on the visible fields' own columns, F's bound to v1.t / v1.z>))
      *
      * The empty row is "no value needed" (every word in another field); several named fields are their values' cross product (at most
      * `limit` x `limit` rows per candidate). Only the viewer's visible fields' columns are read (FuzzyQueryCompiler::withinValues() on
@@ -872,14 +872,17 @@ SELECT
     {
         $aliases = [];
         $from = [];
+        $few = [];
         foreach ($this->single as $i => $field) {
             $aliases[$field] = 'v' . ($i + 1);
+            // the empty row first: a document whose words are all in other fields passes without reading a value
             $from[] = sprintf(
-                "(SELECT v.t, v.z FROM %s AS v WHERE v.doc = s.id AND v.field = %s UNION ALL SELECT ''::tsvector, ''::text) AS %s",
+                "(SELECT ''::tsvector AS t, ''::text AS z UNION ALL SELECT v.t, v.z FROM %s AS v WHERE v.doc = s.id AND v.field = %s) AS %s",
                 $this->names->values($this->index),
                 Sql::string($field),
                 $aliases[$field],
             );
+            $few[] = sprintf('s.%s <= 1', Sql::ident($this->names->valueCountName($field)));
         }
         $compiler = new FuzzyQueryCompiler($this->index, $thresholds, $this->names, [], $this->allowedFields ?? $this->index->fieldNames(), $this->transpositions);
         $within = $compiler->withinValues($root, $params, $emptyQueries, $aliases, $fuzzy, $fuzzy ? 'mf' : 'me');
@@ -888,7 +891,9 @@ SELECT
         }
         array_push($q, ...$within['columns']);
 
-        return sprintf('EXISTS (SELECT 1 FROM %s WHERE %s)', implode(' CROSS JOIN ', $from), $within['predicate']);
+        // A document with at most one value in each named field (its stored count; NULL before the reindex wrote it: the values are
+        // read) cannot have its words spread over values: the statement's own predicate decides it, as in the default mode.
+        return sprintf('(%s OR EXISTS (SELECT 1 FROM %s WHERE %s))', implode(' AND ', $few), implode(' CROSS JOIN ', $from), $within['predicate']);
     }
 
     /**
