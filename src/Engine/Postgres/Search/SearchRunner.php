@@ -252,6 +252,7 @@ final readonly class SearchRunner
                 prefixBonus: Coerce::float($row['prefix_bonus']),
                 boostBonus: Coerce::float($row['boost_bonus']),
                 recencyBonus: Coerce::float($row['recency_bonus']),
+                bestValues: $query->explainMatches ? self::bestValues($context, $row) : [],
             ), $highlights[$key] ?? [], index: $index->name);
         }
 
@@ -622,7 +623,28 @@ final readonly class SearchRunner
             $done->tsquery,
             array_map(static fn(array $r): int|string => $index->idType->cast(Coerce::str($r['id'])), $rows),
             $typo,
+            array_filter(array_combine(array_map(static fn(array $r): string => Coerce::str($r['id']), $rows), array_map(static fn(array $r): array => self::bestValues($c, $r), $rows))),
         ), Hints::INDEX);
+    }
+
+    /**
+     * The best value of each rank: best field the ranked statement reported for a row (SearchSqlBuilder `bv_<field>`): the fields whose
+     * best single value gave the text rank, with the value's position.
+     *
+     * @param array<string, mixed> $row
+     *
+     * @return array<string, int>
+     */
+    private static function bestValues(SearchContext $c, array $row): array
+    {
+        $best = [];
+        foreach ($c->bestValueFields() as $field) {
+            if (isset($row['bv_' . $field])) {
+                $best[$field] = Coerce::int($row['bv_' . $field]);
+            }
+        }
+
+        return $best;
     }
 
     /** The stored key of a hit: `<kind>:<id>` for a multi-source index, else its id. */
