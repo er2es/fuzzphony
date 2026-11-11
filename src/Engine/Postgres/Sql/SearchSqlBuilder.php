@@ -219,11 +219,11 @@ final class SearchSqlBuilder
             }
             $operands = TsQueryCompiler::operands($rankForm);
             // a many field with rank: best ranks by its best single value (BestValueRank): one more q column with the positive words
-            // OR-ed, and the work of a ranked document grows with the fields, so the scan budget counts them like words
+            // OR-ed, and the work of a ranked document grows with the fields, so the scan budget counts each like BestValueRank::OPERANDS words
             $any = $best->fields === [] ? null : BestValueRank::anyQuery($rankForm);
             if ($any !== null) {
                 $q[] = sprintf('to_tsquery(%s, %s) AS tsany', $config, $params->add($any));
-                $operands += count($best->fields);
+                $operands += BestValueRank::OPERANDS * count($best->fields);
             } else {
                 $best = null;
             }

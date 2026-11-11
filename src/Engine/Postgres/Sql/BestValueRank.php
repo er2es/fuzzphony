@@ -22,6 +22,13 @@ use Fuzzphony\Engine\Postgres\Schema\Names;
  */
 final readonly class BestValueRank
 {
+    /**
+     * What one rank: best field weighs in the scan budget, in words of the query (SearchSqlBuilder::scanLimit()): ranking a candidate
+     * reads its matching values (a primary-key probe of the values table, one vector concatenation and one ts_rank_cd per value), which
+     * measured on 200 000 customers with 1.5 addresses each about as much as ranking two more words (docs/benchmarks.md).
+     */
+    public const int OPERANDS = 2;
+
     /** @var list<string> the rank: best fields the viewer may see, in the index's order */
     public array $fields;
 
@@ -64,8 +71,10 @@ final readonly class BestValueRank
      */
     public function rank(string $fallback, string $weights, string $rankQuery): string
     {
+        // the field's own vector holds every lexeme of its values: a document none of whose values holds a query word is not looked up
         $parts = array_map(fn(string $field): string => sprintf(
-            '(SELECT max(%s) FROM %s AS v WHERE v.doc = s.id AND v.field = %s AND v.t @@ q.tsany)',
+            'CASE WHEN s.%s @@ q.tsany THEN (SELECT max(%s) FROM %s AS v WHERE v.doc = s.id AND v.field = %s AND v.t @@ q.tsany) END',
+            $this->names->fieldVector($field),
             $this->valueRank($field, $weights, $rankQuery),
             $this->names->values($this->index),
             Sql::string($field),

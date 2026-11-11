@@ -54,8 +54,8 @@ final class SearchSqlBuilderBestValueTest extends TestCase
 
         self::assertStringContainsString("to_tsquery('\"public\".\"fuzzphony_english\"'::regconfig, :p1) AS tsany", $sql);
         self::assertStringContainsString(
-            'coalesce(nullif((SELECT max(ts_rank_cd(' . self::W . ', s."t_name" || v.t || s."t_phone" || s."t_note", q.tsq, 32)) FROM "public"."fuzzphony_people__values" AS v'
-            . " WHERE v.doc = s.id AND v.field = 'city' AND v.t @@ q.tsany), 0), ts_rank_cd(" . self::W . ', s.tsv, q.tsq, 32))::double precision AS r_text',
+            'coalesce(nullif(CASE WHEN s."t_city" @@ q.tsany THEN (SELECT max(ts_rank_cd(' . self::W . ', s."t_name" || v.t || s."t_phone" || s."t_note", q.tsq, 32)) FROM "public"."fuzzphony_people__values" AS v'
+            . " WHERE v.doc = s.id AND v.field = 'city' AND v.t @@ q.tsany) END, 0), ts_rank_cd(" . self::W . ', s.tsv, q.tsq, 32))::double precision AS r_text',
             $sql,
         );
         self::assertStringNotContainsString('bv_', $sql, 'the best value is reported only when asked');
@@ -65,9 +65,9 @@ final class SearchSqlBuilderBestValueTest extends TestCase
     {
         $sql = self::ranked(self::index('best', 'best'), null, 'szeged');
 
-        self::assertStringContainsString("coalesce(nullif(greatest((SELECT max(ts_rank_cd(" . self::W . ', s."t_name" || v.t || s."t_phone" || s."t_note", q.tsq, 32))', $sql);
-        self::assertStringContainsString("v.field = 'city' AND v.t @@ q.tsany), (SELECT max(ts_rank_cd(" . self::W . ', s."t_name" || s."t_city" || v.t || s."t_note", q.tsq, 32))', $sql);
-        self::assertStringContainsString("v.field = 'phone' AND v.t @@ q.tsany)), 0), ", $sql);
+        self::assertStringContainsString("coalesce(nullif(greatest(CASE WHEN s.\"t_city\" @@ q.tsany THEN (SELECT max(ts_rank_cd(" . self::W . ', s."t_name" || v.t || s."t_phone" || s."t_note", q.tsq, 32))', $sql);
+        self::assertStringContainsString("v.field = 'city' AND v.t @@ q.tsany) END, CASE WHEN s.\"t_phone\" @@ q.tsany THEN (SELECT max(ts_rank_cd(" . self::W . ', s."t_name" || s."t_city" || v.t || s."t_note", q.tsq, 32))', $sql);
+        self::assertStringContainsString("v.field = 'phone' AND v.t @@ q.tsany) END), 0), ", $sql);
     }
 
     public function testARestrictedViewerSubstitutesInItsOwnFieldsOnly(): void
@@ -100,8 +100,8 @@ final class SearchSqlBuilderBestValueTest extends TestCase
             $sql,
         );
         self::assertStringNotContainsString('bv_phone', $sql, 'a rank: whole field has no best value');
-        // three words and one best field: the budget of one word divided by four
-        self::assertStringContainsString('LIMIT 25000', $sql);
+        // three words and one best field (two words' worth): the budget of one word divided by five
+        self::assertStringContainsString('LIMIT 20000', $sql);
         self::assertStringContainsString('LIMIT 33333', self::ranked(self::index('whole'), null, 'fo utca szeged'));
     }
 
