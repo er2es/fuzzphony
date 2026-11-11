@@ -6,7 +6,7 @@
     {% set d = erp_row(hit) %}
     {% set title %}<a href="{{ path('erp_detail', {kind: hit.kind, id: hit.id}) }}">{{ d.title }}</a>{% endset %}
     {% set aside %}<div class="row-flags"><span class="flag" title="index">{{ hit.index }}</span>{% if hit.index == 'site' or hit.kind != hit.index %}<span class="flag is-ok" title="kind">{{ hit.kind }}</span>{% endif %}</div>{% endset %}
-    {% set below %}{% set why = erp_reasons(hit, q) %}{% if why %}<div class="row-why"><span class="why-label">Why:</span> {{ why|join(' · ') }}</div>{% endif %}{% endset %}
+    {% set below %}{% for l in erp_lines(hit) %}<div class="row-match"><span class="match-label">{{ l.label }}</span> {{ l.html|raw }}</div>{% endfor %}{% set why = erp_reasons(hit, q) %}{% if why %}<div class="row-why"><span class="why-label">Why:</span> {{ why|join(' · ') }}</div>{% endif %}{% endset %}
     {{ ui.product_row('', title, d.sub, aside, null, below) }}
 {% endmacro %}
 {% import _self as r %}

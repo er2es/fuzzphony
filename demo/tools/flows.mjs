@@ -1028,6 +1028,7 @@ await secContext.close();
     await erp.waitForSelector('#results .hit-row');
     check('erp people: rows appear while typing, from with() data (name and e-mail)', (await erp.locator('#results .hit-row').count()) > 3 && /@/.test(await erp.locator('#results .row-sub').first().innerText()));
     check('erp people: the matched value of the address is named', /found in the address: [0-9]{4} Budapest/.test(await erp.locator('#results .row-why').first().innerText()), await erp.locator('#results .row-why').first().innerText());
+    check('erp people: a muted line shows the matched address with the query word in <mark>, next to the Why line', (await erp.locator('#results .row-match', { hasText: /^Address/i }).count()) > 5 && (await erp.locator('#results .row-match mark', { hasText: /budapest/i }).count()) > 5 && (await erp.locator('#results .row-why').count()) > 5);
     check('erp people: the city facet comes from the many field', (await erp.locator('#results .facet a').count()) >= 1);
     const link = await erp.locator('#results .hit-row .row-title a').first().getAttribute('href');
     check('erp people: the row links to /erp/people/{id}', /^\/erp\/people\/\d+$/.test(link ?? ''), link);
@@ -1073,6 +1074,7 @@ await secContext.close();
     await erp.waitForSelector('#results .hit-row');
     check('erp companies: a tax number finds the company as an exact code', (await erp.locator('#results .hit-row').count()) === 1 && /exact code/.test(await erp.locator('#results .row-why').first().innerText()), await erp.locator('#results .row-why').first().innerText());
     await go(erp, BASE + '/erp?tab=companies&q=contact:simon');
+    check('erp companies: the matched contact person shows as a muted line with the word in <mark>', (await erp.locator('#results .row-match mark', { hasText: /simon/i }).count()) >= 1);
     check('erp companies: a contact person is searched as a field', (await erp.locator('#results .hit-row').count()) >= 1 && /contact person/.test(await erp.locator('#results .row-why').first().innerText()));
     // the result list takes the width of the page whether or not there is a facet column (companies have none), at a laptop and a phone width
     for (const [w, h] of [[1280, 800], [375, 800]]) {

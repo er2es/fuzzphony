@@ -34,6 +34,6 @@ final class PeopleAdminIndex
             ->filter('city', 'string', many: ['from' => 'erp_address', 'key' => 'customer_id', 'column' => 'city', 'limit' => 50])
             ->filter('created_at', 'datetime')
             ->watch('erp_customer')
-            ->returnable('name', 'email', 'tax_no');
+            ->returnable('name', 'email', 'tax_no', 'birth_name', 'address');
     }
 }

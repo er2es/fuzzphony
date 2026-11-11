@@ -132,7 +132,7 @@ final readonly class ErpSync
             if ($hit->id === self::CUSTOMER_ID) {
                 $reason = null;
                 foreach ($hit->matches ?? [] as $match) {
-                    if ($match->value !== null && $match->value === $city) {
+                    if ($match->value !== null && str_contains($match->value, ' ' . $city . ',')) {
                         $reason = sprintf('found in the address: %s', $match->value);
                         break;
                     }

@@ -37,6 +37,16 @@ final readonly class Erp
     /** The index of the People tab with the default ranking of the address field (src/Search/PeopleWholeIndex.php), for the comparison. */
     public const string PEOPLE_WHOLE = 'people_whole';
 
+    /** The fields whose matched text the rows show as a muted line (Hit::$highlights), per tab. */
+    public const array HIGHLIGHTED = [
+        'people' => ['birth_name', 'address'],
+        'companies' => ['contact'],
+        'orders' => ['customer_name'],
+    ];
+
+    /** The muted lines under a row: field => label. */
+    private const array LINE_LABELS = ['birth_name' => 'Birth name', 'address' => 'Address', 'contact' => 'Contact', 'customer_name' => 'Customer'];
+
     /** The date filter of People and Companies: key => [label, from, to] (both inclusive, ISO dates). */
     public const array CREATED = [
         '2026' => ['Created in 2026', '2026-01-01T00:00:00+00:00', '2026-12-31T23:59:59+00:00'],
@@ -94,6 +104,34 @@ final readonly class Erp
             ],
             default => ['title' => (string) $hit->id, 'sub' => '', 'label' => $hit->kind],
         };
+    }
+
+    /**
+     * The muted lines of a row: what the search matched in the fields the row does not show, with the query words in `<mark>` (the library's
+     * highlight, HTML-escaped already, so it is printed as it is). A person without a match in the address shows the first address, and a birth
+     * name that differs from the name, as plain (escaped) text. For a `rank: best` field the highlight is the best value.
+     *
+     * @return list<array{label: string, html: string}>
+     */
+    public static function matchLines(Hit $hit): array
+    {
+        $lines = [];
+        $person = in_array($hit->kind, ['people', 'people_whole'], true);
+        foreach (self::LINE_LABELS as $field => $label) {
+            $html = $hit->highlights[$field] ?? null;
+            if ($html === null && $person) {
+                $value = $hit->data[$field] ?? null;
+                $value = is_array($value) ? ($value[0] ?? null) : $value;
+                if (is_string($value) && $value !== '' && !($field === 'birth_name' && $value === ($hit->data['name'] ?? null))) {
+                    $html = htmlspecialchars($value, ENT_QUOTES | ENT_SUBSTITUTE);
+                }
+            }
+            if ($html !== null && $html !== '') {
+                $lines[] = ['label' => $label, 'html' => $html];
+            }
+        }
+
+        return $lines;
     }
 
     /** @param list<string> $parts */

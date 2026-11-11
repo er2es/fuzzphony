@@ -91,7 +91,7 @@ final class ErpController extends AbstractController
         $facets = [];
         $result = null;
         if ($q !== '') {
-            $search = $fuzzphony->in($index)->asSystem()->query($q)->asYouType()->with()->explainMatches()->limit(15)->unlogged();
+            $search = $fuzzphony->in($index)->asSystem()->query($q)->asYouType()->with()->explainMatches()->highlight(...Erp::HIGHLIGHTED[$tab])->limit(15)->unlogged();
             if ($single) {
                 $search = $search->manyMatch('single');
             }
