@@ -158,7 +158,9 @@ Only an index that declares one pays for it; every other index keeps its layout,
   The option also adds a sidecar column `n_<field>` with the document's number of values (written by the refresh function of such an index only):
   a document with one value is ranked on the whole field, which is then exactly its best value, without reading the values table. Its stored
   vectors do not change, so the documents fingerprint leaves the option out; a NULL count (a document written before the option) only means its
-  values are read, and the doctor suggests a reindex.
+  values are read, and the doctor suggests a reindex. The column is dropped by `schema --apply` when a field leaves `rank: best` (a full reindex builds the
+  shadow table without it too), and the doctor compares a sample of the counts with the values table. The count reads the child table by the plain key
+  column (no cast on it), so an index on the key serves it.
 - A many filter is a `text[]` column `f_<name>` of the sidecar with a GIN index: `city = 'Budapest'` is `f_city @> ARRAY[...]` (any match),
   a facet unnests the array, so it counts documents, never values (the array holds distinct values).
 - The watch of the child table is derived from `from` and `key` (columns: the value column and the key): a change logs the owning document

@@ -22,6 +22,12 @@ and a link. Measurements, proofs and test names belong to the pull request, [doc
 
 - **The highlight of a `rank: best` field shows the value the hit was ranked by** (its best single value, words of other fields included); other many fields are unchanged ([searching](docs/searching.md#what-matched)).
 
+### Fixed
+
+- **`rank: best` value counts could go stale and rank wrongly:** `schema --apply` now drops the count column of a field that leaves `rank: best` (the doctor warns about a left-over or a count that differs from the values), so switching back never trusts an old count ([configuration](docs/configuration.md#several-values-per-document-many)).
+- **A reindex or drain with `rank: best` no longer scans the child table for the counts:** the key column is compared uncast, so its index is used.
+- **`schema --apply` no longer drops an index of yours on the values table** (only the `<values>_best_...` indexes of a field that is not `rank: best`).
+
 ## [0.11.1] - 2026-11-04
 
 A demo patch: the library is unchanged.
