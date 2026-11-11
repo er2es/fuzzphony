@@ -5,26 +5,39 @@ and the [CHANGELOG](CHANGELOG.md) has the full list of changes.
 
 ## From 0.11.x to 0.12.0
 
+Additive: nothing is removed or renamed, and an index that uses none of the new options keeps its tables, its search statements and its results.
+
+### Checklist (in this order)
+
+1. `composer update fuzzphony/fuzzphony`.
+2. `bin/console fuzzphony:schema --apply` (as the owner role; or `--dump-migration` for your own migration tool). On every index it adds one idempotent
+   statement that drops the value-count column of a field that is not `rank: best` (a no-op when there is none, so the apply output shows one more step per index).
+3. Only for an index that gets **`many: { rank: best }`** (opt-in, per field): the apply also builds a partial GIN index on the values table and adds the
+   count column `n_<field>` to the index table. Results are right at once; then run **`bin/console fuzzphony:reindex <index>`** (it rebuilds next to the live index and swaps it in: no downtime) to write the counts. Until then a search reads the
+   values of every candidate (slower; the doctor warns). Turning the option off again drops the index and the column at the next apply.
+4. Only if your search role was created from `--dump-grants`: nothing new for the values table (it already has `SELECT`), and a `returnable` many field makes the dump
+   list a `SELECT` on its child table. Both grants are on the whole table; see [roles](docs/roles.md#the-matrix).
+5. `bin/console fuzzphony:doctor`: "Values ranking" per `rank: best` field must be green.
+
+### What changes behaviour
+
+- **`with()` reads the whole page in one statement** (a `UNION ALL` of one SELECT per source): `explain()` shows one `returned fields: <index>` instead of one per
+  source, and `SourceFields::statements()` is now `statement()` (internal). Nothing to do, unless you assert the statement labels.
+- **A many field's name in `returnable` returns its values** (a `list<string>`) instead of the source column of the same name; `Hit::$data` is typed
+  `array<string, scalar|list<string>|null>`. Only an index with a many field that is also a returnable column name is affected: rename one of them.
+- **A many field in `with()` follows the visibility of the search:** a viewer restricted with `restrictedToFields()` (or by a guard) to other fields can no longer ask for it:
+  it is refused like an unknown name and left out of `with()` with no argument. Ordinary returnable columns are unchanged.
+
 ### Added
 
-- **`many: { rank: best }`** (new option of a many field; `ManyRank`, public) ranks the field through its best single value, and **`SearchBuilder::manyMatch('single'|'any', ...$fields)`**
-  asks that one value holds every word needed from the field. An index that does not use them is unchanged: same schema, same statements, same results.
-  To opt in, add the key and run `fuzzphony:schema --apply` (a partial GIN index on the values table, built on the existing rows, and a value count
-  column on the index table); results are right at once, then **run `fuzzphony:reindex <index>`** to write the counts (until then a search reads the
-  values of every candidate, slower; the doctor warns). An index without the option gets neither. See
-  [Several values per document](docs/configuration.md#several-values-per-document-many).
-  With it, the field's highlight shows the value the hit was ranked by, and `ScoreBreakdown::$bestValues` (new, `array<string, int>`, filled with
-  `explainMatches()` only) gives its position; code that builds a `ScoreBreakdown` itself is unaffected (the parameter is last and optional).
-  `manyMatch('single')` needs nothing more than the option (no reindex of its own); a search without it is unchanged
-  ([Several values, one address](docs/searching.md#several-values-one-address-manymatch)).
-
-### with()
-
-- `returnable` accepts aliases (`{ url: slug }`, `->returnable(['url' => 'slug'])`) and the name of a `many` field (its values come back as a `list<string>`); `Hit::$data` is now typed `array<string, scalar|list<string>|null>`. An index with a many field that is also a returnable column name now returns the many values instead of the source column: rename one of them.
-- `with()` reads the whole page in **one** statement (`UNION ALL` of one SELECT per source): `explain()` shows one `returned fields: <index>` instead of one per source, and `SourceFields::statements()` is now `statement()` (internal). Nothing to do, unless you assert the statement labels.
-- A `returnable` many field makes the search role read its child table: `fuzzphony:schema --dump-grants --role=search` lists it (a `SELECT` on the whole table).
-- **A many field follows the visibility of the search in `with()`:** a viewer restricted with `restrictedToFields()` (or by a guard) to other fields can no longer ask for it: it is
-  refused like an unknown name and left out of `with()` with no argument. Ordinary returnable columns are unchanged.
+- **`returnable` aliases** (`{ url: slug }`, `->returnable(['url' => 'slug'])`): `with('url')` and `Hit::$data['url']`; a granted column stays gated by its name and its column.
+- **`many: { rank: best }`** (`ManyRank`, public) ranks a many field through its best single value, and **`SearchBuilder::manyMatch('single'|'any', ...$fields)`**
+  asks that one value holds every word needed from the field (typos and as-you-type within the value; exclusions judge the whole document).
+  See [Several values per document](docs/configuration.md#several-values-per-document-many) and
+  [Several values, one address](docs/searching.md#several-values-one-address-manymatch). Costs 1.4 to 2 times a `rank: whole` search whose words are in the field ([benchmarks](docs/benchmarks.md#ranking-by-the-best-value-rank-best)).
+  `manyMatch('single')` needs nothing beyond the option (no reindex of its own); a search without it is unchanged.
+- **`ScoreBreakdown::$bestValues`** (`array<string, int>`, filled with `explainMatches()` only) gives the position of the value each `rank: best` field ranked the hit by, and the highlight of such a
+  field shows that value; code that builds a `ScoreBreakdown` itself is unaffected (the parameter is last and optional).
 
 ## From 0.10.x to 0.11.0
 

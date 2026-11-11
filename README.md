@@ -57,7 +57,7 @@ cd fuzzphony/demo && docker compose up --build    # http://localhost:8000
 
 \* The demo, the documentation ([docs/](https://github.com/er2es/fuzzphony/blob/main/docs/README.md)), the tests and the benchmarks live in the Git repository only: `composer require fuzzphony/fuzzphony` installs just the library (`src/`). Clone the repository to run the demo and read the docs offline; the docs are also on [GitHub](https://github.com/er2es/fuzzphony/blob/main/docs/README.md).
 
-The demo also holds an ERP-like data set (people, companies, orders) with separate search boxes, a combined box and a live sync demonstration ([screenshot](docs/screenshots.md#erp)). The box in the header of every page (Ctrl+K) searches all its indexes at once, grouped by index ([screenshot](docs/screenshots.md#the-search-box-in-the-header)).
+The demo also holds an ERP-like data set (people, companies, orders) with separate search boxes, a combined box and a live sync demonstration ([screenshot](docs/screenshots.md#erp)); its People tab compares the default ranking of a person's addresses with ranking by the best address and with "one address must match all words". The box in the header of every page (Ctrl+K) searches all its indexes at once, grouped by index ([screenshot](docs/screenshots.md#the-search-box-in-the-header)).
 
 The default catalogue has 500 000 products (about a minute to index). Windows (a Docker Compose build privilege prompt) and the
 large profile (1 000 000 products) are in the [demo README](https://github.com/er2es/fuzzphony/blob/main/demo/README.md).
@@ -107,6 +107,8 @@ A good fit when:
 - You need to protect the search: a rate limit per tenant, user or client IP (429), index-level authorization on Symfony's
   voters (403), and fields only some viewers may search (`granted: ROLE_HR`): a hidden field is not matched,
   ranked, highlighted or suggested for the others.
+- A record has several values (the addresses or phone numbers of a customer): they are indexed from the child table as one field, found by any
+  value, and with `rank: best` ranked by the best single value, so `fő utca szeged` can require one address that holds all three words.
 - Your content is multilingual: stemming for 28 languages, and accent folding that finds
   `Kávéfőző` for `kavefozo` and `Crème Brûlée` for `creme brulee`.
 
@@ -271,7 +273,7 @@ Details in [docs/limitations.md](https://github.com/er2es/fuzzphony/blob/main/do
 Current: v0.11.1 (a demo patch), v0.11.0 was additive on v0.10.0 (definition classes, multi-source indexes with a `kind`, `with()` source fields, several values per
 document, and an ERP demo). PostgreSQL only before 1.0:
 
-- v0.12.0: ranking by the best single value of a field with several values (to be discussed first).
+- v0.12.0: ranking a field with several values by its best single value (`many: { rank: best }`, `manyMatch('single')`), `with()` aliases and many values, and more tests (in the repository, not yet released).
 - v1.0.0: the stable API and the backward-compatibility promise.
 
 After 1.0, in separate projects: record linkage (matching people and companies across records, with explainable match scores), a

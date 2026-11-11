@@ -11,6 +11,9 @@ and a link. Measurements, proofs and test names belong to the pull request, [doc
 
 ## [Unreleased]
 
+Additive on 0.11: a field with several values (`many`) can rank by its best single value and a search can require one value to hold every word, `with()` returns
+aliases and many values in one statement, and the demo's People tab shows the difference. Nothing is required of an index that does not opt in; the checklist is in [UPGRADE.md](UPGRADE.md).
+
 ### Added
 
 - **`with()` aliases and many values:** `returnable: { url: slug }` returns a column under another name, a `many` field's name returns its values as a `list<string>`, and the whole page is read in one statement. Granted fields stay gated by name and by column ([searching](docs/searching.md#returning-source-fields-with), [UPGRADE](UPGRADE.md)).
