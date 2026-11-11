@@ -56,7 +56,7 @@ final class SearchSqlBuilderSingleValueTest extends TestCase
     public function testTheTypoBranchJudgesTheWordOnTheValue(): void
     {
         $sql = self::ranked(['name', 'city'], 'szeged', ['city'], true);
-        self::assertStringNotContainsString('"n_city" <= 1', $sql,'no count shortcut in the typo branch: its own predicate reads the fields joined');
+        self::assertStringNotContainsString('"n_city" <= 1', $sql, 'no count shortcut in the typo branch: its own predicate reads the fields joined');
         self::assertMatchesRegularExpression('/AND EXISTS \(SELECT 1 FROM .* AS v1 WHERE \(\(s\."t_name" @@ q\.mfft\d+ OR v1\.t @@ q\.mfft\d+\) OR GREATEST\("public"\.word_similarity\(q\.mffn\d+, s\."z_name"\), "public"\.word_similarity\(q\.mffn\d+, v1\.z\)\) >= q\.mfth\d+\)\)/', $sql);
         self::assertStringNotContainsString('OPERATOR("public".<%) v1', $sql);
         self::assertStringContainsString("v.field = 'city' AND (v.t @@ q.mfr1ft0 OR \"public\".word_similarity(q.mfr1fn1, v.z) >= q.mfr1th2)) AS v1", $sql, 'only the values that hold the word or are like it');
