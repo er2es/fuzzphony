@@ -145,9 +145,12 @@ Only an index that declares one pays for it; every other index keeps its layout,
   with a space (no value is silently dropped past the limit: the doctor names the documents over it). The sidecar columns (`t_<field>`, `tsv`,
   `fz`, `z_<field>`) are built from that text exactly as for a plain field, so the candidate lookup, the fuzzy lookups, the highlight and the
   restricted-viewer machinery (a `granted` many field) work unchanged. Ranking therefore treats the field as a whole, not by its best value.
-- A child table `fuzzphony_<index>__values (doc, field, ord, v, t, z)` holds one row per value (primary key `(doc, field, ord)`, GIN on `t`,
-  trigram on `z`). The refresh function rewrites the rows of the refreshed documents (DELETE + INSERT by `doc`) after the sidecar write, in its
-  own transaction. They answer "which value matched" (`explainMatches()`) and the highlight of the best value; searches never join them.
+- A child table `fuzzphony_<index>__values (doc, field, ord, v, t, z)` holds one row per value (primary key `(doc, field, ord)`; `t` is the
+  field's weighted vector of the value, `z` its normalised text). The refresh function rewrites the rows of the refreshed documents (DELETE + INSERT
+  by `doc`) after the sidecar write, in its own transaction. They answer "which value matched" (`explainMatches()`) and the highlight of the best
+  value; a search joins them only for a field declared `rank: best`, which adds one partial GIN per such field
+  (`<values>_best_<field>` ON `t` WHERE `field = '<field>'`, created and dropped by `schema --apply`, checked by the doctor as "Values ranking").
+  The option changes no stored document, so turning it on or off needs no reindex (the documents fingerprint leaves it out).
 - A many filter is a `text[]` column `f_<name>` of the sidecar with a GIN index: `city = 'Budapest'` is `f_city @> ARRAY[...]` (any match),
   a facet unnests the array, so it counts documents, never values (the array holds distinct values).
 - The watch of the child table is derived from `from` and `key` (columns: the value column and the key): a change logs the owning document

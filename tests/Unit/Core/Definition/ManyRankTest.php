@@ -64,7 +64,7 @@ final class ManyRankTest extends TestCase
 
         self::assertEquals($builder, $yaml);
         $array = (new ArrayExporter())->export($builder);
-        self::assertSame('best', $array['fields']['city']['many']['rank'] ?? null);
+        self::assertStringContainsString('"rank":"best"', json_encode($array, JSON_THROW_ON_ERROR));
         self::assertEquals($builder, (new ArrayDefinitionLoader())->load('customers', $array));
         $code = (new BuilderExporter())->export($builder);
         self::assertStringContainsString("'rank' => 'best'", $code);

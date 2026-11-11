@@ -216,6 +216,12 @@ final readonly class Names
         return self::limit($this->valuesName($index) . '_' . $suffix);
     }
 
+    /** The partial GIN index of the values table that serves a many field declared `rank: best` (see ManyRank). */
+    public function valuesBestIndexName(IndexDefinition $index, string $field): string
+    {
+        return $this->valuesIndexName($index, 'best_' . $field);
+    }
+
     /** The words of a fuzzy index and in how many documents each occurs: where "did you mean" (and later suggest()) read. */
     public function vocabularyName(IndexDefinition $index): string
     {

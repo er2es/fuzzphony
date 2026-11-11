@@ -25,7 +25,10 @@ final class ManyMatchFieldsTest extends TestCase
             ->build();
     }
 
-    /** @param list<string>|null $allowed @param list<string> $named */
+    /**
+     * @param list<string>      $named
+     * @param list<string>|null $allowed
+     */
     private static function query(ManyMatch $mode, array $named = [], ?array $allowed = null): SearchQuery
     {
         return new SearchQuery(allowedFields: $allowed, manyMatch: $mode, manyMatchFields: $named);
