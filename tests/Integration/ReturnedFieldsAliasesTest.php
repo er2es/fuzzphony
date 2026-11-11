@@ -202,7 +202,7 @@ final class ReturnedFieldsAliasesTest extends TestCase
         self::assertStringNotContainsString('alpha', implode('|', array_map(static fn(array $s): string => $s['sql'], $explained->statements)), 'no value is inlined');
 
         $none = $fz->in('rfa_a')->query('wireless')->asActor(new Actor(user: 'hr'))->with('tags')->get()->hits;
-        self::assertSame([['alpha', 'mid', 'zeta'], ['other-tenant-tag']], array_values(array_map(static fn(Hit $h): array => $h->data['tags'], self::sorted($none))));
+        self::assertSame([['alpha', 'mid', 'zeta'], ['other-tenant-tag']], array_values(array_map(static fn(Hit $h): mixed => $h->data['tags'], self::sorted($none))));
         $this->connection->execute('DELETE FROM rfa_tag WHERE item_id = 1');
         self::assertSame([], $hr->with('tags')->get()->hits[0]->data['tags'], 'no child row: an empty list, never null');
     }
@@ -240,7 +240,9 @@ final class ReturnedFieldsAliasesTest extends TestCase
     {
         $fz = $this->build();
         $explained = $fz->in('rfa_t')->forTenant(2)->query('wireless')->with('link')->explain();
-        $statement = $explained->statements[array_key_last($explained->statements)];
+        $statements = $explained->statements;
+        $statement = end($statements);
+        self::assertNotFalse($statement);
 
         self::assertSame([2], array_map(static fn(Hit $h): int|string => $h->id, $explained->result->hits));
         self::assertSame('wireless-keyboard', $explained->result->hits[0]->data['link']);

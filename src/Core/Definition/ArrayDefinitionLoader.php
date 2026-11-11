@@ -351,7 +351,7 @@ final class ArrayDefinitionLoader
     private static function assertReturnable(array &$problems, string $what, mixed $value): void
     {
         if ($value !== null && (!is_array($value) || array_filter($value, 'is_string') !== $value)) {
-            $problems[] = sprintf('%s must be a list of source column names (e.g. returnable: [title, slug, price]; `alias: column` entries rename one), got %s.', $what, self::shape($value));
+            $problems[] = sprintf('%s must be a list of source column names (e.g. returnable: [title, slug, price]) or a map of alias: column, got %s.', $what, self::shape($value));
         }
     }
 
