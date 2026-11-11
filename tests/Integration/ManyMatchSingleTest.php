@@ -118,7 +118,7 @@ final class ManyMatchSingleTest extends TestCase
         self::assertSame([2], $this->single($f, '"fo utca" szeged'), 'a phrase');
         self::assertSame([1, 2, 3], $this->single($f, 'kiss OR "fo utca"'));
         self::assertSame([1, 2], $this->single($f, 'nagy OR (kossuth szeged)'));
-        self::assertSame([2], $this->single($f, 'address:szeged address:fo'), 'words scoped to the field (the values-first lookup)');
+        self::assertSame([2], $this->single($f, 'address:szeged address:fo'), 'words scoped to the field');
         self::assertSame([], $this->single($f, 'address:kossuth address:fo'));
     }
 
@@ -197,9 +197,6 @@ final class ManyMatchSingleTest extends TestCase
         self::assertSame(['address' => 1], $result->hits[0]->breakdown->bestValues);
         self::assertSame('<mark>Szeged</mark>, <mark>Kossuth</mark> tér 2', $result->hits[0]->highlights['address'] ?? null);
         self::assertNotSame([], $result->hits[0]->matches ?? []);
-
-        $scoped = self::exact($f->in('scust')->query('address:szeged address:fo'))->manyMatch('single', 'address')->explain();
-        self::assertStringContainsString('s.id IN (SELECT v.doc FROM "public"."fuzzphony_scust__values" AS v WHERE v.field = \'address\' AND v.t @@ q.tsf)', $scoped->statements[0]['sql']);
     }
 
     public function testValuesPastTheLimitTakeNoPart(): void
@@ -298,7 +295,7 @@ final class ManyMatchSingleTest extends TestCase
         self::assertSame([6], self::ids($two));
         self::assertSame(1, $two->total);
         self::assertSame([6], self::ids($f->in('tcust')->query('fo utca szgeed')->forTenant(2)->thresholds(['typo' => ['mode' => 'always']])->manyMatch('single')->get()));
-        self::assertSame([2], self::ids(self::exact($f->in('tcust')->query('address:szeged address:fo')->forTenant(1))->manyMatch('single')->get()), 'the values-first lookup keeps the tenant');
+        self::assertSame([2], self::ids(self::exact($f->in('tcust')->query('address:szeged address:fo')->forTenant(1))->manyMatch('single')->get()), 'scoped words, the tenant kept');
     }
 
     public function testFederatedSearchWithTheModeOnOneIndex(): void

@@ -47,7 +47,6 @@ final class SearchSqlBuilderSingleValueTest extends TestCase
     {
         $sql = self::ranked(null, 'fo szeged -kossuth', ['city']);
         self::assertStringContainsString(self::FROM . '((s."t_name" @@ q.meft0 OR v1.t @@ q.meft0 OR s."t_phone" @@ q.meft0 OR s."t_note" @@ q.meft0) AND (s."t_name" @@ q.meft1 OR v1.t @@ q.meft1 OR s."t_phone" @@ q.meft1 OR s."t_note" @@ q.meft1) AND true)))', $sql);
-        self::assertStringNotContainsString('s.id IN (SELECT v.doc', $sql, 'an unscoped word: no values-first lookup');
         self::assertStringNotContainsString('UNION ALL SELECT v.t', self::ranked(null, 'fo szeged', []), 'no mode: no predicate');
 
         $restricted = self::ranked(['name', 'city'], '"fo utca" szeged', ['city']);
@@ -62,14 +61,6 @@ final class SearchSqlBuilderSingleValueTest extends TestCase
 
         $scoped = self::ranked(null, 'city:szeged', ['city'], true);
         self::assertMatchesRegularExpression('/v1\.t @@ q\.mfft\d+ OR "public"\.word_similarity\(q\.mffn\d+, v1\.z\) >= q\.mfth\d+/', $scoped, 'a scoped word on its own value');
-    }
-
-    public function testTheValuesFirstLookupOnlyWhenEveryPositiveWordIsScopedToTheField(): void
-    {
-        $in = "s.id IN (SELECT v.doc FROM \"public\".\"fuzzphony_people__values\" AS v WHERE v.field = 'city' AND v.t @@ q.tsf)";
-        self::assertStringContainsString($in, self::ranked(null, 'city:szeged city:fo -kossuth', ['city']));
-        self::assertStringNotContainsString('q.tsf', self::ranked(null, 'city:szeged name:kiss', ['city']));
-        self::assertStringNotContainsString('q.tsf', self::ranked(null, 'phone:1234 phone:5678', ['city']), 'a field outside the mode');
     }
 
     public function testOneWordNeedsNoCheckInTheFullTextBranch(): void

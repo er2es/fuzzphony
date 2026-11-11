@@ -292,10 +292,6 @@ final class SearchSqlBuilder
             // only when one value of each named field holds the field's words (singleValue())
             if ($tsquery !== null && !self::oneWord($scopedRoot) && ($exists = $this->singleValue($scopedRoot, $params, $emptyQueries, $thresholds, false, $q)) !== null) {
                 $strict[] = $exists;
-                $first = $this->valuesFirst($scopedRoot, $params, $config, $q);
-                if ($first !== null) {
-                    $strict[] = $first;
-                }
             }
             if ($fuzzyPredicate !== null && $fuzzyRoot !== null && ($exists = $this->singleValue($fuzzyRoot, $params, $emptyQueries, $thresholds, true, $q)) !== null) {
                 $fuzzyPredicate .= ' AND ' . $exists;
@@ -898,28 +894,6 @@ SELECT
     }
 
     /**
-     * The values-first lookup of manyMatch('single'): when every positive word is scoped to ONE named field, the documents are also
-     * those with a value holding the words (`s.id IN (...)` over the values table and its partial GIN on `t`), AND-ed with the
-     * statement's conditions (the tenant's included). The planner chooses whether to start from it. Null otherwise.
-     *
-     * @param list<string> $q the q columns, extended
-     */
-    private function valuesFirst(Node $root, ParameterBag $params, string $config, array &$q): ?string
-    {
-        $fields = array_unique(self::scopes($root));
-        if (count($fields) !== 1 || !in_array($fields[0], $this->single, true)) {
-            return null;
-        }
-        $words = (new TsQueryCompiler($this->index, true, true))->compile($root);
-        if ($words === null) {
-            return null;
-        }
-        $q[] = sprintf('to_tsquery(%s, %s) AS tsf', $config, $params->add($words));
-
-        return sprintf('s.id IN (SELECT v.doc FROM %s AS v WHERE v.field = %s AND v.t @@ q.tsf)', $this->names->values($this->index), Sql::string($fields[0]));
-    }
-
-    /**
      * Whether the positive part of the query is ONE word of one lexeme (`budapest`, `address:szeged`, `buda*`): a full-text match of it
      * is in one value (or in another field) by definition, so the single-value check of the full-text branch can only agree.
      */
@@ -941,21 +915,6 @@ SELECT
             $node instanceof Not => [],
             $node instanceof AllOf, $node instanceof AnyOf => array_merge([], ...array_map(self::positive(...), $node->nodes)),
             default => [$node],
-        };
-    }
-
-    /**
-     * The field each positive leaf is scoped to ('' for an unscoped one).
-     *
-     * @return list<string>
-     */
-    private static function scopes(Node $node): array
-    {
-        return match (true) {
-            $node instanceof Not => [],
-            $node instanceof AllOf, $node instanceof AnyOf => array_merge([], ...array_map(self::scopes(...), $node->nodes)),
-            $node instanceof FieldScoped => [$node->field],
-            default => [''],
         };
     }
 
