@@ -204,7 +204,7 @@ final class ManyBestRankTest extends TestCase
         $index = self::definition('bcust', 'best', limit: 2)->withSync(\Fuzzphony\Core\Definition\SyncMode::Queue);
         $f = $this->install([$index, self::definition('wcust', 'whole')]);
         self::assertSame([1 => 2, 2 => 1, 3 => 2, 4 => 1, 5 => 1], $this->counts('bcust'), 'one and several values');
-        self::assertStringNotContainsString('n_address', implode(',', array_column($this->connection->fetchAll("SELECT attname FROM pg_attribute WHERE attrelid = 'fuzzphony_wcust'::regclass"), 'attname')), 'rank: whole has no count');
+        self::assertStringNotContainsString('n_address', implode(',', array_map(\Fuzzphony\Core\Support\Coerce::str(...), array_column($this->connection->fetchAll("SELECT attname FROM pg_attribute WHERE attrelid = 'fuzzphony_wcust'::regclass"), 'attname'))), 'rank: whole has no count');
 
         $worker = new \Fuzzphony\Core\Sync\Worker($this->engine);
         $this->connection->execute("INSERT INTO mb_address (customer_id, line) VALUES (2, 'Szeged, Fő utca 6'), (2, 'Debrecen, Fő utca 8'), (5, NULL)");
