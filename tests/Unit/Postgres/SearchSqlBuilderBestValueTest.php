@@ -97,11 +97,10 @@ final class SearchSqlBuilderBestValueTest extends TestCase
     public function testTheBestValueColumnsAndTheScanBudget(): void
     {
         $sql = self::ranked(self::index(), null, 'fo utca szeged', ['city', 'phone']);
-        self::assertStringContainsString(
-            ', (SELECT (SELECT b.ord FROM (SELECT v.ord, ts_rank_cd(' . self::W . ', s."t_name" || v.t || s."t_phone" || s."t_note", q.tsq, 32) AS r FROM "public"."fuzzphony_people__values" AS v'
-            . " WHERE v.doc = s.id AND v.field = 'city' AND v.t @@ q.tsany) AS b WHERE b.r > 0 ORDER BY b.r DESC, b.ord LIMIT 1) FROM \"public\".\"fuzzphony_people\" AS s CROSS JOIN q WHERE s.id = page.id) AS \"bv_city\"\nFROM",
-            $sql,
-        );
+        // named only when the field's best-value rank is the one the text rank used (a real lookup that equals the greatest, above 0)
+        self::assertStringContainsString(', (SELECT CASE WHEN s."t_city" @@ q.tsany AND NOT coalesce(s."n_city" = 1 AND s.tsv_capped IS FALSE, false) AND coalesce((CASE WHEN', $sql);
+        self::assertStringContainsString('(SELECT b.ord FROM (SELECT v.ord, ts_rank_cd(' . self::W . ', s."t_name" || v.t || s."t_phone" || s."t_note", q.tsq, 32) AS r FROM "public"."fuzzphony_people__values" AS v', $sql);
+        self::assertStringContainsString(" ORDER BY b.r DESC, b.ord LIMIT 1) END FROM \"public\".\"fuzzphony_people\" AS s CROSS JOIN q WHERE s.id = page.id) AS \"bv_city\"\nFROM", $sql);
         self::assertStringNotContainsString('bv_phone', $sql, 'a rank: whole field has no best value');
         // three words and one best field (two words' worth): the budget of one word divided by five
         self::assertStringContainsString('LIMIT 20000', $sql);

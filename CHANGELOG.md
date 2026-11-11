@@ -24,6 +24,7 @@ and a link. Measurements, proofs and test names belong to the pull request, [doc
 
 ### Fixed
 
+- **`ScoreBreakdown::$bestValues` and the highlight name a value only when it gave the rank:** a one-value document, a stale count or a field whose best-value rank did not win (several `rank: best` fields: the highest, by field order on a tie) names none, and a hidden field never decides it ([searching](docs/searching.md#what-matched)).
 - **`with()` of a many field follows the search's visibility:** a viewer restricted to other fields (`restrictedToFields()`, a guard) no longer gets its values ([security](docs/security.md#returned-fields)).
 - **`rank: best` value counts could go stale and rank wrongly:** `schema --apply` now drops the count column of a field that leaves `rank: best` (the doctor warns about a left-over or a count that differs from the values), so switching back never trusts an old count ([configuration](docs/configuration.md#several-values-per-document-many)).
 - **A reindex or drain with `rank: best` no longer scans the child table for the counts:** the key column is compared uncast, so its index is used.
