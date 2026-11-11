@@ -5,6 +5,13 @@ and the [CHANGELOG](CHANGELOG.md) has the full list of changes.
 
 ## From 0.11.x to 0.12.0
 
+### Added
+
+- **`many: { rank: best }`** (new option of a many field; `ManyRank`, public) ranks the field through its best single value, and **`SearchBuilder::manyMatch('single'|'any', ...$fields)`**
+  asks that one value holds every word needed from the field. An index that does not use them is unchanged: same schema, same statements, same results.
+  To opt in, add the key and run `fuzzphony:schema --apply` (a partial GIN index on the values table, built on the existing rows); **no reindex**. See
+  [Several values per document](docs/configuration.md#several-values-per-document-many).
+
 ### with()
 
 - `returnable` accepts aliases (`{ url: slug }`, `->returnable(['url' => 'slug'])`) and the name of a `many` field (its values come back as a `list<string>`); `Hit::$data` is now typed `array<string, scalar|list<string>|null>`. An index with a many field that is also a returnable column name now returns the many values instead of the source column: rename one of them.

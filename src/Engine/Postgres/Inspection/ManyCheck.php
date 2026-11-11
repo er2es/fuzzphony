@@ -34,6 +34,9 @@ final readonly class ManyCheck
         if ($index->manyFields() !== [] && !$valuesExists) {
             $checks[] = Check::error('Values table', sprintf('Table %s does not exist: documents cannot be rewritten with their several values.', $this->names->values($index)), 'bin/console fuzzphony:schema --apply');
         }
+        if ($valuesExists) {
+            array_push($checks, ...$this->rankingChecks($index));
+        }
         foreach ([...$index->manyFields(), ...$index->manyFilters()] as $one) {
             $many = $one->many;
             if (!$many instanceof ManyValues) {
@@ -87,6 +90,47 @@ final readonly class ManyCheck
         }
 
         return $checks;
+    }
+
+    /**
+     * "Values ranking" of each field declared `rank: best`: its partial GIN index on the values table must exist and be valid (an error with the fix
+     * otherwise); one that no declared field expects is a warning; the size is reported.
+     *
+     * @return list<Check>
+     */
+    private function rankingChecks(IndexDefinition $index): array
+    {
+        $checks = [];
+        $expected = [];
+        foreach ($index->manyBestFields() as $field) {
+            $name = $this->names->valuesBestIndexName($index, $field->name);
+            $expected[] = $name;
+            $label = sprintf('Values ranking "%s"', $field->name);
+            $row = $this->connection->fetchAll(
+                'SELECT i.indisvalid AS valid, pg_relation_size(i.indexrelid) AS bytes FROM pg_index AS i WHERE i.indexrelid = to_regclass(:i) AND i.indrelid = to_regclass(:t)',
+                ['i' => Sql::ident($this->names->schema . '.' . $name), 't' => $this->names->values($index)],
+            )[0] ?? null;
+            if ($row === null || $row['valid'] !== true) {
+                $checks[] = Check::error($label, sprintf('The index %s of the values table is %s: a "rank: best" field cannot rank by its best value without it.', $name, $row === null ? 'missing' : 'not valid (an interrupted build)'), 'bin/console fuzzphony:schema --apply');
+
+                continue;
+            }
+            $checks[] = Check::ok($label, sprintf('index %s present, %s', $name, self::size(Coerce::int($row['bytes']))));
+        }
+        $stale = array_map(Coerce::str(...), array_column($this->connection->fetchAll(
+            'SELECT c.relname FROM pg_index AS i JOIN pg_class AS c ON c.oid = i.indexrelid WHERE i.indrelid = to_regclass(:t) AND NOT i.indisprimary AND (c.relname ~ :a OR c.relname ~ :b) ORDER BY c.relname',
+            ['t' => $this->names->values($index), 'a' => '_best_', 'b' => '_[0-9a-f]{8}$'],
+        ), 'relname'));
+        foreach (array_diff($stale, $expected) as $name) {
+            $checks[] = Check::warning('Values ranking', sprintf('The index %s of the values table is not expected by any field with "rank: best": it costs writes for nothing.', $name), 'bin/console fuzzphony:schema --apply');
+        }
+
+        return $checks;
+    }
+
+    private static function size(int $bytes): string
+    {
+        return $bytes >= 1_048_576 ? sprintf('%.1f MB', $bytes / 1_048_576) : sprintf('%d kB', (int) round($bytes / 1024));
     }
 
     /** Whether a valid index of the child table starts with the key column (the lookup of one document's values). */

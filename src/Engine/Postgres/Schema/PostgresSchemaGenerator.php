@@ -222,6 +222,14 @@ final class PostgresSchemaGenerator
                 transactional: false,
             );
         }
+        foreach ($index->manyBestFields() as $field) {
+            // the values table is small next to the sidecar and has its own partial GIN per field that ranks through its best value
+            $statements[] = new Statement(
+                sprintf('CREATE INDEX CONCURRENTLY IF NOT EXISTS %s ON %s USING gin (t) WHERE field = %s', Sql::ident($this->names->valuesBestIndexName($index, $field->name)), $this->names->values($index), Sql::string($field->name)),
+                sprintf('Index of the values of "%s": its best single value ranks a document (many: { rank: best })', $field->name),
+                transactional: false,
+            );
+        }
         if ($index->hasFuzzy()) {
             $statements[] = new Statement(
                 sprintf('CREATE INDEX CONCURRENTLY IF NOT EXISTS %s ON %s USING gin (word %s.gin_trgm_ops)', Sql::ident($this->names->vocabularyIndexName($index)), $this->names->vocabulary($index), $this->names->extension()),
@@ -249,6 +257,21 @@ final class PostgresSchemaGenerator
                 'ARRAY[' . implode(', ', array_map(Sql::string(...), ['', ...$this->legacyIndexNames($index)])) . ']::text[]',
             ),
         );
+        if ($index->manyFields() !== []) {
+            // the partial index of a field that no longer ranks through its best value (or is gone): the names are read when the plan is applied
+            $statements[] = new Statement(
+                'DROP INDEX CONCURRENTLY IF EXISTS {name}',
+                'Drop a values index of a field that is no longer declared with many: { rank: best }',
+                transactional: false,
+                forEach: sprintf(
+                    'SELECT quote_ident(n.nspname) || \'.\' || quote_ident(c.relname) AS name FROM pg_index AS i JOIN pg_class AS c ON c.oid = i.indexrelid JOIN pg_namespace AS n ON n.oid = c.relnamespace WHERE i.indrelid = to_regclass(%1$s) AND NOT i.indisprimary AND (c.relname ~ %2$s OR c.relname ~ %3$s) AND c.relname <> ALL (%4$s)',
+                    Sql::string($this->names->values($index)),
+                    Sql::string('_best_'),
+                    Sql::string('_[0-9a-f]{8}$'),
+                    'ARRAY[' . implode(', ', array_map(Sql::string(...), ['', ...array_map(fn(FieldDefinition $f): string => $this->names->valuesBestIndexName($index, $f->name), $index->manyBestFields())])) . ']::text[]',
+                ),
+            );
+        }
         foreach ($this->layoutSteps($index) as $target => [$step, $why]) {
             $statements[] = new Statement(sprintf(
                 'DO %1$s BEGIN IF to_regclass(%2$s) IS NOT NULL THEN IF (SELECT layout_version FROM %3$s WHERE index_name = %4$s) < %5$d THEN %6$s END IF; END IF; END %1$s',

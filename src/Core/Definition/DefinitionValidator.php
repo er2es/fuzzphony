@@ -163,6 +163,9 @@ final class DefinitionValidator
             }
             $what = sprintf('Filter "%s"', $filter->name);
             array_push($v, ...$filter->many->violations($what));
+            if ($filter->many->rank !== ManyRank::Whole) {
+                $v[] = sprintf('%s: many "rank" applies to fields only (a filter does not rank).', $what);
+            }
             if ($filter->column !== null) {
                 $v[] = $what . ': "column" and "many" are exclusive: the column of the values is many.column.';
             }

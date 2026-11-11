@@ -177,6 +177,16 @@ show "found in the Vienna address". A word that matches several values is listed
 `value_ord` and `value` only for such a word; every other word is unchanged. The highlight of a many field (`highlight('city')`) shows the value that
 matches best instead of all of them.
 
+### Several values, one address: `manyMatch()`
+
+For a many field declared with [`rank: best`](configuration.md#several-values-per-document-many), `->manyMatch('single')` keeps only the documents where
+ONE value holds every word the document needs from that field (`fo utca szeged` finds the customer whose single address has all three, not the one
+with `Fo utca` in one address and `Szeged` in another). `->manyMatch('single', 'addresses')` limits the mode to the named fields; none means every such
+field the viewer may search; `manyMatch('any')` is the default (a document matches when its values together do). A word you exclude (`-kossuth`)
+excludes the document when ANY of its values holds it. Refused with `InvalidQuery` when the index has no `rank: best` field (decided from the
+definition, never from what the viewer may see), for a mode other than `any` / `single`, for fields given to `any`, and for a name that is no such field
+or that the viewer may not see (the message lists only the fields the viewer may ask for); a viewer who sees none of them gets the plain search.
+
 ## Returning source fields: `with()`
 
 A result row usually needs a title, a slug, a price. `with()` returns those columns of the hit's **source row** in `Hit::$data`, so a page can be
