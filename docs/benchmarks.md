@@ -234,7 +234,7 @@ The sidecar table is 342 MB: 265 MB of heap (about 530 bytes a row) and 77 MB of
 | `tsv` column | the combined full-text vector of all fields (always) | 151 B | 72 MB |
 | `t_name`, `t_brand`, `t_category`, `t_description` | one full-text vector per field (exact field scoping, restricted viewers) | 48 + 31 + 20 + 98 = 197 B | 94 MB |
 | `fz` column | the trigram text of the fuzzy fields (`fuzzy: true`) | 32 B | 15 MB |
-| `z_name`, `z_brand` | one trigram text per fuzzy field | 21 + 11 = 32 B | 15 MB |
+| `z_brand` | one trigram text per fuzzy field, unless another column holds it (see below) | 11 B | 5 MB |
 | `exact` column | the exact-match text | 21 B | 10 MB |
 | index on `fz` | the trigram index behind typo tolerance | | 31 MB |
 | index on `tsv` | the full-text index | | 13 MB |
@@ -246,6 +246,18 @@ Reading it: the stored `tsv` costs about 28% of the heap row, and a SQL-function
 ([why it stays](architecture.md#why-the-combined-vector-is-stored)). The per-field columns are what make field scoping exact and a restricted viewer's
 search as fast as an unrestricted one. A field with `fuzzy: false` has no `z_` column, and an index without `fuzzy` fields has neither `fz` nor its index. The open-class
 indexes are built only when a field is `granted`; an install without one pays nothing for them.
+
+A per-field column that would hold exactly what another column of the row holds is not stored (since 0.12.3): `z_<field>` of the primary
+field (= `exact`, so the catalogue above has no `z_name`: 21 B a row, 10 MB less) and of the only fuzzy field (= `fz`), and `t_<field>` of an
+index of one field (= `tsv`). The searches read the other column instead; results are unchanged and timings within noise (a typo scoped
+to the one field of a one-field index got faster: it tests `fz` once); the differential and the 200 000-row timing are in the 0.12.3 pull request. On 200 000 ERP customers the sidecars after a full reindex (heap + TOAST + indexes):
+
+| Index | Columns not stored | Before | After |
+|---|---|---|---|
+| `people` (name A fuzzy, address and contact fuzzy, email) | `z_name` | 210 MB (130 MB heap) | 208 MB (128 MB heap) |
+| `cust` (one field, name fuzzy) | `t_name`, `z_name` | 47 MB (33 MB heap) | 37 MB (23 MB heap) |
+| `orders` (number A code, customer_name fuzzy) | `z_customer_name` | 59 MB (35 MB heap) | 57 MB (33 MB heap) |
+| `mails` (name fuzzy, email A granted, birth_name granted) | `z_name` | 105 MB (60 MB heap) | 102 MB (57 MB heap) |
 
 ## Several values per document (`many`)
 
