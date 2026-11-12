@@ -28,8 +28,7 @@ use PHPUnit\Framework\TestCase;
 final class OpenClassSqlTest extends TestCase
 {
     private const string OPEN_VECTOR = '(s."t_name" || s."t_category")';
-    /** name is the primary field: its normalised text is `exact` (no `z_name` column) */
-    private const string OPEN_TRIGRAM = '(s.exact || \' \' || s."z_category")';
+    private const string OPEN_TRIGRAM = '(CASE WHEN s.field_map = 1058641030672988307 THEN s.exact ELSE s."z_name" END || \' \' || s."z_category")';
 
     private static function index(bool $granted = true): IndexDefinition
     {
@@ -49,7 +48,7 @@ final class OpenClassSqlTest extends TestCase
         self::assertMatchesRegularExpression('/^fuzzphony_items__open_fz_[0-9a-f]{8}$/', $names[2]);
         self::assertMatchesRegularExpression('/^fuzzphony_items__open_tsv_[0-9a-f]{8}$/', $names[3]);
         self::assertSame('fuzzphony_items__f_price', $names[4]);
-        self::assertSame('USING gin ((exact || \' \' || "z_category") "public".gin_trgm_ops)', $indexes[$names[2]]);
+        self::assertSame('USING gin ((CASE WHEN field_map = 1058641030672988307 THEN exact ELSE "z_name" END || \' \' || "z_category") "public".gin_trgm_ops)', $indexes[$names[2]]);
         self::assertSame('USING gin (("t_name" || "t_category"))', $indexes[$names[3]]);
     }
 
@@ -65,7 +64,7 @@ final class OpenClassSqlTest extends TestCase
             ->field('name', 'A', fuzzy: true)->field('secret', 'B', fuzzy: true, granted: 'ROLE_X')->sync('manual')->build();
 
         $indexes = OpenClass::indexes($index, new Names());
-        self::assertSame(['USING gin ((exact) "public".gin_trgm_ops)', 'USING gin (("t_name"))'], array_values($indexes), 'the primary field\'s text is exact');
+        self::assertSame(['USING gin ((CASE WHEN field_map = 1058641030672988307 THEN exact ELSE "z_name" END) "public".gin_trgm_ops)', 'USING gin (("t_name"))'], array_values($indexes));
         self::assertMatchesRegularExpression('/^open_fz_[0-9a-f]{8}$/', array_keys($indexes)[0]);
         self::assertMatchesRegularExpression('/^open_tsv_[0-9a-f]{8}$/', array_keys($indexes)[1]);
     }

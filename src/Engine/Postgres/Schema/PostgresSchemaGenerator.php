@@ -42,6 +42,8 @@ final class PostgresSchemaGenerator
      * refresh function: reindex fills it) takes the slow way.
      */
     public const string CAPPED_COLUMN = 'tsv_capped';
+    /** Which column map a row was written with (Names::fieldMapId()); NULL = by an earlier release: every per-field column is filled. */
+    public const string FIELD_MAP_COLUMN = 'field_map';
 
     /**
      * SQL: true when a position of the vector is 16 383 or more, or a lexeme has 256 or more positions. A single to_tsvector() holds
@@ -283,21 +285,18 @@ final class PostgresSchemaGenerator
             ),
             'Drop the value count column of a field that is no longer declared with many: { rank: best }',
         );
-        $redundant = $this->redundantColumns($index);
-        if ($redundant !== []) {
-            // a field column an earlier release wrote although another column holds the same expression (Names::hasFieldVector(),
-            // hasFieldFuzzy()): nothing reads it any more (the refresh function above no longer writes it). Metadata only, after the
-            // indexes above (an old open-class index over it is gone by now); a table without such a column is not locked. The space
-            // returns at the next full reindex, whose table is built without it
+        if ($this->names->fieldMapId($index) === null) {
+            // a definition without shared columns writes and reads every per-field column; a field_map left by another definition
+            // is read by nothing (idempotent; a table without it is not locked)
             $statements[] = new Statement(
                 sprintf(
-                    'DO %1$s DECLARE r record; BEGIN FOR r IN SELECT attname FROM pg_attribute WHERE attrelid = to_regclass(%2$s) AND NOT attisdropped AND attname = ANY (%3$s) LOOP EXECUTE format(\'ALTER TABLE %4$s DROP COLUMN %%I\', r.attname); END LOOP; END %1$s',
+                    "DO %1\$s BEGIN IF EXISTS (SELECT 1 FROM pg_attribute WHERE attrelid = to_regclass(%2\$s) AND attname = '%3\$s' AND NOT attisdropped) THEN ALTER TABLE %4\$s DROP COLUMN %3\$s; END IF; END %1\$s",
                     self::TAG,
                     Sql::string($table),
-                    'ARRAY[' . implode(', ', array_map(Sql::string(...), $redundant)) . ']::text[]',
-                    str_replace("'", "''", $table),
+                    self::FIELD_MAP_COLUMN,
+                    $table,
                 ),
-                sprintf('Drop the field column(s) another column already holds: %s', implode(', ', $redundant)),
+                'Drop the column-map column: this definition has no per-field column another column holds',
             );
         }
         foreach ($this->layoutSteps($index) as $target => [$step, $why]) {
@@ -451,27 +450,6 @@ ON CONFLICT (index_name) DO UPDATE SET layout_version = EXCLUDED.layout_version,
     }
 
     /**
-     * The field columns this definition no longer has because another column holds the same expression: `t_<field>` of an index
-     * of one field (= `tsv`), `z_<field>` of its only fuzzy field (= `fz`) or of its primary field (= `exact`).
-     *
-     * @return list<string>
-     */
-    public function redundantColumns(IndexDefinition $index): array
-    {
-        $columns = [];
-        foreach ($index->fields as $field) {
-            if (!$this->names->hasFieldVector($index)) {
-                $columns[] = $this->names->fieldVectorName($field->name);
-            }
-            if ($field->fuzzy && !$this->names->hasFieldFuzzy($index, $field)) {
-                $columns[] = $this->names->fieldFuzzyName($field->name);
-            }
-        }
-
-        return $columns;
-    }
-
-    /**
      * Expected sidecar columns (name => type); the first one is the primary key.
      *
      * @return array<string, string>
@@ -490,14 +468,14 @@ ON CONFLICT (index_name) DO UPDATE SET layout_version = EXCLUDED.layout_version,
             // the key above is the text `<kind>:<id>`; these two say which source a row is from and its raw id
             $columns = ['id' => $columns['id'], 'kind' => 'text NOT NULL', 'src_id' => 'text NOT NULL'] + $columns;
         }
-        // a field's own vector and normalised text, unless another column already holds the same expression (Names::hasFieldVector(), hasFieldFuzzy())
         foreach ($index->fields as $field) {
-            if ($this->names->hasFieldVector($index)) {
-                $columns[$this->names->fieldVectorName($field->name)] = "tsvector NOT NULL DEFAULT ''";
-            }
-            if ($this->names->hasFieldFuzzy($index, $field)) {
+            $columns[$this->names->fieldVectorName($field->name)] = "tsvector NOT NULL DEFAULT ''";
+            if ($field->fuzzy) {
                 $columns[$this->names->fieldFuzzyName($field->name)] = "text NOT NULL DEFAULT ''";
             }
+        }
+        if ($this->names->fieldMapId($index) !== null) {
+            $columns[self::FIELD_MAP_COLUMN] = 'bigint';
         }
         foreach ($index->manyBestFields() as $field) {
             // NULL = not known (written before the column existed): the document's values are read, a reindex fills it
@@ -720,15 +698,21 @@ ON CONFLICT (index_name) DO UPDATE SET layout_version = EXCLUDED.layout_version,
             array_splice($columns, 1, 0, ['kind', 'src_id']);
             array_splice($values, 1, 0, ['doc.fz_kind', 'doc.fz_src']);
         }
+        // a per-field column whose value another column of the row holds (Names::sharedColumns()) is written empty: the readers take
+        // the other column for a row with this field_map, and the column itself for a row written under another definition
+        $shared = $this->names->sharedColumns($index);
         foreach ($index->fields as $field) {
-            if ($this->names->hasFieldVector($index)) {
-                $columns[] = $this->names->fieldVectorName($field->name);
-                $values[] = $this->fieldVectorExpression($index, $field);
-            }
-            if ($this->names->hasFieldFuzzy($index, $field)) {
+            $columns[] = $this->names->fieldVectorName($field->name);
+            $values[] = isset($shared[$this->names->fieldVectorName($field->name)]) ? "''::tsvector" : $this->fieldVectorExpression($index, $field);
+            if ($field->fuzzy) {
                 $columns[] = $this->names->fieldFuzzyName($field->name);
-                $values[] = sprintf("coalesce(%s, '')", $this->fieldFuzzyExpression($field));
+                $values[] = isset($shared[$this->names->fieldFuzzyName($field->name)]) ? "''" : sprintf("coalesce(%s, '')", $this->fieldFuzzyExpression($field));
             }
+        }
+        $map = $this->names->fieldMapId($index);
+        if ($map !== null) {
+            $columns[] = self::FIELD_MAP_COLUMN;
+            $values[] = $map . '::bigint';
         }
         foreach ($index->manyBestFields() as $field) {
             // the number of values the values table gets for the document (see valuesRefresh(): the non-null ones, at most `limit`); the key is compared as it is, with no cast on the child column, so its index serves the count

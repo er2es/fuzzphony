@@ -25,7 +25,7 @@ final class SchemaGeneratorTest extends TestCase
     public function testSidecarColumnsFollowTheDefinition(): void
     {
         self::assertSame(
-            ['id', 'tsv', 'tsv_capped', 'fz', 'exact', 't_name', 't_brand', 'z_brand', 't_description', 'boost', 'recency_at', 'f_price', 'f_in_stock', 'f_published_at', 'f_brand_id', 'indexed_at'],
+            ['id', 'tsv', 'tsv_capped', 'fz', 'exact', 't_name', 'z_name', 't_brand', 'z_brand', 't_description', 'field_map', 'boost', 'recency_at', 'f_price', 'f_in_stock', 'f_published_at', 'f_brand_id', 'indexed_at'],
             array_keys((new PostgresSchemaGenerator())->columns(Indexes::products())),
         );
     }
@@ -54,47 +54,28 @@ final class SchemaGeneratorTest extends TestCase
         self::assertStringNotContainsString('ADD COLUMN IF NOT EXISTS', $sql, 'it takes an ACCESS EXCLUSIVE lock even when nothing changes');
         self::assertStringNotContainsString('"z_description"', $sql, 'description is not fuzzy');
         self::assertStringContainsString(
-            'INSERT INTO "public"."fuzzphony_products" AS s ("id", "tsv", "tsv_capped", "fz", "exact", "t_name", "t_brand", "z_brand", "t_description", "boost", "recency_at", "f_price", "f_in_stock", "f_published_at", "f_brand_id", "indexed_at")',
+            'INSERT INTO "public"."fuzzphony_products" AS s ("id", "tsv", "tsv_capped", "fz", "exact", "t_name", "z_name", "t_brand", "z_brand", "t_description", "field_map", "boost", "recency_at", "f_price", "f_in_stock", "f_published_at", "f_brand_id", "indexed_at")',
             $sql,
         );
         self::assertStringContainsString(
-            "setweight(to_tsvector('\"public\".\"fuzzphony_english\"'::regconfig, coalesce(doc.\"fld_brand\"::text, '')), 'B'),\n        coalesce(\"public\".\"fuzzphony_norm\"(doc.\"fld_brand\"::text), ''),\n        setweight(to_tsvector('\"public\".\"fuzzphony_english\"'::regconfig, coalesce(doc.\"fld_description\"::text, '')), 'D'),\n        doc.fz_boost::double precision",
+            "setweight(to_tsvector('\"public\".\"fuzzphony_english\"'::regconfig, coalesce(doc.\"fld_brand\"::text, '')), 'B'),\n        coalesce(\"public\".\"fuzzphony_norm\"(doc.\"fld_brand\"::text), ''),\n        setweight(to_tsvector('\"public\".\"fuzzphony_english\"'::regconfig, coalesce(doc.\"fld_description\"::text, '')), 'D'),\n        1058641030672988307::bigint,\n        doc.fz_boost::double precision",
             $sql,
             'each field its own weighted vector (the same as its part of tsv) and, when fuzzy, its normalised text',
         );
         self::assertStringContainsString('"t_brand" = EXCLUDED."t_brand"', $sql);
         self::assertStringContainsString('"z_brand" = EXCLUDED."z_brand"', $sql);
+        // z_name holds what exact holds (name is the primary field): written empty, with the column map the readers check
+        self::assertStringContainsString("coalesce(\"public\".\"fuzzphony_norm\"(doc.\"fld_name\"::text), ''),\n        setweight(to_tsvector('\"public\".\"fuzzphony_english\"'::regconfig, coalesce(doc.\"fld_name\"::text, '')), 'A'),\n        '',\n        setweight(", $sql);
+        self::assertStringContainsString('"field_map" = EXCLUDED."field_map"', $sql, 'every write sets it: a row never keeps an older map');
     }
 
-    public function testAFieldColumnAnotherColumnHoldsIsNeitherCreatedNorWrittenAndTheApplyDropsIt(): void
+    public function testAnIndexWithoutSharedColumnsDropsALeftOverColumnMap(): void
     {
-        $generator = new PostgresSchemaGenerator();
-        // one field: its vector is tsv, its normalised text is fz (and exact)
-        $one = IndexDefinition::builder('one')->fromTable('fz_product')->field('name', 'B', fuzzy: true)->sync('manual')->build();
-        self::assertSame(['id', 'tsv', 'tsv_capped', 'fz', 'exact', 'indexed_at'], array_keys($generator->columns($one)));
-        self::assertSame(['t_name', 'z_name'], $generator->redundantColumns($one));
-        $sql = $generator->index($one)->toSql();
-        self::assertStringContainsString('INSERT INTO "public"."fuzzphony_one" AS s ("id", "tsv", "tsv_capped", "fz", "exact", "indexed_at")', $sql);
-        self::assertStringNotContainsString('ADD COLUMN "t_name"', $sql);
-        self::assertStringNotContainsString('ADD COLUMN "z_name"', $sql);
-        // the drop reads the catalog first (no lock when the columns are gone: idempotent) and names only the redundant columns
-        self::assertStringContainsString(
-            "SELECT attname FROM pg_attribute WHERE attrelid = to_regclass('\"public\".\"fuzzphony_one\"') AND NOT attisdropped AND attname = ANY (ARRAY['t_name', 'z_name']::text[]) LOOP EXECUTE format('ALTER TABLE \"public\".\"fuzzphony_one\" DROP COLUMN %I', r.attname)",
-            $sql,
-        );
-        // the drop comes after the refresh functions that stop writing the columns and after the index builds
-        self::assertGreaterThan(strpos($sql, 'CREATE INDEX CONCURRENTLY IF NOT EXISTS "fuzzphony_one__fz"'), strpos($sql, "ARRAY['t_name', 'z_name']"));
-
-        // products: the primary field's z_name is exact; z_brand (one of two fuzzy fields) and every t_ stay
-        self::assertSame(['z_name'], $generator->redundantColumns(Indexes::products()));
-        $products = $generator->index(Indexes::products())->toSql();
-        self::assertStringContainsString("attname = ANY (ARRAY['z_name']::text[])", $products);
-        self::assertStringContainsString('ADD COLUMN "z_brand"', $products);
-
-        // nothing redundant: no drop statement at all
         $two = IndexDefinition::builder('two')->fromTable('fz_product')->field('name', 'A')->field('brand', 'B', fuzzy: true)->field('description', 'C', fuzzy: true)->sync('manual')->build();
-        self::assertSame([], $generator->redundantColumns($two));
-        self::assertStringNotContainsString('Drop the field column', $generator->index($two)->toSql());
+        $generator = new PostgresSchemaGenerator();
+        self::assertArrayNotHasKey('field_map', $generator->columns($two));
+        self::assertStringContainsString("AND attname = 'field_map' AND NOT attisdropped) THEN ALTER TABLE \"public\".\"fuzzphony_two\" DROP COLUMN field_map; END IF;", $generator->index($two)->toSql());
+        self::assertStringNotContainsString('DROP COLUMN field_map', $generator->index(Indexes::products())->toSql());
     }
 
     public function testIndexesAreBuiltConcurrentlyOutsideTransactions(): void

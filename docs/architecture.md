@@ -96,20 +96,13 @@ Fuzzphony's schema (`public` unless configured, see
 ([ADR 0001](adr/0001-sidecar-table.md)); see [Index definitions](configuration.md#concepts) for
 what it contains.
 
-Its columns: `tsv` (all fields' weighted vectors joined), `fz` (the fuzzy fields' normalised text), `exact` (the primary field's normalised
-text), one `t_<field>` per field (its own vector: field scoping, restricted viewers) and one `z_<field>` per fuzzy field (its own normalised
-text), the filters' `f_<filter>` and the bookkeeping columns. A per-field column is not stored when the refresh function would write the
-same expression to another column (since 0.12.3): `t_<field>` of an index of one field is `tsv`, `z_<field>` of the only fuzzy field is
-`fz`, and `z_<field>` of the primary field is `exact`. Every reader asks `Names::fieldVector()` / `fieldFuzzy()` for the column, so it
-reads the one that is there; `schema --apply` drops such a column left by an earlier release (`PostgresSchemaGenerator::redundantColumns()`).
-
 A fuzzy index also has `fuzzphony_<index>__vocab` (same schema): its words and in how many documents
 each occurs, created by `fuzzphony:schema --apply` and rebuilt after every full reindex, for "did you
 mean" ([ADR 0009](adr/0009-vocabulary-rebuilt-after-a-full-reindex.md)). It is additive: the layout
 below does not change.
 
 An index with a `granted` field has two more indexes over the open (not granted) fields, `...__open_fz_<hash>` (trigram over their `z_`
-columns, or `exact` / `fz` where those stand in for one) and `...__open_tsv_<hash>` (full text over their `t_` columns). A restricted viewer who holds none of the granted fields looks its words
+columns) and `...__open_tsv_<hash>` (full text over their `t_` columns). A restricted viewer who holds none of the granted fields looks its words
 up there instead of in `fz` / `tsv` (`OpenClass`, `TextConfigCache::openClass()`): the lookup only has to find a superset of the allowed
 fields' own matches, the recheck against their columns decides, so the result is unchanged. The engine uses them only when both exist, are
 valid and ready and each is smaller than the one it replaces (`fz`, `tsv`) (asked once per process, `resetCaches()`); a viewer who holds a granted field keeps

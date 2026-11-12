@@ -68,7 +68,7 @@ final class FuzzyQueryCompilerCandidatesTest extends TestCase
         self::assertCount(2, self::compiler()->probes(self::parse('mouse mouse*'), 10), 'a prefix needs less similarity');
         self::assertCount(2, self::compiler()->probes(self::parse('mouse name:mouse'), 10), 'a field is checked against its own column');
         $scoped = array_values(self::compiler()->probes(self::parse('name:mouse'), 10))[0];
-        self::assertStringContainsString('s.exact', $scoped["sql"]);
+        self::assertStringContainsString('CASE WHEN s.field_map = 1058641030672988307 THEN s.exact ELSE s."z_name" END', $scoped["sql"]);
     }
 
     public function testAnExpandedWordKeepsItsOwnProbe(): void

@@ -463,13 +463,13 @@ final class FuzzyQueryCompiler
     /** The tsvector column of a field: its own, or its value row's in withinValues(). */
     private function vector(FieldDefinition $field): string
     {
-        return isset($this->values[$field->name]) ? $this->values[$field->name] . '.t' : 's.' . $this->names->fieldVector($this->index, $field->name);
+        return isset($this->values[$field->name]) ? $this->values[$field->name] . '.t' : $this->names->fieldVector($this->index, $field->name);
     }
 
     /** The typo-tolerant text column of a field: its own, or its value row's in withinValues(). */
     private function fuzzyColumn(FieldDefinition $field): string
     {
-        return isset($this->values[$field->name]) ? $this->values[$field->name] . '.z' : 's.' . $this->names->fieldFuzzy($this->index, $field->name);
+        return isset($this->values[$field->name]) ? $this->values[$field->name] . '.z' : $this->names->fieldFuzzy($this->index, $field->name);
     }
 
     /**
@@ -693,13 +693,7 @@ final class FuzzyQueryCompiler
         $checks = array_map(fn(FieldDefinition $f): string => sprintf('%s @@ %s', $this->vector($f), $query()), $targets);
         $check = count($checks) === 1 ? $checks[0] : '(' . implode(' OR ', $checks) . ')';
 
-        if ($this->within()) {
-            return $checks === [] ? 'false' : $check;
-        }
-        $candidates = $this->vectorLookup($query());
-
-        // the field's vector is tsv itself (an index of one field): one test
-        return $candidates === $check ? $check : sprintf('(%s AND %s)', $candidates, $check);
+        return $this->within() ? ($checks === [] ? 'false' : $check) : sprintf('(%s AND %s)', $this->vectorLookup($query()), $check);
     }
 
     /**
@@ -739,8 +733,7 @@ final class FuzzyQueryCompiler
         }
         $recheck = $threshold === null ? '' : sprintf(' AND %s >= %s', $similarity, $threshold);
         $lookup = $this->trigramColumn();
-        // the field's text is the lookup column itself (the only fuzzy field's is fz, Names::fieldFuzzy()): one "<%", not the same twice
-        $trigram = $field === null || $column === $lookup
+        $trigram = $field === null
             ? sprintf('%s OPERATOR(%s.<%%) %s', $norm, $schema, $lookup)
             : sprintf('%1$s OPERATOR(%2$s.<%%) %4$s AND %1$s OPERATOR(%2$s.<%%) %3$s', $norm, $schema, $column, $lookup);
 
@@ -884,10 +877,7 @@ final class FuzzyQueryCompiler
                 $lookup = $this->column('fl', sprintf('to_tsquery(%s, %s)', $config, $params->add($loose)));
             }
 
-            $candidates = $this->vectorLookup($lookup);
-
-            // the same test twice when the field's vector is tsv itself (an index of one field): once is enough
-            return $candidates === $check ? $check : sprintf('(%s AND %s)', $candidates, $check);
+            return sprintf('(%s AND %s)', $this->vectorLookup($lookup), $check);
         }
         $config = $this->names->regconfig($this->index->text);
         $query = $this->column('ft', sprintf('to_tsquery(%s, %s)', $config, $params->add($tsquery)));
@@ -900,7 +890,7 @@ final class FuzzyQueryCompiler
             $loose = (new TsQueryCompiler($this->index, false, true))->compile($node) ?? $tsquery;
             $lookup = $loose !== $tsquery ? $this->column('fl', sprintf('to_tsquery(%s, %s)', $config, $params->add($loose))) : $query;
             if ($field !== null) {
-                return sprintf('(s.tsv @@ %s AND s.%s @@ %s)', $lookup, $this->names->fieldVector($this->index, $field->name), $query);
+                return sprintf('(s.tsv @@ %s AND %s @@ %s)', $lookup, $this->names->fieldVector($this->index, $field->name), $query);
             }
             // The later fields' vectors are read only for a document whose tsv was capped (or not known to be: NULL), which is
             // rare: the phrase on tsv, the statement's old cost, decides for every other. They are read by a subquery on the
@@ -918,10 +908,9 @@ final class FuzzyQueryCompiler
             );
         }
 
-        // a field whose vector is tsv itself (an index of one field, Names::fieldVector()) needs no second test of the same vector
-        return $field === null || !$this->names->hasFieldVector($this->index)
+        return $field === null
             ? 's.tsv @@ ' . $query
-            : sprintf('(s.tsv @@ %1$s AND s.%2$s @@ %1$s)', $query, $this->names->fieldVector($this->index, $field->name));
+            : sprintf('(s.tsv @@ %1$s AND %2$s @@ %1$s)', $query, $this->names->fieldVector($this->index, $field->name));
     }
 
     /**

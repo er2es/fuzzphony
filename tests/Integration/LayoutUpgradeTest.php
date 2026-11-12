@@ -69,7 +69,7 @@ final class LayoutUpgradeTest extends TestCase
     public function testALayout1SidecarGetsThePerFieldColumns(): void
     {
         $connection = $this->context->connection;
-        $connection->execute('ALTER TABLE fuzzphony_products DROP COLUMN t_name, DROP COLUMN t_brand, DROP COLUMN z_brand, DROP COLUMN t_description');
+        $connection->execute('ALTER TABLE fuzzphony_products DROP COLUMN t_name, DROP COLUMN z_name, DROP COLUMN t_brand, DROP COLUMN z_brand, DROP COLUMN t_description');
         $connection->execute("UPDATE fuzzphony_meta SET layout_version = 1 WHERE index_name IN ('products', '*')");
         self::assertSame(CheckStatus::Error, $this->check('Sidecar columns')->status);
 

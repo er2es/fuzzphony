@@ -99,7 +99,7 @@ final readonly class BestValueRank
         }
 
         return sprintf(
-            'CASE WHEN s.%s @@ q.tsany AND NOT coalesce(%s, false) AND coalesce((%s) = %s AND (%s) > 0, false)%s THEN (SELECT b.ord FROM (SELECT v.ord, %s AS r FROM %s AS v WHERE v.doc = s.id AND v.field = %s AND v.t @@ q.tsany) AS b WHERE b.r > 0 ORDER BY b.r DESC, b.ord LIMIT 1) END',
+            'CASE WHEN %s @@ q.tsany AND NOT coalesce(%s, false) AND coalesce((%s) = %s AND (%s) > 0, false)%s THEN (SELECT b.ord FROM (SELECT v.ord, %s AS r FROM %s AS v WHERE v.doc = s.id AND v.field = %s AND v.t @@ q.tsany) AS b WHERE b.r > 0 ORDER BY b.r DESC, b.ord LIMIT 1) END',
             $this->names->fieldVector($this->index, $field),
             $this->oneValue($field),
             $mine,
@@ -121,7 +121,7 @@ final readonly class BestValueRank
         // `tsv` is not capped, where the fallback may read other vectors). With one field that is the fallback itself (NULL), with several
         // it takes part in greatest() as what it is.
         return sprintf(
-            'CASE WHEN NOT s.%1$s @@ q.tsany THEN NULL WHEN %2$s THEN %3$s ELSE (SELECT max(%4$s) FROM %5$s AS v WHERE v.doc = s.id AND v.field = %6$s AND v.t @@ q.tsany) END',
+            'CASE WHEN NOT %1$s @@ q.tsany THEN NULL WHEN %2$s THEN %3$s ELSE (SELECT max(%4$s) FROM %5$s AS v WHERE v.doc = s.id AND v.field = %6$s AND v.t @@ q.tsany) END',
             $this->names->fieldVector($this->index, $field),
             $this->oneValue($field),
             count($this->fields) === 1 ? 'NULL' : $fallback,
@@ -147,7 +147,7 @@ final readonly class BestValueRank
         $parts = [];
         foreach ($this->index->fieldNames() as $name) {
             if ($this->visible($name)) {
-                $parts[] = $name === $field ? 'v.t' : 's.' . $this->names->fieldVector($this->index, $name);
+                $parts[] = $name === $field ? 'v.t' : $this->names->fieldVector($this->index, $name);
             }
         }
 

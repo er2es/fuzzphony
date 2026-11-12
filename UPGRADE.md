@@ -3,26 +3,6 @@
 Before 1.0, a minor version may contain breaking changes. Each section lists what to change,
 and the [CHANGELOG](CHANGELOG.md) has the full list of changes.
 
-## From 0.12.x to 0.12.3
-
-No API change. The index tables no longer keep a per-field column that holds exactly what another column holds: `z_<field>` of the
-primary field (it equals `exact`), `z_<field>` of the only fuzzy field (it equals `fz`) and `t_<field>` of an index of one field (it equals
-`tsv`). Most indexes lose one column (`z_` of the primary field, when it is fuzzy); results, scores and highlights are unchanged.
-
-1. `composer update fuzzphony/fuzzphony`.
-2. `bin/console fuzzphony:schema --apply`, once every process (web, workers) runs 0.12.3: an older process still names the columns and its
-   searches fail after the drop. For an index that has such a column it adds one statement that drops it (it reads the catalog first:
-   a table without the column is not locked, and the apply stays idempotent). The drop is metadata only and instant, but like every
-   `ALTER TABLE` it waits for the searches running on the table at that moment. An open-class index built over the column (an index with a
-   `granted` field) gets a new name over the surviving column and is built concurrently first; the old one is dropped.
-3. **No reindex is needed**: the column the searches read instead already holds the same text. The disk space returns at the next full
-   reindex (`fuzzphony:reindex <index>`, which builds the table without the column and swaps it in) or a `VACUUM FULL`.
-
-Until the apply has run, 0.12.3 works on the old table (it does not read the old columns); `fuzzphony:doctor` lists them as columns no longer
-in the definition and suggests the apply. **Going back to 0.12.2 or earlier after the apply** needs the columns back: run that release's
-`schema --apply` (it adds them empty) and then a full reindex (`fuzzphony:reindex <index>`), or field-scoped and restricted searches of that
-release find nothing in the empty columns.
-
 ## From 0.11.x to 0.12.0
 
 Additive: nothing is removed or renamed, and an index that uses none of the new options keeps its tables, its search statements and its results.
