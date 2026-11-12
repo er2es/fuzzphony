@@ -13,7 +13,7 @@ and a link. Measurements, proofs and test names belong to the pull request, [doc
 
 ### Fixed
 
-- **Demo, ERP People tab:** the "Why" line now shows what 0.12.1 described: in the strict mode ("One address must match all words") it names the one address that holds all the words, and an active city filter adds the line "city filter <city>: <address>". Both were silently dropped (a Twig macro does not see the page variables).
+- **Demo, ERP People tab:** the "Why" line now shows what 0.12.1 described: in the strict mode ("One address must match all words") it names the one address that holds all the words, and an active city filter adds the line "city filter <city>: <address>". Both were silently dropped (a Twig macro does not see the page variables). When two addresses of a person share a word (two "Fő utca"), the strict Why line still names the address that holds all the words.
 
 ## [0.12.2] - 2026-11-12
 

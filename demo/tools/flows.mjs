@@ -1069,7 +1069,7 @@ await secContext.close();
     // the Why line of the strict mode names ONE address; an active city filter adds the line with the address of that city; the facet links keep the switches
     await go(erp, BASE + '/erp?tab=people&q=' + encodeURIComponent('fő utca szeged') + '&single=1');
     const strictWhys = await erp.locator('#results .row-why').allTextContents();
-    check('erp people: strict mode, the Why line names ONE address that holds all the words, no partial-match address', strictWhys.length > 5 && strictWhys.every((w) => /Why:\s*one address holds all the words: [0-9]{4} Szeged, Fő utca/.test(w) && !/found in/.test(w) && !/Budapest/.test(w)), strictWhys.find((w) => !/one address holds/.test(w) || /found in/.test(w)) ?? '');
+    check('erp people: strict mode, the Why line names ONE address that holds all the words, no partial-match address', strictWhys.length > 5 && strictWhys.length === (await erp.locator('#results .hit-row').count()) && strictWhys.every((w) => /Why:\s*one address holds all the words: [0-9]{4} Szeged, Fő utca/.test(w) && !/found in/.test(w) && !/Budapest/.test(w)), strictWhys.find((w) => !/one address holds/.test(w) || /found in/.test(w)) ?? '');
     await go(erp, BASE + '/erp?tab=people&q=kovacs&city=Budapest');
     const cityWhys = await erp.locator('#results .row-why').allTextContents();
     check('erp people: an active city filter shows the line "city filter Budapest: <address>" in every row', cityWhys.length > 5 && cityWhys.every((w) => /city filter Budapest: [0-9]{4} Budapest, /.test(w)), cityWhys.find((w) => !/city filter Budapest: /.test(w)) ?? '');
