@@ -96,6 +96,16 @@ Fuzzphony's schema (`public` unless configured, see
 ([ADR 0001](adr/0001-sidecar-table.md)); see [Index definitions](configuration.md#concepts) for
 what it contains.
 
+Its columns: `tsv` (all fields' weighted vectors joined), `fz` (the fuzzy fields' normalised text), `exact` (the primary field's normalised
+text), one `t_<field>` per field (its own vector: field scoping, restricted viewers), one `z_<field>` per fuzzy field (its own normalised
+text), the filters' `f_<filter>` and the bookkeeping columns. Since 0.12.4 a per-field column whose value another column of the row holds
+is written empty (`Names::sharedColumns()`): `t_<field>` of an index of one field (= `tsv`), `z_<field>` of the primary field (= `exact`)
+and of the only fuzzy field (= `fz`). The row's `field_map` says which column map it was written with (`Names::fieldMapId()`: the map
+and which fields fill the shared columns), and a reader takes the shared column only for a row with the current map
+(`CASE WHEN s.field_map = <n> THEN s.exact ELSE s."z_name" END`, built by `Names::fieldFuzzy()` / `fieldVector()`). A row written
+under another definition, or by an earlier release (NULL), is read from its own column: after a definition change, before its reindex,
+`fz`, `exact` or `tsv` may still hold a field that is granted now, and it is never read in place of an open field's column.
+
 A fuzzy index also has `fuzzphony_<index>__vocab` (same schema): its words and in how many documents
 each occurs, created by `fuzzphony:schema --apply` and rebuilt after every full reindex, for "did you
 mean" ([ADR 0009](adr/0009-vocabulary-rebuilt-after-a-full-reindex.md)). It is additive: the layout

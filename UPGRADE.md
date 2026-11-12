@@ -3,6 +3,28 @@
 Before 1.0, a minor version may contain breaking changes. Each section lists what to change,
 and the [CHANGELOG](CHANGELOG.md) has the full list of changes.
 
+## From 0.12.x to 0.12.4
+
+No API change. A per-field column whose value another column of the same row holds is stored empty: `z_<field>` of the primary field
+(the same as `exact`), `z_<field>` of the only fuzzy field (`fz`) and `t_<field>` of an index of one field (`tsv`). A new column
+`field_map` records which column map a row was written with; the searches read the other column only for a row written with the
+current map, and the row's own column for any other row. Results, scores and highlights are unchanged.
+
+1. `composer update fuzzphony/fuzzphony`.
+2. `bin/console fuzzphony:schema --apply`. It adds the nullable `field_map` column (catalog check first, no rewrite) and the new refresh
+   function. Nothing is dropped. **No reindex is needed**: the rows of the earlier release have no map and keep being read from their
+   own, filled columns; each row the sync rewrites, and every row of the next full reindex, is stored without the copy, so the space
+   returns as they are rewritten (all of it after `fuzzphony:reindex <index>`).
+
+**A definition change** (a field added or removed, `fuzzy` or the weights changed) is safe in the window between its `schema --apply`
+and its reindex: a row written under the old definition is read from its own per-field column, never from `fz`, `exact` or `tsv`
+that may hold another field's text. Where the old definition had stored that column empty (it was a copy then), a field-scoped or
+restricted search finds nothing in such a row until the reindex (the doctor already asks for the reindex after such a change).
+
+**Going back to 0.12.3 or earlier:** that release reads the per-field columns of every row, which are empty for the rows this release
+wrote with a map: run its `schema --apply` and a full reindex (`fuzzphony:reindex <index>`), or field-scoped and restricted searches
+miss those rows.
+
 ## From 0.11.x to 0.12.0
 
 Additive: nothing is removed or renamed, and an index that uses none of the new options keeps its tables, its search statements and its results.
