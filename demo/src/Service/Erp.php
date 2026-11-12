@@ -184,6 +184,14 @@ final readonly class Erp
             $lines[$line] = true;
         }
 
+        // strict mode with several addresses that share a word (two "Fő utca"): the matches name one value per word, which may not be the address that holds them all
+        if ($strict && !array_filter(array_keys($lines), static fn (string $l): bool => str_starts_with($l, 'one address holds'))) {
+            $address = self::addressWithAllWords($hit, $query);
+            if ($address !== null) {
+                $lines = ['one address holds all the words: ' . $address => true] + $lines;
+            }
+        }
+
         $lines = array_slice(array_keys($lines), 0, 3);
         // the city filter holds for ANY address of the person, so it may be another address than the one the words matched: say which one
         if ($city !== '') {
@@ -197,6 +205,29 @@ final readonly class Erp
         }
 
         return $lines;
+    }
+
+    /** The first address of the hit whose words begin with every word of the query (accents and case ignored), or null. */
+    private static function addressWithAllWords(Hit $hit, string $query): ?string
+    {
+        $fold = static fn (string $t): string => strtr(mb_strtolower($t), ['á' => 'a', 'é' => 'e', 'í' => 'i', 'ó' => 'o', 'ö' => 'o', 'ő' => 'o', 'ú' => 'u', 'ü' => 'u', 'ű' => 'u']);
+        $words = preg_split('/[^\p{L}\p{N}]+/u', $fold($query), -1, PREG_SPLIT_NO_EMPTY) ?: [];
+        $addresses = $hit->data['address'] ?? [];
+        foreach ($words === [] ? [] : (is_array($addresses) ? $addresses : [$addresses]) as $address) {
+            if (!is_string($address)) {
+                continue;
+            }
+            $have = preg_split('/[^\p{L}\p{N}]+/u', $fold($address), -1, PREG_SPLIT_NO_EMPTY) ?: [];
+            foreach ($words as $w) {
+                if (array_filter($have, static fn (string $h): bool => str_starts_with($h, $w)) === []) {
+                    continue 2;
+                }
+            }
+
+            return $address;
+        }
+
+        return null;
     }
 
     /** @return array<string, mixed>|null the customer row, or null */

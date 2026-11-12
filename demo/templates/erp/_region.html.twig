@@ -1,12 +1,12 @@
 {# The results of a section, swapped in place while the visitor types (live_search_controller.js). Rows come from Hit::$data, the lines from Hit::$matches. #}
 {% import '_ui.html.twig' as ui %}
 
-{% macro row(hit, q) %}
+{% macro row(hit, q, strict, city) %}
     {% import '_ui.html.twig' as ui %}
     {% set d = erp_row(hit) %}
     {% set title %}<a href="{{ path('erp_detail', {kind: hit.kind, id: hit.id}) }}">{{ d.title }}</a>{% endset %}
     {% set aside %}<div class="row-flags"><span class="flag" title="index">{{ hit.index }}</span>{% if hit.index == 'site' or hit.kind != hit.index %}<span class="flag is-ok" title="kind">{{ hit.kind }}</span>{% endif %}</div>{% endset %}
-    {% set below %}{% for l in erp_lines(hit) %}<div class="row-match"><span class="match-label">{{ l.label }}</span> {{ l.html|raw }}</div>{% endfor %}{% set why = erp_reasons(hit, q, single|default(false), filters.city|default('')) %}{% if why %}<div class="row-why"><span class="why-label">Why:</span> {{ why|join(' · ') }}</div>{% endif %}{% endset %}
+    {% set below %}{% for l in erp_lines(hit) %}<div class="row-match"><span class="match-label">{{ l.label }}</span> {{ l.html|raw }}</div>{% endfor %}{% set why = erp_reasons(hit, q, strict, city) %}{% if why %}<div class="row-why"><span class="why-label">Why:</span> {{ why|join(' · ') }}</div>{% endif %}{% endset %}
     {{ ui.product_row('', title, d.sub, aside, null, below) }}
 {% endmacro %}
 {% import _self as r %}
@@ -54,7 +54,7 @@
                     </aside>
                 {% endif %}
                 <ul class="list" aria-label="Results">
-                    {% for hit in hits %}{{ r.row(hit, q) }}{% endfor %}
+                    {% for hit in hits %}{{ r.row(hit, q, single|default(false), filters.city|default("")) }}{% endfor %}
                 </ul>
             </div>
         {% endif %}
@@ -67,7 +67,7 @@
             <section aria-labelledby="site-h">
                 <h2 id="site-h" class="list-title">One multi-source index <code>site</code> · {{ site.total }}{{ site.totalIsLowerBound ? '+' }} hits · {{ site.tookMs|number_format(1) }} ms</h2>
                 {% if site.hits %}
-                    <ul class="list" aria-label="Multi-source index results">{% for hit in site.hits %}{{ r.row(hit, q) }}{% endfor %}</ul>
+                    <ul class="list" aria-label="Multi-source index results">{% for hit in site.hits %}{{ r.row(hit, q, false, "") }}{% endfor %}</ul>
                 {% else %}
                     <div class="empty"><strong>Nothing found</strong></div>
                 {% endif %}
@@ -77,7 +77,7 @@
             <section aria-labelledby="fed-h">
                 <h2 id="fed-h" class="list-title">Federated over people, companies and orders · {{ federated.total }}{{ federated.totalIsLowerBound ? '+' }} hits · {{ federated.tookMs|number_format(1) }} ms</h2>
                 {% if federated.hits %}
-                    <ul class="list" aria-label="Federated search results">{% for hit in federated.hits %}{{ r.row(hit, q) }}{% endfor %}</ul>
+                    <ul class="list" aria-label="Federated search results">{% for hit in federated.hits %}{{ r.row(hit, q, false, "") }}{% endfor %}</ul>
                 {% else %}
                     <div class="empty"><strong>Nothing found</strong></div>
                 {% endif %}
