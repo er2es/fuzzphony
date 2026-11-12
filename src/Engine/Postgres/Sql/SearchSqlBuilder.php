@@ -981,7 +981,7 @@ SELECT
             return $rank($this->names->visibleVector($this->index, $this->allowedFields));
         }
         // the fields' vectors come from a subquery on the document's own row (see FuzzyQueryCompiler::matches()): the other rows pay nothing
-        $own = ['c.' . $this->names->fieldVector($this->index->fieldNames()[0]), ...array_map(static fn(string $v): string => '(' . $v . ')', $this->names->laterVectors($this->index, 'c'))];
+        $own = ['c.' . $this->names->fieldVector($this->index, $this->index->fieldNames()[0]), ...array_map(static fn(string $v): string => '(' . $v . ')', $this->names->laterVectors($this->index, 'c'))];
 
         return sprintf(
             'CASE WHEN s.%s IS NOT FALSE AND NOT (s.tsv @@ q.tsq) THEN (SELECT GREATEST(%s) FROM %s AS c WHERE c.id = s.id) ELSE %s END',
@@ -1002,7 +1002,7 @@ SELECT
         $parts = [];
         foreach ($this->index->fields as $field) {
             if ($field->fuzzy && in_array($field->name, $this->allowedFields ?? [], true)) {
-                $parts[] = sprintf('coalesce(octet_length(s.%s), 0)', $this->names->fieldFuzzy($field->name));
+                $parts[] = sprintf('coalesce(octet_length(s.%s), 0)', $this->names->fieldFuzzy($this->index, $field->name));
             }
         }
 

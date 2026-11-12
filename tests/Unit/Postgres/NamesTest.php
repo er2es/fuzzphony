@@ -15,6 +15,32 @@ use PHPUnit\Framework\TestCase;
 
 final class NamesTest extends TestCase
 {
+    /** A field column the refresh function would fill with the expression of another column is not kept: the reader gets that column. */
+    public function testFieldColumnsResolveToTheEqualColumn(): void
+    {
+        $names = new Names();
+        $products = Indexes::products(); // name (A, fuzzy, primary), brand (fuzzy), description
+        self::assertTrue($names->hasFieldVector($products));
+        self::assertSame('"t_name"', $names->fieldVector($products, 'name'));
+        self::assertSame('exact', $names->fieldFuzzy($products, 'name'), 'the primary field\'s normalised text is exact');
+        self::assertSame('"z_brand"', $names->fieldFuzzy($products, 'brand'), 'one of two fuzzy fields, not primary: its own column');
+        self::assertSame('"z_description"', $names->fieldFuzzy($products, 'description'), 'not fuzzy: never substituted');
+        self::assertSame('"z_nope"', $names->fieldFuzzy($products, 'nope'));
+        $field = static fn(IndexDefinition $index, string $name): \Fuzzphony\Core\Definition\FieldDefinition => $index->field($name) ?? throw new \LogicException($name);
+        self::assertFalse($names->hasFieldFuzzy($products, $field($products, 'name')));
+        self::assertTrue($names->hasFieldFuzzy($products, $field($products, 'brand')));
+        self::assertFalse($names->hasFieldFuzzy($products, $field($products, 'description')));
+
+        $one = IndexDefinition::builder('one')->fromTable('t')->field('title', 'B', fuzzy: true)->build();
+        self::assertFalse($names->hasFieldVector($one));
+        self::assertSame('tsv', $names->fieldVector($one, 'title'), 'an index of one field: its vector is tsv');
+        self::assertSame('fz', $names->fieldFuzzy($one, 'title'), 'the only fuzzy field: fz (which also equals exact here)');
+
+        $single = IndexDefinition::builder('single')->fromTable('t')->field('code', 'A')->field('title', 'B', fuzzy: true)->build();
+        self::assertSame('"t_title"', $names->fieldVector($single, 'title'));
+        self::assertSame('fz', $names->fieldFuzzy($single, 'title'), 'the only fuzzy field, not primary: fz');
+    }
+
     public function testObjectNames(): void
     {
         $names = new Names();
@@ -39,9 +65,9 @@ final class NamesTest extends TestCase
         self::assertSame('fuzzphony_sync_products__fz_brand_ins', $names->triggerName($index, $brand, '_ins'));
         self::assertSame('fuzzphony_products__tsv', $names->indexName($index, 'tsv'));
         self::assertSame('t_brand', $names->fieldVectorName('brand'));
-        self::assertSame('"t_brand"', $names->fieldVector('brand'));
+        self::assertSame('"t_brand"', $names->fieldVector($index, 'brand'));
         self::assertSame('z_brand', $names->fieldFuzzyName('brand'));
-        self::assertSame('"z_brand"', $names->fieldFuzzy('brand'));
+        self::assertSame('"z_brand"', $names->fieldFuzzy($index, 'brand'));
         self::assertSame('fuzzphony_products__next', $names->shadowName($index));
         self::assertSame('"public"."fuzzphony_products__next"', $names->shadow($index));
         self::assertSame('fuzzphony_products__changes', $names->changesName($index));

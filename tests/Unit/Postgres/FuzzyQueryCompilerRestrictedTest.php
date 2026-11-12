@@ -29,11 +29,11 @@ final class FuzzyQueryCompilerRestrictedTest extends TestCase
 
         self::assertNotNull($match);
         self::assertSame(
-            '((s.tsv @@ q.ft0 AND s."t_name" @@ q.ft0) OR (q.fn1 OPERATOR("public".<%) s.fz AND "public".word_similarity(q.fn1, s."z_name") >= 0.3))',
+            '((s.tsv @@ q.ft0 AND s."t_name" @@ q.ft0) OR (q.fn1 OPERATOR("public".<%) s.fz AND "public".word_similarity(q.fn1, s.exact) >= 0.3))',
             $match->predicate,
             'the index finds the candidates (tsv, fz), the allowed field decides',
         );
-        self::assertSame('GREATEST("public".word_similarity(q.fn1, s."z_name"), CASE WHEN (s.tsv @@ q.ft0 AND s."t_name" @@ q.ft0) THEN 1.0 ELSE 0.0 END)', $match->score);
+        self::assertSame('GREATEST("public".word_similarity(q.fn1, s.exact), CASE WHEN (s.tsv @@ q.ft0 AND s."t_name" @@ q.ft0) THEN 1.0 ELSE 0.0 END)', $match->score);
         self::assertStringNotContainsString('t_brand', $match->predicate . $match->score);
         self::assertStringNotContainsString('t_description', $match->predicate . $match->score);
         self::assertStringNotContainsString('z_brand', $match->predicate . $match->score);
@@ -45,7 +45,7 @@ final class FuzzyQueryCompilerRestrictedTest extends TestCase
 
         self::assertNotNull($match);
         self::assertStringContainsString('(s.tsv @@ q.ft0 AND (s."t_name" @@ q.ft0 OR s."t_brand" @@ q.ft0))', $match->predicate);
-        self::assertStringContainsString('GREATEST("public".word_similarity(q.fn1, s."z_name"), "public".word_similarity(q.fn1, s."z_brand"))', $match->score);
+        self::assertStringContainsString('GREATEST("public".word_similarity(q.fn1, s.exact), "public".word_similarity(q.fn1, s."z_brand"))', $match->score);
         self::assertStringNotContainsString('word_similarity(q.fn1, s.fz)', $match->predicate . $match->score, 'the combined text holds the hidden description too');
     }
 
@@ -80,8 +80,8 @@ final class FuzzyQueryCompilerRestrictedTest extends TestCase
         $match = (new FuzzyQueryCompiler(Indexes::products(), new Thresholds(), new Names(), [], ['name']))->compile(self::parse('mouse'), new ParameterBag());
 
         self::assertNotNull($match);
-        self::assertStringContainsString('(q.fn1 OPERATOR("public".<%) s.fz AND "public".word_similarity(q.fn1, s."z_name") >= q.th2)', $match->predicate);
-        self::assertStringContainsString('CASE WHEN "public".word_similarity(q.fn1, s."z_name") >= q.th2 THEN "public".word_similarity(q.fn1, s."z_name") ELSE 0.0 END', $match->score);
+        self::assertStringContainsString('(q.fn1 OPERATOR("public".<%) s.fz AND "public".word_similarity(q.fn1, s.exact) >= q.th2)', $match->predicate);
+        self::assertStringContainsString('CASE WHEN "public".word_similarity(q.fn1, s.exact) >= q.th2 THEN "public".word_similarity(q.fn1, s.exact) ELSE 0.0 END', $match->score);
     }
 
     public function testWithoutAnAllowedFuzzyFieldAWordIsExactOnly(): void
@@ -149,7 +149,7 @@ final class FuzzyQueryCompilerRestrictedTest extends TestCase
         $predicate = self::compiler(['name'])->compile(self::parse('mouse -cable'), new ParameterBag())?->predicate;
 
         // a document with "cable" only in its (hidden) description must not be excluded: that would tell the viewer it has the word
-        self::assertSame('(((s.tsv @@ q.ft0 AND s."t_name" @@ q.ft0) OR (q.fn1 OPERATOR("public".<%) s.fz AND "public".word_similarity(q.fn1, s."z_name") >= 0.3)) AND NOT ((s.tsv @@ q.ft2 AND s."t_name" @@ q.ft2)))', $predicate);
+        self::assertSame('(((s.tsv @@ q.ft0 AND s."t_name" @@ q.ft0) OR (q.fn1 OPERATOR("public".<%) s.fz AND "public".word_similarity(q.fn1, s.exact) >= 0.3)) AND NOT ((s.tsv @@ q.ft2 AND s."t_name" @@ q.ft2)))', $predicate);
     }
 
     public function testAnExcludedGroupIsCompiledWordByWordSoANestedNegationNeverReadsAHiddenField(): void
@@ -179,7 +179,7 @@ final class FuzzyQueryCompilerRestrictedTest extends TestCase
         $probes = self::compiler(['name'])->probes(self::parse('mouse'), 10);
 
         self::assertCount(1, $probes);
-        self::assertStringContainsString('WHERE ("public"."fuzzphony_norm"(:p0) OPERATOR("public".<%) s.fz AND "public".word_similarity("public"."fuzzphony_norm"(:p0), s."z_name") >= 0.3)', array_values($probes)[0]['sql']);
+        self::assertStringContainsString('WHERE ("public"."fuzzphony_norm"(:p0) OPERATOR("public".<%) s.fz AND "public".word_similarity("public"."fuzzphony_norm"(:p0), s.exact) >= 0.3)', array_values($probes)[0]['sql']);
     }
 
     public function testTheRelaxationLeavesAreRestrictedToo(): void
@@ -188,7 +188,7 @@ final class FuzzyQueryCompilerRestrictedTest extends TestCase
 
         self::assertSame(['(s.tsv @@ q.ft0 AND s."t_name" @@ q.ft0)', '(s.tsv @@ q.ft1 AND s."t_name" @@ q.ft1)'], $compiled['predicates']);
         $fuzzy = self::compiler(['name'])->leafConditions([new Term('mouse')], new ParameterBag(), [], true);
-        self::assertStringContainsString('word_similarity(q.fn1, s."z_name") >= 0.3', (string) $fuzzy['predicates'][0]);
+        self::assertStringContainsString('word_similarity(q.fn1, s.exact) >= 0.3', (string) $fuzzy['predicates'][0]);
     }
 
     public function testNullIsTheUnrestrictedSqlUntouched(): void

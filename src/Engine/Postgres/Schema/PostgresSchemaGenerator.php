@@ -283,6 +283,23 @@ final class PostgresSchemaGenerator
             ),
             'Drop the value count column of a field that is no longer declared with many: { rank: best }',
         );
+        $redundant = $this->redundantColumns($index);
+        if ($redundant !== []) {
+            // a field column an earlier release wrote although another column holds the same expression (Names::hasFieldVector(),
+            // hasFieldFuzzy()): nothing reads it any more (the refresh function above no longer writes it). Metadata only, after the
+            // indexes above (an old open-class index over it is gone by now); a table without such a column is not locked. The space
+            // returns at the next full reindex, whose table is built without it
+            $statements[] = new Statement(
+                sprintf(
+                    'DO %1$s DECLARE r record; BEGIN FOR r IN SELECT attname FROM pg_attribute WHERE attrelid = to_regclass(%2$s) AND NOT attisdropped AND attname = ANY (%3$s) LOOP EXECUTE format(\'ALTER TABLE %4$s DROP COLUMN %%I\', r.attname); END LOOP; END %1$s',
+                    self::TAG,
+                    Sql::string($table),
+                    'ARRAY[' . implode(', ', array_map(Sql::string(...), $redundant)) . ']::text[]',
+                    str_replace("'", "''", $table),
+                ),
+                sprintf('Drop the field column(s) another column already holds: %s', implode(', ', $redundant)),
+            );
+        }
         foreach ($this->layoutSteps($index) as $target => [$step, $why]) {
             $statements[] = new Statement(sprintf(
                 'DO %1$s BEGIN IF to_regclass(%2$s) IS NOT NULL THEN IF (SELECT layout_version FROM %3$s WHERE index_name = %4$s) < %5$d THEN %6$s END IF; END IF; END %1$s',
@@ -434,6 +451,27 @@ ON CONFLICT (index_name) DO UPDATE SET layout_version = EXCLUDED.layout_version,
     }
 
     /**
+     * The field columns this definition no longer has because another column holds the same expression: `t_<field>` of an index
+     * of one field (= `tsv`), `z_<field>` of its only fuzzy field (= `fz`) or of its primary field (= `exact`).
+     *
+     * @return list<string>
+     */
+    public function redundantColumns(IndexDefinition $index): array
+    {
+        $columns = [];
+        foreach ($index->fields as $field) {
+            if (!$this->names->hasFieldVector($index)) {
+                $columns[] = $this->names->fieldVectorName($field->name);
+            }
+            if ($field->fuzzy && !$this->names->hasFieldFuzzy($index, $field)) {
+                $columns[] = $this->names->fieldFuzzyName($field->name);
+            }
+        }
+
+        return $columns;
+    }
+
+    /**
      * Expected sidecar columns (name => type); the first one is the primary key.
      *
      * @return array<string, string>
@@ -452,9 +490,12 @@ ON CONFLICT (index_name) DO UPDATE SET layout_version = EXCLUDED.layout_version,
             // the key above is the text `<kind>:<id>`; these two say which source a row is from and its raw id
             $columns = ['id' => $columns['id'], 'kind' => 'text NOT NULL', 'src_id' => 'text NOT NULL'] + $columns;
         }
+        // a field's own vector and normalised text, unless another column already holds the same expression (Names::hasFieldVector(), hasFieldFuzzy())
         foreach ($index->fields as $field) {
-            $columns[$this->names->fieldVectorName($field->name)] = "tsvector NOT NULL DEFAULT ''";
-            if ($field->fuzzy) {
+            if ($this->names->hasFieldVector($index)) {
+                $columns[$this->names->fieldVectorName($field->name)] = "tsvector NOT NULL DEFAULT ''";
+            }
+            if ($this->names->hasFieldFuzzy($index, $field)) {
                 $columns[$this->names->fieldFuzzyName($field->name)] = "text NOT NULL DEFAULT ''";
             }
         }
@@ -680,9 +721,11 @@ ON CONFLICT (index_name) DO UPDATE SET layout_version = EXCLUDED.layout_version,
             array_splice($values, 1, 0, ['doc.fz_kind', 'doc.fz_src']);
         }
         foreach ($index->fields as $field) {
-            $columns[] = $this->names->fieldVectorName($field->name);
-            $values[] = $this->fieldVectorExpression($index, $field);
-            if ($field->fuzzy) {
+            if ($this->names->hasFieldVector($index)) {
+                $columns[] = $this->names->fieldVectorName($field->name);
+                $values[] = $this->fieldVectorExpression($index, $field);
+            }
+            if ($this->names->hasFieldFuzzy($index, $field)) {
                 $columns[] = $this->names->fieldFuzzyName($field->name);
                 $values[] = sprintf("coalesce(%s, '')", $this->fieldFuzzyExpression($field));
             }

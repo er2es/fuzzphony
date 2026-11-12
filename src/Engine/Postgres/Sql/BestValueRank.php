@@ -100,7 +100,7 @@ final readonly class BestValueRank
 
         return sprintf(
             'CASE WHEN s.%s @@ q.tsany AND NOT coalesce(%s, false) AND coalesce((%s) = %s AND (%s) > 0, false)%s THEN (SELECT b.ord FROM (SELECT v.ord, %s AS r FROM %s AS v WHERE v.doc = s.id AND v.field = %s AND v.t @@ q.tsany) AS b WHERE b.r > 0 ORDER BY b.r DESC, b.ord LIMIT 1) END',
-            $this->names->fieldVector($field),
+            $this->names->fieldVector($this->index, $field),
             $this->oneValue($field),
             $mine,
             $all,
@@ -122,7 +122,7 @@ final readonly class BestValueRank
         // it takes part in greatest() as what it is.
         return sprintf(
             'CASE WHEN NOT s.%1$s @@ q.tsany THEN NULL WHEN %2$s THEN %3$s ELSE (SELECT max(%4$s) FROM %5$s AS v WHERE v.doc = s.id AND v.field = %6$s AND v.t @@ q.tsany) END',
-            $this->names->fieldVector($field),
+            $this->names->fieldVector($this->index, $field),
             $this->oneValue($field),
             count($this->fields) === 1 ? 'NULL' : $fallback,
             $this->valueRank($field, $weights, $rankQuery),
@@ -147,7 +147,7 @@ final readonly class BestValueRank
         $parts = [];
         foreach ($this->index->fieldNames() as $name) {
             if ($this->visible($name)) {
-                $parts[] = $name === $field ? 'v.t' : 's.' . $this->names->fieldVector($name);
+                $parts[] = $name === $field ? 'v.t' : 's.' . $this->names->fieldVector($this->index, $name);
             }
         }
 

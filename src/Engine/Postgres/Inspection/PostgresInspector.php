@@ -502,7 +502,10 @@ final class PostgresInspector
             $checks[] = Check::warning(
                 'Sidecar columns',
                 sprintf('Columns no longer in the definition: %s (harmless, but they waste space).', implode(', ', $extra)),
-                implode(' ', array_map(static fn(string $c): string => sprintf('ALTER TABLE %s DROP COLUMN %s;', $sidecar, Sql::ident($c)), $extra)),
+                // the columns another one already holds (this release stopped writing them) are dropped by the apply
+                array_diff($extra, $this->schema->redundantColumns($index)) === []
+                    ? self::APPLY
+                    : implode(' ', array_map(static fn(string $c): string => sprintf('ALTER TABLE %s DROP COLUMN %s;', $sidecar, Sql::ident($c)), $extra)),
             );
         }
 

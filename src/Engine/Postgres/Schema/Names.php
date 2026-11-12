@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Fuzzphony\Engine\Postgres\Schema;
 
+use Fuzzphony\Core\Definition\FieldDefinition;
 use Fuzzphony\Core\Definition\IndexDefinition;
 use Fuzzphony\Core\Definition\TextConfig;
 use Fuzzphony\Core\Definition\Watch;
@@ -342,9 +343,22 @@ final readonly class Names
         return self::limit('t_' . $field);
     }
 
-    public function fieldVector(string $field): string
+    /**
+     * Whether the sidecar has a `t_<field>` column of its own: not in an index of one field, whose `tsv` is built from the same
+     * expression (the refresh function writes the one vector to both), so the field's vector is `tsv` itself.
+     */
+    public function hasFieldVector(IndexDefinition $index): bool
     {
-        return Sql::ident($this->fieldVectorName($field));
+        return count($index->fields) > 1;
+    }
+
+    /**
+     * The column that holds one field's own weighted tsvector, bare (`"t_brand"`, or `tsv` in an index of one field, see
+     * hasFieldVector()): every reader asks here, so a statement never names a column the sidecar does not have.
+     */
+    public function fieldVector(IndexDefinition $index, string $field): string
+    {
+        return $this->hasFieldVector($index) ? Sql::ident($this->fieldVectorName($field)) : 'tsv';
     }
 
     /**
@@ -358,7 +372,7 @@ final readonly class Names
      */
     public function laterVectors(IndexDefinition $index, string $alias = 's'): array
     {
-        $vectors = array_map(fn(string $name): string => $alias . '.' . $this->fieldVector($name), $index->fieldNames());
+        $vectors = array_map(fn(string $name): string => $alias . '.' . $this->fieldVector($index, $name), $index->fieldNames());
         $joined = [];
         for ($i = 1, $n = count($vectors); $i < $n; ++$i) {
             $joined[] = implode(' || ', array_slice($vectors, $i));
@@ -373,9 +387,27 @@ final readonly class Names
         return self::limit('z_' . $field);
     }
 
-    public function fieldFuzzy(string $field): string
+    /**
+     * Whether the sidecar has a `z_<field>` column for this fuzzy field. Not when the refresh function writes the same expression
+     * to another column: the index's only fuzzy field is all of `fz`, and the primary field's normalised text is `exact`.
+     */
+    public function hasFieldFuzzy(IndexDefinition $index, FieldDefinition $field): bool
     {
-        return Sql::ident($this->fieldFuzzyName($field));
+        return $field->fuzzy && count($index->fuzzyFields()) > 1 && $index->primaryField()->name !== $field->name;
+    }
+
+    /**
+     * The column that holds one fuzzy field's normalised text, bare: `"z_brand"`, or the equal column when the sidecar keeps no
+     * copy (hasFieldFuzzy()): `fz` for the only fuzzy field, `exact` for the primary one. Every reader asks here.
+     */
+    public function fieldFuzzy(IndexDefinition $index, string $field): string
+    {
+        $definition = $index->field($field);
+        if ($definition === null || !$definition->fuzzy || $this->hasFieldFuzzy($index, $definition)) {
+            return Sql::ident($this->fieldFuzzyName($field));
+        }
+
+        return count($index->fuzzyFields()) === 1 ? 'fz' : 'exact';
     }
 
     /** The configuration an index uses: Fuzzphony's accent-folding copy, or the built-in one. */
@@ -423,7 +455,7 @@ final readonly class Names
             return 's.tsv';
         }
         $parts = array_map(
-            fn(string $name): string => 's.' . $this->fieldVector($name),
+            fn(string $name): string => 's.' . $this->fieldVector($index, $name),
             array_values(array_filter($index->fieldNames(), static fn(string $name): bool => in_array($name, $allowed, true))),
         );
 
