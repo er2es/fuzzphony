@@ -162,7 +162,7 @@ only the metric names are verified against the real exposition output).
 
 ## Mutation testing
 
-Infection runs in CI: a full run monthly (and on demand, `workflow_dispatch`), and only the changed lines on
+Infection runs in CI: a full run once per release (started on demand, `workflow_dispatch`), and only the changed lines on
 pull requests. The first full run (September 2026) killed 85% of 3,944 mutants; after 0.8.1's 459 new tests the full
 run of 5,989 mutants scores 96% covered-code MSI (17 minutes on CI); the score is on the README badge, which the full
 run on `main` updates. The mutants that still escape in the files worked on are equivalent (a cast that changes nothing, a
