@@ -11,6 +11,10 @@ and a link. Measurements, proofs and test names belong to the pull request, [doc
 
 ## [Unreleased]
 
+## [0.12.3] - 2026-11-12
+
+A verified demo: the "Why" and city-filter lines of the ERP People tab work as 0.12.1 described (they never appeared), the demo passed the flows (340/340) and the shots on the default data set, two screenshots are refreshed, and the full mutation run is started once per release instead of monthly. The library is unchanged.
+
 ### Fixed
 
 - **CI:** the full mutation run no longer starts monthly; it runs once per release, started on demand. No library change.
@@ -1246,7 +1250,8 @@ on its own:
 - Sync modes: queue (default), trigger, ORM, manual; watches for joined tables.
 - Doctor with fixes; CLI commands for schema, reindex, worker, search and explain.
 
-[Unreleased]: https://github.com/er2es/fuzzphony/compare/v0.12.2...HEAD
+[Unreleased]: https://github.com/er2es/fuzzphony/compare/v0.12.3...HEAD
+[0.12.3]: https://github.com/er2es/fuzzphony/compare/v0.12.2...v0.12.3
 [0.12.2]: https://github.com/er2es/fuzzphony/compare/v0.12.1...v0.12.2
 [0.12.1]: https://github.com/er2es/fuzzphony/compare/v0.12.0...v0.12.1
 [0.12.0]: https://github.com/er2es/fuzzphony/compare/v0.11.1...v0.12.0
