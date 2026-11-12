@@ -11,6 +11,10 @@ and a link. Measurements, proofs and test names belong to the pull request, [doc
 
 ## [Unreleased]
 
+### Fixed
+
+- **CI:** the full mutation run no longer starts monthly; it runs once per release, started on demand. No library change.
+
 ## [0.12.2] - 2026-11-12
 
 A patch: the library is unchanged. The full mutation run of 0.12.0 scored 97% covered MSI (12,253 killed, 336 escaped).
