@@ -73,6 +73,22 @@ final class FuzzyQueryCompilerMutationsTest extends TestCase
         self::assertNotNull($compiled['predicates'][1]);
     }
 
+    public function testAFieldWhoseColumnIsTheLookupColumnIsTestedOnce(): void
+    {
+        // one field: its vector is tsv and its text is fz (Names::fieldVector()/fieldFuzzy()); "X AND X" would only cost time
+        $index = IndexDefinition::builder('one')->fromTable('fz_product')->field('name', 'A', fuzzy: true)->sync('manual')->build();
+        foreach ([null, ['name']] as $allowed) {
+            $compiler = new FuzzyQueryCompiler($index, new Thresholds(typo: new TypoThresholds(similarity: 0.3)), new Names(), [], $allowed);
+            $match = $compiler->compile(self::parse('name:mouse'), new ParameterBag());
+            self::assertNotNull($match);
+            self::assertSame(1, substr_count($match->predicate, 'OPERATOR("public".<%) s.fz'), $match->predicate);
+            self::assertStringNotContainsString('s.tsv @@ q.ft0 AND s.tsv @@ q.ft0', $match->predicate);
+            self::assertStringContainsString('s.tsv @@ q.ft0', $match->predicate);
+            self::assertStringNotContainsString('"t_name"', $match->predicate . $match->score);
+            self::assertStringNotContainsString('"z_name"', $match->predicate . $match->score);
+        }
+    }
+
     private static function parse(string $input): Node
     {
         $root = (new QueryParser())->parse($input)->root;

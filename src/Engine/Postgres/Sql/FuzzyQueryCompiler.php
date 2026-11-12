@@ -733,7 +733,8 @@ final class FuzzyQueryCompiler
         }
         $recheck = $threshold === null ? '' : sprintf(' AND %s >= %s', $similarity, $threshold);
         $lookup = $this->trigramColumn();
-        $trigram = $field === null
+        // the field's text is the lookup column itself (the only fuzzy field's is fz, Names::fieldFuzzy()): one "<%", not the same twice
+        $trigram = $field === null || $column === $lookup
             ? sprintf('%s OPERATOR(%s.<%%) %s', $norm, $schema, $lookup)
             : sprintf('%1$s OPERATOR(%2$s.<%%) %4$s AND %1$s OPERATOR(%2$s.<%%) %3$s', $norm, $schema, $column, $lookup);
 
@@ -877,7 +878,10 @@ final class FuzzyQueryCompiler
                 $lookup = $this->column('fl', sprintf('to_tsquery(%s, %s)', $config, $params->add($loose)));
             }
 
-            return sprintf('(%s AND %s)', $this->vectorLookup($lookup), $check);
+            $candidates = $this->vectorLookup($lookup);
+
+            // the same test twice when the field's vector is tsv itself (an index of one field): once is enough
+            return $candidates === $check ? $check : sprintf('(%s AND %s)', $candidates, $check);
         }
         $config = $this->names->regconfig($this->index->text);
         $query = $this->column('ft', sprintf('to_tsquery(%s, %s)', $config, $params->add($tsquery)));
@@ -908,7 +912,8 @@ final class FuzzyQueryCompiler
             );
         }
 
-        return $field === null
+        // a field whose vector is tsv itself (an index of one field, Names::fieldVector()) needs no second test of the same vector
+        return $field === null || !$this->names->hasFieldVector($this->index)
             ? 's.tsv @@ ' . $query
             : sprintf('(s.tsv @@ %1$s AND s.%2$s @@ %1$s)', $query, $this->names->fieldVector($this->index, $field->name));
     }
