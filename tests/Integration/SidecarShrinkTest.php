@@ -81,7 +81,11 @@ final class SidecarShrinkTest extends TestCase
         }
     }
 
-    /** @return array<string, mixed> */
+    /**
+     * @param list<string>|null $allowed
+     *
+     * @return array<string, list<list<mixed>>>
+     */
     private function answers(Fuzzphony $fuzzphony, string $index, ?array $allowed = null): array
     {
         $out = [];

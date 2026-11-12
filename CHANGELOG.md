@@ -11,6 +11,10 @@ and a link. Measurements, proofs and test names belong to the pull request, [doc
 
 ## [Unreleased]
 
+### Changed
+
+- **Smaller index tables:** a per-field column equal to another column (`z_` of the primary or the only fuzzy field, `t_` of a one-field index) is no longer stored; results and speed unchanged. Run `schema --apply` (it drops them; no reindex); going back to 0.12.2 needs its apply and a reindex. See [UPGRADE](UPGRADE.md#from-012x-to-0123).
+
 ## [0.12.2] - 2026-11-12
 
 A patch: the library is unchanged. The full mutation run of 0.12.0 scored 97% covered MSI (12,253 killed, 336 escaped).
