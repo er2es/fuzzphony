@@ -3,7 +3,7 @@
 [![CI](https://github.com/er2es/fuzzphony/actions/workflows/ci.yml/badge.svg)](https://github.com/er2es/fuzzphony/actions/workflows/ci.yml)
 [![codecov](https://codecov.io/gh/er2es/fuzzphony/graph/badge.svg)](https://codecov.io/gh/er2es/fuzzphony)
 [![PHPStan level max](https://img.shields.io/badge/PHPStan-level%20max-brightgreen)](https://github.com/er2es/fuzzphony/blob/main/phpstan.neon.dist)
-[![Mutation score](https://img.shields.io/endpoint?style=flat&url=https%3A%2F%2Fbadge-api.stryker-mutator.io%2Fgithub.com%2Fer2es%2Ffuzzphony%2Fmain)](https://dashboard.stryker-mutator.io/reports/github.com/er2es/fuzzphony/main)
+[![Mutation score](https://img.shields.io/endpoint?style=flat&url=https%3A%2F%2Fraw.githubusercontent.com%2Fer2es%2Ffuzzphony%2Fbadges%2Fmutation.json)](https://github.com/er2es/fuzzphony/actions/workflows/mutation.yml)
 [![OpenSSF Scorecard](https://api.scorecard.dev/projects/github.com/er2es/fuzzphony/badge)](https://scorecard.dev/viewer/?uri=github.com/er2es/fuzzphony)
 [![OpenSSF Best Practices](https://www.bestpractices.dev/projects/14933/badge)](https://www.bestpractices.dev/projects/14933)
 
@@ -42,7 +42,7 @@ foreach ($result as $hit) {
 }
 ```
 
-Status: pre-1.0 (v0.12.1). The API may still change before 1.0; 0.10.0 gathered the remaining breaking changes, 0.11.0 is additive. Breaking changes are listed in the
+Status: pre-1.0 (v0.12.2). The API may still change before 1.0; 0.10.0 gathered the remaining breaking changes, 0.11.0 is additive. Breaking changes are listed in the
 [CHANGELOG](https://github.com/er2es/fuzzphony/blob/main/CHANGELOG.md) and explained in
 [UPGRADE.md](https://github.com/er2es/fuzzphony/blob/main/UPGRADE.md).
 
@@ -270,10 +270,10 @@ Details in [docs/limitations.md](https://github.com/er2es/fuzzphony/blob/main/do
 
 ## Roadmap
 
-Current: v0.12.1 (a demo patch), v0.12.0 was additive on v0.11 (a field with several values can rank by its best single value, `->manyMatch('single')`, `with()` aliases and many values).
+Current: v0.12.2 (a patch), v0.12.0 was additive on v0.11 (a field with several values can rank by its best single value, `->manyMatch('single')`, `with()` aliases and many values).
 PostgreSQL only before 1.0:
 
-- v0.12.2: the demo verified on the final code and the first step of a smaller sidecar.
+- v0.12.3: the demo verified on the final code and the first step of a smaller sidecar.
 - v1.0.0: the stable API and the backward-compatibility promise.
 
 After 1.0, in separate projects: record linkage (matching people and companies across records, with explainable match scores), a
