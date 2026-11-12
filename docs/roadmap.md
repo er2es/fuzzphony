@@ -123,8 +123,7 @@ What 0.12.0 to 0.12.2 left for a follow-up:
   People tab, and the refreshed screenshots (`erp.png`, `erp-best-address.png`).
 - The smaller sidecar, first step: leave out the `t_*` and `z_*` columns an index never needs, share the normalised text between `exact` and `z_<primary>`,
   and drop the stored `tsv` duplicate of a single field's `t_`. Only with a differential proof and timing that show speed and exactness unchanged.
-- Loose ends: a test that failed once in the mutation diff job (`OrmSyncListenerTest`), a flaky `ManyValuesTest` on a reused database, and a cheaper per-value rank
-  for `rank: best` if a way is found that keeps the results identical.
+- A cheaper per-value rank for `rank: best`, if a way is found that keeps the results identical.
 
 ### Ideas before 1.0, not yet decided
 
