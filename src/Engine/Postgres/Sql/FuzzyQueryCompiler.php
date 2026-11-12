@@ -693,7 +693,13 @@ final class FuzzyQueryCompiler
         $checks = array_map(fn(FieldDefinition $f): string => sprintf('%s @@ %s', $this->vector($f), $query()), $targets);
         $check = count($checks) === 1 ? $checks[0] : '(' . implode(' OR ', $checks) . ')';
 
-        return $this->within() ? ($checks === [] ? 'false' : $check) : sprintf('(%s AND %s)', $this->vectorLookup($query()), $check);
+        if ($this->within()) {
+            return $checks === [] ? 'false' : $check;
+        }
+        $candidates = $this->vectorLookup($query());
+
+        // the field's vector is tsv itself (an index of one field): one test
+        return $candidates === $check ? $check : sprintf('(%s AND %s)', $candidates, $check);
     }
 
     /**
