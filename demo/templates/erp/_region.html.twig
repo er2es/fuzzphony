@@ -25,7 +25,7 @@
         {% if filters.city != '' or filters.status != '' %}
             <div class="chips" aria-label="Chosen filters">
                 {% set chosen = filters.city ?: filters.status %}
-                <a class="token" href="{{ path('erp', {tab: tab, q: q}) }}" aria-label="Remove the filter {{ chosen }}">{{ chosen }}<svg class="icon" aria-hidden="true"><use href="#i-clear"/></svg></a>
+                <a class="token" href="{{ path('erp', {tab: tab, q: q, best: tab == 'people' and not best ? '0' : null, single: tab == 'people' and single ? '1' : null}) }}" aria-label="Remove the filter {{ chosen }}">{{ chosen }}<svg class="icon" aria-hidden="true"><use href="#i-clear"/></svg></a>
             </div>
         {% endif %}
         {% if tab == 'people' %}
@@ -47,7 +47,7 @@
                             <div class="facet">
                                 {% for f in facets %}
                                     {% set on = (tab == 'people' ? filters.city : filters.status) == f.value %}
-                                    <a href="{{ path('erp', {tab: tab, q: q, (tab == 'people' ? 'city' : 'status'): on ? null : f.value}) }}"{% if on %} aria-current="true"{% endif %}><span>{{ f.value }}</span><span>{{ f.count|number_format }}{{ result.totalIsLowerBound ? '+' }}</span></a>
+                                    <a href="{{ path('erp', {tab: tab, q: q, best: tab == 'people' and not best ? '0' : null, single: tab == 'people' and single ? '1' : null, (tab == 'people' ? 'city' : 'status'): on ? null : f.value}) }}"{% if on %} aria-current="true"{% endif %}><span>{{ f.value }}</span><span>{{ f.count|number_format }}{{ result.totalIsLowerBound ? '+' }}</span></a>
                                 {% endfor %}
                             </div>
                         </div>

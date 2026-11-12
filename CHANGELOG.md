@@ -11,6 +11,15 @@ and a link. Measurements, proofs and test names belong to the pull request, [doc
 
 ## [Unreleased]
 
+## [0.12.2] - 2026-11-12
+
+A patch: the library is unchanged. The full mutation run of 0.12.0 scored 97% covered MSI (12,253 killed, 336 escaped).
+
+### Fixed
+
+- **Demo, ERP People tab:** the city facet links and the "remove the filter" link keep the two switches (*Rank by the best address*, *One address must match all words*); before, clicking another city unchecked them.
+- **Mutation badge:** the Stryker Dashboard refuses the report of a full run (HTTP 413: too large), so the badge stayed on an old value. The full run now writes the covered score to `mutation.json` on an unprotected `badges` branch and the README badge reads it (shields.io endpoint).
+
 ## [0.12.1] - 2026-11-12
 
 A demo patch: the library is unchanged. Not verified on the final code (the flows and shots, two refreshed screenshots): that follows in 0.12.2.
@@ -1232,7 +1241,8 @@ on its own:
 - Sync modes: queue (default), trigger, ORM, manual; watches for joined tables.
 - Doctor with fixes; CLI commands for schema, reindex, worker, search and explain.
 
-[Unreleased]: https://github.com/er2es/fuzzphony/compare/v0.12.1...HEAD
+[Unreleased]: https://github.com/er2es/fuzzphony/compare/v0.12.2...HEAD
+[0.12.2]: https://github.com/er2es/fuzzphony/compare/v0.12.1...v0.12.2
 [0.12.1]: https://github.com/er2es/fuzzphony/compare/v0.12.0...v0.12.1
 [0.12.0]: https://github.com/er2es/fuzzphony/compare/v0.11.1...v0.12.0
 [0.11.1]: https://github.com/er2es/fuzzphony/compare/v0.11.0...v0.11.1

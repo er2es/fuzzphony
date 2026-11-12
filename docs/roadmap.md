@@ -111,12 +111,13 @@ additive work after it (0.11.0, released) and the stable 1.0.0 do not have to ch
 - v0.11.1, a demo patch (the library is unchanged): a search box in the header of every page that searches every index of the demo at once (a federated search grouped per index; `/` or Ctrl+K opens it).
 - v0.12.0, ranking by the best value (additive): `many: { rank: best }` ranks a field with several values through its best single value, `->manyMatch('single')` asks that one value holds every word, `with()` returns aliases and the values of a many field in one statement, the demo's People tab shows the difference, and the 0.11 mutation gaps are closed with focused tests. Opt-in `rank: best` searches whose words are in the field cost 1.4 to 2 times a whole-field search ([benchmarks](benchmarks.md)).
 - v0.12.1, a demo patch (the library is unchanged): the "Why" line of the ERP People tab names the one address that holds every word in strict mode and the address that satisfied the city filter.
+- v0.12.2, a patch (the library is unchanged): the city facet links of the ERP People tab keep the switches, and the mutation badge is published from the run itself (the full run of 0.12.0: 97% covered MSI).
 
 ## Next
 
-### v0.12.2: a patch
+### v0.12.3: a patch
 
-What 0.12.0 and 0.12.1 left for a follow-up:
+What 0.12.0 to 0.12.2 left for a follow-up:
 
 - The demo verified on the final code: the flows and shots on the default data set, the new muted match lines on the result cards and the two switches of the
   People tab, and the refreshed screenshots (`erp.png`, `erp-best-address.png`).
