@@ -1066,6 +1066,23 @@ await secContext.close();
     await singleBox.check();
     await erp.waitForFunction(() => /manyMatch/.test(document.querySelector('[data-address-note]')?.textContent ?? ''));
     check('erp people: the single-address match takes the best-address ranking along', (await hits()) === singleTotal, `${await hits()} vs ${singleTotal}`);
+    // the Why line of the strict mode names ONE address; an active city filter adds the line with the address of that city; the facet links keep the switches
+    await go(erp, BASE + '/erp?tab=people&q=' + encodeURIComponent('fő utca szeged') + '&single=1');
+    const strictWhys = await erp.locator('#results .row-why').allTextContents();
+    check('erp people: strict mode, the Why line names ONE address that holds all the words, no partial-match address', strictWhys.length > 5 && strictWhys.every((w) => /Why:\s*one address holds all the words: [0-9]{4} Szeged, Fő utca/.test(w) && !/found in/.test(w) && !/Budapest/.test(w)), strictWhys.find((w) => !/one address holds/.test(w) || /found in/.test(w)) ?? '');
+    await go(erp, BASE + '/erp?tab=people&q=kovacs&city=Budapest');
+    const cityWhys = await erp.locator('#results .row-why').allTextContents();
+    check('erp people: an active city filter shows the line "city filter Budapest: <address>" in every row', cityWhys.length > 5 && cityWhys.every((w) => /city filter Budapest: [0-9]{4} Budapest, /.test(w)), cityWhys.find((w) => !/city filter Budapest: /.test(w)) ?? '');
+    for (const [qs, best, single] of [['best=0', false, false], ['single=1', true, true]]) {
+        await go(erp, BASE + '/erp?tab=people&q=kovacs&' + qs);
+        const facetHref = (await erp.locator('#results .facet a').first().getAttribute('href')) ?? '';
+        check(`erp people: a city facet link keeps ${qs}`, facetHref.includes(qs) && facetHref.includes('city='), facetHref);
+        await erp.locator('#results .facet a').first().click();
+        await erp.waitForURL(/city=/);
+        await erp.waitForSelector('#results .hit-row');
+        const removeHref = (await erp.locator('#results .facet a[aria-current=true]').first().getAttribute('href')) ?? '';
+        check(`erp people: after the facet click the switches still read ${qs}, and the remove-filter link keeps them`, (await bestBox.isChecked()) === best && (await singleBox.isChecked()) === single && removeHref.includes(qs) && !removeHref.includes('city='), `${best}/${single} ${removeHref}`);
+    }
     await go(erp, BASE + '/erp?tab=people&q=kovacs&best=0');
     check('erp people: a search that does not touch the addresses is the same with every switch', (await hits()) > 100 && (await erp.locator('#results .callout.is-bad').count()) === 0);
     await go(erp, BASE + '/erp?tab=companies');

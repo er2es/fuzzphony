@@ -11,6 +11,10 @@ and a link. Measurements, proofs and test names belong to the pull request, [doc
 
 ## [Unreleased]
 
+### Fixed
+
+- **Demo, ERP People tab:** the "Why" line now shows what 0.12.1 described: in the strict mode ("One address must match all words") it names the one address that holds all the words, and an active city filter adds the line "city filter <city>: <address>". Both were silently dropped (a Twig macro does not see the page variables).
+
 ## [0.12.2] - 2026-11-12
 
 A patch: the library is unchanged. The full mutation run of 0.12.0 scored 97% covered MSI (12,253 killed, 336 escaped).
