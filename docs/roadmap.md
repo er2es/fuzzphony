@@ -113,6 +113,7 @@ additive work after it (0.11.0, released) and the stable 1.0.0 do not have to ch
 - v0.12.1, a demo patch (the library is unchanged): the "Why" line of the ERP People tab names the one address that holds every word in strict mode and the address that satisfied the city filter.
 - v0.12.2, a patch (the library is unchanged): the city facet links of the ERP People tab keep the switches, and the mutation badge is published from the run itself (the full run of 0.12.0: 97% covered MSI).
 - v0.12.3, a patch (the library is unchanged): the demo verified on the final code (the "Why" and city-filter lines now appear; flows 340/340, shots clean, two screenshots refreshed), and the full mutation run once per release instead of monthly.
+- v0.12.4, a patch: smaller index tables (a per-field column that holds the same text as another column of the same row is stored empty, a per-row column map keeps every definition change safe for restricted viewers; `schema --apply` backfills rows of another map after a confirmation; four independent reviews, a 15-case transition matrix, a race test).
 
 ## Next
 
