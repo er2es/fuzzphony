@@ -10,6 +10,10 @@ use Fuzzphony\Core\Fuzzphony;
 use Fuzzphony\Core\Registry\IndexRegistry;
 use Fuzzphony\Core\Support\Coerce;
 use Fuzzphony\Engine\Postgres\PostgresEngine;
+use Fuzzphony\Engine\Postgres\Schema\ColumnMap;
+use Fuzzphony\Engine\Postgres\Schema\Names;
+use Fuzzphony\Engine\Postgres\Schema\OpenClass;
+use Fuzzphony\Engine\Postgres\Schema\PostgresSchemaGenerator;
 use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\TestCase;
 
@@ -40,18 +44,18 @@ final class SidecarShrinkTest extends TestCase
 
     private function drop(): void
     {
-        $this->connection->execute('DROP TABLE IF EXISTS sh_doc, fuzzphony_sh, fuzzphony_sh__next, fuzzphony_sh__changes, fuzzphony_sh__vocab, fuzzphony_queue, fuzzphony_meta CASCADE');
+        $this->connection->execute('DROP TABLE IF EXISTS sh_doc, fuzzphony_sh__vals, fuzzphony_sh, fuzzphony_sh__next, fuzzphony_sh__changes, fuzzphony_sh__vocab, fuzzphony_queue, fuzzphony_meta CASCADE');
     }
 
-    /** @param list<array{0: string, 1: string, 2: bool, 3?: string}> $fields name, weight, fuzzy, granted */
-    private function fuzzphony(array $fields): Fuzzphony
+    /** @param list<array{0: string, 1: string, 2: bool, 3?: ?string, 4?: bool}> $fields name, weight, fuzzy, granted, code */
+    private function fuzzphony(array $fields, string $sync = 'manual'): Fuzzphony
     {
         $b = IndexDefinition::builder('sh')->fromTable('sh_doc');
         foreach ($fields as $f) {
-            $b = $b->field($f[0], $f[1], fuzzy: $f[2], granted: $f[3] ?? null);
+            $b = $b->field($f[0], $f[1], fuzzy: $f[2], granted: $f[3] ?? null, code: $f[4] ?? false);
         }
 
-        return new Fuzzphony(new PostgresEngine($this->connection), new IndexRegistry([$b->sync('manual')->build()]));
+        return new Fuzzphony(new PostgresEngine($this->connection), new IndexRegistry([$b->sync($sync)->build()]));
     }
 
     /** @return list<int|string> */
@@ -119,6 +123,165 @@ final class SidecarShrinkTest extends TestCase
         self::assertSame([1], self::ids($last, 'ketle'), 'after the reindex: a typo in the open field is found');
         self::assertSame([1], self::ids($last, 'name:ketle'));
         self::assertSame([1], self::ids($last, 'kettle'));
+    }
+
+    /**
+     * The definition changes of the 0.12.4 review (F1, F2): after the apply alone (no reindex) every viewer finds exactly what 0.12.3
+     * found. The reference is the same run with the rows put into the shape 0.12.3 wrote (every per-field column filled from the
+     * column that holds its value, no map) before the change: 0.12.3 read exactly those values.
+     *
+     * @return iterable<string, array{0: list<list<array{0: string, 1: string, 2: bool, 3?: ?string, 4?: bool}>>, 1?: string}>
+     */
+    public static function matrix(): iterable
+    {
+        $open = ['name', 'A', true];
+        $secret = ['secret', 'B', true, 'ROLE_X'];
+        yield '1 one field, then a granted field added' => [[[$open], [$open, $secret]]];
+        yield '2 two fields, then the second removed' => [[[$open, $secret], [$open]]];
+        yield '2b two open fields, then the second removed' => [[[$open, ['secret', 'B', true]], [$open]]];
+        yield '3a the granted field stops being fuzzy' => [[[['name', 'B', true], ['secret', 'A', true, 'ROLE_X']], [['name', 'B', true], ['secret', 'A', false, 'ROLE_X']]]];
+        yield '3b the granted field becomes fuzzy' => [[[['name', 'B', true], ['secret', 'A', false, 'ROLE_X']], [['name', 'B', true], ['secret', 'A', true, 'ROLE_X']]]];
+        yield '4 the weights swap between the granted and the open field' => [[[['name', 'B', true], ['secret', 'A', true, 'ROLE_X']], [['name', 'A', true], ['secret', 'B', true, 'ROLE_X']]]];
+        yield '4b one field, its weight changes' => [[[$open], [['name', 'C', true]]]];
+        yield '5 the primary moves to the granted field' => [[[$open, $secret], [['name', 'B', true], ['secret', 'A', true, 'ROLE_X']]]];
+        yield '5b the open primary stops being fuzzy' => [[[$open, ['other', 'B', true]], [['name', 'A', false], ['other', 'B', true]]]];
+        yield '6 one field, the code flag toggled' => [[[$open], [['name', 'A', true, null, true]], [$open]]];
+        yield '7 map, no map, the map again' => [[[['name', 'B', true], ['secret', 'A', false, 'ROLE_X']], [['name', 'B', true], ['secret', 'A', true, 'ROLE_X']], [['name', 'B', true], ['secret', 'A', false, 'ROLE_X']]]];
+        yield '8 a partial rewrite by refresh() in the window' => [[[$open], [$open, $secret]], 'refresh'];
+        yield '8b a partial rewrite by the queue in the window' => [[[$open], [$open, $secret]], 'queue'];
+        yield '8c a partial rewrite, then the definition changes again' => [[[$open], [$open, $secret], [$open]], 'refresh'];
+        yield '9 the apply run twice' => [[[$open], [$open, $secret], [$open, $secret]]];
+    }
+
+    /** @param list<list<array{0: string, 1: string, 2: bool, 3?: ?string, 4?: bool}>> $steps */
+    #[DataProvider('matrix')]
+    public function testAfterTheApplyAloneEveryViewerFindsWhatTheEarlierReleaseFound(array $steps, string $window = ''): void
+    {
+        $reference = $this->scenario($steps, $window, true);
+        $shrunk = $this->scenario($steps, $window, false);
+
+        self::assertSame($reference, $shrunk);
+    }
+
+    /**
+     * @param list<list<array{0: string, 1: string, 2: bool, 3?: ?string, 4?: bool}>> $steps
+     *
+     * @return list<array<string, array<int|string, float>>> what each viewer found after each apply
+     */
+    private function scenario(array $steps, string $window, bool $asWrittenBefore): array
+    {
+        $this->drop();
+        $this->connection->execute('CREATE TABLE sh_doc (id integer PRIMARY KEY, name text NOT NULL, secret text NOT NULL, other text NOT NULL DEFAULT \'\')');
+        $this->connection->execute("INSERT INTO sh_doc VALUES (1, 'kettle', 'zanzibar walrus', 'brass'), (2, 'teapot', 'plain words', 'kettle'), (3, 'kettle black', 'quiet notes', 'iron'), (4, 'copper kettle', 'walrus tusk', 'tin')");
+        $sync = $window === 'queue' ? 'queue' : 'manual';
+        $fuzzphony = $this->fuzzphony($steps[0], $sync);
+        $fuzzphony->schema()->apply($this->connection);
+        $fuzzphony->reindex('sh');
+        if ($asWrittenBefore) {
+            $this->unshrink($fuzzphony->definition('sh'));
+        }
+
+        $found = [];
+        foreach (array_slice($steps, 1) as $i => $fields) {
+            $fuzzphony = $this->fuzzphony($fields, $sync);
+            $fuzzphony->schema()->apply($this->connection);
+            if ($window !== '' && $i === 0) {
+                $this->connection->execute("UPDATE sh_doc SET secret = secret || ' walrus' WHERE id IN (1, 3)");
+                if ($window === 'queue') {
+                    $fuzzphony->engine()->processQueue($fuzzphony->definition('sh'), 100);
+                } else {
+                    $fuzzphony->refresh('sh', [1, 3]);
+                }
+            }
+            $this->assertNothingHidden($fuzzphony, sprintf('after apply %d', $i + 2));
+            $found[] = $this->found($fuzzphony);
+        }
+
+        return $found;
+    }
+
+    /** The shape 0.12.3 wrote: every per-field column filled (from the column that holds its value), no map. */
+    private function unshrink(IndexDefinition $definition): void
+    {
+        $sets = [];
+        foreach ((new Names())->sharedColumns($definition) as $column => $from) {
+            $sets[] = sprintf('%s = %s', $column, $from);
+        }
+        if ($this->connection->fetchValue("SELECT 1 FROM pg_attribute WHERE attrelid = 'fuzzphony_sh'::regclass AND attname = 'field_map' AND NOT attisdropped") !== null) {
+            $sets[] = 'field_map = NULL';
+        }
+        if ($sets !== []) {
+            $this->connection->execute('UPDATE fuzzphony_sh SET ' . implode(', ', $sets));
+        }
+    }
+
+    /** @return array<string, array<int|string, float>> */
+    private function found(Fuzzphony $fuzzphony): array
+    {
+        $queries = ['r' => ['kettle', 'ketle', 'name:kettle', 'name:ketle', 'copper ketle', 'teapot'], 'u' => ['kettle', 'ketle', 'walrus', 'walrs', 'name:kettle', 'name:ketle', 'copper kettle']];
+        if ($fuzzphony->definition('sh')->field('secret') !== null) {
+            array_push($queries['u'], 'secret:walrus', 'secret:walrs');
+        }
+        $found = [];
+        foreach ($queries as $who => $list) {
+            foreach ($list as $q) {
+                $b = $fuzzphony->in('sh')->query($q);
+                foreach (($who === 'r' ? $b->restrictedToFields('name') : $b)->get()->hits as $hit) {
+                    $found[$who . ':' . $q][$hit->id] = round($hit->score, 6);
+                }
+                $found[$who . ':' . $q] ??= [];
+            }
+        }
+
+        return $found;
+    }
+
+    public function testTheBackfillRunsInBatchesAndIsIdempotent(): void
+    {
+        $this->connection->execute("INSERT INTO sh_doc SELECT i, 'kettle ' || i, 'walrus ' || i FROM generate_series(3, 2500) AS i");
+        $one = $this->fuzzphony([['name', 'A', true]]);
+        $one->schema()->apply($this->connection);
+        $one->reindex('sh');
+        $two = $this->fuzzphony([['name', 'A', true], ['secret', 'B', true, 'ROLE_X']]);
+        $definition = $two->definition('sh');
+        self::assertSame(['t_name=tsv,z_name=exact' => 2500], ColumnMap::pending($this->connection, new Names(), $definition), 'the rows of the one-field map wait for the backfill');
+
+        $generator = new PostgresSchemaGenerator(new Names(), backfillBatch: 300);
+        $plan = $generator->global($definition)->merge($generator->index($definition));
+        self::assertStringContainsString('LIMIT 300', $plan->toSql());
+        $plan->apply($this->connection);
+        self::assertSame([], ColumnMap::pending($this->connection, new Names(), $definition));
+        self::assertSame(0, Coerce::int($this->connection->fetchValue("SELECT count(*) FROM fuzzphony_sh WHERE field_map IS NOT NULL OR t_name = ''::tsvector OR z_name = ''")));
+        self::assertSame(2500, $two->in('sh')->query('kettle')->restrictedToFields('name')->get()->total);
+        $plan->apply($this->connection);
+        self::assertSame(2500, $two->in('sh')->query('kettle')->restrictedToFields('name')->get()->total);
+        $this->assertNothingHidden($two, 'after the backfill');
+    }
+
+    public function testTheOpenClassTrigramIndexServesAMixedTable(): void
+    {
+        $definition = $this->fuzzphony([['name', 'A', true], ['secret', 'B', true, 'ROLE_X']])->definition('sh');
+        $this->connection->execute("INSERT INTO sh_doc SELECT i, 'kettle ' || i, 'walrus ' || i FROM generate_series(3, 400) AS i");
+        $fuzzphony = $this->fuzzphony([['name', 'A', true], ['secret', 'B', true, 'ROLE_X']]);
+        $fuzzphony->schema()->apply($this->connection);
+        $fuzzphony->reindex('sh');
+        // half of the rows as an earlier release wrote them (no map, every column filled)
+        $this->connection->execute('UPDATE fuzzphony_sh SET z_name = exact, field_map = NULL WHERE id % 2 = 0');
+        $this->connection->execute('ANALYZE fuzzphony_sh');
+        $names = new Names();
+        $expression = OpenClass::trigram($definition, $names, 's.');
+        self::assertNotNull($expression);
+        $index = $names->indexName($definition, array_key_first(OpenClass::indexes($definition, $names)));
+
+        $this->connection->execute('SET enable_seqscan = off');
+        try {
+            $plan = implode("\n", array_map(static fn(array $r): string => Coerce::str(reset($r)), $this->connection->fetchAll(sprintf("EXPLAIN SELECT s.id FROM fuzzphony_sh AS s WHERE (%s) %% 'ketle'", $expression))));
+            $found = Coerce::int($this->connection->fetchValue(sprintf("SELECT count(*) FROM fuzzphony_sh AS s WHERE (%s) LIKE '%%kettle%%'", $expression)));
+        } finally {
+            $this->connection->execute('RESET enable_seqscan');
+        }
+        self::assertStringContainsString($index, $plan);
+        self::assertSame(399, $found, 'both kinds of rows are read');
     }
 
     public function testRowsOfAnEarlierReleaseAreReadFromTheirOwnColumnsAndTheReindexEmptiesThem(): void
