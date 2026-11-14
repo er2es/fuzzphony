@@ -46,34 +46,29 @@ final class NamesTest extends TestCase
     }
 
     /**
-     * A per-field column another column holds for a row written with the current definition is read from that column only for
-     * such a row (field_map = this map's number); a row written under another definition is read from its own column.
+     * A per-field column another column holds for a row written with the current definition is read from that column only for a
+     * row whose field_map lists that pair; any other row (another map, NULL) is read from its own column.
      */
-    public function testSharedColumnsAreReadOnlyForRowsWrittenWithTheSameMap(): void
+    public function testSharedColumnsAreReadOnlyForRowsWhoseMapListsThePair(): void
     {
         $names = new Names();
         $products = Indexes::products(); // name (A, fuzzy, primary), brand (fuzzy), description
         self::assertSame(['z_name' => 'exact'], $names->sharedColumns($products));
-        self::assertSame('CASE WHEN s.field_map = 1058641030672988307 THEN s.exact ELSE s."z_name" END', $names->fieldFuzzy($products, 'name'));
+        self::assertSame('z_name=exact', $names->fieldMap($products));
+        self::assertSame("CASE WHEN strpos(',' || s.field_map || ',', ',z_name=exact,') > 0 THEN s.exact ELSE s.\"z_name\" END", $names->fieldFuzzy($products, 'name'));
         self::assertSame('s."t_name"', $names->fieldVector($products, 'name'));
 
         $build = self::build(...);
         $one = $build([['title', 'B', true]]);
         self::assertSame(['t_title' => 'tsv', 'z_title' => 'exact'], $names->sharedColumns($one), 'one field: tsv; the primary is preferred over fz');
+        self::assertSame('t_title=tsv,z_title=exact', $names->fieldMap($one), 'sorted by column');
+        self::assertSame($names->fieldMap($one), $names->fieldMap($build([['title', 'A', true]])), 'the weight is no part of the map: t_title and tsv change together');
         $onlyFuzzy = $build([['code', 'A', false], ['title', 'B', true]]);
         self::assertSame(['z_title' => 'fz'], $names->sharedColumns($onlyFuzzy));
         self::assertSame([], $names->sharedColumns($build([['code', 'A', false], ['title', 'B', true], ['body', 'C', true]])));
-        self::assertNull($names->fieldMapId($build([['code', 'A', false], ['title', 'B', true], ['body', 'C', true]])));
-
-        // the number changes whenever what a shared column holds changes, and only then
-        $base = $build([['name', 'A', true], ['secret', 'B', true, 'ROLE_X']]);
-        $id = $names->fieldMapId($base);
-        self::assertSame($id, $names->fieldMapId($build([['name', 'A', true], ['secret', 'B', true]])), 'granted is no part of the content');
-        self::assertSame($id, $names->fieldMapId($build([['name', 'A', true], ['secret', 'B', false, 'ROLE_X']])), 'exact is still name');
-        self::assertSame($id, $names->fieldMapId($build([['name', 'A', true], ['secret', 'B', true], ['more', 'C', true]])), 'a field added: exact is still name');
-        self::assertNotSame($id, $names->fieldMapId($build([['name', 'B', true], ['secret', 'A', true, 'ROLE_X']])), 'the primary moved');
-        self::assertSame($names->fieldMapId($onlyFuzzy), $names->fieldMapId($build([['code', 'A', false], ['title', 'B', true], ['body', 'C', false]])), 'fz still joins title alone');
-        self::assertNotSame($names->fieldMapId($one), $names->fieldMapId($build([['title', 'A', true]])), 'tsv: the weight changed');
+        self::assertNull($names->fieldMap($build([['code', 'A', false], ['title', 'B', true], ['body', 'C', true]])));
+        self::assertSame('z_name=exact', $names->fieldMap($build([['name', 'A', true], ['secret', 'B', true, 'ROLE_X']])));
+        self::assertSame('z_secret=exact', $names->fieldMap($build([['name', 'B', true], ['secret', 'A', true, 'ROLE_X']])), 'the primary moved');
     }
 
     /** @param list<array{0: string, 1: string, 2: bool, 3?: string}> $fields */

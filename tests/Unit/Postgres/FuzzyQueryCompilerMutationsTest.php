@@ -26,7 +26,7 @@ final class FuzzyQueryCompilerMutationsTest extends TestCase
         $match = $compiler->compile(self::parse('mouse'), new ParameterBag());
 
         self::assertNotNull($match);
-        $best = 'GREATEST("public".word_similarity(q.fn1, CASE WHEN s.field_map = 1058641030672988307 THEN s.exact ELSE s."z_name" END), "public".word_similarity(q.fn1, s."z_brand"))';
+        $best = 'GREATEST("public".word_similarity(q.fn1, CASE WHEN strpos(\',\' || s.field_map || \',\', \',z_name=exact,\') > 0 THEN s.exact ELSE s."z_name" END), "public".word_similarity(q.fn1, s."z_brand"))';
         self::assertSame(
             sprintf('GREATEST(%s, CASE WHEN (s.tsv @@ q.ft0 AND (s."t_name" @@ q.ft0 OR s."t_brand" @@ q.ft0)) THEN 1.0 ELSE 0.0 END)', $best),
             $match->score,
@@ -48,8 +48,8 @@ final class FuzzyQueryCompilerMutationsTest extends TestCase
         $match = $compiler->compile(self::parse('mouse'), new ParameterBag());
 
         self::assertNotNull($match);
-        self::assertStringContainsString('(q.fn1 OPERATOR("public".<%) s.fz AND "public".word_similarity(q.fn1, CASE WHEN s.field_map = 1058641030672988307 THEN s.exact ELSE s."z_name" END) >= 0.3)', $match->predicate);
-        self::assertStringStartsWith('GREATEST("public".word_similarity(q.fn1, CASE WHEN s.field_map = 1058641030672988307 THEN s.exact ELSE s."z_name" END), CASE WHEN', $match->score, 'the similarity of the one field, no GREATEST of its own');
+        self::assertStringContainsString('(q.fn1 OPERATOR("public".<%) s.fz AND "public".word_similarity(q.fn1, CASE WHEN strpos(\',\' || s.field_map || \',\', \',z_name=exact,\') > 0 THEN s.exact ELSE s."z_name" END) >= 0.3)', $match->predicate);
+        self::assertStringStartsWith('GREATEST("public".word_similarity(q.fn1, CASE WHEN strpos(\',\' || s.field_map || \',\', \',z_name=exact,\') > 0 THEN s.exact ELSE s."z_name" END), CASE WHEN', $match->score, 'the similarity of the one field, no GREATEST of its own');
     }
 
     public function testARepeatedWordIsProbedOnceAndTheNextWordStillIs(): void

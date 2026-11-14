@@ -14,6 +14,7 @@ use Fuzzphony\Core\Definition\Weight;
 use Fuzzphony\Core\Schema\Statement;
 use Fuzzphony\Engine\Postgres\Schema\Fingerprint;
 use Fuzzphony\Engine\Postgres\Schema\Names;
+use Fuzzphony\Engine\Postgres\Schema\ColumnMap;
 use Fuzzphony\Engine\Postgres\Schema\PostgresSchemaGenerator;
 use Fuzzphony\Engine\Postgres\Sql\DocumentSql;
 use Fuzzphony\Engine\Postgres\Sql\Sql;
@@ -58,7 +59,7 @@ final class SchemaGeneratorTest extends TestCase
             $sql,
         );
         self::assertStringContainsString(
-            "setweight(to_tsvector('\"public\".\"fuzzphony_english\"'::regconfig, coalesce(doc.\"fld_brand\"::text, '')), 'B'),\n        coalesce(\"public\".\"fuzzphony_norm\"(doc.\"fld_brand\"::text), ''),\n        setweight(to_tsvector('\"public\".\"fuzzphony_english\"'::regconfig, coalesce(doc.\"fld_description\"::text, '')), 'D'),\n        1058641030672988307::bigint,\n        doc.fz_boost::double precision",
+            "setweight(to_tsvector('\"public\".\"fuzzphony_english\"'::regconfig, coalesce(doc.\"fld_brand\"::text, '')), 'B'),\n        coalesce(\"public\".\"fuzzphony_norm\"(doc.\"fld_brand\"::text), ''),\n        setweight(to_tsvector('\"public\".\"fuzzphony_english\"'::regconfig, coalesce(doc.\"fld_description\"::text, '')), 'D'),\n        'z_name=exact',\n        doc.fz_boost::double precision",
             $sql,
             'each field its own weighted vector (the same as its part of tsv) and, when fuzzy, its normalised text',
         );
@@ -69,13 +70,20 @@ final class SchemaGeneratorTest extends TestCase
         self::assertStringContainsString('"field_map" = EXCLUDED."field_map"', $sql, 'every write sets it: a row never keeps an older map');
     }
 
-    public function testAnIndexWithoutSharedColumnsDropsALeftOverColumnMap(): void
+    public function testTheColumnMapIsNeverDroppedAndRowsOfAnotherMapAreBackfilledOutsideTheTransaction(): void
     {
         $two = IndexDefinition::builder('two')->fromTable('fz_product')->field('name', 'A')->field('brand', 'B', fuzzy: true)->field('description', 'C', fuzzy: true)->sync('manual')->build();
-        $generator = new PostgresSchemaGenerator();
-        self::assertArrayNotHasKey('field_map', $generator->columns($two));
-        self::assertStringContainsString("AND attname = 'field_map' AND NOT attisdropped) THEN ALTER TABLE \"public\".\"fuzzphony_two\" DROP COLUMN field_map; END IF;", $generator->index($two)->toSql());
-        self::assertStringNotContainsString('DROP COLUMN field_map', $generator->index(Indexes::products())->toSql());
+        $generator = new PostgresSchemaGenerator(backfillBatch: 500);
+        self::assertSame('text', $generator->columns($two)['field_map'], 'kept without a map: NULL says every column is filled');
+        $sql = $generator->index($two)->toSql();
+        self::assertStringNotContainsString('DROP COLUMN field_map', $sql);
+        self::assertStringContainsString('NULL::text,', $sql, 'a definition without a map writes NULL');
+        $backfill = array_values(array_filter($generator->index($two)->statements, static fn(Statement $s): bool => str_starts_with($s->description, ColumnMap::BACKFILL)));
+        self::assertCount(1, $backfill);
+        self::assertFalse($backfill[0]->transactional, 'it commits after each batch');
+        self::assertStringContainsString("NOT (string_to_array(field_map, ',') <@ ARRAY[]::text[])", $backfill[0]->sql, 'without a map every row of a map is filled back');
+        self::assertStringContainsString('LIMIT 500', $backfill[0]->sql);
+        self::assertStringContainsString("<@ ARRAY['z_name=exact']::text[]", $generator->index(Indexes::products())->toSql(), 'a row with only pairs of the current map is left alone');
     }
 
     public function testIndexesAreBuiltConcurrentlyOutsideTransactions(): void

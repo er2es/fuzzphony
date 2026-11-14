@@ -42,7 +42,11 @@ final class PostgresSchemaGenerator
      * refresh function: reindex fills it) takes the slow way.
      */
     public const string CAPPED_COLUMN = 'tsv_capped';
-    /** Which column map a row was written with (Names::fieldMapId()); NULL = by an earlier release: every per-field column is filled. */
+    /**
+     * Which column map a row was written with (Names::fieldMap(), `t_name=tsv,z_name=exact`); NULL = every per-field column is
+     * filled (no shared column, an earlier release, or a row the backfill filled: ColumnMap). Never dropped: a later definition
+     * still has to know which columns of a row are empty.
+     */
     public const string FIELD_MAP_COLUMN = 'field_map';
 
     /**
@@ -59,7 +63,7 @@ final class PostgresSchemaGenerator
     private const string TAG = DefinitionValidator::DOLLAR_QUOTE_TAG;
 
     /** @param bool $searchLog whether the shared schema includes the search log table (the engine was built with searchLog: true) */
-    public function __construct(private readonly Names $names = new Names(), private readonly bool $searchLog = false) {}
+    public function __construct(private readonly Names $names = new Names(), private readonly bool $searchLog = false, private readonly int $backfillBatch = ColumnMap::BATCH) {}
 
     public function names(): Names
     {
@@ -171,6 +175,8 @@ final class PostgresSchemaGenerator
                 ? sprintf('Keep column "%s" in sync with the definition (phrases and scoped words of a document that is not capped need no extra check; reindex fills it)', $name)
                 : sprintf('Keep column "%s" in sync with the definition', $name));
         }
+        // after the transaction that replaced the refresh functions (it is not transactional): rows of another map get their columns back
+        $statements[] = ColumnMap::backfill($index, $this->names, $this->backfillBatch);
         if ($index->hasFuzzy()) {
             $statements[] = new Statement(
                 sprintf('CREATE TABLE IF NOT EXISTS %s (word text PRIMARY KEY, freq integer NOT NULL)', $this->names->vocabulary($index)),
@@ -285,20 +291,6 @@ final class PostgresSchemaGenerator
             ),
             'Drop the value count column of a field that is no longer declared with many: { rank: best }',
         );
-        if ($this->names->fieldMapId($index) === null) {
-            // a definition without shared columns writes and reads every per-field column; a field_map left by another definition
-            // is read by nothing (idempotent; a table without it is not locked)
-            $statements[] = new Statement(
-                sprintf(
-                    "DO %1\$s BEGIN IF EXISTS (SELECT 1 FROM pg_attribute WHERE attrelid = to_regclass(%2\$s) AND attname = '%3\$s' AND NOT attisdropped) THEN ALTER TABLE %4\$s DROP COLUMN %3\$s; END IF; END %1\$s",
-                    self::TAG,
-                    Sql::string($table),
-                    self::FIELD_MAP_COLUMN,
-                    $table,
-                ),
-                'Drop the column-map column: this definition has no per-field column another column holds',
-            );
-        }
         foreach ($this->layoutSteps($index) as $target => [$step, $why]) {
             $statements[] = new Statement(sprintf(
                 'DO %1$s BEGIN IF to_regclass(%2$s) IS NOT NULL THEN IF (SELECT layout_version FROM %3$s WHERE index_name = %4$s) < %5$d THEN %6$s END IF; END IF; END %1$s',
@@ -474,9 +466,7 @@ ON CONFLICT (index_name) DO UPDATE SET layout_version = EXCLUDED.layout_version,
                 $columns[$this->names->fieldFuzzyName($field->name)] = "text NOT NULL DEFAULT ''";
             }
         }
-        if ($this->names->fieldMapId($index) !== null) {
-            $columns[self::FIELD_MAP_COLUMN] = 'bigint';
-        }
+        $columns[self::FIELD_MAP_COLUMN] = 'text';
         foreach ($index->manyBestFields() as $field) {
             // NULL = not known (written before the column existed): the document's values are read, a reindex fills it
             $columns[$this->names->valueCountName($field->name)] = 'smallint';
@@ -709,11 +699,9 @@ ON CONFLICT (index_name) DO UPDATE SET layout_version = EXCLUDED.layout_version,
                 $values[] = isset($shared[$this->names->fieldFuzzyName($field->name)]) ? "''" : sprintf("coalesce(%s, '')", $this->fieldFuzzyExpression($field));
             }
         }
-        $map = $this->names->fieldMapId($index);
-        if ($map !== null) {
-            $columns[] = self::FIELD_MAP_COLUMN;
-            $values[] = $map . '::bigint';
-        }
+        $map = $this->names->fieldMap($index);
+        $columns[] = self::FIELD_MAP_COLUMN;
+        $values[] = $map === null ? 'NULL::text' : Sql::string($map);
         foreach ($index->manyBestFields() as $field) {
             // the number of values the values table gets for the document (see valuesRefresh(): the non-null ones, at most `limit`); the key is compared as it is, with no cast on the child column, so its index serves the count
             $many = $field->many ?? throw new \LogicException('A rank: best field has many values.');

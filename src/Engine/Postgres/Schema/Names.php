@@ -4,7 +4,6 @@ declare(strict_types=1);
 
 namespace Fuzzphony\Engine\Postgres\Schema;
 
-use Fuzzphony\Core\Definition\FieldDefinition;
 use Fuzzphony\Core\Definition\IndexDefinition;
 use Fuzzphony\Core\Definition\TextConfig;
 use Fuzzphony\Core\Definition\Watch;
@@ -356,9 +355,9 @@ final readonly class Names
      * The per-field columns whose value, for a row written with the current definition, another column of the same row holds
      * exactly (the refresh function writes them from the same expression), with that column: `t_<field>` of an index of one field
      * is `tsv`; `z_<field>` of the primary field is `exact`, of the only fuzzy field `fz`. Such a column is written empty and the
-     * other one is read instead, but only for a row whose `field_map` says it was written with this very map (fieldMapId()): a
-     * row written under another definition (before its reindex) keeps being read from its own column, so a granted field's text
-     * that an older definition put into `fz`, `exact` or `tsv` is never read in place of an open field's column.
+     * row's `field_map` lists it with the column read instead (fieldMap()); a reader takes the other column only for a row whose
+     * map lists that very pair, so a granted field's text that another definition put into `fz`, `exact` or `tsv` is never read
+     * in place of an open field's column.
      *
      * @return array<string, string> per-field column => the column that holds its value
      */
@@ -379,33 +378,25 @@ final readonly class Names
                 $map[$this->fieldFuzzyName($field->name)] = 'fz';
             }
         }
+        ksort($map);
 
         return $map;
     }
 
     /**
-     * What the refresh function writes to `field_map`: a number for the column map and for what decides the shared columns'
-     * content (which field is `exact`, which fields `fz` joins, which fields with which weight `tsv` joins); null without a map.
-     * Two definitions that store the same values in the same columns share it; any change of that gives another number.
+     * What the refresh function writes to `field_map`: the pairs of sharedColumns() as `column=source`, sorted and joined with
+     * commas (`t_name=tsv,z_name=exact`); null without a shared column. Each pair is a fact about the row it is written to (that
+     * column's value is the source's), whatever definition comes later: the readers check the pair (perField()) and the apply
+     * copies the values of another map back (ColumnMap::backfill()).
      */
-    public function fieldMapId(IndexDefinition $index): ?int
+    public function fieldMap(IndexDefinition $index): ?string
     {
         $map = $this->sharedColumns($index);
-        if ($map === []) {
-            return null;
-        }
-        $content = [];
-        foreach (array_unique($map) as $shared) {
-            $content[$shared] = match ($shared) {
-                'exact' => $index->primaryField()->name,
-                'fz' => array_map(static fn(FieldDefinition $f): string => $f->name, $index->fuzzyFields()),
-                default => array_map(static fn(FieldDefinition $f): array => [$f->name, $f->weight->value, $f->code], $index->fields),
-            };
-        }
 
-        return (int) hexdec(substr(hash('sha256', json_encode([$map, $content], JSON_THROW_ON_ERROR)), 0, 15));
+        return $map === [] ? null : implode(',', array_map(static fn(string $c, string $s): string => $c . '=' . $s, array_keys($map), $map));
     }
 
+    /** `s.t_name`, or for a shared column: the source when the row's map lists the pair, else the column itself (old rows, NULL). */
     private function perField(IndexDefinition $index, string $column, string $alias): string
     {
         $shared = $this->sharedColumns($index)[$column] ?? null;
@@ -413,7 +404,14 @@ final readonly class Names
             return $alias . Sql::ident($column);
         }
 
-        return sprintf('CASE WHEN %1$s%2$s = %3$d THEN %1$s%4$s ELSE %1$s%5$s END', $alias, PostgresSchemaGenerator::FIELD_MAP_COLUMN, (int) $this->fieldMapId($index), $shared, Sql::ident($column));
+        return sprintf(
+            "CASE WHEN strpos(',' || %1\$s%2\$s || ',', %3\$s) > 0 THEN %1\$s%4\$s ELSE %1\$s%5\$s END",
+            $alias,
+            PostgresSchemaGenerator::FIELD_MAP_COLUMN,
+            Sql::string(',' . $column . '=' . $shared . ','),
+            $shared,
+            Sql::ident($column),
+        );
     }
 
     /**

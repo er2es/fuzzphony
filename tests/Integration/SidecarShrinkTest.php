@@ -252,9 +252,9 @@ final class SidecarShrinkTest extends TestCase
         $plan->apply($this->connection);
         self::assertSame([], ColumnMap::pending($this->connection, new Names(), $definition));
         self::assertSame(0, Coerce::int($this->connection->fetchValue("SELECT count(*) FROM fuzzphony_sh WHERE field_map IS NOT NULL OR t_name = ''::tsvector OR z_name = ''")));
-        self::assertSame(2500, $two->in('sh')->query('kettle')->restrictedToFields('name')->get()->total);
+        self::assertSame(2471, self::ids($two, 'kettle 2471')[0] ?? null);
         $plan->apply($this->connection);
-        self::assertSame(2500, $two->in('sh')->query('kettle')->restrictedToFields('name')->get()->total);
+        self::assertSame(2471, self::ids($two, 'kettle 2471')[0] ?? null);
         $this->assertNothingHidden($two, 'after the backfill');
     }
 

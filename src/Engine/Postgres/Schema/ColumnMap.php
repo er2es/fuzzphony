@@ -1,0 +1,124 @@
+<?php
+
+declare(strict_types=1);
+
+namespace Fuzzphony\Engine\Postgres\Schema;
+
+use Fuzzphony\Core\Database\Connection;
+use Fuzzphony\Core\Definition\DefinitionValidator;
+use Fuzzphony\Core\Definition\IndexDefinition;
+use Fuzzphony\Core\Schema\Statement;
+use Fuzzphony\Core\Support\Coerce;
+use Fuzzphony\Engine\Postgres\Sql\Sql;
+
+/**
+ * @internal The rows of a sidecar written with another column map (`field_map`, Names::fieldMap()) than the current definition's.
+ * Such a row has a per-field column empty whose value its map says another column holds; the readers check the current map's pairs
+ * only, so the row's other pairs are copied back (the backfill: `t_name = tsv`, valid by the row's own map) and its map set to NULL
+ * (every per-field column filled, like a row of 0.12.3). A row whose pairs are all in the current map is read right and is left alone.
+ */
+final readonly class ColumnMap
+{
+    /** Rows per UPDATE of the backfill; each batch commits, so no lock is held for long and an interrupted apply resumes. */
+    public const int BATCH = 20_000;
+
+    /** The description of the backfill statement (SchemaCommand asks before it runs it). */
+    public const string BACKFILL = 'Backfill the per-field columns of rows written with another column map';
+
+    private const string TAG = DefinitionValidator::DOLLAR_QUOTE_TAG;
+
+    /**
+     * The backfill of one index: a DO block that commits after each batch, so it runs outside a transaction (like CREATE INDEX
+     * CONCURRENTLY). Idempotent: a second run finds nothing. It reads the sidecar once to find the other maps (SELECT DISTINCT),
+     * then walks each map's rows in id order, $batch at a time.
+     */
+    public static function backfill(IndexDefinition $index, Names $names, int $batch = self::BATCH): Statement
+    {
+        $table = $names->sidecar($index);
+        $literal = Sql::string($table);
+        $inner = str_replace("'", "''", $table);
+
+        return new Statement(
+            sprintf(
+                <<<'SQL'
+                    DO %1$s
+                    DECLARE
+                        m text;
+                        e text;
+                        sets text;
+                        last text;
+                        n bigint;
+                    BEGIN
+                        IF NOT EXISTS (SELECT 1 FROM pg_attribute WHERE attrelid = to_regclass(%2$s) AND attname = '%5$s' AND NOT attisdropped) THEN
+                            RETURN;
+                        END IF;
+                        FOR m IN %6$s LOOP
+                            sets := '';
+                            FOREACH e IN ARRAY string_to_array(m, ',') LOOP
+                                IF split_part(e, '=', 2) IN ('tsv', 'fz', 'exact') AND EXISTS (SELECT 1 FROM pg_attribute WHERE attrelid = to_regclass(%2$s) AND attname = split_part(e, '=', 1) AND NOT attisdropped) THEN
+                                    sets := sets || format('%%I = t.%%I, ', split_part(e, '=', 1), split_part(e, '=', 2));
+                                END IF;
+                            END LOOP;
+                            last := NULL;
+                            LOOP
+                                EXECUTE format(
+                                    'WITH u AS (UPDATE %3$s AS t SET %%s %5$s = NULL FROM (SELECT id FROM %3$s WHERE %5$s = %%L%%s ORDER BY id LIMIT %4$d) AS b WHERE t.id = b.id RETURNING t.id) SELECT (SELECT id::text FROM u ORDER BY id DESC LIMIT 1), (SELECT count(*) FROM u)',
+                                    sets, m, CASE WHEN last IS NULL THEN '' ELSE format(' AND id > %%L', last) END
+                                ) INTO last, n;
+                                COMMIT;
+                                EXIT WHEN n < %4$d;
+                            END LOOP;
+                        END LOOP;
+                    END %1$s
+                    SQL,
+                self::TAG,
+                $literal,
+                $inner,
+                $batch,
+                PostgresSchemaGenerator::FIELD_MAP_COLUMN,
+                self::otherMaps($index, $names, 'DISTINCT ' . PostgresSchemaGenerator::FIELD_MAP_COLUMN, ''),
+            ),
+            sprintf('%s ("%s"; %d rows per batch, outside a transaction)', self::BACKFILL, $index->name, $batch),
+            transactional: false,
+        );
+    }
+
+    /**
+     * The rows that wait for the backfill, by map: map => rows. Empty when the sidecar or its `field_map` column is not there yet
+     * (the apply adds it) or every row is of the current map, has no map or only pairs of the current map. Reads the whole sidecar.
+     *
+     * @return array<string, int>
+     */
+    public static function pending(Connection $connection, Names $names, IndexDefinition $index): array
+    {
+        $exists = $connection->fetchValue(
+            'SELECT 1 FROM pg_attribute WHERE attrelid = to_regclass(:table) AND attname = :column AND NOT attisdropped',
+            ['table' => $names->sidecar($index), 'column' => PostgresSchemaGenerator::FIELD_MAP_COLUMN],
+        );
+        if ($exists === null || $exists === false) {
+            return [];
+        }
+        $pending = [];
+        foreach ($connection->fetchAll(self::otherMaps($index, $names, PostgresSchemaGenerator::FIELD_MAP_COLUMN . ' AS map, count(*) AS n', ' GROUP BY 1 ORDER BY 1')) as $row) {
+            $pending[Coerce::str($row['map'])] = Coerce::int($row['n']);
+        }
+
+        return $pending;
+    }
+
+    /** SELECT $what over the rows whose map has a pair the current map has not. */
+    private static function otherMaps(IndexDefinition $index, Names $names, string $what, string $tail): string
+    {
+        $current = $names->sharedColumns($index);
+        $pairs = array_map(static fn(string $c, string $s): string => Sql::string($c . '=' . $s), array_keys($current), $current);
+
+        return sprintf(
+            "SELECT %s FROM %s WHERE %s IS NOT NULL AND NOT (string_to_array(%3\$s, ',') <@ ARRAY[%s]::text[])%s",
+            $what,
+            $names->sidecar($index),
+            PostgresSchemaGenerator::FIELD_MAP_COLUMN,
+            implode(', ', $pairs),
+            $tail,
+        );
+    }
+}
