@@ -179,6 +179,13 @@ Only an index that declares one pays for it; every other index keeps its layout,
   values are read, and the doctor suggests a reindex. The column is dropped by `schema --apply` when a field leaves `rank: best` (a full reindex builds the
   shadow table without it too), and the doctor compares a sample of the counts with the values table. The count reads the child table by the plain key
   column (no cast on it), so an index on the key serves it.
+- A filter declared `same_row_as: <field>` adds a nullable `text[]` column `fr_<filter>_<hash>` to the values table (the hash covers `from`,
+  `key`, `id`, the filter's column and the field, so a changed declaration gets a new, empty column; `schema --apply` drops the ones no filter
+  expects). The refresh function writes it on the field's rows from the same child row (`{}` when the row has no value, `ARRAY[value]`
+  otherwise) and NULL on the other fields' rows; an older refresh function lists its columns, so it writes NULL ("not known": the
+  document-level filter). Under `manyMatch('single')` a positive condition on the filter adds `coalesce(v.fr && ARRAY[...], true)` to the
+  value-row subquery of the single-value check, of the best-value rank and of its `bestOrd`, and drops the one-value and one-word shortcuts;
+  the filter's facet is counted per value row (`SearchSqlBuilder::coupledValues()`). The doctor checks it as "Same row".
 - A many filter is a `text[]` column `f_<name>` of the sidecar with a GIN index: `city = 'Budapest'` is `f_city @> ARRAY[...]` (any match),
   a facet unnests the array, so it counts documents, never values (the array holds distinct values).
 - The watch of the child table is derived from `from` and `key` (columns: the value column and the key): a change logs the owning document

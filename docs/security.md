@@ -311,7 +311,11 @@ leaks. A word that exists only in a hidden field is:
   [`manyMatch('single')`](searching.md#several-values-one-address-manymatch) applies only to the fields the viewer may see: a hidden field named
   there is refused exactly like an unknown name (the message lists the visible ones), a viewer who sees none gets the default statement, and
   the single-value check reads the visible fields' own columns and the value rows of the named visible fields only (each correlated to a
-  document that passed the tenant and the filters);
+  document that passed the tenant and the filters). A filter declared [`same_row_as`](configuration.md#several-values-per-document-many) a
+  field is coupled to that field's value rows only for a viewer who may see the field: for one who may not, the statement is the one of a
+  definition without the option (it never reads the field's value rows nor their filter column, which would tell which rows exist), and its
+  facet counts per document. The filter column on the value rows (`fr_<filter>_<hash>`) is in the values table the search role already reads
+  (`fuzzphony:schema --dump-grants` lists no new grant);
 - **not highlighted**: a hit never shows a snippet of a hidden field;
 - **not suggested**: a restricted viewer gets no "did you mean" and `complete()` returns `[]`, because
   the vocabulary holds the words of every field; for the same reason a restricted viewer's search that finds nothing is
