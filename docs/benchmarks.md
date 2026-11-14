@@ -248,18 +248,20 @@ search as fast as an unrestricted one. A field with `fuzzy: false` has no `z_` c
 indexes are built only when a field is `granted`; an install without one pays nothing for them.
 
 Since 0.12.4 a per-field column whose value another column of the row holds is stored empty: `z_<field>` of the primary field (= `exact`,
-so the catalogue above stores no `z_name` text), of the only fuzzy field (= `fz`), and `t_<field>` of an index of one field (= `tsv`); an
-8-byte `field_map` says which rows may be read that way ([architecture](architecture.md#sidecar-table)). Results are unchanged and the
-timings within noise. On 200 000 ERP customers, the index tables after a full reindex (heap + TOAST + indexes):
+so the catalogue above stores no `z_name` text), of the only fuzzy field (= `fz`), and `t_<field>` of an index of one field (= `tsv`); a
+short text `field_map` (`z_name=exact`) says which rows may be read that way ([architecture](architecture.md#sidecar-table)). Results are
+unchanged and the timings within noise. On 200 000 ERP customers, the index tables after a full reindex (heap + TOAST + indexes):
 
 | Index | Stored empty | 0.12.3 | 0.12.4 |
 |---|---|---|---|
-| `cust` (one field, `name` fuzzy) | `t_name`, `z_name` | 47 MB (33 MB heap) | 40 MB (26 MB heap) |
+| `cust` (one field, `name` fuzzy) | `t_name`, `z_name` | 47 MB (33 MB heap) | 43 MB (29 MB heap) |
 | `people` (`name` A fuzzy, two fuzzy many fields, `email`) | `z_name` | 210 MB (130 MB heap) | 210 MB (130 MB heap) |
-| `orders` (`number` A code, `customer_name` fuzzy) | `z_customer_name` | 59 MB (35 MB heap) | 59 MB (35 MB heap) |
-| `mails` (`name` fuzzy, two granted fields) | `z_name` | 105 MB (60 MB heap) | 104 MB (59 MB heap) |
+| `orders` (`number` A code, `customer_name` fuzzy) | `z_customer_name` | 59 MB (35 MB heap) | 60 MB (35 MB heap) |
+| `mails` (`name` fuzzy, two granted fields) | `z_name` | 105 MB (60 MB heap) | 105 MB (59 MB heap) |
 
-A one-field index saves about 15%; where only a short `z_` copy goes, the 8-byte `field_map` eats most of what it saves.
+A one-field index saves about 10%; where only a short `z_` copy goes, the map text eats what it saves. After a definition change the
+backfill of the 200 000 `cust` rows took 3.2 s (one scan to find the maps: 0.04 s) and left the table at 110 MB until the next reindex
+or `VACUUM` (the copied columns and the old row versions); an apply with nothing to backfill adds the scan only.
 
 ## Several values per document (`many`)
 

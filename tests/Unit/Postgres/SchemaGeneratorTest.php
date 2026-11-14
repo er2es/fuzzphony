@@ -81,9 +81,9 @@ final class SchemaGeneratorTest extends TestCase
         $backfill = array_values(array_filter($generator->index($two)->statements, static fn(Statement $s): bool => str_starts_with($s->description, ColumnMap::BACKFILL)));
         self::assertCount(1, $backfill);
         self::assertFalse($backfill[0]->transactional, 'it commits after each batch');
-        self::assertStringContainsString("NOT (string_to_array(field_map, ',') <@ ARRAY[]::text[])", $backfill[0]->sql, 'without a map every row of a map is filled back');
+        self::assertStringContainsString('WHERE field_map IS NOT NULL LOOP', $backfill[0]->sql, 'without a map every row of a map is filled back');
         self::assertStringContainsString('LIMIT 500', $backfill[0]->sql);
-        self::assertStringContainsString("<@ ARRAY['z_name=exact']::text[]", $generator->index(Indexes::products())->toSql(), 'a row with only pairs of the current map is left alone');
+        self::assertStringContainsString("WHERE field_map IS NOT NULL AND field_map <> 'z_name=exact' LOOP", $generator->index(Indexes::products())->toSql(), 'a row of the current map is left alone');
     }
 
     public function testIndexesAreBuiltConcurrentlyOutsideTransactions(): void

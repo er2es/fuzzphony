@@ -8,7 +8,7 @@ and the [CHANGELOG](CHANGELOG.md) has the full list of changes.
 No API change. A per-field column whose value another column of the same row holds is stored empty: `z_<field>` of the primary field
 (the same as `exact`), `z_<field>` of the only fuzzy field (`fz`) and `t_<field>` of an index of one field (`tsv`). A new text column
 `field_map` lists, per row, which columns were stored empty and which column holds each (`t_name=tsv,z_name=exact`; NULL = every
-column filled). A search reads the other column only for a row whose map lists that pair, else the row's own column. Results, scores
+column filled). A search reads the other column only for a row written with the current map, else the row's own column. Results, scores
 and highlights are unchanged.
 
 ### Deploy order
@@ -26,7 +26,8 @@ and highlights are unchanged.
 ### A definition change (any release from 0.12.4 on)
 
 When a definition change moves a column in or out of the map (a field added or removed, the primary field or `fuzzy` changed), the
-rows written under the old map have columns stored empty that the new definition reads as their own. `schema --apply` copies them
+rows written under the old map have columns stored empty that the new definition reads as their own (a row is read through the
+shared columns only when its map is the current one). `schema --apply` copies them
 back (the **backfill**): for each other map in the table it updates those rows in id order, 20 000 per statement, each committed,
 filling every column of the row's map from the column that holds its value in that same row, and sets the map to NULL. It runs after
 the transaction of the apply (like the concurrent index builds), is idempotent and resumes where an interrupted run stopped. Its cost
@@ -37,7 +38,7 @@ on meanwhile), plus one scan of the index table per apply to find the maps. A ch
 - `fuzzphony:schema --apply` shows how many rows of which maps wait and how many statements it runs, and **asks** (default no).
   `--force` runs it without asking; a non-interactive run without `--force` applies the rest, skips the backfill, warns and exits
   with 1. Until the backfill runs, those rows miss field-scoped and restricted searches on the affected columns (no hidden field is
-  ever read: a row is read from its own column unless its own map lists the pair). `fuzzphony:doctor` warns while such rows exist.
+  ever read: a row is read from its own column unless it has the current map). `fuzzphony:doctor` warns while such rows exist.
 - `--dump-migration` and the printed SQL contain the backfill as a `DO` block that commits per batch: run that migration outside a
   transaction (the generated migration is non-transactional already).
 - A full `fuzzphony:reindex` also fixes those rows (every row is written with the current map).

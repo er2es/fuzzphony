@@ -47,15 +47,15 @@ final class NamesTest extends TestCase
 
     /**
      * A per-field column another column holds for a row written with the current definition is read from that column only for a
-     * row whose field_map lists that pair; any other row (another map, NULL) is read from its own column.
+     * row written with the current map; any other row (another map before its backfill, NULL) is read from its own column.
      */
-    public function testSharedColumnsAreReadOnlyForRowsWhoseMapListsThePair(): void
+    public function testSharedColumnsAreReadOnlyForRowsWrittenWithTheCurrentMap(): void
     {
         $names = new Names();
         $products = Indexes::products(); // name (A, fuzzy, primary), brand (fuzzy), description
         self::assertSame(['z_name' => 'exact'], $names->sharedColumns($products));
         self::assertSame('z_name=exact', $names->fieldMap($products));
-        self::assertSame("CASE WHEN strpos(',' || s.field_map || ',', ',z_name=exact,') > 0 THEN s.exact ELSE s.\"z_name\" END", $names->fieldFuzzy($products, 'name'));
+        self::assertSame("CASE WHEN s.field_map = 'z_name=exact' THEN s.exact ELSE s.\"z_name\" END", $names->fieldFuzzy($products, 'name'));
         self::assertSame('s."t_name"', $names->fieldVector($products, 'name'));
 
         $build = self::build(...);

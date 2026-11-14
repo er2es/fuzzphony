@@ -102,13 +102,14 @@ text), the filters' `f_<filter>` and the bookkeeping columns. Since 0.12.4 a per
 is written empty (`Names::sharedColumns()`): `t_<field>` of an index of one field (= `tsv`), `z_<field>` of the primary field (= `exact`)
 and of the only fuzzy field (= `fz`). The row's `field_map` (text, `Names::fieldMap()`) lists those pairs as the row was written
 (`t_name=tsv,z_name=exact`); each pair is a fact about that row whatever definition comes later. A reader takes the other column only
-for a row whose map lists the pair (`CASE WHEN strpos(',' || s.field_map || ',', ',z_name=exact,') > 0 THEN s.exact ELSE s."z_name" END`,
-built by `Names::fieldFuzzy()` / `fieldVector()`), and the row's own column for any other row (NULL: every column filled). So a granted
-field's text that another definition put into `fz`, `exact` or `tsv` is never read in place of an open field's column. The expression
-depends only on the pair, so the open-class indexes over it are rebuilt only when that pair changes. After a definition change,
-`schema --apply` runs the backfill (`ColumnMap`): rows whose map has a pair the current map lacks get every column of their map copied
-back from the same row and their map set to NULL, in committed batches outside the apply's transaction (`SchemaCommand` asks first).
-`field_map` is never dropped: a later definition still has to know which columns of a row are empty.
+for a row written with the current map (`CASE WHEN s.field_map = 'z_name=exact' THEN s.exact ELSE s."z_name" END`, built by
+`Names::fieldFuzzy()` / `fieldVector()`; an equality costs a row about as much as reading the column), and the row's own column for any
+other row (NULL: every column filled). So a granted field's text that another definition put into `fz`, `exact` or `tsv` is never read
+in place of an open field's column. After a definition change that changes the map, `schema --apply` runs the backfill (`ColumnMap`):
+the rows of every other map get every column of their map copied back from the same row and their map set to NULL, in committed
+batches outside the apply's transaction (`SchemaCommand` asks first), so afterwards a row has the current map or none. A change that
+keeps the map (a weight, `code`, `granted`) touches no row; one that changes it also rebuilds an open-class index over a shared column
+(its expression names the map). `field_map` is never dropped: a later definition still has to know which columns of a row are empty.
 
 A fuzzy index also has `fuzzphony_<index>__vocab` (same schema): its words and in how many documents
 each occurs, created by `fuzzphony:schema --apply` and rebuilt after every full reindex, for "did you

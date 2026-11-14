@@ -13,9 +13,9 @@ use Fuzzphony\Engine\Postgres\Sql\Sql;
 
 /**
  * @internal The rows of a sidecar written with another column map (`field_map`, Names::fieldMap()) than the current definition's.
- * Such a row has a per-field column empty whose value its map says another column holds; the readers check the current map's pairs
- * only, so the row's other pairs are copied back (the backfill: `t_name = tsv`, valid by the row's own map) and its map set to NULL
- * (every per-field column filled, like a row of 0.12.3). A row whose pairs are all in the current map is read right and is left alone.
+ * Such a row has a per-field column empty whose value its map says another column holds; the readers take the shared column only
+ * for a row of the current map, so the row's pairs are copied back (the backfill: `t_name = tsv`, valid by the row's own map) and
+ * its map set to NULL (every per-field column filled, like a row of 0.12.3). After it a row has the current map or none.
  */
 final readonly class ColumnMap
 {
@@ -85,7 +85,7 @@ final readonly class ColumnMap
 
     /**
      * The rows that wait for the backfill, by map: map => rows. Empty when the sidecar or its `field_map` column is not there yet
-     * (the apply adds it) or every row is of the current map, has no map or only pairs of the current map. Reads the whole sidecar.
+     * (the apply adds it) or every row has the current map or none. Reads the whole sidecar.
      *
      * @return array<string, int>
      */
@@ -106,18 +106,17 @@ final readonly class ColumnMap
         return $pending;
     }
 
-    /** SELECT $what over the rows whose map has a pair the current map has not. */
+    /** SELECT $what over the rows of another map than the current one. */
     private static function otherMaps(IndexDefinition $index, Names $names, string $what, string $tail): string
     {
-        $current = $names->sharedColumns($index);
-        $pairs = array_map(static fn(string $c, string $s): string => Sql::string($c . '=' . $s), array_keys($current), $current);
+        $current = $names->fieldMap($index);
 
         return sprintf(
-            "SELECT %s FROM %s WHERE %s IS NOT NULL AND NOT (string_to_array(%3\$s, ',') <@ ARRAY[%s]::text[])%s",
+            'SELECT %s FROM %s WHERE %s IS NOT NULL%s%s',
             $what,
             $names->sidecar($index),
             PostgresSchemaGenerator::FIELD_MAP_COLUMN,
-            implode(', ', $pairs),
+            $current === null ? '' : sprintf(' AND %s <> %s', PostgresSchemaGenerator::FIELD_MAP_COLUMN, Sql::string($current)),
             $tail,
         );
     }

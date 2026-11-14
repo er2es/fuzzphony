@@ -355,9 +355,9 @@ final readonly class Names
      * The per-field columns whose value, for a row written with the current definition, another column of the same row holds
      * exactly (the refresh function writes them from the same expression), with that column: `t_<field>` of an index of one field
      * is `tsv`; `z_<field>` of the primary field is `exact`, of the only fuzzy field `fz`. Such a column is written empty and the
-     * row's `field_map` lists it with the column read instead (fieldMap()); a reader takes the other column only for a row whose
-     * map lists that very pair, so a granted field's text that another definition put into `fz`, `exact` or `tsv` is never read
-     * in place of an open field's column.
+     * row's `field_map` lists it with the column read instead (fieldMap()); a reader takes the other column only for a row written
+     * with the current map, so a granted field's text that another definition put into `fz`, `exact` or `tsv` is never read in
+     * place of an open field's column.
      *
      * @return array<string, string> per-field column => the column that holds its value
      */
@@ -386,8 +386,8 @@ final readonly class Names
     /**
      * What the refresh function writes to `field_map`: the pairs of sharedColumns() as `column=source`, sorted and joined with
      * commas (`t_name=tsv,z_name=exact`); null without a shared column. Each pair is a fact about the row it is written to (that
-     * column's value is the source's), whatever definition comes later: the readers check the pair (perField()) and the apply
-     * copies the values of another map back (ColumnMap::backfill()).
+     * column's value is the source's), whatever definition comes later: the apply copies the values of a row of another map back
+     * from them (ColumnMap::backfill()), so a row has the current map or none, and the readers compare the map (perField()).
      */
     public function fieldMap(IndexDefinition $index): ?string
     {
@@ -396,7 +396,11 @@ final readonly class Names
         return $map === [] ? null : implode(',', array_map(static fn(string $c, string $s): string => $c . '=' . $s, array_keys($map), $map));
     }
 
-    /** `s.t_name`, or for a shared column: the source when the row's map lists the pair, else the column itself (old rows, NULL). */
+    /**
+     * `s.t_name`, or for a shared column: the source for a row of the current map, else the column itself (NULL: filled; another map
+     * before its backfill: possibly empty, never another field's text). An equality, not a test of the pair: it costs a row about
+     * as much as reading the column (a pair test with strpos() made a 3-word search on 200 000 rows 10% slower).
+     */
     private function perField(IndexDefinition $index, string $column, string $alias): string
     {
         $shared = $this->sharedColumns($index)[$column] ?? null;
@@ -405,10 +409,10 @@ final readonly class Names
         }
 
         return sprintf(
-            "CASE WHEN strpos(',' || %1\$s%2\$s || ',', %3\$s) > 0 THEN %1\$s%4\$s ELSE %1\$s%5\$s END",
+            'CASE WHEN %1$s%2$s = %3$s THEN %1$s%4$s ELSE %1$s%5$s END',
             $alias,
             PostgresSchemaGenerator::FIELD_MAP_COLUMN,
-            Sql::string(',' . $column . '=' . $shared . ','),
+            Sql::string((string) $this->fieldMap($index)),
             $shared,
             Sql::ident($column),
         );
