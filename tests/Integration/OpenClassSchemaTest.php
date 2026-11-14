@@ -75,7 +75,7 @@ final class OpenClassSchemaTest extends TestCase
         $statements = array_values(array_filter(array_map(static fn($s): string => $s->sql, $plan->statements), static fn(string $sql): bool => preg_match('/^CREATE INDEX CONCURRENTLY IF NOT EXISTS "fuzzphony_open_docs__open_(fz|tsv)_/', $sql) === 1));
 
         self::assertCount(2, $statements);
-        self::assertMatchesRegularExpression('/^CREATE INDEX CONCURRENTLY IF NOT EXISTS "fuzzphony_open_docs__open_fz_[0-9a-f]{8}" ON "public"."fuzzphony_open_docs" USING gin \(\("z_name"\) "public".gin_trgm_ops\)$/', $statements[0]);
+        self::assertMatchesRegularExpression('/^CREATE INDEX CONCURRENTLY IF NOT EXISTS "fuzzphony_open_docs__open_fz_[0-9a-f]{8}" ON "public"."fuzzphony_open_docs" USING gin \(\(CASE WHEN strpos\(\',\' \|\| field_map \|\| \',\', \',z_name=exact,\'\) > 0 THEN exact ELSE "z_name" END\) "public".gin_trgm_ops\)$/', $statements[0]);
         self::assertMatchesRegularExpression('/^CREATE INDEX CONCURRENTLY IF NOT EXISTS "fuzzphony_open_docs__open_tsv_[0-9a-f]{8}" ON "public"."fuzzphony_open_docs" USING gin \(\("t_name"\)\)$/', $statements[1]);
         $fuzzphony->schema()->apply($this->connection);
         $fuzzphony->schema()->apply($this->connection);
