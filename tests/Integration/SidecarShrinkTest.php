@@ -11,6 +11,8 @@ use Fuzzphony\Core\Exception\SchemaNotApplied;
 use Fuzzphony\Core\Fuzzphony;
 use Fuzzphony\Core\Inspection\Check;
 use Fuzzphony\Core\Registry\IndexRegistry;
+use Fuzzphony\Core\Schema\SchemaPlan;
+use Fuzzphony\Core\Schema\Statement;
 use Fuzzphony\Core\Support\Coerce;
 use Fuzzphony\Engine\Postgres\PostgresEngine;
 use Fuzzphony\Engine\Postgres\Schema\ColumnMap;
@@ -299,6 +301,64 @@ final class SidecarShrinkTest extends TestCase
         $this->expectException(SchemaNotApplied::class);
         $this->expectExceptionMessage('missing: field_map');
         self::ids($fuzzphony, 'ketle');
+    }
+
+    /** @return iterable<string, array{string}> */
+    public static function races(): iterable
+    {
+        yield 'a refresh rewrites the row under the new map' => ['rewrite'];
+        yield 'the row is deleted' => ['delete'];
+    }
+
+    /**
+     * A batch of the backfill (another connection, a child process) waits on a row that a refresh rewrites under the current map
+     * (or deletes) meanwhile: the row is skipped with its new version intact (never a copy of the new version's `exact`, which now
+     * holds the granted field's text), and the batches go on to the end although that batch updated fewer rows.
+     */
+    #[DataProvider('races')]
+    public function testABackfillBatchThatWaitsOnARowSkipsItWhenItChangedAndGoesOnToTheEnd(string $race): void
+    {
+        $this->connection->execute("INSERT INTO sh_doc VALUES (3, 'kettle black', 'quiet'), (4, 'copper kettle', 'tusk'), (5, 'old kettle', 'rust')");
+        $a = $this->fuzzphony([['name', 'A', true], ['secret', 'B', true, 'ROLE_X']]);
+        $a->schema()->apply($this->connection);
+        $a->reindex('sh');
+        $b = $this->fuzzphony([['name', 'B', true], ['secret', 'A', true, 'ROLE_X']]); // the primary moves to secret: z_secret=exact
+        $definition = $b->definition('sh');
+        $generator = new PostgresSchemaGenerator(new Names(), backfillBatch: 2);
+        $plan = $generator->global($definition)->merge($generator->index($definition));
+        $backfill = array_values(array_filter($plan->statements, static fn(Statement $s): bool => str_starts_with($s->description, ColumnMap::BACKFILL)))[0];
+        (new SchemaPlan(array_values(array_filter($plan->statements, static fn(Statement $s): bool => $s !== $backfill))))->apply($this->connection);
+
+        $writer = new \PDO(Coerce::str(getenv('FUZZPHONY_TEST_DSN')));
+        $writer->beginTransaction();
+        $writer->exec($race === 'rewrite' ? sprintf('SELECT %s(ARRAY[1])', (new Names())->refreshFunction($definition)) : 'DELETE FROM fuzzphony_sh WHERE id = 1');
+        $sql = (string) tempnam(sys_get_temp_dir(), 'fzbf');
+        file_put_contents($sql, $backfill->sql);
+        $child = proc_open([PHP_BINARY, '-r', '$p = new PDO(getenv("FUZZPHONY_TEST_DSN")); $p->exec(file_get_contents($argv[1]));', '--', $sql], [1 => ['pipe', 'w'], 2 => ['pipe', 'w']], $pipes);
+        self::assertIsResource($child);
+        try {
+            $waited = false;
+            for ($i = 0; $i < 200 && !$waited; ++$i) {
+                usleep(50_000);
+                $waited = $this->connection->fetchValue("SELECT 1 FROM pg_stat_activity WHERE wait_event_type = 'Lock' AND query LIKE 'DO %'") !== null;
+            }
+            self::assertTrue($waited, 'the batch waits on the row the writer holds');
+        } finally {
+            $writer->commit();
+            $errors = (string) stream_get_contents($pipes[2]);
+            proc_close($child);
+            unlink($sql);
+        }
+        self::assertSame('', $errors);
+
+        $rows = $this->connection->fetchAll('SELECT id, field_map, z_name, z_secret FROM fuzzphony_sh ORDER BY id');
+        $expected = $race === 'rewrite' ? [['id' => 1, 'field_map' => 'z_secret=exact', 'z_name' => 'kettle', 'z_secret' => '']] : [];
+        foreach ([2 => 'teapot', 3 => 'kettle black', 4 => 'copper kettle', 5 => 'old kettle'] as $id => $name) {
+            $expected[] = ['id' => $id, 'field_map' => null, 'z_name' => $name, 'z_secret' => Coerce::str($this->connection->fetchValue('SELECT secret FROM sh_doc WHERE id = :id', ['id' => $id]))];
+        }
+        self::assertEquals($expected, $rows, 'the changed row keeps its new version; every other row is filled back');
+        self::assertSame([], ColumnMap::pending($this->connection, new Names(), $definition));
+        $this->assertNothingHidden($b, 'after the race');
     }
 
     public function testTheBackfillRunsInBatchesAndIsIdempotent(): void
