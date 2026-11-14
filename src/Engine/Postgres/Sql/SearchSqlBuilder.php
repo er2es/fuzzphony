@@ -333,14 +333,18 @@ final class SearchSqlBuilder
                 array_push($ctes, ...$selection['ctes']);
                 $wideFacet = $selection['facet'];
             } else {
+                // With a rank: best field the ordered selection ranks once: the fast selection keeps its ids only (when the matches
+                // fill it, its ranks were thrown away and the ordered scan ranked the same rows again), and ranks them only when they
+                // are fewer than the window (a primary-key read of at most `window` rows). A rank: whole index keeps its statement.
+                $idsOnly = $ordered && $best !== null;
                 $ctes[] = sprintf(
                     "%s AS (
-    SELECT s.id, %s AS r_text
+    SELECT s.id%s
     FROM %s AS s CROSS JOIN q
     WHERE %s%s
 )",
                     $fast,
-                    $rank,
+                    $idsOnly ? '' : ', ' . $rank . ' AS r_text',
                     $table,
                     $where,
                     $ordered ? "
@@ -353,7 +357,7 @@ final class SearchSqlBuilder
                     $min = $fuzzy === null && $thresholds->relevance->minScore > 0.0 ? sprintf(' AND %s * w.r_text >= %s', Sql::float($profile->text), Sql::float($thresholds->relevance->minScore)) : '';
                     $ctes[] = sprintf(
                         "fts AS (
-    SELECT id, r_text FROM fts_fast WHERE (SELECT count(*) FROM fts_fast) < %1\$d
+    %12\$s WHERE (SELECT count(*) FROM fts_fast) < %1\$d
     UNION ALL
     SELECT id, r_text FROM (
         SELECT w.id, w.r_text FROM (
@@ -378,6 +382,7 @@ final class SearchSqlBuilder
                         self::scanLimit($this->scanBudget, $operands, $n),
                         $min,
                         Sql::float($profile->text),
+                        $idsOnly ? sprintf('SELECT s.id, %s AS r_text FROM fts_fast AS f JOIN %s AS s ON s.id = f.id CROSS JOIN q', $rank, $table) : 'SELECT id, r_text FROM fts_fast',
                     );
                 }
             }

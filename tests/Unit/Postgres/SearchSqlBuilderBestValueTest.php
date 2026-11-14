@@ -138,6 +138,10 @@ final class SearchSqlBuilderBestValueTest extends TestCase
         $sql = self::ranked(self::index(), null, 'szeged', [], true);
         // the cheap and the ordered full-text selection (the typo branch has no text rank)
         self::assertSame(2, substr_count($sql, "v.field = 'city' AND v.t @@ q.tsany"));
+        // ranked once: the fast selection keeps ids only and ranks them only when they are fewer than the window
+        self::assertStringContainsString("fts_fast AS (\n    SELECT s.id\n    FROM", $sql);
+        self::assertStringContainsString(' AS r_text FROM fts_fast AS f JOIN "public"."fuzzphony_people" AS s ON s.id = f.id CROSS JOIN q WHERE (SELECT count(*) FROM fts_fast) < ', $sql);
+        self::assertStringContainsString("fts_fast AS (\n    SELECT s.id, ts_rank_cd(", self::ranked(self::index('whole'), null, 'szeged', [], true), 'a rank: whole index keeps its statement');
         $root = self::parse('szeged');
         $wide = (new SearchSqlBuilder(self::index(), new Names()))->ranked("'szeged'", 'szeged', null, [], new RankingProfile(), new Thresholds(), 10, 0, [], null, false, ['conditions' => [], 'filter' => 'kind', 'values' => 5])['sql'];
         self::assertSame(3, substr_count($wide, "v.field = 'city' AND v.t @@ q.tsany"), 'wide, fts_fast and the ordered selection');
