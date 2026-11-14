@@ -332,19 +332,53 @@ final class SearchSqlBuilder
                 $selection = $this->wideSelection($wide, $strict, $rank, $bonuses, $table, $where, $conditions, $filters, $params, $profile, $thresholds, $n, self::scanLimit($this->scanBudget, $operands, $n), $min);
                 array_push($ctes, ...$selection['ctes']);
                 $wideFacet = $selection['facet'];
+            } elseif ($ordered && $best !== null) {
+                // With a rank: best field (whose rank is the costly part of a row) every match is ranked once: one scan of the first
+                // matches (`fts_scan`, the scan the ordered selection reads) feeds both the fast selection (its first `window` ids,
+                // counted only) and the ordered one. When the matches are fewer than the window that scan holds them all, as the
+                // fast selection did; when they are more, the fast selection's own ranks were thrown away anyway. A rank: whole
+                // index keeps the two scans below (its statement is unchanged).
+                $ctes[] = sprintf(
+                    "fts_scan AS MATERIALIZED (
+    SELECT s.id, %2\$s AS r_text, %3\$s AS exact_bonus, %4\$s AS prefix_bonus, %5\$s AS boost_bonus, %6\$s AS recency_bonus
+    FROM %7\$s AS s CROSS JOIN q
+    WHERE %8\$s
+    LIMIT %9\$d
+),
+fts_fast AS (
+    SELECT id FROM fts_scan LIMIT %1\$d
+),
+fts AS (
+    SELECT id, r_text FROM fts_scan WHERE (SELECT count(*) FROM fts_fast) < %1\$d
+    UNION ALL
+    SELECT id, r_text FROM (
+        SELECT w.id, w.r_text FROM fts_scan AS w
+        WHERE (SELECT count(*) FROM fts_fast) >= %1\$d%10\$s
+        ORDER BY %11\$s * w.r_text + w.exact_bonus + w.prefix_bonus + w.boost_bonus + w.recency_bonus DESC, w.id
+        LIMIT %1\$d
+    ) AS o
+)",
+                    $n,
+                    $rank,
+                    $bonuses[0],
+                    $bonuses[1],
+                    $bonuses[2],
+                    $bonuses[3],
+                    $table,
+                    $where,
+                    self::scanLimit($this->scanBudget, $operands, $n),
+                    $min,
+                    Sql::float($profile->text),
+                );
             } else {
-                // With a rank: best field the ordered selection ranks once: the fast selection keeps its ids only (when the matches
-                // fill it, its ranks were thrown away and the ordered scan ranked the same rows again), and ranks them only when they
-                // are fewer than the window (a primary-key read of at most `window` rows). A rank: whole index keeps its statement.
-                $idsOnly = $ordered && $best !== null;
                 $ctes[] = sprintf(
                     "%s AS (
-    SELECT s.id%s
+    SELECT s.id, %s AS r_text
     FROM %s AS s CROSS JOIN q
     WHERE %s%s
 )",
                     $fast,
-                    $idsOnly ? '' : ', ' . $rank . ' AS r_text',
+                    $rank,
                     $table,
                     $where,
                     $ordered ? "
@@ -357,7 +391,7 @@ final class SearchSqlBuilder
                     $min = $fuzzy === null && $thresholds->relevance->minScore > 0.0 ? sprintf(' AND %s * w.r_text >= %s', Sql::float($profile->text), Sql::float($thresholds->relevance->minScore)) : '';
                     $ctes[] = sprintf(
                         "fts AS (
-    %12\$s WHERE (SELECT count(*) FROM fts_fast) < %1\$d
+    SELECT id, r_text FROM fts_fast WHERE (SELECT count(*) FROM fts_fast) < %1\$d
     UNION ALL
     SELECT id, r_text FROM (
         SELECT w.id, w.r_text FROM (
@@ -382,7 +416,6 @@ final class SearchSqlBuilder
                         self::scanLimit($this->scanBudget, $operands, $n),
                         $min,
                         Sql::float($profile->text),
-                        $idsOnly ? sprintf('SELECT s.id, %s AS r_text FROM fts_fast AS f JOIN %s AS s ON s.id = f.id CROSS JOIN q', $rank, $table) : 'SELECT id, r_text FROM fts_fast',
                     );
                 }
             }

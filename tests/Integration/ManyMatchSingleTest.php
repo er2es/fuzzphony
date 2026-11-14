@@ -310,9 +310,9 @@ final class ManyMatchSingleTest extends TestCase
         $explained = $f->in('scust')->query('fo utca szgeed')->thresholds(['typo' => ['mode' => 'always']])->manyMatch('single')->explain();
         $sql = implode("\n", array_column($explained->statements, 'sql'));
         $exists = 'EXISTS (SELECT 1 FROM (SELECT \'\'::tsvector AS t, \'\'::text AS z UNION ALL SELECT v.t, v.z FROM "public"."fuzzphony_scust__values" AS v WHERE v.doc = s.id AND v.field = \'address\'';
-        self::assertSame(2, substr_count($sql, '(s."n_address" <= 1 AND s."n_tag" <= 1 OR ' . $exists), 'the full-text branch (its fast and ordered selections): a document with one value passes on the count');
-        self::assertSame(3, substr_count($sql, $exists), 'and the typo branch, without the count: the address field');
-        self::assertSame(3, preg_match_all("/v\\.field = 'tag' AND \\([^()]*\\)\\) AS v2/", $sql), 'and the tag field, in the same EXISTS, each read only where a value holds a word');
+        self::assertSame(1, substr_count($sql, '(s."n_address" <= 1 AND s."n_tag" <= 1 OR ' . $exists), 'the full-text branch (its one scan, rank: best): a document with one value passes on the count');
+        self::assertSame(2, substr_count($sql, $exists), 'and the typo branch, without the count: the address field');
+        self::assertSame(2, preg_match_all("/v\\.field = 'tag' AND \\([^()]*\\)\\) AS v2/", $sql), 'and the tag field, in the same EXISTS, each read only where a value holds a word');
         self::assertStringNotContainsString('UNION ALL SELECT v.t, v.z', implode("\n", array_column($plain->statements, 'sql')));
 
         $result = self::exact($f->in('scust')->query('kossuth szeged'))->manyMatch('single')->explainMatches()->highlight('address')->get();
