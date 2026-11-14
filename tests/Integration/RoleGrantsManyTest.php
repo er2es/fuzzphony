@@ -14,6 +14,7 @@ use Fuzzphony\Core\Sync\Worker;
 use Fuzzphony\Engine\Postgres\PostgresEngine;
 use Fuzzphony\Engine\Postgres\Schema\Grants;
 use Fuzzphony\Engine\Postgres\Schema\Names;
+use Fuzzphony\Engine\Postgres\Sql\Sql;
 use PHPUnit\Framework\TestCase;
 use Symfony\Component\Console\Tester\CommandTester;
 
@@ -49,8 +50,9 @@ final class RoleGrantsManyTest extends TestCase
         $this->index = IndexDefinition::builder('rg_customers')
             ->fromTable('rg_customer')
             ->field('name', 'A')
-            ->field('city', 'C', many: ['from' => 'rg_address', 'key' => 'customer_id', 'column' => 'city'])
-            ->filter('city', 'string', many: ['from' => 'rg_address', 'key' => 'customer_id', 'column' => 'city'])
+            ->field('city', 'C', many: ['from' => 'rg_address', 'key' => 'customer_id', 'column' => 'city', 'rank' => 'best'])
+            // same_row_as: the worker writes the filter column of the values rows, the search role reads it, with the grants of the dump alone
+            ->filter('city', 'string', many: ['from' => 'rg_address', 'key' => 'customer_id', 'column' => 'city', 'same_row_as' => 'city'])
             ->sync('queue')
             ->build();
         $this->fuzzphony = new Fuzzphony($this->engine, new IndexRegistry([$this->index]));
@@ -124,5 +126,9 @@ final class RoleGrantsManyTest extends TestCase
         self::assertSame('Pecs', ($hit->matches ?? [])[0]->value);
         self::assertSame('<mark>Pecs</mark>', $hit->highlights['city']);
         self::assertSame([1], $this->fuzzphony->in('rg_customers')->where('city', 'Vienna')->get()->ids());
+        self::assertSame([2], $this->fuzzphony->in('rg_customers')->query('pecs')->manyMatch('single')->where('city', 'Pecs')->facets('city')->get()->ids());
+        self::assertSame([], $this->fuzzphony->in('rg_customers')->query('pecs')->manyMatch('single')->where('city', 'Szeged')->get()->ids(), 'Szeged is on another row');
+        $this->connection->execute('RESET ROLE');
+        self::assertSame('{Pecs}', Coerce::str($this->connection->fetchValue(sprintf("SELECT %s::text FROM %s WHERE v = 'Pecs'", Sql::ident($this->names->sameRowColumnName($this->index->filter('city'))), $this->names->values($this->index)))), 'written by the worker');
     }
 }
