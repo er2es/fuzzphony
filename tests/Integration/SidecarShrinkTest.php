@@ -282,6 +282,17 @@ final class SidecarShrinkTest extends TestCase
         $this->assertNothingHidden($two, 'after the apply');
     }
 
+    /** Nothing waits when the command counts: no question, but the backfill stays in the plan (a row of the old map may still arrive). */
+    public function testWithNothingToBackfillTheCommandAsksNothingAndStillRunsTheBackfill(): void
+    {
+        $two = $this->fuzzphony([['name', 'A', true], ['secret', 'B', true, 'ROLE_X']]);
+        $tester = new CommandTester(new SchemaCommand($two, $this->connection));
+
+        self::assertSame(Command::SUCCESS, $tester->execute(['--apply' => true], ['interactive' => true]));
+        self::assertStringNotContainsString('Copy the columns back now?', $tester->getDisplay(true));
+        self::assertStringContainsString(sprintf('%d statement(s) applied', count($two->schema()->statements)), $tester->getDisplay(true));
+    }
+
     public function testTheDumpedMigrationHasTheBackfillAndNoPromptRuns(): void
     {
         $two = $this->fuzzphony([['name', 'A', true], ['secret', 'B', true, 'ROLE_X']]);

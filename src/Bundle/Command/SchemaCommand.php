@@ -270,7 +270,7 @@ final class SchemaCommand extends Command
 
     /**
      * The backfill (ColumnMap) rewrites every row written with another column map: it is asked for (default no; --force runs it, a
-     * non-interactive run without it skips it). Without such rows its statements are left out (nothing to do, and no second scan).
+     * non-interactive run without it skips it). Without such rows nothing is asked and the statement runs (a scan that finds nothing).
      *
      * @param list<IndexDefinition> $indexes
      *
@@ -293,7 +293,9 @@ final class SchemaCommand extends Command
         }
         $without = new SchemaPlan(array_values(array_filter($plan->statements, static fn(Statement $s): bool => !str_starts_with($s->description, ColumnMap::BACKFILL))));
         if ($rows === 0) {
-            return [$without, 0];
+            // nothing to ask about; the statement stays: a row of the old map may still arrive (a write in flight under the
+            // old refresh function), and the backfill then finds it with one scan
+            return [$plan, 0];
         }
         $io->writeln(sprintf(
             "Documents written with another column map (a definition change): their per-field columns that map left empty are copied back from the columns that hold the values.\n  %s\nThat is %d row(s) in %d UPDATE statement(s) of at most %d rows, each committed (about the time and WAL of updating those rows; searches go on meanwhile).",
