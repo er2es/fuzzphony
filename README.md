@@ -42,7 +42,7 @@ foreach ($result as $hit) {
 }
 ```
 
-Status: pre-1.0 (v0.12.2). The API may still change before 1.0; 0.10.0 gathered the remaining breaking changes, 0.11.0 is additive. Breaking changes are listed in the
+Status: pre-1.0 (v0.12.3). The API may still change before 1.0; 0.10.0 gathered the remaining breaking changes, 0.11.0 is additive. Breaking changes are listed in the
 [CHANGELOG](https://github.com/er2es/fuzzphony/blob/main/CHANGELOG.md) and explained in
 [UPGRADE.md](https://github.com/er2es/fuzzphony/blob/main/UPGRADE.md).
 
@@ -270,10 +270,10 @@ Details in [docs/limitations.md](https://github.com/er2es/fuzzphony/blob/main/do
 
 ## Roadmap
 
-Current: v0.12.2 (a patch), v0.12.0 was additive on v0.11 (a field with several values can rank by its best single value, `->manyMatch('single')`, `with()` aliases and many values).
+Current: v0.12.3 (a patch), v0.12.0 was additive on v0.11 (a field with several values can rank by its best single value, `->manyMatch('single')`, `with()` aliases and many values).
 PostgreSQL only before 1.0:
 
-- v0.12.3: the demo verified on the final code and the first step of a smaller sidecar.
+- v0.12.4: the first step of a smaller sidecar (columns that hold the same text as another column).
 - v1.0.0: the stable API and the backward-compatibility promise.
 
 After 1.0, in separate projects: record linkage (matching people and companies across records, with explainable match scores), a

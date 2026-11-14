@@ -112,19 +112,17 @@ additive work after it (0.11.0, released) and the stable 1.0.0 do not have to ch
 - v0.12.0, ranking by the best value (additive): `many: { rank: best }` ranks a field with several values through its best single value, `->manyMatch('single')` asks that one value holds every word, `with()` returns aliases and the values of a many field in one statement, the demo's People tab shows the difference, and the 0.11 mutation gaps are closed with focused tests. Opt-in `rank: best` searches whose words are in the field cost 1.4 to 2 times a whole-field search ([benchmarks](benchmarks.md)).
 - v0.12.1, a demo patch (the library is unchanged): the "Why" line of the ERP People tab names the one address that holds every word in strict mode and the address that satisfied the city filter.
 - v0.12.2, a patch (the library is unchanged): the city facet links of the ERP People tab keep the switches, and the mutation badge is published from the run itself (the full run of 0.12.0: 97% covered MSI).
+- v0.12.3, a patch (the library is unchanged): the demo verified on the final code (the "Why" and city-filter lines now appear; flows 340/340, shots clean, two screenshots refreshed), and the full mutation run once per release instead of monthly.
 
 ## Next
 
-### v0.12.3: a patch
+### v0.12.4: a patch
 
-What 0.12.0 to 0.12.2 left for a follow-up:
+What 0.12.0 to 0.12.3 left for a follow-up:
 
-- The demo verified on the final code: the flows and shots on the default data set, the new muted match lines on the result cards and the two switches of the
-  People tab, and the refreshed screenshots (`erp.png`, `erp-best-address.png`).
 - The smaller sidecar, first step: leave out the `t_*` and `z_*` columns an index never needs, share the normalised text between `exact` and `z_<primary>`,
   and drop the stored `tsv` duplicate of a single field's `t_`. Only with a differential proof and timing that show speed and exactness unchanged.
-- Loose ends: a test that failed once in the mutation diff job (`OrmSyncListenerTest`), a flaky `ManyValuesTest` on a reused database, and a cheaper per-value rank
-  for `rank: best` if a way is found that keeps the results identical.
+- A cheaper per-value rank for `rank: best`, if a way is found that keeps the results identical.
 
 ### Ideas before 1.0, not yet decided
 
@@ -162,7 +160,7 @@ only the metric names are verified against the real exposition output).
 
 ## Mutation testing
 
-Infection runs in CI: a full run monthly (and on demand, `workflow_dispatch`), and only the changed lines on
+Infection runs in CI: a full run once per release (started on demand, `workflow_dispatch`), and only the changed lines on
 pull requests. The first full run (September 2026) killed 85% of 3,944 mutants; after 0.8.1's 459 new tests the full
 run of 5,989 mutants scores 96% covered-code MSI (17 minutes on CI); the score is on the README badge, which the full
 run on `main` updates. The mutants that still escape in the files worked on are equivalent (a cast that changes nothing, a

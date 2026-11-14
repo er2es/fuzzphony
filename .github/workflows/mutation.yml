@@ -1,11 +1,9 @@
 name: Mutation testing
 
 # Infection mutation testing. Pull requests only mutate their changed lines (fast, gives quick
-# feedback); the full baseline across src/ runs monthly and on demand. No minMsi gate yet -- see
+# feedback); the full baseline across src/ runs on demand (once per release, started by the maintainer). No minMsi gate yet -- see
 # docs/roadmap.md#mutation-testing. Not part of the required `ci-ok` check in ci.yml.
 on:
-  schedule:
-    - cron: '23 3 1 * *'
   workflow_dispatch: {}
   pull_request:
 
@@ -48,7 +46,7 @@ jobs:
           --git-diff-lines --git-diff-base=origin/main
           --logger-github
 
-  # The full baseline across all of src/, monthly or on demand.
+  # The full baseline across all of src/, on demand (once per release).
   full:
     if: github.event_name != 'pull_request'
     runs-on: ubuntu-latest
