@@ -11,6 +11,7 @@ use Fuzzphony\Core\Definition\ManyRank;
 use Fuzzphony\Core\Definition\ManyValues;
 use Fuzzphony\Core\Inspection\Check;
 use Fuzzphony\Core\Support\Coerce;
+use Fuzzphony\Engine\Postgres\SameRow;
 use Fuzzphony\Engine\Postgres\Schema\Names;
 use Fuzzphony\Engine\Postgres\Schema\Types;
 use Fuzzphony\Engine\Postgres\Sql\Sql;
@@ -37,6 +38,7 @@ final readonly class ManyCheck
         }
         if ($valuesExists) {
             array_push($checks, ...$this->rankingChecks($index));
+            array_push($checks, ...$this->sameRowChecks($index));
         }
         foreach ([...$index->manyFields(), ...$index->manyFilters()] as $one) {
             $many = $one->many;
@@ -197,6 +199,42 @@ final readonly class ManyCheck
         ), ['f' => $field->name]) !== [];
 
         return $wrong ? [Check::warning($label, sprintf('The stored value counts (%s) of some documents differ from their values (stale, e.g. from a time the field was not "rank: best"): they would rank by the wrong shortcut.', $column), sprintf('bin/console fuzzphony:reindex %s', $index->name))] : [];
+    }
+
+    /**
+     * "Same row" of each filter declared `same_row_as`: its column on the values table must exist (an error with the fix otherwise), and the
+     * value rows of its field that do not know their filter value yet (NULL: written before the option) are counted: until a reindex they
+     * match the filter value of any row of the document (today's document-level filter). A `fr_` column no filter expects is a warning.
+     *
+     * @return list<Check>
+     */
+    private function sameRowChecks(IndexDefinition $index): array
+    {
+        $checks = [];
+        $present = array_map(Coerce::str(...), array_column($this->connection->fetchAll(
+            "SELECT attname FROM pg_attribute WHERE attrelid = to_regclass(:t) AND attname ~ '^fr_' AND NOT attisdropped ORDER BY attname",
+            ['t' => $this->names->values($index)],
+        ), 'attname'));
+        $expected = [];
+        foreach (SameRow::filters($index) as $filter) {
+            $field = (string) $filter->many?->sameRowAs;
+            $label = sprintf('Same row "%s"', $filter->name);
+            $expected[] = $column = $this->names->sameRowColumnName($filter);
+            if (!in_array($column, $present, true)) {
+                $checks[] = Check::error($label, sprintf('The values table has no column %s: a search in manyMatch(\'single\') cannot hold filter "%s" to the value of "%s" that holds the words.', $column, $filter->name, $field), 'bin/console fuzzphony:schema --apply');
+
+                continue;
+            }
+            $unknown = Coerce::int($this->connection->fetchValue(sprintf('SELECT count(*) FROM %s WHERE field = :f AND %s IS NULL', $this->names->values($index), Sql::ident($column)), ['f' => $field]));
+            $checks[] = $unknown > 0
+                ? Check::warning($label, sprintf('%d value rows of "%s" do not know their "%s" yet (indexed before same_row_as): they match the %s of any %s until fuzzphony:reindex %s.', $unknown, $field, $filter->name, $filter->name, $field, $index->name), sprintf('bin/console fuzzphony:reindex %s', $index->name))
+                : Check::ok($label, sprintf('every value row of "%s" knows its "%s"', $field, $filter->name));
+        }
+        foreach (array_diff($present, $expected) as $column) {
+            $checks[] = Check::warning('Same row', sprintf('The column %s of the values table is not expected by any filter with "same_row_as": nothing keeps it current.', $column), 'bin/console fuzzphony:schema --apply');
+        }
+
+        return $checks;
     }
 
     private static function size(int $bytes): string

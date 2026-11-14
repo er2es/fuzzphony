@@ -7,6 +7,7 @@ namespace Fuzzphony\Engine\Postgres\Schema;
 use Composer\InstalledVersions;
 use Fuzzphony\Core\Definition\DefinitionValidator;
 use Fuzzphony\Core\Definition\FieldDefinition;
+use Fuzzphony\Core\Definition\FilterDefinition;
 use Fuzzphony\Core\Definition\IndexDefinition;
 use Fuzzphony\Core\Definition\IndexSource;
 use Fuzzphony\Core\Definition\SyncMode;
@@ -15,6 +16,7 @@ use Fuzzphony\Core\Definition\TriggerLevel;
 use Fuzzphony\Core\Definition\Watch;
 use Fuzzphony\Core\Schema\SchemaPlan;
 use Fuzzphony\Core\Schema\Statement;
+use Fuzzphony\Engine\Postgres\SameRow;
 use Fuzzphony\Engine\Postgres\Sql\DocumentSql;
 use Fuzzphony\Engine\Postgres\Sql\FilterCompiler;
 use Fuzzphony\Engine\Postgres\Sql\Sql;
@@ -187,6 +189,26 @@ final class PostgresSchemaGenerator
         }
         if ($index->manyFields() !== []) {
             $statements[] = $this->valuesTable($index);
+            $values = $this->names->values($index);
+            $expected = [];
+            foreach (SameRow::filters($index) as $filter) {
+                // nullable, no default: metadata only (no rewrite); NULL = not known yet, which a search reads as today's document-level filter
+                $expected[] = $column = $this->names->sameRowColumnName($filter);
+                $statements[] = $this->addColumn($values, $column, 'text[]', sprintf('The value of filter "%s" on each value row of "%s" (same_row_as; the refresh and fuzzphony:reindex fill it)', $filter->name, $filter->many?->sameRowAs));
+            }
+            // a filter that left same_row_as (or changed its column, field or child table: a new hashed name) leaves a column nothing
+            // keeps current: it goes, so turning the option back on never trusts stale values. Metadata only; idempotent; a table
+            // without such a column is not locked
+            $statements[] = new Statement(
+                sprintf(
+                    'DO %1$s DECLARE r record; BEGIN FOR r IN SELECT attname FROM pg_attribute WHERE attrelid = to_regclass(%2$s) AND attname ~ \'^fr_\' AND NOT attisdropped AND attname <> ALL (%3$s) LOOP EXECUTE format(\'ALTER TABLE %4$s DROP COLUMN %%I\', r.attname); END LOOP; END %1$s',
+                    self::TAG,
+                    Sql::string($values),
+                    'ARRAY[' . implode(', ', array_map(Sql::string(...), ['', ...$expected])) . ']::text[]',
+                    str_replace("'", "''", $values),
+                ),
+                'Drop the same_row_as column of a filter that no longer declares it (or declares it differently)',
+            );
         }
         $statements[] = new Statement($this->refreshFunction($index), 'Builds / removes documents by id');
         $statements[] = new Statement($this->refreshFunction($index, shadow: true), 'Builds / removes documents by id in the table a full reindex builds next to the live one');
@@ -798,14 +820,26 @@ ON CONFLICT (index_name) DO UPDATE SET layout_version = EXCLUDED.layout_version,
     private function valuesRefresh(IndexDefinition $index, string $table): string
     {
         $parts = [];
+        // same_row_as: each value row also stores the filter's value of the SAME child row (`{}` when it has none), the other fields' rows NULL
+        $sameRow = SameRow::filters($index);
         foreach ($index->manyFields() as $field) {
             $many = $field->many;
             if ($many === null) {
                 continue;
             }
+            $selected = '';
+            $stored = '';
+            foreach ($sameRow as $i => $filter) {
+                if ($filter->many?->sameRowAs === $field->name) {
+                    $selected .= sprintf(', c.%s::text AS fr%d', Sql::ident($filter->many->column), $i);
+                    $stored .= sprintf(", CASE WHEN m.fr%1\$d IS NULL THEN '{}'::text[] ELSE ARRAY[m.fr%1\$d] END", $i);
+                } else {
+                    $stored .= ', NULL::text[]';
+                }
+            }
             $parts[] = sprintf(
-                "SELECT m.doc, %1\$s, m.ord, m.v, setweight(to_tsvector(%2\$s, m.v), '%3\$s'), %4\$s
-        FROM (SELECT c.%5\$s::%6\$s AS doc, c.%7\$s::text AS v, (row_number() OVER (PARTITION BY c.%5\$s ORDER BY c.%7\$s::text, c.%8\$s) - 1)::integer AS ord
+                "SELECT m.doc, %1\$s, m.ord, m.v, setweight(to_tsvector(%2\$s, m.v), '%3\$s'), %4\$s%12\$s
+        FROM (SELECT c.%5\$s::%6\$s AS doc, c.%7\$s::text AS v, (row_number() OVER (PARTITION BY c.%5\$s ORDER BY c.%7\$s::text, c.%8\$s) - 1)::integer AS ord%13\$s
               FROM %9\$s AS c WHERE c.%5\$s = ANY(p_ids) AND c.%7\$s IS NOT NULL) AS m
         WHERE m.ord < %10\$d AND EXISTS (SELECT 1 FROM %11\$s AS s WHERE s.id = m.doc)",
                 Sql::string($field->name),
@@ -819,6 +853,8 @@ ON CONFLICT (index_name) DO UPDATE SET layout_version = EXCLUDED.layout_version,
                 Sql::ident($many->from),
                 $many->limit,
                 $table,
+                $stored,
+                $selected,
             );
         }
 
@@ -826,12 +862,13 @@ ON CONFLICT (index_name) DO UPDATE SET layout_version = EXCLUDED.layout_version,
             "
 
     DELETE FROM %1\$s WHERE doc = ANY(p_ids);
-    INSERT INTO %1\$s (doc, field, ord, v, t, z)
+    INSERT INTO %1\$s (doc, field, ord, v, t, z%3\$s)
         %2\$s;",
             $this->names->values($index),
             implode("
         UNION ALL
         ", $parts),
+            implode('', array_map(fn(FilterDefinition $f): string => ', ' . Sql::ident($this->names->sameRowColumnName($f)), $sameRow)),
         );
     }
 

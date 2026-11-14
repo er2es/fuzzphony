@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Fuzzphony\Core\Definition;
 
 use Fuzzphony\Core\Exception\InvalidDefinition;
+use Fuzzphony\Core\Support\Closest;
 use Fuzzphony\Core\Support\Identifier;
 
 /** @internal Collects ALL problems of a definition at once, each with a concrete fix. */
@@ -152,6 +153,9 @@ final class DefinitionValidator
             if ($field->code) {
                 $v[] = $what . ': "code" cannot be combined with "many" (a code field is read as one value).';
             }
+            if ($field->many->sameRowAs !== null) {
+                $v[] = $what . ': many "same_row_as" is an option of a many filter, not of a field.';
+            }
             if ($field->name === $primary) {
                 $v[] = $what . sprintf(' is the primary field (the first A-weighted field, else the first one; the exact and prefix bonuses read one value) and cannot be "many": give another field weight A%s.', $index->fields[0]->name === $field->name ? ' or put a single-valued field first' : '');
             }
@@ -175,6 +179,9 @@ final class DefinitionValidator
             if ($filter->name === $index->tenant) {
                 $v[] = $what . ' is the tenant filter and cannot take several values (a document belongs to one tenant).';
             }
+            if ($filter->many->sameRowAs !== null) {
+                array_push($v, ...self::sameRowAs($index, $filter->many, $what));
+            }
             $keys[$filter->many->from][$filter->many->key] = true;
         }
         foreach ($keys as $table => $columns) {
@@ -184,6 +191,42 @@ final class DefinitionValidator
         }
 
         return $v;
+    }
+
+    /**
+     * A filter's `same_row_as`: it names a many field of the index that reads the same child rows (from, key and id equal), so a
+     * value row and a filter value can be on the same row.
+     *
+     * @return list<string>
+     */
+    private static function sameRowAs(IndexDefinition $index, ManyValues $filter, string $what): array
+    {
+        $name = (string) $filter->sameRowAs;
+        $field = $index->field($name);
+        if ($field === null) {
+            $closest = Closest::of($name, $index->fieldNames());
+
+            return [sprintf('%s: many "same_row_as" names "%s", which is not a field of the index.%s', $what, $name, $closest === null ? '' : sprintf(' Did you mean "%s"?', $closest))];
+        }
+        if ($field->many === null) {
+            return [sprintf('%s: many "same_row_as" must name a field with "many" (several values), "%s" has one value per document.', $what, $name)];
+        }
+        $many = $field->many;
+        if ($many->from !== $filter->from || $many->key !== $filter->key || $many->id !== $filter->id) {
+            return [sprintf(
+                '%s: many "same_row_as": field "%s" reads %s/%s/%s, this filter reads %s/%s/%s; a value row and a filter value are on the same row only when from, key and id are equal.',
+                $what,
+                $name,
+                $many->from,
+                $many->key,
+                $many->id,
+                $filter->from,
+                $filter->key,
+                $filter->id,
+            )];
+        }
+
+        return [];
     }
 
     /**
