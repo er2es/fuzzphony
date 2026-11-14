@@ -11,6 +11,12 @@ and a link. Measurements, proofs and test names belong to the pull request, [doc
 
 ## [Unreleased]
 
+### Changed
+
+- **Faster `rank: best`:** each full-text match of an index with a `rank: best` field is ranked once instead of twice for its first 2 000
+  matches (5 to 15 % less time on searches with more matches than the window); results unchanged, `rank: whole` indexes untouched.
+  See [benchmarks](docs/benchmarks.md#ranking-by-the-best-value-rank-best).
+
 ## [0.12.4] - 2026-11-15
 
 Smaller index tables, proved safe for restricted viewers: a per-field column that holds the same text as another column of the same row is stored empty, and every definition change keeps the hidden-field independence (four independent reviews, a transition matrix of 15 definition changes, a race test against a concurrent refresh). Run `fuzzphony:schema --apply` (UPGRADE has the order and the confirmation); no reindex is needed.

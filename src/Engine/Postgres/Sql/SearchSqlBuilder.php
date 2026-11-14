@@ -332,6 +332,44 @@ final class SearchSqlBuilder
                 $selection = $this->wideSelection($wide, $strict, $rank, $bonuses, $table, $where, $conditions, $filters, $params, $profile, $thresholds, $n, self::scanLimit($this->scanBudget, $operands, $n), $min);
                 array_push($ctes, ...$selection['ctes']);
                 $wideFacet = $selection['facet'];
+            } elseif ($ordered && $best !== null) {
+                // With a rank: best field (whose rank is the costly part of a row) every match is ranked once: one scan of the first
+                // matches (`fts_scan`, the scan the ordered selection reads) feeds both the fast selection (its first `window` ids,
+                // counted only) and the ordered one. When the matches are fewer than the window that scan holds them all, as the
+                // fast selection did; when they are more, the fast selection's own ranks were thrown away anyway. A rank: whole
+                // index keeps the two scans below (its statement is unchanged).
+                $ctes[] = sprintf(
+                    "fts_scan AS MATERIALIZED (
+    SELECT s.id, %2\$s AS r_text, %3\$s AS exact_bonus, %4\$s AS prefix_bonus, %5\$s AS boost_bonus, %6\$s AS recency_bonus
+    FROM %7\$s AS s CROSS JOIN q
+    WHERE %8\$s
+    LIMIT %9\$d
+),
+fts_fast AS (
+    SELECT id FROM fts_scan LIMIT %1\$d
+),
+fts AS (
+    SELECT id, r_text FROM fts_scan WHERE (SELECT count(*) FROM fts_fast) < %1\$d
+    UNION ALL
+    SELECT id, r_text FROM (
+        SELECT w.id, w.r_text FROM fts_scan AS w
+        WHERE (SELECT count(*) FROM fts_fast) >= %1\$d%10\$s
+        ORDER BY %11\$s * w.r_text + w.exact_bonus + w.prefix_bonus + w.boost_bonus + w.recency_bonus DESC, w.id
+        LIMIT %1\$d
+    ) AS o
+)",
+                    $n,
+                    $rank,
+                    $bonuses[0],
+                    $bonuses[1],
+                    $bonuses[2],
+                    $bonuses[3],
+                    $table,
+                    $where,
+                    self::scanLimit($this->scanBudget, $operands, $n),
+                    $min,
+                    Sql::float($profile->text),
+                );
             } else {
                 $ctes[] = sprintf(
                     "%s AS (

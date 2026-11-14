@@ -427,7 +427,7 @@ A field or filter declared [`many`](configuration.md#several-values-per-document
   (a partial index on the values table and a count column, `schema --apply`, then a reindex for the speed); a document whose words are spread over
   several values keeps its whole-field rank, and a typo-tolerant match is still scored on the whole field. Ranking a candidate with more than one value
   then also reads its values that hold a query word (at most `limit`), so the [scan budget](#ranking-of-very-common-words) counts each such field like
-  two more words of the query, and a search whose words are in the field costs about 1.4 to 1.9 times as much
+  two more words of the query, and a search whose words are in the field costs about 1.3 to 1.9 times as much
   ([benchmarks](benchmarks.md#ranking-by-the-best-value-rank-best)).
 - **A phrase can match across two values.** What happens: `"budapest vienna"` also matches a customer whose values are `Budapest` and `Vienna`, because the
   values are read one after the other. What to do: nothing; a phrase over several values is rarely meant, and
