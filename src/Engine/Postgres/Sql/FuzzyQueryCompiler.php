@@ -463,13 +463,13 @@ final class FuzzyQueryCompiler
     /** The tsvector column of a field: its own, or its value row's in withinValues(). */
     private function vector(FieldDefinition $field): string
     {
-        return isset($this->values[$field->name]) ? $this->values[$field->name] . '.t' : 's.' . $this->names->fieldVector($field->name);
+        return isset($this->values[$field->name]) ? $this->values[$field->name] . '.t' : $this->names->fieldVector($this->index, $field->name);
     }
 
     /** The typo-tolerant text column of a field: its own, or its value row's in withinValues(). */
     private function fuzzyColumn(FieldDefinition $field): string
     {
-        return isset($this->values[$field->name]) ? $this->values[$field->name] . '.z' : 's.' . $this->names->fieldFuzzy($field->name);
+        return isset($this->values[$field->name]) ? $this->values[$field->name] . '.z' : $this->names->fieldFuzzy($this->index, $field->name);
     }
 
     /**
@@ -890,7 +890,7 @@ final class FuzzyQueryCompiler
             $loose = (new TsQueryCompiler($this->index, false, true))->compile($node) ?? $tsquery;
             $lookup = $loose !== $tsquery ? $this->column('fl', sprintf('to_tsquery(%s, %s)', $config, $params->add($loose))) : $query;
             if ($field !== null) {
-                return sprintf('(s.tsv @@ %s AND s.%s @@ %s)', $lookup, $this->names->fieldVector($field->name), $query);
+                return sprintf('(s.tsv @@ %s AND %s @@ %s)', $lookup, $this->names->fieldVector($this->index, $field->name), $query);
             }
             // The later fields' vectors are read only for a document whose tsv was capped (or not known to be: NULL), which is
             // rare: the phrase on tsv, the statement's old cost, decides for every other. They are read by a subquery on the
@@ -910,7 +910,7 @@ final class FuzzyQueryCompiler
 
         return $field === null
             ? 's.tsv @@ ' . $query
-            : sprintf('(s.tsv @@ %1$s AND s.%2$s @@ %1$s)', $query, $this->names->fieldVector($field->name));
+            : sprintf('(s.tsv @@ %1$s AND %2$s @@ %1$s)', $query, $this->names->fieldVector($this->index, $field->name));
     }
 
     /**

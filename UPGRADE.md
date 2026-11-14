@@ -3,6 +3,55 @@
 Before 1.0, a minor version may contain breaking changes. Each section lists what to change,
 and the [CHANGELOG](CHANGELOG.md) has the full list of changes.
 
+## From 0.12.x to 0.12.4
+
+No API change. A per-field column whose value another column of the same row holds is stored empty: `z_<field>` of the primary field
+(the same as `exact`), `z_<field>` of the only fuzzy field (`fz`) and `t_<field>` of an index of one field (`tsv`). A new text column
+`field_map` lists, per row, which columns were stored empty and which column holds each (`t_name=tsv,z_name=exact`; NULL = every
+column filled). A search reads the other column only for a row written with the current map, else the row's own column. Results, scores
+and highlights are unchanged.
+
+### Deploy order
+
+1. `composer update fuzzphony/fuzzphony`.
+2. `bin/console fuzzphony:schema --apply` **before** the new code serves searches. It adds the nullable `field_map` column to every
+   index table (catalog check first; a column without a default is no rewrite) and the new refresh function. Nothing is dropped, ever
+   (also not by a later definition without shared columns). **No reindex is needed**: the rows of the earlier release have no map and
+   keep being read from their own, filled columns; each row the sync rewrites, and every row of the next full reindex, is stored
+   without the copy, so the space returns as rows are rewritten (all of it after `fuzzphony:reindex <index>`).
+3. Deploy the code. New code on a table without `field_map` fails with `SchemaNotApplied` ("Run: bin/console fuzzphony:schema
+   --apply") on a search that reads a shared column. Old code on an applied table keeps running and never shows a hidden field,
+   but during a rolling deploy it reads the per-field columns directly: a row the new refresh function wrote meanwhile (its copy
+   stored empty) misses that old code's field-scoped and restricted searches until the old code is gone. Keep the window short.
+
+### A definition change (any release from 0.12.4 on)
+
+When a definition change moves a column in or out of the map (a field added or removed, the primary field or `fuzzy` changed), the
+rows written under the old map have columns stored empty that the new definition reads as their own (a row is read through the
+shared columns only when its map is the current one). `schema --apply` copies them
+back (the **backfill**): for each other map in the table it updates those rows in id order, 20 000 per statement, each committed,
+filling every column of the row's map from the column that holds its value in that same row, and sets the map to NULL. It runs after
+the transaction of the apply (like the concurrent index builds), is idempotent and resumes where an interrupted run stopped. Its cost
+is an `UPDATE` of those rows (time and WAL about like rewriting them; a table of a million rows takes seconds to minutes; searches go
+on meanwhile), plus one scan of the index table per apply to find the maps. A change that keeps the map (a weight, `code`, a filter,
+`granted`) rewrites nothing.
+
+- `fuzzphony:schema --apply` shows how many rows of which maps wait and how many statements it runs, and **asks** (default no).
+  When none wait it asks nothing and still runs the backfill (one scan), for a row of the old map written while it counted.
+  `--force` runs it without asking; a non-interactive run without `--force` applies the rest, skips the backfill, warns and exits
+  with 1. Until the backfill runs, those rows miss field-scoped and restricted searches on the affected columns (no hidden field is
+  ever read: a row is read from its own column unless it has the current map). `fuzzphony:doctor` warns while such rows exist.
+- `--dump-migration` and the printed SQL contain the backfill as a `DO` block that commits per batch: run that migration outside a
+  transaction (the generated migration is non-transactional already).
+- A full `fuzzphony:reindex` also fixes those rows (every row is written with the current map).
+
+**Going back to 0.12.3 or earlier:** that release reads the per-field columns of every row, which are empty for the rows this release
+wrote with a map: run its `schema --apply` and a full reindex (`fuzzphony:reindex <index>`), or field-scoped and restricted searches
+miss those rows until then. The `field_map` column stays (unused by 0.12.3). Change no definition between the downgrade and that
+full reindex; if you did (its sync rewrote rows while their 0.12.4 maps stayed), run a full reindex before upgrading again. 0.12.4
+guards against it: when its apply finds a refresh function that writes no `field_map`, it stops trusting every map in the table
+(those rows are read from their own columns and never backfilled) and the doctor asks for the reindex.
+
 ## From 0.11.x to 0.12.0
 
 Additive: nothing is removed or renamed, and an index that uses none of the new options keeps its tables, its search statements and its results.

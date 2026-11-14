@@ -39,9 +39,53 @@ final class NamesTest extends TestCase
         self::assertSame('fuzzphony_sync_products__fz_brand_ins', $names->triggerName($index, $brand, '_ins'));
         self::assertSame('fuzzphony_products__tsv', $names->indexName($index, 'tsv'));
         self::assertSame('t_brand', $names->fieldVectorName('brand'));
-        self::assertSame('"t_brand"', $names->fieldVector('brand'));
+        self::assertSame('s."t_brand"', $names->fieldVector($index, 'brand'));
+        self::assertSame('c."t_brand"', $names->fieldVector($index, 'brand', 'c.'));
         self::assertSame('z_brand', $names->fieldFuzzyName('brand'));
-        self::assertSame('"z_brand"', $names->fieldFuzzy('brand'));
+        self::assertSame('"z_brand"', $names->fieldFuzzy($index, 'brand', ''));
+    }
+
+    /**
+     * A per-field column another column holds for a row written with the current definition is read from that column only for a
+     * row written with the current map; any other row (another map before its backfill, NULL) is read from its own column.
+     */
+    public function testSharedColumnsAreReadOnlyForRowsWrittenWithTheCurrentMap(): void
+    {
+        $names = new Names();
+        $products = Indexes::products(); // name (A, fuzzy, primary), brand (fuzzy), description
+        self::assertSame(['z_name' => 'exact'], $names->sharedColumns($products));
+        self::assertSame('z_name=exact', $names->fieldMap($products));
+        self::assertSame("CASE WHEN s.field_map = 'z_name=exact' THEN s.exact ELSE s.\"z_name\" END", $names->fieldFuzzy($products, 'name'));
+        self::assertSame('s."t_name"', $names->fieldVector($products, 'name'));
+
+        $build = self::build(...);
+        $one = $build([['title', 'B', true]]);
+        self::assertSame(['t_title' => 'tsv', 'z_title' => 'exact'], $names->sharedColumns($one), 'one field: tsv; the primary is preferred over fz');
+        self::assertSame('t_title=tsv,z_title=exact', $names->fieldMap($one), 'sorted by column');
+        self::assertSame($names->fieldMap($one), $names->fieldMap($build([['title', 'A', true]])), 'the weight is no part of the map: t_title and tsv change together');
+        $onlyFuzzy = $build([['code', 'A', false], ['title', 'B', true]]);
+        self::assertSame(['z_title' => 'fz'], $names->sharedColumns($onlyFuzzy));
+        self::assertSame([], $names->sharedColumns($build([['code', 'A', false], ['title', 'B', true], ['body', 'C', true]])));
+        self::assertNull($names->fieldMap($build([['code', 'A', false], ['title', 'B', true], ['body', 'C', true]])));
+        self::assertSame('z_name=exact', $names->fieldMap($build([['name', 'A', true], ['secret', 'B', true, 'ROLE_X']])));
+        self::assertSame('z_secret=exact', $names->fieldMap($build([['name', 'B', true], ['secret', 'A', true, 'ROLE_X']])), 'the primary moved');
+    }
+
+    /** @param list<array{0: string, 1: string, 2: bool, 3?: string}> $fields */
+    private static function build(array $fields): IndexDefinition
+    {
+        $b = IndexDefinition::builder('x')->fromTable('t');
+        foreach ($fields as $f) {
+            $b = $b->field($f[0], $f[1], fuzzy: $f[2], granted: $f[3] ?? null);
+        }
+
+        return $b->build();
+    }
+
+    public function testRebuildObjectNames(): void
+    {
+        $names = new Names();
+        $index = Indexes::products();
         self::assertSame('fuzzphony_products__next', $names->shadowName($index));
         self::assertSame('"public"."fuzzphony_products__next"', $names->shadow($index));
         self::assertSame('fuzzphony_products__changes', $names->changesName($index));

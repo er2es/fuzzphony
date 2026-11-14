@@ -342,9 +342,80 @@ final readonly class Names
         return self::limit('t_' . $field);
     }
 
-    public function fieldVector(string $field): string
+    /**
+     * The expression of one field's own weighted tsvector, with the sidecar's alias ('s.'): its `t_<field>` column, or, when the
+     * column map says `tsv` holds the same (sharedColumns()), `tsv` for the rows written with this map and the column for the others.
+     */
+    public function fieldVector(IndexDefinition $index, string $field, string $alias = 's.'): string
     {
-        return Sql::ident($this->fieldVectorName($field));
+        return $this->perField($index, $this->fieldVectorName($field), $alias);
+    }
+
+    /**
+     * The per-field columns whose value, for a row written with the current definition, another column of the same row holds
+     * exactly (the refresh function writes them from the same expression), with that column: `t_<field>` of an index of one field
+     * is `tsv`; `z_<field>` of the primary field is `exact`, of the only fuzzy field `fz`. Such a column is written empty and the
+     * row's `field_map` lists it with the column read instead (fieldMap()); a reader takes the other column only for a row written
+     * with the current map, so a granted field's text that another definition put into `fz`, `exact` or `tsv` is never read in
+     * place of an open field's column.
+     *
+     * @return array<string, string> per-field column => the column that holds its value
+     */
+    public function sharedColumns(IndexDefinition $index): array
+    {
+        $map = [];
+        $fuzzy = $index->fuzzyFields();
+        foreach ($index->fields as $field) {
+            if (count($index->fields) === 1) {
+                $map[$this->fieldVectorName($field->name)] = 'tsv';
+            }
+            if (!$field->fuzzy) {
+                continue;
+            }
+            if ($field->name === $index->primaryField()->name) {
+                $map[$this->fieldFuzzyName($field->name)] = 'exact';
+            } elseif (count($fuzzy) === 1) {
+                $map[$this->fieldFuzzyName($field->name)] = 'fz';
+            }
+        }
+        ksort($map);
+
+        return $map;
+    }
+
+    /**
+     * What the refresh function writes to `field_map`: the pairs of sharedColumns() as `column=source`, sorted and joined with
+     * commas (`t_name=tsv,z_name=exact`); null without a shared column. Each pair is a fact about the row it is written to (that
+     * column's value is the source's), whatever definition comes later: the apply copies the values of a row of another map back
+     * from them (ColumnMap::backfill()), so a row has the current map or none, and the readers compare the map (perField()).
+     */
+    public function fieldMap(IndexDefinition $index): ?string
+    {
+        $map = $this->sharedColumns($index);
+
+        return $map === [] ? null : implode(',', array_map(static fn(string $c, string $s): string => $c . '=' . $s, array_keys($map), $map));
+    }
+
+    /**
+     * `s.t_name`, or for a shared column: the source for a row of the current map, else the column itself (NULL: filled; another map
+     * before its backfill: possibly empty, never another field's text). An equality, not a test of the pair: it costs a row about
+     * as much as reading the column (a pair test with strpos() made a 3-word search on 200 000 rows 10% slower).
+     */
+    private function perField(IndexDefinition $index, string $column, string $alias): string
+    {
+        $shared = $this->sharedColumns($index)[$column] ?? null;
+        if ($shared === null) {
+            return $alias . Sql::ident($column);
+        }
+
+        return sprintf(
+            'CASE WHEN %1$s%2$s = %3$s THEN %1$s%4$s ELSE %1$s%5$s END',
+            $alias,
+            PostgresSchemaGenerator::FIELD_MAP_COLUMN,
+            Sql::string((string) $this->fieldMap($index)),
+            $shared,
+            Sql::ident($column),
+        );
     }
 
     /**
@@ -358,7 +429,7 @@ final readonly class Names
      */
     public function laterVectors(IndexDefinition $index, string $alias = 's'): array
     {
-        $vectors = array_map(fn(string $name): string => $alias . '.' . $this->fieldVector($name), $index->fieldNames());
+        $vectors = array_map(fn(string $name): string => $this->fieldVector($index, $name, $alias . '.'), $index->fieldNames());
         $joined = [];
         for ($i = 1, $n = count($vectors); $i < $n; ++$i) {
             $joined[] = implode(' || ', array_slice($vectors, $i));
@@ -373,9 +444,10 @@ final readonly class Names
         return self::limit('z_' . $field);
     }
 
-    public function fieldFuzzy(string $field): string
+    /** The expression of one fuzzy field's normalised text, with the sidecar's alias: `z_<field>`, or the shared column (fieldVector()). */
+    public function fieldFuzzy(IndexDefinition $index, string $field, string $alias = 's.'): string
     {
-        return Sql::ident($this->fieldFuzzyName($field));
+        return $this->perField($index, $this->fieldFuzzyName($field), $alias);
     }
 
     /** The configuration an index uses: Fuzzphony's accent-folding copy, or the built-in one. */
@@ -423,7 +495,7 @@ final readonly class Names
             return 's.tsv';
         }
         $parts = array_map(
-            fn(string $name): string => 's.' . $this->fieldVector($name),
+            fn(string $name): string => $this->fieldVector($index, $name),
             array_values(array_filter($index->fieldNames(), static fn(string $name): bool => in_array($name, $allowed, true))),
         );
 

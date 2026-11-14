@@ -509,7 +509,7 @@ final class FuzzyQueryCompilerTest extends TestCase
         $match = self::lengthAware()->compile(self::parse('name:mouse'), new ParameterBag());
 
         self::assertNotNull($match);
-        self::assertStringContainsString('"public".word_similarity(q.fn2, s."z_name") >= q.th3', $match->predicate);
+        self::assertStringContainsString('"public".word_similarity(q.fn2, CASE WHEN s.field_map = \'z_name=exact\' THEN s.exact ELSE s."z_name" END) >= q.th3', $match->predicate);
     }
 
     public function testTheRelaxationProbeUsesTheSameSimilarity(): void

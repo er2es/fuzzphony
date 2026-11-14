@@ -11,6 +11,15 @@ and a link. Measurements, proofs and test names belong to the pull request, [doc
 
 ## [Unreleased]
 
+## [0.12.4] - 2026-11-15
+
+Smaller index tables, proved safe for restricted viewers: a per-field column that holds the same text as another column of the same row is stored empty, and every definition change keeps the hidden-field independence (four independent reviews, a transition matrix of 15 definition changes, a race test against a concurrent refresh). Run `fuzzphony:schema --apply` (UPGRADE has the order and the confirmation); no reindex is needed.
+
+### Changed
+
+- **Smaller index tables:** a per-field column whose value another column holds (`z_` of the primary or the only fuzzy field, `t_` of a one-field index) is stored empty; results and speed unchanged. Run `schema --apply` before deploying (no reindex needed; the space returns at the next reindex); going back to 0.12.3 needs a reindex. See [UPGRADE](UPGRADE.md#from-012x-to-0124).
+- **Definition changes:** `schema --apply` copies the columns of rows written under another column map back in batches (it asks first; `--force` in non-interactive runs), and the doctor warns while such rows wait; after a downgrade and upgrade the maps are no longer trusted until a reindex. See [UPGRADE](UPGRADE.md#a-definition-change-any-release-from-0124-on).
+
 ## [0.12.3] - 2026-11-12
 
 A verified demo: the "Why" and city-filter lines of the ERP People tab work as 0.12.1 described (they never appeared), the demo passed the flows (340/340) and the shots on the default data set, two screenshots are refreshed, and the full mutation run is started once per release instead of monthly. The library is unchanged.
@@ -1250,7 +1259,8 @@ on its own:
 - Sync modes: queue (default), trigger, ORM, manual; watches for joined tables.
 - Doctor with fixes; CLI commands for schema, reindex, worker, search and explain.
 
-[Unreleased]: https://github.com/er2es/fuzzphony/compare/v0.12.3...HEAD
+[Unreleased]: https://github.com/er2es/fuzzphony/compare/v0.12.4...HEAD
+[0.12.4]: https://github.com/er2es/fuzzphony/compare/v0.12.3...v0.12.4
 [0.12.3]: https://github.com/er2es/fuzzphony/compare/v0.12.2...v0.12.3
 [0.12.2]: https://github.com/er2es/fuzzphony/compare/v0.12.1...v0.12.2
 [0.12.1]: https://github.com/er2es/fuzzphony/compare/v0.12.0...v0.12.1

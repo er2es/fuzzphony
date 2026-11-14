@@ -42,6 +42,12 @@ final class PostgresSchemaGenerator
      * refresh function: reindex fills it) takes the slow way.
      */
     public const string CAPPED_COLUMN = 'tsv_capped';
+    /**
+     * Which column map a row was written with (Names::fieldMap(), `t_name=tsv,z_name=exact`); NULL = every per-field column is
+     * filled (no shared column, an earlier release, or a row the backfill filled: ColumnMap). Never dropped: a later definition
+     * still has to know which columns of a row are empty.
+     */
+    public const string FIELD_MAP_COLUMN = 'field_map';
 
     /**
      * SQL: true when a position of the vector is 16 383 or more, or a lexeme has 256 or more positions. A single to_tsvector() holds
@@ -57,7 +63,7 @@ final class PostgresSchemaGenerator
     private const string TAG = DefinitionValidator::DOLLAR_QUOTE_TAG;
 
     /** @param bool $searchLog whether the shared schema includes the search log table (the engine was built with searchLog: true) */
-    public function __construct(private readonly Names $names = new Names(), private readonly bool $searchLog = false) {}
+    public function __construct(private readonly Names $names = new Names(), private readonly bool $searchLog = false, private readonly int $backfillBatch = ColumnMap::BATCH) {}
 
     public function names(): Names
     {
@@ -169,6 +175,10 @@ final class PostgresSchemaGenerator
                 ? sprintf('Keep column "%s" in sync with the definition (phrases and scoped words of a document that is not capped need no extra check; reindex fills it)', $name)
                 : sprintf('Keep column "%s" in sync with the definition', $name));
         }
+        // before the refresh functions below are replaced: the maps an earlier release's function may have outdated
+        $statements[] = ColumnMap::guard($index, $this->names);
+        // after the transaction that replaced the refresh functions (it is not transactional): rows of another map get their columns back
+        $statements[] = ColumnMap::backfill($index, $this->names, $this->backfillBatch);
         if ($index->hasFuzzy()) {
             $statements[] = new Statement(
                 sprintf('CREATE TABLE IF NOT EXISTS %s (word text PRIMARY KEY, freq integer NOT NULL)', $this->names->vocabulary($index)),
@@ -458,6 +468,7 @@ ON CONFLICT (index_name) DO UPDATE SET layout_version = EXCLUDED.layout_version,
                 $columns[$this->names->fieldFuzzyName($field->name)] = "text NOT NULL DEFAULT ''";
             }
         }
+        $columns[self::FIELD_MAP_COLUMN] = 'text';
         foreach ($index->manyBestFields() as $field) {
             // NULL = not known (written before the column existed): the document's values are read, a reindex fills it
             $columns[$this->names->valueCountName($field->name)] = 'smallint';
@@ -679,14 +690,20 @@ ON CONFLICT (index_name) DO UPDATE SET layout_version = EXCLUDED.layout_version,
             array_splice($columns, 1, 0, ['kind', 'src_id']);
             array_splice($values, 1, 0, ['doc.fz_kind', 'doc.fz_src']);
         }
+        // a per-field column whose value another column of the row holds (Names::sharedColumns()) is written empty: the readers take
+        // the other column for a row with this field_map, and the column itself for a row written under another definition
+        $shared = $this->names->sharedColumns($index);
         foreach ($index->fields as $field) {
             $columns[] = $this->names->fieldVectorName($field->name);
-            $values[] = $this->fieldVectorExpression($index, $field);
+            $values[] = isset($shared[$this->names->fieldVectorName($field->name)]) ? "''::tsvector" : $this->fieldVectorExpression($index, $field);
             if ($field->fuzzy) {
                 $columns[] = $this->names->fieldFuzzyName($field->name);
-                $values[] = sprintf("coalesce(%s, '')", $this->fieldFuzzyExpression($field));
+                $values[] = isset($shared[$this->names->fieldFuzzyName($field->name)]) ? "''" : sprintf("coalesce(%s, '')", $this->fieldFuzzyExpression($field));
             }
         }
+        $map = $this->names->fieldMap($index);
+        $columns[] = self::FIELD_MAP_COLUMN;
+        $values[] = $map === null ? 'NULL::text' : Sql::string($map);
         foreach ($index->manyBestFields() as $field) {
             // the number of values the values table gets for the document (see valuesRefresh(): the non-null ones, at most `limit`); the key is compared as it is, with no cast on the child column, so its index serves the count
             $many = $field->many ?? throw new \LogicException('A rank: best field has many values.');

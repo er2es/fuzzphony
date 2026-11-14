@@ -42,7 +42,7 @@ final readonly class OpenClass
     public static function trigram(IndexDefinition $index, Names $names, string $alias = ''): ?string
     {
         $columns = array_map(
-            static fn(FieldDefinition $f): string => $alias . $names->fieldFuzzy($f->name),
+            static fn(FieldDefinition $f): string => $names->fieldFuzzy($index, $f->name, $alias),
             array_values(array_filter(self::fields($index), static fn(FieldDefinition $f): bool => $f->fuzzy)),
         );
 
@@ -52,7 +52,7 @@ final readonly class OpenClass
     /** The expression the vector index is over (the open fields' `t_` columns joined in the index's order), or null: see trigram(). */
     public static function vector(IndexDefinition $index, Names $names, string $alias = ''): ?string
     {
-        return self::joined(array_map(static fn(FieldDefinition $f): string => $alias . $names->fieldVector($f->name), self::fields($index)), ' || ');
+        return self::joined(array_map(static fn(FieldDefinition $f): string => $names->fieldVector($index, $f->name, $alias), self::fields($index)), ' || ');
     }
 
     /**

@@ -12,6 +12,8 @@ use Fuzzphony\Core\Schema\SchemaPlan;
 use Fuzzphony\Core\Schema\Statement;
 use Fuzzphony\Core\Support\Coerce;
 use Fuzzphony\Core\Support\Identifier;
+use Fuzzphony\Engine\Postgres\PostgresEngine;
+use Fuzzphony\Engine\Postgres\Schema\ColumnMap;
 use Fuzzphony\Engine\Postgres\Schema\GrantRole;
 use Fuzzphony\Engine\Postgres\Schema\Grants;
 use Fuzzphony\Engine\Postgres\Schema\Names;
@@ -52,7 +54,7 @@ final class SchemaCommand extends Command
             ->addArgument('index', InputArgument::OPTIONAL, 'Only this index (default: all)')
             ->addOption('apply', null, InputOption::VALUE_NONE, 'Execute the SQL (idempotent, safe to re-run)')
             ->addOption('drop', null, InputOption::VALUE_NONE, 'Remove the index objects instead (source tables are never touched)')
-            ->addOption('force', null, InputOption::VALUE_NONE, 'Skip the "--drop --apply" confirmation prompt (required in non-interactive runs)')
+            ->addOption('force', null, InputOption::VALUE_NONE, 'Skip the confirmation prompts of "--drop --apply" and of the column backfill (required in non-interactive runs)')
             ->addOption('dump-migration', null, InputOption::VALUE_REQUIRED, 'Write a Doctrine migration into this directory instead of applying')
             ->addOption('namespace', null, InputOption::VALUE_REQUIRED, 'Namespace of the generated migration', 'DoctrineMigrations')
             ->addOption('dump-grants', null, InputOption::VALUE_NONE, 'Print the GRANT statements of the least-privilege database roles (docs/roles.md) instead of the schema')
@@ -67,6 +69,8 @@ final class SchemaCommand extends Command
                   <info>bin/console fuzzphony:schema --dump-grants --role=worker --to=my_worker</info>
 
                 Indexes are built with CREATE INDEX CONCURRENTLY, so production tables stay writable.
+                When rows were written with another column map (a definition change), --apply asks before it copies their
+                emptied per-field columns back (in batches); pass --force to run it in a non-interactive run.
                 HELP);
     }
 
@@ -115,6 +119,11 @@ final class SchemaCommand extends Command
             return Command::FAILURE;
         }
 
+        $skipped = 0;
+        if ($input->getOption('drop') !== true) {
+            [$plan, $skipped] = $this->confirmBackfill($input, $io, $indexes, $plan);
+        }
+
         $tablesBefore = $this->tables();
         $columnsBefore = $this->cachedColumns();
         $io->progressStart(count($plan->statements));
@@ -146,6 +155,14 @@ final class SchemaCommand extends Command
         $io->success(sprintf('%d statement(s) applied. Next: fuzzphony:reindex, then fuzzphony:doctor.', count($plan->statements)));
         if (array_any(array_diff($this->cachedColumns(), $columnsBefore), static fn(string $column): bool => isset($tablesBefore[explode('.', $column)[0]]))) {
             $io->warning('An index was added that the engine looks up once per process (the open-class indexes of an index with granted fields): restart long-running processes (Messenger workers, RoadRunner, FrankenPHP) so that they see it, or call PostgresEngine::resetCaches().');
+        }
+        if ($skipped > 0) {
+            $io->warning(sprintf(
+                'The column backfill was skipped: %d document(s) written with another column map are read from their own per-field columns, and the ones that map left empty miss searches on those fields (for example a viewer restricted to a field). Run fuzzphony:schema --apply --force (or answer yes), or fuzzphony:reindex.',
+                $skipped,
+            ));
+
+            return Command::FAILURE;
         }
 
         return Command::SUCCESS;
@@ -249,6 +266,54 @@ final class SchemaCommand extends Command
         }
 
         return (bool) $io->askQuestion(new ConfirmationQuestion('Drop these Fuzzphony objects? (yes/no) [no]:', false));
+    }
+
+    /**
+     * The backfill (ColumnMap) rewrites every row written with another column map: it is asked for (default no; --force runs it, a
+     * non-interactive run without it skips it). Without such rows nothing is asked and the statement runs (a scan that finds nothing).
+     *
+     * @param list<IndexDefinition> $indexes
+     *
+     * @return array{SchemaPlan, int} the plan to apply, and how many rows wait because the backfill was left out
+     */
+    private function confirmBackfill(InputInterface $input, SymfonyStyle $io, array $indexes, SchemaPlan $plan): array
+    {
+        $engine = $this->fuzzphony->engine();
+        $rows = 0;
+        $updates = 0;
+        $lines = [];
+        if ($engine instanceof PostgresEngine) {
+            foreach ($indexes as $index) {
+                foreach (ColumnMap::pending($this->connection, $engine->schemaGenerator()->names(), $index) as $map => $count) {
+                    $rows += $count;
+                    $updates += intdiv($count, ColumnMap::BATCH) + 1; // the last batch is the one with fewer rows
+                    $lines[] = sprintf('%s: %d document(s) written with the map "%s"', $index->name, $count, $map);
+                }
+            }
+        }
+        $without = new SchemaPlan(array_values(array_filter($plan->statements, static fn(Statement $s): bool => !str_starts_with($s->description, ColumnMap::BACKFILL))));
+        if ($rows === 0) {
+            // nothing to ask about; the statement stays: a row of the old map may still arrive (a write in flight under the
+            // old refresh function), and the backfill then finds it with one scan
+            return [$plan, 0];
+        }
+        $io->writeln(sprintf(
+            "Documents written with another column map (a definition change): their per-field columns that map left empty are copied back from the columns that hold the values.\n  %s\nThat is %d row(s) in %d UPDATE statement(s) of at most %d rows, each committed (about the time and WAL of updating those rows; searches go on meanwhile).",
+            implode("\n  ", $lines),
+            $rows,
+            $updates,
+            ColumnMap::BATCH,
+        ));
+        if ($input->getOption('force') === true) {
+            return [$plan, 0];
+        }
+        if (!$input->isInteractive()) {
+            $io->writeln('<comment>Not run without confirmation: pass --force in non-interactive runs.</comment>');
+
+            return [$without, $rows];
+        }
+
+        return (bool) $io->askQuestion(new ConfirmationQuestion('Copy the columns back now? (yes/no) [no]:', false)) ? [$plan, 0] : [$without, $rows];
     }
 
     private function writeMigration(SchemaPlan $plan, string $directory, string $namespace): ?string
