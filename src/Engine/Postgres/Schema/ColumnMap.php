@@ -30,7 +30,10 @@ final readonly class ColumnMap
     /**
      * The backfill of one index: a DO block that commits after each batch, so it runs outside a transaction (like CREATE INDEX
      * CONCURRENTLY). Idempotent: a second run finds nothing. It reads the sidecar once to find the other maps (SELECT DISTINCT),
-     * then walks each map's rows in id order, $batch at a time.
+     * then walks each map's rows in id order, $batch at a time. The map is checked on the UPDATE's own table too: a row that a
+     * refresh rewrote (under the current map) while the batch waited on its lock is re-checked on its new version and skipped, so
+     * a column is only ever copied from the row version that map was written with. The walk follows the ids the batch selected,
+     * not the rows it updated, so a skipped or deleted row does not end it early.
      */
     public static function backfill(IndexDefinition $index, Names $names, int $batch = self::BATCH): Statement
     {
@@ -62,8 +65,8 @@ final readonly class ColumnMap
                             last := NULL;
                             LOOP
                                 EXECUTE format(
-                                    'WITH u AS (UPDATE %3$s AS t SET %%s %5$s = NULL FROM (SELECT id FROM %3$s WHERE %5$s = %%L%%s ORDER BY id LIMIT %4$d) AS b WHERE t.id = b.id RETURNING t.id) SELECT (SELECT id::text FROM u ORDER BY id DESC LIMIT 1), (SELECT count(*) FROM u)',
-                                    sets, m, CASE WHEN last IS NULL THEN '' ELSE format(' AND id > %%L', last) END
+                                    'WITH b AS (SELECT id FROM %3$s WHERE %5$s = %%1$L%%2$s ORDER BY id LIMIT %4$d), u AS (UPDATE %3$s AS t SET %%3$s %5$s = NULL FROM b WHERE t.id = b.id AND t.%5$s = %%1$L RETURNING 1) SELECT (SELECT id::text FROM b ORDER BY id DESC LIMIT 1), (SELECT count(*) FROM b)',
+                                    m, CASE WHEN last IS NULL THEN '' ELSE format(' AND id > %%L', last) END, sets
                                 ) INTO last, n;
                                 COMMIT;
                                 EXIT WHEN n < %4$d;
