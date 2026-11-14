@@ -124,6 +124,38 @@ final class ManyBestRankTest extends TestCase
         self::assertSame([], $best->hits[1]->breakdown->bestValues, 'no single value holds a cover: no best value');
     }
 
+    public function testTheOneScanSelectsAndRanksLikeAWindowThatHoldsEveryMatch(): void
+    {
+        // 40 more customers with two addresses each, the words at different distances, so the ranks differ
+        $this->connection->execute("INSERT INTO mb_customer (id, name) SELECT i, 'Vevő ' || i FROM generate_series(6, 45) AS i");
+        $this->connection->execute("INSERT INTO mb_address (customer_id, line) SELECT i, CASE i % 4 WHEN 0 THEN 'Budapest, Fő utca ' || i WHEN 1 THEN 'Szeged, Petőfi tér ' || i || ', Fő' WHEN 2 THEN 'Fő utca Budapest ' || i ELSE 'Pécs, Kossuth ' || repeat('hosszú ', i % 7) || 'utca' END FROM generate_series(6, 45) AS i
+            UNION ALL SELECT i, CASE i % 3 WHEN 0 THEN 'Szeged, Fő ' || repeat('kis ', i % 5) || 'utca' WHEN 1 THEN 'Debrecen, Piac utca ' || i ELSE 'Budapest' END FROM generate_series(6, 45) AS i");
+        $f = $this->both('ROLE_ADDRESS');
+
+        // a window of 10 (the matches fill it: the ordered selection from the one scan) against one that holds every match
+        foreach ([null, ['name', 'address'], ['name']] as $allowed) {
+            foreach (['fo', 'fo utca', 'budapest fo', 'szeged'] as $text) {
+                $small = self::strict($f->in('bcust')->query($text))->limit(10)->thresholds(['limits' => ['candidates' => 10]])->explainMatches()->highlight('address');
+                $large = self::strict($f->in('bcust')->query($text))->limit(10)->explainMatches()->highlight('address');
+                if ($allowed !== null) {
+                    $small = $small->restrictedToFields(...$allowed);
+                    $large = $large->restrictedToFields(...$allowed);
+                }
+                $a = $small->get();
+                $b = $large->get();
+                $label = $text . ' / ' . json_encode($allowed);
+                self::assertSame(self::order($b), self::order($a), $label);
+                self::assertSame(self::ranks($b), self::ranks($a), $label);
+                self::assertSame(array_map(static fn($h): array => $h->breakdown->bestValues, $b->hits), array_map(static fn($h): array => $h->breakdown->bestValues, $a->hits), $label);
+                self::assertSame(array_map(static fn($h): array => $h->highlights, $b->hits), array_map(static fn($h): array => $h->highlights, $a->hits), $label);
+            }
+        }
+        $sql = implode("\n", array_column(self::strict($f->in('bcust')->query('fo utca'))->restrictedToFields('name', 'address')->explain()->statements, 'sql'));
+        self::assertStringContainsString('fts_scan AS MATERIALIZED', $sql, 'a viewer of the granted field: the one scan');
+        $sql = implode("\n", array_column(self::strict($f->in('bcust')->query('fo utca'))->restrictedToFields('name')->explain()->statements, 'sql'));
+        self::assertStringNotContainsString('fts_scan', $sql, 'a viewer without the field: the whole-field statement');
+    }
+
     public function testTheBestValueCountsNotTheSumOfSeveralMatchingValues(): void
     {
         $f = $this->both();

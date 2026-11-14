@@ -136,8 +136,14 @@ final class SearchSqlBuilderBestValueTest extends TestCase
     public function testEveryRankedSelectionUsesTheBestValueRank(): void
     {
         $sql = self::ranked(self::index(), null, 'szeged', [], true);
-        // the cheap and the ordered full-text selection (the typo branch has no text rank)
-        self::assertSame(2, substr_count($sql, "v.field = 'city' AND v.t @@ q.tsany"));
+        // ranked once: one scan feeds the cheap selection (ids only) and the ordered one (the typo branch has no text rank)
+        self::assertSame(1, substr_count($sql, "v.field = 'city' AND v.t @@ q.tsany"));
+        self::assertStringContainsString("fts_fast AS (\n    SELECT id FROM fts_scan LIMIT 2000\n)", $sql);
+        self::assertStringContainsString("fts AS (\n    SELECT id, r_text FROM fts_scan WHERE (SELECT count(*) FROM fts_fast) < 2000\n", $sql);
+        self::assertStringContainsString("        SELECT w.id, w.r_text FROM fts_scan AS w\n        WHERE (SELECT count(*) FROM fts_fast) >= 2000\n", $sql);
+        $whole = self::ranked(self::index('whole'), null, 'szeged', [], true);
+        self::assertStringNotContainsString('fts_scan', $whole, 'a rank: whole index keeps its two scans');
+        self::assertStringContainsString("fts_fast AS (\n    SELECT s.id, ts_rank_cd(", $whole);
         $root = self::parse('szeged');
         $wide = (new SearchSqlBuilder(self::index(), new Names()))->ranked("'szeged'", 'szeged', null, [], new RankingProfile(), new Thresholds(), 10, 0, [], null, false, ['conditions' => [], 'filter' => 'kind', 'values' => 5])['sql'];
         self::assertSame(3, substr_count($wide, "v.field = 'city' AND v.t @@ q.tsany"), 'wide, fts_fast and the ordered selection');
