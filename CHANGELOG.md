@@ -13,7 +13,8 @@ and a link. Measurements, proofs and test names belong to the pull request, [doc
 
 ### Changed
 
-- **Smaller index tables:** a per-field column whose value another column holds (`z_` of the primary or the only fuzzy field, `t_` of a one-field index) is stored empty; results and speed unchanged. Run `schema --apply` (no reindex needed; the space returns at the next reindex); going back to 0.12.2 needs a reindex. See [UPGRADE](UPGRADE.md#from-012x-to-0124).
+- **Smaller index tables:** a per-field column whose value another column holds (`z_` of the primary or the only fuzzy field, `t_` of a one-field index) is stored empty; results and speed unchanged. Run `schema --apply` before deploying (no reindex needed; the space returns at the next reindex); going back to 0.12.3 needs a reindex. See [UPGRADE](UPGRADE.md#from-012x-to-0124).
+- **Definition changes:** `schema --apply` copies the columns of rows written under another column map back in batches (it asks first; `--force` in non-interactive runs), and the doctor warns while such rows wait. See [UPGRADE](UPGRADE.md#a-definition-change-any-release-from-0124-on).
 
 ## [0.12.3] - 2026-11-12
 

@@ -31,8 +31,12 @@ of them on a table that was there, the command asks you to restart long-running 
 former removes the sidecar table, its triggers, functions and queued rows; the latter can wipe
 every indexed document). Both explain what will happen and ask for confirmation
 (default **no**); `--force` skips the question, and is required to run either non-interactively
-(`--no-interaction`) -- without it they refuse with exit code 1. The PHP API
-(`Fuzzphony::schema()`, `Fuzzphony::reindex()`) never prompts.
+(`--no-interaction`) -- without it they refuse with exit code 1. `fuzzphony:schema --apply` also asks
+before the column backfill after a definition change (rows written under another column map get their
+emptied per-field columns back, in batches, see [UPGRADE](../UPGRADE.md#a-definition-change-any-release-from-0124-on)):
+declined, or non-interactive without `--force`, it applies the rest, skips the backfill, warns and exits
+with 1. The PHP API (`Fuzzphony::schema()`, `Fuzzphony::reindex()`) never prompts (its plan includes the
+backfill).
 
 Short options (`-b` batch, `-f` facet or format, `-i` index, `-l` limit or language, `-p` rank profile, `-t` time limit, `-w` where
 or write) mean different things in different commands: `-l` is the limit in `fuzzphony:search` and `fuzzphony:analytics` and the language in
