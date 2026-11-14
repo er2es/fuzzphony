@@ -19,6 +19,7 @@ use Fuzzphony\Core\Support\Coerce;
 use Fuzzphony\Engine\Postgres\Schema\Fingerprint;
 use Fuzzphony\Engine\Postgres\Schema\Names;
 use Fuzzphony\Engine\Postgres\Schema\OpenClass;
+use Fuzzphony\Engine\Postgres\Schema\ColumnMap;
 use Fuzzphony\Engine\Postgres\Schema\PostgresSchemaGenerator;
 use Fuzzphony\Engine\Postgres\Schema\SharedWatch;
 use Fuzzphony\Engine\Postgres\Schema\Types;
@@ -497,6 +498,9 @@ final class PostgresInspector
         if (!in_array(PostgresSchemaGenerator::CAPPED_COLUMN, $missing, true) && count($index->fields) > 1) {
             array_push($checks, ...$this->unfilledCappedFlags($index));
         }
+        if (!in_array(PostgresSchemaGenerator::FIELD_MAP_COLUMN, $missing, true)) {
+            array_push($checks, ...$this->otherColumnMaps($index));
+        }
         if ($extra !== []) {
             $sidecar = $this->names->sidecar($index);
             $checks[] = Check::warning(
@@ -529,6 +533,31 @@ final class PostgresInspector
             'Sidecar columns',
             sprintf('%s is not filled for %d document(s): phrases and field-scoped words are looked up the slower way for them (right, but many times slower on a wide index). Reindex to fill it.', PostgresSchemaGenerator::CAPPED_COLUMN, $count),
             'bin/console fuzzphony:reindex',
+        )];
+    }
+
+    /**
+     * Documents written with another column map than the definition's (a definition change applied without the backfill, see
+     * ColumnMap): the per-field columns their map left empty are read as they are, so searches on those fields miss them.
+     *
+     * @return list<Check>
+     */
+    private function otherColumnMaps(IndexDefinition $index): array
+    {
+        $pending = ColumnMap::pending($this->connection, $this->names, $index);
+        if ($pending === []) {
+            return [];
+        }
+
+        return [Check::warning(
+            'Sidecar columns',
+            sprintf(
+                '%d document(s) were written with another column map (%s): the per-field columns that map left empty are read as they are, so a search on those fields (a field-scoped word, a viewer restricted to fields) misses them. schema --apply copies them back from the columns that hold the values, in batches of %d rows, each committed (about the time and WAL of updating those rows); it asks first.',
+                array_sum($pending),
+                implode(', ', array_map(static fn(string $map, int $n): string => sprintf('"%s": %d', $map, $n), array_keys($pending), $pending)),
+                ColumnMap::BATCH,
+            ),
+            'bin/console fuzzphony:schema --apply --force',
         )];
     }
 

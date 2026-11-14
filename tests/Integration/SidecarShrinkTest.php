@@ -4,7 +4,10 @@ declare(strict_types=1);
 
 namespace Fuzzphony\Tests\Integration;
 
+use Fuzzphony\Bundle\Command\SchemaCommand;
 use Fuzzphony\Core\Database\Connection;
+use Fuzzphony\Core\Exception\SchemaNotApplied;
+use Fuzzphony\Core\Inspection\Check;
 use Fuzzphony\Core\Definition\IndexDefinition;
 use Fuzzphony\Core\Fuzzphony;
 use Fuzzphony\Core\Registry\IndexRegistry;
@@ -16,6 +19,8 @@ use Fuzzphony\Engine\Postgres\Schema\OpenClass;
 use Fuzzphony\Engine\Postgres\Schema\PostgresSchemaGenerator;
 use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\TestCase;
+use Symfony\Component\Console\Command\Command;
+use Symfony\Component\Console\Tester\CommandTester;
 
 /**
  * Sidecar shrink: a per-field column whose value another column holds (`z_` of the primary field = `exact`, of the only fuzzy
@@ -234,6 +239,66 @@ final class SidecarShrinkTest extends TestCase
         }
 
         return $found;
+    }
+
+    /** @return iterable<string, array{array<string, bool>, bool, int, bool}> options, interactive, answer (1 yes, 0 no, -1 none), backfilled */
+    public static function confirmations(): iterable
+    {
+        yield 'interactive, yes' => [[], true, 1, true];
+        yield 'interactive, no' => [[], true, 0, false];
+        yield 'non-interactive without --force' => [[], false, -1, false];
+        yield 'non-interactive with --force' => [['--force' => true], false, -1, true];
+    }
+
+    /** @param array<string, bool> $options */
+    #[DataProvider('confirmations')]
+    public function testSchemaApplyAsksBeforeTheBackfillAndTheDoctorWarnsUntilItRan(array $options, bool $interactive, int $answer, bool $backfilled): void
+    {
+        $one = $this->fuzzphony([['name', 'A', true]]);
+        $one->schema()->apply($this->connection);
+        $one->reindex('sh');
+        $two = $this->fuzzphony([['name', 'A', true], ['secret', 'B', true, 'ROLE_X']]);
+        $warning = static fn(): array => array_values(array_filter($two->inspect('sh')->checks, static fn(Check $c): bool => str_contains($c->message, 'another column map')));
+        self::assertCount(1, $warning(), 'the doctor warns before the apply');
+        self::assertStringContainsString('2 document(s)', $warning()[0]->message);
+        self::assertSame('bin/console fuzzphony:schema --apply --force', $warning()[0]->fix);
+
+        $tester = new CommandTester(new SchemaCommand($two, $this->connection));
+        if ($answer >= 0) {
+            $tester->setInputs([$answer === 1 ? 'yes' : 'no']);
+        }
+        $status = $tester->execute(['--apply' => true] + $options, ['interactive' => $interactive]);
+        $display = $tester->getDisplay(true);
+
+        self::assertStringContainsString('sh: 2 document(s) written with the map "t_name=tsv,z_name=exact"', $display);
+        self::assertStringContainsString('That is 2 row(s) in 1 UPDATE statement(s)', $display);
+        self::assertSame($answer >= 0, str_contains($display, 'Copy the columns back now?'));
+        self::assertSame($backfilled ? Command::SUCCESS : Command::FAILURE, $status);
+        self::assertSame($backfilled, !str_contains($display, 'The column backfill was skipped'));
+        self::assertSame($backfilled ? [] : ['t_name=tsv,z_name=exact' => 2], ColumnMap::pending($this->connection, new Names(), $two->definition('sh')));
+        self::assertCount($backfilled ? 0 : 1, $warning(), 'the doctor warns until the backfill ran');
+        $this->assertNothingHidden($two, 'after the apply');
+    }
+
+    public function testTheDumpedMigrationHasTheBackfillAndNoPromptRuns(): void
+    {
+        $two = $this->fuzzphony([['name', 'A', true], ['secret', 'B', true, 'ROLE_X']]);
+        $tester = new CommandTester(new SchemaCommand($two, $this->connection));
+        self::assertSame(Command::SUCCESS, $tester->execute([], ['interactive' => true]));
+        self::assertStringContainsString(ColumnMap::BACKFILL, $tester->getDisplay(true));
+        self::assertStringNotContainsString('Copy the columns back now?', $tester->getDisplay(true));
+    }
+
+    public function testCodeNewerThanTheSchemaFailsWithSchemaNotApplied(): void
+    {
+        $fuzzphony = $this->fuzzphony([['name', 'A', true], ['secret', 'B', true, 'ROLE_X']]);
+        $fuzzphony->schema()->apply($this->connection);
+        $fuzzphony->reindex('sh');
+        $this->connection->execute('ALTER TABLE fuzzphony_sh DROP COLUMN field_map');
+
+        $this->expectException(SchemaNotApplied::class);
+        $this->expectExceptionMessage('missing: field_map');
+        self::ids($fuzzphony, 'ketle');
     }
 
     public function testTheBackfillRunsInBatchesAndIsIdempotent(): void

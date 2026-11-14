@@ -37,6 +37,7 @@ final class SchemaNotAppliedTest extends TestCase
         self::assertStringContainsString('missing: tsv_capped', $found->getMessage());
         self::assertSame($outer, $found->getPrevious());
         self::assertStringContainsString('missing: actor_ip', (string) SchemaNotApplied::from(self::pdo('42703', 'column "actor_ip" of relation "x" does not exist'))?->getMessage());
+        self::assertStringContainsString('missing: field_map', (string) SchemaNotApplied::from(self::pdo('42703', 'column s.field_map does not exist'))?->getMessage());
     }
 
     public function testAnyOtherFailureIsLeftAlone(): void
