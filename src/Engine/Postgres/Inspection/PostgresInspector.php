@@ -544,12 +544,21 @@ final class PostgresInspector
      */
     private function otherColumnMaps(IndexDefinition $index): array
     {
+        $checks = [];
+        $stale = ColumnMap::stale($this->connection, $this->names, $index);
+        if ($stale > 0) {
+            $checks[] = Check::warning(
+                'Sidecar columns',
+                sprintf('%d document(s) were rewritten by an earlier release after this one stored some of their per-field columns empty (a downgrade): their column maps are not trusted, so they are read from their own columns and may miss field-scoped and restricted searches. Reindex to write them again.', $stale),
+                'bin/console fuzzphony:reindex ' . $index->name,
+            );
+        }
         $pending = ColumnMap::pending($this->connection, $this->names, $index);
         if ($pending === []) {
-            return [];
+            return $checks;
         }
 
-        return [Check::warning(
+        return [...$checks, Check::warning(
             'Sidecar columns',
             sprintf(
                 '%d document(s) were written with another column map (%s): the per-field columns that map left empty are read as they are, so a search on those fields (a field-scoped word, a viewer restricted to fields) misses them. schema --apply copies them back from the columns that hold the values, in batches of %d rows, each committed (about the time and WAL of updating those rows); it asks first.',

@@ -19,6 +19,7 @@ use Fuzzphony\Engine\Postgres\Schema\ColumnMap;
 use Fuzzphony\Engine\Postgres\Schema\Names;
 use Fuzzphony\Engine\Postgres\Schema\OpenClass;
 use Fuzzphony\Engine\Postgres\Schema\PostgresSchemaGenerator;
+use Fuzzphony\Engine\Postgres\Schema\Types;
 use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\TestCase;
 use Symfony\Component\Console\Command\Command;
@@ -282,6 +283,34 @@ final class SidecarShrinkTest extends TestCase
         $this->assertNothingHidden($two, 'after the apply');
     }
 
+    /**
+     * Downgrade to 0.12.3, a definition change there (its refresh function writes no `field_map`), upgrade again: a row 0.12.3
+     * rewrote keeps the map 0.12.4 gave it, but its `exact` holds another field now. Such maps are not trusted: never read as
+     * shared, never backfilled; the doctor asks for the reindex.
+     */
+    public function testRowsAnEarlierReleaseRewroteAfterThisOneMappedThemAreNeverCopiedFrom(): void
+    {
+        $a = $this->fuzzphony([['name', 'A', true], ['secret', 'B', true, 'ROLE_X']]);
+        $a->schema()->apply($this->connection);
+        $a->reindex('sh');
+        $b = $this->fuzzphony([['name', 'B', true], ['secret', 'A', true, 'ROLE_X']]);
+        // 0.12.3 with the primary moved to secret: its refresh function has no field_map, and it rewrote row 1 (every column filled)
+        $this->connection->execute(sprintf('CREATE OR REPLACE FUNCTION %s(p_ids %s[]) RETURNS integer LANGUAGE plpgsql AS $f$ BEGIN RETURN 0; END $f$', (new Names())->refreshFunction($b->definition('sh')), Types::id($b->definition('sh')->idType)));
+        $this->connection->execute("UPDATE fuzzphony_sh SET exact = 'zanzibar walrus', z_name = 'kettle', z_secret = 'zanzibar walrus' WHERE id = 1");
+
+        $b->schema()->apply($this->connection);
+
+        $this->assertNothingHidden($b, 'after the upgrade');
+        self::assertSame('kettle', $this->connection->fetchValue('SELECT z_name FROM fuzzphony_sh WHERE id = 1'));
+        $stale = array_values(array_filter($b->inspect('sh')->checks, static fn(Check $c): bool => str_contains($c->message, 'rewritten by an earlier release')));
+        self::assertCount(1, $stale, 'the doctor asks for the reindex');
+        self::assertStringContainsString('2 document(s)', $stale[0]->message);
+        $b->reindex('sh');
+        self::assertSame([1], self::ids($b, 'kettle'));
+        $this->assertNothingHidden($b, 'after the reindex');
+        self::assertSame([], array_values(array_filter($b->inspect('sh')->checks, static fn(Check $c): bool => str_contains($c->message, 'rewritten by an earlier release'))));
+    }
+
     /** Nothing waits when the command counts: no question, but the backfill stays in the plan (a row of the old map may still arrive). */
     public function testWithNothingToBackfillTheCommandAsksNothingAndStillRunsTheBackfill(): void
     {
@@ -342,7 +371,7 @@ final class SidecarShrinkTest extends TestCase
 
         $writer = new \PDO(Coerce::str(getenv('FUZZPHONY_TEST_DSN')));
         $writer->beginTransaction();
-        $writer->exec($race === 'rewrite' ? sprintf('SELECT %s(ARRAY[1])', (new Names())->refreshFunction($definition)) : 'DELETE FROM fuzzphony_sh WHERE id = 1');
+        $writer->exec($race === 'rewrite' ? sprintf('SELECT %s(ARRAY[1]::%s[])', (new Names())->refreshFunction($definition), Types::id($definition->idType)) : 'DELETE FROM fuzzphony_sh WHERE id = 1');
         $sql = (string) tempnam(sys_get_temp_dir(), 'fzbf');
         file_put_contents($sql, $backfill->sql);
         $child = proc_open([PHP_BINARY, '-r', '$p = new PDO(getenv("FUZZPHONY_TEST_DSN")); $p->exec(file_get_contents($argv[1]));', '--', $sql], [1 => ['pipe', 'w'], 2 => ['pipe', 'w']], $pipes);

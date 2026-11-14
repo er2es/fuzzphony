@@ -175,6 +175,8 @@ final class PostgresSchemaGenerator
                 ? sprintf('Keep column "%s" in sync with the definition (phrases and scoped words of a document that is not capped need no extra check; reindex fills it)', $name)
                 : sprintf('Keep column "%s" in sync with the definition', $name));
         }
+        // before the refresh functions below are replaced: the maps an earlier release's function may have outdated
+        $statements[] = ColumnMap::guard($index, $this->names);
         // after the transaction that replaced the refresh functions (it is not transactional): rows of another map get their columns back
         $statements[] = ColumnMap::backfill($index, $this->names, $this->backfillBatch);
         if ($index->hasFuzzy()) {
