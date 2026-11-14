@@ -109,7 +109,10 @@ in place of an open field's column. After a definition change that changes the m
 the rows of every other map get every column of their map copied back from the same row and their map set to NULL, in committed
 batches outside the apply's transaction (`SchemaCommand` asks first), so afterwards a row has the current map or none. A change that
 keeps the map (a weight, `code`, `granted`) touches no row; one that changes it also rebuilds an open-class index over a shared column
-(its expression names the map). `field_map` is never dropped: a later definition still has to know which columns of a row are empty.
+(its expression names the map). The batch re-checks the old map on the row it updates, so a row a refresh rewrote while the batch waited on its lock is skipped
+(never copied from its new version), and the walk follows the selected ids. Before the refresh functions are replaced, the apply
+checks the one in the database: if it writes no `field_map` (an earlier release after a downgrade), every map is marked stale
+(`!z_name=exact`): read from the row's own columns, never backfilled, until a reindex. `field_map` is never dropped: a later definition still has to know which columns of a row are empty.
 
 A fuzzy index also has `fuzzphony_<index>__vocab` (same schema): its words and in how many documents
 each occurs, created by `fuzzphony:schema --apply` and rebuilt after every full reindex, for "did you
