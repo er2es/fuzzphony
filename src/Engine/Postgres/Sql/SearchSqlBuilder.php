@@ -14,6 +14,7 @@ use Fuzzphony\Core\Query\Ast\Not;
 use Fuzzphony\Core\Query\Ast\Phrase;
 use Fuzzphony\Core\Query\Ast\Term;
 use Fuzzphony\Core\Query\Filter\Condition;
+use Fuzzphony\Core\Query\Filter\Operator;
 use Fuzzphony\Core\Ranking\RankingProfile;
 use Fuzzphony\Core\Ranking\Thresholds;
 use Fuzzphony\Engine\Postgres\Schema\Names;
@@ -76,6 +77,14 @@ final class SearchSqlBuilder
          * @var list<string>
          */
         private readonly array $single = [],
+        /**
+         * The `same_row_as` filters of the single-value check (SameRow::coupled(): their field is in `$single`): a positive condition on one
+         * holds for the value row that holds the field's words (couplings()), and its facet counts per that row (facets()). [] keeps every
+         * statement as it was.
+         *
+         * @var array<string, string> filter name => field name
+         */
+        private readonly array $coupled = [],
     ) {}
 
     /**
@@ -198,9 +207,14 @@ final class SearchSqlBuilder
      *
      * @param array{conditions: list<Condition>, filter: string, values: int}|null $wide one facet that leaves conditions out, carried by the strict selection (wideSelection())
      *
-     * @return array{ctes: list<string>, params: ParameterBag, fuzzy: ?FuzzyMatch, fast: string, fuzzyFast: string, wideFacet: ?string, bestOrds: array<string, string>}
+     * @param bool $coupledFacet a facet of a coupled filter is counted over the result (facets()): the single-value parts are built even
+     *                           when the branch itself needs no check (one word)
+     *
+     * @return array{ctes: list<string>, params: ParameterBag, fuzzy: ?FuzzyMatch, fast: string, fuzzyFast: string, wideFacet: ?string, bestOrds: array<string, string>,
+     *     single: array{fts: array{within: string, holds: array<string, ?string>}|false|null, fuzzy: array{within: string, holds: array<string, ?string>}|false|null},
+     *     couplings: array<string, list<string>>}
      */
-    private function scored(?string $tsquery, string $plain, ?Node $fuzzyRoot, array $conditions, RankingProfile $profile, Thresholds $thresholds, array $emptyQueries, ?Node $scopedRoot, bool $uncapped, ?int $window = null, ?array $wide = null): array
+    private function scored(?string $tsquery, string $plain, ?Node $fuzzyRoot, array $conditions, RankingProfile $profile, Thresholds $thresholds, array $emptyQueries, ?Node $scopedRoot, bool $uncapped, ?int $window = null, ?array $wide = null, bool $coupledFacet = false): array
     {
         $params = new ParameterBag();
         $filters = new FilterCompiler($this->index);
@@ -223,7 +237,9 @@ final class SearchSqlBuilder
         // document that matches, so the rank is the same), see TsQueryCompiler::withoutExclusions()
         $rankQuery = 'q.tsq';
         $operands = 1;
-        $best = new BestValueRank($this->index, $this->names, $this->allowedFields);
+        // same_row_as: the positive conditions on a coupled filter, as tests of the value row (nothing, and no bind, without one)
+        $couplings = $this->coupled === [] ? [] : $this->couplings($conditions, $params);
+        $best = new BestValueRank($this->index, $this->names, $this->allowedFields, $couplings);
         if ($tsquery !== null) {
             $q[] = sprintf('to_tsquery(%s, %s) AS tsq', $config, $params->add($tsquery));
             $rankForm = TsQueryCompiler::withoutExclusions($tsquery);
@@ -288,14 +304,20 @@ final class SearchSqlBuilder
             array_push($q, ...$fuzzy->columns);
         }
         $fuzzyPredicate = $fuzzy?->predicate;
+        $singleStrict = null;
+        $singleFuzzy = null;
         if ($this->single !== [] && $scopedRoot !== null) {
             // manyMatch('single'): the full-text branch and the typo branch (and so the totals, facets and candidates) keep a document
-            // only when one value of each named field holds the field's words (singleValue())
-            if ($tsquery !== null && !self::oneWord($scopedRoot) && ($exists = $this->singleValue($scopedRoot, $params, $emptyQueries, $thresholds, false, $q)) !== null) {
-                $strict[] = $exists;
+            // only when one value of each named field holds the field's words (singleExists()). One word of one lexeme is in one value
+            // by definition, unless the value must also hold a coupled filter value (same_row_as): then, and for the facet of such a
+            // filter, the value rows are read
+            $oneWord = self::oneWord($scopedRoot);
+            if ($tsquery !== null && (!$oneWord || $couplings !== [] || $coupledFacet) && ($singleStrict = $this->singleParts($scopedRoot, $params, $emptyQueries, $thresholds, false, $q)) !== null
+                && (!$oneWord || $couplings !== [])) {
+                $strict[] = $this->singleExists($singleStrict, $couplings, false);
             }
-            if ($fuzzyPredicate !== null && $fuzzyRoot !== null && ($exists = $this->singleValue($fuzzyRoot, $params, $emptyQueries, $thresholds, true, $q)) !== null) {
-                $fuzzyPredicate .= ' AND ' . $exists;
+            if ($fuzzyPredicate !== null && $fuzzyRoot !== null && ($singleFuzzy = $this->singleParts($fuzzyRoot, $params, $emptyQueries, $thresholds, true, $q)) !== null) {
+                $fuzzyPredicate .= ' AND ' . $this->singleExists($singleFuzzy, $couplings, true);
             }
         }
         // MATERIALIZED: one row computed once, and the planner must not see the per-word values (see FuzzyQueryCompiler)
@@ -484,7 +506,8 @@ final class SearchSqlBuilder
             $table,
         );
 
-        return ['ctes' => $ctes, 'params' => $params, 'fuzzy' => $fuzzy, 'fast' => $fast, 'fuzzyFast' => $fuzzyFast, 'wideFacet' => $wideFacet, 'bestOrds' => $bestOrds];
+        return ['ctes' => $ctes, 'params' => $params, 'fuzzy' => $fuzzy, 'fast' => $fast, 'fuzzyFast' => $fuzzyFast, 'wideFacet' => $wideFacet, 'bestOrds' => $bestOrds,
+            'single' => ['fts' => $tsquery === null ? false : $singleStrict, 'fuzzy' => $fuzzy === null ? false : $singleFuzzy], 'couplings' => $couplings];
     }
 
     /**
@@ -502,19 +525,58 @@ final class SearchSqlBuilder
      */
     public function facets(array $filters, ?string $tsquery, string $plain, ?Node $fuzzyRoot, array $conditions, RankingProfile $profile, Thresholds $thresholds, int $values, bool $exact, array $emptyQueries = [], ?Node $scopedRoot = null): array
     {
-        ['ctes' => $ctes, 'params' => $params, 'fuzzy' => $fuzzy] = $this->scored($tsquery, $plain, $fuzzyRoot, $conditions, $profile, $thresholds, $emptyQueries, $scopedRoot, $exact, $thresholds->limits->candidates);
+        $coupled = array_values(array_filter($filters, fn(string $f): bool => isset($this->coupled[$f])));
+        ['ctes' => $ctes, 'params' => $params, 'fuzzy' => $fuzzy, 'single' => $single, 'couplings' => $couplings] = $this->scored($tsquery, $plain, $fuzzyRoot, $conditions, $profile, $thresholds, $emptyQueries, $scopedRoot, $exact, $thresholds->limits->candidates, coupledFacet: $coupled !== []);
         $ctes[] = sprintf(
             "fc AS (
     SELECT %s
-    FROM scored AS sc JOIN %s AS s ON s.id = sc.id
+    FROM scored AS sc JOIN %s AS s ON s.id = sc.id%s
     WHERE sc.relevance >= %s
 )",
-            self::facetColumns($filters),
+            $coupled === [] ? self::facetColumns($filters) : implode(', ', array_map(fn(string $filter, int $i): string => sprintf(
+                '%s AS v%d',
+                in_array($filter, $coupled, true) ? $this->coupledValues($filter, $single, $couplings) : 's.' . FilterCompiler::column($filter),
+                $i,
+            ), $filters, array_keys($filters))),
             $this->names->sidecar($this->index),
+            $coupled === [] ? '' : ' CROSS JOIN q',
             Sql::float($thresholds->relevance->minScore),
         );
 
-        return ['sql' => $this->facetBranches($ctes, $filters, $values), 'params' => $params->all(), 'readsWordThreshold' => $fuzzy?->readsWordThreshold === true];
+        return ['sql' => $this->facetBranches($ctes, $filters, $values, $coupled), 'params' => $params->all(), 'readsWordThreshold' => $fuzzy?->readsWordThreshold === true];
+    }
+
+    /**
+     * The facet values of a coupled filter (same_row_as) for the candidate `s`: the values `x` of its document-level array for which the
+     * search with `filter = x` added finds the document, i.e. a branch that found it also finds it when the value row that holds the words
+     * must hold `x` (with the search's own coupled conditions). So choosing a facet value shows as many hits as it counts. A document with
+     * no value at all keeps NULL (the "no value" bucket, the document-level null check); one whose values all fail counts in no bucket.
+     *
+     * @param array{fts: array{within: string, holds: array<string, ?string>}|false|null, fuzzy: array{within: string, holds: array<string, ?string>}|false|null} $single
+     * @param array<string, list<string>>                                                                                                                         $couplings
+     */
+    private function coupledValues(string $filter, array $single, array $couplings): string
+    {
+        $field = $this->coupled[$filter];
+        $column = 's.' . FilterCompiler::column($filter);
+        $withX = $couplings;
+        $withX[$field][] = self::coupling($this->names->sameRowColumnName($this->index->filter($filter)), 'ARRAY[u.x]');
+        $branches = [];
+        foreach (['fts' => false, 'fuzzy' => true] as $cte => $fuzzy) {
+            $parts = $single[$cte];
+            if ($parts === false) {
+                continue; // the search has no such branch
+            }
+            $found = sprintf('EXISTS (SELECT 1 FROM %s AS b WHERE b.id = s.id)', $cte);
+            // no single-value check in the branch (no word asks a value): the document-level filter decides, as the search does
+            $branches[] = $parts === null ? $found : $found . ' AND ' . $this->singleExists($parts, $withX, true);
+        }
+
+        return sprintf(
+            'CASE WHEN coalesce(cardinality(%1$s), 0) = 0 THEN NULL ELSE ARRAY(SELECT u.x FROM unnest(%1$s) AS u(x) WHERE %2$s) END',
+            $column,
+            $branches === [] ? 'true' : '(' . implode(') OR (', $branches) . ')',
+        );
     }
 
     /**
@@ -697,13 +759,14 @@ final class SearchSqlBuilder
     }
 
     /** One GROUP BY branch of a facet over `$from`: see facetBranches(). */
-    private function facetBranch(int $i, string $filter, int $values, string $from): string
+    private function facetBranch(int $i, string $filter, int $values, string $from, bool $coupled = false): string
     {
         $cast = $this->index->filter($filter)->type === FilterType::Bool ? 'g.value::int::text' : 'g.value::text';
         if ($this->index->filter($filter)->many !== null) {
             // a many filter's column holds the array of the document's distinct values: one row per value, so a document counts once
-            // for each of its values (and in the NULL bucket when it has none), never twice for the same one
-            $from = sprintf('(SELECT u.x AS v%1$d FROM %2$s AS t LEFT JOIN LATERAL unnest(t.v%1$d) AS u(x) ON true) AS mv', $i, $from);
+            // for each of its values (and in the NULL bucket when it has none), never twice for the same one. A coupled filter's
+            // (coupledValues()) is NULL for no value at all and empty when no value finds the document: that one counts nowhere
+            $from = sprintf('(SELECT u.x AS v%1$d FROM %2$s AS t LEFT JOIN LATERAL unnest(t.v%1$d) AS u(x) ON true%3$s) AS mv', $i, $from, $coupled ? sprintf(' WHERE t.v%d IS NULL OR u.x IS NOT NULL', $i) : '');
         }
 
         return sprintf(
@@ -721,12 +784,13 @@ final class SearchSqlBuilder
      *
      * @param list<string>           $ctes
      * @param non-empty-list<string> $filters
+     * @param list<string>           $coupled the filters whose column holds coupledValues()
      */
-    private function facetBranches(array $ctes, array $filters, int $values): string
+    private function facetBranches(array $ctes, array $filters, int $values, array $coupled = []): string
     {
         $branches = [];
         foreach ($filters as $i => $filter) {
-            $branches[] = $this->facetBranch($i, $filter, $values, 'fc');
+            $branches[] = $this->facetBranch($i, $filter, $values, 'fc', in_array($filter, $coupled, true));
         }
 
         return sprintf("WITH %s
@@ -864,10 +928,83 @@ SELECT
      * word is not in it: the statement's own predicate excludes the document when any value holds it. The q columns it adds are
      * named after `$fuzzy` (`me…`, `mf…`).
      *
+     * same_row_as: `$couplings` adds, per field, conditions on the value row itself (couplings()): the row that holds the words must also
+     * hold the filter value. With one, the full-text shortcut on the value count is not taken (one value holding the words says nothing
+     * about the city of a child row whose value is NULL, which the filter's document-level array still holds).
+     *
+     * @param array{within: string, holds: array<string, ?string>} $parts     from singleParts()
+     * @param array<string, list<string>>                          $couplings field => conditions on its value row `v`
+     */
+    private function singleExists(array $parts, array $couplings, bool $fuzzy): string
+    {
+        $from = [];
+        $few = [];
+        foreach ($this->single as $i => $field) {
+            $conditions = array_values(array_filter([$parts['holds'][$field] ?? null, ...($couplings[$field] ?? [])], static fn(?string $c): bool => $c !== null));
+            // the empty row first: a document whose words are all in other fields passes without reading a value
+            $from[] = sprintf(
+                "(SELECT ''::tsvector AS t, ''::text AS z UNION ALL SELECT v.t, v.z FROM %s AS v WHERE v.doc = s.id AND v.field = %s%s) AS v%d",
+                $this->names->values($this->index),
+                Sql::string($field),
+                $conditions === [] ? '' : ' AND ' . implode(' AND ', $conditions),
+                $i + 1,
+            );
+            $few[] = sprintf('s.%s <= 1', Sql::ident($this->names->valueCountName($field)));
+        }
+        $exists = sprintf('EXISTS (SELECT 1 FROM %s WHERE %s)', implode(' CROSS JOIN ', $from), $parts['within']);
+
+        // The full-text branch: a document with at most one value in each named field (its stored count; NULL before the reindex
+        // wrote it: the values are read) passes on the statement's own predicate, which is then exactly the per-field form: every
+        // word is a lexeme of one field's column (tsv is the fields joined, so a phrase over a field boundary is the per-field
+        // form's joined vectors), and the one value is the field's whole column. The typo branch has no such shortcut: its own
+        // predicate reads `fz` (every field joined) for an unrestricted viewer, where a typo word can match ACROSS a field boundary
+        // ("kisanna" over the name "Kiss" and the address "Anna utca 1"), which the per-field form never does; the result must not
+        // depend on how many values a document has, nor on whether the count is filled.
+        return $fuzzy || $couplings !== [] ? $exists : sprintf('(%s OR %s)', implode(' AND ', $few), $exists);
+    }
+
+    /**
+     * The `same_row_as` conditions of a search, per field: each positive condition (`=` a value, IN) on a coupled filter (`$this->coupled`)
+     * as a test of the value row `v`: `coalesce(v.fr && ARRAY[...], true)`, so a row that does not know its value yet (NULL: written before
+     * the option) passes as the document-level filter did. Null checks and the other operators stay document-level. Binds the values as
+     * FilterCompiler does; [] (and no bind) when nothing is coupled.
+     *
+     * @param list<Condition> $conditions
+     *
+     * @return array<string, list<string>>
+     */
+    private function couplings(array $conditions, ParameterBag $params): array
+    {
+        $couplings = [];
+        foreach ($conditions as $condition) {
+            $field = $this->coupled[$condition->filter] ?? null;
+            if ($field === null || $condition->value === null || ($condition->operator !== Operator::Eq && $condition->operator !== Operator::In)) {
+                continue;
+            }
+            $filter = $this->index->filter($condition->filter);
+            $values = $condition->operator === Operator::In ? (is_array($condition->value) ? array_values($condition->value) : []) : [$condition->value];
+            if ($values === []) {
+                continue; // IN () finds nothing at the document level already
+            }
+            $couplings[$field][] = self::coupling($this->names->sameRowColumnName($filter), 'ARRAY[' . implode(', ', array_map(static fn(mixed $v): string => $params->add($filter->type->normalize($v, $filter->name)), $values)) . ']::text[]');
+        }
+
+        return $couplings;
+    }
+
+    /** One condition on the value row `v`: its filter value is in `$array`, or it is not known (NULL: today's document-level filter). */
+    private static function coupling(string $column, string $array): string
+    {
+        return sprintf('coalesce(v.%s && %s, true)', Sql::ident($column), $array);
+    }
+
+    /**
      * @param list<string> $emptyQueries
      * @param list<string> $q            the q columns, extended
+     *
+     * @return array{within: string, holds: array<string, ?string>}|null see singleExists(); null when the query asks nothing of a value
      */
-    private function singleValue(Node $root, ParameterBag $params, array $emptyQueries, Thresholds $thresholds, bool $fuzzy, array &$q): ?string
+    private function singleParts(Node $root, ParameterBag $params, array $emptyQueries, Thresholds $thresholds, bool $fuzzy, array &$q): ?array
     {
         $prefix = $fuzzy ? 'mf' : 'me';
         $aliases = [];
@@ -881,38 +1018,21 @@ SELECT
         }
         array_push($q, ...$within['columns']);
         $words = self::mayHold($root);
-        $from = [];
-        $few = [];
+        $holds = [];
         foreach ($this->single as $i => $field) {
             // Only the values that can hold a word of the query take part: every leaf, and each lexeme of a leaf of several (a
             // phrase over the field's boundary needs one of them), on the value alone (a compiler that sees the field only). Exact:
             // a value that holds none satisfies no word the empty row does not, and joined between two columns it can only part
             // a phrase, so the empty row passes whenever it would; the cross product of several fields spans only these values.
-            $holds = (new FuzzyQueryCompiler($this->index, $thresholds, $this->names, [], [$field], $this->transpositions))
+            $one = (new FuzzyQueryCompiler($this->index, $thresholds, $this->names, [], [$field], $this->transpositions))
                 ->withinValues(new AnyOf($words), $params, $emptyQueries, [$field => 'v'], $fuzzy, $prefix . 'r' . ($i + 1));
-            if ($holds !== null) {
-                array_push($q, ...$holds['columns']);
+            if ($one !== null) {
+                array_push($q, ...$one['columns']);
             }
-            // the empty row first: a document whose words are all in other fields passes without reading a value
-            $from[] = sprintf(
-                "(SELECT ''::tsvector AS t, ''::text AS z UNION ALL SELECT v.t, v.z FROM %s AS v WHERE v.doc = s.id AND v.field = %s%s) AS %s",
-                $this->names->values($this->index),
-                Sql::string($field),
-                $holds === null ? '' : ' AND ' . $holds['predicate'],
-                $aliases[$field],
-            );
-            $few[] = sprintf('s.%s <= 1', Sql::ident($this->names->valueCountName($field)));
+            $holds[$field] = $one['predicate'] ?? null;
         }
-        $exists = sprintf('EXISTS (SELECT 1 FROM %s WHERE %s)', implode(' CROSS JOIN ', $from), $within['predicate']);
 
-        // The full-text branch: a document with at most one value in each named field (its stored count; NULL before the reindex
-        // wrote it: the values are read) passes on the statement's own predicate, which is then exactly the per-field form: every
-        // word is a lexeme of one field's column (tsv is the fields joined, so a phrase over a field boundary is the per-field
-        // form's joined vectors), and the one value is the field's whole column. The typo branch has no such shortcut: its own
-        // predicate reads `fz` (every field joined) for an unrestricted viewer, where a typo word can match ACROSS a field boundary
-        // ("kisanna" over the name "Kiss" and the address "Anna utca 1"), which the per-field form never does; the result must not
-        // depend on how many values a document has, nor on whether the count is filled.
-        return $fuzzy ? $exists : sprintf('(%s OR %s)', implode(' AND ', $few), $exists);
+        return ['within' => $within['predicate'], 'holds' => $holds];
     }
 
     /**

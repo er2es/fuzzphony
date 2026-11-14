@@ -11,6 +11,7 @@ use Fuzzphony\Core\Query\SearchQuery;
 use Fuzzphony\Core\Ranking\RankingProfile;
 use Fuzzphony\Core\Ranking\Thresholds;
 use Fuzzphony\Engine\Postgres\ManyMatchFields;
+use Fuzzphony\Engine\Postgres\SameRow;
 use Fuzzphony\Engine\Postgres\Schema\Names;
 use Fuzzphony\Engine\Postgres\Sql\FuzzyQueryCompiler;
 use Fuzzphony\Engine\Postgres\Sql\SearchSqlBuilder;
@@ -40,7 +41,20 @@ final readonly class SearchContext
      */
     public function builder(array $candidates = []): SearchSqlBuilder
     {
-        return new SearchSqlBuilder($this->index, $this->names, $candidates, $this->query->allowedFields, true, openClass: $this->openClass, bestValues: $this->bestValueFields(), single: $this->single());
+        $single = $this->single();
+
+        return new SearchSqlBuilder($this->index, $this->names, $candidates, $this->query->allowedFields, true, openClass: $this->openClass, bestValues: $this->bestValueFields(), single: $single, coupled: SameRow::coupled($this->index, $single));
+    }
+
+    /**
+     * The `same_row_as` filters this search holds to the value that holds the words (SameRow::coupled(): only under manyMatch('single') and
+     * only for a field the viewer sees).
+     *
+     * @return array<string, string> filter name => field name
+     */
+    public function coupled(): array
+    {
+        return SameRow::coupled($this->index, $this->single());
     }
 
     /**
