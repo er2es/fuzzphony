@@ -11,6 +11,10 @@ and a link. Measurements, proofs and test names belong to the pull request, [doc
 
 ## [Unreleased]
 
+## [0.12.5] - 2026-11-15
+
+The strict mode can couple a city filter to the address that holds the words (`same_row_as`), `rank: best` ranks each match once, the redundant open-class trigram index is dropped and the table is vacuumed after a backfill, and the demo shows the coupling. Three independent reviews (the coupling, the trigram drop with probes against the real 0.12.4, and their fixes) found no leak. Run `fuzzphony:schema --apply` (UPGRADE has the order); a reindex is needed only to fill the new per-address filter column of an existing index.
+
 ### Added
 
 - **A city filter on the same address in the strict mode:** a many filter declared `same_row_as: address` holds, under `manyMatch('single')`, for the address that holds the words (`fő utca` + Eger finds the customer whose Eger address is on Fő utca), and its facet counts what choosing a value shows. Opt-in per filter; run `schema --apply`, then a reindex. See [searching](docs/searching.md#several-values-one-address-manymatch) and [UPGRADE](UPGRADE.md#from-012x-to-0125).
@@ -1276,7 +1280,8 @@ on its own:
 - Sync modes: queue (default), trigger, ORM, manual; watches for joined tables.
 - Doctor with fixes; CLI commands for schema, reindex, worker, search and explain.
 
-[Unreleased]: https://github.com/er2es/fuzzphony/compare/v0.12.4...HEAD
+[Unreleased]: https://github.com/er2es/fuzzphony/compare/v0.12.5...HEAD
+[0.12.5]: https://github.com/er2es/fuzzphony/compare/v0.12.4...v0.12.5
 [0.12.4]: https://github.com/er2es/fuzzphony/compare/v0.12.3...v0.12.4
 [0.12.3]: https://github.com/er2es/fuzzphony/compare/v0.12.2...v0.12.3
 [0.12.2]: https://github.com/er2es/fuzzphony/compare/v0.12.1...v0.12.2
