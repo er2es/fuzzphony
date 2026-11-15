@@ -13,6 +13,7 @@ use Fuzzphony\Core\Sync\Worker;
 use Symfony\Component\Console\Attribute\AsCommand;
 use Symfony\Component\Console\Command\Command;
 use Symfony\Component\Console\Command\SignalableCommandInterface;
+use Symfony\Component\Console\Exception\InvalidOptionException;
 use Symfony\Component\Console\Input\InputInterface;
 use Symfony\Component\Console\Input\InputOption;
 use Symfony\Component\Console\Output\OutputInterface;
@@ -114,9 +115,11 @@ final class WorkerCommand extends Command implements SignalableCommandInterface
         if (!is_string($limit)) {
             return null;
         }
-        $unit = strtoupper(substr($limit, -1));
+        if (preg_match('/^(\d+)([KMG]?)$/i', $limit, $m) !== 1) {
+            throw new InvalidOptionException(sprintf('--memory-limit takes bytes or a number with K, M or G (128M), "%s" given.', $limit));
+        }
 
-        return (int) $limit * match ($unit) {
+        return (int) $m[1] * match (strtoupper($m[2])) {
             'K' => 1024,
             'M' => 1024 ** 2,
             'G' => 1024 ** 3,

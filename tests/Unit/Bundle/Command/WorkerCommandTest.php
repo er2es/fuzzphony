@@ -146,6 +146,19 @@ final class WorkerCommandTest extends TestCase
         }
     }
 
+    public function testAnInvalidMemoryLimitIsRejected(): void
+    {
+        foreach (['128MB', '-1', '1.5G', 'abc', ''] as $limit) {
+            $tester = new CommandTester(new WorkerCommand($this->fuzzphony(self::createStub(Engine::class)), idleSleep: 0.01));
+            try {
+                $tester->execute(['--memory-limit' => $limit], ['interactive' => false]);
+                self::fail('"' . $limit . '" must be rejected');
+            } catch (\Symfony\Component\Console\Exception\InvalidOptionException $e) {
+                self::assertStringContainsString('--memory-limit', $e->getMessage());
+            }
+        }
+    }
+
     public function testTheTimeLimitEndsTheWorkerEvenWhenTheQueueNeverRunsDry(): void
     {
         $calls = 0;

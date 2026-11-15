@@ -44,7 +44,7 @@ foreach ($result as $hit) {
 }
 ```
 
-Status: pre-1.0 (v0.12.7). The API may still change before 1.0; breaking changes are listed in the
+Status: pre-1.0 (v0.12.8). The API may still change before 1.0; breaking changes are listed in the
 [CHANGELOG](https://github.com/er2es/fuzzphony/blob/main/CHANGELOG.md) and explained in
 [UPGRADE.md](https://github.com/er2es/fuzzphony/blob/main/UPGRADE.md).
 
@@ -79,8 +79,8 @@ A good fit when:
 - A record has several values (addresses, phone numbers) that should be found by any value, or ranked by the best single one.
 - Your content is multilingual: stemming for 28 languages, accent folding (`kavefozo` finds `Kávéfőző`).
 
-Measured up to 1,000,000 documents per index (a typical search takes milliseconds to about a hundred, the very commonest words a few hundred at 1,000,000;
-see [benchmarks](docs/benchmarks.md)); beyond a few million documents per
+Measured up to 1,000,000 documents per index (a typical search takes milliseconds to about a hundred; the commonest words, many-word queries, typo searches on wide
+indexes and viewers with granted fields take longer, see [benchmarks](docs/benchmarks.md) and [limitations](docs/limitations.md)); beyond a few million documents per
 index, measure first. A search is an ordinary read query, so throughput is that of your PostgreSQL and its connection pool. Not for analytics-style
 aggregations, semantic or vector search, or a database other than PostgreSQL.
 

@@ -492,4 +492,4 @@ tables. If your connection has its own `schema_filter` the bundle leaves it alon
 comes from a parameter or environment variable the bundle sets no filter and the doctor does not check yours: add Fuzzphony's regex yourself. A migration
 from `--dump-migration` can be generated again after upgrading (it now ends with the version record).
 
-From a release before 0.3.2, go through the [CHANGELOG](CHANGELOG.md) of every release on the way; the steps are always `fuzzphony:schema --apply`, then `fuzzphony:reindex`.
+From a release before 0.3.2, go through the [CHANGELOG](CHANGELOG.md) of every release on the way: some changed a requirement, an option or an API.
