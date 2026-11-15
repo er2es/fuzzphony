@@ -11,6 +11,8 @@ and a link. Measurements, proofs and test names belong to the pull request, [doc
 
 ## [Unreleased]
 
+- **`fuzzphony:worker --memory-limit=128M`** stops the worker after the cycle in which its memory use passed the limit (let the supervisor restart it), and SIGQUIT now stops it gracefully like SIGTERM and SIGINT.
+
 ## [0.12.7] - 2026-11-15
 
 ### Fixed
