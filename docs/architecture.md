@@ -186,8 +186,8 @@ Only an index that declares one pays for it; every other index keeps its layout,
   values are read, and the doctor suggests a reindex. The column is dropped by `schema --apply` when a field leaves `rank: best` (a full reindex builds the
   shadow table without it too), and the doctor compares a sample of the counts with the values table. The count reads the child table by the plain key
   column (no cast on it), so an index on the key serves it.
-- A filter declared `same_row_as: <field>` adds a nullable `text[]` column `fr_<filter>_<hash>` to the values table (the hash covers `from`,
-  `key`, `id`, the filter's column and the field, so a changed declaration gets a new, empty column; `schema --apply` drops the ones no filter
+- A filter declared `same_row_as: <field>` adds a nullable `text[]` column `fr_<filter>_<hash>` to the values table (the hash covers the filter's
+  name, `from`, `key`, `id`, the filter's column and the field, so a changed declaration gets a new, empty column; `schema --apply` drops the ones no filter
   expects; in the apply's transaction, with the new refresh function). A search couples only the filters whose column the catalog has
   (TextConfigCache::sameRow(): a found column is kept for the process, a missing one looked up again; "undefined column" for a kept one
   forgets it and retries the search once, outside a caller's transaction). The refresh function writes it on the field's rows from the same child row (`{}` when the row has no value, `ARRAY[value]`

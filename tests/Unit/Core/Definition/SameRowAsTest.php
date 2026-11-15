@@ -5,6 +5,8 @@ declare(strict_types=1);
 namespace Fuzzphony\Tests\Unit\Core\Definition;
 
 use Fuzzphony\Core\Definition\ArrayDefinitionLoader;
+use Fuzzphony\Core\Definition\FilterDefinition;
+use Fuzzphony\Core\Definition\FilterType;
 use Fuzzphony\Core\Definition\IndexBuilder;
 use Fuzzphony\Core\Definition\IndexDefinition;
 use Fuzzphony\Core\Definition\ManyValues;
@@ -116,6 +118,14 @@ final class SameRowAsTest extends TestCase
         $tooLong = IndexDefinition::builder('customers')->fromTable('customer')->field('name', 'A')->field('address', 'C', many: self::ADDRESS)
             ->filter(str_repeat('c', 48), 'string', many: [...self::CITY, 'same_row_as' => 'address'])->build();
         self::assertSame(60, strlen($names->sameRowColumnName($tooLong->filter(str_repeat('c', 48)))), 'the longest filter name fits PostgreSQL\'s 63 bytes');
+        // two filters over the same source whose names agree in the part that fits (longer than a valid name, 48: the name is not
+        // relied on to be short): the hash covers the name too, so they never share a column
+        $many = new ManyValues('address', 'customer_id', 'city', sameRowAs: 'address');
+        $a = $names->sameRowColumnName(new FilterDefinition(str_repeat('c', 55) . 'a', FilterType::String, many: $many));
+        $b = $names->sameRowColumnName(new FilterDefinition(str_repeat('c', 55) . 'b', FilterType::String, many: $many));
+        self::assertNotSame($a, $b, 'one column each, never the same column twice in the INSERT');
+        self::assertStringStartsWith('fr_' . str_repeat('c', 51) . '_', $a, 'the readable prefix stays');
+        self::assertSame(63, strlen($a));
         $this->expectException(\LogicException::class);
         $names->sameRowColumnName(IndexDefinition::builder('x')->fromTable('t')->field('name', 'A')->filter('k', 'string')->build()->filter('k'));
     }
