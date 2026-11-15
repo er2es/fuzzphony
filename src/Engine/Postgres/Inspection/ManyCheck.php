@@ -221,7 +221,7 @@ final readonly class ManyCheck
             $label = sprintf('Same row "%s"', $filter->name);
             $expected[] = $column = $this->names->sameRowColumnName($filter);
             if (!in_array($column, $present, true)) {
-                $checks[] = Check::error($label, sprintf('The values table has no column %s: a search in manyMatch(\'single\') cannot hold filter "%s" to the value of "%s" that holds the words.', $column, $filter->name, $field), 'bin/console fuzzphony:schema --apply');
+                $checks[] = Check::error($label, sprintf('The values table has no column %s: a search in manyMatch(\'single\') keeps the document-level filter "%s" instead of holding it to the value of "%s" that holds the words.', $column, $filter->name, $field), 'bin/console fuzzphony:schema --apply');
 
                 continue;
             }

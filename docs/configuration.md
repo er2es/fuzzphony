@@ -368,7 +368,7 @@ values of a document by it, and the doctor warns when there is none.
   and only `string` filters can be many. A facet over it counts **documents** per value, never values.
 - **`same_row_as` holds a filter to the address that holds the words.** `city: { type: string, many: { from: address, key: customer_id,
   column: city, same_row_as: address } }` (builder: `many: [..., 'same_row_as' => 'address']`) declares that the filter's values sit on the
-  same child rows as the many field `address` (same `from`, `key` and `id`; the field needs `rank: best` to take part in
+  same child rows as the many field `address` (same `from`, `key` and `id`; the field must be `rank: best`, the fields that take part in
   [`manyMatch('single')`](searching.md#several-values-one-address-manymatch)). Then, in a search with `manyMatch('single')` over `address`,
   `where('city', 'Eger')` (and `whereIn`) holds for the **same** address whose value holds the words; in the default mode, and for a viewer
   who may not see `address`, the filter is the document-level one, unchanged. Filters only. `fuzzphony:schema --apply` adds one nullable
@@ -377,7 +377,8 @@ values of a document by it, and the doctor warns when there is none.
   table, drops that column at the next apply (a changed one gets a new, empty column: old values are never trusted). In a rolling deploy a
   coupled search whose column is not there (new code before the apply, old code after it dropped the column) keeps the document-level
   filter instead of failing (old code retries once; inside your own transaction the error stands: see [UPGRADE](../UPGRADE.md#opting-in-same_row_as)). Refused with a fix: a
-  name that is not a field (with a "did you mean"), a single-valued field, a field that reads other child rows, the option on a field.
+  name that is not a field (with a "did you mean"), a single-valued field, a `rank: whole` field, a field that reads other child rows, the
+  option on a field.
 - **The hit says which value matched**: with `explainMatches()` every `MatchedWord` of a many field carries `valueOrd` (the position of the
   value, from 0) and `value` (the stored text). `highlight('city')` shows the value that matches best, not the whole list.
 - **The limit is never silent.** Values are taken in the order of the column value, then of the child's primary key, and only the first `limit`

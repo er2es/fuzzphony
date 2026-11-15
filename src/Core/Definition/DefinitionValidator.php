@@ -194,7 +194,7 @@ final class DefinitionValidator
     }
 
     /**
-     * A filter's `same_row_as`: it names a many field of the index that reads the same child rows (from, key and id equal), so a
+     * A filter's `same_row_as`: it names a `rank: best` many field of the index (only those take part in manyMatch('single')) that reads the same child rows (from, key and id equal), so a
      * value row and a filter value can be on the same row.
      *
      * @return list<string>
@@ -212,6 +212,9 @@ final class DefinitionValidator
             return [sprintf('%s: many "same_row_as" must name a field with "many" (several values), "%s" has one value per document.', $what, $name)];
         }
         $many = $field->many;
+        if ($many->rank !== ManyRank::Best) {
+            return [sprintf('%s: many "same_row_as" must name a field with many "rank: best" (only those take part in manyMatch(\'single\'), where the filter holds for the same row), "%s" is "rank: whole".', $what, $name)];
+        }
         if ($many->from !== $filter->from || $many->key !== $filter->key || $many->id !== $filter->id) {
             return [sprintf(
                 '%s: many "same_row_as": field "%s" reads %s/%s/%s, this filter reads %s/%s/%s; a value row and a filter value are on the same row only when from, key and id are equal.',

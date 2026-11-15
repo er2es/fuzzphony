@@ -26,7 +26,7 @@ searches is the same. Two schema changes, both applied by `schema --apply`, **no
 ### Opting in: `same_row_as`
 
 To hold a city filter to the address that holds the words under `manyMatch('single')`, declare it on the many filter (the field must be a
-many field over the same child rows, with `rank: best` to take part in the single mode):
+many field over the same child rows with `rank: best`, the fields of the single mode; a `rank: whole` field is refused with a message):
 
 ```yaml
 filters:
