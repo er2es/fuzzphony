@@ -1,7 +1,9 @@
 # Upgrading
 
-Before 1.0, a minor version may contain breaking changes. Each section lists what to change,
-and the [CHANGELOG](CHANGELOG.md) has the full list of changes.
+Upgrading: `composer update`, then `bin/console fuzzphony:schema --apply`, `fuzzphony:reindex <index>` when the doctor asks, and `fuzzphony:doctor`.
+
+Before 1.0 a minor version may contain breaking changes. Each section lists what to change; the [CHANGELOG](CHANGELOG.md) has the full list.
+Restart long-running processes (workers, RoadRunner, FrankenPHP) after an apply: the engine looks some catalog facts up once per process.
 
 ## From 0.12.x to 0.12.6
 
@@ -11,156 +13,140 @@ are the same.
 
 ## From 0.12.x to 0.12.5
 
-No API change and no change of results: the schema plan of an index with a many field gains one idempotent statement
-(it drops a `fr_` column of the values table that no filter expects; there is none on an existing install), and every statement of its
-searches is the same. Two schema changes, both applied by `schema --apply`, **no reindex needed**:
+No API change, no change of results, **no reindex needed**. Two schema changes, both applied by `schema --apply`:
 
-- **An index whose `granted` fields are all non-fuzzy loses one index.** Its open-class trigram index (`...__open_fz_<hash>`) held the
-  same trigrams as `fz`, so it is no longer built and the apply drops it (`DROP INDEX CONCURRENTLY`, found in the catalog, safe to run
-  again; 12 MB at 200 000 rows). A viewer restricted to the open fields looks its typos up in `fz` and its words in the open-class
-  full-text index, which the copy kept switched off; results are unchanged. Order: **deploy the code, restart long-running workers, then
-  apply** (the command asks for the restart when it dropped one). A 0.12.4 process still running after the apply keeps the same results:
-  statements name no index, only the expression, so its lookup runs without the index (slower, never failing) until it restarts. A
-  dumped migration leaves the drop out (as every stale-index drop); the doctor reports the index as stale until an apply drops it.
-  Going back to 0.12.4: its apply builds the index again.
-- **After a column backfill the apply runs `VACUUM (ANALYZE)` on that table** (only when the backfill updated rows; outside a
-  transaction) and the command prints how much the table grew, with `fuzzphony:reindex <index>` as the online way to compact it; the
-  doctor's new "Sidecar size" warning (also shown for rows written before 0.12.4 and not reindexed since, when they are 10% or more of
-  the table) stays until that reindex. A dumped migration has the `VACUUM` as a comment: run it after the
-  migration when the backfill updated rows.
+- **An index whose `granted` fields are all non-fuzzy loses its open-class trigram index** (`...__open_fz_<hash>`, a copy of `fz`): the apply
+  drops it (`DROP INDEX CONCURRENTLY`, safe to repeat). Order: deploy the code, restart workers, then apply. A still-running 0.12.4 process
+  keeps the same results (slower typo lookups for restricted viewers until it restarts). A dumped migration leaves the drop out; the doctor
+  reports the index as stale until an apply drops it. Going back to 0.12.4: its apply builds the index again.
+- **After a column backfill the apply runs `VACUUM (ANALYZE)` on that table** (only when rows were updated) and prints how much the table
+  grew; `fuzzphony:reindex <index>` compacts it online, and the doctor's "Sidecar size" warning stays until then. A dumped migration has
+  the `VACUUM` as a comment: run it after the migration.
 
 ### Opting in: `same_row_as`
 
 To hold a city filter to the address that holds the words under `manyMatch('single')`, declare it on the many filter (the field must be a
-many field over the same child rows with `rank: best`, the fields of the single mode; a `rank: whole` field is refused with a message):
+many field over the same child rows with `rank: best`; a `rank: whole` field is refused):
 
 ```yaml
 filters:
   city: { type: string, many: { from: address, key: customer_id, column: city, same_row_as: address } }
 ```
 
-1. Deploy the definition and run `bin/console fuzzphony:schema --apply` right away: it adds one nullable `text[]` column to the values
-   table (catalog check first, no rewrite, no default) and the refresh function that fills it. Until the apply a coupled search keeps the
-   document-level filter (today's result, not an error): the engine looks the column up in the catalog, once per coupled search while it
-   is missing, and from the first search that finds it uses it (no restart needed).
-2. `bin/console fuzzphony:reindex <index>`: the rows written before the option do not know their city (NULL) and match the city of any
-   address, as before, until the reindex (or the sync) rewrites them; the doctor counts them ("Same row"). There is no apply-time backfill.
+1. Deploy the definition and run `fuzzphony:schema --apply` right away: it adds one nullable `text[]` column to the values table (no
+   rewrite) and the refresh function that fills it. Until the apply a coupled search keeps the document-level filter (not an error); no
+   restart needed afterwards.
+2. `fuzzphony:reindex <index>`: rows written before the option have NULL and match the city of any address until the reindex (or the sync)
+   rewrites them; the doctor counts them ("Same row").
 
-Removing the option (or changing its column, field or child table) needs only `schema --apply`: the column goes (a changed declaration
-gets a new, empty column), and the searches fall back to the document-level filter at once. A process still running the old definition
-that knew the dropped column gets "undefined column" on its next coupled search, forgets the column and runs that search once more with
-the document-level filter (no error), except inside a transaction of your own, which the failed statement aborted: there the error stands
-(deploy the new definition to such processes before the apply, or restart them). Going back to 0.12.4 needs nothing: its
-refresh function lists its columns, so the column is left NULL on the rows it writes.
+Removing the option (or changing its column, field or child table) needs only `schema --apply`; searches fall back to the document-level
+filter at once. A process still running the old definition retries once without the column (no error), except inside your own transaction,
+which the failed statement aborted: deploy the new definition to such processes before the apply, or restart them. Going back to 0.12.4
+needs nothing.
 
 ## From 0.12.x to 0.12.4
 
-No API change. A per-field column whose value another column of the same row holds is stored empty: `z_<field>` of the primary field
-(the same as `exact`), `z_<field>` of the only fuzzy field (`fz`) and `t_<field>` of an index of one field (`tsv`). A new text column
-`field_map` lists, per row, which columns were stored empty and which column holds each (`t_name=tsv,z_name=exact`; NULL = every
-column filled). A search reads the other column only for a row written with the current map, else the row's own column. Results, scores
-and highlights are unchanged.
+No API change. A per-field column whose value another column of the same row holds is stored empty (`z_<field>` of the primary field or
+the only fuzzy field, `t_<field>` of a one-field index). A new text column `field_map` lists, per row, which columns are empty and which
+column holds each (NULL = every column filled). A search reads the other column only for a row written with the current map. Results,
+scores and highlights are unchanged.
 
 ### Deploy order
 
 1. `composer update fuzzphony/fuzzphony`.
-2. `bin/console fuzzphony:schema --apply` **before** the new code serves searches. It adds the nullable `field_map` column to every
-   index table (catalog check first; a column without a default is no rewrite) and the new refresh function. Nothing is dropped, ever
-   (also not by a later definition without shared columns). **No reindex is needed**: the rows of the earlier release have no map and
-   keep being read from their own, filled columns; each row the sync rewrites, and every row of the next full reindex, is stored
-   without the copy, so the space returns as rows are rewritten (all of it after `fuzzphony:reindex <index>`).
-3. Deploy the code. New code on a table without `field_map` fails with `SchemaNotApplied` ("Run: bin/console fuzzphony:schema
-   --apply") on a search that reads a shared column. Old code on an applied table keeps running and never shows a hidden field,
-   but during a rolling deploy it reads the per-field columns directly: a row the new refresh function wrote meanwhile (its copy
-   stored empty) misses that old code's field-scoped and restricted searches until the old code is gone. Keep the window short.
+2. `bin/console fuzzphony:schema --apply` **before** the new code serves searches: it adds the nullable `field_map` column (no rewrite)
+   and the new refresh function; nothing is dropped. **No reindex is needed**: old rows keep being read from their own columns; rows the
+   sync rewrites, and every row of the next full reindex, are stored without the copy.
+3. Deploy the code. New code on a table without `field_map` fails with `SchemaNotApplied` ("Run: bin/console fuzzphony:schema --apply").
+   Old code on an applied table keeps running and never shows a hidden field, but during a rolling deploy a row the new refresh function
+   wrote meanwhile misses the old code's field-scoped and restricted searches. Keep the window short.
 
 ### A definition change (any release from 0.12.4 on)
 
-When a definition change moves a column in or out of the map (a field added or removed, the primary field or `fuzzy` changed), the
-rows written under the old map have columns stored empty that the new definition reads as their own (a row is read through the
-shared columns only when its map is the current one). `schema --apply` copies them
-back (the **backfill**): for each other map in the table it updates those rows in id order, 20 000 per statement, each committed,
-filling every column of the row's map from the column that holds its value in that same row, and sets the map to NULL. It runs after
-the transaction of the apply (like the concurrent index builds), is idempotent and resumes where an interrupted run stopped. Its cost
-is an `UPDATE` of those rows (time and WAL about like rewriting them; a table of a million rows takes seconds to minutes; searches go
-on meanwhile), plus one scan of the index table per apply to find the maps. A change that keeps the map (a weight, `code`, a filter,
-`granted`) rewrites nothing.
+When a definition change moves a column in or out of the map (a field added or removed, the primary field or `fuzzy` changed), rows
+written under the old map have columns stored empty that the new definition reads as their own. `schema --apply` copies them back (the
+**backfill**): per old map, in id order, 20 000 rows per committed statement, then sets the map to NULL. It runs after the apply's
+transaction, is idempotent and resumes where an interrupted run stopped; its cost is an `UPDATE` of those rows (seconds to minutes per
+million rows; searches go on). A change that keeps the map (a weight, `code`, a filter, `granted`) rewrites nothing.
 
-- `fuzzphony:schema --apply` shows how many rows of which maps wait and how many statements it runs, and **asks** (default no).
-  When none wait it asks nothing and still runs the backfill (one scan), for a row of the old map written while it counted.
-  `--force` runs it without asking; a non-interactive run without `--force` applies the rest, skips the backfill, warns and exits
-  with 1. Until the backfill runs, those rows miss field-scoped and restricted searches on the affected columns (no hidden field is
-  ever read: a row is read from its own column unless it has the current map). `fuzzphony:doctor` warns while such rows exist.
-- `--dump-migration` and the printed SQL contain the backfill as a `DO` block that commits per batch: run that migration outside a
-  transaction (the generated migration is non-transactional already).
-- A full `fuzzphony:reindex` also fixes those rows (every row is written with the current map).
+- `fuzzphony:schema --apply` shows how many rows wait and **asks** (default no). `--force` runs without asking; a non-interactive run
+  without `--force` applies the rest, skips the backfill, warns and exits with 1. Until it runs, those rows miss field-scoped and
+  restricted searches on the affected columns (never a hidden field). `fuzzphony:doctor` warns while such rows exist.
+- `--dump-migration` contains the backfill as a `DO` block that commits per batch: run it outside a transaction (the generated
+  migration is non-transactional already).
+- A full `fuzzphony:reindex` also fixes those rows.
 
-**Going back to 0.12.3 or earlier:** that release reads the per-field columns of every row, which are empty for the rows this release
-wrote with a map: run its `schema --apply` and a full reindex (`fuzzphony:reindex <index>`), or field-scoped and restricted searches
-miss those rows until then. The `field_map` column stays (unused by 0.12.3). Change no definition between the downgrade and that
-full reindex; if you did (its sync rewrote rows while their 0.12.4 maps stayed), run a full reindex before upgrading again. 0.12.4
-guards against it: when its apply finds a refresh function that writes no `field_map`, it stops trusting every map in the table
-(those rows are read from their own columns and never backfilled) and the doctor asks for the reindex.
+**Going back to 0.12.3 or earlier:** run its `schema --apply` and a full reindex, or field-scoped and restricted searches miss the rows
+written with a map. The `field_map` column stays unused. Change no definition between the downgrade and that reindex. 0.12.4 guards
+against a stale map (an apply that finds a refresh function writing no `field_map` stops trusting every map; the doctor asks for the
+reindex).
 
 ## From 0.11.x to 0.12.0
 
-Additive: nothing is removed or renamed, and an index that uses none of the new options keeps its tables, its search statements and its results.
+Additive: an index that uses none of the new options keeps its tables, statements and results.
 
 ### Checklist (in this order)
 
 1. `composer update fuzzphony/fuzzphony`.
-2. `bin/console fuzzphony:schema --apply` (as the owner role; or `--dump-migration` for your own migration tool). On every index it adds one idempotent
-   statement that drops a value-count column no `rank: best` field expects, and on an index with a `many` field one more that drops a stale `<values>_best_...` index
-   (both are no-ops when there is nothing to drop, so the apply output shows one or two more steps per index; the rest of the generated SQL is unchanged).
-3. Only for an index that gets **`many: { rank: best }`** (opt-in, per field): the apply also builds a partial GIN index on the values table and adds the
-   count column `n_<field>` to the index table. Results are right at once; then run **`bin/console fuzzphony:reindex <index>`** (it rebuilds next to the live index and swaps it in: no downtime) to write the counts. Until then a search reads the
-   values of every candidate (slower; the doctor warns). Turning the option off again drops the index and the column at the next apply.
-4. Only if your search role was created from `--dump-grants`: nothing new for the values table (it already has `SELECT`), and a `returnable` many field makes the dump
-   list a `SELECT` on its child table. Both grants are on the whole table; see [roles](docs/roles.md#the-matrix).
+2. `bin/console fuzzphony:schema --apply` (as the owner role, or `--dump-migration`). Every index gets one or two idempotent drop
+   statements (an unused value-count column, a stale `<values>_best_...` index); nothing else changes.
+3. Only for an index that gets **`many: { rank: best }`** (opt-in per field): the apply builds a partial GIN index on the values table and
+   adds the count column `n_<field>`. Results are right at once; run **`fuzzphony:reindex <index>`** (online) to write the counts. Until
+   then a search reads the values of every candidate (slower; the doctor warns). Turning the option off drops index and column at the next apply.
+4. If your search role was created from `--dump-grants`: nothing new for the values table, and a `returnable` many field adds a `SELECT` on
+   its child table to the dump ([roles](docs/roles.md#the-matrix)).
 5. `bin/console fuzzphony:doctor`: "Values ranking" per `rank: best` field must be green.
 
 ### What changes behaviour
 
-- **`with()` reads the whole page in one statement** (a `UNION ALL` of one SELECT per source): `explain()` shows one `returned fields: <index>` instead of one per
-  source, and `SourceFields::statements()` is now `statement()` (internal). Nothing to do, unless you assert the statement labels.
-- **A many field's name in `returnable` returns its values** (a `list<string>`) instead of the source column of the same name; `Hit::$data` is typed
-  `array<string, scalar|list<string>|null>`. Only an index with a many field that is also a returnable column name is affected: rename one of them.
-- **A many field in `with()` follows the visibility of the search:** a viewer restricted with `restrictedToFields()` (or by a guard) to other fields can no longer ask for it:
-  it is refused like an unknown name and left out of `with()` with no argument. Ordinary returnable columns are unchanged.
+- **`with()` reads the whole page in one statement** (one `UNION ALL`): `explain()` shows one `returned fields: <index>`; only matters if
+  you assert statement labels.
+- **A many field's name in `returnable` returns its values** (`list<string>`) instead of the source column of the same name; `Hit::$data`
+  is typed `array<string, scalar|list<string>|null>`. Rename one of them if both exist.
+- **A many field in `with()` follows the visibility of the search:** a viewer restricted to other fields can no longer ask for it (refused
+  like an unknown name).
 
 ### Added
 
-- **`returnable` aliases** (`{ url: slug }`, `->returnable(['url' => 'slug'])`): `with('url')` and `Hit::$data['url']`; a granted column stays gated by its name and its column.
-- **`many: { rank: best }`** (`ManyRank`, public) ranks a many field through its best single value, and **`SearchBuilder::manyMatch('single'|'any', ...$fields)`**
-  asks that one value holds every word needed from the field (typos and as-you-type within the value; exclusions judge the whole document).
-  See [Several values per document](docs/configuration.md#several-values-per-document-many) and
-  [Several values, one address](docs/searching.md#several-values-one-address-manymatch). Costs 1.4 to 2 times a `rank: whole` search whose words are in the field ([benchmarks](docs/benchmarks.md#ranking-by-the-best-value-rank-best)).
-  `manyMatch('single')` needs nothing beyond the option (no reindex of its own) and checks at most 3 fields together (an index with 4 or more `rank: best` fields a viewer sees must name them: `manyMatch('single', 'addresses')`, else `InvalidQuery`); a search without it is unchanged.
-- **`ScoreBreakdown::$bestValues`** (`array<string, int>`, filled with `explainMatches()` only) gives the position of the value each `rank: best` field ranked the hit by, and the highlight of such a
-  field shows that value; code that builds a `ScoreBreakdown` itself is unaffected (the parameter is last and optional).
+- **`returnable` aliases** (`{ url: slug }`, `->returnable(['url' => 'slug'])`); a granted column stays gated by its name and its column.
+- **`many: { rank: best }`** (`ManyRank`) ranks a many field by its best single value, and **`SearchBuilder::manyMatch('single'|'any', ...$fields)`**
+  asks that one value holds every word needed from the field. See [configuration](docs/configuration.md#several-values-per-document-many),
+  [searching](docs/searching.md#several-values-one-address-manymatch). Costs 1.4 to 2 times a `rank: whole` search
+  ([benchmarks](docs/benchmarks.md#ranking-by-the-best-value-rank-best)). `manyMatch('single')` needs no reindex of its own and checks at
+  most 3 fields together (with 4 or more `rank: best` fields name them, else `InvalidQuery`).
+- **`ScoreBreakdown::$bestValues`** (with `explainMatches()` only): the position of the value each `rank: best` field ranked the hit by.
 
 ## From 0.10.x to 0.11.0
 
 ### Added
 
-- **Index definition classes** (`#[AsIndexDefinition]`, public): several indexes per entity, see [Definition classes](docs/configuration.md#definition-classes). Nothing to do for
-  existing indexes: attribute, YAML and builder definitions, fingerprints and the schema are unchanged.
-- **Multi-source indexes** (`sources:` in YAML, `->source()` / `->sourceFromTable()` on the builder, also in a definition class): several named `SELECT`s share one set of fields, with their own watches, entity and id type; hits carry `kind` and the source's typed id; `fuzzphony:reindex <index> --source=<name>` rebuilds one source ([Configuration](docs/configuration.md#several-sources-in-one-index)). Nothing to do for existing indexes: a single-source index keeps its sidecar, statements and fingerprint. The shared watch registry `fuzzphony_watches` gets a `source` column (`fuzzphony:schema --apply` adds it). Public API added: `IndexSource`, `IndexBuilder::source()`, `IndexBuilder::sourceFromTable()`, `ReindexOptions::$source`, `ReindexResult::$perSource`. Apply the release to every process (web, worker, console) before the first multi-source index is applied: earlier code cannot read its text key, and there is no schema-level downgrade.
-- **`Hit::$index`** (new) names the index a hit comes from; `Hit::$kind` is the source inside it (the index name for a single-source index). Both are in `toArray()` / JSON (`index`, `kind`). `new Hit(...)` (internal) takes an optional trailing `index`.
-- **`EntityLoader::loadHits()`** loads the entities of mixed hits (several sources or indexes, several entity classes) with one query per class ([Integrations](docs/integrations.md#loading-mixed-results)).
-- **Doctor `Watches` check and `--fail-on`:** `fuzzphony:doctor` warns about every table a `queue` or `trigger` source reads that no watch covers (with a watch to adapt, or `sync: manual`);
-  `--fail-on=warning` (like `--strict`) fails a CI step on it. Nothing to apply; expect new warnings on indexes with an unwatched join ([Sync](docs/sync.md#the-doctor-finds-the-tables-you-forgot-to-watch)).
-- **New metrics:** the worker gauges `fuzzphony.watch_log.entries`, `fuzzphony.watch_log.oldest_age_seconds`, `fuzzphony.watch.bad_rows`, `fuzzphony.queue.failing_items`, `fuzzphony.queue.oldest_age_seconds`
-  (label `index`), and for multi-source indexes `fuzzphony.reindex.documents` and `fuzzphony.worker.source_rebuild_failures` (labels `index`, `source`); existing metrics keep their labels ([Observability](docs/observability.md)).
-- **Federated `atLeast` floor:** `->index('articles', atLeast: 3)` keeps at least that many of the index's best hits on the first page; `weight` now also refuses `NAN` and `INF` ([Federated search](docs/searching.md#federated-search)).
-- **Returned source fields:** an index declares `returnable: [title, slug]` (YAML; per source in a multi-source index; builder `->returnable()`) and a search asks `->with('title', 'slug')`; `Hit::$data` then holds the values of the hit's source row, read by the ids of the page with one extra statement per source, only when asked ([Searching](docs/searching.md#returning-source-fields-with)). Nothing to do for existing indexes. A returnable `granted` field is returned only to actors who hold it. The search role needs `SELECT` on the source tables of an index that declares `returnable` columns (`fuzzphony:schema --dump-grants --role=search`). Adding `returnable` changes the definition hash: run `fuzzphony:schema --apply` (no reindex).
-- **Several values per document (`many`):** a field or filter can take its values from a child table (`city: { weight: C, many: { from: address, key: customer_id, column: city } }`; builder `->field('city', 'C', many: [...])`, `->filter('city', 'string', many: [...])`, definition classes, public `ManyValues`). An index that declares it gets the table `fuzzphony_<index>__values`, a `text[]` column for a many filter and a derived watch of the child table: run `fuzzphony:schema --apply` and `fuzzphony:reindex <index>` for that index; the roles need the new grants (`fuzzphony:schema --dump-grants`). `MatchedWord` gets the optional `valueOrd` and `value`. Nothing to do for other indexes: their DDL, statements and results are unchanged. Changing an existing filter to many changes its column type: give it a new name. The string_agg recipe still works; `many` replaces it when you need the matched value, document-level filters or a limit ([Configuration](docs/configuration.md#several-values-per-document-many)).
-- **`FuzzphonySearchFilter`** has an `index` argument (default: the index of the resource's entity).
-- `Fuzzphony::postgres()` also accepts the class names of definition classes next to `IndexDefinition` objects.
+- **Index definition classes** (`#[AsIndexDefinition]`): several indexes per entity ([configuration](docs/configuration.md#definition-classes)).
+- **Multi-source indexes** (`sources:` in YAML, `->source()` / `->sourceFromTable()`): several named `SELECT`s share one set of fields; hits
+  carry `kind` and the source's typed id; `fuzzphony:reindex <index> --source=<name>` rebuilds one source
+  ([configuration](docs/configuration.md#several-sources-in-one-index)). A single-source index is unchanged. The shared `fuzzphony_watches`
+  table gets a `source` column (`schema --apply`). Apply the release to every process (web, worker, console) before the first
+  multi-source index is applied: earlier code cannot read its text key, and there is no schema-level downgrade.
+- **`Hit::$index`** names the index of a hit; `Hit::$kind` is the source inside it (the index name for a single-source index). Both are in `toArray()`.
+- **`EntityLoader::loadHits()`** loads mixed hits with one query per class ([integrations](docs/integrations.md#loading-mixed-results)).
+- **Doctor `Watches` check and `--fail-on`:** warns about every table a `queue` or `trigger` source reads that no watch covers; `--fail-on=warning`
+  (like `--strict`) fails a CI step on it ([sync](docs/sync.md#the-doctor-finds-the-tables-you-forgot-to-watch)).
+- **New metrics:** worker gauges `fuzzphony.watch_log.entries`, `.oldest_age_seconds`, `fuzzphony.watch.bad_rows`, `fuzzphony.queue.failing_items`,
+  `fuzzphony.queue.oldest_age_seconds` (label `index`); `fuzzphony.reindex.documents` and `fuzzphony.worker.source_rebuild_failures` (labels
+  `index`, `source`) ([observability](docs/observability.md)).
+- **Federated `atLeast` floor:** `->index('articles', atLeast: 3)`; `weight` refuses `NAN` and `INF` ([searching](docs/searching.md#federated-search)).
+- **Returned source fields:** `returnable: [title, slug]` in the definition and `->with('title', 'slug')` in a search; one extra statement per
+  source, only when asked; a returnable `granted` field is returned only to actors who hold it ([searching](docs/searching.md#returning-source-fields-with)).
+  The search role needs `SELECT` on those source tables (`--dump-grants --role=search`). Adding `returnable` changes the definition hash:
+  run `schema --apply` (no reindex).
+- **Several values per document (`many`):** a field or filter takes its values from a child table (`city: { weight: C, many: { from: address, key: customer_id, column: city } }`).
+  The index gets a `fuzzphony_<index>__values` table, a `text[]` column for a many filter and a derived watch: run `schema --apply` and
+  `fuzzphony:reindex <index>`, and give the roles the new grants (`--dump-grants`). Changing an existing filter to many changes its column
+  type: give it a new name ([configuration](docs/configuration.md#several-values-per-document-many)).
+- `FuzzphonySearchFilter` has an `index` argument; `Fuzzphony::postgres()` also accepts definition class names.
 
 ### Changed
 
-- **Federated results:** use `$hit->index` for the index a hit comes from. `$hit->kind` is the hit's source: equal to the index name for single-source indexes (nothing changes for them), the source name for a multi-source index.
+- **Federated results:** use `$hit->index` for the index of a hit; `$hit->kind` is the source (equal to the index name for single-source indexes).
 
 ## From 0.9.13 to 0.10.0
 
@@ -169,110 +155,87 @@ Additive: nothing is removed or renamed, and an index that uses none of the new 
 1. `composer update fuzzphony/fuzzphony` (PHP 8.4, PostgreSQL 14+ as before).
 2. Rename in your code and configuration (the old names fail with a message that names the new one):
    - `Fuzzphony::suggest()` to `complete()`, `useSuggestion` to `useDidYouMean` (also in a Twig override), `fuzzphony:search --suggest` to `--complete`;
-   - the flat `thresholds:` keys (`fuzzy_mode`, `rescue_empty`, `candidate_limit`, ...) into the groups `relevance`, `typo`, `rescue`, `limits` (also `->thresholds([...])`, `new Thresholds(...)`, `--threshold`);
-   - `FederatedHit` to `Hit` (`$hit->kind`, `$hit->mergedScore`); anything that used an `@internal` class, `Fuzzphony::registry()` or `engine()` (use `Fuzzphony::postgres()`, `wizard()`, `indexes()`, `definition()`).
-3. Searches that must see everything (exports, admin commands, Messenger handlers, tests, public catalogue pages) say `->asSystem()`; every other search now runs as the current user,
-   and an index with a `granted` field needs `fuzzphony.authorization.enabled: true`.
-4. `bin/console fuzzphony:schema --apply` for every index, before the new code serves traffic (new columns, new index names, one trigger set per table; the apply is online).
-5. `bin/console fuzzphony:reindex <index>` only for an index that uses `code: true` (new) or whose primary key you want renamed to the new scheme; nothing else needs a rebuild.
-6. If the application, worker and admin use separate database users, run `fuzzphony:schema --dump-grants` and adjust the grants (the writer needs `INSERT` on `fuzzphony_watch_log`, the worker
-   `UPDATE` on it); optional `fuzzphony.connections: { worker, admin }` ([Database roles](docs/roles.md)).
+   - the flat `thresholds:` keys into the groups `relevance`, `typo`, `rescue`, `limits` (also `->thresholds([...])`, `new Thresholds(...)`, `--threshold`);
+   - `FederatedHit` to `Hit`; anything that used an `@internal` class, `Fuzzphony::registry()` or `engine()` (use `Fuzzphony::postgres()`, `wizard()`, `indexes()`, `definition()`).
+3. Searches that must see everything (exports, admin commands, Messenger handlers, tests, public catalogue pages) say `->asSystem()`; every other
+   search now runs as the current user, and an index with a `granted` field needs `fuzzphony.authorization.enabled: true`.
+4. `bin/console fuzzphony:schema --apply` for every index, before the new code serves traffic (new columns, new index names, one trigger set per table; online).
+5. `bin/console fuzzphony:reindex <index>` only for an index that uses `code: true` (new) or whose primary key you want renamed; nothing else needs a rebuild.
+6. If the application, worker and admin use separate database users, run `fuzzphony:schema --dump-grants` and adjust the grants (the writer needs
+   `INSERT` on `fuzzphony_watch_log`, the worker `UPDATE` on it); optional `fuzzphony.connections: { worker, admin }` ([Database roles](docs/roles.md)).
 7. Restart the workers after the apply, then run `bin/console fuzzphony:doctor`.
-
-The details of each change follow.
 
 ### Breaking
 
-- **An actor with a tenant can no longer search another tenant.** `->forTenant($x)` with `$x` different from the tenant of the actor (the named one, or the current user when none is named) now throws `AccessDenied` instead of searching `$x` while the search log recorded the user under it. Before, the order of `asActor()` and `forTenant()` decided who won, and the ambient user never overrode `forTenant()`. A job that must search across tenants uses `->asSystem()->forTenant($x)`; `Fuzzphony::logSearch()` takes the same `forTenant:` for a system record.
-- **A search that names no actor is made as the application's current user.** Until now a search without `->asActor()` ran no guard: a controller that forgot it
-  searched as everybody and saw every `granted` field (and was not rate limited). Now the service asks the `ActorResolver` itself (the Symfony bundle: the Security
-  token and, with the client IP in use, the request; plain PHP: `Fuzzphony::postgres(..., actors: $resolver)`), so every search is guarded and logged as that actor, and an
-  explicit `->asActor($actor)` still wins. Where nobody can be resolved (a command, a worker, a test, a request without a token) the actor is anonymous: the
-  guards run for it, a `granted` field stays hidden, a tenant-scoped index still refuses it (`ActorRequired`: a tenant must be known). With
-  `fuzzphony.authorization.enabled` a search without a token is denied (`AccessDenied`) as before. What to change:
-  - Code that searched on purpose with full access (an export, an admin command, a Messenger handler, a test) says so: `->asSystem()` (on `SearchBuilder`,
-    `FederatedSearch`; `Fuzzphony::complete(..., system: true)`). It skips the guards, is written to the search log as the user `(system)`, and can be switched off with
-    `fuzzphony.authorization.allow_system: false` (then it throws `AccessDenied`). A tenant-scoped index still needs `forTenant()` with it.
-  - Without `Fuzzphony::postgres(guards: ...)` or the bundle's guards nothing changes: there is no guard to run.
-  - `FederatedSearch` has `asActor()` and `asSystem()` too (one actor for every index; a `configure` closure may still name another).
-  - The rate limit now also counts the searches that used to skip the guards (`per: ip` limits a controller that forgot `asActor()`).
-- **A `granted` field needs the guard that hides it.** An index with a `granted` field while `fuzzphony.authorization.enabled` is false fails the container build
-  (`InvalidDefinition`: enable `fuzzphony.authorization`), `Fuzzphony::postgres()` refuses it without `guards:`, and `fuzzphony:doctor` reports it as an error.
-  Before, the field was visible to everybody and the flag only looked like protection.
-- **`restrictedToFields()` can only narrow.** The fields searched are the ones in the list that the actor may also see (the guards' answer): naming a `granted` field the
-  actor does not hold adds nothing, and a list with none of the allowed fields finds nothing (no exception). A name that is no field of the index is an `InvalidQuery`
-  listing the index's fields.
-- **Hits know their index: `Hit::$kind` (the index name) and a typed `Hit::$id` (`int` for an integer key, `string` for a uuid or string key).** `new Hit(kind, id, score, breakdown, ...)`
-  has the kind first. `FederatedHit` is removed: a `FederatedResult` holds plain `Hit`s, `$hit->kind` is the index (was `$hit->index`), `$hit->id` the id (was `$hit->hit->id`) and `$hit->mergedScore`
-  the fusion score (was `$hit->score` of the `FederatedHit`; `$hit->score` is now the index's own score). `EntityLoader::load()` is unchanged: pass the result of the index of that entity.
-- **New search-log column `rescued`.** Run `fuzzphony:schema --apply` before the new code serves traffic (a missing column throws `SchemaNotApplied`, the doctor reports it).
-  Existing rows are `false`.
-- **The YAML of the wizard (`$fuzzphony->wizard()->yaml()`, `fuzzphony:wizard`) writes lists as YAML sequences** (`synonyms:` with `- [tv, television]`; it wrote numbered keys `0: 0: tv`)
-  and a multi-line text exactly (`|-` without a final newline). A stored copy reads back as before; regenerate it to get the clean form.
-- **Searches in a caller's transaction.** A typo-tolerant search inside a transaction you opened sends `SAVEPOINT fuzzphony_search` at its first
-  threshold and `RELEASE SAVEPOINT fuzzphony_search` at its end (or `ROLLBACK TO` and `RELEASE` when it fails), instead of a nested transaction
-  per statement. With `PdoConnection` a search that fails after its first threshold no longer leaves your transaction aborted (the DBAL bridge already
-  behaved so). A query log or a test that counted the old per-statement `SET`/restore round trips needs the new numbers.
-- **Index objects have new names.** The secondary indexes and the primary key of a sidecar table are now `fuzzphony_<index>__<kind>`
-  (`fuzzphony_products__tsv`, `__fz`, `__f_<filter>`, `__pkey`, `__open_fz_<hash>`, `__open_tsv_<hash>`; `__` cannot occur in an index name), where they were
-  `fuzzphony_<index>_<kind>`: an index named `products_open` collided with the open-class objects of `products`. `fuzzphony:schema --apply` builds the indexes
-  under the new names (`CREATE INDEX CONCURRENTLY`, the table stays writable) and then drops the old ones (`DROP INDEX CONCURRENTLY`); the doctor
-  reports an old one as `OLD NAME` until then. The primary key keeps its old name until the next `fuzzphony:reindex` renames it. Until the apply, the
-  doctor reports the indexes missing and searches run as before. Anything of yours that names these indexes (a monitoring query, a `REINDEX`
-  script, an `EXPLAIN` assertion) needs the new names.
-- **Run `fuzzphony:schema --apply` before the new code serves traffic.** The columns `tsv_capped` (sidecar tables), `actor_ip` and `rescued` (search log) are
-  required. A search, refresh or log write that finds one missing throws `Fuzzphony\Core\Exception\SchemaNotApplied` ("The Fuzzphony schema is
-  not up to date (missing: ...). Run: bin/console fuzzphony:schema --apply"); `fuzzphony:doctor` reports the same as an error. The slower
-  no-column statements, the per-process catalog lookups for these columns, the retry of a log batch without `actor_ip`, the metric
-  `fuzzphony.search_log.ip_dropped` and the `searchLogIp` constructor argument of `PostgresEngine` are removed. Long-running workers need no
-  restart for these columns any more (only the open-class indexes of `granted` fields are still looked up once per process).
-- **One trigger set and one change log per watched table (`queue` sync, statement-level triggers).** `fuzzphony:schema --apply` replaces the four
-  triggers per index and table (`fuzzphony_sync_<index>__<table>_ins|upd|del|trn`) by one set per table (`fuzzphony_watch__<table>__ins|upd|del|trn`)
-  in the same transaction, registers the index in `fuzzphony_watches` and creates `fuzzphony_drain_<index>()`; ids already in the queue stay and are
-  processed as before, nothing is lost during the swap. `sync: trigger` and `trigger_level: row` are unchanged. Deploy: apply the schema, then restart the
-  workers. What changes for you:
-  - The queue rows of a change appear when the worker takes a batch (it drains the log first), not in the writing statement; a `TRUNCATE` of a
-    table-sourced index's own table empties the index at that drain. Anything that read `fuzzphony_queue` directly (a monitoring query) misses
-    what is still in `fuzzphony_watch_log`: use `fuzzphony:doctor` ("Sync queue" counts both) or `queueSize()`.
-  - Roles: the role that writes a watched table needs `INSERT` on `fuzzphony_watch_log` (it was `INSERT` on `fuzzphony_queue`); the worker's role needs
-    `SELECT`, `UPDATE`, `DELETE` on the log (`DELETE ... FOR UPDATE` needs `UPDATE`), `SELECT`, `UPDATE` on `fuzzphony_watches`, the usual rights on the queue, and `SELECT` on every table a `watch` query
-    reads (the query now runs in the worker, not in the writing statement).
-  - A transaction that wrote and stays open delays the processing of everything committed after it until it ends ([limitations](docs/limitations.md#a-long-writing-transaction-delays-the-sync-of-every-index)).
-  - Doctrine's `schema_filter` must let the new tables through the same way it does for `fuzzphony_queue` (`SchemaAssetFilter::regex()` already does).
-- **A batch the worker cannot refresh because of the data is split.** Only the ids that fail on their own stay queued, with `attempts`, `last_error`
-  (exception class and SQLSTATE) and `failed_at` (three columns the apply adds to `fuzzphony_queue`) and a back-off from 60 s to an hour; the doctor names them. The
-  worker's stderr shows the exception class and SQLSTATE only (the driver message used to be printed: a log scraper that matched it needs the SQLSTATE).
-- **The public API is smaller (77 types, [list](docs/architecture.md#public-api)).** Everything that is not on the list is tagged `@internal` and may change in any
-  release. If your code imports one of these, change it:
+- **An actor with a tenant can no longer search another tenant.** `->forTenant($x)` different from the actor's tenant throws `AccessDenied`
+  (before, the order of `asActor()` and `forTenant()` decided). A job that must search across tenants uses `->asSystem()->forTenant($x)`;
+  `Fuzzphony::logSearch()` takes the same `forTenant:`.
+- **A search that names no actor is made as the application's current user.** Before, a search without `->asActor()` ran no guard and saw every
+  `granted` field (and was not rate limited). Now the service asks the `ActorResolver` (bundle: the Security token and, with the client IP in
+  use, the request; plain PHP: `Fuzzphony::postgres(..., actors: $resolver)`); an explicit `->asActor()` still wins. Where nobody can be
+  resolved (command, worker, test, request without a token) the actor is anonymous: guards run, a `granted` field stays hidden, a
+  tenant-scoped index refuses it (`ActorRequired`). With `fuzzphony.authorization.enabled` a search without a token is denied (`AccessDenied`).
+  - Code that searched on purpose with full access says `->asSystem()` (also on `FederatedSearch`; `Fuzzphony::complete(..., system: true)`): it
+    skips the guards, is logged as the user `(system)`, and `fuzzphony.authorization.allow_system: false` forbids it (`AccessDenied`). A
+    tenant-scoped index still needs `forTenant()` with it.
+  - Without `guards:` / the bundle's guards nothing changes. `FederatedSearch` has `asActor()` and `asSystem()` too.
+  - The rate limit now also counts searches that used to skip the guards.
+- **A `granted` field needs the guard that hides it:** with `fuzzphony.authorization.enabled: false` the container build fails
+  (`InvalidDefinition`), `Fuzzphony::postgres()` refuses it without `guards:`, and the doctor reports an error.
+- **`restrictedToFields()` can only narrow:** a `granted` field the actor does not hold adds nothing, a list with no allowed field finds nothing
+  (no exception); a name that is no field of the index is an `InvalidQuery`.
+- **Hits know their index:** `Hit::$kind` (the index name) and a typed `Hit::$id` (`int` or `string`); `new Hit(kind, id, score, breakdown, ...)`.
+  `FederatedHit` is removed: `$hit->kind` is the index (was `$hit->index`), `$hit->id` the id (was `$hit->hit->id`), `$hit->mergedScore` the
+  fusion score (`$hit->score` is now the index's own score). `EntityLoader::load()` is unchanged.
+- **New search-log column `rescued`** (existing rows `false`): apply the schema first (a missing column throws `SchemaNotApplied`).
+- **The wizard's YAML writes lists as sequences** (`- [tv, television]`) and multi-line text exactly; a stored copy reads back as before.
+- **Searches in a caller's transaction:** a typo-tolerant search inside your transaction uses `SAVEPOINT fuzzphony_search` instead of a nested
+  transaction per statement, and no longer leaves your transaction aborted when it fails. A query-log or test that counted the old `SET`/restore round trips needs the new numbers.
+- **Index objects have new names:** `fuzzphony_<index>__<kind>` (`__tsv`, `__fz`, `__f_<filter>`, `__pkey`, `__open_fz_<hash>`, `__open_tsv_<hash>`;
+  `__` cannot occur in an index name), where it was `fuzzphony_<index>_<kind>`. The apply builds the new names (`CREATE INDEX CONCURRENTLY`)
+  and drops the old ones; the doctor reports `OLD NAME` until then; the primary key is renamed by the next `fuzzphony:reindex`. A monitoring
+  query, `REINDEX` script or `EXPLAIN` assertion of yours needs the new names.
+- **Run `fuzzphony:schema --apply` before the new code serves traffic.** The columns `tsv_capped` (sidecar tables), `actor_ip` and `rescued`
+  (search log) are required: a search, refresh or log write that finds one missing throws `SchemaNotApplied`; the doctor reports an error. The
+  slower no-column statements, the `fuzzphony.search_log.ip_dropped` metric and the `searchLogIp` argument of `PostgresEngine` are removed.
+- **One trigger set and one change log per watched table (`queue` sync).** The apply replaces the four triggers per index and table by one set
+  per table (`fuzzphony_watch__<table>__ins|upd|del|trn`) in one transaction, registers the index in `fuzzphony_watches` and creates
+  `fuzzphony_drain_<index>()`; queued ids stay and nothing is lost. `sync: trigger` / `trigger_level: row` are unchanged. Apply, then restart workers.
+  - Queue rows appear when the worker takes a batch, not in the writing statement; a `TRUNCATE` of a table-sourced index's own table empties
+    the index at that drain. A monitoring query on `fuzzphony_queue` misses what is in `fuzzphony_watch_log`: use `fuzzphony:doctor` or `queueSize()`.
+  - Roles: the writer needs `INSERT` on `fuzzphony_watch_log` (was `fuzzphony_queue`); the worker `SELECT`, `UPDATE`, `DELETE` on the log,
+    `SELECT`, `UPDATE` on `fuzzphony_watches`, the usual rights on the queue, and `SELECT` on every table a `watch` query reads.
+  - A transaction that wrote and stays open delays the processing of everything committed after it ([limitations](docs/limitations.md#a-long-writing-transaction-delays-the-sync-of-every-index)).
+  - Doctrine's `schema_filter` must let the new tables through (`SchemaAssetFilter::regex()` does).
+- **A batch the worker cannot refresh because of the data is split:** only the failing ids stay queued with `attempts`, `last_error` (class and
+  SQLSTATE) and `failed_at` (columns the apply adds) and a back-off from 60 s to an hour. The worker's stderr shows class and SQLSTATE only.
+- **The public API is smaller (77 types, [list](docs/architecture.md#public-api)).** Everything else is `@internal`. If your code imports one, change it:
 
   | Was | Now |
   |---|---|
-  | `new Fuzzphony(new PostgresEngine($connection, ...), new IndexRegistry([...]), new SearchGate(...))` | `Fuzzphony::postgres($connection, [$index, ...], schema: ..., metrics: ..., searchLog: ..., guards: [...], log: ..., redact: [...], ipMode: ...)` (the bundle wires it for you) |
+  | `new Fuzzphony(new PostgresEngine(...), new IndexRegistry([...]), new SearchGate(...))` | `Fuzzphony::postgres($connection, [$index, ...], schema: ..., metrics: ..., searchLog: ..., guards: [...], log: ..., redact: [...], ipMode: ...)` (the bundle wires it) |
   | `PostgresEngine::resetCaches()` | `Fuzzphony::resetCaches()` |
-  | `new DefinitionSuggester()`, `SourceIntrospector`, `YamlExporter`, `BuilderExporter`, `AttributeExporter` | `$fuzzphony->wizard()`: `tables()`, `suggest($table, $name, $language)`, `yaml($definition)`, `builder($definition)`, `attributes($definition)` (null when attributes cannot express it) |
-  | `Fuzzphony::engine()`, `Fuzzphony::registry()`, `new Fuzzphony(...)`, `SearchBuilder::toQuery()`, the constructors of `SearchResult`, `ScoreBreakdown`, `SearchAnalytics`, `SearchRecord`, `ReindexResult`, `FederatedSearch`, `SearchBuilder`, `IndexDefinition`, `FuzzphonySearchFilter` | `@internal` |
-  | `Engine`, `PostgresEngine`, `IndexRegistry`, `SearchQuery`, `Condition`, `Operator`, `SearchGate`, `RefreshDispatcher`, `ImmediateRefreshDispatcher`, `RefreshDocuments`, `OrmSyncListener`, `SearchComponent`, `PatternQueryRedactor`, `LoggingMetricsCollector`, `NullMetricsCollector`, `IpMode`, `ColumnKind`, `ColumnProfile`, `DefinitionSuggester`, `ForeignKey`, `SourceIntrospector`, `TableProfile`, the three exporters | `@internal` (not on the public list) |
-  | `Capabilities`, `Capability`, `Vocabulary`, `SynonymStems`, `Suggestions`, `SearchLogStore`, `RecentSearchStore` (optional `Engine` interfaces) | removed: `Engine` has the methods (`rebuildVocabulary()`, `stemSynonyms()`, `suggestWords()`, `writeSearchLog()`, `purgeSearchLog()`, `topQueries()`, `zeroResultQueries()`, `recentSearches()`, `introspector()`) and `capabilities()` is gone |
-  | `TransactionAware` | removed: `Connection::inTransaction()` is part of the `Connection` interface. A `Connection` of your own must implement it (`return false;` when it cannot tell: the engine then treats the connection as outside a transaction) |
-  | `Fuzzphony::analytics()` throwing "the engine keeps no search log", `stemSynonyms()` throwing "the engine does not prepare synonyms" | the PostgreSQL engine supports both: nothing to catch |
-- **`Fuzzphony::suggest()` is `complete()`, `useSuggestion` is `useDidYouMean`, `fuzzphony:search --suggest` is `--complete`.** No aliases: the old names fail. In your
-  Twig overrides of `Search.html.twig` change `data-live-action-param="useSuggestion"` to `useDidYouMean`.
-- **Thresholds are four named groups.** The 11 flat options of `Thresholds` (constructor, `->thresholds([...])` per query, `thresholds:` in the YAML/array configuration,
-  `fuzzphony:search --threshold`) are split into `relevance`, `typo`, `rescue` and `limits`. The old flat names are refused with a message that names the new key.
+  | `DefinitionSuggester`, `SourceIntrospector`, `YamlExporter`, `BuilderExporter`, `AttributeExporter` | `$fuzzphony->wizard()`: `tables()`, `suggest($table, $name, $language)`, `yaml($definition)`, `builder($definition)`, `attributes($definition)` |
+  | `Fuzzphony::engine()`, `registry()`, `SearchBuilder::toQuery()`, constructors of `SearchResult`, `ScoreBreakdown`, `SearchAnalytics`, `SearchRecord`, `ReindexResult`, `FederatedSearch`, `SearchBuilder`, `IndexDefinition`, `FuzzphonySearchFilter`; `Engine`, `PostgresEngine`, `IndexRegistry`, `SearchQuery`, `Condition`, `SearchGate`, dispatchers, `OrmSyncListener`, `SearchComponent`, redactor and metrics collectors, `IpMode`, introspection classes | `@internal` |
+  | `Capabilities`, `Capability`, `Vocabulary`, `SynonymStems`, `Suggestions`, `SearchLogStore`, `RecentSearchStore` | removed: `Engine` has the methods and `capabilities()` is gone |
+  | `TransactionAware` | removed: `Connection::inTransaction()` is part of `Connection` (`return false;` when it cannot tell) |
+  | `analytics()` / `stemSynonyms()` throwing "engine keeps no search log" | the PostgreSQL engine supports both |
+- **`suggest()` is `complete()`, `useSuggestion` is `useDidYouMean`, `fuzzphony:search --suggest` is `--complete`.** No aliases. In Twig
+  overrides of `Search.html.twig` change `data-live-action-param="useSuggestion"`.
+- **Thresholds are four named groups** (`relevance`, `typo`, `rescue`, `limits`); the old flat names are refused with a message that names the new key.
 
   | Was | Now |
   |---|---|
-  | `min_score` / `minScore` | `relevance.min_score` / `RelevanceThresholds(minScore:)` |
-  | `fuzzy_similarity` / `fuzzySimilarity` | `typo.similarity` / `TypoThresholds(similarity:)` |
-  | `fuzzy_min_length` / `fuzzyMinLength` | `typo.min_length` / `TypoThresholds(minLength:)` |
-  | `fuzzy_mode` / `fuzzyMode` | `typo.mode` / `TypoThresholds(mode:)` |
-  | `fallback_below` / `fallbackBelow` | `typo.fallback_below` (typo tolerance) and `rescue.did_you_mean_below` (the did-you-mean trigger; unset: the same number) |
-  | `relax_when_empty` / `relaxWhenEmpty` | `rescue.drop_unmatched` / `RescueThresholds(dropUnmatched:)` |
-  | `did_you_mean` / `didYouMean` | `rescue.did_you_mean` / `RescueThresholds(didYouMean:)` |
-  | `rescue_empty` / `rescueEmpty` | `rescue.correct_when_empty` / `RescueThresholds(correctWhenEmpty:)` |
-  | `candidate_limit` / `candidateLimit` | `limits.candidates` / `LimitThresholds(candidates:)` |
-  | `max_query_length` / `maxQueryLength` | `limits.max_query_length` / `LimitThresholds(maxQueryLength:)` |
-  | `max_terms` / `maxTerms` | `limits.max_terms` / `LimitThresholds(maxTerms:)` |
+  | `min_score` | `relevance.min_score` / `RelevanceThresholds(minScore:)` |
+  | `fuzzy_similarity` | `typo.similarity` / `TypoThresholds(similarity:)` |
+  | `fuzzy_min_length` | `typo.min_length` / `TypoThresholds(minLength:)` |
+  | `fuzzy_mode` | `typo.mode` / `TypoThresholds(mode:)` |
+  | `fallback_below` | `typo.fallback_below` and `rescue.did_you_mean_below` (unset: the same number) |
+  | `relax_when_empty` | `rescue.drop_unmatched` / `RescueThresholds(dropUnmatched:)` |
+  | `did_you_mean` | `rescue.did_you_mean` / `RescueThresholds(didYouMean:)` |
+  | `rescue_empty` | `rescue.correct_when_empty` / `RescueThresholds(correctWhenEmpty:)` |
+  | `candidate_limit` | `limits.candidates` / `LimitThresholds(candidates:)` |
+  | `max_query_length`, `max_terms` | `limits.max_query_length`, `limits.max_terms` |
 
   ```yaml
   # before                              # after
@@ -297,344 +260,176 @@ The details of each change follow.
   // command line: fuzzphony:search products mpuse --threshold typo.mode=always
   ```
 
-  What else changes: an error names its group (`thresholds.typo`, one error per group, with a "did you mean" for a misspelled option and the allowed options of the group);
-  numeric strings (`"0.1"`, `"500"`) are accepted for every number; `rescue.correct_when_empty` needs `rescue.did_you_mean`, so switching the suggestion off now means
-  `rescue: { did_you_mean: false, correct_when_empty: false }` (the combination `did_you_mean: false` alone is refused at configuration time instead of being ignored).
-  Thresholds in a stored configuration, an environment-specific YAML or a Live Component of yours need the new keys; `fuzzphony:wizard` prints the grouped form.
+  An error names its group (one per group, with a "did you mean"); numeric strings are accepted for every number; `rescue.correct_when_empty`
+  needs `rescue.did_you_mean`, so switching the suggestion off means `rescue: { did_you_mean: false, correct_when_empty: false }`. Stored
+  configurations, environment-specific YAML and Live Components need the new keys; `fuzzphony:wizard` prints the grouped form.
 
 ### Added
 
-- **Database roles and grants:** `fuzzphony:schema --dump-grants [--role=search|worker|admin] [--to=role]` prints the `GRANT` statements of the least-privilege roles for your real tables;
-  `fuzzphony.connections: { worker, admin }` (each defaults to `connection`, so nothing changes without it) runs `fuzzphony:worker` and the async refresh, and `fuzzphony:schema`,
-  `:reindex`, `:doctor`, `:analytics` and `:search-log:purge`, as other DBAL connections; the doctor has a **Privileges** check (an **error** when a role in use lacks a grant, e.g. the
-  worker's `UPDATE` on `fuzzphony_watch_log`, which the 0.10 drain needs). Nothing to do unless you want separate users: [Database roles](docs/roles.md).
-- **`Fuzzphony::indexes()` and `Fuzzphony::definition($index)`** (public): the names of the registered indexes and the `IndexDefinition` of one (unknown name: `UnknownIndex`), so an
-  application no longer needs the `@internal` `registry()`.
-- **`SearchResult::$correctedTo`**: the text the zero-result rescue ran (`$correctedFrom` is what the visitor typed); both null without a rescue.
-- **`SearchRecord::$rescued` / `LoggedSearch::$rescued`**: the search log marks the searches the rescue answered. The "found nothing" report still counts by hits
-  (a rescued search found something). Needs `fuzzphony:schema --apply` (above).
-- **`Fuzzphony::logSearch($index, $text, $hits, $tookMs, $actor, $usedFuzzy, $rescued, $system)`** records a search that was answered elsewhere without running it (no engine call, no guard),
-  with the redaction, IP mode and actor rules of a search. It throws `InvalidArgument` when the index has `log: false` or the search log is off, and returns the `LoggedSearch`.
-- **`toArray()` and `json_encode()` of `SearchResult`, `Hit`, `FacetValue`, `MatchedWord`** with stable keys (`hits`, `total`, `totalIsLowerBound`, `facets`, `didYouMean`,
-  `correctedFrom`, `correctedTo`, `warnings`, `tookMs`; a hit: `index`, `kind`, `id`, `score`, `breakdown`, `highlights`, `mergedScore`, `matches`). The highlights are already HTML-escaped
-  (`<mark>` only); everything else is plain text ([Your own frontend](docs/integrations.md#your-own-frontend)).
-- **`->explainMatches()`** on the search builder adds `Hit::$matches` to the hits of the returned page: which word of which field matched and how (`exact`, `stem`, `prefix`,
-  `typo` with its similarity, `synonym`). One more statement over the page's ids, only when asked; a restricted viewer gets no hidden field and no hidden word ([searching](docs/searching.md#what-matched)).
-- **`code: true` on a field.** A code or identifier field (`INV-001`, `AB-12/3`, `INV.007`) is indexed with every run of non-alphanumeric characters as one space
-  (`inv`, `001`) plus the code without separators (`inv001`), in the index's own text configuration, so what is typed reaches what is stored. Nothing changes for a
-  field without the flag. After adding it: `fuzzphony:schema --apply` and `fuzzphony:reindex` (the doctor reports the definition as changed until then). A code whose parts are
-  stop words of the language (`IT-5` in English) also finds other rows with the same remaining parts; the exact match ranks first. Replaces the `regexp_replace` workaround in the source query.
-- **`source: { query_file: ... }`** / `fromQueryFile($path, ?$baseDir = null)`: the SQL of the source query read from a file, relative to the project root (the bundle) or to `$baseDir`
-  (default: the working directory); `..` escapes and absolute paths outside it are refused. The file is read when the definition loads, so editing it changes the definition fingerprint.
+- **Database roles and grants:** `fuzzphony:schema --dump-grants [--role=search|worker|admin] [--to=role]` prints the least-privilege `GRANT`s for your
+  real tables; `fuzzphony.connections: { worker, admin }` (each defaults to `connection`) runs the worker and the schema/reindex/doctor/analytics/purge
+  commands on other DBAL connections; the doctor has a **Privileges** check (an error when a role in use lacks a grant) ([roles](docs/roles.md)).
+- **`Fuzzphony::indexes()` and `Fuzzphony::definition($index)`** (unknown name: `UnknownIndex`).
+- **`SearchResult::$correctedTo`** (the text the zero-result rescue ran), **`SearchRecord::$rescued` / `LoggedSearch::$rescued`** (needs the apply above).
+- **`Fuzzphony::logSearch(...)`** records a search answered elsewhere (no engine call, no guard) with the usual redaction, IP mode and actor rules;
+  throws `InvalidArgument` when the index has `log: false` or the log is off.
+- **`toArray()` and `json_encode()`** of `SearchResult`, `Hit`, `FacetValue`, `MatchedWord` with stable keys; highlights are HTML-escaped (`<mark>` only) ([integrations](docs/integrations.md#your-own-frontend)).
+- **`->explainMatches()`** adds `Hit::$matches` (which word of which field matched and how); one more statement over the page's ids, only when asked ([searching](docs/searching.md#what-matched)).
+- **`code: true` on a field** (`INV-001`, `AB-12/3`): indexed with separators as spaces plus the code without them. After adding it: `schema --apply`
+  and `fuzzphony:reindex` (the doctor reports the definition as changed until then).
+- **`source: { query_file: ... }`** / `fromQueryFile($path, ?$baseDir = null)`: the source SQL read from a file relative to the project root or `$baseDir`
+  (`..` escapes and absolute paths outside it are refused); editing the file changes the definition fingerprint.
 
 ## From 0.9.10 to 0.9.11
 
-**What you must do.** Nothing. The rankings of searches made with `asYouType()` (the Twig search component, `--as-you-type`) may change: the
-exact-title and prefix bonuses now compare the words the visitor typed with the title, so a title equal to the typed text ranks first, as
-[ranking](docs/ranking.md) says. Searches without `asYouType()` and their statements are unchanged.
+Nothing to do. Rankings of `asYouType()` searches may change: the exact-title and prefix bonuses compare the typed words with the title, so a
+title equal to the typed text ranks first, as [ranking](docs/ranking.md) says.
 
 ## From 0.9.8 to 0.9.9
 
-**What you must do.** Only if an index has a `granted` field: run `fuzzphony:schema --apply`, then restart long-running processes
-(Messenger workers, RoadRunner, FrankenPHP: the engine looks the new indexes, and the `tsv_capped` / `actor_ip` columns an apply may add
-to an existing table, up once per process; the command says so). The apply builds two indexes over the fields that are not granted, with
-`CREATE INDEX CONCURRENTLY` (the table stays writable); until then the doctor reports them missing and the definition as changed, and
-searches run as before. After you change which fields are `granted` later, run it again: the indexes carry a hash of their definition, the
-apply builds the new ones and drops the old (each with `DROP INDEX CONCURRENTLY`, found by the end of its name at any name length, so no search waits behind the drop; a drop that fails is a warning, run the apply again; `--dump-migration` leaves this step out), and the doctor calls an old one stale. No reindex is required, no setting is new, and
-indexes without a `granted` field change nothing.
+**Must do**, only if an index has a `granted` field: `fuzzphony:schema --apply`, then restart long-running processes. The apply builds two indexes over
+the non-granted fields (`CREATE INDEX CONCURRENTLY`); until then the doctor reports them missing and searches run as before. After you change which
+fields are `granted`, apply again (the indexes carry a hash of their definition: new ones are built, old ones dropped; a failed drop is a warning;
+`--dump-migration` leaves it out). No reindex.
 
-**Stricter configuration.** `granted` in YAML or an array must be a non-empty string: `granted: ~`, a key without a value, a list of
-roles, `false` and an empty string used to load (as an open field, or one that is always hidden) and now throw an `InvalidDefinition` that
-names the field. Fix the key the message names, or remove it to leave the field open.
-
-**Good to know (not new, now documented).** One document the source cannot read (a failing cast) keeps the whole queue of its index from draining; the worker retries it with a back-off and the other indexes go on. The failure message printed to stderr can contain a value from the source row, so treat worker logs as sensitive ([limitations](docs/limitations.md#one-unreadable-document-does-not-stop-its-indexs-queue)).
+**Stricter configuration.** `granted` in YAML must be a non-empty string; `~`, a list, `false` or `""` now throw `InvalidDefinition` naming the field.
+The whole index configuration is checked: an unknown key at any level, a string where a boolean belongs (`fuzzy: "false"` used to switch typo
+tolerance ON), a list where a map belongs, and an unknown `class` throw `InvalidDefinition` with the closest key. An override of an attribute-defined
+index may no longer carry `fields`, `filters`, `source`, `id_type` or `class` (change the attributes).
 
 **Results that change.**
 
-- A top-level AND of stop words with exclusions (`the who -rock`) used to return every document without `rock` (a bug); it now searches
-  `the who` and leaves out the documents that have `rock`, so such a query returns far fewer results. If you showed a page for
-  "everything except X" through it, use a filter instead.
-- An exact word is no longer ranked below its look-alikes in a capped typo search (a full-text match keeps its typo score), `total` of a
-  capped `fuzzy_mode: always` search can be larger (`2000+`, `2667+`) because those matches count, a page past `candidate_limit` is served
-  by the typo-tolerant branch and by a filter-only listing, a short text is highlighted whole (`Ergonomic mouse 1001`, not
-  `Ergonomic mouse`), and swapped letters (`mosue`) get a "did you mean" and a mark. A capped typo search is **not** slower for an
-  unrestricted viewer or a tenant (25 to 75 ms on 200 000 products). A word with more matches than the limit contributes the first matches
-  of the table, not the closest spellings (a lower bound, like `total`).
-- A restricted viewer's typo candidates are the best by the page's sort key within a work budget (one more selection), and no longer depend
-  on a field the viewer cannot see: `mouse*`, a word that grows in normalisation (`ßßßab`) and the size of the visible text are looked up
-  and counted without the hidden fields. A viewer who may see every typo-tolerant field gets the unrestricted lookup. If you use
-  `restrictedToFields()` or `granted` fields, upgrade; no reindex is needed.
-- `RankingProfile::with()` / `->ranking()` merges `label_weights`: a per-query override that names some labels keeps the profile's own
-  weights for the others (before, the others fell back to the library defaults 1.0 / 0.4 / 0.2 / 0.1). Only code that passes
-  `label_weights` per query on a profile with non-default labels sees other scores.
-- The index configuration is checked as a whole: an unknown key at any level (`wieght`, `fuzy`, `tabel`, `colums`), a string where a boolean
-  belongs (`fuzzy: "false"` used to switch typo tolerance ON; use `true`/`false`), `fields: [name, body]` or `profiles: popular` (a list or
-  a string where a map belongs) and an unknown `class` throw an `InvalidDefinition` that names the place and suggests the closest key. An
-  override of an attribute-defined index may no longer carry `fields`, `filters`, `source`, `id_type` or `class` (they were silently
-  dropped); change the attributes instead. Correct configurations are unaffected.
-- `fuzzphony:search` is unlogged by default (it wrote a row to the search log, with the `--user` / `--tenant` you gave it, for every run):
-  pass the new `--log` to write one. `fuzzphony:worker` now also retries a queue it could not process after a back-off (60 s, doubling to
-  an hour) while the other indexes go on, and exits with code 1 under `--once`.
-- Metrics no longer carry the search text: `fuzzphony.search.took_ms`, `.fallback` and `.rescued` have the single label `index`.
+- `the who -rock` (top-level AND of stop words with exclusions) used to return every document without `rock` (a bug); it now searches `the who` and
+  excludes `rock`. For "everything except X" use a filter.
+- In a capped typo search an exact word is no longer ranked below look-alikes, `total` of a capped `fuzzy_mode: always` search can be larger (`2000+`),
+  a page past `candidate_limit` is served by the typo branch, short text is highlighted whole, and swapped letters (`mosue`) get a "did you mean".
+- A restricted viewer's typo candidates no longer depend on a field the viewer cannot see. Upgrade if you use `restrictedToFields()` or `granted`; no reindex.
+- `RankingProfile::with()` / `->ranking()` merges `label_weights` (before, the other labels fell back to the library defaults).
+- `fuzzphony:search` is unlogged by default (pass `--log`). `fuzzphony:worker` retries a failed queue after a back-off (60 s doubling to an hour) and
+  exits with 1 under `--once`. Metrics no longer carry the search text (`fuzzphony.search.took_ms`, `.fallback`, `.rescued`: label `index` only).
 
-**API changes.**
+**API changes.** `RebuildAlreadyRunning` extends `\RuntimeException` (was `\InvalidArgumentException`); a bad per-query `->thresholds()` / `->ranking()` throws
+`InvalidQuery`; the 403 body of a refused search is the fixed text "Searching is not allowed for this caller."; new interface `SearchRefused`
+(`AccessDenied`, `ActorRequired`, `RateLimited`); `LoggingMetricsCollector` lost `logQueryText`, a `MetricsCollector` of yours no longer gets a `query`
+label; `Synonyms` has a new internal `$table` parameter (re-prepare a cached list to get the saving).
 
-- `RebuildAlreadyRunning` now extends `\RuntimeException` (it was an `\InvalidArgumentException`): a `catch (\InvalidArgumentException)`
-  around a reindex no longer catches it, catch `RebuildAlreadyRunning` itself. A bad per-query `->thresholds([...])` / `->ranking([...])`
-  throws `InvalidQuery` (was `InvalidDefinition`). The 403 body of a refused search is the fixed text "Searching is not allowed for this
-  caller." (the exception in `previous` has the details). New interface `SearchRefused`, implemented by `AccessDenied`, `ActorRequired` and
-  `RateLimited`; nothing else about them changes.
-- The `LoggingMetricsCollector` constructor lost its `logQueryText` argument: remove the named argument if you pass it. A
-  `MetricsCollector` of your own no longer receives a `query` label; drop any code that read it.
-- `Synonyms` has a new last constructor parameter `$table` (internal: the lookup table `Fuzzphony::stemSynonyms()` now builds). A list
-  prepared and cached by an older version still works (it has no table and builds it as before); prepare it again to get the saving. The
-  cached object is about 2.5 times larger.
+**Good to know.** One document the source cannot read (a failing cast) keeps its index's queue from draining; the worker retries with a back-off and
+the failure message on stderr can contain a value from the source row, so treat worker logs as sensitive ([limitations](docs/limitations.md#one-unreadable-document-does-not-stop-its-indexs-queue)).
 
 ## From 0.9.7 to 0.9.8
 
-Nothing is required, but **run `fuzzphony:schema --apply` and then `fuzzphony:reindex`** (item 5), **searches that returned nothing may now return results**, in two ways, and **the results of searches with a very common word change** (items 3 and 4):
+Nothing is required, but run `fuzzphony:schema --apply` and then `fuzzphony:reindex` (item 5); some searches that returned nothing may now return results, and
+searches with a very common word change (items 3 and 4).
 
-1. **Two swapped neighbouring letters are tolerated** (`mosue` finds `mouse`): a typed word of 4 to 15 letters also matches its
-   neighbour-swapped variants as whole words on the typo-tolerant branch (below exact hits, in typo-tolerant fields only; also on
-   tenant-scoped indexes). It only changes a search that already ran the typo-tolerant branch.
-2. **The zero-result rescue** (on by default): a search that found nothing and has a word with exactly one one-edit correction in
-   the did-you-mean vocabulary (`mpuse` -> `mouse`) is run again with it, and the result is flagged:
-   `SearchResult::$correctedFrom` is the text the visitor typed (`null` otherwise), `interpretedAs` is the corrected query and a
-   warning says so. If your page says "No results for ..." when `$result->total` is 0, it now shows results for the corrected text:
-   show `correctedFrom` ("Showing results for mouse, search instead for mpuse") or switch the rescue off with `rescue_empty: false`
-   in the index's `thresholds` (or per query: `->thresholds(['rescue_empty' => false])`). The suggestion `didYouMean` stays as it
-   was for every search that is not rescued. `did_you_mean: false` also turns the rescue off; tenant-scoped indexes, restricted
-   viewers and search-as-you-type are never rescued. The search log records what the visitor typed, with the rescued hits, so
-   the zero-result report no longer lists a search the rescue answered.
+1. **Two swapped neighbouring letters are tolerated** (`mosue` finds `mouse`): words of 4 to 15 letters, on the typo-tolerant branch only.
+2. **The zero-result rescue** (on by default): a search that found nothing and has a word with exactly one one-edit correction in the vocabulary is run
+   again with it; `SearchResult::$correctedFrom` is what the visitor typed, `interpretedAs` the corrected query, and a warning says so. A page that
+   says "No results for ..." when `total` is 0 should show `correctedFrom` or switch the rescue off (`rescue_empty: false` in `thresholds`, or per
+   query). `did_you_mean: false` also turns it off; tenant-scoped indexes, restricted viewers and search-as-you-type are never rescued. The search log
+   records what the visitor typed, with the rescued hits.
+3. **Searches with a very common word rank differently:** when a word matches more documents than `candidate_limit` (`totalIsLowerBound`), the candidates
+   are the best matches by the page's sort key, not the first the index returned; equal scores come in id order; a page past the candidates (up to
+   10 000 hits) is exact. Snapshots of common-word searches change; `explain()` shows `fts_fast` and `fts` CTEs. A word with more than 100 000 matches
+   ranks among the first 100 000 only ([limitations](docs/limitations.md#ranking-of-very-common-words)).
+4. **`hasMore()` is false at the last page of the candidates** (`SearchResult`, `FederatedResult`): true only while hits follow this page among the
+   ranked candidates, never from 10 000 hits on. A pager stops at `candidate_limit` hits (2000 by default); `page(150)` asked directly is served up to
+   10 000 hits. Raise `candidate_limit` for deeper paging.
+5. **Phrases and field-scoped words after a very long field are found** (a fix; no change under about 16 000 words) and need a new sidecar column:
+   `schema --apply` adds `tsv_capped`, `fuzzphony:reindex` fills it. Until then a phrase on an index with several fields is correct but slower (about
+   17 to 22 times for a common-word phrase on 12 fields); rows not reindexed are treated as capped (right, slow). Restart workers after the apply;
+   the doctor warns about the missing or unfilled column. Single-field indexes, plain words, exclusions, prefixes and typos are unaffected.
 
-3. **Searches with a very common word rank differently (for the better).** When a word matches more documents than `candidate_limit`
-   (`totalIsLowerBound` is true), the full-text candidates are now the best matches by the page's own sort key instead of the first ones
-   the index returned: the exact title and the word repeated come first, equal scores come in id order, and a page past the candidates
-   (`offset + limit` up to 10 000) is exact. Searches with fewer matches than the limit return exactly what they did. If you
-   snapshot or assert the hits of a common-word search, expect other documents; `explain()` shows a `fts_fast` and an `fts` CTE in the
-   statement. A search of a word with more than 100 000 matches ranks among the first 100 000 only (a cost bound, not a setting), and
-   a typo-tolerant word is still approximate ([limitations](docs/limitations.md#ranking-of-very-common-words)).
-4. **`hasMore()` is false at the last page of the candidates.** `SearchResult::hasMore()` and `FederatedResult::hasMore()` used to be
-   true whenever `totalIsLowerBound` was true, so a pager that followed it offered an empty page after the last candidate (page 101 at
-   `candidate_limit: 2000` and 20 per page). Now it is true only while hits follow this page among the ranked candidates (`offset + count($hits) < $total`), never for an empty page and
-   never from 10 000 hits on (the most a search ranks, also with `exactCounts()`, whose total counts every match: before, a pager that followed
-   `hasMore()` there never stopped), and a federated result is false where the next `limit()` would be refused (1 000 hits of an index).
-   A pager built on it stops at `candidate_limit` hits (2000 by default) and does not offer deeper pages; a page asked for directly
-   (`page(150)`) is served, exact, up to 10 000 hits, and the lower-bound total grows with it (`2000+`, then `3000+`, ...). If you want deep paging
-   in the pager, raise `candidate_limit` or use `totalIsLowerBound` yourself (it did not change). Nothing else to do; no configuration changed.
-5. **Phrases and field-scoped words after a very long field are found** (a fix, no change for texts under about 16 000 words), and
-   the fast way to find them needs a new sidecar column. `fuzzphony:schema --apply` adds `tsv_capped` (a nullable boolean, only when
-   it is missing, so an apply that finds it takes no lock) and `fuzzphony:reindex` fills it (true when the joined vector reached
-   position 16 383 or a lexeme has 256 or more positions, where PostgreSQL drops the rest: documents written before this release
-   or by an older refresh function need the reindex). Until then a phrase (`"usb receiver"`, `usb-c`) on an index with **several fields** is correct but slower: the
-   later fields' vectors are read for every candidate `tsv` does not match as a phrase (about 17 to 22 times slower for a quoted
-   phrase whose words are common on a 12-field index, 1.3 to 1.8 times on 3 fields; measured). A document that is not reindexed
-   yet has no answer (NULL) and is treated as capped: right, slow. An application that has not applied the schema keeps working
-   (the column is looked up in the catalog, once per process: restart long-running workers, or call `PostgresEngine::resetCaches()`,
-   after applying, and after dropping the column too). `fuzzphony:doctor` warns about the missing column, and about a column that
-   is not filled yet (NULL rows: "run fuzzphony:reindex"). Going back to a release without the column and forward again leaves the
-   flags the old refresh function did not touch as they were, so a document changed meanwhile can have a stale `false`: reindex. Single-field indexes, plain words, excluded words,
-   prefixes and typos are not affected. A rebuild with `fuzzphony:reindex` before the schema is applied also fills the column.
-
-If you implement your own `Engine` or build `SearchResult` yourself, the new constructor parameter `correctedFrom` is optional and last.
+A custom `Engine` or `SearchResult` construction: the new `correctedFrom` parameter is optional and last.
 
 ## From 0.9.6 to 0.9.7
 
-Nothing is required. One thing to know: **a restricted viewer's phrase or field-scoped-word match no longer depends on the length of a hidden field** (a security fix: before, a hidden field of more than about 16 000 words in front of an allowed one could change whether `"word1 word2"` or `secret:word1` matched for a restricted viewer). If you use `restrictedToFields()` or `granted` fields, upgrade; no reindex is needed.
+Nothing required. **A restricted viewer's phrase or field-scoped-word match no longer depends on the length of a hidden field** (a security fix: a hidden
+field of more than about 16 000 words in front of an allowed one could change whether `"word1 word2"` or `secret:word1` matched). Upgrade if you
+use `restrictedToFields()` or `granted`; no reindex.
 
 ## From 0.9.5 to 0.9.6
 
-1. **Search log: who searched what, and the optional client IP.** Nothing is required. To keep the client address
-   (`fuzzphony.search_log.ip: masked`, recommended, or `full`; it is personal data, see
-   [SECURITY.md](SECURITY.md)) run `fuzzphony:schema --apply` once: it adds the nullable column `actor_ip` to
-   `fuzzphony_search_log` (the role must own the table). Without the setting nothing is stored and the column is not needed;
-   `SearchAnalytics::recentSearches()` and `fuzzphony:analytics --recent` work either way (the address is then null). If you
-   implement `Fuzzphony\Core\Engine\SearchLogStore` yourself, nothing changes: `recentSearches()` needs the new, optional
-   `Fuzzphony\Core\Engine\RecentSearchStore` (implement it to offer the report; without it `recentSearches()` throws
-   `InvalidArgument` and the other reports keep working). If you call
-   `new SearchRecord(...)` or `new SearchGate(...)` with positional arguments, nothing changes: the new `ip` and `ipMode`
-   arguments are trailing and optional.
+**Search log: who searched what, and the optional client IP.** Nothing is required. To keep the client address (`fuzzphony.search_log.ip: masked`,
+recommended, or `full`; personal data, see [SECURITY.md](SECURITY.md)) run `fuzzphony:schema --apply` once: it adds the nullable `actor_ip` column to
+`fuzzphony_search_log` (the role must own the table). New optional trailing arguments `ip` / `ipMode` on `SearchRecord` / `SearchGate`;
+`recentSearches()` needs the optional `RecentSearchStore` on a custom engine.
 
 ## From 0.9.4 to 0.9.5
 
-1. **Symfony 8.0 is no longer supported** (the `symfony/*` constraints are now `^7.4 || ^8.1`). Symfony 8.0 is not a
-   long-term release and no longer receives fixes: every 8.0.x is affected by four `symfony/yaml` denial-of-service
-   advisories (CVE-2026-45133, -45304, -45305, CVE-2026-109413), so Composer refuses to install it. Move to Symfony 8.1
-   (`composer update "symfony/*" -W` after raising your constraints to `^8.1`) or stay on the 7.4 LTS. Nothing else changes.
-2. **With DoctrineBundle and `doctrine.orm` configured, the ORM wiring is now really active** (a bug: the bundle never detected
-   DoctrineBundle in a running application, see the CHANGELOG). `#[Searchable]` entities are discovered
-   (`discover_entities: false` turns that off), `EntityLoader` is a service and `sync: orm` indexes follow the
-   entity manager. Nothing to do unless you had worked around the missing wiring: a hand-registered
-   `DoctrineIndexDiscovery`, `EntityLoader` or `OrmSyncListener` is now a duplicate of the bundle's, and an index
-   that is both an attribute and in YAML `indexes` is overridden by the YAML as documented.
+1. **Symfony 8.0 is no longer supported** (`^7.4 || ^8.1`): every 8.0.x is affected by `symfony/yaml` denial-of-service advisories, so Composer refuses
+   it. Move to 8.1 (`composer update "symfony/*" -W` after raising your constraints) or stay on 7.4 LTS.
+2. **With DoctrineBundle and `doctrine.orm` configured, the ORM wiring is now really active** (a bug fix): `#[Searchable]` entities are discovered
+   (`discover_entities: false` turns that off), `EntityLoader` is a service and `sync: orm` follows the entity manager. A hand-registered
+   `DoctrineIndexDiscovery`, `EntityLoader` or `OrmSyncListener` is now a duplicate of the bundle's.
 
 ## From 0.8 to 0.9
 
-Nothing is required: without configuration a search is what 0.8 did (the same results; the same statements
-except the probe and facet change listed in the CHANGELOG: the candidate probes carry the search's tenant and
-filters, and a disjunctive facet with different conditions uses the trigram condition). Optional steps and
-things to know:
+Nothing is required; the results are what 0.8 did. Optional steps:
 
-1. **The search log** needs a table only when you enable it (`fuzzphony.search_log.enabled: true`): run
-   `fuzzphony:schema --apply` then. The guards (`fuzzphony.rate_limit`, `fuzzphony.authorization`) need no
-   table. New `suggest` packages: `symfony/rate-limiter` (for `rate_limit`) and `symfony/security-bundle` (for
-   `authorization`: `symfony/security-core` alone is not enough, Symfony's own "non-existent service
-   security.authorization_checker" message then fails the build). A missing `symfony/rate-limiter` fails at
-   container build with the `composer require` line; a `rate_limit.limiter` that is no `framework.rate_limiter`
-   entry fails with Symfony's "non-existent service limiter.<name>" message.
-2. **`granted` on a field** needs no schema change and no reindex, and does nothing until
-   `fuzzphony.authorization` is enabled. If you enable it for an index built before 0.5, reindex first: a
-   restricted viewer of an index without the per-field columns finds nothing (it fails closed).
-3. **Highlight names are validated upfront.** `highlight('nosuch')` (an unknown field, or one with
-   `highlight: false`) now throws `InvalidQuery` even when the search finds nothing; before, only when there
-   were hits.
-4. **`explain()` no longer shows other tenants' ids.** The typo-tolerant candidate probes now apply the
-   search's tenant and filters; the statements of a tenant-scoped search bind only that tenant's ids.
-5. **`InvalidQuery` is no longer `final`** (`ActorRequired` extends it), and `Fuzzphony::suggest()` takes an
-   optional trailing `?Actor`. `SearchGate` takes `guards` as a trailing constructor argument. A custom
-   `Engine` needs nothing.
-6. `fuzzphony:search` runs no guard, with or without `--tenant` / `--user`: the bundle gives it its own
-   `fuzzphony.operator` service (see [Security](docs/security.md#fuzzphonysearch-and-the-guards)).
-
-See [Security](docs/security.md) and [Search log and analytics](docs/analytics.md).
+1. **The search log** needs a table only when enabled (`fuzzphony.search_log.enabled: true`): run `schema --apply` then. The guards (`rate_limit`,
+   `authorization`) need no table; they need `symfony/rate-limiter` / `symfony/security-bundle` (a missing one fails the container build).
+2. **`granted` on a field** needs no schema change and no reindex, and does nothing until `fuzzphony.authorization` is enabled. For an index built
+   before 0.5, reindex first (a restricted viewer of an index without the per-field columns finds nothing).
+3. **Highlight names are validated upfront:** `highlight('nosuch')` throws `InvalidQuery` even when nothing is found.
+4. **`explain()` no longer shows other tenants' ids:** the candidate probes now apply the search's tenant and filters.
+5. `InvalidQuery` is no longer `final`; `Fuzzphony::suggest()` takes an optional trailing `?Actor`; `SearchGate` takes `guards` last.
+6. `fuzzphony:search` runs no guard, with or without `--tenant` / `--user` ([Security](docs/security.md#fuzzphonysearch-and-the-guards)).
 
 ## From 0.7 to 0.8
 
-No breaking changes. Optional steps:
-
-1. `fuzzphony:schema --apply` (or `--dump-migration` for a Doctrine migration): adds a prefix index to the
-   vocabulary table of every typo-tolerant index, which `suggest()` uses. Search-as-you-type works without it.
-2. A **custom `Engine`** keeps working: facets and `exactCounts()` read `SearchQuery::$facets`,
-   `$facetValues` and `$exactCounts`, so an engine that ignores them returns `SearchResult::$facets = []`.
-   Implement the optional `Fuzzphony\Core\Engine\Suggestions` to support `suggest()` (without it `suggest()`
-   returns an empty list). `Capabilities` lists two new cases (`Facets`, `Suggest`). Federated search needs nothing
-   from an engine.
-3. `SearchResult` and `SearchQuery` got new constructor parameters at the end (`facets`; `facets`,
-   `facetValues`, `exactCounts`): code that builds them positionally is unaffected, and code that extends them
-   cannot (they are final).
-4. Facets and completions need the right words in the vocabulary: schedule `fuzzphony:reindex --vocabulary`
-   (see [Did you mean](docs/searching.md#did-you-mean)).
+No breaking changes. Optional: `fuzzphony:schema --apply` adds a prefix index to the vocabulary table of every typo-tolerant index (used by
+`suggest()`); schedule `fuzzphony:reindex --vocabulary` so facets and completions have the right words ([Did you mean](docs/searching.md#did-you-mean)).
+A custom `Engine` keeps working (facets and `exactCounts()` read new `SearchQuery` fields; implement the optional `Suggestions` interface to support
+`suggest()`). `SearchResult` and `SearchQuery` got trailing constructor parameters.
 
 ## From 0.6 to 0.7
 
-1. **Typo tolerance is proportional to the word's length.** The default `fuzzy_similarity` is no
-   longer a flat 0.3: one typo is tolerated from 4 letters and two from 8, and a word needs the
-   trigram similarity of the worst such typo plus 0.03 (0.28 for 4 letters, 0.36 for 5, 0.48 for 7,
-   0.23 for 8, 0.40 for 12; 0.6 below 4 letters, so a 3-letter word is matched almost exactly).
-   Searches that relied on the lenient behaviour return far fewer look-alikes (`mouse` no longer
-   lists monitors), but a letter replaced in the middle of a 5 to 7 letter word, or two letters
-   swapped, may no longer be tolerated (`mpuse`, `mosue`; `torhc` still finds `torch`: at the end
-   of a word a swap costs less). 4-letter words behave as before. To keep the
-   old behaviour set `fuzzy_similarity: 0.3` in `thresholds:` (YAML, which also overrides
-   attribute-defined indexes, or `IndexBuilder::thresholds()`) or per query with
-   `->thresholds(['fuzzy_similarity' => 0.3])`. Tests that pinned old fuzzy result sets may need new
-   expectations. No schema change, no reindex.
-2. **`Thresholds::$fuzzySimilarity` is `?float`.** `null` (the default) means by word length. Code
-   that read it as a `float` handles `null`. A custom `Engine` that honours it must apply the same
-   rule: the shared conformance test now expects `"wireles headphones"` to find only the headphones
-   (a phrase of 17 letters tolerates two typos).
-
-3. **Vocabulary for "did you mean" (no hurry).** The new table of a fuzzy index is empty until you run
-   `fuzzphony:schema --apply` (it creates the table; additive, the layout stays 2) and then
-   `fuzzphony:reindex --vocabulary` (or any full reindex). Until then searches work as before and
-   `fuzzphony:doctor` warns "Vocabulary" (an error before the schema is applied). Give the roles the
-   grants for the new table: `SELECT` to the role that searches (without it there is just no suggestion,
-   never an error), `SELECT`, `INSERT` and `DELETE` to the role that reindexes; a schema-wide
-   `GRANT ... ON ALL TABLES IN SCHEMA` must be run again after the apply (the table is new). A role
-   without the privilege still reindexes: the command says the vocabulary was not rebuilt. A
-   tenant-scoped index never suggests anything (its vocabulary would mix tenants); switch the
-   suggestion off with `did_you_mean: false` on an index whose filters hide words that must stay secret.
-   A custom `Engine` needs nothing (the new `Vocabulary` interface is optional). `ReindexResult` and
-   `ReindexOptions` have new trailing properties, `Fuzzphony::rebuildVocabulary()` is new, and
-   `Thresholds` has the new key `did_you_mean`.
+1. **Typo tolerance is proportional to the word's length.** The default `fuzzy_similarity` is no longer a flat 0.3: one typo is tolerated from 4
+   letters and two from 8 (0.6 below 4 letters). Searches relying on the lenient behaviour return far fewer look-alikes; a letter replaced in the
+   middle of a 5 to 7 letter word, or two swapped letters, may no longer be tolerated. To keep the old behaviour set `fuzzy_similarity: 0.3`
+   (`thresholds:` or per query). No schema change, no reindex.
+2. **`Thresholds::$fuzzySimilarity` is `?float`** (`null` = by word length); a custom `Engine` must apply the same rule.
+3. **Vocabulary for "did you mean" (no hurry).** The new table of a fuzzy index is empty until `fuzzphony:schema --apply` and then
+   `fuzzphony:reindex --vocabulary` (or any full reindex); the doctor warns "Vocabulary" meanwhile. Grants: `SELECT` for the search role (without it
+   there is just no suggestion), `SELECT`, `INSERT`, `DELETE` for the reindexing role; re-run a schema-wide `GRANT ... ON ALL TABLES` after the apply.
+   A tenant-scoped index never suggests (its vocabulary would mix tenants); use `did_you_mean: false` where filters hide words that must stay secret.
 
 ## From 0.4 to 0.5
 
-1. **Apply, then reindex.** Run `fuzzphony:schema --apply`: it upgrades every index to sidecar
-   layout 2. Then run one full `fuzzphony:reindex`; until then the doctor's "Documents" check is a
-   warning (so `fuzzphony:doctor --strict` fails in CI). With Doctrine Migrations,
-   `fuzzphony:schema --dump-migration` contains the upgrade step. Deploy the 0.5 code and run the
-   apply together, and stop the workers for the upgrade (or restart them on 0.5 right after the
-   apply): 0.5 code sends field-scoped searches (`brand:x`) to new columns that fail until the
-   apply has created them, and once the 0.5 schema is applied a `TRUNCATE` queues a full-rebuild
-   job (the queue row `'*'`, step 6) that a 0.4 worker fails on in every batch, so that index's
-   queue stays stuck until the worker runs 0.5.
-2. **Field-scoped queries are exact.** `brand:x` no longer matches other fields of the same
-   weight, and a scoped typo no longer matches another fuzzy field. If you relied on the old
-   behaviour, search without the field prefix. The index table grows by roughly one more copy of
-   the indexed text; the new columns are filled by the reindex of step 1 (until then field-scoped
-   words find nothing in documents indexed before the upgrade).
-3. **`--drop --apply` and `--prune-empty` ask for confirmation.** `fuzzphony:schema --drop --apply`
-   now prints what it is about to remove and asks `Drop these Fuzzphony objects? (yes/no) [no]:`;
-   `fuzzphony:reindex --prune-empty` asks `Prune every document of an empty source? (yes/no)
-   [no]:`. Both default to no. A script or cron job that runs either non-interactively must add
-   `--force`, or it now fails with exit code 1 and a message telling you to. This does not apply to
-   plain `fuzzphony:schema --apply` or `fuzzphony:reindex` (without `--prune-empty`), and never to
-   the PHP API (`Fuzzphony::schema()`, `Fuzzphony::reindex()`), which never prompts.
-4. **Custom engines** implement `beginRebuild()`, `refreshShadow()`, `finishRebuild()`,
-   `abortRebuild()` and `discardLeftoverRebuild()`. The minimal implementation keeps the 0.4
-   behaviour:
-   `public function beginRebuild(IndexDefinition $index, bool $resume = false): bool { return false; }`
-   (the reindex then writes in place), `discardLeftoverRebuild()` returning `false`, and empty
-   bodies for the other three (`refreshShadow()` returns `0`).
-5. **A full reindex builds next to the live index.** `fuzzphony:reindex` and
-   `Fuzzphony::reindex()` fill `fuzzphony_<index>__next` and swap it in when it is complete, so
-   searches never see a half-built index. Plan for disk space for a second copy of the index
-   while it runs. The reindexing role needs `CREATE` on Fuzzphony's schema and must own the index
-   table (or be a member of its owner), and the connection must be a session (the run holds an
-   advisory lock; not a transaction-pooling PgBouncer, which can release it on another server
-   connection than the one that took it: PostgreSQL only warns, the lock stays held, and later
-   reindexes fail with "already running" until the pooler closes that connection; use
-   `--in-place` there). A role without those rights reindexes in
-   place, as in 0.4, and the command says so; `--in-place` / `new ReindexOptions(inPlace: true)`
-   asks for that explicitly, and `--no-prune` always runs in place. After a swap
-   `ReindexResult::$pruned` is `null` (the orphans went with the old index): check
-   `ReindexResult::$swapped`. A second full reindex of the same index while one runs throws
-   `RebuildAlreadyRunning` (an `\InvalidArgumentException`). A run that fails leaves a rebuild
-   behind (the doctor warns): resume it with `--from`, or run a full reindex again.
-   Call `Fuzzphony::reindex()` outside a transaction (inside one it writes in place), and do not
-   run `fuzzphony:schema --apply` while a full rebuild runs (a `fuzzphony:reindex`, or the worker's
-   rebuild of a job a `TRUNCATE` queued, step 6): it refuses, run it again afterwards (let a deploy
-   pipeline retry).
-6. **`TRUNCATE` in queue mode.** A `TRUNCATE` of a joined table (or of a query source's table)
-   queues one full-rebuild job, the row `(index_name, '*')` in `fuzzphony_queue`, instead of every
-   document id; the worker runs it before the queued ids. If you read the queue yourself, skip that
-   row. For a zero-downtime rebuild the worker's role needs the reindex rights of step 5; without
-   them it rebuilds in place. Either way the rebuild reads the source in the worker's session, like
-   `fuzzphony:reindex`: its `search_path` must see the source tables. A role that truncates watched
-   tables needs `UPDATE` on `fuzzphony_queue` (the trigger moves a queued job's time on), and a
-   string document id `*` is reserved for the job. A rebuild that fails does not stop the worker
-   (it retries after a back-off and the doctor warns), but `fuzzphony:worker --once` then exits
-   with code 1: check a cron job that alerts on it. `fuzzphony:schema --apply` adds the failure
-   columns to the meta table. Custom engines implement `rebuildRequested()` and
-   `recordRebuildFailure()`; an engine whose queue has no rebuild job returns `false` from the
-   first and leaves the second empty.
-7. **Partitioned tables.** The apply of step 1 puts the `TRUNCATE` trigger on every partition of a
-   watched partitioned table. After attaching or detaching a partition, run
-   `fuzzphony:schema --apply` again (the doctor lists partitions without the trigger and detached
-   tables that still have it) and `fuzzphony:reindex <index>` (neither fires a trigger).
-8. **Index names must not contain `__`** (two underscores): Fuzzphony reserves it for an index's
-   rebuild objects (`fuzzphony_<index>__next`, `fuzzphony_<index>__changes`), so an index named
-   `products__next` would be destroyed by the rebuild of `products`. Such a definition now fails
-   validation. Rename the index before upgrading: drop the old one with 0.4
-   (`fuzzphony:schema --drop --apply`), then, on 0.5, apply and reindex the new name.
+1. **Apply, then reindex.** `fuzzphony:schema --apply` upgrades every index to sidecar layout 2 (`--dump-migration` contains the step); then one full
+   `fuzzphony:reindex` (until then the doctor's "Documents" check warns, so `doctor --strict` fails). Deploy the code and apply together, and stop or
+   restart workers: 0.5 code sends field-scoped searches to new columns that fail until the apply, and a 0.4 worker fails on the full-rebuild queue
+   row a `TRUNCATE` queues (step 6).
+2. **Field-scoped queries are exact:** `brand:x` no longer matches other fields of the same weight, and a scoped typo no longer matches another fuzzy
+   field. The index grows by about one more copy of the text; until the reindex, field-scoped words find nothing in older documents.
+3. **`--drop --apply` and `--prune-empty` ask for confirmation** (default no). A non-interactive script must add `--force`, or it fails with exit 1.
+   The PHP API never prompts.
+4. **Custom engines** implement `beginRebuild()`, `refreshShadow()`, `finishRebuild()`, `abortRebuild()`, `discardLeftoverRebuild()` (the minimal
+   implementation: `beginRebuild()` returns `false`, `discardLeftoverRebuild()` returns `false`, the rest empty, `refreshShadow()` returns `0`).
+5. **A full reindex builds next to the live index** (`fuzzphony_<index>__next`) and swaps it in, so searches never see a half-built index; plan disk
+   space for a second copy. The role needs `CREATE` on Fuzzphony's schema and must own the index table, and the connection must be a session (not a
+   transaction-pooling PgBouncer: use `--in-place`). A role without those rights reindexes in place and says so; `--in-place` asks for it, `--no-prune`
+   always runs in place. After a swap `ReindexResult::$pruned` is `null`: check `$swapped`. A second full reindex of an index throws
+   `RebuildAlreadyRunning`. A failed run leaves a rebuild behind (the doctor warns): resume with `--from` or reindex again. Call `Fuzzphony::reindex()`
+   outside a transaction, and do not run `schema --apply` while a full rebuild runs (it refuses; retry).
+6. **`TRUNCATE` in queue mode** queues one full-rebuild job (the row `(index_name, '*')` in `fuzzphony_queue`; `*` is a reserved string id) that the worker
+   runs before the queued ids, with the reindex rights of step 5 (else in place), in the worker session's `search_path`. A role that truncates watched
+   tables needs `UPDATE` on `fuzzphony_queue`. A failed rebuild is retried after a back-off and makes `fuzzphony:worker --once` exit with 1.
+   The apply adds the failure columns. Custom engines implement `rebuildRequested()` and `recordRebuildFailure()`.
+7. **Partitioned tables.** The apply puts the `TRUNCATE` trigger on every partition. After attaching or detaching a partition run
+   `schema --apply` again (the doctor lists the gaps) and `fuzzphony:reindex <index>`.
+8. **Index names must not contain `__`** (reserved for rebuild objects): such a definition fails validation. Drop the old index with 0.4
+   (`schema --drop --apply`), then apply and reindex the new name on 0.5.
 
 ## From 0.3 to 0.4
 
-1. **Exceptions.** Catch `Fuzzphony\Core\Exception\FuzzphonyException` to handle everything
-   Fuzzphony throws. If you caught `\ValueError` around definition building (a YAML or builder
-   enum typo), catch `InvalidDefinition`; if you caught `\LogicException` from
-   `AttributeExporter::export()` or `DoctrineNamingStrategy`, catch `InvalidArgument` /
-   `InvalidDefinition`; if you caught `\PDOException` or DBAL exceptions around `explain()`,
-   highlighting, the doctor or `SchemaPlan::apply()`, catch `EngineFailure` (the driver exception
-   is `getPrevious()`). `catch (\InvalidArgumentException)` keeps working.
-2. **`IndexDefinition::with()` is gone.** Replace each named argument with its wither, and chain
-   them: `$definition->with(sync: SyncMode::Manual, tenant: null)` becomes
-   `$definition->withSync(SyncMode::Manual)->withTenant(null)`. The names are the property names:
-   `name`, `source`, `fields`, `filters`, `watches`, `idType`, `sync`, `text`, `boostColumn`,
-   `recencyColumn`, `profiles`, `thresholds`, `entityClass`, `triggerLevel`, `tenant` →
-   `withName()` … `withTenant()`. Withers do not validate; registering the definition does.
-3. **Reindexing from PHP.** `reindex()` takes a `ReindexOptions` and returns a `ReindexResult`:
+1. **Exceptions.** Catch `Fuzzphony\Core\Exception\FuzzphonyException` for everything. `\ValueError` around definition building becomes
+   `InvalidDefinition`; `\LogicException` from `AttributeExporter::export()` / `DoctrineNamingStrategy` becomes `InvalidArgument` / `InvalidDefinition`;
+   `\PDOException` or DBAL exceptions around `explain()`, highlighting, the doctor or `SchemaPlan::apply()` become `EngineFailure` (driver exception in
+   `getPrevious()`). `catch (\InvalidArgumentException)` keeps working.
+2. **`IndexDefinition::with()` is gone:** `$definition->with(sync: SyncMode::Manual, tenant: null)` becomes
+   `$definition->withSync(SyncMode::Manual)->withTenant(null)` (`withName()` ... `withTenant()`). Withers do not validate; registering does.
+3. **Reindexing from PHP** takes a `ReindexOptions` and returns a `ReindexResult`:
 
    ```php
    // 0.3
@@ -646,58 +441,31 @@ No breaking changes. Optional steps:
    $skipped = $result->pruneSkippedEmptySource;      // was onPruneSkipped
    ```
 
-   `onBatch` must be a `\Closure` (use `$callable(...)` for other callables). The console command
-   is unchanged.
-4. **Removed Core helpers.** `IndexDefinition::sidecarTable()`, `TextConfig::configName()`,
-   `IdType::sqlType()`, `FilterType::sqlType()`, `FilterType::compatibleSqlTypes()`,
-   `RankingProfile::tsRankWeights()` and `Identifier::limit()` are gone. Nothing replaces them in
-   the public API: the engine derives these names itself. If you queried the sidecar table by
-   hand, its name is `fuzzphony_<index>` in Fuzzphony's schema (`public` unless you set one, see
-   [Moving to a dedicated schema](#moving-to-a-dedicated-schema)).
-5. **Apply the schema once.** `bin/console fuzzphony:schema --apply` re-creates the functions
-   with a fixed `search_path` and schema-qualified names. Nothing moves: without a `schema`
-   setting everything stays in `public`. Everything is now created in and read from one
-   configured schema, so a setup that relied on the `search_path` to place or find Fuzzphony's
-   objects (one set per tenant schema, say) no longer works that way. The refresh and sync
-   functions resolve your source tables with the `search_path` of the session that applies the
-   schema: apply it with the same role and settings as your application. It also creates
-   `fuzzphony_meta` and records each index's layout and definition. Until the next full
-   `bin/console fuzzphony:reindex`, `fuzzphony:doctor` warns that the documents' definition is
-   unknown (check "Documents"); search works without it, but run one reindex before
-   `fuzzphony:doctor --strict` in CI. The role that runs `fuzzphony:reindex` needs `SELECT` and
-   `UPDATE` on `fuzzphony_meta`, and the role that runs `fuzzphony:doctor` needs `SELECT` on it
-   (without it the "Schema version" check warns, which fails `--strict`); a schema-wide
-   `GRANT … ON ALL TABLES IN SCHEMA` covers only the tables that exist, so re-run it after the
-   first 0.4 `schema --apply` (the table is new).
-6. **Custom engines** implement `Engine::recordReindex(IndexDefinition $index): void`; an empty
-   body is fine if the engine does not track which definition built its documents.
-7. **Internal classes.** Only the classes listed under
-   [Public API](docs/architecture.md#public-api) are covered by the upgrade notes from now on. If
-   you use an `@internal` class directly (`Reindexer`, `Worker`, `ArrayDefinitionLoader`,
-   `QueryParser`, `DefinitionValidator`, …), move to the public entry points (`Fuzzphony`,
-   `IndexDefinition::builder()`, the bundle's configuration) or open an issue describing the use
-   case. PHPStan reports such uses (`@internal` from outside the `Fuzzphony` namespace).
+   `onBatch` must be a `\Closure`. The console command is unchanged.
+4. **Removed Core helpers:** `IndexDefinition::sidecarTable()`, `TextConfig::configName()`, `IdType::sqlType()`, `FilterType::sqlType()`,
+   `FilterType::compatibleSqlTypes()`, `RankingProfile::tsRankWeights()`, `Identifier::limit()`. The sidecar table is `fuzzphony_<index>` in Fuzzphony's
+   schema (`public` unless set, see [Moving to a dedicated schema](#moving-to-a-dedicated-schema)).
+5. **Apply the schema once:** it re-creates the functions with a fixed `search_path` and schema-qualified names, and creates `fuzzphony_meta`. Everything is
+   created in and read from one configured schema, so a setup that relied on the `search_path` (one set per tenant schema) no longer works. Apply it with
+   the same role and settings as your application (the functions resolve your source tables with the applying session's `search_path`). Until the next
+   full reindex the doctor warns about "Documents"; run one before `doctor --strict` in CI. Roles: reindex needs `SELECT`, `UPDATE` on `fuzzphony_meta`,
+   the doctor `SELECT`; re-run a schema-wide `GRANT` after the first apply.
+6. **Custom engines** implement `Engine::recordReindex(IndexDefinition $index): void` (an empty body is fine).
+7. **Internal classes.** Only the [Public API](docs/architecture.md#public-api) is covered by these notes. Move from `@internal` classes (`Reindexer`,
+   `Worker`, `ArrayDefinitionLoader`, `QueryParser`, ...) to `Fuzzphony`, `IndexDefinition::builder()` and the bundle's configuration; PHPStan reports such uses.
 
 ### Moving to a dedicated schema
 
-Optional. Nothing moves by itself. The sync triggers on your tables keep their names in the new
-schema, so the new `schema --apply` re-points them to the new functions; a `--drop` with the old
-configuration run *afterwards* would remove them again. Two ways:
+Optional. Nothing moves by itself. The sync triggers on your tables keep their names, so the new `schema --apply` re-points them to the new functions; a
+`--drop` with the old configuration run *afterwards* would remove them again.
 
-**Without downtime** (the deployed application keeps searching the old tables until you deploy
-the new setting):
+**Without downtime** (the deployed application keeps searching the old tables until you deploy the new setting):
 
-1. Keep the deployed application on the old setting. Prepare the new one,
-   `fuzzphony.schema: fuzzphony` (or `schema:` for `PostgresEngine`), somewhere only a one-off
-   process uses it: a separate checkout or release directory pointed at the same database.
-2. From that process: `bin/console fuzzphony:schema --apply`. It creates the schema and every
-   object in it and re-points the triggers to the new functions, so from now on trigger and queue
-   sync feed the new objects (queued changes wait in the new queue) and the old tables go stale.
-3. From that process: `bin/console fuzzphony:reindex`: fills the new sidecar tables. Search still
-   works meanwhile, from the old, increasingly stale tables.
-4. Deploy the new setting. With ORM sync, the old deployment refreshed the old tables until now:
-   run `bin/console fuzzphony:reindex` once more.
-5. Last, drop the old objects by hand (never with `--drop`, see above):
+1. Prepare `fuzzphony.schema: fuzzphony` (or `schema:` for `PostgresEngine`) in a separate checkout pointed at the same database; keep the deployed application on the old setting.
+2. From that checkout: `bin/console fuzzphony:schema --apply` (creates the schema and every object, re-points the triggers: queue and trigger sync now feed the new objects, the old tables go stale).
+3. `bin/console fuzzphony:reindex` fills the new sidecar tables (search keeps using the old ones meanwhile).
+4. Deploy the new setting. With ORM sync, run `bin/console fuzzphony:reindex` once more.
+5. Drop the old objects by hand (never with `--drop`):
 
    ```sql
    DROP TABLE public.fuzzphony_<index>;              -- one per index
@@ -707,86 +475,42 @@ the new setting):
    DROP TEXT SEARCH DICTIONARY public.fuzzphony_<language>_stop;
    ```
 
-**With a short search outage:**
+**With a short search outage:** with the old configuration `bin/console fuzzphony:schema --drop --apply` (the queue table, `fuzzphony_norm` and the text
+search configurations stay and can be dropped as above); then set the schema, `fuzzphony:schema --apply`, `fuzzphony:reindex`.
 
-1. With the old configuration: `bin/console fuzzphony:schema --drop --apply` (removes the
-   triggers, functions and sidecar tables; the queue table, `fuzzphony_norm` and the text search
-   configurations stay and can be dropped as above).
-2. Set the schema, `bin/console fuzzphony:schema --apply`, `bin/console fuzzphony:reindex`.
-
-`fuzzphony:doctor` warns ("Schema") when the configured schema has no sidecar table for an index but
-`public` still has one.
+`fuzzphony:doctor` warns ("Schema") when the configured schema has no sidecar table for an index but `public` still has one.
 
 ### Doctrine Migrations
 
-With DoctrineBundle the bundle now sets the DBAL `schema_filter` of Fuzzphony's connection, so
-`doctrine:migrations:diff` stops proposing to drop the `fuzzphony_*` tables. If your connection
-has its own `schema_filter`, the bundle leaves it alone, and `fuzzphony:doctor` warns with the
-regex to merge until your filter hides Fuzzphony's tables. If `connection` or `schema` is set
-from a parameter or an environment variable, the bundle cannot resolve it early enough: it sets
-no filter and the doctor does not check yours, so add Fuzzphony's regex yourself. A migration
-generated with `fuzzphony:schema --dump-migration` can be generated again after upgrading; it now
-ends with the version record.
+With DoctrineBundle the bundle sets the DBAL `schema_filter` of Fuzzphony's connection, so `doctrine:migrations:diff` stops proposing to drop `fuzzphony_*`
+tables. If your connection has its own `schema_filter` the bundle leaves it alone and the doctor warns with the regex to merge. If `connection` or `schema`
+comes from a parameter or environment variable the bundle sets no filter and the doctor does not check yours: add Fuzzphony's regex yourself. A migration
+from `--dump-migration` can be generated again after upgrading (it now ends with the version record).
 
 ## From 0.3.1 to 0.3.2
 
-Nothing to do: only the generated search statements change (the trigram operator is now
-schema-qualified, so `pg_trgm` no longer has to be on the `search_path`).
+Nothing to do: the trigram operator in generated statements is now schema-qualified (`pg_trgm` no longer has to be on the `search_path`).
 
 ## From 0.3.0 to 0.3.1
 
-No code changes. Only indexes with accent folding (`unaccent`, the default) are affected: their
-text search configuration kept accented stop words (`für`, `és`, `à`), so the stored documents
-contain them.
-
-1. **Apply the schema.** It creates the stop-word dictionary `fuzzphony_<language>_stop` and
-   re-maps the existing `fuzzphony_<language>` configuration; queries ignore accented stop words
-   from then on.
-2. **Reindex every such index.** Documents indexed before still contain the stop words, and
-   until they are rebuilt a search can rank them differently.
-
-```bash
-bin/console fuzzphony:schema --apply
-bin/console fuzzphony:reindex
-```
-
-Until you apply the schema, `fuzzphony:doctor` reports that the text search configuration keeps
-accented stop words.
+Only indexes with accent folding (`unaccent`, the default) are affected: their text search configuration kept accented stop words (`für`, `és`, `à`).
+Run `bin/console fuzzphony:schema --apply` (creates the stop-word dictionary `fuzzphony_<language>_stop`, re-maps the configuration) and
+`bin/console fuzzphony:reindex` for every such index; until reindexed, documents can rank differently. The doctor reports the configuration until applied.
 
 ## From 0.2 to 0.3
 
-1. **Requirements.** Symfony 7.4 or 8.0 (7.3 is no longer supported), and the `pdo_pgsql` PHP
-   extension, which is now a hard requirement of `fuzzphony/fuzzphony`.
-2. **Apply the schema, then reindex once.** Sync functions changed and every watched table gets
-   a new `TRUNCATE` trigger. Both commands are safe to run on a live index:
-
-   ```bash
-   bin/console fuzzphony:schema --apply
-   bin/console fuzzphony:reindex        # also removes documents left behind by earlier TRUNCATEs
-   ```
-
-   Until you apply the schema, `fuzzphony:doctor` reports the missing `TRUNCATE` trigger.
-3. **`fuzzphony:search --profile` is now `--rank-profile`.** The short form `-p` is unchanged.
-   Update scripts that use the long option.
-4. **A full reindex now prunes orphaned documents** (indexed rows the source no longer returns).
-   If the session that runs the reindex sees fewer rows than your application (row-level
-   security, a different `search_path`), pass `--no-prune` / `prune: false`, or run it as a role
-   that sees everything. A source that returns no row at all is never pruned unless you pass
-   `--prune-empty`.
-5. **Custom engines** (implementations of `Fuzzphony\Core\Engine\Engine`) must implement
-   `pruneOrphans(IndexDefinition $index, int $batchSize = 5_000): int`.
-6. **Removed:** `NodeInspector::topLevelExclusions()`. It had no caller in the library; if you
-   used it, walk the AST for top-level `Not` nodes yourself.
-7. **Behaviour you may notice:**
-   - Typo-tolerant results are narrower: every word of the query must now match on its own.
-     Tests that pinned the old, wider fuzzy result sets may need new expectations.
-   - A multi-word query that finds nothing may now return results for a subset of its words,
-     with a warning in `SearchResult::$warnings`. Disable it with the threshold
-     `relax_when_empty: false`. The warning quotes the user's words: escape it when rendering HTML.
-   - `ScoreBreakdown::$fuzzySimilarity` is computed per word, so absolute scores in
-     `fuzzy_mode: always` shift slightly; relative order of strict matches is unaffected.
+1. **Requirements.** Symfony 7.4 or 8.0 (7.3 dropped) and the `pdo_pgsql` extension (now required).
+2. **Apply the schema, then reindex once** (sync functions changed, every watched table gets a `TRUNCATE` trigger; both are safe on a live index):
+   `bin/console fuzzphony:schema --apply`, then `bin/console fuzzphony:reindex` (also removes documents left behind by earlier TRUNCATEs).
+3. **`fuzzphony:search --profile` is now `--rank-profile`** (`-p` unchanged).
+4. **A full reindex now prunes orphaned documents.** If the reindexing session sees fewer rows than your application (row-level security, another
+   `search_path`), pass `--no-prune` / `prune: false`. A source that returns no row is never pruned without `--prune-empty`.
+5. **Custom engines** implement `pruneOrphans(IndexDefinition $index, int $batchSize = 5_000): int`.
+6. **Removed:** `NodeInspector::topLevelExclusions()` (walk the AST for top-level `Not` nodes).
+7. **Behaviour:** typo-tolerant results are narrower (every query word must match on its own); a multi-word query that finds nothing may return results
+   for a subset of its words with a warning (`relax_when_empty: false` disables it; the warning quotes the user's words: escape it in HTML);
+   `ScoreBreakdown::$fuzzySimilarity` is per word, so absolute scores in `fuzzy_mode: always` shift slightly.
 
 ## From 0.1 to 0.2
 
-- `OrmSyncListener` takes a `RefreshDispatcher` instead of an `Engine`. With the Symfony bundle
-  nothing changes; wire `new ImmediateRefreshDispatcher($engine)` yourself otherwise.
+`OrmSyncListener` takes a `RefreshDispatcher` instead of an `Engine` (the bundle wires it; otherwise `new ImmediateRefreshDispatcher($engine)`).
