@@ -30,6 +30,12 @@ final class VocabularyService
      */
     private const float SUGGEST_SIMILARITY = 0.25;
 
+    /** How many times the documents of the next candidate the likeliest word needs to be the correction (corrections()). */
+    private const int CLEAR_LEAD = 2;
+
+    /** What each edit takes off the score of a correction's hit (1.0, the score of an exact hit, less this per edit). */
+    private const float CORRECTION_STEP = 0.05;
+
     /** @var array<string, true> vocabulary tables this service has seen exist and be readable; only a positive answer is kept (see suggest()) */
     private array $readable = [];
 
@@ -188,6 +194,10 @@ Hint: %s", $vocabulary, $hint), 0, null, 'vocabulary', $hint);
         $best = [];
         /** @var array<string, array<string, true>> $ones typed word => the vocabulary words one edit away */
         $ones = [];
+        /** @var array<string, array<string, int>> $nearest typed word => the candidates at its fewest edits, with their document counts */
+        $nearest = [];
+        /** @var array<string, int> $fewest typed word => its fewest edits */
+        $fewest = [];
         foreach ($rows as $row) {
             $word = Coerce::str($row['w']);
             if (in_array($row['known'], [true, 't', 'true', 1, '1'], true)) {
@@ -205,6 +215,13 @@ Hint: %s", $vocabulary, $hint), 0, null, 'vocabulary', $hint);
             if ($distance === 1) {
                 $ones[$word][$candidate] = true;
             }
+            if (!isset($fewest[$word]) || $distance < $fewest[$word]) {
+                $fewest[$word] = $distance;
+                $nearest[$word] = [];
+            }
+            if ($distance === $fewest[$word]) {
+                $nearest[$word][$candidate] = Coerce::int($row['freq']);
+            }
             $rank = [$distance, -Coerce::int($row['freq']), $candidate];
             if (!isset($best[$word]) || $rank < $best[$word]) {
                 $best[$word] = $rank;
@@ -216,7 +233,32 @@ Hint: %s", $vocabulary, $hint), 0, null, 'vocabulary', $hint);
         }
         $replace = array_map(static fn(array $rank): string => $rank[2], $best);
 
-        return new Suggestion($replace === [] ? null : QueryRenderer::render($typed, $replace), $statement, $oneEdit);
+        return new Suggestion($replace === [] ? null : QueryRenderer::render($typed, $replace), $statement, $oneEdit, self::corrections($nearest, $fewest));
+    }
+
+    /**
+     * The word each typed word most likely meant, for the ranking of its typo hits (FuzzyQueryCompiler): the candidate at the fewest
+     * edits when it is the only one there, or has at least CLEAR_LEAD times the documents of the next one (`mose`: `mouse` in 40
+     * documents over `moose` in 3); a closer tie corrects nothing. Its score is 1.0 less CORRECTION_STEP per edit.
+     *
+     * @param array<string, array<string, int>> $nearest typed word => the candidates at its fewest edits => their document counts
+     * @param array<string, int>                $fewest  typed word => its fewest edits
+     *
+     * @return array<string, array{word: string, score: float}>
+     */
+    private static function corrections(array $nearest, array $fewest): array
+    {
+        $corrections = [];
+        foreach ($nearest as $word => $candidates) {
+            arsort($candidates);
+            $counts = array_values($candidates);
+            if (count($counts) > 1 && $counts[0] < self::CLEAR_LEAD * $counts[1]) {
+                continue;
+            }
+            $corrections[$word] = ['word' => (string) array_key_first($candidates), 'score' => 1.0 - self::CORRECTION_STEP * $fewest[$word]];
+        }
+
+        return $corrections;
     }
 
     /**

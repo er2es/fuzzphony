@@ -116,6 +116,12 @@ final class FuzzyQueryCompiler
         private readonly bool $transpositions = false,
         /** @var (\Closure(): bool)|null whether the open-class indexes may serve a restricted viewer's lookups (TextConfigCache::openClass()); null: they may not */
         private readonly ?\Closure $openClass = null,
+        /**
+         * @var array<string, array{word: string, score: float}> typed word (lowercase) => the word it most likely meant and the score of a
+         *                                                        document that has it (VocabularyService::corrections()); only an
+         *                                                        unrestricted viewer's typed words (the vocabulary holds every field)
+         */
+        private readonly array $corrections = [],
     ) {
         $this->tsquery = new TsQueryCompiler($index);
         $this->allowed = $allowedFields === null ? null : array_values(array_filter($index->fields, static fn(FieldDefinition $f): bool => in_array($f->name, $allowedFields, true)));
@@ -607,6 +613,13 @@ final class FuzzyQueryCompiler
                 $predicates[] = $match;
             }
         }
+        $correction = $this->correction($node);
+        if ($correction !== null) {
+            // The word the typo most likely meant (fewest edits, then clearly the most documents): a document that has it scores its
+            // score, just under an exact hit, above the look-alikes. Only the score: the predicate, and so the hits, stay.
+            $query = $this->column('cw', sprintf('plainto_tsquery(%s, %s)', $this->names->regconfig($this->index->text), $params->add($correction['word'])));
+            $scores[] = sprintf('CASE WHEN %s THEN %s ELSE 0.0 END', $this->variantMatch($node, static fn(): string => $query), Sql::float($correction['score']));
+        }
 
         return [
             'predicate' => '(' . implode(' OR ', $predicates) . ')',
@@ -653,6 +666,22 @@ final class FuzzyQueryCompiler
                 $budget -= count($found);
             }
         }
+    }
+
+    /**
+     * The correction of a word the user typed (not a prefix, a phrase, nor an alternative a synonym added), for an unrestricted viewer's
+     * ranked statement (never inside withinValues(): a value row is judged by its own words).
+     *
+     * @return array{word: string, score: float}|null
+     */
+    private function correction(Node $leaf): ?array
+    {
+        $inner = $leaf instanceof FieldScoped ? $leaf->node : $leaf;
+        if ($this->corrections === [] || $this->allowed !== null || $this->within() || !$inner instanceof Term || $inner->prefix || $inner->synonym) {
+            return null;
+        }
+
+        return $this->corrections[mb_strtolower($inner->text)] ?? null;
     }
 
     /** A word the user typed (not a prefix, a phrase, nor an alternative a synonym added) may be matched with two letters swapped. */
