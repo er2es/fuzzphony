@@ -107,7 +107,7 @@ final class BackfillVacuumTest extends TestCase
         self::assertTrue($this->vacuumed(), 'the VACUUM ran (outside a transaction: inside one it fails)');
         self::assertMatchesRegularExpression('/bv: the backfill grew the table from (\d+\.\d) MB to (\d+\.\d) MB/', $display);
         preg_match('/from (\d+\.\d) MB to (\d+\.\d) MB/', $display, $m);
-        self::assertGreaterThan((float) $m[1], (float) $m[2]);
+        self::assertGreaterThan((float) ($m[1] ?? 0), (float) ($m[2] ?? 0));
         self::assertStringContainsString('Run fuzzphony:reindex bv to compact it online', $display);
 
         $notes = self::sizeNotes($two);
@@ -149,7 +149,8 @@ final class BackfillVacuumTest extends TestCase
         $directory = sys_get_temp_dir() . '/fz-bv-' . bin2hex(random_bytes(4));
         $tester = new CommandTester(new SchemaCommand($this->pending(), $this->connection));
         self::assertSame(Command::SUCCESS, $tester->execute(['--dump-migration' => $directory]));
-        $files = glob($directory . '/Version*.php') ?: [];
+        $files = glob($directory . '/Version*.php');
+        self::assertIsArray($files);
         self::assertCount(1, $files);
         $migration = (string) file_get_contents($files[0]);
         unlink($files[0]);

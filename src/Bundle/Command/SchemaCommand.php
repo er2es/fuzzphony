@@ -256,8 +256,11 @@ final class SchemaCommand extends Command
     private function sidecars(array $indexes): array
     {
         $engine = $this->fuzzphony->engine();
+        if (!$engine instanceof PostgresEngine) {
+            return [];
+        }
         $sidecars = [];
-        foreach ($engine instanceof PostgresEngine ? $indexes : [] as $index) {
+        foreach ($indexes as $index) {
             $sidecars[$index->name] = $engine->schemaGenerator()->names()->sidecar($index);
         }
 

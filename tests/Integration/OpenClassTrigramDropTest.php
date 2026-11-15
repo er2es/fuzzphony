@@ -108,7 +108,11 @@ final class OpenClassTrigramDropTest extends TestCase
         }
     }
 
-    /** The name and body 0.12.4 gave the open-class trigram index of a definition (null: it built none). @return array{string, string}|null */
+    /**
+     * The name and body 0.12.4 gave the open-class trigram index of a definition (null: it built none).
+     *
+     * @return array{string, string}|null
+     */
     private static function oldTrigram(IndexDefinition $index, Names $names): ?array
     {
         $open = OpenClass::fields($index);
