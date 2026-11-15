@@ -11,19 +11,15 @@ and a link. Measurements, proofs and test names belong to the pull request, [doc
 
 ## [Unreleased]
 
-- **`fuzzphony:worker --memory-limit=128M`** stops the worker after the cycle in which its memory use passed the limit (let the supervisor restart it), and SIGQUIT now stops it gracefully like SIGTERM and SIGINT.
-### Changed
-
-- **Typo hits of the word a typo most likely meant rank first:** the did-you-mean lookup now runs before the typo-tolerant statement, and the hits that have the likeliest word (fewest edits, a swap counting as one, then clearly the most documents) score 0.95 for it, above look-alikes (`szaob`: `Szabó` before `Szalai`, `peetr`: `Péter` before `Petra`). No extra statement; the same hits, totals and facets: only the order (and `fuzzySimilarity`) of typo hits changes ([did you mean](docs/searching.md#did-you-mean)).
 ### Added
 
+- **`fuzzphony:worker --memory-limit=128M`** stops the worker after the cycle in which its memory use passed the limit (let the supervisor restart it), and SIGQUIT now stops it gracefully like SIGTERM and SIGINT.
 - A `code: true` field finds a code whose last part is cut off (`ORD-2025-00003` finds `ORD-2025-000030`): a search that finds nothing runs once more with its last word as a prefix on the code fields the viewer may search, flagged like the zero-result rescue (`correctedFrom`, `correctedTo`, a warning, the `rescued` log flag). Searches with results are unchanged; `rescue.correct_when_empty: false` skips it, and search-as-you-type uses it only when it left the last word as typed (after a hyphen). Federated searches get it per index.
 
 ### Changed
 
+- **Typo hits of the word a typo most likely meant rank first:** the did-you-mean lookup now runs before the typo-tolerant statement, and the hits that have the likeliest word (fewest edits, a swap counting as one, then clearly the most documents) score 0.95 for it, above look-alikes (`szaob`: `Szabó` before `Szalai`, `peetr`: `Péter` before `Petra`). No extra statement; the same hits, totals and facets: only the order (and `fuzzySimilarity`) of typo hits changes ([did you mean](docs/searching.md#did-you-mean)).
 - A federated search ranks the hits of a rescued index (`correctedFrom`, a typo correction or a cut-off code) after every hit of the indexes that found the typed text itself, whatever their weight; floors still bring them onto the page.
-### Changed
-
 - **Documentation:** a hero banner, shorter pages (the roadmap and the upgrade guide no longer repeat release history; UPGRADE.md drops the steps before 0.3), the `BUILDX_BAKE_ENTITLEMENTS_FS=0` note wherever the demo is built.
 
 ## [0.12.7] - 2026-11-15
