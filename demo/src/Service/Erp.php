@@ -193,8 +193,12 @@ final readonly class Erp
         }
 
         $lines = array_slice(array_keys($lines), 0, 3);
-        // the city filter holds for ANY address of the person, so it may be another address than the one the words matched: say which one
-        if ($city !== '') {
+        // strict mode with a city: `same_row_as` makes the one address that holds the words the address of that city, and the line says so
+        if ($strict && $city !== '') {
+            $lines = array_map(static fn (string $l): string => str_starts_with($l, 'one address holds') ? $l . ' (in ' . $city . ', the city filter holds for this very address)' : $l, $lines);
+        }
+        // in the default mode the city filter holds for ANY address of the person, so it may be another address than the one the words matched: say which one (in the strict mode `same_row_as` makes it the same address)
+        if ($city !== '' && !$strict) {
             $addresses = $hit->data['address'] ?? [];
             foreach (is_array($addresses) ? $addresses : [$addresses] as $address) {
                 if (is_string($address) && mb_stripos($address, $city) !== false) {

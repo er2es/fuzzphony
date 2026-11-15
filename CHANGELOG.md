@@ -20,6 +20,7 @@ and a link. Measurements, proofs and test names belong to the pull request, [doc
 - **Faster `rank: best`:** each full-text match of an index with a `rank: best` field is ranked once instead of twice for its first 2 000
   matches (5 to 15 % less time on searches with more matches than the window); results unchanged, `rank: whole` indexes untouched.
   See [benchmarks](docs/benchmarks.md#ranking-by-the-best-value-rank-best).
+- **Demo, ERP People tab:** the `city` filter of `people` is `same_row_as: address`, so with "One address must match all words" a chosen city is the city of the address that holds the words (`fő utca szeged`: the facet shows Szeged 294, not the 196 people whose Fő utca is elsewhere); the "city filter" line stays in the default mode only. An existing demo volume needs `DEMO_REINDEX=always` once.
 
 ## [0.12.4] - 2026-11-15
 
