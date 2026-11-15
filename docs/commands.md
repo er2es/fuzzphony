@@ -40,7 +40,9 @@ backfill). A backfill leaves an old version of every row it updated, so the tabl
 updated rows, the apply runs `VACUUM (ANALYZE)` on that table right after it (outside a transaction, online; the PHP API too), which
 makes the old versions' space reusable but does not shrink the file, and the command prints the growth and the fix,
 `fuzzphony:reindex <index>`, the online shadow rebuild that writes the table compactly. A dumped migration names the `VACUUM` as a comment
-(run it yourself after the migration if the backfill updated rows); the doctor's "Sidecar size" note stays until the reindex.
+(run it yourself after the migration if the backfill updated rows); the doctor's "Sidecar size" note stays until the reindex. A
+`VACUUM` that fails is a warning naming the table and the statement to run by hand (a second apply would not run it: the backfill finds
+nothing left), and the growth note then says the table stays this large until that `VACUUM` or the reindex.
 
 Short options (`-b` batch, `-f` facet or format, `-i` index, `-l` limit or language, `-p` rank profile, `-t` time limit, `-w` where
 or write) mean different things in different commands: `-l` is the limit in `fuzzphony:search` and `fuzzphony:analytics` and the language in
