@@ -178,6 +178,7 @@ final class OpenClassTrigramDropTest extends TestCase
     /** @param array<string, mixed> $found */
     private static function assertNothingHidden(array $found, string $when): void
     {
+        self::assertGreaterThan(0, Coerce::int(((array) $found['unrestricted | always | zorbaxx'])['total']), $when . ': the hidden words are in the data');
         foreach ($found as $key => $result) {
             [$who, , $q] = explode(' | ', $key);
             if (in_array($who, ['open', 'name'], true) && in_array($q, self::HIDDEN, true)) {
