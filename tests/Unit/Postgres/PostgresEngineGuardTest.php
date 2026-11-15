@@ -57,7 +57,7 @@ final class PostgresEngineGuardTest extends TestCase
             self::fail('EngineFailure expected');
         } catch (EngineFailure $e) {
             self::assertSame(sprintf("Fuzzphony %s failed: PDOException\nHint: %s", $operation, $hint), $e->getMessage());
-            self::assertInstanceOf(\PDOException::class, $e->getPrevious());
+            self::assertInstanceOf(\Fuzzphony\Core\Support\SanitizedError::class, $e->getPrevious());
         }
     }
 

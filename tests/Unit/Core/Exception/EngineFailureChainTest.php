@@ -40,4 +40,15 @@ final class EngineFailureChainTest extends TestCase
         self::assertSame($driver, $failure->getPrevious());
         self::assertStringContainsString('relation "x" does not exist', $failure->getMessage());
     }
+
+    public function testTheMessageOfAStructuralFailureNamesIdentifiersAndStays(): void
+    {
+        $driver = new \PDOException("column fr_x does not exist");
+        $driver->errorInfo = ["42703", 7, "column fr_x does not exist"];
+
+        $previous = EngineFailure::wrap("search", $driver)->getPrevious();
+
+        self::assertStringContainsString("fr_x", (string) $previous?->getMessage());
+        self::assertSame("42703", ErrorSummary::sqlState(EngineFailure::wrap("search", $driver)));
+    }
 }
