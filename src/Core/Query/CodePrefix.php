@@ -50,8 +50,7 @@ final class CodePrefix
             return null;
         }
         $nodes = $root instanceof AllOf ? $root->nodes : [$root];
-        $last = array_key_last($nodes);
-        $node = $nodes[$last];
+        $node = array_pop($nodes);
         if ($node instanceof FieldScoped && in_array($node->field, $codes, true)) {
             $codes = [$node->field];
             $node = $node->node;
@@ -61,7 +60,7 @@ final class CodePrefix
         }
         $prefix = new Term($node->text, prefix: true);
         $scoped = array_map(static fn(string $code): Node => new FieldScoped($code, $prefix), $codes);
-        $nodes[$last] = count($scoped) === 1 ? $scoped[0] : new AnyOf($scoped);
+        $nodes[] = count($scoped) === 1 ? $scoped[0] : new AnyOf($scoped);
         $rescued = count($nodes) === 1 ? $nodes[0] : new AllOf($nodes);
         $to = QueryRenderer::render($rescued);
 

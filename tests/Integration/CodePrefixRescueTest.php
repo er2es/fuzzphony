@@ -11,6 +11,7 @@ use Fuzzphony\Core\Fuzzphony;
 use Fuzzphony\Core\Registry\IndexRegistry;
 use Fuzzphony\Core\Search\FederatedSearch;
 use Fuzzphony\Core\Search\Hit;
+use Fuzzphony\Core\Search\MatchedWord;
 use Fuzzphony\Core\Search\SearchBuilder;
 use Fuzzphony\Engine\Postgres\PostgresEngine;
 use PHPUnit\Framework\TestCase;
@@ -178,7 +179,7 @@ final class CodePrefixRescueTest extends TestCase
         foreach ($result->hits as $hit) {
             self::assertNotSame([], $hit->matches ?? [], 'every hit says why it was found');
             if ($hit->index === 'cpr_orders') {
-                self::assertSame('number', ($hit->matches ?? [])[0]->field ?? null);
+                self::assertSame(['number'], array_values(array_unique(array_map(static fn(MatchedWord $m): string => $m->field, $hit->matches ?? []))));
             }
         }
 
@@ -192,7 +193,7 @@ final class CodePrefixRescueTest extends TestCase
         $first = $this->federated(['cpr_people' => [1.0, 1], 'cpr_orders' => [0.8, 2]])->limit(3)->get();
         $second = $this->federated(['cpr_people' => [1.0, 1], 'cpr_orders' => [0.8, 2]])->limit(3, 3)->get();
 
-        self::assertSame(['cpr_people', 'cpr_orders', 'cpr_orders'], array_map(static fn(Hit $h): ?string => $h->index, $first->hits), 'the floor of 2 holds, genuine first');
+        self::assertSame(['cpr_people', 'cpr_orders', 'cpr_orders'], array_map(static fn(Hit $h): string => $h->index, $first->hits), 'the floor of 2 holds, genuine first');
         $shown = [...self::keys($first->hits), ...self::keys($second->hits)];
         self::assertEqualsCanonicalizing(['cpr_people:1', 'cpr_people:2', 'cpr_orders:1', 'cpr_orders:2', 'cpr_orders:4', 'cpr_orders:5'], $shown);
     }
