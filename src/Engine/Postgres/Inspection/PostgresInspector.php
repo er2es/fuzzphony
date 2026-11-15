@@ -575,8 +575,9 @@ final class PostgresInspector
      * A sidecar larger than the current column map needs, which a backfill leaves behind (pgstattuple is not assumed, so two cheap
      * estimates): rows without a map while the definition has one (`field_map IS NULL`: backfilled, or written before 0.12.4) store
      * the per-field columns the map keeps empty, and the dead row versions the statistics count (pg_stat_user_tables). The note needs
-     * at least 10% of the rows without a map: each such row holds its shared text twice (about 1.5 times a mapped row), so below
-     * 10% the reindex would save a few percent of the table, not worth a note. The dead versions are only added to it, above
+     * at least 10% of the rows without a map: each such row holds its shared text twice (in a one-field
+     * index `z_name` and `t_name` again, about half the row), so below 10% the reindex would save a few percent of the table, not
+     * worth a note. The dead versions are only added to it, above
      * PostgreSQL's own autovacuum trigger (50 + 20% of the rows, the defaults: autovacuum is due and has not run); alone they are
      * ordinary churn, autovacuum's business. One count over the table (like ColumnMap::pending()) with one statistics read.
      *

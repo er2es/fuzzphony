@@ -212,7 +212,17 @@ Size and build time (`fuzzphony:schema --apply`, `CREATE INDEX CONCURRENTLY`, bo
 | growth | +25 % | +34 % |
 | build time | 2 s | 12.5 s |
 
-The indexes are used only when both exist, are valid and are smaller together than `fz`; an index with no granted field has none.
+The indexes are used only when both exist, are valid and each is smaller than the one it replaces; an index with no granted field has
+none. Since 0.12.5 the trigram one is built only when a granted field is fuzzy (otherwise it held the trigrams of `fz`, was as large,
+and kept the full-text one switched off). On 200 000 ERP customers, after `schema --apply` and no reindex:
+
+| Index (no granted field fuzzy) | open-class trigram index | table + indexes 0.12.4 | 0.12.5 | restricted viewer, median ms 0.12.4 / 0.12.5 |
+|---|---:|---:|---:|---:|
+| `people2` (`name`, `contact` fuzzy; `address`, `email` granted) | 12.2 MB, dropped | 171.0 MB | 158.8 MB | 57.0 / 29.8 (`name`), 79.3 / 38.1 (`name`, `contact`) |
+| `mails` (`name` fuzzy; `email`, `tax_no` granted) | 7.7 MB, dropped | 101.3 MB | 93.6 MB | 28.7 / 24.9 |
+
+Results, scores, totals, facets and highlights are identical for every viewer (299 or 274 searches per viewer); an index with a fuzzy
+granted field (`people`) keeps both open-class indexes and every statement.
 ## Reading the numbers
 
 The two columns do different work. `ILIKE … LIMIT 20` returns the first 20 rows the scan reaches,
@@ -261,7 +271,10 @@ unchanged and the timings within noise. On 200 000 ERP customers, the index tabl
 
 A one-field index saves about 10%; where only a short `z_` copy goes, the map text eats what it saves. After a definition change the
 backfill of the 200 000 `cust` rows took 3.2 s (one scan to find the maps: 0.04 s) and left the table at 110 MB until the next reindex
-or `VACUUM` (the copied columns and the old row versions); an apply with nothing to backfill adds the scan only.
+(the copied columns and the old row versions); an apply with nothing to backfill adds the scan only. Since 0.12.5 the apply then runs
+`VACUUM (ANALYZE)` on it (one more measurement, `cust` with a granted `email` added: 39.8 MB before, 96.8 MB after the apply in 2.2 s
+including the VACUUM, 0 dead row versions instead of 199 930, 83.8 MB after `fuzzphony:reindex` in 4.8 s); the VACUUM makes the space
+reusable, only the reindex gives it back.
 
 ## Several values per document (`many`)
 
