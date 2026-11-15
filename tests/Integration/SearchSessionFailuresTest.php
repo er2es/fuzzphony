@@ -8,6 +8,7 @@ use Fuzzphony\Core\Database\Connection;
 use Fuzzphony\Core\Exception\EngineFailure;
 use Fuzzphony\Core\Fuzzphony;
 use Fuzzphony\Core\Registry\IndexRegistry;
+use Fuzzphony\Core\Support\SanitizedError;
 use Fuzzphony\Engine\Postgres\PostgresEngine;
 use Fuzzphony\Tests\Conformance\EngineConformanceTestCase;
 use Fuzzphony\Tests\Fixtures\Indexes;
@@ -84,7 +85,7 @@ final class SearchSessionFailuresTest extends TestCase
             $intercepting->transactional(fn(): int => $this->search($intercepting));
             self::fail('EngineFailure expected');
         } catch (EngineFailure $e) {
-            self::assertInstanceOf(\PDOException::class, $e->getPrevious());
+            self::assertInstanceOf(SanitizedError::class, $e->getPrevious());
         }
         self::assertFalse($this->connection->inTransaction());
         self::assertSame(1, $this->connection->fetchValue('SELECT 1'));

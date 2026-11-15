@@ -17,8 +17,10 @@ and a link. Measurements, proofs and test names belong to the pull request, [doc
 - **Index names that collide with Fuzzphony's shared tables** (`queue`, `meta`, `watches`, `watch_log`, `search_log` and their indexes) are rejected by the definition validator.
 - **Two `#[Searchable]` entities with the same index name** are an `InvalidDefinition` naming both (they used to replace each other silently).
 - **Sync trigger functions carry a hash of the table**, so `public.t` and `public_t` no longer share one function; a source name with `__` is rejected. Run `fuzzphony:schema --apply`: the old functions and triggers are replaced.
+- **`schema --apply` migrates the old sync functions and triggers of 0.12.6 and earlier**, also the TRUNCATE triggers on partitions; dropping such an index removes them too (the insert into the source no longer fails afterwards).
+- **Reserved index names** now include `search_log_at` and `watch_log_tbl_xid_w`.
 - **Names are checked with an end anchor:** a trailing newline (a YAML block scalar) is no longer accepted in an index, source, field, table or column name.
-- **Engine failure and search-log messages carry the exception class and SQLSTATE only**, never the driver text that can hold a row value; `$dsn` and `$password` of `PdoConnection::fromDsn` are `#[\SensitiveParameter]`.
+- **Engine failure and search-log messages carry the exception class and SQLSTATE only**, never the driver text that can hold a row value; the chained `previous` exception keeps class and SQLSTATE only, too; `$dsn` and `$password` of `PdoConnection::fromDsn` are `#[\SensitiveParameter]`.
 - **The Live Component evaluates the (rate-limit charged) search before the completions.**
 - **`explain()` shows no plan to a tenant actor** of a tenant-scoped index (its row counts span every tenant).
 - **A restricted viewer gets the same "Unknown field" warning for a hidden field as for one that does not exist.**

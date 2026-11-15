@@ -4,6 +4,8 @@ declare(strict_types=1);
 
 namespace Fuzzphony\Core\Exception;
 
+use Fuzzphony\Core\Support\SanitizedError;
+
 final class EngineFailure extends \RuntimeException implements FuzzphonyException
 {
     /** @param bool $driverMessage the message of the previous exception instead of its class and SQLSTATE: only for SQL Fuzzphony generated itself (never a row value in it) */
@@ -12,7 +14,7 @@ final class EngineFailure extends \RuntimeException implements FuzzphonyExceptio
         return new self(
             sprintf('Fuzzphony %s failed: %s%s', $operation, $driverMessage ? $previous->getMessage() : \Fuzzphony\Core\Support\ErrorSummary::describe($previous), $hint !== null ? "\nHint: " . $hint : ''),
             0,
-            $previous,
+            $driverMessage ? $previous : SanitizedError::of($previous),
             $operation,
             $hint,
         );
