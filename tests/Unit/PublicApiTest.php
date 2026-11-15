@@ -31,6 +31,7 @@ final class PublicApiTest extends TestCase
         \Fuzzphony\Core\Attribute\Searchable::class,
         \Fuzzphony\Core\Database\Connection::class,
         \Fuzzphony\Core\Database\PdoConnection::class,
+        \Fuzzphony\Core\Definition\DefinitionProvider::class,
         \Fuzzphony\Core\Definition\FieldDefinition::class,
         \Fuzzphony\Core\Definition\FilterDefinition::class,
         \Fuzzphony\Core\Definition\FilterType::class,
@@ -118,8 +119,8 @@ final class PublicApiTest extends TestCase
         }
 
         self::assertSame([], $wrong);
-        self::assertCount(82, self::PUBLIC);
-        self::assertCount(227, self::classes());
+        self::assertCount(83, self::PUBLIC);
+        self::assertCount(228, self::classes());
     }
 
     public function testThePublicApiExposesNoInternalType(): void

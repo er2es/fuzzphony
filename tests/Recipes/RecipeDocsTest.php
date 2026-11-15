@@ -8,7 +8,7 @@ use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\TestCase;
 
 /**
- * A code block of a recipe (docs/recipes/*.md) that sits under `<!-- tested: path/to/file -->` is a copy of that file,
+ * A code block of a recipe (docs/recipes/*.md, and docs/configuration.md) that sits under `<!-- tested: path/to/file -->` is a copy of that file,
  * and under `<!-- tested: path/to/file#name -->` a copy of the lines between `// region: name` and `// endregion` in it
  * (`#` and `{# #}` comments work as well, for YAML and Twig). This test fails when the two differ, so the text of a
  * recipe cannot drift away from the code that the other tests of tests/Recipes run. Indentation common to all lines
@@ -28,6 +28,7 @@ final class RecipeDocsTest extends TestCase
         foreach ($files as $file) {
             yield basename($file, '.md') => [$file];
         }
+        yield 'configuration' => [self::root() . '/docs/configuration.md'];
     }
 
     #[DataProvider('recipes')]
@@ -37,7 +38,7 @@ final class RecipeDocsTest extends TestCase
         $markdown = file_get_contents($recipe);
         self::assertIsString($markdown);
         $count = preg_match_all(self::MARKER, $markdown, $blocks, PREG_SET_ORDER);
-        self::assertGreaterThanOrEqual(3, $count, basename($recipe) . ' should embed its tested code');
+        self::assertGreaterThanOrEqual(str_contains($recipe, '/recipes/') ? 3 : 2, $count, basename($recipe) . ' should embed its tested code');
 
         foreach ($blocks as $block) {
             $source = self::root() . '/' . $block['path'];

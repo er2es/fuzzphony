@@ -38,6 +38,7 @@ use Fuzzphony\Core\Analytics\NullSearchLog;
 use Fuzzphony\Core\Analytics\PatternQueryRedactor;
 use Fuzzphony\Core\Attribute\AsIndexDefinition;
 use Fuzzphony\Core\Database\Connection;
+use Fuzzphony\Core\Definition\DefinitionProvider;
 use Fuzzphony\Core\Engine\Engine;
 use Fuzzphony\Core\Exception\InvalidConfiguration;
 use Fuzzphony\Core\Exception\InvalidDefinition;
@@ -114,6 +115,9 @@ final class FuzzphonyBundle extends AbstractBundle
     /** The tag of the services with #[AsIndexDefinition]. */
     public const string INDEX_DEFINITION_TAG = 'fuzzphony.index_definition';
 
+    /** The tag of the services that implement DefinitionProvider (autoconfigured). */
+    public const string DEFINITION_PROVIDER_TAG = 'fuzzphony.definition_provider';
+
     private const string DOCTRINE_PARAMETER = 'fuzzphony.doctrine_orm';
 
     /** The DBAL connection names DoctrineBundle is configured with (set by prependExtension(), for the check of fuzzphony.connections). */
@@ -138,6 +142,7 @@ final class FuzzphonyBundle extends AbstractBundle
                 $definition->addTag(self::INDEX_DEFINITION_TAG);
             },
         );
+        $container->registerForAutoconfiguration(DefinitionProvider::class)->addTag(self::DEFINITION_PROVIDER_TAG);
     }
 
     public function configure(DefinitionConfigurator $definition): void
@@ -550,6 +555,8 @@ final class FuzzphonyBundle extends AbstractBundle
                 $projectDir,
                 $settings->authorizationEnabled,
                 tagged_iterator(self::INDEX_DEFINITION_TAG),
+                // Providers are called on every build and never cached; the warmer below does not get them (a build host has no database).
+                tagged_iterator(self::DEFINITION_PROVIDER_TAG),
             ]);
         if ($cache !== null) {
             // cache:warmup fills the discovery cache, so an immutable image with a read-only cache directory never writes it per request.

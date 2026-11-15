@@ -1,22 +1,17 @@
 # Migrating from `LIKE`
 
-You have a Symfony and Doctrine app whose search is `WHERE name ILIKE '%mouse%'`, and you want ranked, typo-tolerant
-search without running another server. This guide moves one search over, step by step, and says what you give up on the
-way. Every PHP and YAML snippet and every query of [the mapping table](#your-like-patterns-in-fuzzphony) is run by
-`tests/Integration/Docs/LikeGuideTest.php` against a small table, exactly as shown here. Back to the
-[README](../README.md).
+You have a Symfony and Doctrine app whose search is `WHERE name ILIKE '%mouse%'`, and you want ranked, typo-tolerant search without running another
+server. Every PHP and YAML snippet and every query of [the mapping table](#your-like-patterns-in-fuzzphony) is run by
+`tests/Integration/Docs/LikeGuideTest.php` against a small table, exactly as shown here. Back to the [README](../README.md).
 
 ## Why `LIKE '%x%'` falls over
 
-- **No tolerance.** `%hedphones%` does not find "headphones", `%creme%` does not find "Crème", `%drills%` does not
-  find "drill".
-- **No ranking.** Every match is equal: you get the order of the scan, or of your `ORDER BY`.
-- **No phrase, exclusion or OR** unless you write out `AND name NOT ILIKE ...` yourself.
-- **A leading wildcard cannot use a B-tree index**, so the search reads the whole table. (A trigram index makes
-  the same predicate fast, and fixes only the speed.)
+- **No tolerance:** `%hedphones%` does not find "headphones", `%creme%` not "Crème", `%drills%` not "drill".
+- **No ranking:** every match is equal. **No phrase, exclusion or OR** unless you write `AND name NOT ILIKE ...` yourself.
+- **A leading wildcard cannot use a B-tree index**, so the search reads the whole table (a trigram index fixes only the speed).
 
-Measured with this repository's benchmark (200 000 products, PostgreSQL 17 in a local container, the median of 5 runs
-after the first, 20 results each; reproduce it with `benchmarks/run.php`, see [Benchmarks](benchmarks.md)):
+Measured with this repository's benchmark (200 000 products, PostgreSQL 17, median of 5 runs, 20 results each; `benchmarks/run.php`, see
+[Benchmarks](benchmarks.md)):
 
 | case | query | `ILIKE ... LIMIT 20` | Fuzzphony |
 |---|---|---:|---:|
@@ -26,10 +21,9 @@ after the first, 20 results each; reproduce it with `benchmarks/run.php`, see [B
 | typo | `hedphones` | 172 ms, **0** rows | 42 ms, 20 hits |
 | word form | `drills` | 171 ms, **0** rows | 40 ms, 20 hits |
 
-**`ILIKE ... LIMIT 20` is the fastest option when the word is common**: it stops at the first 20 rows it meets.
-Fuzzphony costs some tens of milliseconds more there (it ranks the best 2 000 matches, not the first 20). What you buy is that the
-accent, the typo and the word form are found at all, ranked, and that a miss no longer reads the whole table. If your users never mistype and every word is common,
-you may not need this.
+**`ILIKE ... LIMIT 20` is the fastest option when the word is common** (it stops at the first 20 rows; Fuzzphony ranks the best 2 000 matches). What you
+buy is that the accent, the typo and the word form are found at all, ranked, and that a miss no longer reads the whole table. If your users never mistype
+and every word is common, you may not need this.
 
 ## Step by step
 
@@ -52,16 +46,14 @@ $products = $em->createQueryBuilder()
     ->getResult();
 ```
 
-An index definition says which columns are searched (weight `A`, the most important, to `D`), which tolerate typos,
-which are filters for the rest of your `WHERE`, and which numbers feed the ranking. Let the wizard propose one from the
-table's structure and statistics, then review it (it never touches your files):
+An index definition says which columns are searched (weight `A` to `D`), which tolerate typos, which are filters for the rest of your `WHERE`, and which
+numbers feed the ranking. Let the wizard propose one, then review it (it never touches your files):
 
 ```bash
 bin/console fuzzphony:wizard product --format=attributes
 ```
 
-The attribute form, as it ends up on the entity (the wizard made `category` a searchable field; here it is a filter,
-because people pick it rather than type it):
+The attribute form, as it ends up on the entity (here `category` is a filter, because people pick it rather than type it):
 
 <!-- tested: entity -->
 ```php
@@ -88,10 +80,8 @@ class Product
 
 - `fuzzy: true` goes on the fields people mistype (names, brands), not on long descriptions.
 - `boost` and `recency` name the columns the ranking may use; they do nothing until a profile weights them.
-- `SyncMode::Trigger` makes a new row searchable at once, as with `LIKE` ([step 6](#6-keep-the-index-fresh)).
-- The language defaults to `english` (stemming, stop words); set it per index, see [Languages](languages.md).
-- Attributes cannot hold ranking profiles. Put them in YAML (`config/packages/fuzzphony.yaml`), which also overrides
-  the attributes:
+- `SyncMode::Trigger` makes a new row searchable at once, as with `LIKE` ([step 6](#6-keep-the-index-fresh)). The language defaults to `english` ([Languages](languages.md)).
+- Attributes cannot hold ranking profiles. Put them in YAML (`config/packages/fuzzphony.yaml`), which also overrides the attributes:
 
 <!-- tested: profiles-yaml -->
 ```yaml
@@ -102,8 +92,7 @@ fuzzphony:
         popular: { boost: 1.0, recency: 0.2 }
 ```
 
-A joined label (the supplier's name next to the product) cannot be an attribute either: define that index in YAML with
-a `SELECT`, and name the tables to follow:
+A joined label (the supplier's name next to the product) is defined in YAML with a `SELECT`, naming the tables to follow:
 
 <!-- tested: joined-yaml -->
 ```yaml
@@ -132,7 +121,7 @@ bin/console fuzzphony:reindex           # fills it from the rows you already hav
 bin/console fuzzphony:doctor            # checks that both worked
 ```
 
-Without `--apply` the schema command only prints the SQL. Without Symfony, or in a test, the same two steps:
+Without `--apply` the schema command only prints the SQL. Without Symfony, or in a test:
 
 <!-- tested: build -->
 ```php
@@ -140,16 +129,14 @@ $fuzzphony->schema()->apply($connection);   // bin/console fuzzphony:schema --ap
 $fuzzphony->reindex('products');            // bin/console fuzzphony:reindex
 ```
 
-`pg_trgm` and `unaccent` must exist in the database ([Requirements](../README.md#requirements); the doctor says if not).
-Run the schema step again after every change to the definition, and reindex when it changes what is stored
-([Building an index](configuration.md#building-an-index)). Your table is not altered: the index is a separate table,
-`fuzzphony_products`, and the only thing added to yours is its sync triggers.
+`pg_trgm` and `unaccent` must exist in the database ([Requirements](../README.md#requirements)). Run the schema step again after every change to the
+definition, and reindex when it changes what is stored ([Building an index](configuration.md#building-an-index)). Your table is not altered: the index is
+a separate table, `fuzzphony_products`, and the only thing added to yours is its sync triggers.
 
 ### 3. Replace the query
 
-`ILIKE` becomes a search text; the rest of your `WHERE` becomes filters on the ones you declared (`where`, `whereIn`,
-`whereBetween`, `whereNull`, combined with AND); `ORDER BY` becomes a ranking profile. A service keeps the controller as
-it was:
+`ILIKE` becomes a search text; the rest of your `WHERE` becomes filters (`where`, `whereIn`, `whereBetween`, `whereNull`, combined with AND); `ORDER BY`
+becomes a ranking profile. A service keeps the controller as it was:
 
 <!-- tested: search -->
 ```php
@@ -188,22 +175,19 @@ final readonly class ProductSearch
 }
 ```
 
-The builder is immutable, so a conditional query is plain reassignment; `EntityLoader` is autowirable with the bundle.
-An unknown filter name makes the search throw, naming the right one (`Did you mean "price"?`). Your `ORDER BY`:
+The builder is immutable, so a conditional query is plain reassignment; `EntityLoader` is autowirable with the bundle. An unknown filter name makes the
+search throw, naming the right one (`Did you mean "price"?`). Your `ORDER BY`:
 
-- `ORDER BY popularity DESC` or `created_at DESC` become the `boost` and `recency` columns, weighted by a profile
-  ([Ranking](ranking.md)). With a text they are **added to the relevance**: a very popular, weaker match can overtake
-  a better one, which is why the column should be small (0 to 1) or the weight small. With an **empty text** (the first
-  load of a search page) the profile alone orders the filtered browse: `->query('')->profile('popular')` is "most
-  popular first". Without a profile an empty text lists in id order.
-- `ORDER BY price`, `name` or any other column has **no equivalent**. Use a filter (`price <= 2000`) instead of a sort,
-  or keep that screen on SQL.
+- `ORDER BY popularity DESC` or `created_at DESC` become the `boost` and `recency` columns, weighted by a profile ([Ranking](ranking.md)). With a text they
+  are **added to the relevance** (a very popular, weaker match can overtake a better one, so keep the column small, 0 to 1, or the weight small). With an
+  **empty text** the profile alone orders the filtered browse: `->query('')->profile('popular')` is "most popular first"; without a profile an empty text
+  lists in id order.
+- `ORDER BY price`, `name` or any other column has **no equivalent**: use a filter (`price <= 2000`) instead of a sort, or keep that screen on SQL.
 
 ### 4. Your entities, in the order of the ranking
 
-A hit is an `id`, a `score`, a score breakdown and highlights, not your row. `EntityLoader` (above) loads the entities
-with one query and returns them in rank order. For a query of your own (a fetch join, a partial select) keep the order
-yourself, because `WHERE id IN (...)` returns rows in the database's order:
+A hit is an `id`, a `score`, a score breakdown and highlights, not your row. `EntityLoader` (above) loads the entities with one query in rank order. For a
+query of your own keep the order yourself, because `WHERE id IN (...)` returns rows in the database's order:
 
 <!-- tested: by-ids -->
 ```php
@@ -222,17 +206,13 @@ foreach ($ids as $id) {                                     // so walk the ids, 
 }
 ```
 
-A hit whose row is gone (a delete the queue has not processed yet, [step 6](#6-keep-the-index-fresh)) is skipped by
-both. PostgreSQL has no `FIELD()`, so there is nothing to translate `ORDER BY FIELD(id, ...)` into.
+A hit whose row is gone (a delete the queue has not processed yet, [step 6](#6-keep-the-index-fresh)) is skipped by both. PostgreSQL has no `FIELD()`.
 
 ### 5. Pagination and the total
 
-`page($n, perPage: 20)` (or `limit($limit, $offset)`) replaces `LIMIT`/`OFFSET`. Only the best `limits.candidates` matches
-are ranked (2000 by default, at most 10 000), so for a very common word the total is a **lower bound** ("2000+").
-`hasMore()` is true while hits follow the page among the candidates and **false at the last page of the candidates**: a pager
-that follows it stops at 2000 hits. A page asked for directly past them is still served and exact (the best `offset + limit`
-hits, up to 10 000 hits, with a lower-bound total that grows with the page); beyond 10 000 a page is empty and `hasMore()` is false
-(also with `exactCounts()`, whose total can be larger).
+`page($n, perPage: 20)` (or `limit($limit, $offset)`) replaces `LIMIT`/`OFFSET`. Only the best `limits.candidates` matches are ranked (2000 by default,
+at most 10 000), so for a very common word the total is a **lower bound** ("2000+"). `hasMore()` is **false at the last page of the candidates**: a pager
+that follows it stops at 2000 hits; a page asked for directly past them is still served and exact up to 10 000 hits; beyond that a page is empty.
 
 <!-- tested: pagination -->
 ```php
@@ -243,13 +223,11 @@ $label = ($result->offset + 1) . '-' . ($result->offset + count($result->hits)) 
 $hasNextPage = $result->hasMore();
 ```
 
-`exactCounts()` counts everything instead, at the price of reading it all, and never from request input
-([Facets](searching.md#facets)).
+`exactCounts()` counts everything instead, never from request input ([Facets](searching.md#facets)).
 
 ### 6. Keep the index fresh
 
-Triggers on your table (and on the joined tables you `watch`) feed the index. When a change is searchable depends on
-the sync mode ([Keeping the index in sync](sync.md)):
+Triggers on your table (and on the joined tables you `watch`) feed the index; when a change is searchable depends on the sync mode ([sync](sync.md)):
 
 | mode | a change is searchable | use when |
 |---|---|---|
@@ -258,18 +236,16 @@ the sync mode ([Keeping the index in sync](sync.md)):
 | `orm` | after `flush()`, for changes made through the entity manager only | triggers are not allowed |
 | `manual` | when you call `refresh()` or `reindex()` | imports, read-only data |
 
-Raw SQL and migrations are covered by the triggers in `trigger` and `queue` mode; `TRUNCATE` and partitions have
-caveats on that page.
+Raw SQL and migrations are covered by the triggers in `trigger` and `queue` mode; `TRUNCATE` and partitions have caveats on that page.
 
 ### 7. Tests
 
-Fuzzphony is PostgreSQL, so a test that means something runs on a disposable PostgreSQL: the two lines of step 2 in
-`setUp()`, fixtures flushed with `SyncMode::Trigger` so they are searchable at once. `LikeGuideTest` is a worked example.
+A test that means something runs on a disposable PostgreSQL: the two lines of step 2 in `setUp()`, fixtures flushed with `SyncMode::Trigger`.
+`LikeGuideTest` is a worked example.
 
 ## Your `LIKE` patterns in Fuzzphony
 
-The first column is run as written on `name`, the second is the Fuzzphony text, on the 16 products of the test
-fixture, so "finds" means on that data.
+The first column is run as written on `name`, the second is the Fuzzphony text, on the 16 products of the test fixture.
 
 <!-- tested-table: mapping -->
 | `LIKE` | Fuzzphony text | What differs |
@@ -289,24 +265,20 @@ fixture, so "finds" means on that data.
 | `name ILIKE '%hedphones%'` | `hedphones` | a typo: the headphones come first |
 | `name ILIKE '%drills%'` | `drills` | word forms: "Cordless drill", "Drill bit set" |
 
-- **Contains is not substring.** Fuzzphony matches whole words, stemmed and without accents, in every searchable
-  field. A fragment inside a word is not a word: `ILIKE '%eadphon%'` finds headphones, `eadphon` only through typo
-  tolerance, and nothing with `typo.mode: never`. `head*` is any word that starts with `head`, not "the name starts
-  with" (a name that does ranks first).
-- **`%x` (ends with) and `%x%` inside a word are not supported.** A leading `*` is dropped: `*phones` is the word
-  `phones` and its stem (it finds "Phone case"). With typo tolerance on, look-alike words make it look as if it worked
-  (`phones` also lists the headphones, below the phone case): not a promise. If you need it, keep that query on SQL with
-  a trigram index (`CREATE INDEX ... USING gin (name gin_trgm_ops)`).
-- **`%` and `_` are not wildcards**, only punctuation: `wire%mouse` finds nothing. Write `a%b` as `wire* mouse` (both
-  words, any order) or as a quoted phrase (next to each other). No wildcard escaping of user input is needed.
+- **Contains is not substring.** Fuzzphony matches whole words, stemmed and without accents, in every searchable field. A fragment inside a word is not a
+  word: `ILIKE '%eadphon%'` finds headphones, `eadphon` only through typo tolerance, and nothing with `typo.mode: never`. `head*` is any word that starts
+  with `head` (a name that does ranks first).
+- **`%x` (ends with) and `%x%` inside a word are not supported.** A leading `*` is dropped: `*phones` is the word `phones` and its stem. Look-alike words
+  can make it look as if it worked: not a promise. If you need it, keep that query on SQL with a trigram index (`CREATE INDEX ... USING gin (name gin_trgm_ops)`).
+- **`%` and `_` are not wildcards**, only punctuation: `wire%mouse` finds nothing. Write `a%b` as `wire* mouse` (any order) or as a quoted phrase (next to
+  each other). No wildcard escaping of user input is needed.
 - **Equality is not a search.** `name = 'Wireless mouse'` stays SQL; the phrase ranks the equal title first.
 - **Case and accents never matter.** `-word` can also be written `NOT word`; see [Searching](searching.md#query-syntax).
 
 ## What you gain, and what changes
 
-**Ranked, tolerant, and exact when you want it.** `$hit->breakdown` says why a hit is first. By default typo tolerance
-runs only when the exact search finds fewer than 5 hits (`typo.fallback_below`), and `$result->usedFuzzy` tells which it was. For exact
-matching only, per query or per index (`thresholds:` in YAML):
+**Ranked, tolerant, and exact when you want it.** `$hit->breakdown` says why a hit is first. By default typo tolerance runs only when the exact search
+finds fewer than 5 hits (`typo.fallback_below`; `$result->usedFuzzy` tells which it was). For exact matching only, per query or per index (`thresholds:` in YAML):
 
 <!-- tested: exact -->
 ```php
@@ -316,39 +288,31 @@ $result = $fuzzphony->in('products')
     ->get();
 ```
 
-That removes typo tolerance, not stemming or accent folding, which belong to the index's language (`language: simple`
-with `unaccent: false` matches letter for letter, for codes). Typo tolerance also lists look-alikes below the real
-hits (`hedphones` finds the headphones, then `Earphones` and `Phone case`): trigrams cannot tell a typo from a similar
-word ([limitations](limitations.md#typo-tolerance-is-trigram-based)).
+That removes typo tolerance, not stemming or accent folding, which belong to the index's language (`language: simple` with `unaccent: false` matches letter
+for letter, for codes). Typo tolerance also lists look-alikes below the real hits: trigrams cannot tell a typo from a similar word
+([limitations](limitations.md#typo-tolerance-is-trigram-based)).
 
-**A hit is a document, not a row.** The index holds what you told it to search and filter on, one document per id.
-To search a joined value, put it in the index (the YAML with a `SELECT`; a one-to-many relation needs an aggregated
-column, because a document is one row), and conditions can only use declared filters. The rest of the row you load by
-id, as in step 4.
+**A hit is a document, not a row.** The index holds what you told it to search and filter on, one document per id. To search a joined value, put it in the
+index (YAML with a `SELECT`; a one-to-many relation as a `many` field or an aggregated column), and conditions can only use declared filters. The rest of
+the row you load by id, as in step 4.
 
 **The total can be a lower bound**, and the ranking of a word with more matches than `limits.candidates` has limits
 ([limitations](limitations.md#ranking-of-very-common-words)).
 
-**The index is a sidecar table** in Fuzzphony's schema (`public` by default, [or its own](configuration.md#fuzzphonys-schema)).
-It costs disk (a second copy of the searchable text and its indexes: look at your own data) and a little on every
-write; the bundle hides it from `doctrine:migrations:diff`. Also: stop words ("the", "for") are ignored, a text is cut at
-256 characters and 16 terms (with a warning in `$result->warnings`), and a search text never throws.
+**The index is a sidecar table** in Fuzzphony's schema (`public` by default, [or its own](configuration.md#fuzzphonys-schema)). It costs disk (a second
+copy of the searchable text and its indexes) and a little on every write; the bundle hides it from `doctrine:migrations:diff`. Also: stop words are
+ignored, a text is cut at 256 characters and 16 terms (with a warning in `$result->warnings`), and a search text never throws.
 
 ## Rolling it out
 
-Nothing below changes what your users see until you flip the flag.
-
-### Build next to the old search
-
-Steps 1 and 2 above, then `bin/console fuzzphony:doctor`.
+Nothing below changes what your users see until you flip the flag. First build next to the old search (steps 1 and 2, then `bin/console fuzzphony:doctor`).
 
 ### Shadow search
 
-Serve the old results, run the new search too, and log the difference. The class below does it both ways (flip
-`serveFuzzphony` and the roles swap), and a failing shadow never touches the answer. The ids only the new search found
-are what you hoped for (typos, accents, word forms). The ids only the old one found are the ones to read: a suffix, a
-fragment of a word, a part number typed in part, anything a `LIKE` pattern did that Fuzzphony does not. Run the shadow
-after the response (`kernel.terminate`) or on a sample of requests, so users do not wait for two searches.
+Serve the old results, run the new search too, and log the difference. The class below does it both ways (flip `serveFuzzphony` and the roles swap), and a
+failing shadow never touches the answer. The ids only the new search found are what you hoped for (typos, accents, word forms); the ids only the old one
+found are the ones to read (a suffix, a fragment of a word, anything a `LIKE` pattern did that Fuzzphony does not). Run the shadow after the response
+(`kernel.terminate`) or on a sample of requests.
 
 <!-- tested: shadow -->
 ```php
@@ -393,8 +357,8 @@ final readonly class SearchRollout
 
 ### Feature flag
 
-`serveFuzzphony` above is the flag: a container parameter, an environment variable, or your flag service by user,
-percentage or role. Switch `shadow` off when the logs are quiet.
+`serveFuzzphony` above is the flag (a parameter, an environment variable, or your flag service by user, percentage or role). Switch `shadow` off when the
+logs are quiet.
 
 ### Measure
 
@@ -412,10 +376,9 @@ echo implode("\n", $explanation->plan), "\n";        // PostgreSQL's plan
 echo $explanation->result->tookMs, " ms\n";
 ```
 
-`bin/console fuzzphony:search products 'hedphones' --explain --analyze` prints the same, with the score breakdown. In
-production, watch `fuzzphony.search.took_ms` and `fuzzphony.search.fallback` ([Observability](observability.md)); with the
-[search log](analytics.md) on, `bin/console fuzzphony:analytics products --zero` lists the searches that found nothing,
-the list to read in the first weeks.
+`bin/console fuzzphony:search products 'hedphones' --explain --analyze` prints the same, with the score breakdown. In production, watch
+`fuzzphony.search.took_ms` and `fuzzphony.search.fallback` ([Observability](observability.md)); with the [search log](analytics.md) on,
+`bin/console fuzzphony:analytics products --zero` lists the searches that found nothing, the list to read in the first weeks.
 
 ### Roll back
 
@@ -425,11 +388,9 @@ Flip the flag: the old query is still there, and your table was never touched. T
 bin/console fuzzphony:schema --drop --apply     # asks first; --force skips the question
 ```
 
-It drops the sidecar table, its triggers, functions and queued rows; your tables and your `LIKE` query are unaffected
-(`LikeGuideTest` checks it). With a dedicated schema see [Fuzzphony's schema](configuration.md#fuzzphonys-schema).
+It drops the sidecar table, its triggers, functions and queued rows; your tables and your `LIKE` query are unaffected (`LikeGuideTest` checks it).
 
 ## Known limits
 
-Read [Known limitations](limitations.md) before you commit: typo tolerance is trigram-based, the ranking of very common words has
-limits, and the search log is best effort. Also: no suffix or infix search, no sort by an arbitrary column,
-one language per index, and PostgreSQL 15+ is the only engine.
+Read [Known limitations](limitations.md) before you commit. Also: no suffix or infix search, no sort by an arbitrary column, one language per index, and
+PostgreSQL 15+ is the only engine.
