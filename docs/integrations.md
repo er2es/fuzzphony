@@ -14,7 +14,8 @@ Doctrine, API Platform, Symfony UX Live Component and Messenger. Back to the
   `default`).
 - `orm` sync mode refreshes documents after `flush()` through an ORM listener (see
   [Keeping the index in sync](sync.md)).
-- With the bundle, every Doctrine entity with `#[Searchable]` is registered as an index.
+- With the bundle, every Doctrine entity with `#[Searchable]` is registered as an index; a service that implements
+  `DefinitionProvider` adds indexes at runtime (tag `fuzzphony.definition_provider`, see [Definition providers](configuration.md#definition-providers)).
 
 ### Loading mixed results
 

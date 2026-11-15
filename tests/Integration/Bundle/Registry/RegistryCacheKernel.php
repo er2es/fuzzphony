@@ -102,5 +102,8 @@ final class RegistryCacheKernel extends Kernel
         // private services are inlined/removed from a compiled container: reach the two under test through public aliases
         $services->alias('test.registry', 'fuzzphony.registry')->public();
         $services->alias('test.cache', 'cache.system')->public();
+        if (!$this->debug) {
+            $services->alias('test.warmer', 'fuzzphony.registry_cache_warmer')->public();
+        }
     }
 }

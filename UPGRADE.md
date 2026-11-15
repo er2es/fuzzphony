@@ -3,6 +3,12 @@
 Before 1.0, a minor version may contain breaking changes. Each section lists what to change,
 and the [CHANGELOG](CHANGELOG.md) has the full list of changes.
 
+## From 0.12.x to 0.12.6
+
+Additive: the new interface `Fuzzphony\Core\Definition\DefinitionProvider` (see
+[Definition providers](docs/configuration.md#definition-providers)). Nothing to change; existing definitions, statements and results
+are the same.
+
 ## From 0.12.x to 0.12.5
 
 No API change and no change of results: the schema plan of an index with a many field gains one idempotent statement
