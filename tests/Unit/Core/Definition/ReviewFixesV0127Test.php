@@ -66,8 +66,8 @@ final class ReviewFixesV0127Test extends TestCase
     public function testTwoAttributeEntitiesWithOneIndexNameAreAnErrorNamingBoth(): void
     {
         $cache = new ArrayAdapter();
-        $a = IndexDefinition::builder('items')->fromTable('p')->field('name', 'A')->entity('App\ProductX')->build();
-        $b = IndexDefinition::builder('items')->fromTable('n')->field('name', 'A')->entity('App\NoteX')->build();
+        $a = IndexDefinition::builder('items')->fromTable('p')->field('name', 'A')->entity(\DateTime::class)->build();
+        $b = IndexDefinition::builder('items')->fromTable('n')->field('name', 'A')->entity(\ArrayObject::class)->build();
         $item = $cache->getItem('fuzzphony_discovered_indexes');
         $cache->save($item->set([$a, $b]));
         $discovery = new DoctrineIndexDiscovery(self::createStub(EntityManagerInterface::class));
@@ -76,8 +76,8 @@ final class ReviewFixesV0127Test extends TestCase
             RegistryFactory::create([], $discovery, $cache, cacheInCli: true);
             self::fail('expected InvalidDefinition');
         } catch (InvalidDefinition $e) {
-            self::assertStringContainsString('App\ProductX', $e->getMessage());
-            self::assertStringContainsString('App\NoteX', $e->getMessage());
+            self::assertStringContainsString(\DateTime::class, $e->getMessage());
+            self::assertStringContainsString(\ArrayObject::class, $e->getMessage());
         }
     }
 

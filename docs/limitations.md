@@ -260,7 +260,8 @@ on an index whose visibility filters make the existence of a word a secret. See 
 
 `ALTER TABLE … ATTACH PARTITION` and `DETACH PARTITION` fire no triggers (a PostgreSQL rule): attached rows are not indexed and detached rows stay in the
 index, until the next full reindex. What to do: run `fuzzphony:reindex <index>` afterwards; it also removes the orphaned documents. See
-[partitioned tables](sync.md#partitioned-tables).
+[partitioned tables](sync.md#partitioned-tables). The doctor cannot tell that a partition was attached or detached since the last reindex (PostgreSQL records no attach time), so for now there
+is no doctor note either; tracking such events may come later.
 
 ### What each sync mode sees
 

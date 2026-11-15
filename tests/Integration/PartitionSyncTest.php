@@ -24,7 +24,7 @@ use PHPUnit\Framework\TestCase;
  */
 final class PartitionSyncTest extends TestCase
 {
-    private const string TRIGGER = 'fuzzphony_sync_parts__fz_part_trn';
+    private const string TRIGGER = 'fuzzphony_sync_parts__fz_part_94f6c7b9_trn';
 
     private Connection $connection;
     private PostgresEngine $engine;
@@ -181,7 +181,7 @@ final class PartitionSyncTest extends TestCase
         $this->engine->dropSchema($index)->apply($this->connection);
 
         self::assertSame([], $this->carriers());
-        self::assertFalse((bool) $this->connection->fetchValue("SELECT to_regprocedure('fuzzphony_sync_parts__fz_part()') IS NOT NULL"));
+        self::assertFalse((bool) $this->connection->fetchValue("SELECT to_regprocedure('fuzzphony_sync_parts__fz_part_94f6c7b9()') IS NOT NULL"));
     }
 
     public function testAModeWithoutTriggersRemovesTheTriggerOfADetachedPartition(): void

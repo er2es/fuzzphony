@@ -213,7 +213,7 @@ final class ZeroDowntimeReindexTest extends TestCase
             }));
             self::fail('the failed swap reaches the caller');
         } catch (EngineFailure $e) {
-            self::assertStringContainsString('fz_refuse_1', $e->getMessage());
+            self::assertStringContainsString('fz_refuse_1', (string) $e->getPrevious()?->getMessage());
         }
 
         self::assertNotNull($this->connection->fetchValue("SELECT to_regclass('fuzzphony_noted__next')"), 'kept for --from');

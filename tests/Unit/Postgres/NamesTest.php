@@ -32,11 +32,11 @@ final class NamesTest extends TestCase
         self::assertSame('"public"."fuzzphony_norm"', $names->normFunction());
         self::assertSame('fuzzphony_refresh_products', $names->refreshFunctionName($index));
         self::assertSame('"public"."fuzzphony_refresh_products"', $names->refreshFunction($index));
-        self::assertSame('fuzzphony_sync_products__fz_brand', $names->syncFunctionName($index, $brand));
-        self::assertSame('fuzzphony_sync_products__shop_brand', $names->syncFunctionName($index, new Watch('shop.brand')));
-        self::assertSame('"public"."fuzzphony_sync_products__fz_brand"', $names->syncFunction($index, $brand));
-        self::assertSame('fuzzphony_sync_products__fz_brand', $names->triggerName($index, $brand));
-        self::assertSame('fuzzphony_sync_products__fz_brand_ins', $names->triggerName($index, $brand, '_ins'));
+        self::assertSame('fuzzphony_sync_products__fz_brand_8c237a1e', $names->syncFunctionName($index, $brand));
+        self::assertSame('fuzzphony_sync_products__shop_brand_2bebf598', $names->syncFunctionName($index, new Watch('shop.brand')));
+        self::assertSame('"public"."fuzzphony_sync_products__fz_brand_8c237a1e"', $names->syncFunction($index, $brand));
+        self::assertSame('fuzzphony_sync_products__fz_brand_8c237a1e', $names->triggerName($index, $brand));
+        self::assertSame('fuzzphony_sync_products__fz_brand_8c237a1e_ins', $names->triggerName($index, $brand, '_ins'));
         self::assertSame('fuzzphony_products__tsv', $names->indexName($index, 'tsv'));
         self::assertSame('t_brand', $names->fieldVectorName('brand'));
         self::assertSame('s."t_brand"', $names->fieldVector($index, 'brand'));
@@ -130,8 +130,8 @@ final class NamesTest extends TestCase
     {
         $index = IndexDefinition::builder('shop')->fromTable('t')->field('title')->build();
 
-        self::assertSame('fuzzphony_sync_shop__item__public_orders', (new Names())->syncFunctionName($index, new Watch('public.orders', source: 'item')));
-        self::assertSame('fuzzphony_sync_shop__public_orders', (new Names())->syncFunctionName($index, new Watch('public.orders')));
+        self::assertSame('fuzzphony_sync_shop__item__public_orders_695644b1', (new Names())->syncFunctionName($index, new Watch('public.orders', source: 'item')));
+        self::assertSame('fuzzphony_sync_shop__public_orders_f4c8fde4', (new Names())->syncFunctionName($index, new Watch('public.orders')));
     }
 
     public function testLongNamesAreCutToThePostgresLimitAndStayUnique(): void
@@ -190,7 +190,7 @@ final class NamesTest extends TestCase
         self::assertSame('"Fuzzphony"."fuzzphony_queue"', $names->queue());
         self::assertSame('"public"', $names->extension(), 'the extensions stay where they are');
         self::assertSame('fuzzphony_products__tsv', $names->indexName($index, 'tsv'), 'an index lives in its table\'s schema');
-        self::assertSame('fuzzphony_sync_products__fz_brand_trn', $names->triggerName($index, new Watch('fz_brand'), '_trn'), 'a trigger lives on its table');
+        self::assertSame('fuzzphony_sync_products__fz_brand_8c237a1e_trn', $names->triggerName($index, new Watch('fz_brand'), '_trn'), 'a trigger lives on its table');
     }
 
     /** @return iterable<string, array{string, string}> */

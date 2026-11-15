@@ -142,7 +142,7 @@ final class SearchGateEdgesTest extends TestCase
         $logger = $this->createMock(LoggerInterface::class);
         $logger->expects(self::once())->method('error')->with(
             self::stringContains('could not record'),
-            ['message' => 'log store is down', 'index' => 'products'],
+            ['message' => 'RuntimeException', 'index' => 'products'],
         );
         $gate = new SearchGate(metrics: $metrics, logger: $logger, log: $log);
 

@@ -4,11 +4,11 @@ declare(strict_types=1);
 
 namespace Fuzzphony\Tests\Integration;
 
-use Fuzzphony\Core\Search\Actor;
 use Fuzzphony\Core\Database\Connection;
 use Fuzzphony\Core\Definition\IndexDefinition;
 use Fuzzphony\Core\Fuzzphony;
 use Fuzzphony\Core\Registry\IndexRegistry;
+use Fuzzphony\Core\Search\Actor;
 use Fuzzphony\Core\Support\Coerce;
 use Fuzzphony\Engine\Postgres\PostgresEngine;
 use PHPUnit\Framework\TestCase;
@@ -42,7 +42,7 @@ final class ReviewFixesV0127Test extends TestCase
         return PostgresTestCase::drain($this->connection, (new IndexRegistry([IndexDefinition::builder('products')->fromTable('fz_product')->field('name', 'A')->sync('queue')->build()]))->get('products'));
     }
 
-    /** @return list<array{list<array{string, ?string}>, list<array{string, ?string}>}> */
+    /** @return array<string, array{list<array{string, ?string}>, list<array{string, ?string}>}> */
     public static function watchChanges(): array
     {
         $brand = ['fz_brand', 'SELECT id FROM fz_product WHERE brand_id = :id'];
@@ -63,7 +63,7 @@ final class ReviewFixesV0127Test extends TestCase
     #[\PHPUnit\Framework\Attributes\DataProvider('watchChanges')]
     public function testAChangeLoggedButNotDrainedSurvivesAChangeOfTheWatchOrder(array $before, array $after): void
     {
-        PostgresTestCase::createFixtures($this->connection, ['brands' => [[1, 'Acme']], 'products' => [[1, 'Mouse', null, 1, 10, true, 1.0, '2024-01-01']]]);
+        PostgresTestCase::createFixtures($this->connection, ['brands' => [[1, 'Acme']], 'products' => [[1, 'Mouse', 'a mouse', 1, 10, true, 1.0, '2024-01-01']]]);
         $fuzzphony = $this->products($before);
         $fuzzphony->reindex('products');
         $this->connection->execute("UPDATE fz_product SET name = 'Zyxquorp' WHERE id = 1");
