@@ -11,6 +11,8 @@ and a link. Measurements, proofs and test names belong to the pull request, [doc
 
 ## [Unreleased]
 
+## [0.12.7] - 2026-11-15
+
 ### Fixed
 
 - **Changing the order of an index's watches (or removing or inserting one) no longer loses changes** that were logged but not yet drained: the log position is kept per table.
@@ -1313,7 +1315,8 @@ on its own:
 - Sync modes: queue (default), trigger, ORM, manual; watches for joined tables.
 - Doctor with fixes; CLI commands for schema, reindex, worker, search and explain.
 
-[Unreleased]: https://github.com/er2es/fuzzphony/compare/v0.12.6...HEAD
+[Unreleased]: https://github.com/er2es/fuzzphony/compare/v0.12.7...HEAD
+[0.12.7]: https://github.com/er2es/fuzzphony/compare/v0.12.6...v0.12.7
 [0.12.6]: https://github.com/er2es/fuzzphony/compare/v0.12.5...v0.12.6
 [0.12.5]: https://github.com/er2es/fuzzphony/compare/v0.12.4...v0.12.5
 [0.12.4]: https://github.com/er2es/fuzzphony/compare/v0.12.3...v0.12.4

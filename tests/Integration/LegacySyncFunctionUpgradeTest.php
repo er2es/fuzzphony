@@ -12,6 +12,7 @@ use Fuzzphony\Core\Registry\IndexRegistry;
 use Fuzzphony\Core\Support\Coerce;
 use Fuzzphony\Engine\Postgres\PostgresEngine;
 use Fuzzphony\Engine\Postgres\Schema\Names;
+use Fuzzphony\Engine\Postgres\Sql\Sql;
 use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\TestCase;
 
@@ -69,6 +70,24 @@ final class LegacySyncFunctionUpgradeTest extends TestCase
         self::assertSame(0, $this->legacyObjects($index));
         $this->connection->execute("INSERT INTO fz_plain VALUES (2, 'beta')");
         self::assertSame(2, Coerce::int($this->connection->fetchValue('SELECT count(*) FROM fz_plain')));
+    }
+
+    public function testAWatchNamedLikeTheHashOfASiblingKeepsTheSiblingsFunction(): void
+    {
+        $names = new Names('public');
+        $hash = substr(md5(Sql::ident('fz_plain') . '|'), 0, 8);
+        $this->connection->execute(sprintf('DROP TABLE IF EXISTS fz_plain_%s, fuzzphony_c CASCADE', $hash));
+        $this->connection->execute(sprintf('CREATE TABLE fz_plain_%s (id bigint PRIMARY KEY, name text NOT NULL)', $hash));
+        $index = IndexDefinition::builder('c')->fromTable('fz_plain')->field('name', 'A')->sync('trigger')->watch('fz_plain_' . $hash)->build();
+        $watches = $index->effectiveWatches();
+        self::assertSame($names->syncFunctionName($index, $watches[0]), $names->legacySyncFunctionName($index, $watches[1]), 'precondition: the legacy name of one watch is the new name of the other');
+
+        (new Fuzzphony($this->engine, new IndexRegistry([$index])))->schema()->apply($this->connection);
+
+        $triggers = Coerce::int($this->connection->fetchValue("SELECT count(*) FROM pg_trigger WHERE tgrelid = 'fz_plain'::regclass AND NOT tgisinternal"));
+        self::assertGreaterThan(0, $triggers, 'the first watch keeps its sync triggers');
+        self::assertSame(1, Coerce::int($this->connection->fetchValue('SELECT count(*) FROM pg_proc WHERE proname = :f', ['f' => $names->syncFunctionName($index, $watches[0])])));
+        $this->connection->execute(sprintf('DROP TABLE fz_plain_%s CASCADE', $hash));
     }
 
     private function index(string $name, string $table, string $sync, TriggerLevel $level): IndexDefinition

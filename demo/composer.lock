@@ -608,11 +608,11 @@
         },
         {
             "name": "fuzzphony/fuzzphony",
-            "version": "dev-main",
+            "version": "0127.x-dev",
             "dist": {
                 "type": "path",
                 "url": "..",
-                "reference": "90d403c6fe6c1afc595ba10f16968767c7ce094e"
+                "reference": "28d7066973f64d2eecddf0140a649c15e4fc92df"
             },
             "require": {
                 "ext-mbstring": "*",

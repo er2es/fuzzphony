@@ -220,7 +220,7 @@ final class PostgresSchemaGenerator
         foreach ($index->effectiveWatches() as $watch) {
             $watched = Sql::ident($watch->table);
             // the unhashed names of before 0.12.7 (their function may be shared by two tables: dropped after all triggers are gone)
-            if ($this->names->legacySyncFunctionName($index, $watch) !== $this->names->syncFunctionName($index, $watch)) {
+            if ($this->hasLegacySyncFunction($index, $watch)) {
                 $legacy[$this->names->legacySyncFunction($index, $watch)] = true;
                 array_push($statements, ...$this->legacySyncTriggers($index, $watch));
             }
@@ -392,7 +392,7 @@ final class PostgresSchemaGenerator
             }
             $statements[] = $this->partitionTriggers($index, $watch, false);
             $statements[] = new Statement(sprintf('DROP FUNCTION IF EXISTS %s()', $this->names->syncFunction($index, $watch)), 'Remove sync function');
-            if ($this->names->legacySyncFunctionName($index, $watch) !== $this->names->syncFunctionName($index, $watch)) {
+            if ($this->hasLegacySyncFunction($index, $watch)) {
                 // an index installed by an earlier release (before 0.12.7) has its triggers on the unhashed function
                 array_push($statements, ...$this->legacySyncTriggers($index, $watch));
                 $statements[] = new Statement(sprintf('DROP FUNCTION IF EXISTS %s()', $this->names->legacySyncFunction($index, $watch)), 'Remove the sync function of the unhashed name of an earlier release');
@@ -656,6 +656,19 @@ ON CONFLICT (index_name) DO UPDATE SET layout_version = EXCLUDED.layout_version,
      * partition tree, without it (a sync mode without triggers, drop()) all but the parent's, which
      * the caller drops by name. drop() then drops the sync function, which they depend on.
      */
+    /** A watch of an index installed before 0.12.7 may still have the unhashed function, unless that name is a current function of a watch of this index (a watch named like the hash of a sibling). */
+    private function hasLegacySyncFunction(IndexDefinition $index, Watch $watch): bool
+    {
+        $legacy = $this->names->legacySyncFunctionName($index, $watch);
+        foreach ($index->effectiveWatches() as $other) {
+            if ($this->names->syncFunctionName($index, $other) === $legacy) {
+                return false;
+            }
+        }
+
+        return true;
+    }
+
     /**
      * Drops every trigger that uses the unhashed sync function of before 0.12.7: by name on the watched table, then wherever
      * else (a TRUNCATE trigger on a partition) so DROP FUNCTION finds nothing depending on it. Only this index's function.
