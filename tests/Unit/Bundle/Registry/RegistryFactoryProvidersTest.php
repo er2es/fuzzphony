@@ -75,6 +75,14 @@ final class RegistryFactoryProvidersTest extends TestCase
         RegistryFactory::create([], providers: [new RowsDefinitionProvider([['name' => 'bad', 'query' => 'DELETE FROM t', 'fields' => '{"title": "A"}']])]);
     }
 
+    /** The trust boundary of docs/security.md: the validator checks the shape of source.query, it does not sanitise it. */
+    public function testTheValidatorChecksShapeNotIntentADataModifyingCtePasses(): void
+    {
+        $registry = RegistryFactory::create([], providers: [new RowsDefinitionProvider([['name' => 'cte', 'query' => 'WITH d AS (DELETE FROM audit RETURNING id) SELECT id, title FROM t', 'fields' => '{"title": "A"}']])]);
+
+        self::assertTrue($registry->has('cte'));
+    }
+
     public function testAGrantedFieldFromAProviderNeedsTheAuthorizationGuard(): void
     {
         $granted = new class implements DefinitionProvider {
