@@ -12,6 +12,9 @@ and a link. Measurements, proofs and test names belong to the pull request, [doc
 ## [Unreleased]
 
 - **`fuzzphony:worker --memory-limit=128M`** stops the worker after the cycle in which its memory use passed the limit (let the supervisor restart it), and SIGQUIT now stops it gracefully like SIGTERM and SIGINT.
+### Changed
+
+- **Typo hits of the word a typo most likely meant rank first:** the did-you-mean lookup now runs before the typo-tolerant statement, and the hits that have the likeliest word (fewest edits, a swap counting as one, then clearly the most documents) score 0.95 for it, above look-alikes (`szaob`: `Szabó` before `Szalai`, `peetr`: `Péter` before `Petra`). No extra statement; the same hits, totals and facets: only the order (and `fuzzySimilarity`) of typo hits changes ([did you mean](docs/searching.md#did-you-mean)).
 
 ## [0.12.7] - 2026-11-15
 

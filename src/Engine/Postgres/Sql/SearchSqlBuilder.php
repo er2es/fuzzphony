@@ -85,6 +85,13 @@ final class SearchSqlBuilder
          * @var array<string, string> filter name => field name
          */
         private readonly array $coupled = [],
+        /**
+         * Typed word (lowercase) => the word it most likely meant and the score of the hits that have it (Suggestion::$corrections): only
+         * the ranked statement's typo scores read it (FuzzyQueryCompiler::leaf()). [] keeps every statement as it was.
+         *
+         * @var array<string, array{word: string, score: float}>
+         */
+        private readonly array $corrections = [],
     ) {}
 
     /**
@@ -276,7 +283,7 @@ final class SearchSqlBuilder
         $q[] = $plain !== ''
             ? sprintf('%s(%s) AS norm', $this->names->normFunction(), $params->add($plain))
             : "''::text AS norm";
-        $compiler = new FuzzyQueryCompiler($this->index, $thresholds, $this->names, $this->candidates, $this->allowedFields, $this->transpositions, $this->openClass);
+        $compiler = new FuzzyQueryCompiler($this->index, $thresholds, $this->names, $this->candidates, $this->allowedFields, $this->transpositions, $this->openClass, $this->corrections);
         if ($lookup !== null && $this->allowedFields !== null) {
             // a viewer who holds none of the granted fields looks its words up in the open fields' vectors alone (OpenClass)
             $lookup = $compiler->vectorLookup($lookupQuery);

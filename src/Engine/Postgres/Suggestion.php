@@ -15,6 +15,8 @@ final readonly class Suggestion
         public ?string $didYouMean,
         public ?Statement $statement,
         public ?string $oneEdit,
+        /** @var array<string, array{word: string, score: float}> typed word (lowercase) => the word it most likely meant and the score of its hits (VocabularyService::corrections()) */
+        public array $corrections = [],
     ) {}
 
     public static function none(): self

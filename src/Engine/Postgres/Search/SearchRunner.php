@@ -331,7 +331,13 @@ final readonly class SearchRunner
     {
         $query = $c->query;
         $thresholds = $c->thresholds;
-        $run = $first->completed();
+        // the vocabulary holds the words of every field: a restricted viewer gets no suggestion (nor the lookup's statement)
+        $suggestible = $thresholds->rescue->didYouMean && $query->allowedFields === null && $typedRoot !== null && $expandedRoot !== null && !$first->browse && $c->index->hasFuzzy();
+        // A search with a typo-tolerant phase always looks its words up (it uses typo tolerance), so it does before the phase: the word each
+        // typo most likely meant ranks the hits that have it above the look-alikes. A minimum score would let a raised score pass it, and
+        // so change the hits: there the order stays as it was.
+        $suggestion = $suggestible && $typedRoot !== null && $expandedRoot !== null && $first->phase !== null ? $this->vocabulary->suggest($c->index, $typedRoot, $expandedRoot, $thresholds) : null;
+        $run = $first->completed($suggestion !== null && $thresholds->relevance->minScore <= 0.0 ? $suggestion->corrections : []);
         $statements = $run->statements;
         array_push($warnings, ...$run->warnings);
         // setting of the last search statement, which explain() runs again
@@ -381,13 +387,12 @@ final readonly class SearchRunner
         array_push($statements, ...$faceted->statements);
         $rows = self::hitsOnly($rows);
 
-        $suggestion = null;
-        // the vocabulary holds the words of every field: a restricted viewer gets no suggestion (nor the lookup's statement)
-        if ($thresholds->rescue->didYouMean && $query->allowedFields === null && $typedRoot !== null && $expandedRoot !== null && !$run->browse && $c->index->hasFuzzy() && ($total < $thresholds->didYouMeanBelow() || $run->usedFuzzy)) {
+        if ($suggestion === null && $suggestible && $typedRoot !== null && $expandedRoot !== null && ($total < $thresholds->didYouMeanBelow() || $run->usedFuzzy)) {
             $suggestion = $this->vocabulary->suggest($c->index, $typedRoot, $expandedRoot, $thresholds);
-            if ($suggestion->statement !== null) {
-                $statements[] = $suggestion->statement;
-            }
+        }
+        // listed where it always was, after the facets
+        if ($suggestion?->statement !== null) {
+            $statements[] = $suggestion->statement;
         }
         // Only a search that found nothing is rescued, and a search-as-you-type text never (its last word is not finished). It is
         // a typo correction: a search that switched typo tolerance off (typo.mode never, a profile without fuzzy weight) has none.
@@ -490,10 +495,11 @@ final readonly class SearchRunner
         // the recheck drops stop words as the strict tsquery does, so it needs them up front
         $emptyQueries = $scopedRoot === null ? null : $this->fuzzyStopWords($c, $fuzzy, $scopedRoot, $fuzzyRoot);
         // the typo-tolerant statements: the candidates of each word probed on its own, then the ranked statement over them
-        $typoPhase = fn(Node $fuzzyRoot, StatementKind $kind, string $label, array $empty): \Closure => fn(): PhaseResult => $this->session->inTransaction(function () use ($c, $fuzzy, $fuzzyRoot, $kind, $label, $empty, $tsquery, $plain, $scopedRoot, $withIds): PhaseResult {
+        $typoPhase = fn(Node $fuzzyRoot, StatementKind $kind, string $label, array $empty): \Closure => fn(array $corrections = []): PhaseResult => $this->session->inTransaction(function () use ($c, $fuzzy, $fuzzyRoot, $kind, $label, $empty, $tsquery, $plain, $scopedRoot, $withIds, $corrections): PhaseResult {
             /** @var list<string> $empty */
+            /** @var array<string, array{word: string, score: float}> $corrections */
             $candidates = $this->fuzzyCandidates($c, $fuzzy, $fuzzyRoot, $empty);
-            $statement = Statement::of($kind, $label, $c->builder($candidates)->ranked($tsquery, $plain, $fuzzyRoot, $c->conditions, $c->profile, $c->thresholds, $c->query->limit, $c->query->offset, $empty, $scopedRoot, $withIds));
+            $statement = Statement::of($kind, $label, $c->builder($candidates, $corrections)->ranked($tsquery, $plain, $fuzzyRoot, $c->conditions, $c->profile, $c->thresholds, $c->query->limit, $c->query->offset, $empty, $scopedRoot, $withIds));
             $threshold = $fuzzy->lowestSimilarity($fuzzyRoot, $empty);
             $rows = $this->session->run($statement, $threshold);
 

@@ -339,6 +339,11 @@ $result->didYouMean;   // "headphones -cable": the query with the word replaced,
   one in more documents. A swap of two neighbouring letters is one edit. Nothing farther than a third of the word's length away is suggested (at least
   one edit), and a candidate has to share enough trigrams (similarity 0.25) unless it is a swapped variant. The suggested word is the vocabulary's:
   lowercase, no accents.
+- **Ranking:** a search whose typo tolerance runs looks the suggestion up first, and the word a typo most likely meant (fewest edits, then at
+  least twice the documents of the next candidate at that distance; a closer tie corrects nothing) ranks its hits above the look-alikes: such a
+  hit's word scores 0.95 (one edit, 0.05 less per further edit) instead of its trigram similarity, under an exact hit's 1.0 (`szaob` lists `Szabó`
+  before `Szalai`, `peetr` `Péter` before `Petra`). Only the order changes: the hits, the total and the facets are those of the search without it.
+  Not for a restricted viewer, a tenant-scoped index, `rescue.did_you_mean: false` or a `relevance.min_score` above 0.
 - **Tenants and filters:** the vocabulary is the words of the whole index, whatever a search's filters say, so a suggestion could reveal that a word
   exists in documents the search may not see. Therefore a tenant-scoped index never suggests anything. On any other index with visibility filters
   (unpublished or private rows whose words must stay secret), switch it off: `rescue.did_you_mean: false` (with `rescue.correct_when_empty: false`).

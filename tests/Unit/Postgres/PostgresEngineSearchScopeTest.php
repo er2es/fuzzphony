@@ -22,9 +22,10 @@ final class PostgresEngineSearchScopeTest extends TestCase
         $search->in('products')->query('mouze')->get();
 
         // the strict statement needs no setting: it runs before the transaction, which starts with the typo-tolerant phase;
-        // the probe and the ranked statement want the same similarity, so it is set once
+        // the did-you-mean lookup comes first (its correction ranks the typo hits), then the probe and the ranked statement, which want the
+        // same similarity, so it is set once for them
         self::assertSame(
-            ['statement', 'stop words', 'BEGIN', 'set_config', 'statement', 'statement', 'vocabulary check', 'set_config', 'did you mean', 'COMMIT'],
+            ['statement', 'stop words', 'BEGIN', 'vocabulary check', 'set_config', 'did you mean', 'set_config', 'statement', 'statement', 'COMMIT'],
             $connection->kinds(),
         );
     }
