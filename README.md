@@ -79,8 +79,10 @@ A good fit when:
 - A record has several values (addresses, phone numbers) that should be found by any value, or ranked by the best single one.
 - Your content is multilingual: stemming for 28 languages, accent folding (`kavefozo` finds `Kávéfőző`).
 
-Not the right tool for hundreds of millions of documents or thousands of searches a second on one index, analytics-style aggregations, semantic or vector
-search, or a database other than PostgreSQL.
+Measured up to 1,000,000 documents per index (a typical search takes milliseconds to about a hundred, the very commonest words a few hundred at 1,000,000;
+see [benchmarks](docs/benchmarks.md)); beyond a few million documents per
+index, measure first. A search is an ordinary read query, so throughput is that of your PostgreSQL and its connection pool. Not for analytics-style
+aggregations, semantic or vector search, or a database other than PostgreSQL.
 
 | | `LIKE '%…%'` | Fuzzphony | External engine |
 |---|---|---|---|
