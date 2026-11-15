@@ -31,6 +31,7 @@ use Fuzzphony\Engine\Postgres\EngineGuard;
 use Fuzzphony\Engine\Postgres\Highlighter;
 use Fuzzphony\Engine\Postgres\Hints;
 use Fuzzphony\Engine\Postgres\ManyMatchFields;
+use Fuzzphony\Engine\Postgres\SameRow;
 use Fuzzphony\Engine\Postgres\MatchExplainer;
 use Fuzzphony\Engine\Postgres\Schema\Names;
 use Fuzzphony\Engine\Postgres\SearchSession;
@@ -99,6 +100,22 @@ final readonly class SearchRunner
      * result, flagged, is the answer when it found something without the relaxation dropping a word. See executeOnce() for when a search is rescued.
      */
     private function execute(IndexDefinition $index, SearchQuery $query): SearchRun
+    {
+        try {
+            return $this->executeRescued($index, $query);
+        } catch (\Throwable $e) {
+            // a same_row_as column this process knew was dropped by an apply (a rolling deploy): retried once, the lookup tells the
+            // search to keep the document-level filter (TextConfigCache::sameRow()). Not inside the caller's transaction: the failed
+            // statement aborted it, so the error stands there.
+            if ($this->connection->inTransaction() || !$this->caches->forgetSameRow($index, $e)) {
+                throw $e;
+            }
+
+            return $this->executeRescued($index, $query);
+        }
+    }
+
+    private function executeRescued(IndexDefinition $index, SearchQuery $query): SearchRun
     {
         $started = hrtime(true);
         $run = $this->executeOnce($index, $query, true);
@@ -225,7 +242,7 @@ final readonly class SearchRunner
         }
         $expandedRoot = $root;
 
-        $context = new SearchContext($index, $query, $conditions, $profile, $thresholds, $this->names, $this->caches->openClass($index));
+        $context = new SearchContext($index, $query, $conditions, $profile, $thresholds, $this->names, $this->caches->openClass($index), $this->caches->sameRow($index, SameRow::coupled($index, ManyMatchFields::resolve($index, $query))));
         $run = $this->pipeline($context, $root, '', true);
         // What is left of the search (the typo-tolerant statements, the relaxation, the facets, the suggestion) runs in ONE transaction
         // when typo tolerance is due (see SearchSession::inTransaction()); a search that needs no setting has no transaction at all.

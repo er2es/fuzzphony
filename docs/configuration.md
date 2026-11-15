@@ -374,7 +374,9 @@ values of a document by it, and the doctor warns when there is none.
   who may not see `address`, the filter is the document-level one, unchanged. Filters only. `fuzzphony:schema --apply` adds one nullable
   `text[]` column to the values table (`fr_<filter>_<hash>`, no rewrite) and **a reindex fills it**: until then the rows written before the
   option match the city of any address, as before (the doctor counts them). Removing the option, or changing its column, field or child
-  table, drops that column at the next apply (a changed one gets a new, empty column: old values are never trusted). Refused with a fix: a
+  table, drops that column at the next apply (a changed one gets a new, empty column: old values are never trusted). In a rolling deploy a
+  coupled search whose column is not there (new code before the apply, old code after it dropped the column) keeps the document-level
+  filter instead of failing (old code retries once; inside your own transaction the error stands: see [UPGRADE](../UPGRADE.md#opting-in-same_row_as)). Refused with a fix: a
   name that is not a field (with a "did you mean"), a single-valued field, a field that reads other child rows, the option on a field.
 - **The hit says which value matched**: with `explainMatches()` every `MatchedWord` of a many field carries `valueOrd` (the position of the
   value, from 0) and `value` (the stored text). `highlight('city')` shows the value that matches best, not the whole list.

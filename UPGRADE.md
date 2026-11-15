@@ -34,14 +34,17 @@ filters:
 ```
 
 1. Deploy the definition and run `bin/console fuzzphony:schema --apply` right away: it adds one nullable `text[]` column to the values
-   table (catalog check first, no rewrite, no default) and the refresh function that fills it. A coupled search reads the column, so until
-   the apply such a search fails with an undefined-column error (as a new `rank: best` field does); searches without `manyMatch('single')`
-   and a city condition are not affected.
+   table (catalog check first, no rewrite, no default) and the refresh function that fills it. Until the apply a coupled search keeps the
+   document-level filter (today's result, not an error): the engine looks the column up in the catalog, once per coupled search while it
+   is missing, and from the first search that finds it uses it (no restart needed).
 2. `bin/console fuzzphony:reindex <index>`: the rows written before the option do not know their city (NULL) and match the city of any
    address, as before, until the reindex (or the sync) rewrites them; the doctor counts them ("Same row"). There is no apply-time backfill.
 
 Removing the option (or changing its column, field or child table) needs only `schema --apply`: the column goes (a changed declaration
-gets a new, empty column), and the searches fall back to the document-level filter at once. Going back to 0.12.4 needs nothing: its
+gets a new, empty column), and the searches fall back to the document-level filter at once. A process still running the old definition
+that knew the dropped column gets "undefined column" on its next coupled search, forgets the column and runs that search once more with
+the document-level filter (no error), except inside a transaction of your own, which the failed statement aborted: there the error stands
+(deploy the new definition to such processes before the apply, or restart them). Going back to 0.12.4 needs nothing: its
 refresh function lists its columns, so the column is left NULL on the rows it writes.
 
 ## From 0.12.x to 0.12.4

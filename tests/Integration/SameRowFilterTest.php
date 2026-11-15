@@ -6,6 +6,7 @@ namespace Fuzzphony\Tests\Integration;
 
 use Fuzzphony\Core\Database\Connection;
 use Fuzzphony\Core\Definition\IndexDefinition;
+use Fuzzphony\Core\Exception\EngineFailure;
 use Fuzzphony\Core\Fuzzphony;
 use Fuzzphony\Core\Inspection\Check;
 use Fuzzphony\Core\Registry\IndexRegistry;
@@ -441,6 +442,41 @@ final class SameRowFilterTest extends TestCase
         $hits = iterator_to_array($f->federated()->index('srcust', configure: static fn(SearchBuilder $b): SearchBuilder => $b->manyMatch('single')->where('city', 'Eger'))->query('fő utca')->get(), false);
 
         self::assertSame([self::X], array_map(static fn($h): int|string => $h->id, $hits));
+    }
+
+    /** A rolling deploy, the new code first: its process searches before anyone ran schema --apply (the column is not there yet). */
+    public function testNewCodeBeforeTheApplyFallsBackToTheDocumentLevelFilter(): void
+    {
+        $this->install(self::definition(null));
+        $new = new Fuzzphony(new PostgresEngine($this->connection), new IndexRegistry([self::definition()]));
+
+        self::assertSame([self::X, self::Y, self::Z], self::find($new, 'fő utca'), 'today\'s document-level filter, not an error');
+        $facets = self::exact($new->in('srcust')->query('fő utca'))->manyMatch('single')->facets('city')->get()->facets['city'];
+        self::assertSame([['Eger', 3], ['Budapest', 2]], array_map(static fn($v): array => [$v->value, $v->count], $facets));
+
+        // the same process after the apply and the reindex: the column is used from the next search (a missing one is not remembered)
+        $new->schema()->apply($this->connection);
+        $new->reindex('srcust');
+        self::assertSame([self::X], self::find($new, 'fő utca'));
+    }
+
+    /** A rolling deploy, the apply first: a process still holding the old definition searches after the apply dropped its column. */
+    public function testAProcessWithTheOldDefinitionSurvivesTheDropOfItsColumn(): void
+    {
+        $old = $this->install(self::definition());
+        self::assertSame([self::X], self::find($old, 'fő utca'), 'the column is known to this process now');
+        (new Fuzzphony(new PostgresEngine($this->connection), new IndexRegistry([self::definition(null)])))->schema()->apply($this->connection);
+
+        try {
+            $this->connection->transactional(static fn(): array => self::find($old, 'fő utca'));
+            self::fail('inside the caller\'s transaction the failed statement aborted it: no retry');
+        } catch (EngineFailure $e) {
+            self::assertStringContainsString('42703', $e->getMessage());
+        }
+        self::assertSame([self::X, self::Y, self::Z], self::find($old, 'fő utca'), 'retried once with the document-level filter, not an error');
+        $facets = self::exact($old->in('srcust')->query('fő utca'))->manyMatch('single')->facets('city')->get()->facets['city'];
+        self::assertSame([['Eger', 3], ['Budapest', 2]], array_map(static fn($v): array => [$v->value, $v->count], $facets));
+        self::assertSame([self::X, self::Y, self::Z], self::find($old, 'fő utca', more: static fn(SearchBuilder $b): SearchBuilder => $b->thresholds(['typo' => ['mode' => 'always']])), 'the typo branch (in a transaction) too');
     }
 
     public function testTheDoctorReportsAMissingColumnAndAStaleOne(): void
