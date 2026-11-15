@@ -347,7 +347,7 @@ final readonly class IndexMaintenance
     }
 
     /**
-     * The gauges of `OperationalStats`: one statement each, on the small queue, watches and change-log tables (the queue by its
+     * The gauges of `Engine::operationalStats()`: one statement each, on the small queue, watches and change-log tables (the queue by its
      * (index_name, queued_at) index, the log by the entries past the index's cursor). A statement that fails (a table or column of an
      * older schema) leaves its gauges out; the worker never stops over a metric.
      *

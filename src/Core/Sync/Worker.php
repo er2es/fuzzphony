@@ -6,7 +6,6 @@ namespace Fuzzphony\Core\Sync;
 
 use Fuzzphony\Core\Definition\IndexDefinition;
 use Fuzzphony\Core\Engine\Engine;
-use Fuzzphony\Core\Engine\OperationalStats;
 use Fuzzphony\Core\Exception\RebuildAlreadyRunning;
 use Fuzzphony\Core\Observability\MetricsCollector;
 use Fuzzphony\Core\Observability\NullMetricsCollector;
@@ -92,10 +91,8 @@ final class Worker
             }
             $total += $this->rebuildIfRequested($index);
             $this->metrics->gauge('fuzzphony.queue.depth', (float) $this->engine->queueSize($index), ['index' => $index->name]);
-            if ($this->engine instanceof OperationalStats) {
-                foreach ($this->engine->operationalStats($index) as $gauge => $value) {
-                    $this->metrics->gauge($gauge, $value, ['index' => $index->name]);
-                }
+            foreach ($this->engine->operationalStats($index) as $gauge => $value) {
+                $this->metrics->gauge($gauge, $value, ['index' => $index->name]);
             }
             if (($this->queueBackoff[$index->name][1] ?? 0.0) > ($this->clock)()) {
                 continue; // its queue failed a moment ago: the other indexes go on, this one is tried again after the back-off

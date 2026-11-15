@@ -9,7 +9,6 @@ use Fuzzphony\Core\Database\Connection;
 use Fuzzphony\Core\Definition\IndexDefinition;
 use Fuzzphony\Core\Definition\Synonyms;
 use Fuzzphony\Core\Engine\Engine;
-use Fuzzphony\Core\Engine\OperationalStats;
 use Fuzzphony\Core\Inspection\InspectionReport;
 use Fuzzphony\Core\Inspection\InspectOptions;
 use Fuzzphony\Core\Observability\MetricsCollector;
@@ -40,7 +39,7 @@ use Fuzzphony\Engine\Postgres\Wizard\PostgresIntrospector;
  *
  * @internal
  */
-final readonly class PostgresEngine implements Engine, OperationalStats
+final readonly class PostgresEngine implements Engine
 {
     private Names $names;
     private PostgresSchemaGenerator $schema;
