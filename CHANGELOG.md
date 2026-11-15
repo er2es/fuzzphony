@@ -20,6 +20,7 @@ and a link. Measurements, proofs and test names belong to the pull request, [doc
 
 - **Typo hits of the word a typo most likely meant rank first:** the did-you-mean lookup now runs before the typo-tolerant statement, and the hits that have the likeliest word (fewest edits, a swap counting as one, then clearly the most documents) score 0.95 for it, above look-alikes (`szaob`: `Szabó` before `Szalai`, `peetr`: `Péter` before `Petra`). No extra statement; the same hits, totals and facets: only the order (and `fuzzySimilarity`) of typo hits changes ([did you mean](docs/searching.md#did-you-mean)).
 - A federated search ranks the hits of a rescued index (`correctedFrom`, a typo correction or a cut-off code) after every hit of the indexes that found the typed text itself, whatever their weight; floors still bring them onto the page.
+- **Demo:** the page-specific scripts (sequence, tooltip, sync, ILIKE speed bars, countdown) and the live-component script load only on the pages that use them; the ERP sync poll pauses in background tabs.
 - **Documentation:** a hero banner, shorter pages (the roadmap and the upgrade guide no longer repeat release history; UPGRADE.md drops the steps before 0.3), the `BUILDX_BAKE_ENTITLEMENTS_FS=0` note wherever the demo is built.
 
 ## [0.12.7] - 2026-11-15
