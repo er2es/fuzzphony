@@ -1,7 +1,7 @@
 # Screenshots
 
 What the [demo](../demo/README.md) looks like: a Symfony app on a seeded catalogue of 500 000 products, run with
-`docker compose up --build` in the `demo` folder. The links of the top menu are centred on the page, the three buttons at the right of the bar
+`docker compose up --build` in the `demo` folder (if Docker asks for a build privilege: [build privileges](../demo/README.md#docker-build-privileges)). The links of the top menu are centred on the page, the three buttons at the right of the bar
 choose the colour scheme (System, Light, Dark; the pictures were taken in the dark scheme), and a footer with the Fuzzphony version and links ends every page.
 Back to the [README](../README.md).
 

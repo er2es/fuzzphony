@@ -1,3 +1,5 @@
+<p align="center"><img src="docs/assets/hero.svg" alt="Fuzzphony: fuzzy search, in perfect harmony with your database. The misspelled query wireles is matched to Wireless through shared trigram blocks." width="900"></p>
+
 # Fuzzphony
 
 [![CI](https://github.com/er2es/fuzzphony/actions/workflows/ci.yml/badge.svg)](https://github.com/er2es/fuzzphony/actions/workflows/ci.yml)
@@ -54,6 +56,9 @@ A full Symfony app on a seeded catalogue of 500 000 products (about a minute to 
 git clone https://github.com/er2es/fuzzphony
 cd fuzzphony/demo && docker compose up --build    # http://localhost:8000
 ```
+
+If Docker stops with `additional privileges requested`, set `export BUILDX_BAKE_ENTITLEMENTS_FS=0` (bash) or `$env:BUILDX_BAKE_ENTITLEMENTS_FS=0` (PowerShell) first
+([why](https://github.com/er2es/fuzzphony/blob/main/demo/README.md#docker-build-privileges)).
 
 \* The demo, the documentation ([docs/](https://github.com/er2es/fuzzphony/blob/main/docs/README.md)), the tests and the benchmarks live in the Git repository only: `composer require fuzzphony/fuzzphony` installs just the library (`src/`). See the [demo README](https://github.com/er2es/fuzzphony/blob/main/demo/README.md) (Windows, the large profile, security defaults; a local showcase, not a production template) and the [screenshots](https://github.com/er2es/fuzzphony/blob/main/docs/screenshots.md).
 
