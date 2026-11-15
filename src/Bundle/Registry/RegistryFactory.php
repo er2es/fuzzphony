@@ -6,13 +6,14 @@ namespace Fuzzphony\Bundle\Registry;
 
 use Fuzzphony\Bridge\Doctrine\DoctrineIndexDiscovery;
 use Fuzzphony\Core\Definition\ArrayDefinitionLoader;
+use Fuzzphony\Core\Definition\DefinitionProvider;
 use Fuzzphony\Core\Definition\IndexDefinition;
 use Fuzzphony\Core\Definition\IndexDefinitionClass;
 use Fuzzphony\Core\Exception\InvalidDefinition;
 use Fuzzphony\Core\Registry\IndexRegistry;
 use Psr\Cache\CacheItemPoolInterface;
 
-/** @internal Attribute indexes first, then YAML: overrides for known names, new indexes otherwise. */
+/** @internal Attribute indexes, definition classes, providers, then YAML: overrides for known names (never a provider's), new indexes otherwise. */
 final class RegistryFactory
 {
     /** The violation reported (build time, doctor) for a field with `granted` while the authorization guard is off. */
@@ -28,8 +29,9 @@ final class RegistryFactory
      * @param ?string                             $projectDir What a relative `source.query_file` of the YAML starts at (the bundle passes kernel.project_dir).
      * @param iterable<object>                    $definitionClasses The services with #[AsIndexDefinition] (tag fuzzphony.index_definition), a lazy iterable: with a warm cache nothing is instantiated; their definitions are cached next to the attribute ones, so build() must be pure
      * @param bool                                $authorizationEnabled false: an index with a `granted` field does not build (InvalidDefinition), nothing would hide the field
+     * @param iterable<DefinitionProvider>        $providers The services tagged fuzzphony.definition_provider: called on every build, never cached (the warmer passes none)
      */
-    public static function create(array $yaml, ?DoctrineIndexDiscovery $discovery = null, ?CacheItemPoolInterface $cache = null, bool $cacheInCli = false, ?string $projectDir = null, bool $authorizationEnabled = true, iterable $definitionClasses = []): IndexRegistry
+    public static function create(array $yaml, ?DoctrineIndexDiscovery $discovery = null, ?CacheItemPoolInterface $cache = null, bool $cacheInCli = false, ?string $projectDir = null, bool $authorizationEnabled = true, iterable $definitionClasses = [], iterable $providers = []): IndexRegistry
     {
         $pool = \PHP_SAPI === 'cli' && !$cacheInCli ? null : $cache;
         $registry = new IndexRegistry($discovery === null ? [] : self::discovered($discovery, $pool));
@@ -39,8 +41,17 @@ final class RegistryFactory
         foreach (self::definitionClasses($definitionClasses, $pool) as $class => $definition) {
             $registry->register($definition, 'definition class ' . $class);
         }
+        $provided = [];
+        foreach ($providers as $provider) {
+            foreach ($provider->definitions() as $definition) {
+                $registry->register($definition, $provided[$definition->name] = 'provider ' . $provider::class);
+            }
+        }
         $loader = new ArrayDefinitionLoader($projectDir);
         foreach ($yaml as $name => $config) {
+            if (isset($provided[$name])) {
+                throw new InvalidDefinition($name, [sprintf('the index is defined twice: by %s and by YAML.', $provided[$name])]);
+            }
             $registry->register($registry->has($name) ? $loader->override($registry->get($name), $config) : $loader->load($name, $config));
             $registry->annotateOrigin($name, 'YAML');
         }
