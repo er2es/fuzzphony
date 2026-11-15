@@ -17,7 +17,7 @@ use PHPUnit\Framework\TestCase;
  */
 final class TypoCorrectionRankTest extends TestCase
 {
-    /** @param list<list<mixed>> $extra */
+    /** @param list<array{int, string, string, int, int, bool, float, string}> $extra */
     private function fuzzphony(array $extra = [], bool $tenant = false): Fuzzphony
     {
         $connection = PostgresTestCase::connect();
@@ -57,7 +57,11 @@ final class TypoCorrectionRankTest extends TestCase
         return $ids;
     }
 
-    /** The ranked statement looks a correction up (its q column cw<n>). */
+    /**
+     * The ranked statement looks a correction up (its q column cw<n>).
+     *
+     * @param array<string, mixed>|null $thresholds
+     */
     private static function corrects(Fuzzphony $fuzzphony, string $query, ?array $thresholds = null): bool
     {
         $search = $fuzzphony->in('products')->query($query);
