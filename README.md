@@ -1,4 +1,4 @@
-<p align="center"><img src="docs/assets/hero.svg" alt="Scattered letters settle onto a sound wave and become the word harmony." width="900"></p>
+<p align="center"><img src="docs/assets/hero.svg" alt="Sound waves settling into harmony." width="900"></p>
 
 # Fuzzphony
 
