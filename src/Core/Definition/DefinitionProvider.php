@@ -14,7 +14,8 @@ namespace Fuzzphony\Core\Definition;
  * validated like any other; whatever the provider throws propagates.
  *
  * A definition is code: `source.query` and `watch.affectedIds` are raw SQL run by the writer role. The validator checks their shape
- * (SELECT/WITH, identifiers), it does not sanitise them: never build a definition from text an end user or a tenant typed.
+ * (SELECT/WITH, identifiers, no `$fuzzphony$` tag), not intent (`WITH d AS (DELETE ...) SELECT ...` passes): never build a definition
+ * from text an end user or a tenant typed; map their choices to fixed builder calls.
  */
 interface DefinitionProvider
 {

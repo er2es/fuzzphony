@@ -121,6 +121,50 @@ A legacy table has no entity: `#[AsIndexDefinition('orders')]` and `$b->fromTabl
   state, no clock or random values, nothing read from the request, no closure stored in the definition. Read configuration that
   changes the index from YAML, not from `build()`.
 
+### Definition providers
+
+A `DefinitionProvider` returns index definitions at runtime, for example from a table that an admin edits:
+
+<!-- tested: tests/Fixtures/RowsDefinitionProvider.php#provider -->
+```php
+final class RowsDefinitionProvider implements DefinitionProvider
+{
+    /** @param iterable<array{name: string, query: string, fields: string}> $rows e.g. SELECT name, query, fields FROM search_index_config */
+    public function __construct(private readonly iterable $rows) {}
+
+    public function definitions(): iterable
+    {
+        foreach ($this->rows as $row) {
+            $builder = IndexDefinition::builder($row['name'])->fromQuery($row['query'])->sync('manual');
+            /** @var array<string, string> $fields {"title": "A", "body": "C"} */
+            $fields = json_decode($row['fields'], true, flags: \JSON_THROW_ON_ERROR);
+            foreach ($fields as $field => $weight) {
+                $builder->field($field, $weight);
+            }
+            yield $builder->build();
+        }
+    }
+}
+```
+
+- **Symfony:** register it as a service; autoconfigure adds the tag `fuzzphony.definition_provider`. It is asked once each time the
+  registry is built (once per request under FPM, once per worker or command), never cached by Fuzzphony and never by `cache:warmup`:
+  cache a slow source yourself.
+- **Plain PHP:** pass the definitions as a list (`Fuzzphony::postgres()` checks them like any other):
+
+<!-- tested: tests/Integration/DefinitionProviderGrantedTest.php#plain -->
+```php
+$provider = new RowsDefinitionProvider([
+    ['name' => 'rows_docs', 'query' => 'SELECT id, title FROM fz_prov_doc', 'fields' => '{"title": "A"}'],
+]);
+$fuzzphony = Fuzzphony::postgres($connection, indexes: [...$provider->definitions()]);
+```
+
+- **Rules:** the order is attributes, definition classes, providers, YAML. A name a provider defines may not come from any other source
+  (attribute, definition class, YAML, another provider): `InvalidDefinition` names both. Its definitions are validated like any other,
+  `granted` included; `fuzzphony:doctor` shows `provider App\…`. A changed definition is a deploy: `schema --apply`, restart workers.
+  A definition is code: see [Definitions are trusted input](#definitions-are-trusted-input).
+
 ### Several indexes
 
 Give `indexes:` several entries (with the builder: build several definitions and give them all to `Fuzzphony::postgres()`).
@@ -899,4 +943,6 @@ sidecar table current. You only reindex again when the definition changes.
 The `fromQuery()` source, the `watch()` SQL, and index, field and filter names end up in generated
 SQL and trigger functions. Never build them from user input. Embedded SQL must not contain
 `$fuzzphony$`, the dollar-quote tag of the generated functions; the definition is rejected if it
-does. See [SECURITY.md](../SECURITY.md).
+does. The check is of shape (identifiers, a query that starts with SELECT or WITH), not of intent:
+`WITH d AS (DELETE FROM audit RETURNING id) SELECT ...` passes and runs on every refresh. The same holds for a
+[provider](#definition-providers): map a tenant's choices to fixed builder calls. See [SECURITY.md](../SECURITY.md).

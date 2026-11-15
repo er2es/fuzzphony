@@ -446,6 +446,10 @@ a covert-channel proof:
 - **An index upgraded to layout 2 without a full reindex** has empty per-field columns, so a
   restricted viewer finds nothing: it fails closed. Reindex after upgrading (see
   [UPGRADE.md](../UPGRADE.md#from-04-to-05)).
+- **A definition is code, whatever its source** (attribute, definition class, YAML, a
+  [provider](configuration.md#definition-providers)). `source.query` and `watch` SQL are raw SQL run by the writer role; the
+  validator checks shape (identifiers, SELECT/WITH, no `$fuzzphony$` tag), not intent: `WITH d AS (DELETE ...) SELECT ...` passes.
+  Never build a definition from text an end user or a tenant typed; map their choices to fixed builder calls.
 
 ## Refusals in metrics, logs and the search log
 

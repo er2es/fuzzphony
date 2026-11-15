@@ -11,6 +11,12 @@ and a link. Measurements, proofs and test names belong to the pull request, [doc
 
 ## [Unreleased]
 
+### Added
+
+- **`DefinitionProvider`:** index definitions from your own source at runtime (a table, a config service); autoconfigured in Symfony,
+  asked once per registry build, never cached by Fuzzphony; a name defined twice is an `InvalidDefinition`. Plain PHP passes
+  `[...$provider->definitions()]`. See [configuration](docs/configuration.md#definition-providers).
+
 ## [0.12.5] - 2026-11-15
 
 The strict mode can couple a city filter to the address that holds the words (`same_row_as`), `rank: best` ranks each match once, the redundant open-class trigram index is dropped and the table is vacuumed after a backfill, and the demo shows the coupling. Three independent reviews (the coupling, the trigram drop with probes against the real 0.12.4, and their fixes) found no leak. Run `fuzzphony:schema --apply` (UPGRADE has the order); a reindex is needed only to fill the new per-address filter column of an existing index.
