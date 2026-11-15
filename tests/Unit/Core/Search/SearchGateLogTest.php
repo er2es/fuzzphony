@@ -249,7 +249,7 @@ final class SearchGateLogTest extends TestCase
     {
         $metrics = new RecordingMetricsCollector();
         $logger = $this->createMock(\Psr\Log\LoggerInterface::class);
-        $logger->expects(self::once())->method('error')->with(self::stringContains('could not record'), self::callback(static fn(array $c): bool => $c['index'] === 'products' && $c['message'] === 'disk full'));
+        $logger->expects(self::once())->method('error')->with(self::stringContains('could not record'), self::callback(static fn(array $c): bool => $c['index'] === 'products' && $c['message'] === 'RuntimeException'));
         $log = new class implements SearchLog {
             public function record(SearchRecord $record): void
             {

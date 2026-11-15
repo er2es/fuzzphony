@@ -75,7 +75,7 @@ final readonly class SharedWatch
                 $tbl = Sql::string(Sql::ident($watch->table));
                 $fn = Sql::string($this->names->watchFunctionName($watch->table));
                 $rows[] = sprintf(
-                    '(%s, %d, %s, %s, %s, %s, pg_snapshot_xmin(pg_current_snapshot())::text::bigint%s)',
+                    '(%1$s, %2$d, %3$s, %4$s, %5$s, %6$s, coalesce((v_old ->> %3$s)::bigint, pg_snapshot_xmin(pg_current_snapshot())::text::bigint)%7$s)',
                     $name,
                     $no,
                     $tbl,
@@ -88,7 +88,7 @@ final readonly class SharedWatch
             }
         }
         $upsert = $rows === [] ? '' : sprintf(
-            "INSERT INTO %1\$s AS w (index_name, watch_no, tbl, fn, key_column, columns, cur_xid%3\$s) VALUES\n        %2\$s\n        ON CONFLICT (index_name, watch_no) DO UPDATE SET fn = EXCLUDED.fn, key_column = EXCLUDED.key_column, columns = EXCLUDED.columns,%4\$s\n            cur_xid = CASE WHEN w.tbl = EXCLUDED.tbl THEN w.cur_xid ELSE EXCLUDED.cur_xid END, tbl = EXCLUDED.tbl;",
+            "INSERT INTO %1\$s AS w (index_name, watch_no, tbl, fn, key_column, columns, cur_xid%3\$s) VALUES\n        %2\$s\n        ON CONFLICT (index_name, watch_no) DO UPDATE SET fn = EXCLUDED.fn, key_column = EXCLUDED.key_column, columns = EXCLUDED.columns,%4\$s\n            cur_xid = EXCLUDED.cur_xid, tbl = EXCLUDED.tbl;",
             $reg,
             implode(",\n        ", $rows),
             $multi ? ', source' : '',
@@ -100,6 +100,7 @@ final readonly class SharedWatch
                 DO %1$s
                 DECLARE
                     r record;
+                    v_old jsonb := coalesce((SELECT jsonb_object_agg(tbl, pos) FROM (SELECT tbl, min(cur_xid) AS pos FROM %2$s WHERE index_name = %3$s GROUP BY tbl) AS o), '{}'::jsonb);
                     v_tables jsonb := jsonb_build_array(%4$s) || coalesce((SELECT jsonb_agg(DISTINCT jsonb_build_array(tbl, fn)) FROM %2$s WHERE index_name = %3$s), '[]'::jsonb);
                 BEGIN
                     DELETE FROM %2$s WHERE index_name = %3$s AND watch_no >= %5$d;

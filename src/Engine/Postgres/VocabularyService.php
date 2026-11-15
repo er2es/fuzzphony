@@ -6,6 +6,7 @@ namespace Fuzzphony\Engine\Postgres;
 
 use Fuzzphony\Core\Database\Connection;
 use Fuzzphony\Core\Definition\IndexDefinition;
+use Fuzzphony\Core\Exception\EngineFailure;
 use Fuzzphony\Core\Exception\FuzzphonyException;
 use Fuzzphony\Core\Query\Ast\Node;
 use Fuzzphony\Core\Query\Ast\NodeInspector;
@@ -57,13 +58,16 @@ final class VocabularyService
     {
         $vocabulary = $this->names->vocabulary($index);
 
-        return $this->guard->run('vocabulary', function () use ($index, $vocabulary): int {
+        $hint = sprintf('Run "bin/console fuzzphony:schema --apply" to create %1$s, and give the reindexing role SELECT, INSERT and DELETE on it (GRANT ... ON ALL TABLES IN SCHEMA covers it once the table exists).', $vocabulary);
+
+        return $this->guard->run('vocabulary', function () use ($index, $vocabulary, $hint): int {
             $granted = $this->connection->fetchValue(
                 "SELECT to_regclass(:a) IS NOT NULL AND has_table_privilege(to_regclass(:b), 'INSERT') AND has_table_privilege(to_regclass(:c), 'DELETE')",
                 ['a' => $vocabulary, 'b' => $vocabulary, 'c' => $vocabulary],
             );
             if ($granted !== true) {
-                throw new \RuntimeException(sprintf('%s does not exist or this role may not write it.', $vocabulary));
+                throw new EngineFailure(sprintf("Fuzzphony vocabulary failed: %s does not exist or this role may not write it.
+Hint: %s", $vocabulary, $hint), 0, null, 'vocabulary', $hint);
             }
 
             return $this->connection->transactional(function (Connection $c) use ($index, $vocabulary): int {
@@ -77,7 +81,7 @@ final class VocabularyService
 
                 return Coerce::int($c->fetchValue(sprintf('SELECT count(*) FROM %s', $vocabulary)));
             });
-        }, sprintf('Run "bin/console fuzzphony:schema --apply" to create %1$s, and give the reindexing role SELECT, INSERT and DELETE on it (GRANT ... ON ALL TABLES IN SCHEMA covers it once the table exists).', $vocabulary));
+        }, $hint);
     }
 
     /** @return list<string> */

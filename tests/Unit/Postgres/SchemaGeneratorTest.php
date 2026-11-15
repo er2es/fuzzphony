@@ -128,8 +128,8 @@ final class SchemaGeneratorTest extends TestCase
         self::assertStringContainsString('INSERT INTO "public"."fuzzphony_queue"', $queue);
         self::assertStringContainsString('PERFORM "public"."fuzzphony_refresh_products"', $trigger);
         self::assertStringNotContainsString('CREATE OR REPLACE TRIGGER', $manual);
-        self::assertStringContainsString('DROP TRIGGER IF EXISTS "fuzzphony_sync_products__fz_brand" ON "fz_brand"', $manual);
-        self::assertStringContainsString('DROP TRIGGER IF EXISTS "fuzzphony_sync_products__fz_brand_upd" ON "fz_brand"', $manual);
+        self::assertStringContainsString('DROP TRIGGER IF EXISTS "fuzzphony_sync_products__fz_brand_8c237a1e" ON "fz_brand"', $manual);
+        self::assertStringContainsString('DROP TRIGGER IF EXISTS "fuzzphony_sync_products__fz_brand_8c237a1e_upd" ON "fz_brand"', $manual);
     }
 
     public function testStatementLevelTriggersUseTransitionTables(): void
@@ -138,7 +138,7 @@ final class SchemaGeneratorTest extends TestCase
 
         self::assertStringContainsString('FROM fz_new AS r CROSS JOIN LATERAL (SELECT id FROM fz_product WHERE brand_id = r."id")', $sql);
         self::assertStringContainsString('AFTER UPDATE ON "fz_brand" REFERENCING OLD TABLE AS fz_old NEW TABLE AS fz_new FOR EACH STATEMENT', $sql);
-        self::assertStringContainsString('DROP TRIGGER IF EXISTS "fuzzphony_sync_products__fz_brand" ON "fz_brand"', $sql, 'row-level trigger of a previous setup is removed');
+        self::assertStringContainsString('DROP TRIGGER IF EXISTS "fuzzphony_sync_products__fz_brand_8c237a1e" ON "fz_brand"', $sql, 'row-level trigger of a previous setup is removed');
     }
 
     public function testQueueSyncAtStatementLevelUsesTheSharedTriggerOfTheTable(): void
@@ -150,8 +150,8 @@ final class SchemaGeneratorTest extends TestCase
         self::assertStringContainsString('PERFORM "public"."fuzzphony_watch_install"(r.tbl, r.fn)', $sql);
         self::assertStringContainsString("'\"fz_brand\"', 'fuzzphony_watch__fz_brand_e21f3cf4', 'id', NULL::jsonb", $sql, 'the unfiltered watch of the joined table');
         self::assertStringContainsString('CROSS JOIN LATERAL (SELECT id FROM fz_product WHERE brand_id = k."id") AS a(doc_id)', $sql, 'the watch query maps a logged key to documents when the index drains');
-        self::assertStringContainsString('DROP TRIGGER IF EXISTS "fuzzphony_sync_products__fz_brand_upd" ON "fz_brand"', $sql, 'the per-index triggers of an earlier release go');
-        self::assertStringContainsString('DROP FUNCTION IF EXISTS "public"."fuzzphony_sync_products__fz_brand"()', $sql);
+        self::assertStringContainsString('DROP TRIGGER IF EXISTS "fuzzphony_sync_products__fz_brand_8c237a1e_upd" ON "fz_brand"', $sql, 'the per-index triggers of an earlier release go');
+        self::assertStringContainsString('DROP FUNCTION IF EXISTS "public"."fuzzphony_sync_products__fz_brand_8c237a1e"()', $sql);
 
         $drop = $generator->drop(Indexes::products('queue'))->toSql();
         self::assertStringContainsString('DELETE FROM "public"."fuzzphony_watches" WHERE index_name = \'products\'', $drop);
@@ -172,7 +172,7 @@ final class SchemaGeneratorTest extends TestCase
         self::assertStringContainsString('SELECT id FROM fz_product WHERE brand_id = NEW."id"', $sql);
         self::assertStringContainsString('SELECT id FROM fz_product WHERE brand_id = OLD."id"', $sql);
         self::assertStringContainsString('AFTER INSERT OR UPDATE OR DELETE ON "fz_brand" FOR EACH ROW', $sql);
-        self::assertStringContainsString('DROP TRIGGER IF EXISTS "fuzzphony_sync_products__fz_brand_ins"', $sql);
+        self::assertStringContainsString('DROP TRIGGER IF EXISTS "fuzzphony_sync_products__fz_brand_8c237a1e_ins"', $sql);
     }
 
     public function testBothTriggerLevelsGetAStatementLevelTruncateTrigger(): void
@@ -186,7 +186,7 @@ final class SchemaGeneratorTest extends TestCase
 
                 foreach (['fz_product', 'fz_brand'] as $table) {
                     self::assertStringContainsString(
-                        sprintf('CREATE OR REPLACE TRIGGER "fuzzphony_sync_products__%1$s_trn" AFTER TRUNCATE ON "%1$s" FOR EACH STATEMENT EXECUTE FUNCTION "public"."fuzzphony_sync_products__%1$s"()', $table),
+                        sprintf('CREATE OR REPLACE TRIGGER "fuzzphony_sync_products__%1$s_%2$s_trn" AFTER TRUNCATE ON "%1$s" FOR EACH STATEMENT EXECUTE FUNCTION "public"."fuzzphony_sync_products__%1$s_%2$s"()', $table, substr(md5('"' . $table . '"|'), 0, 8)),
                         $sql,
                         sprintf('%s sync, %s level', $sync, $level->value),
                     );
@@ -202,7 +202,7 @@ final class SchemaGeneratorTest extends TestCase
 
             self::assertStringNotContainsString('AFTER TRUNCATE', $sql);
             self::assertStringNotContainsString("TG_OP = 'TRUNCATE'", $sql);
-            self::assertStringContainsString('DROP TRIGGER IF EXISTS "fuzzphony_sync_products__fz_brand_trn" ON "fz_brand"', $sql, 'a truncate trigger of a previous setup is removed');
+            self::assertStringContainsString('DROP TRIGGER IF EXISTS "fuzzphony_sync_products__fz_brand_8c237a1e_trn" ON "fz_brand"', $sql, 'a truncate trigger of a previous setup is removed');
         }
     }
 
@@ -258,7 +258,7 @@ final class SchemaGeneratorTest extends TestCase
         foreach (['queue', 'trigger'] as $sync) {
             $functions = array_values(array_filter(
                 (new PostgresSchemaGenerator())->index($definition->withSync(SyncMode::from($sync))->withTriggerLevel(TriggerLevel::Row))->statements,
-                static fn($statement): bool => str_contains($statement->sql, 'CREATE OR REPLACE FUNCTION "public"."fuzzphony_sync_articles__comment"'),
+                static fn($statement): bool => str_contains($statement->sql, 'CREATE OR REPLACE FUNCTION "public"."fuzzphony_sync_articles__comment_aa8bc21a"'),
             ));
             self::assertCount(1, $functions);
             self::assertStringNotContainsString('DELETE FROM "public"."fuzzphony_articles";', $functions[0]->sql, $sync);
@@ -339,8 +339,8 @@ final class SchemaGeneratorTest extends TestCase
     {
         $sql = (new PostgresSchemaGenerator())->drop(Indexes::products())->toSql();
 
-        self::assertStringContainsString('DROP TRIGGER IF EXISTS "fuzzphony_sync_products__fz_brand_trn" ON "fz_brand"', $sql);
-        self::assertStringContainsString('DROP FUNCTION IF EXISTS "public"."fuzzphony_sync_products__fz_brand"()', $sql);
+        self::assertStringContainsString('DROP TRIGGER IF EXISTS "fuzzphony_sync_products__fz_brand_8c237a1e_trn" ON "fz_brand"', $sql);
+        self::assertStringContainsString('DROP FUNCTION IF EXISTS "public"."fuzzphony_sync_products__fz_brand_8c237a1e"()', $sql);
         self::assertStringContainsString('DROP FUNCTION IF EXISTS "public"."fuzzphony_refresh_products"(bigint[])', $sql);
         self::assertStringContainsString("IF to_regclass('\"public\".\"fuzzphony_queue\"') IS NOT NULL THEN DELETE FROM \"public\".\"fuzzphony_queue\" WHERE index_name = 'products'; END IF;", $sql);
         self::assertStringContainsString('DROP TABLE IF EXISTS "public"."fuzzphony_products__next"', $sql);
@@ -485,7 +485,7 @@ final class SchemaGeneratorTest extends TestCase
             array_keys($generator->indexes($index)),
         );
         self::assertSame(
-            ['fuzzphony_sync_products__fz_brand', 'fuzzphony_sync_products__fz_brand_ins', 'fuzzphony_sync_products__fz_brand_upd', 'fuzzphony_sync_products__fz_brand_del', 'fuzzphony_sync_products__fz_brand_trn'],
+            ['fuzzphony_sync_products__fz_brand_8c237a1e', 'fuzzphony_sync_products__fz_brand_8c237a1e_ins', 'fuzzphony_sync_products__fz_brand_8c237a1e_upd', 'fuzzphony_sync_products__fz_brand_8c237a1e_del', 'fuzzphony_sync_products__fz_brand_8c237a1e_trn'],
             $generator->allTriggerNames($index, new Watch('fz_brand')),
         );
     }
@@ -777,11 +777,11 @@ final class SchemaGeneratorTest extends TestCase
             DECLARE
                 r record;
             BEGIN
-                FOR r IN SELECT n.nspname, c.relname FROM pg_trigger AS g JOIN pg_class AS c ON c.oid = g.tgrelid JOIN pg_namespace AS n ON n.oid = c.relnamespace WHERE g.tgname = 'fuzzphony_sync_products__fz_brand_trn' AND g.tgfoid = to_regprocedure('"public"."fuzzphony_sync_products__fz_brand"()') AND g.tgrelid IS DISTINCT FROM to_regclass('"fz_brand"') AND g.tgrelid NOT IN (SELECT t.relid FROM pg_partition_tree(to_regclass('"fz_brand"')) AS t) LOOP
-                    EXECUTE format('DROP TRIGGER %I ON %I.%I', 'fuzzphony_sync_products__fz_brand_trn', r.nspname, r.relname);
+                FOR r IN SELECT n.nspname, c.relname FROM pg_trigger AS g JOIN pg_class AS c ON c.oid = g.tgrelid JOIN pg_namespace AS n ON n.oid = c.relnamespace WHERE g.tgname = 'fuzzphony_sync_products__fz_brand_8c237a1e_trn' AND g.tgfoid = to_regprocedure('"public"."fuzzphony_sync_products__fz_brand_8c237a1e"()') AND g.tgrelid IS DISTINCT FROM to_regclass('"fz_brand"') AND g.tgrelid NOT IN (SELECT t.relid FROM pg_partition_tree(to_regclass('"fz_brand"')) AS t) LOOP
+                    EXECUTE format('DROP TRIGGER %I ON %I.%I', 'fuzzphony_sync_products__fz_brand_8c237a1e_trn', r.nspname, r.relname);
                 END LOOP;
                 FOR r IN SELECT n.nspname, c.relname FROM pg_partition_tree(to_regclass('"fz_brand"')) AS t JOIN pg_class AS c ON c.oid = t.relid JOIN pg_namespace AS n ON n.oid = c.relnamespace WHERE t.level > 0 LOOP
-                    EXECUTE format('CREATE OR REPLACE TRIGGER %I AFTER TRUNCATE ON %I.%I FOR EACH STATEMENT EXECUTE FUNCTION %s()', 'fuzzphony_sync_products__fz_brand_trn', r.nspname, r.relname, '"public"."fuzzphony_sync_products__fz_brand"');
+                    EXECUTE format('CREATE OR REPLACE TRIGGER %I AFTER TRUNCATE ON %I.%I FOR EACH STATEMENT EXECUTE FUNCTION %s()', 'fuzzphony_sync_products__fz_brand_8c237a1e_trn', r.nspname, r.relname, '"public"."fuzzphony_sync_products__fz_brand_8c237a1e"');
                 END LOOP;
             END
             $fuzzphony$
@@ -795,8 +795,8 @@ final class SchemaGeneratorTest extends TestCase
     public function testWithoutTriggersAndOnDropThePartitionTriggersGo(): void
     {
         $drop = <<<'SQL'
-                FOR r IN SELECT n.nspname, c.relname FROM pg_trigger AS g JOIN pg_class AS c ON c.oid = g.tgrelid JOIN pg_namespace AS n ON n.oid = c.relnamespace WHERE g.tgname = 'fuzzphony_sync_products__fz_brand_trn' AND g.tgfoid = to_regprocedure('"public"."fuzzphony_sync_products__fz_brand"()') AND g.tgrelid IS DISTINCT FROM to_regclass('"fz_brand"') LOOP
-                    EXECUTE format('DROP TRIGGER %I ON %I.%I', 'fuzzphony_sync_products__fz_brand_trn', r.nspname, r.relname);
+                FOR r IN SELECT n.nspname, c.relname FROM pg_trigger AS g JOIN pg_class AS c ON c.oid = g.tgrelid JOIN pg_namespace AS n ON n.oid = c.relnamespace WHERE g.tgname = 'fuzzphony_sync_products__fz_brand_8c237a1e_trn' AND g.tgfoid = to_regprocedure('"public"."fuzzphony_sync_products__fz_brand_8c237a1e"()') AND g.tgrelid IS DISTINCT FROM to_regclass('"fz_brand"') LOOP
+                    EXECUTE format('DROP TRIGGER %I ON %I.%I', 'fuzzphony_sync_products__fz_brand_8c237a1e_trn', r.nspname, r.relname);
                 END LOOP;
             END
             SQL;
@@ -809,9 +809,9 @@ final class SchemaGeneratorTest extends TestCase
         self::assertStringNotContainsString('pg_partition_tree', $manual->toSql());
 
         $sql = (new PostgresSchemaGenerator())->drop(Indexes::products())->toSql();
-        $triggerAt = strpos($sql, 'DROP TRIGGER IF EXISTS "fuzzphony_sync_products__fz_brand_trn" ON "fz_brand"');
+        $triggerAt = strpos($sql, 'DROP TRIGGER IF EXISTS "fuzzphony_sync_products__fz_brand_8c237a1e_trn" ON "fz_brand"');
         $dropAt = strpos($sql, $drop);
-        $functionAt = strpos($sql, 'DROP FUNCTION IF EXISTS "public"."fuzzphony_sync_products__fz_brand"()');
+        $functionAt = strpos($sql, 'DROP FUNCTION IF EXISTS "public"."fuzzphony_sync_products__fz_brand_8c237a1e"()');
         self::assertIsInt($triggerAt);
         self::assertIsInt($dropAt);
         self::assertIsInt($functionAt);

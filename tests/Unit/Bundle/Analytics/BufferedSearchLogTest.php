@@ -73,7 +73,7 @@ final class BufferedSearchLogTest extends TestCase
         self::assertCount(1, $logger->calls);
         self::assertSame('error', $logger->calls[0][0]);
         self::assertSame(2, $logger->calls[0][1]['count']);
-        self::assertSame('disk full', $logger->calls[0][1]['message']);
+        self::assertSame('RuntimeException', $logger->calls[0][1]['message']);
     }
 
     public function testAFailedWriteWithoutALoggerIsStillCounted(): void

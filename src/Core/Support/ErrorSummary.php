@@ -41,7 +41,7 @@ final class ErrorSummary
         }
         $state = self::sqlState($e);
 
-        return $root::class . ($state === null ? '' : ' (SQLSTATE ' . $state . ')');
+        return ($root instanceof SanitizedError ? $root->originalClass : $root::class) . ($state === null ? '' : ' (SQLSTATE ' . $state . ')');
     }
 
     /** What an operator may be shown on a console: the message of Fuzzphony's own errors, the summary of a wrapped database failure. */

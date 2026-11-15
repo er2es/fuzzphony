@@ -72,6 +72,7 @@ final readonly class SchemaPlan
                 sprintf('schema statement "%s"', $statement->description),
                 $e,
                 'Review the SQL with "bin/console fuzzphony:schema" (without --apply); every statement is safe to re-run.',
+                driverMessage: true,
             );
         }
     }

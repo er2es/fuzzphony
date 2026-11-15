@@ -13,6 +13,7 @@ use Fuzzphony\Core\Inspection\Check;
 use Fuzzphony\Core\Inspection\CheckStatus;
 use Fuzzphony\Core\Registry\IndexRegistry;
 use Fuzzphony\Core\Support\Coerce;
+use Fuzzphony\Core\Support\ErrorSummary;
 use Fuzzphony\Core\Sync\ReindexOptions;
 use Fuzzphony\Core\Sync\ReindexResult;
 use Fuzzphony\Core\Sync\Worker;
@@ -213,7 +214,8 @@ final class ZeroDowntimeReindexTest extends TestCase
             }));
             self::fail('the failed swap reaches the caller');
         } catch (EngineFailure $e) {
-            self::assertStringContainsString('fz_refuse_1', $e->getMessage());
+            self::assertStringNotContainsString('fz_refuse_1', (string) $e->getPrevious()?->getMessage());
+            self::assertSame('23514', ErrorSummary::sqlState($e));
         }
 
         self::assertNotNull($this->connection->fetchValue("SELECT to_regclass('fuzzphony_noted__next')"), 'kept for --from');

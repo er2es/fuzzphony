@@ -37,12 +37,14 @@ final readonly class BestValueRank
      * @param list<string>|null           $allowed   the fields the viewer may see; null = every field
      * @param array<string, list<string>> $couplings manyMatch('single') with a same_row_as condition: per field, the conditions its value
      *                                               row must also meet (SearchSqlBuilder::couplings()), so the best value is one that holds them
+     * @param string|null                 $rankForm  the rank tsquery's text (SearchSqlBuilder: the query without its exclusions); null = unknown
      */
     public function __construct(
         private IndexDefinition $index,
         private Names $names,
         private ?array $allowed,
         private array $couplings = [],
+        private ?string $rankForm = null,
     ) {
         $this->fields = array_values(array_filter(
             array_map(static fn(FieldDefinition $f): string => $f->name, $index->manyBestFields()),
@@ -132,16 +134,46 @@ final readonly class BestValueRank
         // substituted vector is the viewer's own and its rank is the whole-field one (the fallback; for an unrestricted viewer only when
         // `tsv` is not capped, where the fallback may read other vectors). With one field that is the fallback itself (NULL), with several
         // it takes part in greatest() as what it is.
-        return sprintf(
-            'CASE WHEN NOT %1$s @@ q.tsany THEN NULL WHEN %2$s THEN %3$s ELSE (SELECT max(%4$s) FROM %5$s AS v WHERE v.doc = s.id AND v.field = %6$s AND v.t @@ q.tsany%7$s) END',
-            $this->names->fieldVector($this->index, $field),
-            $this->oneValue($field),
-            count($this->fields) === 1 ? 'NULL' : $fallback,
+        $lookup = fn(string $match): string => sprintf(
+            '(SELECT max(%s) FROM %s AS v WHERE v.doc = s.id AND v.field = %s AND v.t @@ %s%s)',
             $this->valueRank($field, $weights, $rankQuery),
             $this->names->values($this->index),
             Sql::string($field),
+            $match,
             $this->coupled($field),
         );
+
+        return sprintf(
+            'CASE WHEN NOT %s @@ q.tsany THEN NULL WHEN %s THEN %s%s ELSE %s END',
+            $this->names->fieldVector($this->index, $field),
+            $this->oneValue($field),
+            count($this->fields) === 1 ? 'NULL' : $fallback,
+            $this->guarded($field, $rankQuery, $lookup),
+            $lookup('q.tsany'),
+        );
+    }
+
+    /**
+     * R1: a cover of `V[F:=v.t]` holds every word the rank query needs; when no other visible field holds a query word they all come from
+     * the value, so a value that does not match the rank query itself ranks 0 and is not ranked. Only for an AND query without phrases
+     * (an OR-only query: every value that holds a word matches; a phrase: a word's position may move under the 16 383 cap of the
+     * concatenation); the rank query has no exclusions (SearchSqlBuilder). Empty when it does not apply.
+     *
+     * @param \Closure(string): string $lookup
+     */
+    private function guarded(string $field, string $rankQuery, \Closure $lookup): string
+    {
+        if ($this->rankForm === null || !str_contains($this->rankForm, '&') || str_contains($this->rankForm, '<')) {
+            return '';
+        }
+        $others = [];
+        foreach ($this->index->fieldNames() as $name) {
+            if ($name !== $field && $this->visible($name)) {
+                $others[] = $this->names->fieldVector($this->index, $name) . ' @@ q.tsany';
+            }
+        }
+
+        return sprintf(' WHEN %s THEN %s', $others === [] ? 'true' : 'NOT (' . implode(' OR ', $others) . ')', $lookup($rankQuery));
     }
 
     /** The condition under which a document counts as having one value of the field (no lookup of its values). */

@@ -71,6 +71,21 @@ final readonly class SearchRunner
         return $this->execute($index, $query)->result;
     }
 
+    /**
+     * @param list<string> $allowed
+     *
+     * @return list<string> the fields of the index that the query scopes a word to but $allowed does not list
+     */
+    private static function hiddenScopes(Node $node, array $allowed): array
+    {
+        return match (true) {
+            $node instanceof FieldScoped => [...(in_array($node->field, $allowed, true) ? [] : [$node->field]), ...self::hiddenScopes($node->node, $allowed)],
+            $node instanceof AllOf, $node instanceof AnyOf => array_merge([], ...array_map(fn(Node $n): array => self::hiddenScopes($n, $allowed), $node->nodes)),
+            $node instanceof Not => self::hiddenScopes($node->node, $allowed),
+            default => [],
+        };
+    }
+
     public function explain(IndexDefinition $index, SearchQuery $query, bool $analyze): Explanation
     {
         $run = $this->execute($index, $query);
@@ -82,7 +97,7 @@ final readonly class SearchRunner
                 $last = $statement;
             }
         }
-        if ($last !== null && $query->allowedFields !== null) {
+        if ($last !== null && ($query->allowedFields !== null || ($index->tenant !== null && !$query->system))) {
             // The planner's row estimates (the statistics of tsv and fz) and EXPLAIN ANALYZE's row counts ("Rows Removed by
             // Filter" after GIN(tsv)) count the words of every field: they would tell a restricted viewer how many
             // documents have a word in a field it may not see. The statements are shown; the plan is not.
@@ -428,6 +443,15 @@ final readonly class SearchRunner
             $compiler = new TsQueryCompiler($index);
             $tsquery = $compiler->compile($root);
             $warnings = $compiler->warnings();
+            if ($query->allowedFields !== null) {
+                // a field the viewer may not see gets the very warning of a field that does not exist: the names of hidden fields stay hidden
+                foreach (self::hiddenScopes($root, $query->allowedFields) as $field) {
+                    if ($index->field($field) === null) {
+                        continue; // the compiler warned already
+                    }
+                    $warnings[] = sprintf('Unknown field "%s"; searched in all fields instead.', $field);
+                }
+            }
             // a word scoped to a field the index has is rechecked against that field's own column
             // (a restricted viewer's every word against the allowed fields', see SearchSqlBuilder)
             // (so is a phrase on an index with several fields: tsv caps its positions, see SearchSqlBuilder)

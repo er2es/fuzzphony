@@ -244,7 +244,7 @@ final class SharedWatchTest extends TestCase
         $fuzzphony->schema()->apply($this->connection);
 
         self::assertSame(4, $this->triggers('fz_product'), 'the per-index triggers are gone, the shared ones are there');
-        self::assertSame(0, $this->int("SELECT count(*) FROM pg_proc WHERE proname = 'fuzzphony_sync_sw_a__fz_product'"));
+        self::assertSame(0, $this->int("SELECT count(*) FROM pg_proc WHERE proname = 'fuzzphony_sync_sw_a__fz_product_d214d942'"));
         self::assertSame(1, $this->work($a), 'the id queued before the swap is processed');
         $this->connection->execute("UPDATE fz_product SET name = 'Afterswap' WHERE id = 2");
         self::assertSame(1, $this->work($a));

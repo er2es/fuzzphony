@@ -183,7 +183,7 @@ sidecar table, triggers and queue rows, so indexes can share tables:
 - `customer` is now watched by `people`, `companies` and `invoices`. With `queue` sync (the default) `fuzzphony:schema --apply` puts ONE set of four
   triggers on the table (`fuzzphony_watch__customer_<hash>__ins|upd|del|trn`) and the indexes read the one change log through their own positions
   ([Sync](sync.md#one-trigger-per-table-one-change-log)); applying twice changes nothing. With `sync: trigger` (or `trigger_level: row`) each index keeps
-  four triggers of its own (`fuzzphony_sync_<index>__<table>_ins|upd|del|trn`).
+  four triggers of its own (`fuzzphony_sync_<index>__<table>_<hash>_ins|upd|del|trn`).
 - Dropping one index (`fuzzphony:schema people --drop --apply`) removes its part only; the triggers and the log go with the last index that watches the table.
 - **One `#[Searchable]` per class** (the attribute is not repeatable). To index the same table twice (a public and an admin index) define the second one
   under another name in YAML or the builder, with `source.table`:

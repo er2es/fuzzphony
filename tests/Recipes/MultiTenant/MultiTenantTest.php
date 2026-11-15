@@ -229,11 +229,11 @@ final class MultiTenantTest extends KernelTestCase
         $actor = new Actor(tenant: 1, user: 'ada');
 
         // region: not-hidden
-        // the field exists: a hidden field gives no "Unknown field" warning, a field that does not exist does
+        // a hidden field gives the same "Unknown field" warning as a field that does not exist: hidden names stay hidden
         $hidden = $this->fuzzphony()->in('tickets')->asActor($actor)->query('internal_note:refund')->get();
         $unknown = $this->fuzzphony()->in('tickets')->asActor($actor)->query('nosuchfield:refund')->get();
-        self::assertSame([], $hidden->warnings);
-        self::assertNotSame([], $unknown->warnings);
+        self::assertSame(['Unknown field "internal_note"; searched in all fields instead.'], $hidden->warnings);
+        self::assertSame(['Unknown field "nosuchfield"; searched in all fields instead.'], $unknown->warnings);
 
         // filters and facets are not restricted: she counts the statuses of her tenant's tickets, whatever the fields say
         $counted = $this->fuzzphony()->in('tickets')->asActor($actor)->facets('status')->get();

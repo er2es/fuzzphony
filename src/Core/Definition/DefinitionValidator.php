@@ -26,6 +26,15 @@ final class DefinitionValidator
         }
     }
 
+    /**
+     * Index names whose sidecar table (`fuzzphony_<name>`) would be, or share its name with, a shared table or one of their indexes
+     * (every CREATE is IF NOT EXISTS, so the second object would silently become the first).
+     */
+    public const array RESERVED_NAMES = [
+        'queue', 'queue_order', 'queue_pkey', 'meta', 'meta_pkey', 'watches', 'watches_pkey',
+        'watch_log', 'watch_log_pkey', 'watch_log_tbl_xid', 'search_log', 'search_log_pkey', 'search_log_index_at', 'search_log_index_norm', 'search_log_at', 'watch_log_tbl_xid_w',
+    ];
+
     /** @return list<string> */
     public static function validate(IndexDefinition $index): array
     {
@@ -39,6 +48,10 @@ final class DefinitionValidator
             $v[] = sprintf('Index name "%s" must not contain "__" (two underscores): it is reserved for the internal "__next" and "__changes" objects of a rebuild. Use single underscores.', $index->name);
         }
 
+        if (in_array($index->name, self::RESERVED_NAMES, true)) {
+            $v[] = sprintf('Index name "%s" is reserved: its table "fuzzphony_%s" would collide with a shared Fuzzphony object. Choose another name.', $index->name, $index->name);
+        }
+
         if ($index->sources === []) {
             array_push($v, ...self::validateSource($index, $index->source, $index->watches, ''));
         } else {
@@ -50,6 +63,9 @@ final class DefinitionValidator
                 }
                 if (isset($names[$one->name])) {
                     $v[] = sprintf('Source "%s" is defined twice.', $one->name);
+                }
+                if (str_contains($one->name, '__')) {
+                    $v[] = sprintf('Source name "%s" must not contain "__" (two underscores): it is part of internal function names.', $one->name);
                 }
                 $names[$one->name] = true;
                 array_push($v, ...self::validateSource($index, $one->source, $one->watches, $label));

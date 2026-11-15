@@ -290,6 +290,7 @@ more. Each match is ranked once: the cheap selection of the first matches and th
 of the values by document with their vectors (33 MB) and ranking a value alone when the other fields hold no query word (nothing measurable), one lookup
 per document for all `rank: best` fields at once (no document of the data needed two), sharing the vector of the fields before the field across its values
 (+6 %), and joining the matching values first (10 to 30 % slower).
+Since 0.12.7 a multi-word search (no phrase, not OR only) does not rank a value that lacks one of its words when no other field holds a query word (such a value cannot give a cover): `fo utca szeged` 15.8 to 12.6 ms, `kossuth lajos utca` 7.5 % less, `petofi sandor` (every value holds both words) 1 to 3 % more; results identical. Ranking only the best candidates with the whole-field rank as a bound is not exact and is not used.
 
 `manyMatch('single')` on the same data (default mode = `rank: best` above, measured in the same run; median of 20):
 
