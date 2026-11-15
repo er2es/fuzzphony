@@ -1,4 +1,4 @@
-<p align="center"><img src="docs/assets/hero.svg" alt="Sound waves settling into harmony." width="900"></p>
+<p align="center"><img src="docs/assets/hero.svg" alt="Fuzzphony: fuzzy search, in perfect harmony with your database." width="900"></p>
 
 # Fuzzphony
 
