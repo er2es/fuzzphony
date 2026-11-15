@@ -11,6 +11,12 @@ and a link. Measurements, proofs and test names belong to the pull request, [doc
 
 ## [Unreleased]
 
+### Changed
+
+- **Cheaper `rank: best` on multi-word searches:** a value that cannot give a cover on its own (no other field holds a query word and the
+  value lacks one of the words) is no longer ranked (`fo utca szeged` 20 % and `kossuth lajos utca` 8 % less time); results unchanged,
+  other statements byte-identical. See [benchmarks](docs/benchmarks.md#ranking-by-the-best-value-rank-best).
+
 ## [0.12.5] - 2026-11-15
 
 The strict mode can couple a city filter to the address that holds the words (`same_row_as`), `rank: best` ranks each match once, the redundant open-class trigram index is dropped and the table is vacuumed after a backfill, and the demo shows the coupling. Three independent reviews (the coupling, the trigram drop with probes against the real 0.12.4, and their fixes) found no leak. Run `fuzzphony:schema --apply` (UPGRADE has the order); a reindex is needed only to fill the new per-address filter column of an existing index.
