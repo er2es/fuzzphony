@@ -44,6 +44,8 @@ typo hit of that word**: the similarity the word's length needs (0.28 for 4 lett
 below every exact hit (1.0 for the word, plus its text rank and the bonuses) and never above an ordinary typo hit of the
 same word; two swap hits tie and are ordered by the other bonuses and by id. The penalty is the difference between 1.0 and
 that floor (0.64 for five letters). In `ScoreBreakdown` it shows as `fuzzySimilarity` at the floor and `textRank` 0.
+When the swapped word is the one the typo most likely meant ([did you mean](searching.md#did-you-mean): `peetr` -> `peter`), its hits score 0.95
+instead, above the look-alikes.
 
 ## Profiles
 
