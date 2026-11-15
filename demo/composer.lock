@@ -608,7 +608,7 @@
         },
         {
             "name": "fuzzphony/fuzzphony",
-            "version": "0127.x-dev",
+            "version": "dev-main",
             "dist": {
                 "type": "path",
                 "url": "..",
