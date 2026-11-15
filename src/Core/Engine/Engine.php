@@ -133,6 +133,16 @@ interface Engine
     public function queueSize(IndexDefinition $index): int;
 
     /**
+     * The health of an index's sync objects for the metrics gauges, one cheap statement each (counts on the small change log and
+     * queue tables, never a scan of a big one); the worker reports it next to the queue depth. Gauge name => value:
+     * `fuzzphony.watch_log.entries`, `fuzzphony.watch_log.oldest_age_seconds`, `fuzzphony.watch.bad_rows`,
+     * `fuzzphony.queue.failing_items` and `fuzzphony.queue.oldest_age_seconds`. Never throws: what cannot be read is left out.
+     *
+     * @return array<string, float>
+     */
+    public function operationalStats(IndexDefinition $index): array;
+
+    /**
      * Whether a full rebuild of the index was requested ("queue" mode: a TRUNCATE that needs a
      * full resync queues one such job instead of every document id). The worker runs it before
      * the queued ids. A full run that succeeds completes the requests queued before it started:

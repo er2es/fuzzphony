@@ -197,60 +197,9 @@ sidecar table, triggers and queue rows, so indexes can share tables:
       language: simple
 ```
 
-### A complete example: two indexes over overlapping tables
-
-`items` (item + category + location) and `people` (person + organisation + the organisation's location) are two independent indexes, each with its
-own joins and a `watch` for every joined table. Both watch `location` (run with `sync: trigger`: `schema --apply`, `reindex`, then the searches below):
-
-```yaml
-fuzzphony:
-  indexes:
-    items:
-      source:
-        query: |
-          SELECT i.id, i.name, c.name AS category, l.name AS location
-          FROM item i
-          JOIN category c ON c.id = i.category_id
-          JOIN location l ON l.id = i.location_id
-      fields:
-        name: { weight: A, fuzzy: true }
-        category: B
-        location: C
-      watch:
-        item: 'SELECT :id'
-        category: 'SELECT id FROM item WHERE category_id = :id'
-        location: 'SELECT id FROM item WHERE location_id = :id'
-      sync: trigger
-    people:
-      source:
-        query: |
-          SELECT p.id, p.name, o.name AS organisation, l.name AS location
-          FROM person p
-          JOIN organisation o ON o.id = p.organisation_id
-          JOIN location l ON l.id = o.location_id
-      fields:
-        name: { weight: A, fuzzy: true }
-        organisation: B
-        location: C
-      watch:
-        person: 'SELECT :id'
-        organisation: 'SELECT id FROM person WHERE organisation_id = :id'
-        location: 'SELECT p.id FROM person p JOIN organisation o ON o.id = p.organisation_id WHERE o.location_id = :id'
-      sync: trigger
-```
-
-```php
-$items = $fuzzphony->in('items')->query('drill')->get();      // ids [1]
-$people = $fuzzphony->in('people')->query('kovacs')->get();   // ids [1]
-
-$both = $fuzzphony->federated()->index('items')->index('people')->query('debrecen')->get();
-foreach ($both as $hit) {
-    echo $hit->index, ' ', $hit->id, "\n";                    // items 2, people 1, people 2
-}
-```
-
-Renaming a location changed both indexes in the same statement; moving organisation 1 to another location reindexed only `people`; renaming a category
-only `items`. The `location` table carries 8 triggers, four for each index.
+Two independent indexes over overlapping tables (an `items` index with item + category + location, a `people` index with person + organisation +
+the organisation's location) each declare their own joins and a `watch` for every joined table, as above. Renaming a shared `location` changes both
+indexes in the same statement; renaming a category only `items`. With `sync: trigger` the shared table carries four triggers for each index.
 
 ### Searching several indexes together
 
@@ -743,14 +692,10 @@ fuzzphony:
 
 Off by default. Enabled, it adds the table `fuzzphony_search_log` to `fuzzphony:schema`, the commands `fuzzphony:analytics` and
 `fuzzphony:search-log:purge` (neither exists while the log is off), a buffered write after each response, and a "Search log" doctor check. `redact` is
-validated when the container is built (also while the log is off). A single index opts out with `log: false` (attribute, builder `->log(false)`, or
-YAML). The role that only searches needs `INSERT` on the table (the `id` is an identity column); the reports need `SELECT`, the purge `DELETE`. See
-[Search log and analytics](analytics.md).
-
-`ip` decides whether the log keeps the client IP (`Request::getClientIp()`, so `framework.trusted_proxies` applies) in the nullable column `actor_ip`:
-`off` keeps nothing, `masked` the IPv4 address with the last octet zeroed or the first 48 bits of an IPv6 address, `full` the whole valid address;
-anything that is not an IP address is never stored. Enabling it needs `fuzzphony:schema --apply` (an additive `ADD COLUMN`). Privacy notes:
-[The client IP](analytics.md#the-client-ip).
+validated when the container is built. A single index opts out with `log: false`. The role that only searches needs `INSERT` on the table; the reports
+need `SELECT`, the purge `DELETE`. `ip` keeps the client IP (`Request::getClientIp()`, so `framework.trusted_proxies` applies) in the nullable column
+`actor_ip`: `masked` zeroes the last IPv4 octet or keeps the first 48 bits of an IPv6 address, `full` keeps the valid address; enabling it needs
+`fuzzphony:schema --apply`. See [Search log and analytics](analytics.md) and [The client IP](analytics.md#the-client-ip).
 
 ### The rate limit
 
@@ -761,17 +706,14 @@ fuzzphony:
     per: user           # tenant (default), user or ip: whose searches share one bucket
 ```
 
-`per: ip` limits the anonymous visitors of a public search box by client address and needs no `limiter`: without one the bundle prepends
-`framework.rate_limiter.fuzzphony_ip` (a sliding window of 600 searches a minute per address; name your own entry in `limiter` to change the numbers).
-The key is `Request::getClientIp()` (so `framework.trusted_proxies` applies; without it everyone behind a proxy shares one bucket), an IPv6 address by
-its /64; an actor without an address (command, worker, plain PHP) is not limited by it. The address is used for the limit whatever `search_log.ip`
-says. A company network or NAT shares one address among many people, hence the loose default. Caveats:
+`per: ip` limits the anonymous visitors of a public search box by client address (`Request::getClientIp()`; an IPv6 address by its /64; an actor without an
+address is not limited by it) and needs no `limiter`: without one the bundle prepends `framework.rate_limiter.fuzzphony_ip` (a sliding window of 600
+searches a minute per address; name your own entry in `limiter` to change the numbers). Caveats:
 [Limiting anonymous visitors by IP](security.md#limiting-anonymous-visitors-by-ip).
 
-Needs `symfony/rate-limiter` (suggested: without it the container fails to build, with the `composer require` line). `limiter` must name a
-`framework.rate_limiter` entry (a `compound` one works too); an unknown name fails the build with Symfony's "non-existent service `limiter.<name>`".
-One token per search of an actor that has the key; over the limit the search throws `RateLimited` (HTTP 429 with `Retry-After`). See
-[Security](security.md#the-rate-limit).
+Needs `symfony/rate-limiter` (without it the container fails to build, with the `composer require` line). `limiter` must name a
+`framework.rate_limiter` entry. One token per search of an actor that has the key; over the limit the search throws `RateLimited` (HTTP 429 with
+`Retry-After`). See [Security](security.md#the-rate-limit).
 
 ### Authorization
 

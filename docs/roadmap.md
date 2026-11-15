@@ -1,175 +1,46 @@
 # Roadmap
 
-What each version shipped and what comes next, up to 1.0. No dates are promised. Back to the [README](../README.md).
-
-Steps are ordered by what other things build on: the breaking changes were gathered in one release (0.10.0, released), so the
-additive work after it (0.11.0, released) and the stable 1.0.0 do not have to change the API again.
+What comes next, up to 1.0. No dates are promised. Back to the [README](../README.md). What each release shipped is in the
+[CHANGELOG](../CHANGELOG.md); what to change when upgrading is in [UPGRADE.md](../UPGRADE.md).
 
 ## Done
 
-- v0.1: PostgreSQL engine, attributes / YAML / builder, query language, ranking profiles,
-  thresholds, queue / trigger / ORM sync, doctor, CLI.
-- v0.2: configuration wizard (CLI + web), statement-level triggers, per-query ranking overrides,
-  Messenger for ORM sync, API Platform filter, Live Component, demo app, benchmark in CI,
-  multi-tenancy, column-aware trigger filtering.
-- v0.3: per-word typo tolerance, empty-result relaxation, `TRUNCATE` sync and orphan
-  pruning, a production-like demo stack.
-- v0.4 Foundations: one exception hierarchy, typed withers instead of
-  `IndexDefinition::with(...)`, `ReindexOptions` / `ReindexResult`, an explicit public API
-  (`@internal` everywhere else) with the PostgreSQL details out of Core; a dedicated schema
-  (`schema: fuzzphony`, default `public`); a sidecar schema version (`fuzzphony_meta`, checked by
-  the doctor); Doctrine Migrations integration (the bundle's `schema_filter`, the version record in
-  `--dump-migration`). See the [CHANGELOG](../CHANGELOG.md#040---2026-09-27) and
-  [UPGRADE.md](../UPGRADE.md#from-03-to-04).
-- v0.5 Index lifecycle: zero-downtime reindex built in a shadow table and swapped in
-  atomically ([ADR 0008](adr/0008-shadow-rebuild-with-a-change-log.md)), one rebuild job for a
-  `TRUNCATE` instead of every document id, exact field scoping (per-field text and trigram
-  columns), partition-aware sync. The sidecar layout is 2. See the
-  [CHANGELOG](../CHANGELOG.md#050---2026-10-01) and [UPGRADE.md](../UPGRADE.md#from-04-to-05).
-- v0.6 Events: an optional `MetricsCollector` interface (counters, durations,
-  point-in-time values) instruments every engine operation (`PostgresEngine`'s own `guard()`,
-  covering search, sync and the full zero-downtime reindex lifecycle in one place), the sync
-  worker's queue depth and throughput, and the ORM-sync Messenger handler — with a zero-cost
-  default, a structured-logging adapter, and a Prometheus adapter (used automatically once
-  `promphp/prometheus_client_php` and `apcu` are both available; a sample Grafana dashboard ships
-  in [`docs/grafana/`](grafana/)). An optional, non-breaking `Connection` capability
-  (`inTransaction()`) lets a fuzzy statement skip a redundant round trip when no outer transaction
-  is open. No breaking changes. See the [CHANGELOG](../CHANGELOG.md#060---2026-10-01).
-- v0.7 Relevance: typo tolerance proportional to the word's length (one typo from 4
-  letters, two from 8; `mouse` no longer matches `monitor`; an explicit `fuzzy_similarity` stays
-  flat), per-index synonyms (groups and one-way rules, expanded on the query, stemmed by PostgreSQL,
-  no reindex), and "did you mean" (`SearchResult::$didYouMean`) from a new vocabulary table that
-  every full reindex fills and `fuzzphony:reindex --vocabulary` rebuilds, which 0.8's `suggest()`
-  reuses. Breaking: the default typo tolerance (results change; `fuzzy_similarity: 0.3` keeps the old
-  behaviour) and `Thresholds::$fuzzySimilarity` is nullable. 0.7.1 adds synonyms from a Solr-format
-  file or from the application's own storage (`Fuzzphony::useSynonyms()`) and a synonym editor in the
-  demo; 0.7.3 adds `Fuzzphony::stemSynonyms()` so long synonym lists can be cached prepared. See the
-  [CHANGELOG](../CHANGELOG.md#070---2026-10-09) and [UPGRADE.md](../UPGRADE.md#from-06-to-07).
-- v0.8 Search features: `Fuzzphony::suggest()` completes the word being typed from the 0.7
-  vocabulary (a tenant-scoped index suggests nothing), `facets()` counts the values of filters among the
-  matches (disjunctive: a facet does not count its own filter; over the candidates, or exact with
-  `exactCounts()`, which also makes the total exact), and `federated()` searches several indexes with one
-  merged list (reciprocal rank fusion, per-index weights and configuration). The Live Component offers
-  completions and facets, `fuzzphony:search` gets `--facet`, `--exact` and `--suggest`, and the demo's
-  search boxes use them. Additive: no breaking changes; `fuzzphony:schema --apply` adds a prefix index to
-  each vocabulary. See the [CHANGELOG](../CHANGELOG.md#080---2026-10-10).
-
-- v0.9 Security and analytics: one release in three parts, in order. **Identity:** an `Actor` (a tenant and a user),
-  `SearchBuilder::asActor()`, the `fuzzphony.actor` configuration (your own resolver, or property paths on the Security user),
-  a 403 for a missing tenant, and tenant-scoped indexes through the API Platform filter, the Live Component and
-  `fuzzphony:search --tenant --user`. **Search log and analytics:** an opt-in log (`fuzzphony.search_log`) with retention, a
-  per-index and per-search opt-out and a query redactor, `Fuzzphony::analytics()`, `fuzzphony:analytics` and
-  `fuzzphony:search-log:purge`. **Guards:** a rate limit per tenant or user (`fuzzphony.rate_limit`, Symfony RateLimiter, a 429 with
-  `Retry-After`) and index- and field-level authorization (`fuzzphony.authorization`, `granted` on a field): a field a viewer may
-  not see is not matched, ranked, highlighted, counted or suggested from. The demo shows the log and the guards on two pages under
-  "Under the hood": Analytics and Security. All of it is optional and off by default: nothing configured means 0.8's behaviour.
-  See the [CHANGELOG](../CHANGELOG.md#090---2026-10-14), [UPGRADE.md](../UPGRADE.md#from-08-to-09), [Security](security.md) and
-  [Search log and analytics](analytics.md).
-- v0.9.1: `FederatedSearch::unlogged()`; the wizard's exporters keep `log: false`.
-- v0.9.2: tests and documentation only (a mutation-testing round).
-- v0.9.3: [screenshots](screenshots.md) of the demo.
-- v0.9.4: one Composer package, `fuzzphony/fuzzphony`; dead code removed.
-- v0.9.5: the performance round: fewer database round trips per search (a plain search 5 to 1), a faster registry in
-  production, the Doctrine ORM wiring fixed in a real Symfony kernel; Symfony 8.0 is no longer supported.
-- v0.9.6: who searched what (`recentSearches()`, the client IP in the search log), the "Migrating from `LIKE`" guide and
-  three recipes, a link check for the docs, and a reviewed list of [known limitations](limitations.md).
-- v0.9.7: a security fix for restricted viewers (a hidden field's length no longer changes a phrase match), typo
-  highlights, a query of stop words only finds something, a typo-tolerant search in one transaction.
-- v0.9.8: the best match of a very common word is no longer lost above `candidate_limit`, a rate limit by client IP for
-  anonymous visitors, swapped-letter typos, and the zero-result rescue.
-- v0.9.9, the review-fix round: fast searches for restricted viewers through open-class indexes, a cheap typo-tolerant
-  branch (`hedphones` 354 to 51 ms at 200 000 rows), the engine split into services, strict validation of YAML
-  definitions, a reworked demo and CI, and documentation for a database that already exists (see
-  [Joins, several tables and several indexes](configuration.md#joins-several-tables-and-several-indexes)).
-
-- v0.9.10, demo only (the library does not change): the language switch resets the search, an emptied search box
-  removes `q` from the URL, a centred menu, a footer at the bottom of the page with the library version and links to
-  the docs and GitHub, a dark mode switch, a "why it matched" line for every hit on the Relevance page, refreshed
-  images for the [screenshots](screenshots.md), and this roadmap.
-- v0.9.11: the exact-title and prefix bonuses now apply to searches made as you type (`asYouType()`).
-- v0.9.12, demo only (the library does not change): Tune starts with a query every setting reacts to, with example chips, and the Config wizard has a loadable sample configuration that Tune can start from.
-- v0.9.13, demo only (the library behaviour does not change): the benchmark shows hit counts green or red, Tune's "Start from" row fits one line on phones, and the bundle defaults say why they are what they are.
-- v0.10.0, the breaking release (every item is in [UPGRADE.md](../UPGRADE.md#from-0913-to-0100) and the [CHANGELOG](../CHANGELOG.md)):
-  - **Security by default.** A search that names no actor is made as the application's current user (anonymous where nobody can be
-    resolved), so a forgotten `asActor()` can no longer show a `granted` field; full access is the visible `->asSystem()`
-    ([Security](security.md#the-actor)). A `granted` field without the authorization guard is an error, and `restrictedToFields()` can only narrow.
-  - **Hits know their index.** `Hit::$kind` and a typed `Hit::$id`; `FederatedHit` is gone, a federated result holds plain `Hit`s with `mergedScore`.
-  - **A smaller API.** 77 public types ([list](architecture.md#public-api)); everything else is `@internal`. `Fuzzphony::postgres()`, `wizard()` and
-    `resetCaches()` replace the constructors and the optional `Engine` interfaces (`Capabilities` and its siblings are gone).
-  - **Names cleaned up.** `suggest()` is `complete()`, `useSuggestion` is `useDidYouMean`, and the eleven flat thresholds are four groups
-    (`relevance`, `typo`, `rescue`, `limits`) ([Configuration](configuration.md)).
-  - **A sturdier engine.** `fuzzphony:schema --apply` is mandatory (`SchemaNotApplied` instead of slower no-column statements); index objects are
-    named `fuzzphony_<index>__<kind>` (no collision with an index called `products_open`); a typo-tolerant search in your transaction uses a
-    savepoint; one trigger set and one change log per watched table; a worker splits a batch that fails on its data and keeps the culprits
-    in the queue with their error; the wizard's YAML writes lists and multi-line texts exactly.
-  - **Additive.** `SearchResult::$correctedTo`, a `rescued` flag in the search log, `Fuzzphony::logSearch()` (record a search answered elsewhere),
-    `toArray()` and JSON for results and hits ([Your own frontend](integrations.md#your-own-frontend)), `explainMatches()`
-    ([Searching](searching.md#what-matched)), `code: true` for invoice numbers and SKUs, and `source: { query_file: ... }` for the SQL of a source query.
-  - The demo follows: its catalogue pages say `->asSystem()`, the Security page compares the calls and the Analytics page marks rescued searches.
-- v0.10.1, a patch: the Benchmark workflow works with the 0.10 `granted` rule, `explainMatches()` explains a short word matched through its synonym, and the new security-sensitive code has stricter tests.
-- v0.11.0, several sources, additive: definition classes (`#[AsIndexDefinition]`) for several indexes of one entity; multi-source indexes (`sources:`, `kind`, typed ids, `Hit::$index`); `EntityLoader::loadHits()`; the doctor `Watches` check; federated floors (`atLeast`); `returnable` and `with()`; `many` values per document; operational gauges; and the ERP demo (data set, four indexes, the ERP page with separate and combined boxes, the sync demonstration, a second wizard sample).
-- v0.11.1, a demo patch (the library is unchanged): a search box in the header of every page that searches every index of the demo at once (a federated search grouped per index; `/` or Ctrl+K opens it).
-- v0.12.0, ranking by the best value (additive): `many: { rank: best }` ranks a field with several values through its best single value, `->manyMatch('single')` asks that one value holds every word, `with()` returns aliases and the values of a many field in one statement, the demo's People tab shows the difference, and the 0.11 mutation gaps are closed with focused tests. Opt-in `rank: best` searches whose words are in the field cost 1.4 to 2 times a whole-field search ([benchmarks](benchmarks.md)).
-- v0.12.1, a demo patch (the library is unchanged): the "Why" line of the ERP People tab names the one address that holds every word in strict mode and the address that satisfied the city filter.
-- v0.12.2, a patch (the library is unchanged): the city facet links of the ERP People tab keep the switches, and the mutation badge is published from the run itself (the full run of 0.12.0: 97% covered MSI).
-- v0.12.3, a patch (the library is unchanged): the demo verified on the final code (the "Why" and city-filter lines now appear; flows 340/340, shots clean, two screenshots refreshed), and the full mutation run once per release instead of monthly.
-- v0.12.4, a patch: smaller index tables (a per-field column that holds the same text as another column of the same row is stored empty, a per-row column map keeps every definition change safe for restricted viewers; `schema --apply` backfills rows of another map after a confirmation; four independent reviews, a 15-case transition matrix, a race test).
-- v0.12.7: review fixes (watch positions per table, reserved and duplicate index names, hashed sync function names with an upgrade of the old ones, no row values in failure messages, tenant `explain()`), cheaper `rank: best` on multi-word searches.
-- v0.12.6: `DefinitionProvider` (index definitions from your own source), shorter docs, a test for the doc samples.
-- v0.12.5: in the strict mode a many filter can hold for the same address as the words (`same_row_as`; exact facet counts), `rank: best` ranks each match once (best/whole 1.3 to 1.9), the redundant open-class trigram index is dropped (12 MB at 200,000 rows) and the table is vacuumed after a column backfill; three independent reviews.
+- **0.1 to 0.3:** the PostgreSQL engine, attributes / YAML / builder, the query language, ranking profiles, queue / trigger / ORM sync, the doctor, the
+  console commands, the wizard, per-word typo tolerance, empty-result relaxation, multi-tenancy.
+- **0.4 to 0.6:** one exception hierarchy and a public API, a dedicated schema, Doctrine Migrations integration, zero-downtime reindex
+  ([ADR 0008](adr/0008-shadow-rebuild-with-a-change-log.md)), exact field scoping, partition-aware sync, metrics (logging and Prometheus adapters,
+  a sample [Grafana dashboard](grafana/)).
+- **0.7 to 0.8:** typo tolerance proportional to the word's length, synonyms, "did you mean", `complete()`, facets, federated search.
+- **0.9:** identity (`Actor`), the opt-in search log and analytics, the guards (rate limit, index and field authorization), then performance,
+  strict definition validation and the docs: the "Migrating from `LIKE`" guide, recipes, [screenshots](screenshots.md), [known limitations](limitations.md).
+- **0.10, the breaking release:** security by default (a search without an actor is made as the current user; `->asSystem()` is explicit), `Hit::$kind` and
+  typed ids, a smaller public API ([list](architecture.md#public-api)), cleaned-up names, grouped thresholds, a mandatory `schema --apply`.
+- **0.11 to 0.12:** several indexes per entity (`#[AsIndexDefinition]`), multi-source indexes, `many: { rank: best }`, `same_row_as`, a smaller sidecar,
+  `DefinitionProvider`, tested doc samples, review fixes, typo hits ranked by the likeliest word, a code prefix rescue, a shorter and tidier code base.
 
 ## Next
 
-### v0.12.6 (in progress)
-
-- A `DefinitionProvider` extension point (index definitions from outside the container, e.g. from a database table).
-- Spikes for a cheaper per-value rank for `rank: best` (kept only if the results stay identical; otherwise dropped).
-- Documentation: the code samples of the docs are tested (they parse, the types they use exist, complete YAML indexes validate) and the pages are shorter.
-- A final independent security review of the public surface.
-
-### After 0.12.6
-
-- The 1.0 preparation (the final public API list, the backward-compatibility policy, rc.1).
-
-### Ideas before 1.0, not yet decided
-
-- A smaller sidecar: leave out the `t_*` and `z_*` columns an index never needs, share the normalised text between `exact` and
-  `z_<field>`; each only where exactness and speed stay (a differential proof and timing first).
+- 0.12.9: the last bugfix round, with a check of the SQL Fuzzphony builds (safety, quality and obvious performance), then v1.0.0 (no release candidate).
+- Idea, not decided: a smaller sidecar (leave out the `t_*` and `z_*` columns an index never needs), only where exactness and speed stay.
 
 ### v1.0.0: stable
 
-A stable API and a backward-compatibility promise. PostgreSQL only: no other engine is planned before 1.0.
-
-- The documented public API, from 0.10.
-- A policy for what counts as a breaking change after 1.0, and how deprecations are announced and removed
-  ([CONTRIBUTING](../CONTRIBUTING.md#backward-compatibility)).
-- The documentation stays on GitHub (rendered Markdown, no site generator): the [index](README.md), the
-  "[Migrating from `LIKE`](migrating-from-like.md)" guide and recipes ([admin panel](recipes/admin-panel.md),
-  [shop](recipes/shop.md), [multi-tenant SaaS](recipes/multi-tenant-saas.md)), all with tested code, and a link
-  check in CI.
+A stable API and a backward-compatibility promise. PostgreSQL only: no other engine is planned before 1.0. The documentation stays on GitHub
+(rendered Markdown): the [index](README.md), the "[Migrating from `LIKE`](migrating-from-like.md)" guide and recipes ([admin panel](recipes/admin-panel.md),
+[shop](recipes/shop.md), [multi-tenant SaaS](recipes/multi-tenant-saas.md)), all with tested code, and a link check in CI.
 
 ## After 1.0
 
 Separate projects, in their own repositories:
 
-- Record linkage (`fuzzphony/record-linkage`): probabilistic matching of people and companies with explainable match
-  scores; online lookup, batch and incremental deduplication; locale packs (hu, en, de).
+- Record linkage (`fuzzphony/record-linkage`): probabilistic matching of people and companies with explainable match scores.
 - A Laravel Scout driver over the same PostgreSQL engine.
 - Hybrid (lexical and semantic) search with pgvector.
-- An ERP-like demo as the showcase: orders, customers, products and order lines in several indexes, searched together and apart,
-  with tenants and field authorization.
-
-Also planned later: a Prometheus and Grafana stack next to
-the demo, so the Prometheus collector and the dashboard ([`grafana/`](grafana/)) are shown working end to end (until then
-only the metric names are verified against the real exposition output).
+- A Prometheus and Grafana stack next to the demo, so the Prometheus collector and the dashboard are shown working end to end.
 
 ## Mutation testing
 
-Infection runs in CI: a full run once per release (started on demand, `workflow_dispatch`), and only the changed lines on
-pull requests. The first full run (September 2026) killed 85% of 3,944 mutants; after 0.8.1's 459 new tests the full
-run of 5,989 mutants scores 96% covered-code MSI (17 minutes on CI); the score is on the README badge, which the full
-run on `main` updates. The mutants that still escape in the files worked on are equivalent (a cast that changes nothing, a
-key that is never read, a constant only a real sleep would show). About 2,000 mutants are skipped because their covering
-tests are slower than the 30 s `timeout` (the reindex, rebuild and candidate-selection paths); they are not in the score.
-The test suite is faster since 0.9.9. A further round (a `minCoveredMsi` gate on the full run) is separate from the
-releases above.
+Infection runs in CI: a full run once per release (started on demand), and only the changed lines on pull requests. The full run scores 96 to 97%
+covered-code MSI (the number is on the README badge, which the full run on `main` updates). The mutants that still escape in the files worked on are
+equivalent (a cast that changes nothing, a key that is never read). About 2,000 mutants are skipped because their covering tests are slower than the
+30 s `timeout` (the reindex, rebuild and candidate-selection paths); they are not in the score.

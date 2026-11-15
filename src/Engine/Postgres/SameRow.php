@@ -22,12 +22,6 @@ final class SameRow
         ));
     }
 
-    /** @return list<FilterDefinition> the `same_row_as` filters of one field */
-    public static function ofField(IndexDefinition $index, string $field): array
-    {
-        return array_values(array_filter(self::filters($index), static fn(FilterDefinition $f): bool => $f->many?->sameRowAs === $field));
-    }
-
     /**
      * The coupled filters of a search: those whose field is one the single-value check reads for THIS viewer (ManyMatchFields::resolve(),
      * which leaves out a field the viewer may not see). Empty outside `manyMatch('single')`.

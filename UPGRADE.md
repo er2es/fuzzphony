@@ -492,30 +492,4 @@ tables. If your connection has its own `schema_filter` the bundle leaves it alon
 comes from a parameter or environment variable the bundle sets no filter and the doctor does not check yours: add Fuzzphony's regex yourself. A migration
 from `--dump-migration` can be generated again after upgrading (it now ends with the version record).
 
-## From 0.3.1 to 0.3.2
-
-Nothing to do: the trigram operator in generated statements is now schema-qualified (`pg_trgm` no longer has to be on the `search_path`).
-
-## From 0.3.0 to 0.3.1
-
-Only indexes with accent folding (`unaccent`, the default) are affected: their text search configuration kept accented stop words (`für`, `és`, `à`).
-Run `bin/console fuzzphony:schema --apply` (creates the stop-word dictionary `fuzzphony_<language>_stop`, re-maps the configuration) and
-`bin/console fuzzphony:reindex` for every such index; until reindexed, documents can rank differently. The doctor reports the configuration until applied.
-
-## From 0.2 to 0.3
-
-1. **Requirements.** Symfony 7.4 or 8.0 (7.3 dropped) and the `pdo_pgsql` extension (now required).
-2. **Apply the schema, then reindex once** (sync functions changed, every watched table gets a `TRUNCATE` trigger; both are safe on a live index):
-   `bin/console fuzzphony:schema --apply`, then `bin/console fuzzphony:reindex` (also removes documents left behind by earlier TRUNCATEs).
-3. **`fuzzphony:search --profile` is now `--rank-profile`** (`-p` unchanged).
-4. **A full reindex now prunes orphaned documents.** If the reindexing session sees fewer rows than your application (row-level security, another
-   `search_path`), pass `--no-prune` / `prune: false`. A source that returns no row is never pruned without `--prune-empty`.
-5. **Custom engines** implement `pruneOrphans(IndexDefinition $index, int $batchSize = 5_000): int`.
-6. **Removed:** `NodeInspector::topLevelExclusions()` (walk the AST for top-level `Not` nodes).
-7. **Behaviour:** typo-tolerant results are narrower (every query word must match on its own); a multi-word query that finds nothing may return results
-   for a subset of its words with a warning (`relax_when_empty: false` disables it; the warning quotes the user's words: escape it in HTML);
-   `ScoreBreakdown::$fuzzySimilarity` is per word, so absolute scores in `fuzzy_mode: always` shift slightly.
-
-## From 0.1 to 0.2
-
-`OrmSyncListener` takes a `RefreshDispatcher` instead of an `Engine` (the bundle wires it; otherwise `new ImmediateRefreshDispatcher($engine)`).
+From a release before 0.3.2, go through the [CHANGELOG](CHANGELOG.md) of every release on the way: some changed a requirement, an option or an API.

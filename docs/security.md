@@ -295,10 +295,9 @@ are counted in the metrics but not written to the [search log](analytics.md) unl
 
 ## Database roles
 
-The guards above decide who may search. The database user decides what the code can do at all: [Database roles and grants](roles.md) has the
-least-privilege matrix for the application (reads the index, no DDL), the worker and the admin, `fuzzphony:schema --dump-grants` to print the `GRANT`
-statements for your tables, the `fuzzphony.connections` setting to use a separate user for each, and the doctor's privilege check. Every Fuzzphony function
-is `SECURITY INVOKER`: none runs with its owner's rights.
+The guards above decide who may search; the database user decides what the code can do at all. [Database roles and grants](roles.md) has the
+least-privilege matrix (application, worker, admin), `fuzzphony:schema --dump-grants` and the `fuzzphony.connections` setting. Every Fuzzphony function
+is `SECURITY INVOKER`.
 
 `INSERT` on `fuzzphony_watch_log` is a trust boundary: the application role that writes the watched tables has it by design, so it can also write bogus log
 entries. Unusable keys are skipped and counted (the doctor reports them), forged TRUNCATE entries queue at most one full rebuild per index, and none of it
@@ -324,19 +323,13 @@ The guarantee is about the content of the hidden fields. It is not row-level sec
 - **The vocabulary of unrestricted viewers still holds every word.** An unrestricted viewer of an index with a hidden field still gets suggestions, "did
   you mean" and the zero-result rescue built from the words of all its fields, which is why a restricted viewer gets none.
 - **What a hidden field holds, or how long it is, never changes whether a restricted viewer's phrase or field-scoped word matches, nor which candidates it
-  gets.** The lookup uses the words alone and the allowed fields' own columns decide; the candidates are the best by the text rank and bonuses of the
-  allowed fields, then the id, and the work budget of the typo branch counts the size of the visible text only. The one exception is what lies beyond the
-  budgets (more than 100 000 strict matches, or the typo branch's work budget): there a very common word takes the first matches of the table's physical
-  order, which a hidden field's size shapes; it reveals nothing about what the field holds. A long hidden text still costs its recheck time
-  ([limitations](limitations.md#ranking-of-very-common-words)). Tests compare corpora that differ only in a hidden field (empty, a phrase, many sizes, a
-  very long field), in five layouts and all fuzzy modes.
-- **An unrestricted viewer's and a tenant's typo candidates are the first matches of the table.** Nothing is hidden from an unrestricted viewer, so the
-  physical order shows it nothing it could not read. A tenant's candidates are chosen among its own documents, so the size of another tenant's rows does not
-  change them (a test compares a tenant's hits, totals and facets over corpora whose other tenant takes four different sizes).
-- **The candidates of a very common word are chosen by the fields the viewer may see only:** for a restricted viewer the sort key is the text rank of the
-  allowed fields' vectors and the exact and prefix bonuses only when the primary field is allowed, with the same lookup, recheck, tenant and filter
-  conditions as the cheap selection, so neither which documents are candidates nor their order depends on a hidden field. The scan that finds them can still
-  be long when the word is common in a hidden typo-tolerant field (see the timing entry).
+  gets.** The candidates of a very common word are the best by the text rank of the allowed fields' vectors (the exact and prefix bonuses only when the
+  primary field is allowed), then the id, and the typo branch's work budget counts the visible text only. The one exception is what lies beyond the budgets
+  (more than 100 000 strict matches, or the typo branch's work budget): there a very common word takes the first matches of the table's physical order,
+  which a hidden field's size shapes; it reveals nothing about what the field holds ([limitations](limitations.md#ranking-of-very-common-words)). Tests
+  compare corpora that differ only in a hidden field (empty, a phrase, many sizes, a very long one), in five layouts and all fuzzy modes.
+- **An unrestricted viewer's and a tenant's typo candidates are the first matches of the table.** Nothing is hidden from an unrestricted viewer; a tenant's
+  candidates are chosen among its own documents, so another tenant's row sizes do not change them (a test compares four sizes).
 - **A phrase is read from the fields the viewer may see, as if the others did not exist.** A restricted search matches `"ada lovelace"` with `ada` at the end
   of one allowed field and `lovelace` at the start of the next. A hidden field never takes part: a phrase that reaches into one does not match. The one
   visible difference to an unrestricted search: with a hidden field *between* two allowed ones (`name`, `notes` hidden, `title`), a phrase made of the last

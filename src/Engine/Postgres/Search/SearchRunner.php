@@ -15,6 +15,7 @@ use Fuzzphony\Core\Query\Ast\NodeInspector;
 use Fuzzphony\Core\Query\Ast\Not;
 use Fuzzphony\Core\Query\Ast\Phrase;
 use Fuzzphony\Core\Query\Ast\Term;
+use Fuzzphony\Core\Query\CodePrefix;
 use Fuzzphony\Core\Query\Filter\Condition;
 use Fuzzphony\Core\Query\Filter\Operator;
 use Fuzzphony\Core\Query\QueryParser;
@@ -135,17 +136,12 @@ final readonly class SearchRunner
         $started = hrtime(true);
         $run = $this->executeOnce($index, $query, true);
         if ($run->rescue !== null) {
-            $second = $this->executeOnce($index, $query->withText($run->rescue['to']), false);
-            // The corrected search must find the whole corrected query: when it only found something after the relaxation dropped
-            // a word ("mp use" -> "mp usb" -> "usb"), the rescue would compound two guesses and say "showing results for
-            // 'mp usb'" about hits that are for "usb" alone, so the original empty answer stands.
-            if ($second->result->total > 0 && !$second->relaxed) {
-                $run = $this->rescued($query, $run, $second, $run->rescue, $started);
-                $this->guard->metrics()->increment('fuzzphony.search.rescued', ['index' => $index->name]);
-            } else {
-                // nothing either: the answer is the original, empty one; explain() still lists what the attempt ran
-                $run = new SearchRun($run->result, [...$run->statements, ...self::rescueLabels($second->statements)], $second->threshold);
-            }
+            $run = $this->attemptRescue($index, $query, $run, $run->rescue, $started);
+        }
+        // still nothing: the last word as the beginning of a code (CodePrefix), same flag, warning and switch as the correction
+        $code = $run->result->total === 0 ? CodePrefix::rescue($index, $query, $index->thresholds->with($query->thresholdOverrides)) : null;
+        if ($code !== null) {
+            $run = $this->attemptRescue($index, $query, $run, $code, $started);
         }
         $this->guard->metrics()->observe('fuzzphony.search.took_ms', $run->result->tookMs, ['index' => $index->name]);
         if (array_any($run->statements, static fn(Statement $s): bool => $s->kind === StatementKind::Fallback)) {
@@ -153,6 +149,23 @@ final readonly class SearchRunner
         }
 
         return new SearchRun($run->result, $run->statements, $run->threshold);
+    }
+
+    /** @param array{from: string, to: string} $rescue */
+    private function attemptRescue(IndexDefinition $index, SearchQuery $query, SearchRun $run, array $rescue, int|float $started): SearchRun
+    {
+        $second = $this->executeOnce($index, $query->withText($rescue['to']), false);
+        // The corrected search must find the whole corrected query: when it only found something after the relaxation dropped
+        // a word ("mp use" -> "mp usb" -> "usb"), the rescue would compound two guesses and say "showing results for
+        // 'mp usb'" about hits that are for "usb" alone, so the original empty answer stands.
+        if ($second->result->total > 0 && !$second->relaxed) {
+            $this->guard->metrics()->increment('fuzzphony.search.rescued', ['index' => $index->name]);
+
+            return $this->rescued($query, $run, $second, $rescue, $started);
+        }
+
+        // nothing either: the answer is the original, empty one; explain() still lists what the attempt ran
+        return new SearchRun($run->result, [...$run->statements, ...self::rescueLabels($second->statements)], $second->threshold);
     }
 
     /**
@@ -331,7 +344,13 @@ final readonly class SearchRunner
     {
         $query = $c->query;
         $thresholds = $c->thresholds;
-        $run = $first->completed();
+        // the vocabulary holds the words of every field: a restricted viewer gets no suggestion (nor the lookup's statement)
+        $suggestible = $thresholds->rescue->didYouMean && $query->allowedFields === null && $typedRoot !== null && $expandedRoot !== null && !$first->browse && $c->index->hasFuzzy();
+        // A search with a typo-tolerant phase always looks its words up (it uses typo tolerance), so it does before the phase: the word each
+        // typo most likely meant ranks the hits that have it above the look-alikes. A minimum score would let a raised score pass it, and
+        // so change the hits: there the order stays as it was.
+        $suggestion = $suggestible && $typedRoot !== null && $expandedRoot !== null && $first->phase !== null ? $this->vocabulary->suggest($c->index, $typedRoot, $expandedRoot, $thresholds) : null;
+        $run = $first->completed($suggestion !== null && $thresholds->relevance->minScore <= 0.0 ? $suggestion->corrections : []);
         $statements = $run->statements;
         array_push($warnings, ...$run->warnings);
         // setting of the last search statement, which explain() runs again
@@ -381,13 +400,12 @@ final readonly class SearchRunner
         array_push($statements, ...$faceted->statements);
         $rows = self::hitsOnly($rows);
 
-        $suggestion = null;
-        // the vocabulary holds the words of every field: a restricted viewer gets no suggestion (nor the lookup's statement)
-        if ($thresholds->rescue->didYouMean && $query->allowedFields === null && $typedRoot !== null && $expandedRoot !== null && !$run->browse && $c->index->hasFuzzy() && ($total < $thresholds->didYouMeanBelow() || $run->usedFuzzy)) {
+        if ($suggestion === null && $suggestible && $typedRoot !== null && $expandedRoot !== null && ($total < $thresholds->didYouMeanBelow() || $run->usedFuzzy)) {
             $suggestion = $this->vocabulary->suggest($c->index, $typedRoot, $expandedRoot, $thresholds);
-            if ($suggestion->statement !== null) {
-                $statements[] = $suggestion->statement;
-            }
+        }
+        // listed where it always was, after the facets
+        if ($suggestion?->statement !== null) {
+            $statements[] = $suggestion->statement;
         }
         // Only a search that found nothing is rescued, and a search-as-you-type text never (its last word is not finished). It is
         // a typo correction: a search that switched typo tolerance off (typo.mode never, a profile without fuzzy weight) has none.
@@ -490,10 +508,11 @@ final readonly class SearchRunner
         // the recheck drops stop words as the strict tsquery does, so it needs them up front
         $emptyQueries = $scopedRoot === null ? null : $this->fuzzyStopWords($c, $fuzzy, $scopedRoot, $fuzzyRoot);
         // the typo-tolerant statements: the candidates of each word probed on its own, then the ranked statement over them
-        $typoPhase = fn(Node $fuzzyRoot, StatementKind $kind, string $label, array $empty): \Closure => fn(): PhaseResult => $this->session->inTransaction(function () use ($c, $fuzzy, $fuzzyRoot, $kind, $label, $empty, $tsquery, $plain, $scopedRoot, $withIds): PhaseResult {
+        $typoPhase = fn(Node $fuzzyRoot, StatementKind $kind, string $label, array $empty): \Closure => fn(array $corrections = []): PhaseResult => $this->session->inTransaction(function () use ($c, $fuzzy, $fuzzyRoot, $kind, $label, $empty, $tsquery, $plain, $scopedRoot, $withIds, $corrections): PhaseResult {
             /** @var list<string> $empty */
+            /** @var array<string, array{word: string, score: float}> $corrections */
             $candidates = $this->fuzzyCandidates($c, $fuzzy, $fuzzyRoot, $empty);
-            $statement = Statement::of($kind, $label, $c->builder($candidates)->ranked($tsquery, $plain, $fuzzyRoot, $c->conditions, $c->profile, $c->thresholds, $c->query->limit, $c->query->offset, $empty, $scopedRoot, $withIds));
+            $statement = Statement::of($kind, $label, $c->builder($candidates, $corrections)->ranked($tsquery, $plain, $fuzzyRoot, $c->conditions, $c->profile, $c->thresholds, $c->query->limit, $c->query->offset, $empty, $scopedRoot, $withIds));
             $threshold = $fuzzy->lowestSimilarity($fuzzyRoot, $empty);
             $rows = $this->session->run($statement, $threshold);
 

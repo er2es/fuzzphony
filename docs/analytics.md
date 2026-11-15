@@ -263,47 +263,13 @@ bin/console fuzzphony:analytics products --recent --anonymous --since=24h
 bin/console fuzzphony:analytics tickets  --recent --tenant=42 --status=denied
 ```
 
-```
- --------------- ---------- ---------- ---------------------------
-  query           searches   avg hits   last seen
- --------------- ---------- ---------- ---------------------------
-  mouse           41         18.0       2026-10-12 09:14:51 +00:00
-  headphones      23         7.5        2026-10-12 09:02:10 +00:00
-  usb c cable     9          2.0        2026-10-11 17:40:33 +00:00
- --------------- ---------- ---------- ---------------------------
-```
-
-With `--recent` the table is one search per line, newest first (a `tenant` column appears when you did not name a tenant):
-
-```
- ---------------------------- ------------- ------------- -------------- ------ ----------------
-  time                         user          ip            status         hits   query
- ---------------------------- ------------- ------------- -------------- ------ ----------------
-  2026-10-12 09:14:51 +00:00   ada           203.0.113.0   ok             18     wireless mouse
-  2026-10-12 09:12:03 +00:00   (anonymous)   198.51.100.0  rate_limited   0      mouse
- ---------------------------- ------------- ------------- -------------- ------ ----------------
-```
+The table lists `query`, `searches`, `avg hits` and `last seen`; with `--recent` it is one search per line, newest first (`time`, `user`, `ip`, `status`, `hits`, `query`, and a `tenant` column when you did not name a tenant).
 
 Options: `--top` (the default), `--zero` or `--recent`, one of them (`--recent` is not combined with `--top` or `--zero`); `--since=<n><h|d|w>` (`12h`, `7d`,
 `4w`; default `7d`); `--limit=N` (1 to 1000, default 20); `--tenant=ID` or `--all-tenants`; `--format=table|json`; and, with `--recent` only, `--user=NAME`
 (not empty), `--anonymous` (not with `--user`) and `--status=ok|denied|rate_limited`. The table shows "last seen" in PHP's default time zone, with its
 offset. In the table, control characters in the text, user, tenant and IP (a newline, an ANSI escape) are printed as `U+FFFD`, so what a visitor typed cannot
-fake a row or write to your terminal. `--format=json` is for scripts (ISO 8601; the text exactly as stored, never read as console markup):
-
-```
-bin/console fuzzphony:analytics products --zero --format=json
-```
-
-```json
-[
-  {
-    "query": "wireles earbuds",
-    "searches": 6,
-    "average_hits": 0.0,
-    "last_seen": "2026-10-12T08:31:02+00:00"
-  }
-]
-```
+fake a row or write to your terminal. `--format=json` is for scripts (ISO 8601; the text exactly as stored, never read as console markup; keys `query`, `searches`, `average_hits`, `last_seen`).
 
 With `--recent` the JSON lists `at`, `index`, `tenant`, `user` (null for anonymous), `ip`, `query`, `hits`, `took_ms`, `used_fuzzy` and `status`. An empty report
 prints `No searches in the last 7d.` (table) or `[]` (json). A bad option, or an engine that keeps no log, prints why and exits with a non-zero code.

@@ -4,7 +4,6 @@ declare(strict_types=1);
 
 namespace Fuzzphony\Tests\Unit\Bundle;
 
-use Doctrine\DBAL\Connection as DbalConnection;
 use Fuzzphony\Bundle\FuzzphonyBundle;
 use Fuzzphony\Bundle\Security\AuthorizationGuard;
 use Fuzzphony\Bundle\Security\NullActorResolver;
@@ -23,6 +22,8 @@ use Symfony\Component\DependencyInjection\Reference;
 /** fuzzphony.rate_limit.per: ip: the config tree, the limiter the bundle prepends, and how the guard and the resolver are wired. */
 final class FuzzphonyBundleIpLimitTest extends TestCase
 {
+    use BuildsBundleContainer;
+
     private const array DEFAULT_ENTRY = ['rate_limiter' => ['fuzzphony_ip' => ['policy' => 'sliding_window', 'limit' => 600, 'interval' => '1 minute']]];
 
     public function testPerIpWithoutALimiterPrependsTheDefaultEntryAndUsesIt(): void
@@ -31,7 +32,7 @@ final class FuzzphonyBundleIpLimitTest extends TestCase
 
         self::assertSame([self::DEFAULT_ENTRY, ['secret' => 'x']], $container->getExtensionConfig('framework'), 'prepended: the application keeps the last word');
 
-        $container = $this->loaded(['rate_limit' => ['per' => 'ip']]);
+        $container = $this->buildContainer(['rate_limit' => ['per' => 'ip']]);
         $guard = $container->getDefinition('fuzzphony.guard.rate_limit');
         self::assertSame(RateLimitGuard::class, $guard->getClass());
         self::assertEquals([new Reference('limiter.fuzzphony_ip'), 'ip', '%kernel.secret%', new Reference('fuzzphony.metrics'), new Reference('logger')], $guard->getArguments());
@@ -83,7 +84,7 @@ final class FuzzphonyBundleIpLimitTest extends TestCase
         $container = $this->prepended(['rate_limit' => ['per' => 'ip', 'limiter' => 'public_search']], $framework);
 
         self::assertSame($framework, $container->getExtensionConfig('framework'));
-        $guard = $this->loaded(['rate_limit' => ['per' => 'ip', 'limiter' => 'public_search']])->getDefinition('fuzzphony.guard.rate_limit');
+        $guard = $this->buildContainer(['rate_limit' => ['per' => 'ip', 'limiter' => 'public_search']])->getDefinition('fuzzphony.guard.rate_limit');
         self::assertEquals([new Reference('limiter.public_search'), 'ip', '%kernel.secret%', new Reference('fuzzphony.metrics'), new Reference('logger')], $guard->getArguments());
     }
 
@@ -124,23 +125,23 @@ final class FuzzphonyBundleIpLimitTest extends TestCase
 
     public function testPerIpWrapsEveryKindOfResolverWithTheRequestAddress(): void
     {
-        $default = $this->loaded(['rate_limit' => ['per' => 'ip']]);
+        $default = $this->buildContainer(['rate_limit' => ['per' => 'ip']]);
         self::assertSame(RequestIpActorResolver::class, $default->getDefinition('fuzzphony.actor_resolver')->getClass());
         self::assertTrue($default->getDefinition('fuzzphony.actor_resolver')->isPublic());
         self::assertEquals([new Reference('fuzzphony.actor_resolver.inner'), new Reference('request_stack')], $default->getDefinition('fuzzphony.actor_resolver')->getArguments());
         self::assertSame(NullActorResolver::class, $default->getDefinition('fuzzphony.actor_resolver.inner')->getClass());
         self::assertSame('fuzzphony.actor_resolver', (string) $default->getAlias(ActorResolver::class));
 
-        $paths = $this->loaded(['rate_limit' => ['per' => 'ip'], 'actor' => ['tenant' => 'account.id', 'user' => 'userIdentifier']]);
+        $paths = $this->buildContainer(['rate_limit' => ['per' => 'ip'], 'actor' => ['tenant' => 'account.id', 'user' => 'userIdentifier']]);
         self::assertSame(PropertyPathActorResolver::class, $paths->getDefinition('fuzzphony.actor_resolver.inner')->getClass());
 
-        $own = $this->loaded(['rate_limit' => ['per' => 'ip'], 'actor' => ['resolver' => 'app.my_resolver']]);
+        $own = $this->buildContainer(['rate_limit' => ['per' => 'ip'], 'actor' => ['resolver' => 'app.my_resolver']]);
         self::assertSame('app.my_resolver', (string) $own->getAlias('fuzzphony.actor_resolver.inner'));
     }
 
     public function testPerIpDoesNotTurnTheSearchLogIpOn(): void
     {
-        $container = $this->loaded(['rate_limit' => ['per' => 'ip'], 'search_log' => ['enabled' => true]]);
+        $container = $this->buildContainer(['rate_limit' => ['per' => 'ip'], 'search_log' => ['enabled' => true]]);
 
         self::assertSame(IpMode::Off, $container->getDefinition('fuzzphony.search_gate')->getArgument(5), 'the gate stores no address');
         self::assertSame(IpMode::Off, $container->getDefinition('fuzzphony.search_gate.operator')->getArgument(5));
@@ -148,7 +149,7 @@ final class FuzzphonyBundleIpLimitTest extends TestCase
 
     public function testTheOperatorGateRunsNoGuardEvenForPerIp(): void
     {
-        $container = $this->loaded(['rate_limit' => ['per' => 'ip']]);
+        $container = $this->buildContainer(['rate_limit' => ['per' => 'ip']]);
 
         self::assertSame([], $container->getDefinition('fuzzphony.search_gate.operator')->getArgument(4), 'the console has no client');
     }
@@ -156,7 +157,7 @@ final class FuzzphonyBundleIpLimitTest extends TestCase
     public function testPerTenantAndPerUserKeepTheResolverUnwrapped(): void
     {
         foreach (['tenant', 'user'] as $per) {
-            $container = $this->loaded(['rate_limit' => ['per' => $per, 'limiter' => 'search']]);
+            $container = $this->buildContainer(['rate_limit' => ['per' => $per, 'limiter' => 'search']]);
 
             self::assertSame(NullActorResolver::class, $container->getDefinition('fuzzphony.actor_resolver')->getClass());
             self::assertFalse($container->has('fuzzphony.actor_resolver.inner'));
@@ -166,7 +167,7 @@ final class FuzzphonyBundleIpLimitTest extends TestCase
 
     public function testPerTenantWithoutALimiterStaysUnlimited(): void
     {
-        $container = $this->loaded(['rate_limit' => ['per' => 'tenant']]);
+        $container = $this->buildContainer(['rate_limit' => ['per' => 'tenant']]);
 
         self::assertFalse($container->hasDefinition('fuzzphony.guard.rate_limit'));
         self::assertSame([], $container->getDefinition('fuzzphony.search_gate')->getArgument(4));
@@ -174,14 +175,14 @@ final class FuzzphonyBundleIpLimitTest extends TestCase
 
     public function testPerIpAloneBuildsNoAuthorizationGuard(): void
     {
-        $container = $this->loaded(['rate_limit' => ['per' => 'ip']]);
+        $container = $this->buildContainer(['rate_limit' => ['per' => 'ip']]);
 
         self::assertFalse($container->hasDefinition('fuzzphony.guard.authorization'), 'only per: ip: no visitor is refused for lack of a token');
     }
 
     public function testPerIpWithAuthorizationRunsAuthorizationFirst(): void
     {
-        $container = $this->loaded(['rate_limit' => ['per' => 'ip'], 'authorization' => ['enabled' => true]]);
+        $container = $this->buildContainer(['rate_limit' => ['per' => 'ip'], 'authorization' => ['enabled' => true]]);
 
         self::assertEquals([new Reference('fuzzphony.guard.authorization'), new Reference('fuzzphony.guard.rate_limit')], $container->getDefinition('fuzzphony.search_gate')->getArgument(4));
         self::assertSame(AuthorizationGuard::class, $container->getDefinition('fuzzphony.guard.authorization')->getClass());
@@ -218,26 +219,6 @@ final class FuzzphonyBundleIpLimitTest extends TestCase
             $container->loadFromExtension('framework', $config);
         }
         $extension->prepend($container);
-
-        return $container;
-    }
-
-    /** @param array<string, mixed> $config */
-    private function loaded(array $config): ContainerBuilder
-    {
-        $container = new ContainerBuilder();
-        $container->setParameter('kernel.environment', 'test');
-        $container->setParameter('kernel.debug', false);
-        $container->setParameter('kernel.project_dir', dirname(__DIR__, 3));
-        $container->setParameter('kernel.cache_dir', sys_get_temp_dir());
-        $container->setParameter('kernel.build_dir', sys_get_temp_dir());
-        $container->register('doctrine.dbal.default_connection', DbalConnection::class)->setSynthetic(true)->setPublic(true);
-        $container->register('logger', \Psr\Log\LoggerInterface::class)->setSynthetic(true)->setPublic(true);
-
-        $extension = (new FuzzphonyBundle())->getContainerExtension();
-        self::assertNotNull($extension);
-        $container->registerExtension($extension);
-        $extension->load([$config], $container);
 
         return $container;
     }

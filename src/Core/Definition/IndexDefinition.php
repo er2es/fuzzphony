@@ -78,13 +78,7 @@ final readonly class IndexDefinition
 
     public function field(string $name): ?FieldDefinition
     {
-        foreach ($this->fields as $field) {
-            if ($field->name === $name) {
-                return $field;
-            }
-        }
-
-        return null;
+        return array_find($this->fields, static fn(FieldDefinition $field): bool => $field->name === $name);
     }
 
     /**
@@ -173,14 +167,9 @@ final readonly class IndexDefinition
                 $watches[] = $derived;
             }
         }
-        if ($this->source->table !== null) {
-            $own = false;
-            foreach ($watches as $watch) {
-                $own = $own || $watch->table === $this->source->table;
-            }
-            if (!$own) {
-                array_unshift($watches, new Watch($this->source->table, 'SELECT :id', $this->source->idColumn));
-            }
+        $table = $this->source->table;
+        if ($table !== null && !array_any($watches, static fn(Watch $w): bool => $w->table === $table)) {
+            array_unshift($watches, new Watch($table, 'SELECT :id', $this->source->idColumn));
         }
 
         return $watches;
@@ -242,13 +231,7 @@ final readonly class IndexDefinition
 
     public function sourceNamed(string $name): ?IndexSource
     {
-        foreach ($this->sources as $source) {
-            if ($source->name === $name) {
-                return $source;
-            }
-        }
-
-        return null;
+        return array_find($this->sources, static fn(IndexSource $source): bool => $source->name === $name);
     }
 
     /** Whether any source of the index declares returnable columns (a search may then ask for them with with()). */
@@ -365,13 +348,7 @@ final readonly class IndexDefinition
     /** The source that reads an entity class (a multi-source index: each source may name one). */
     public function sourceForEntity(string $class): ?IndexSource
     {
-        foreach ($this->sources as $source) {
-            if ($source->entityClass === $class) {
-                return $source;
-            }
-        }
-
-        return null;
+        return array_find($this->sources, static fn(IndexSource $source): bool => $source->entityClass === $class);
     }
 
     /**

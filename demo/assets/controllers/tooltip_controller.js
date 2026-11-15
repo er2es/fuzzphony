@@ -12,6 +12,7 @@ let current = null;
  * The bubble is position: fixed and placed inside the window (below the button, above when there is no room), so it
  * is never clipped and opening it moves nothing. The host carries data-live-ignore: a Live Component re-render leaves it as it is.
  */
+/* stimulusFetch: 'lazy' */
 export default class extends Controller {
     static targets = ['button', 'bubble'];
 

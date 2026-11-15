@@ -7,6 +7,7 @@ import { Controller } from '@hotwired/stimulus';
  * from its own endpoint (`data-src`, same Twig partial the response is rendered from) and swaps it in,
  * leaving the loading placeholder in place until it arrives.
  */
+/* stimulusFetch: 'lazy' */
 export default class extends Controller {
     static targets = ['region'];
 

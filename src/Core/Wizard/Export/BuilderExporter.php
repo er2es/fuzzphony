@@ -118,7 +118,7 @@ final class BuilderExporter
         if ($thresholds !== []) {
             $uses[] = 'Ranking\\Thresholds';
             foreach (['limits' => 'LimitThresholds', 'relevance' => 'RelevanceThresholds', 'rescue' => 'RescueThresholds', 'typo' => 'TypoThresholds'] as $group => $class) {
-                if (array_filter($thresholds, static fn(string $arg): bool => str_starts_with($arg, $group . ': ')) !== []) {
+                if (array_any($thresholds, static fn(string $arg): bool => str_starts_with($arg, $group . ': '))) {
                     $uses[] = 'Ranking\\' . $class;
                 }
             }

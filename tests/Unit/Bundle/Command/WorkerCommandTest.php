@@ -88,7 +88,7 @@ final class WorkerCommandTest extends TestCase
             self::markTestSkipped('The pcntl extension is not loaded: the command listens to no signal.');
         }
 
-        self::assertSame([\SIGTERM, \SIGINT], (new WorkerCommand($this->fuzzphony($this->queue([]))))->getSubscribedSignals());
+        self::assertSame([\SIGTERM, \SIGINT, \SIGQUIT], (new WorkerCommand($this->fuzzphony($this->queue([]))))->getSubscribedSignals());
     }
 
     public function testASignalStopsTheRunningWorkerAfterTheCurrentBatchButTheConsoleKeepsRunning(): void
@@ -119,6 +119,44 @@ final class WorkerCommandTest extends TestCase
         self::assertSame(Command::SUCCESS, $status);
         self::assertFalse($handled, 'false: let the batch finish');
         self::assertStringContainsString('Stopped after 2 item(s).', $tester->getDisplay(true));
+    }
+
+    public function testTheMemoryLimitEndsTheWorkerAfterTheCycle(): void
+    {
+        $calls = 0;
+        $engine = self::createStub(Engine::class);
+        $engine->method('processQueue')->willReturnCallback(static function () use (&$calls): int {
+            if (++$calls > 50) {
+                throw new \LogicException('The worker ignored --memory-limit.');
+            }
+
+            return 4; // the queue is never empty
+        });
+        foreach (['1K', '1k', '1M', '1G', '1'] as $limit) {
+            $calls = 0;
+            $tester = new CommandTester(new WorkerCommand($this->fuzzphony($engine), idleSleep: 0.01));
+            $tester->execute(['--memory-limit' => $limit] + ($limit === '1G' ? ['--time-limit' => '0'] : []), ['interactive' => false]);
+            $display = $tester->getDisplay(true);
+            if ($limit === '1G') {
+                self::assertStringNotContainsString('exceeded --memory-limit', $display);
+                continue;
+            }
+            self::assertStringContainsString('exceeded --memory-limit; stopping.', $display, $limit);
+            self::assertStringContainsString('Stopped after 40 item(s).', $display, $limit . ': one cycle of ten batches');
+        }
+    }
+
+    public function testAnInvalidMemoryLimitIsRejected(): void
+    {
+        foreach (['128MB', '-1', '1.5G', 'abc', ''] as $limit) {
+            $tester = new CommandTester(new WorkerCommand($this->fuzzphony(self::createStub(Engine::class)), idleSleep: 0.01));
+            try {
+                $tester->execute(['--memory-limit' => $limit], ['interactive' => false]);
+                self::fail('"' . $limit . '" must be rejected');
+            } catch (\Symfony\Component\Console\Exception\InvalidOptionException $e) {
+                self::assertStringContainsString('--memory-limit', $e->getMessage());
+            }
+        }
     }
 
     public function testTheTimeLimitEndsTheWorkerEvenWhenTheQueueNeverRunsDry(): void

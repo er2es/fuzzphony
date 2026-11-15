@@ -4,7 +4,6 @@ declare(strict_types=1);
 
 namespace Fuzzphony\Tests\Unit\Bundle;
 
-use Doctrine\DBAL\Connection as DbalConnection;
 use Fuzzphony\Bundle\Analytics\BufferedSearchLog;
 use Fuzzphony\Bundle\Command\AnalyticsCommand;
 use Fuzzphony\Bundle\Command\DoctorCommand;
@@ -15,7 +14,6 @@ use Fuzzphony\Bundle\Command\SearchLogPurgeCommand;
 use Fuzzphony\Bundle\Command\WizardCommand;
 use Fuzzphony\Bundle\Command\WorkerCommand;
 use Fuzzphony\Bundle\EventListener\SearchLogFlushListener;
-use Fuzzphony\Bundle\FuzzphonyBundle;
 use Fuzzphony\Bundle\Security\NullActorResolver;
 use Fuzzphony\Bundle\Security\PropertyPathActorResolver;
 use Fuzzphony\Bundle\Security\RequestIpActorResolver;
@@ -30,13 +28,14 @@ use PHPUnit\Framework\TestCase;
 use Psr\Log\NullLogger;
 use Symfony\Component\Config\Definition\Exception\InvalidConfigurationException;
 use Symfony\Component\DependencyInjection\Argument\ServiceClosureArgument;
-use Symfony\Component\DependencyInjection\ContainerBuilder;
 use Symfony\Component\DependencyInjection\Definition;
 use Symfony\Component\DependencyInjection\Reference;
 
 /** The fuzzphony.search_log node: the buffer, its flush, the two commands and the engine and gate wiring. */
 final class FuzzphonyBundleSearchLogTest extends TestCase
 {
+    use BuildsBundleContainer;
+
     private const array BASE_COMMANDS = [SchemaCommand::class, DoctorCommand::class, ReindexCommand::class, WorkerCommand::class, SearchCommand::class, WizardCommand::class];
 
     public function testByDefaultNothingIsLoggedAndTheGateKnowsOnlyMetricsAndLogger(): void
@@ -219,25 +218,5 @@ final class FuzzphonyBundleSearchLogTest extends TestCase
         $this->expectExceptionMessageMatches('/retention_days/');
 
         $this->buildContainer(['search_log' => ['retention_days' => 0]]);
-    }
-
-    /** @param array<string, mixed> $config */
-    private function buildContainer(array $config = []): ContainerBuilder
-    {
-        $container = new ContainerBuilder();
-        $container->setParameter('kernel.environment', 'test');
-        $container->setParameter('kernel.debug', false);
-        $container->setParameter('kernel.project_dir', dirname(__DIR__, 3));
-        $container->setParameter('kernel.cache_dir', sys_get_temp_dir());
-        $container->setParameter('kernel.build_dir', sys_get_temp_dir());
-        $container->register('doctrine.dbal.default_connection', DbalConnection::class)->setSynthetic(true)->setPublic(true);
-        $container->register('logger', \Psr\Log\LoggerInterface::class)->setSynthetic(true)->setPublic(true);
-
-        $extension = (new FuzzphonyBundle())->getContainerExtension();
-        self::assertNotNull($extension);
-        $container->registerExtension($extension);
-        $extension->load([$config], $container);
-
-        return $container;
     }
 }

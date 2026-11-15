@@ -4,7 +4,6 @@ declare(strict_types=1);
 
 namespace Fuzzphony\Tests\Unit\Bundle;
 
-use Doctrine\DBAL\Connection as DbalConnection;
 use Fuzzphony\Bundle\Command\SearchCommand;
 use Fuzzphony\Bundle\FuzzphonyBundle;
 use Fuzzphony\Bundle\Security\AuthorizationGuard;
@@ -24,6 +23,8 @@ use Symfony\Component\DependencyInjection\Reference;
 /** The fuzzphony.rate_limit and fuzzphony.authorization nodes and the guards handed to the search gate. */
 final class FuzzphonyBundleGuardsTest extends TestCase
 {
+    use BuildsBundleContainer;
+
     public function testWithoutGuardConfigurationTheGateHasNoGuards(): void
     {
         $arguments = $this->gateArguments($this->buildContainer());
@@ -189,25 +190,5 @@ final class FuzzphonyBundleGuardsTest extends TestCase
     private function gateArguments(ContainerBuilder $container): array
     {
         return $container->getDefinition('fuzzphony.search_gate')->getArguments();
-    }
-
-    /** @param array<string, mixed> $config */
-    private function buildContainer(array $config = []): ContainerBuilder
-    {
-        $container = new ContainerBuilder();
-        $container->setParameter('kernel.environment', 'test');
-        $container->setParameter('kernel.debug', false);
-        $container->setParameter('kernel.project_dir', dirname(__DIR__, 3));
-        $container->setParameter('kernel.cache_dir', sys_get_temp_dir());
-        $container->setParameter('kernel.build_dir', sys_get_temp_dir());
-        $container->register('doctrine.dbal.default_connection', DbalConnection::class)->setSynthetic(true)->setPublic(true);
-        $container->register('logger', \Psr\Log\LoggerInterface::class)->setSynthetic(true)->setPublic(true);
-
-        $extension = (new FuzzphonyBundle())->getContainerExtension();
-        self::assertNotNull($extension);
-        $container->registerExtension($extension);
-        $extension->load([$config], $container);
-
-        return $container;
     }
 }

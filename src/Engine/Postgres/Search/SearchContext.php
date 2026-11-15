@@ -38,11 +38,12 @@ final readonly class SearchContext
     ) {}
 
     /**
-     * @param array<string, list<int|string>> $candidates the ids the trigram words match (FuzzyQueryCompiler::probes())
+     * @param array<string, list<int|string>>                  $candidates  the ids the trigram words match (FuzzyQueryCompiler::probes())
+     * @param array<string, array{word: string, score: float}> $corrections typed word => the word it most likely meant (Suggestion::$corrections)
      */
-    public function builder(array $candidates = []): SearchSqlBuilder
+    public function builder(array $candidates = [], array $corrections = []): SearchSqlBuilder
     {
-        return new SearchSqlBuilder($this->index, $this->names, $candidates, $this->query->allowedFields, true, openClass: $this->openClass, bestValues: $this->bestValueFields(), single: $this->single(), coupled: $this->coupled);
+        return new SearchSqlBuilder($this->index, $this->names, $candidates, $this->query->allowedFields, true, openClass: $this->openClass, bestValues: $this->bestValueFields(), single: $this->single(), coupled: $this->coupled, corrections: $corrections);
     }
 
     /**

@@ -17,12 +17,12 @@ use Fuzzphony\Engine\Postgres\Sql\Sql;
  * depends on; views among them are followed down to the base tables. A table the query reads that no watch covers is a change the
  * index never hears of.
  */
-final class WatchCoverage
+final readonly class WatchCoverage
 {
     public function __construct(
-        private readonly Connection $connection,
+        private Connection $connection,
         /** Fuzzphony's own schema: its tables are not the application's data. */
-        private readonly string $schema,
+        private string $schema,
     ) {}
 
     /**

@@ -236,7 +236,7 @@ final class FuzzphonyBundle extends AbstractBundle
         }
         // loadExtension() runs on a temporary builder that has no extensions registered, so it cannot ask hasExtension() itself.
         // It is told that the ORM is configured, not only DoctrineBundle: without `orm:` there is no entity manager service to wire to.
-        $builder->setParameter(self::DOCTRINE_PARAMETER, array_filter($builder->getExtensionConfig('doctrine'), static fn(mixed $doctrine): bool => is_array($doctrine) && isset($doctrine['orm'])) !== []);
+        $builder->setParameter(self::DOCTRINE_PARAMETER, array_any($builder->getExtensionConfig('doctrine'), static fn(mixed $doctrine): bool => is_array($doctrine) && isset($doctrine['orm'])));
         $known = self::dbalConnectionNames($builder->getExtensionConfig('doctrine'));
         if ($known !== []) {
             $builder->setParameter(self::DBAL_CONNECTIONS_PARAMETER, $known);

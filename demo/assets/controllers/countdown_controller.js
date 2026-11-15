@@ -9,6 +9,7 @@ import { Controller } from '@hotwired/stimulus';
  * Targets: seconds (the ticking number), title, reset (the call to action before the end), again (the call to action after
  * it, hidden at first), done (an sr-only status that receives the end message). Value: seconds.
  */
+/* stimulusFetch: 'lazy' */
 export default class extends Controller {
     static targets = ['seconds', 'title', 'reset', 'again', 'done'];
     static values = { seconds: Number, finished: { type: String, default: 'You can search again.' } };

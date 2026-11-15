@@ -1,3 +1,5 @@
+<p align="center"><img src="docs/assets/hero.svg" alt="Fuzzphony: fuzzy search, in perfect harmony with your database." width="900"></p>
+
 # Fuzzphony
 
 [![CI](https://github.com/er2es/fuzzphony/actions/workflows/ci.yml/badge.svg)](https://github.com/er2es/fuzzphony/actions/workflows/ci.yml)
@@ -42,7 +44,7 @@ foreach ($result as $hit) {
 }
 ```
 
-Status: pre-1.0 (v0.12.7). The API may still change before 1.0; breaking changes are listed in the
+Status: pre-1.0 (v0.12.8). The API may still change before 1.0; breaking changes are listed in the
 [CHANGELOG](https://github.com/er2es/fuzzphony/blob/main/CHANGELOG.md) and explained in
 [UPGRADE.md](https://github.com/er2es/fuzzphony/blob/main/UPGRADE.md).
 
@@ -54,6 +56,9 @@ A full Symfony app on a seeded catalogue of 500 000 products (about a minute to 
 git clone https://github.com/er2es/fuzzphony
 cd fuzzphony/demo && docker compose up --build    # http://localhost:8000
 ```
+
+If Docker stops with `additional privileges requested`, set `export BUILDX_BAKE_ENTITLEMENTS_FS=0` (bash) or `$env:BUILDX_BAKE_ENTITLEMENTS_FS=0` (PowerShell) first
+([why](https://github.com/er2es/fuzzphony/blob/main/demo/README.md#docker-build-privileges)).
 
 \* The demo, the documentation ([docs/](https://github.com/er2es/fuzzphony/blob/main/docs/README.md)), the tests and the benchmarks live in the Git repository only: `composer require fuzzphony/fuzzphony` installs just the library (`src/`). See the [demo README](https://github.com/er2es/fuzzphony/blob/main/demo/README.md) (Windows, the large profile, security defaults; a local showcase, not a production template) and the [screenshots](https://github.com/er2es/fuzzphony/blob/main/docs/screenshots.md).
 
@@ -68,14 +73,16 @@ A good fit when:
 - The database is not yours to change (a legacy system, an ERP, tables another team owns): no column is added; with `schema: fuzzphony` not even a
   table lands in your schema.
 - You are replacing `LIKE` in admin panels, back offices, CRMs and support tools, or one more service is one too many.
-- The data must stay in the database, under the same backups and roles, and search must be as fresh as the data (`trigger` mode: same transaction).
-- You run a shared-schema multi-tenant SaaS: the tenant filter is enforced on every query.
-- You need to protect the search (rate limit, index authorization, fields only some viewers may search) and to know what people search for and do not find.
+- The data must stay under the same backups and roles, and search must be as fresh as the data (`trigger` mode: same transaction).
+- You run a shared-schema multi-tenant SaaS (the tenant filter is enforced on every query), or need a rate limit, index authorization and fields only some
+  viewers may search, and want to know what people search for and do not find.
 - A record has several values (addresses, phone numbers) that should be found by any value, or ranked by the best single one.
 - Your content is multilingual: stemming for 28 languages, accent folding (`kavefozo` finds `Kávéfőző`).
 
-Not the right tool for hundreds of millions of documents or thousands of searches a second on one index, analytics-style aggregations, semantic or vector
-search, or a database other than PostgreSQL.
+Measured up to 1,000,000 documents per index (a typical search takes milliseconds to about a hundred; the commonest words, many-word queries, typo searches on wide
+indexes and viewers with granted fields take longer, see [benchmarks](docs/benchmarks.md) and [limitations](docs/limitations.md)); beyond a few million documents per
+index, measure first. A search is an ordinary read query, so throughput is that of your PostgreSQL and its connection pool. Not for analytics-style
+aggregations, semantic or vector search, or a database other than PostgreSQL.
 
 | | `LIKE '%…%'` | Fuzzphony | External engine |
 |---|---|---|---|
@@ -198,10 +205,9 @@ Report vulnerabilities privately: see [SECURITY.md](https://github.com/er2es/fuz
 
 ## Known limitations and roadmap
 
-The full list is in [docs/limitations.md](https://github.com/er2es/fuzzphony/blob/main/docs/limitations.md): typo tolerance is trigram-based (it cannot tell a typo
-from a similar word), attaching or detaching a partition is not followed (run `fuzzphony:reindex`), and a word with more matches than `limits.candidates` is ranked
-over its best matches with a lower-bound `total` (`exactCounts()` makes it exact). PostgreSQL only before 1.0; v1.0.0 is the stable API and the
-backward-compatibility promise ([roadmap](https://github.com/er2es/fuzzphony/blob/main/docs/roadmap.md)).
+Typo tolerance is trigram-based (it cannot tell a typo from a similar word), and a word with more matches than `limits.candidates` is ranked over its best
+matches with a lower-bound `total`: see [docs/limitations.md](https://github.com/er2es/fuzzphony/blob/main/docs/limitations.md). PostgreSQL only before 1.0;
+v1.0.0 is the stable API and the backward-compatibility promise ([roadmap](https://github.com/er2es/fuzzphony/blob/main/docs/roadmap.md)).
 
 ## Contributing and license
 

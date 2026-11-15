@@ -20,7 +20,7 @@ use Fuzzphony\Engine\Postgres\Sql\Sql;
  * private-use characters, HTML-escape the whole snippet in PHP, then turn the markers into <mark>.
  * Stored XSS through highlighted snippets is therefore impossible.
  */
-final class Highlighter
+final readonly class Highlighter
 {
     public const string START = "\u{E000}";
     public const string STOP = "\u{E001}";
@@ -38,8 +38,8 @@ final class Highlighter
     private const string TEXT = 'x_';
 
     public function __construct(
-        private readonly Connection $connection,
-        private readonly Names $names = new Names(),
+        private Connection $connection,
+        private Names $names = new Names(),
     ) {}
 
     /**

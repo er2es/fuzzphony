@@ -30,18 +30,18 @@ use Fuzzphony\Engine\Postgres\Sql\Sql;
  * @internal "fuzzphony:doctor": verifies that the database matches the definition and says how to fix
  * what does not. Read-only (the probe view is temporary and dropped immediately).
  */
-final class PostgresInspector
+final readonly class PostgresInspector
 {
     private const string APPLY = 'bin/console fuzzphony:schema --apply';
 
-    private readonly Names $names;
+    private Names $names;
 
     public function __construct(
-        private readonly Connection $connection,
-        private readonly PostgresSchemaGenerator $schema,
+        private Connection $connection,
+        private PostgresSchemaGenerator $schema,
         /** Whether the engine keeps a search log: only then is its table checked. */
-        private readonly bool $searchLog = false,
-        private readonly int $searchLogRetentionDays = 90,
+        private bool $searchLog = false,
+        private int $searchLogRetentionDays = 90,
     ) {
         $this->names = $schema->names();
     }

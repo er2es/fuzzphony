@@ -71,7 +71,7 @@ final readonly class PostgresIntrospector implements SourceIntrospector
         $rows = Coerce::int($this->connection->fetchValue('SELECT greatest(reltuples, 0)::bigint FROM pg_class WHERE oid = to_regclass(:t)', ['t' => $table]));
 
         $notes = [];
-        $hasStats = array_filter($columns, static fn(array $c): bool => $c['n_distinct'] !== null) !== [];
+        $hasStats = array_any($columns, static fn(array $c): bool => $c['n_distinct'] !== null);
         $sample = [];
         if (!$hasStats) {
             $sample = $this->sample($table, array_map(Coerce::str(...), array_column($columns, 'name')));

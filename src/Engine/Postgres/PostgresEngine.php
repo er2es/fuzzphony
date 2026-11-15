@@ -9,7 +9,6 @@ use Fuzzphony\Core\Database\Connection;
 use Fuzzphony\Core\Definition\IndexDefinition;
 use Fuzzphony\Core\Definition\Synonyms;
 use Fuzzphony\Core\Engine\Engine;
-use Fuzzphony\Core\Engine\OperationalStats;
 use Fuzzphony\Core\Inspection\InspectionReport;
 use Fuzzphony\Core\Inspection\InspectOptions;
 use Fuzzphony\Core\Observability\MetricsCollector;
@@ -40,17 +39,17 @@ use Fuzzphony\Engine\Postgres\Wizard\PostgresIntrospector;
  *
  * @internal
  */
-final class PostgresEngine implements Engine, OperationalStats
+final readonly class PostgresEngine implements Engine
 {
-    private readonly Names $names;
-    private readonly PostgresSchemaGenerator $schema;
-    private readonly EngineGuard $guard;
-    private readonly TextConfigCache $caches;
-    private readonly VocabularyService $vocabulary;
-    private readonly SearchRunner $searches;
-    private readonly IndexMaintenance $maintenance;
-    private readonly bool $searchLogEnabled;
-    private readonly PostgresIntrospector $introspector;
+    private Names $names;
+    private PostgresSchemaGenerator $schema;
+    private EngineGuard $guard;
+    private TextConfigCache $caches;
+    private VocabularyService $vocabulary;
+    private SearchRunner $searches;
+    private IndexMaintenance $maintenance;
+    private bool $searchLogEnabled;
+    private PostgresIntrospector $introspector;
 
     /**
      * @param string $extensionSchema schema of the pg_trgm and unaccent extensions
@@ -59,12 +58,12 @@ final class PostgresEngine implements Engine, OperationalStats
      * @param int    $searchLogRetentionDays the age after which the doctor suggests purging log rows
      */
     public function __construct(
-        private readonly Connection $connection,
+        private Connection $connection,
         string $extensionSchema = 'public',
         string $schema = 'public',
-        private readonly MetricsCollector $metrics = new NullMetricsCollector(),
+        private MetricsCollector $metrics = new NullMetricsCollector(),
         bool $searchLog = false,
-        private readonly int $searchLogRetentionDays = 90,
+        private int $searchLogRetentionDays = 90,
     ) {
         $this->names = new Names($extensionSchema, $schema);
         $this->introspector = new PostgresIntrospector($connection, $schema);

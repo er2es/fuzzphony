@@ -117,31 +117,11 @@ final readonly class IndexMaintenance
         // Keyset pagination over the sidecar: each statement checks (and locks) at most one batch,
         // and the whole run reads every indexed id once. Same anti-join as the refresh function.
         $sidecar = $this->names->sidecar($index);
-        if ($index->isMultiSource()) {
-            // the documents of the batch only are looked up (each kind's part in its own source); a narrowed run touches one kind
-            $kind = $index->onlySource;
-            $sql = fn(bool $first): string => sprintf(
-                <<<'SQL'
-                    WITH batch AS (
-                        SELECT s.id FROM %1$s AS s %2$s ORDER BY s.id LIMIT :limit
-                    ), removed AS (
-                        DELETE FROM %1$s AS s
-                        USING batch AS b
-                        WHERE s.id = b.id
-                          AND NOT EXISTS (SELECT 1 FROM (%3$s) AS doc WHERE doc.fz_id = b.id)
-                        RETURNING 1
-                    )
-                    SELECT (SELECT count(*) FROM batch) AS scanned,
-                           (SELECT b.id::text FROM batch AS b ORDER BY b.id DESC LIMIT 1) AS last,
-                           (SELECT count(*) FROM removed) AS removed
-                    SQL,
-                $sidecar,
-                self::where($first ? null : 's.id > CAST(:after AS text)', $kind === null ? null : 's.kind = ' . Sql::string($kind)),
-                DocumentSql::select($index, '(SELECT array_agg(x.id) FROM batch AS x)'),
-            );
-
-            return $this->pruneBatches($index, $sql, $batchSize);
-        }
+        // multi-source: the documents of the batch only are looked up (each kind's part in its own source); a narrowed run touches one kind
+        $multi = $index->isMultiSource();
+        $kind = $multi ? $index->onlySource : null;
+        $idType = $multi ? 'text' : Types::id($index->idType);
+        $documents = $multi ? DocumentSql::select($index, '(SELECT array_agg(x.id) FROM batch AS x)') : DocumentSql::select($index);
         $sql = static fn(bool $first): string => sprintf(
             <<<'SQL'
                 WITH batch AS (
@@ -158,12 +138,12 @@ final readonly class IndexMaintenance
                        (SELECT count(*) FROM removed) AS removed
                 SQL,
             $sidecar,
-            $first ? '' : sprintf('WHERE s.id > CAST(:after AS %s)', Types::id($index->idType)),
-            DocumentSql::select($index),
+            self::where($first ? null : 's.id > CAST(:after AS ' . $idType . ')', $kind === null ? null : 's.kind = ' . Sql::string($kind)),
+            $documents,
         );
 
         $removed = $this->pruneBatches($index, $sql, $batchSize);
-        if ($index->manyFields() !== []) {
+        if (!$multi && $index->manyFields() !== []) {
             // the values rows of the documents just removed (and of any that lost theirs some other way)
             $this->guard->run('orphan pruning', fn(): int => $this->connection->execute(sprintf(
                 'DELETE FROM %1$s AS v WHERE NOT EXISTS (SELECT 1 FROM %2$s AS s WHERE s.id = v.doc)',
@@ -367,7 +347,7 @@ final readonly class IndexMaintenance
     }
 
     /**
-     * The gauges of `OperationalStats`: one statement each, on the small queue, watches and change-log tables (the queue by its
+     * The gauges of `Engine::operationalStats()`: one statement each, on the small queue, watches and change-log tables (the queue by its
      * (index_name, queued_at) index, the log by the entries past the index's cursor). A statement that fails (a table or column of an
      * older schema) leaves its gauges out; the worker never stops over a metric.
      *
