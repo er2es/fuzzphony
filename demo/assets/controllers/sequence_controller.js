@@ -6,6 +6,7 @@ import { Controller } from '@hotwired/stimulus';
  * The benchmark takes several seconds; loading it row by row makes the page appear instantly, shows honest
  * progress, and keeps the measurements fair (one query batch at a time, never in parallel).
  */
+/* stimulusFetch: 'lazy' */
 export default class extends Controller {
     static targets = ['progress', 'label', 'done'];
 
