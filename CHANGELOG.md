@@ -11,6 +11,10 @@ and a link. Measurements, proofs and test names belong to the pull request, [doc
 
 ## [Unreleased]
 
+### Added
+
+- **A city filter on the same address in the strict mode:** a many filter declared `same_row_as: address` holds, under `manyMatch('single')`, for the address that holds the words (`fő utca` + Eger finds the customer whose Eger address is on Fő utca), and its facet counts what choosing a value shows. Opt-in per filter; run `schema --apply`, then a reindex. See [searching](docs/searching.md#several-values-one-address-manymatch) and [UPGRADE](UPGRADE.md#from-012x-to-0125).
+
 ### Changed
 
 - **Faster `rank: best`:** each full-text match of an index with a `rank: best` field is ranked once instead of twice for its first 2 000

@@ -53,8 +53,9 @@ final readonly class FacetRunner
                 $groups[$name] = [$name];
             }
         }
-        // the ids of the page's own selection, when the facets that keep every condition can count exactly those
-        $ids = $run->ranked !== null && $common !== null ? self::candidateIds($rows) : null;
+        // the ids of the page's own selection, when the facets that keep every condition can count exactly those; a same_row_as filter's
+        // facet counts per value row (SearchSqlBuilder::facets()), which the ids alone cannot
+        $ids = $run->ranked !== null && $common !== null && array_intersect($groups[$common], array_keys($c->coupled())) === [] ? self::candidateIds($rows) : null;
 
         $statements = [];
         $facetRows = [];
@@ -99,9 +100,11 @@ final readonly class FacetRunner
         if ($query->facets === [] || $query->exactCounts || SearchSqlBuilder::window($c->thresholds, $query->limit, $query->offset) !== $c->thresholds->limits->candidates) {
             return null;
         }
+        $coupled = $c->coupled();
         foreach ($query->facets as $name) {
             $others = array_values(array_filter($c->conditions, static fn(Condition $condition): bool => $condition->filter !== $name || $condition->filter === $c->index->tenant));
-            if ($others !== $c->conditions) {
+            // a same_row_as filter's facet counts per value row (SearchSqlBuilder::facets()), not in the page's scan
+            if ($others !== $c->conditions && !isset($coupled[$name])) {
                 return ['conditions' => $others, 'filter' => $name, 'values' => $query->facetValues];
             }
         }

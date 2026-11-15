@@ -501,6 +501,9 @@ final class ArrayDefinitionLoader
                 $problems[] = sprintf('%s: many "rank" applies to fields only (a filter does not rank).', $at);
             }
         }
+        if (array_key_exists('same_row_as', $many) && (!is_string($many['same_row_as']) || $many['same_row_as'] === '')) {
+            $problems[] = ManyValues::sameRowAsProblem($at);
+        }
     }
 
     /** @param list<string> $problems */

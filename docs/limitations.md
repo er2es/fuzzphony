@@ -443,6 +443,14 @@ A field or filter declared [`many`](configuration.md#several-values-per-document
   over a field boundary (`kisanna` for the name "Kiss" and the address "Anna utca 1") matches in the default mode only. The empty-result relaxation
   and "did you mean" judge the words on their own.
   What to do: name only the field that must be one value (`manyMatch('single', 'addresses')`), keep `limit` near the real number of values.
+- **A [`same_row_as`](configuration.md#several-values-per-document-many) filter is coupled only to positive conditions, and only once indexed.**
+  What happens: in `manyMatch('single')`, `where('city', 'Eger')` / `whereIn` hold for the address that holds the words, but `whereNull('city')`
+  stays per customer (no city on any address); rows indexed before the option match the city of any address until a reindex; the filter's own
+  `limit` still caps the per-customer list the search pre-filters on, so a city past it is not found even on the right row; a coupled search
+  reads the values of each candidate in the city (also for one word, and without the one-value shortcut), and its facet is counted in a statement
+  of its own. Why: the city is stored per value row only by the refresh, never rewritten at apply (no long rewrite, no race); the per-customer
+  list keeps the index pre-filter. What to do: run `fuzzphony:reindex` after adding the option (the doctor counts the rows that wait); keep the
+  filter's `limit` at least the field's.
 - **Filters on a many field are not hidden by `granted`.** What happens: `granted` hides a searchable field; a filter is a separate declaration and
   filters are never role-gated. What to do: do not declare a many filter over a column a viewer may not see.
 

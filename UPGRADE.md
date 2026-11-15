@@ -3,6 +3,33 @@
 Before 1.0, a minor version may contain breaking changes. Each section lists what to change,
 and the [CHANGELOG](CHANGELOG.md) has the full list of changes.
 
+## From 0.12.x to 0.12.5
+
+No API change and no change for an existing definition: the schema plan of an index with a many field gains one idempotent statement
+(it drops a `fr_` column of the values table that no filter expects; there is none on an existing install), and every statement of its
+searches is the same.
+
+### Opting in: `same_row_as`
+
+To hold a city filter to the address that holds the words under `manyMatch('single')`, declare it on the many filter (the field must be a
+many field over the same child rows, with `rank: best` to take part in the single mode):
+
+```yaml
+filters:
+  city: { type: string, many: { from: address, key: customer_id, column: city, same_row_as: address } }
+```
+
+1. Deploy the definition and run `bin/console fuzzphony:schema --apply` right away: it adds one nullable `text[]` column to the values
+   table (catalog check first, no rewrite, no default) and the refresh function that fills it. A coupled search reads the column, so until
+   the apply such a search fails with an undefined-column error (as a new `rank: best` field does); searches without `manyMatch('single')`
+   and a city condition are not affected.
+2. `bin/console fuzzphony:reindex <index>`: the rows written before the option do not know their city (NULL) and match the city of any
+   address, as before, until the reindex (or the sync) rewrites them; the doctor counts them ("Same row"). There is no apply-time backfill.
+
+Removing the option (or changing its column, field or child table) needs only `schema --apply`: the column goes (a changed declaration
+gets a new, empty column), and the searches fall back to the document-level filter at once. Going back to 0.12.4 needs nothing: its
+refresh function lists its columns, so the column is left NULL on the rows it writes.
+
 ## From 0.12.x to 0.12.4
 
 No API change. A per-field column whose value another column of the same row holds is stored empty: `z_<field>` of the primary field

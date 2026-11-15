@@ -21,7 +21,7 @@ final readonly class ManyValues
     public const int DEFAULT_LIMIT = 50;
     public const int MAX_LIMIT = 10000;
 
-    public const array KEYS = ['from', 'key', 'column', 'limit', 'id', 'rank'];
+    public const array KEYS = ['from', 'key', 'column', 'limit', 'id', 'rank', 'same_row_as'];
 
     public function __construct(
         /** The child table (optionally schema-qualified). */
@@ -36,6 +36,11 @@ final readonly class ManyValues
         public string $id = 'id',
         /** Whole: the values are ranked as one text (the default); Best: the field ranks through its best single value (fields only). */
         public ManyRank $rank = ManyRank::Whole,
+        /**
+         * Filters only: the many field whose value rows this filter's values share (same child table, key and id). Under
+         * `manyMatch('single')` a positive condition on the filter then holds for the SAME child row whose value holds the field's words.
+         */
+        public ?string $sameRowAs = null,
     ) {}
 
     /**
@@ -62,6 +67,9 @@ final readonly class ManyValues
         if (array_key_exists('limit', $config) && !is_int($config['limit'])) {
             $problems[] = sprintf('%s: many "limit" must be an integer between 1 and %d.', $what, self::MAX_LIMIT);
         }
+        if (array_key_exists('same_row_as', $config) && (!is_string($config['same_row_as']) || $config['same_row_as'] === '')) {
+            $problems[] = self::sameRowAsProblem($what);
+        }
         $rank = ManyRank::Whole;
         if (array_key_exists('rank', $config)) {
             $parsed = $config['rank'] instanceof ManyRank ? $config['rank'] : (is_string($config['rank']) ? ManyRank::tryFrom($config['rank']) : null);
@@ -82,7 +90,14 @@ final readonly class ManyValues
             is_int($config['limit'] ?? null) ? $config['limit'] : self::DEFAULT_LIMIT,
             is_string($config['id'] ?? null) ? $config['id'] : 'id',
             $rank,
+            is_string($config['same_row_as'] ?? null) ? $config['same_row_as'] : null,
         );
+    }
+
+    /** The message for a "same_row_as" that is not a non-empty string (also the definition loader's). */
+    public static function sameRowAsProblem(string $what): string
+    {
+        return sprintf('%s: many "same_row_as" must name a many field of the index (a non-empty string), e.g. same_row_as: address.', $what);
     }
 
     /** The message for a "rank" that is neither "whole" nor "best" (also the definition loader's). */
@@ -120,7 +135,7 @@ final readonly class ManyValues
     /**
      * The definition fingerprint: the rank is part of it only when it is Best, so every 0.11 definition keeps its hash.
      *
-     * @return array{string, string, string, int, string}|array{string, string, string, int, string, string}
+     * @return list<int|string>
      */
     public function fingerprint(): array
     {
@@ -129,16 +144,22 @@ final readonly class ManyValues
 
     /**
      * What the stored documents depend on: the rank only changes how a search reads the values table, so it is not in here (turning it on
-     * needs `schema --apply`, never a reindex).
+     * needs `schema --apply`, never a reindex). A filter's `same_row_as` is in it (only when set, so every earlier hash stays): the values
+     * rows store the filter value of their child row, which a reindex writes.
      *
-     * @return array{string, string, string, int, string}
+     * @return list<int|string>
      */
     public function documentsFingerprint(): array
     {
-        return [$this->from, $this->key, $this->column, $this->limit, $this->id];
+        $parts = [$this->from, $this->key, $this->column, $this->limit, $this->id];
+        if ($this->sameRowAs !== null) {
+            $parts[] = 'same_row_as:' . $this->sameRowAs;
+        }
+
+        return $parts;
     }
 
-    /** @return array{from: string, key: string, column: string, limit?: int, id?: string, rank?: string} */
+    /** @return array{from: string, key: string, column: string, limit?: int, id?: string, rank?: string, same_row_as?: string} */
     public function toArray(): array
     {
         $array = ['from' => $this->from, 'key' => $this->key, 'column' => $this->column];
@@ -150,6 +171,9 @@ final readonly class ManyValues
         }
         if ($this->rank === ManyRank::Best) {
             $array['rank'] = $this->rank->value;
+        }
+        if ($this->sameRowAs !== null) {
+            $array['same_row_as'] = $this->sameRowAs;
         }
 
         return $array;

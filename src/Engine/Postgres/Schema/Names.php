@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Fuzzphony\Engine\Postgres\Schema;
 
+use Fuzzphony\Core\Definition\FilterDefinition;
 use Fuzzphony\Core\Definition\IndexDefinition;
 use Fuzzphony\Core\Definition\TextConfig;
 use Fuzzphony\Core\Definition\Watch;
@@ -229,6 +230,19 @@ final readonly class Names
     public function valueCountName(string $field): string
     {
         return self::limit('n_' . $field);
+    }
+
+    /**
+     * The values table column with the value of a `same_row_as` filter on each value row of its field (`text[]`: NULL = not known yet, a
+     * row written before the option or by an older refresh function; `{}` = the child row has no value). The name carries a hash of where
+     * the value comes from (from, key, id, the filter's column, the field): a changed definition gets a new, empty column instead of
+     * trusting the values of the old one until a reindex.
+     */
+    public function sameRowColumnName(FilterDefinition $filter): string
+    {
+        $many = $filter->many ?? throw new \LogicException(sprintf('Filter "%s" has no several values.', $filter->name));
+
+        return substr('fr_' . $filter->name, 0, self::MAX_IDENTIFIER_BYTES - 9) . '_' . hash('crc32b', json_encode([$many->from, $many->key, $many->id, $many->column, $many->sameRowAs], JSON_THROW_ON_ERROR));
     }
 
     /** The words of a fuzzy index and in how many documents each occurs: where "did you mean" (and later suggest()) read. */
