@@ -670,14 +670,14 @@ final class FuzzyQueryCompiler
 
     /**
      * The correction of a word the user typed (not a prefix, a phrase, nor an alternative a synonym added), for an unrestricted viewer's
-     * ranked statement (never inside withinValues(): a value row is judged by its own words).
+     * ranked statement.
      *
      * @return array{word: string, score: float}|null
      */
     private function correction(Node $leaf): ?array
     {
         $inner = $leaf instanceof FieldScoped ? $leaf->node : $leaf;
-        if ($this->corrections === [] || $this->allowed !== null || $this->within() || !$inner instanceof Term || $inner->prefix || $inner->synonym) {
+        if ($this->corrections === [] || $this->allowed !== null || !$inner instanceof Term || $inner->prefix || $inner->synonym) {
             return null;
         }
 
