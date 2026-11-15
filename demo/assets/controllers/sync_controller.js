@@ -8,6 +8,7 @@ import { Controller } from '@hotwired/stimulus';
 const EVERY_MS = 700;
 const GIVE_UP_MS = 30000;
 
+/* stimulusFetch: 'lazy' */
 export default class extends Controller {
     static targets = ['panel', 'status'];
     static values = { url: String, active: Boolean };
@@ -27,6 +28,9 @@ export default class extends Controller {
         const deadline = Date.now() + GIVE_UP_MS;
         while (!this.stopped && Date.now() < deadline) {
             await new Promise((resolve) => setTimeout(resolve, EVERY_MS));
+            if (document.hidden) {
+                continue; // a background tab does not poll; the next round checks again
+            }
             try {
                 const response = await fetch(this.urlValue, { headers: { 'X-Requested-With': 'fetch' } });
                 if (!response.ok) {
