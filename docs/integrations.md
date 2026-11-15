@@ -5,51 +5,41 @@ Doctrine, API Platform, Symfony UX Live Component and Messenger. Back to the
 
 ## Doctrine
 
-- `Fuzzphony\Bridge\Doctrine\EntityLoader` turns search results into entities with one query,
-  keeping the ranking order. In `queue` mode it skips hits whose row no longer exists,
-  and hits whose id cannot be an id of the entity (the string `article-1` of a federated result for an integer key); `FuzzphonySearchFilter` does the same.
-- `EntityLoader::loadHits()` loads hits of several sources or indexes without naming a class ([below](#loading-mixed-results)).
-- `Fuzzphony\Bridge\Doctrine\DbalConnection` runs Fuzzphony on an existing Doctrine DBAL
-  connection. The Symfony bundle uses the connection named in `fuzzphony.connection` (default
-  `default`).
-- `orm` sync mode refreshes documents after `flush()` through an ORM listener (see
-  [Keeping the index in sync](sync.md)).
-- With the bundle, every Doctrine entity with `#[Searchable]` is registered as an index.
+- `Fuzzphony\Bridge\Doctrine\EntityLoader` turns search results into entities with one query, keeping the ranking order. It skips hits whose row no longer
+  exists (`queue` mode) and hits whose id cannot be an id of the entity (the string `article-1` of a federated result for an integer key);
+  `FuzzphonySearchFilter` does the same. `EntityLoader::loadHits()` loads hits of several sources or indexes ([below](#loading-mixed-results)).
+- `Fuzzphony\Bridge\Doctrine\DbalConnection` runs Fuzzphony on an existing Doctrine DBAL connection; the bundle uses the connection named in
+  `fuzzphony.connection` (default `default`).
+- `orm` sync mode refreshes documents after `flush()` through an ORM listener (see [Keeping the index in sync](sync.md)). With the bundle, every Doctrine
+  entity with `#[Searchable]` is registered as an index.
 
 ### Loading mixed results
 
-A [multi-source index](configuration.md#several-sources-in-one-index) or a [federated search](searching.md#federated-search) returns hits of
-different entities. `loadHits()` needs no class: each hit's class is the `entity` of its source (`$hit->kind` inside the index
-`$hit->index`) or, for a single-source index, the `entity` of the index definition.
+A [multi-source index](configuration.md#several-sources-in-one-index) or a [federated search](searching.md#federated-search) returns hits of different
+entities. `loadHits()` needs no class: each hit's class is the `entity` of its source or, for a single-source index, the `entity` of the index definition.
 
 ```php
 $result = $fuzzphony->in('site')->query('mouse')->get();      // or ->federated()...->get(), or a list of Hit
 $entities = $loader->loadHits($result);                       // list<object>: Product, Article, Product, ... in rank order
 ```
 
-- **One query per entity class**, not per hit: ids are grouped by class, and an id that cannot be an id of the class (a string for an
-  integer key) is skipped, as in `load()`. Typed ids work as they are: an `int` for the product, a uuid string for the article.
-- **Rank order** is kept across the classes. A hit is skipped, without an exception, when its entity was deleted meanwhile or when its
-  source or index names **no** entity class.
-- The loader needs the `Fuzzphony` service to find the definitions: the bundle wires it (`new EntityLoader($entityManager, $fuzzphony)`
-  without the bundle). `load($result, Article::class)` for a single class is unchanged.
+- **One query per entity class**, not per hit; an id that cannot be an id of the class (a string for an integer key) is skipped, as in `load()`. Typed ids
+  work as they are (an `int` for the product, a uuid string for the article).
+- **Rank order** is kept across the classes. A hit is skipped, without an exception, when its entity was deleted meanwhile or when its source or index
+  names **no** entity class.
+- The loader needs the `Fuzzphony` service to find the definitions: the bundle wires it (`new EntityLoader($entityManager, $fuzzphony)` without the bundle).
+  `load($result, Article::class)` for a single class is unchanged.
 
 ## Doctrine Migrations
 
-`bin/console fuzzphony:schema --dump-migration=migrations` writes the schema as a Doctrine
-migration class (needs `doctrine/migrations`). Every statement is idempotent (`IF NOT EXISTS`,
-`CREATE OR REPLACE`), so it is safe to commit and to run again. Each part records itself in
-`fuzzphony_meta` once its objects exist: the shared objects first, then every index after its own
-statements, so the migration ends with the last index's record. It is not transactional, because
-the indexes are built `CONCURRENTLY`, and `down()` is irreversible (use
-`fuzzphony:schema --drop --apply`).
+`bin/console fuzzphony:schema --dump-migration=migrations` writes the schema as a Doctrine migration class (needs `doctrine/migrations`). Every statement is
+idempotent (`IF NOT EXISTS`, `CREATE OR REPLACE`), so it is safe to commit and to run again. Each part records itself in `fuzzphony_meta` once its objects
+exist, so the migration ends with the last index's record. It is not transactional, because the indexes are built `CONCURRENTLY`, and `down()` is
+irreversible (use `fuzzphony:schema --drop --apply`).
 
-Doctrine's schema tools must not see Fuzzphony's tables, or `doctrine:migrations:diff` proposes
-dropping them. With DoctrineBundle, the bundle sets the connection's `schema_filter` for you:
-`~^(?!(public\.)?fuzzphony_)~`, or `~^(?!fuzzphony\.)~` with `schema: fuzzphony`. If your
-connection already has a `schema_filter`, the bundle leaves it alone and `fuzzphony:doctor` warns,
-with the regex to merge, as long as your filter lets Fuzzphony's tables through; merge the two and
-the warning goes away, for example:
+Doctrine's schema tools must not see Fuzzphony's tables, or `doctrine:migrations:diff` proposes dropping them. With DoctrineBundle, the bundle sets the
+connection's `schema_filter` for you: `~^(?!(public\.)?fuzzphony_)~`, or `~^(?!fuzzphony\.)~` with `schema: fuzzphony`. If your connection already has a
+`schema_filter`, the bundle leaves it alone and `fuzzphony:doctor` warns, with the regex to merge, until your filter hides Fuzzphony's tables; for example:
 
 ```yaml
 doctrine:
@@ -57,15 +47,13 @@ doctrine:
     schema_filter: '~^(?!(public\.)?(fuzzphony_|legacy_))~'   # or '~^(?!(fuzzphony\.|legacy_))~' with schema: fuzzphony
 ```
 
-If `fuzzphony.connection` or `fuzzphony.schema` comes from a parameter or an environment variable
-(`%env(...)%`), the bundle cannot read it when the filter is set up: it sets no filter and the
-doctor does not check yours, so add Fuzzphony's regex to your connection yourself.
+If `fuzzphony.connection` or `fuzzphony.schema` comes from a parameter or an environment variable (`%env(...)%`), the bundle sets no filter and the doctor
+does not check yours: add Fuzzphony's regex to your connection yourself.
 
 ## API Platform
 
-Relevance search for any collection whose entity is searchable (requires
-`api-platform/doctrine-orm`). Other filters, pagination and serialization keep working; results
-come in score order:
+Relevance search for any collection whose entity is searchable (requires `api-platform/doctrine-orm`). Other filters, pagination and serialization keep
+working; results come in score order:
 
 ```php
 #[ApiResource]
@@ -107,9 +95,8 @@ tenant-scoped index works with both; the tenant is resolved on the server, never
 
 ## Your own frontend
 
-The Live Component above is a convenience, not a requirement. Fuzzphony is a library that returns a
-`SearchResult`; any UI (Twig, a JSON endpoint for a single-page app, a mobile client, a CLI) can render it. What a custom
-UI depends on:
+The Live Component is a convenience, not a requirement: Fuzzphony returns a `SearchResult`; any UI (Twig, a JSON endpoint, a mobile client, a CLI) can render
+it. What a custom UI depends on:
 
 | `SearchResult` | What it is | Rendering |
 |---|---|---|
@@ -122,20 +109,18 @@ UI depends on:
 | `warnings` | Corrections applied to the text | Plain text |
 | `usedFuzzy`, `interpretedAs`, `tookMs` | Diagnostics | Optional |
 
-**JSON without the glue.** `json_encode($result)` writes the whole result with stable keys (`hits`, `total`, `totalIsLowerBound`, `facets`, `didYouMean`,
-`correctedFrom`, `correctedTo`, `warnings`, `tookMs`; a hit has `index`, `kind`, `id`, `score`, `breakdown`, `highlights`, `mergedScore`, `matches`, and `data` when `with()` returned something), also `$result->toArray()`: an endpoint can be
-`echo json_encode($fuzzphony->in('products')->query($q)->highlight('name')->get());`. The `highlights` are HTML (below), everything else is plain text. The example
-below builds its own shape on purpose, to show what each part is for.
+**JSON without the glue.** `json_encode($result)` (also `$result->toArray()`) writes the whole result with stable keys (`hits`, `total`, `totalIsLowerBound`,
+`facets`, `didYouMean`, `correctedFrom`, `correctedTo`, `warnings`, `tookMs`; a hit has `index`, `kind`, `id`, `score`, `breakdown`, `highlights`,
+`mergedScore`, `matches`, and `data` when `with()` returned something): an endpoint can be
+`echo json_encode($fuzzphony->in('products')->query($q)->highlight('name')->get());`. The `highlights` are HTML, everything else is plain text.
 
-**The escape rule.** `$hit->highlights['name']` is HTML: Fuzzphony escapes the whole text (`&`, `<`, `>`, quotes) and adds
-`<mark>` and `</mark>` around the matching words, nothing else. Render it as HTML (`innerHTML`, Twig `|raw`), or strip the
-`<mark>` tags first if you want plain text. Never escape it a second time (the visitor would see `&amp;`), and never render
-a value that is not a highlight as HTML. `didYouMean`, `correctedFrom`, `warnings` and everything from your own rows are
-plain text: escape them. A field you did not ask to highlight, and every search with an empty text, has no highlight: escape the
-stored value instead.
+**The escape rule.** `$hit->highlights['name']` is HTML: Fuzzphony escapes the whole text (`&`, `<`, `>`, quotes) and adds `<mark>` and `</mark>` around the
+matching words, nothing else. Render it as HTML (`innerHTML`, Twig `|raw`), or strip the `<mark>` tags for plain text. Never escape it a second time, and never
+render a value that is not a highlight as HTML. `didYouMean`, `correctedFrom`, `warnings` and everything from your own rows are plain text: escape them. A
+field you did not ask to highlight, and every search with an empty text, has no highlight: escape the stored value instead.
 
-A framework-free endpoint (the index is defined as in [Builder (plain PHP)](configuration.md#builder-plain-php); run
-`$fuzzphony->schema()->apply($connection)` and `reindex()` once):
+A framework-free endpoint (the index is defined as in [Builder (plain PHP)](configuration.md#builder-plain-php); run `$fuzzphony->schema()->apply($connection)`
+and `reindex()` once):
 
 ```php
 // search.php
@@ -212,10 +197,9 @@ and the page that calls it:
 </script>
 ```
 
-For search-as-you-type, call the endpoint after a pause in typing, not on every key, and add `->unlogged()` to the builder if
-those searches should stay out of the [search log](analytics.md). A public endpoint needs a rate limit: with Symfony it is
-`fuzzphony.rate_limit.per: ip` ([Security](security.md#the-rate-limit)); without it, use your framework's. The template of the
-component (`src/Bundle/templates/components/Search.html.twig`) shows one way to render each part of the result.
+For search-as-you-type, call the endpoint after a pause in typing, and add `->unlogged()` to keep those searches out of the [search log](analytics.md). A
+public endpoint needs a rate limit: with Symfony `fuzzphony.rate_limit.per: ip` ([Security](security.md#the-rate-limit)); without it, your framework's. The
+component's template (`src/Bundle/templates/components/Search.html.twig`) shows one way to render each part of the result.
 
 **A result row and its link without loading entities.** Declare `returnable: [title, slug]` on the index (on each source of a multi-source one) and ask for
 it; `kind` + `id` + `data` are then enough to build the link:
