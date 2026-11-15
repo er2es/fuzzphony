@@ -91,17 +91,18 @@ final class DocSnippetsSyntaxTest extends TestCase
     #[DataProvider('yamlBlocks')]
     public function testTheYamlBlockParsesAndACompleteIndexValidates(string $code): void
     {
+        $this->addToAssertionCount(1);
         $data = Yaml::parse($code);
-        if (!is_array($data) || !is_array($data['fuzzphony']['indexes'] ?? null)) {
-            self::assertTrue(true);
-
-            return;
-        }
-        foreach ($data['fuzzphony']['indexes'] as $name => $config) {
-            if (is_array($config) && isset($config['fields'], $config['source'])) {
-                DefinitionValidator::assertValid((new ArrayDefinitionLoader(null))->load((string) $name, $config));
+        $indexes = is_array($data) && is_array($data['fuzzphony'] ?? null) ? ($data['fuzzphony']['indexes'] ?? null) : null;
+        foreach (is_array($indexes) ? $indexes : [] as $name => $config) {
+            if (!is_array($config) || !isset($config['fields'], $config['source'])) {
+                continue; // an override or a fragment: parsing was the check
             }
+            $typed = [];
+            foreach ($config as $key => $value) {
+                $typed[(string) $key] = $value;
+            }
+            DefinitionValidator::assertValid((new ArrayDefinitionLoader(null))->load((string) $name, $typed));
         }
-        self::assertTrue(true);
     }
 }

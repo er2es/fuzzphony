@@ -11,6 +11,14 @@ and a link. Measurements, proofs and test names belong to the pull request, [doc
 
 ## [Unreleased]
 
+### Changed
+
+- **Documentation is shorter** (README, UPGRADE and the long pages under `docs/` lose repetition and release history; headings, options, limits and security rules stay). UPGRADE.md starts with the one-line upgrade: `composer update`, `fuzzphony:schema --apply`, `fuzzphony:reindex <index>` when the doctor asks, `fuzzphony:doctor`.
+
+### Added
+
+- **A test for the code samples of the docs** (`DocSnippetsSyntaxTest`): every PHP block parses, every `use Fuzzphony\...` names a real type, every YAML block parses and a complete index definition validates like the bundle's loader does; `<!-- fragment -->` before a block skips it.
+
 ## [0.12.5] - 2026-11-15
 
 The strict mode can couple a city filter to the address that holds the words (`same_row_as`), `rank: best` ranks each match once, the redundant open-class trigram index is dropped and the table is vacuumed after a backfill, and the demo shows the coupling. Three independent reviews (the coupling, the trigram drop with probes against the real 0.12.4, and their fixes) found no leak. Run `fuzzphony:schema --apply` (UPGRADE has the order); a reindex is needed only to fill the new per-address filter column of an existing index.

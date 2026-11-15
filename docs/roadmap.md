@@ -118,17 +118,21 @@ additive work after it (0.11.0, released) and the stable 1.0.0 do not have to ch
 
 ## Next
 
-### After 0.12.5: to be decided
+### v0.12.6 (in progress)
 
-- A cheaper per-value rank for `rank: best` beyond ranking once (searches whose words are in the field cost 1.3 to 1.9 times a whole-field search), if a way is found that keeps the results identical.
+- A `DefinitionProvider` extension point (index definitions from outside the container, e.g. from a database table).
+- Spikes for a cheaper per-value rank for `rank: best` (kept only if the results stay identical; otherwise dropped).
+- Documentation: the code samples of the docs are tested (they parse, the types they use exist, complete YAML indexes validate) and the pages are shorter.
+- A final independent security review of the public surface.
+
+### After 0.12.6
+
 - The 1.0 preparation (the final public API list, the backward-compatibility policy, rc.1).
 
 ### Ideas before 1.0, not yet decided
 
 - A smaller sidecar: leave out the `t_*` and `z_*` columns an index never needs, share the normalised text between `exact` and
-  `z_<field>`, skip filter indexes that are never used; each only where exactness and speed stay (a differential proof and timing first).
-- A `DefinitionProvider` extension point (definitions from outside the container).
-- An honest public benchmark against Meilisearch and Typesense, and a "migrating from Elasticsearch or Meilisearch" guide.
+  `z_<field>`; each only where exactness and speed stay (a differential proof and timing first).
 
 ### v1.0.0: stable
 
