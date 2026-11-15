@@ -72,8 +72,7 @@ final class DocSnippetsSyntaxTest extends TestCase
                 if (str_starts_with($matches[0][$n][0], '<!-- fragment -->')) {
                     continue;
                 }
-                yield substr($file, strlen($root) + 1) . ':' . (substr_count(substr($text, 0, (int) $offset), "
-") + 1) => [$code];
+                yield substr($file, strlen($root) + 1) . ':' . (substr_count(substr($text, 0, (int) $offset), "\n") + 1) => [$code];
             }
         }
     }
