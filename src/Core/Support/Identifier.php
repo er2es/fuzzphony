@@ -10,9 +10,9 @@ namespace Fuzzphony\Core\Support;
  */
 final class Identifier
 {
-    private const string NAME = '/^[a-z_][a-z0-9_]{0,47}$/';
-    private const string COLUMN = '/^[A-Za-z_][A-Za-z0-9_]{0,62}$/';
-    private const string TABLE = '/^[A-Za-z_][A-Za-z0-9_]{0,62}(\.[A-Za-z_][A-Za-z0-9_]{0,62})?$/';
+    private const string NAME = '/^[a-z_][a-z0-9_]{0,47}\z/';
+    private const string COLUMN = '/^[A-Za-z_][A-Za-z0-9_]{0,62}\z/';
+    private const string TABLE = '/^[A-Za-z_][A-Za-z0-9_]{0,62}(\.[A-Za-z_][A-Za-z0-9_]{0,62})?\z/';
 
     public static function isName(string $value): bool
     {

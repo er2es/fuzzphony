@@ -216,8 +216,17 @@ final class PostgresSchemaGenerator
         $statements[] = new Statement($this->refreshFunction($index, shadow: true), 'Builds / removes documents by id in the table a full reindex builds next to the live one');
         $statements[] = new Statement($this->trackFunction($index), 'Logs which documents change while a full reindex runs');
 
+        $legacy = [];
         foreach ($index->effectiveWatches() as $watch) {
             $watched = Sql::ident($watch->table);
+            // the unhashed names of before 0.12.7 (their function may be shared by two tables: dropped after all triggers are gone)
+            $old = $this->names->legacySyncFunctionName($index, $watch);
+            if ($old !== $this->names->syncFunctionName($index, $watch)) {
+                $legacy[$this->names->legacySyncFunction($index, $watch)] = true;
+                foreach (['', '_ins', '_upd', '_del', '_trn'] as $suffix) {
+                    $statements[] = new Statement(sprintf('DROP TRIGGER IF EXISTS %s ON %s', Sql::ident($suffix === '' ? $old : Names::limit($this->names->legacySyncFunctionName($index, $watch) . $suffix)), $watched), 'Remove the trigger of the unhashed sync function name of an earlier release');
+                }
+            }
             foreach ($this->obsoleteTriggerNames($index, $watch) as $obsolete) {
                 $statements[] = new Statement(sprintf('DROP TRIGGER IF EXISTS %s ON %s', Sql::ident($obsolete), $watched), sprintf('Remove trigger not used in "%s" sync / %s level', $index->sync->value, $index->triggerLevel->value));
             }
@@ -241,6 +250,9 @@ final class PostgresSchemaGenerator
                 );
             }
             $statements[] = $this->partitionTriggers($index, $watch, true);
+        }
+        foreach (array_keys($legacy) as $old) {
+            $statements[] = new Statement(sprintf('DROP FUNCTION IF EXISTS %s()', $old), 'Remove the sync function of the unhashed name of an earlier release');
         }
         if (SharedWatch::applies($index)) {
             $statements[] = new Statement($this->sharedWatch()->drainFunction($index, $this->relevantColumns(...), $this->names->sidecar($index), $this->names->changes($index)), 'Moves the changes the shared trigger logged into the index queue');

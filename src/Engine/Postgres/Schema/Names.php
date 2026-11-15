@@ -180,8 +180,19 @@ final readonly class Names
 
     public function syncFunctionName(IndexDefinition $index, Watch $watch): string
     {
-        // the two sources of a multi-source index that read one table each have their own function and triggers
+        // the hash keeps `public.t` and `public_t` (and source "a__b" + table "c" from "a" + "b__c") apart, like watchFunctionName()
+        return self::limit(self::PREFIX . 'sync_' . $index->name . '__' . ($watch->source !== null ? $watch->source . '__' : '') . str_replace('.', '_', $watch->table) . '_' . substr(md5(Sql::ident($watch->table) . "|" . (string) $watch->source), 0, 8));
+    }
+
+    /** The name before 0.12.7 (no hash): its function and triggers are removed when an index is applied. */
+    public function legacySyncFunctionName(IndexDefinition $index, Watch $watch): string
+    {
         return self::limit(self::PREFIX . 'sync_' . $index->name . '__' . ($watch->source !== null ? $watch->source . '__' : '') . str_replace('.', '_', $watch->table));
+    }
+
+    public function legacySyncFunction(IndexDefinition $index, Watch $watch): string
+    {
+        return $this->qualify($this->legacySyncFunctionName($index, $watch));
     }
 
     public function syncFunction(IndexDefinition $index, Watch $watch): string

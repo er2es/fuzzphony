@@ -34,9 +34,9 @@ final class RegistryFactory
     public static function create(array $yaml, ?DoctrineIndexDiscovery $discovery = null, ?CacheItemPoolInterface $cache = null, bool $cacheInCli = false, ?string $projectDir = null, bool $authorizationEnabled = true, iterable $definitionClasses = [], iterable $providers = []): IndexRegistry
     {
         $pool = \PHP_SAPI === 'cli' && !$cacheInCli ? null : $cache;
-        $registry = new IndexRegistry($discovery === null ? [] : self::discovered($discovery, $pool));
-        foreach ($registry->all() as $name => $definition) {
-            $registry->annotateOrigin($name, 'attribute ' . ($definition->entityClass ?? '#[Searchable]'));
+        $registry = new IndexRegistry();
+        foreach ($discovery === null ? [] : self::discovered($discovery, $pool) as $definition) {
+            $registry->register($definition, 'attribute ' . ($definition->entityClass ?? '#[Searchable]'));
         }
         foreach (self::definitionClasses($definitionClasses, $pool) as $class => $definition) {
             $registry->register($definition, 'definition class ' . $class);
