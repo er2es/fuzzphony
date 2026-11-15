@@ -19,6 +19,6 @@ namespace Fuzzphony\Core\Definition;
  */
 interface DefinitionProvider
 {
-    /** @return iterable<IndexDefinition> every index this provider defines */
+    /** @return iterable<int, IndexDefinition> every index this provider defines (keys are ignored; a generator or a list) */
     public function definitions(): iterable;
 }
