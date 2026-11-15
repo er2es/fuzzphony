@@ -20,6 +20,12 @@ and a link. Measurements, proofs and test names belong to the pull request, [doc
 - **Faster `rank: best`:** each full-text match of an index with a `rank: best` field is ranked once instead of twice for its first 2 000
   matches (5 to 15 % less time on searches with more matches than the window); results unchanged, `rank: whole` indexes untouched.
   See [benchmarks](docs/benchmarks.md#ranking-by-the-best-value-rank-best).
+- **No duplicate trigram index for restricted viewers:** an index whose `granted` fields are all non-fuzzy no longer builds the open-class
+  trigram index (a copy of `fz`, 12 MB at 200 000 rows); `schema --apply` drops it, no reindex. Such viewers now also get the open-class
+  full-text index, which the copy kept switched off; results unchanged. See [UPGRADE](UPGRADE.md#from-012x-to-0125).
+- **Compaction hint after the column backfill:** `schema --apply` runs `VACUUM (ANALYZE)` on a table whose rows it backfilled, reports
+  its growth and points to `fuzzphony:reindex` (compacts online); the doctor notes a table still wider than its column map needs. See
+  [commands](docs/commands.md#commands).
 
 ## [0.12.4] - 2026-11-15
 

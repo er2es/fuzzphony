@@ -239,6 +239,9 @@ with or without them, and an index without a `granted` field has no extra index 
 - A word that is common in a field the viewer **can** see costs what it costs an unrestricted viewer.
 - A phrase over fields of both classes, or with a synonym alternative, is rechecked on the fields' own columns as before.
 - A viewer restricted by hand (`restrictedToFields()`) on an index with no `granted` field has no open class: as slow as above.
+- When no granted field is typo-tolerant there is no open-class trigram index (it would copy `fz`): the viewer's typos are looked up in
+  `fz`, which may still hold a now-granted field's text in rows an earlier definition wrote, until the reindex; the recheck removes those
+  rows, they only cost time.
 - The open-class indexes are used only when they exist, are valid and each is smaller than the index it replaces (`fz`, `tsv`); the engine asks once per process, so
   after `fuzzphony:schema --apply` built them restart long-running workers (or call `Fuzzphony::resetCaches()`). Until then,
   and when the granted fields hold little of the text, the viewer is on the statements it always had.
