@@ -126,6 +126,7 @@ A legacy table has no entity: `#[AsIndexDefinition('orders')]` and `$b->fromTabl
 Give `indexes:` several entries (with the builder: build several definitions and give them all to `Fuzzphony::postgres()`).
 Each index has its own sidecar table, triggers and queue rows, so indexes can share tables:
 
+<!-- fragment -->
 ```yaml
     companies:
       source:
@@ -161,6 +162,7 @@ Each index has its own sidecar table, triggers and queue rows, so indexes can sh
   or entity twice (a public and an admin index, with other fields, language or `sync`), define the second one under
   another name in YAML or the builder, with `source.table`; it needs no class:
 
+<!-- fragment -->
 ```yaml
     people_admin:
       source: { table: customer }
@@ -400,6 +402,7 @@ name (or drop the index's table first). What it does not do: [ranks by the whole
 A document has one id column. Build it in the query and make the watch return the same text. A watch `key` is one real
 column, so key on a column of the primary key and return every document of that group:
 
+<!-- fragment -->
 ```yaml
     order_lines:
       id_type: string
@@ -539,6 +542,7 @@ one one-edit correction in the vocabulary is run again with it and says so,
 [Zero-result rescue](searching.md#zero-result-rescue)). `rescue.correct_when_empty: false` keeps the suggestion and drops the second
 search; `rescue.did_you_mean: false` turns both off (the rescue uses the suggestion's vocabulary lookup, so `correct_when_empty` must be `false` too):
 
+<!-- fragment -->
 ```yaml
       thresholds:
         rescue:
