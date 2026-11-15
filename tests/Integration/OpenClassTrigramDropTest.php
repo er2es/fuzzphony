@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Fuzzphony\Tests\Integration;
 
+use Fuzzphony\Bundle\Command\SchemaCommand;
 use Fuzzphony\Core\Database\Connection;
 use Fuzzphony\Core\Definition\FieldDefinition;
 use Fuzzphony\Core\Definition\IndexDefinition;
@@ -16,6 +17,7 @@ use Fuzzphony\Engine\Postgres\Schema\Names;
 use Fuzzphony\Engine\Postgres\Schema\OpenClass;
 use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\TestCase;
+use Symfony\Component\Console\Tester\CommandTester;
 
 /**
  * Sidecar step 2 (0.12.5): when no granted field is typo-tolerant, the open-class trigram index (0.12.4 built it) copied `fz`, so it
@@ -330,6 +332,24 @@ final class OpenClassTrigramDropTest extends TestCase
             self::assertSame($this->found($fuzzphony), $now, sprintf('step %d (%s): the same as the statements of fz / tsv', $i + 2, $shape));
             $fuzzphony->schema()->apply($this->connection); // builds them back for the next step
         }
+    }
+
+    /** schema --apply that drops the copy asks the long-running processes to restart (their cached gate still trusts it); a second apply does not. */
+    public function testTheCommandAsksForARestartWhenItDroppedTheCopy(): void
+    {
+        $fuzzphony = $this->fuzzphony(self::shapes()['granted non-fuzzy']);
+        $fuzzphony->schema()->apply($this->connection);
+        $old = self::oldTrigram($fuzzphony->definition(self::NAME), new Names());
+        self::assertNotNull($old);
+        $this->connection->execute(sprintf('CREATE INDEX %s ON %s %s', $old[0], self::TABLE, $old[1]));
+
+        $tester = new CommandTester(new SchemaCommand($fuzzphony, $this->connection));
+        $tester->execute(['--apply' => true], ['interactive' => false]);
+        self::assertStringContainsString('An index was dropped that the engine looks up once per process', (string) preg_replace('/\s+/', ' ', $tester->getDisplay(true)));
+        self::assertNotContains($old[0], $this->openIndexes());
+
+        $tester->execute(['--apply' => true], ['interactive' => false]);
+        self::assertStringNotContainsString('looks up once per process', (string) preg_replace('/\s+/', ' ', $tester->getDisplay(true)));
     }
 
     /**
