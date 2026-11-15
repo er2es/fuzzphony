@@ -120,7 +120,7 @@ final class PublicApiTest extends TestCase
 
         self::assertSame([], $wrong);
         self::assertCount(83, self::PUBLIC);
-        self::assertCount(229, self::classes());
+        self::assertCount(230, self::classes());
     }
 
     public function testThePublicApiExposesNoInternalType(): void

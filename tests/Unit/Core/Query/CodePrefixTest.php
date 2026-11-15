@@ -52,13 +52,14 @@ final class CodePrefixTest extends TestCase
         self::assertNull(CodePrefix::rescue($index, new SearchQuery('tax_no:ORD-2025', allowedFields: ['number']), $index->thresholds));
     }
 
-    public function testNeverWithoutACodeFieldForSearchAsYouTypeOrWhenSwitchedOff(): void
+    public function testNeverWithoutACodeFieldWhenSwitchedOffOrWhenSearchAsYouTypeMadeThePrefix(): void
     {
         $index = self::index();
         $plain = IndexDefinition::builder('p')->fromTable('t')->field('name', 'A')->build();
 
         self::assertNull(CodePrefix::rescue($plain, new SearchQuery('ORD-2025'), $plain->thresholds));
-        self::assertNull(CodePrefix::rescue($index, new SearchQuery('ORD-2025', asYouType: true), $index->thresholds));
+        self::assertNull(CodePrefix::rescue($index, new SearchQuery('ORD 2025', asYouType: true), $index->thresholds), 'the last word is a prefix already');
+        self::assertSame('number:ORD-2025* | tax_no:ORD-2025*', CodePrefix::rescue($index, new SearchQuery('ORD-2025', asYouType: true), $index->thresholds)['to'] ?? null, 'Typeahead leaves a hyphenated word alone');
         $off = $index->thresholds->with(['rescue' => ['correct_when_empty' => false]]);
         self::assertNull(CodePrefix::rescue($index, new SearchQuery('ORD-2025'), $off));
     }

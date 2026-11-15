@@ -21,7 +21,7 @@ use Fuzzphony\Core\Ranking\Thresholds;
  *   kovacs ORD202500003     ->  kovacs (number:ORD202500003* | tax_no:ORD202500003*)
  *   number:ORD-2025-00003   ->  number:ORD-2025-00003*
  *
- * Never for a search-as-you-type text (its last word is a prefix already), with `rescue.correct_when_empty: false`, when the
+ * Never for a search-as-you-type text whose last word Typeahead made a prefix already, with `rescue.correct_when_empty: false`, when the
  * last word is excluded, in a phrase, a prefix already, or scoped to a field that is not a code. Only the fields the viewer
  * may search (SearchQuery::$allowedFields) are used, so a hidden code field changes nothing.
  */
@@ -30,7 +30,9 @@ final class CodePrefix
     /** @return array{from: string, to: string}|null the typed query and the rescue query, both as the parser reads them */
     public static function rescue(IndexDefinition $index, SearchQuery $query, Thresholds $thresholds): ?array
     {
-        if ($query->asYouType || !$thresholds->rescue->correctWhenEmpty) {
+        // search-as-you-type made the last word a prefix already ("ord 2025 0003" -> "ord 2025 (0003 | 0003*)"), but not after a
+        // hyphen inside a word ("ORD-2025-0003" stays as typed): only then is there something to rescue
+        if (($query->asYouType && Typeahead::lastWordAsPrefix($query->text) !== $query->text) || !$thresholds->rescue->correctWhenEmpty) {
             return null;
         }
         $codes = [];

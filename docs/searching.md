@@ -520,6 +520,9 @@ $result->results['products']->total;   // each index's own SearchResult (facets,
   prefer a larger `limit`.
 - `total` is the sum of the indexes' totals (`totalIsLowerBound` when any was cut off), warnings are prefixed with the index name, and ids belong to each
   index: use `$hit->kind`. It works with every engine.
+- Each index is [rescued](#zero-result-rescue) on its own empty result (a typo correction, a cut-off code): its `SearchResult` carries
+  `correctedFrom`, the warning is prefixed with its name, and its hits follow every hit of the indexes that found the typed text itself, whatever
+  their weight or merged score (a floor still brings them onto the page).
 - `unlogged()` keeps every per-index search out of the [search log](analytics.md#keeping-a-search-out-of-the-log) (a refusal is still recorded).
 - A [multi-source index](configuration.md#several-sources-in-one-index) can be one of the indexes: its hits carry `index` and `kind`.
 
@@ -564,8 +567,8 @@ their row, in any case; `number:INV-001` works as for any field, and the whole c
 (`INV-2024` finds `INV-2024-0042`), and `004*` asks for the beginning of a part. A last part cut off inside (`INV-2024-004`, or `INV2024004`
 without separators) is no whole word: when the search finds nothing at all, it runs once more with its last word as a prefix on the code fields
 the viewer may search (`number:INV-2024-004*`) and answers with that, flagged like the [zero-result rescue](#zero-result-rescue)
-(`SearchResult::$correctedFrom`, `$correctedTo`, a warning). A search with results, a search-as-you-type one and `rescue.correct_when_empty: false`
-never do this. Typo tolerance stays the field's own `fuzzy` flag. A
+(`SearchResult::$correctedFrom`, `$correctedTo`, a warning). A search with results and `rescue.correct_when_empty: false` never do this;
+search-as-you-type does it only when it left the last word as typed (after a hyphen: `INV-2024-004`; `INV 2024 004` is a prefix already). Typo tolerance stays the field's own `fuzzy` flag. A
 highlight marks the whole code in the original text (a query written without separators, `INV001`, finds the row but marks nothing). A code with
 accents inside a word of letters and digits (`Ä12`) is found by the unaccented form only through its separated parts. A code whose parts are stop words
 of the language (`IT-5` in English) also finds rows that have the other parts. The flag is part of the definition: run `fuzzphony:schema --apply` and

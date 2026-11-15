@@ -154,12 +154,15 @@ final readonly class FederatedSearch
             foreach ($result->warnings as $warning) {
                 $warnings[] = sprintf('[%s] %s', $name, $warning);
             }
+            // the hits of an index that found nothing and was rescued (SearchResult::$correctedFrom) answer another query than the one
+            // typed: they follow every hit of an index that found the typed query itself, whatever their rank
+            $rescued = $result->correctedFrom !== null;
             foreach ($result->hits as $i => $hit) {
-                $candidates[] = ['score' => $options['weight'] / (self::RANK_CONSTANT + $i + 1), 'order' => $order, 'rank' => $i, 'hit' => $hit];
+                $candidates[] = ['score' => $options['weight'] / (self::RANK_CONSTANT + $i + 1), 'order' => $order, 'rank' => $i, 'hit' => $hit, 'rescued' => $rescued];
             }
             ++$order;
         }
-        usort($candidates, static fn(array $a, array $b): int => [$b['score'], $a['order'], $a['rank']] <=> [$a['score'], $b['order'], $b['rank']]);
+        usort($candidates, self::byMergedOrder(...));
         $page = array_map(
             static fn(array $c): Hit => $c['hit']->withMergedScore($c['score']),
             array_slice($this->withFloors($candidates, $results), $this->offset, $this->limit),
@@ -178,14 +181,25 @@ final readonly class FederatedSearch
     }
 
     /**
+     * Genuine hits before rescued ones, then by merged score, then by index order and rank in the index.
+     *
+     * @param array{score: float, order: int, rank: int, hit: Hit, rescued: bool} $a
+     * @param array{score: float, order: int, rank: int, hit: Hit, rescued: bool} $b
+     */
+    private static function byMergedOrder(array $a, array $b): int
+    {
+        return [$a['rescued'], $b['score'], $a['order'], $a['rank']] <=> [$b['rescued'], $a['score'], $b['order'], $b['rank']];
+    }
+
+    /**
      * The merged list with the floors applied: the first `limit` entries are the first page, in which an index below its floor
      * (atLeast, at most its hit count) gets its best hits promoted over the lowest-scored hits of indexes above their floor; the
      * rest follows in merged order. It depends on the inputs and `limit` only, so every page of one search cuts the same list.
      *
-     * @param list<array{score: float, order: int, rank: int, hit: Hit}> $candidates sorted by merged score
+     * @param list<array{score: float, order: int, rank: int, hit: Hit, rescued: bool}> $candidates sorted by merged score
      * @param array<string, SearchResult>                                $results
      *
-     * @return list<array{score: float, order: int, rank: int, hit: Hit}>
+     * @return list<array{score: float, order: int, rank: int, hit: Hit, rescued: bool}>
      */
     private function withFloors(array $candidates, array $results): array
     {
@@ -220,7 +234,7 @@ final readonly class FederatedSearch
                 $first[] = $promoted;
             }
         }
-        usort($first, static fn(array $a, array $b): int => [$b['score'], $a['order'], $a['rank']] <=> [$a['score'], $b['order'], $b['rank']]);
+        usort($first, self::byMergedOrder(...));
         $shown = array_map(static fn(array $c): string => $c['order'] . ':' . $c['rank'], $first);
 
         return [...$first, ...array_filter($candidates, static fn(array $c): bool => !in_array($c['order'] . ':' . $c['rank'], $shown, true))];
