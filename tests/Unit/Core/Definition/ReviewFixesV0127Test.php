@@ -12,6 +12,7 @@ use Fuzzphony\Core\Definition\IndexDefinition;
 use Fuzzphony\Core\Exception\InvalidDefinition;
 use Fuzzphony\Core\Support\Identifier;
 use Fuzzphony\Engine\Postgres\Schema\Names;
+use Fuzzphony\Engine\Postgres\Schema\PostgresSchemaGenerator;
 use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\TestCase;
 use Symfony\Component\Cache\Adapter\ArrayAdapter;
@@ -44,6 +45,19 @@ final class ReviewFixesV0127Test extends TestCase
         self::assertContains(substr($names->queueOrderIndex(), 10), DefinitionValidator::RESERVED_NAMES);
         self::assertContains(substr($names->watchLogIndexName(), 10), DefinitionValidator::RESERVED_NAMES);
         self::assertContains(substr($names->searchLogIndexName('index_at'), 10), DefinitionValidator::RESERVED_NAMES);
+    }
+
+    public function testEverySharedTableAndIndexTheGeneratorCreatesIsReserved(): void
+    {
+        $found = [];
+        foreach ((new PostgresSchemaGenerator(new Names('public'), searchLog: true))->global()->statements as $statement) {
+            if (preg_match('/CREATE (?:TABLE|INDEX) IF NOT EXISTS (?:"?\w+"?\.)?"?(fuzzphony_\w+)"?/', $statement->sql, $m) === 1) {
+                $found[] = substr($m[1], strlen('fuzzphony_'));
+            }
+        }
+        self::assertContains('search_log_at', $found, 'the probe sees the search log indexes');
+        self::assertContains('watch_log_tbl_xid_w', $found);
+        self::assertSame([], array_values(array_diff($found, DefinitionValidator::RESERVED_NAMES)));
     }
 
     public function testASourceNameWithTwoUnderscoresIsRejected(): void

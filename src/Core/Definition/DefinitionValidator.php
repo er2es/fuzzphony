@@ -32,7 +32,7 @@ final class DefinitionValidator
      */
     public const array RESERVED_NAMES = [
         'queue', 'queue_order', 'queue_pkey', 'meta', 'meta_pkey', 'watches', 'watches_pkey',
-        'watch_log', 'watch_log_pkey', 'watch_log_tbl_xid', 'search_log', 'search_log_pkey', 'search_log_index_at', 'search_log_index_norm',
+        'watch_log', 'watch_log_pkey', 'watch_log_tbl_xid', 'search_log', 'search_log_pkey', 'search_log_index_at', 'search_log_index_norm', 'search_log_at', 'watch_log_tbl_xid_w',
     ];
 
     /** @return list<string> */
