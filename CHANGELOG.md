@@ -11,6 +11,10 @@ and a link. Measurements, proofs and test names belong to the pull request, [doc
 
 ## [Unreleased]
 
+### Changed
+
+- **Documentation:** a hero banner, shorter pages (the roadmap and the upgrade guide no longer repeat release history; UPGRADE.md drops the steps before 0.3), the `BUILDX_BAKE_ENTITLEMENTS_FS=0` note wherever the demo is built.
+
 ## [0.12.7] - 2026-11-15
 
 ### Fixed

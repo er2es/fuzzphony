@@ -37,11 +37,10 @@ compare letters, not meaning, so they cannot tell a typo from a different word t
 - It reaches only the words of fuzzy fields (`fuzzy: true`). Words shorter than `typo.min_length` (3) must match exactly.
 - By default (`typo.mode: fallback`) it runs only when exact matching finds fewer than `typo.fallback_below` (5) hits, so a typo next to enough exact
   hits is not corrected. `always` runs it every time, `never` switches it off.
-- A letter replaced in the middle of a 5 to 7 letter word (`mpuse`) is **not** added to the results. Only the [zero-result rescue](searching.md#zero-result-rescue)
-  reaches it, and only when the search found nothing at all, the vocabulary has exactly one word one edit away, the index is not tenant-scoped and the
-  viewer is not restricted. A tie between two candidates, a word with two wrong letters, a code with digits, a search-as-you-type text, a search that found
-  something, and one whose corrected query finds something only because the relaxation drops a word are not rescued. A rescued search is logged as a
-  search that found hits ([details](#a-rescued-search-is-not-a-zero-result-search-in-the-log)).
+- The [zero-result rescue](searching.md#zero-result-rescue) reaches `mpuse` only when the search found nothing at all, the vocabulary has exactly one word one
+  edit away, the index is not tenant-scoped and the viewer is not restricted. A tie between two candidates, a word with two wrong letters, a code with
+  digits, a search-as-you-type text, a search that found something, and one whose corrected query finds something only because the relaxation drops a word
+  are not rescued. A rescued search is logged as a search that found hits ([details](#a-rescued-search-is-not-a-zero-result-search-in-the-log)).
 
 What to do: set `typo.similarity` to a number to use one value for every word (it finds more typos and lists more look-alikes; the trade-off is in
 [Typo tolerance](searching.md#typo-tolerance)). Irregular word forms are not typos at all (see [languages](#stemming-covers-regular-forms-one-language-per-index)).
