@@ -90,7 +90,7 @@ final class BackfillVacuumTest extends TestCase
         self::assertSame('VACUUM (ANALYZE) ' . self::TABLE, $vacuum->sql);
         self::assertSame(ColumnMap::VACUUM . ' ("bv")', $vacuum->description);
         self::assertFalse($vacuum->transactional, 'VACUUM cannot run in a transaction');
-        self::assertSame("SELECT 1 AS name WHERE current_setting('fuzzphony.backfilled', true) = '\"public\".\"fuzzphony_bv\"'", $vacuum->forEach);
+        self::assertSame("SELECT '\"public\".\"fuzzphony_bv\"' AS name WHERE current_setting('fuzzphony.backfilled', true) = '\"public\".\"fuzzphony_bv\"'", $vacuum->forEach, 'the name a warning shows is the table');
         self::assertStringContainsString("PERFORM set_config('fuzzphony.backfilled', '\"public\".\"fuzzphony_bv\"', false);", $statements[$at]->sql);
     }
 
@@ -108,7 +108,7 @@ final class BackfillVacuumTest extends TestCase
         self::assertMatchesRegularExpression('/bv: the backfill grew the table from (\d+\.\d) MB to (\d+\.\d) MB/', $display);
         preg_match('/from (\d+\.\d) MB to (\d+\.\d) MB/', $display, $m);
         self::assertGreaterThan((float) ($m[1] ?? 0), (float) ($m[2] ?? 0));
-        self::assertStringContainsString('Run fuzzphony:reindex bv to compact it online', $display);
+        self::assertStringContainsString('VACUUM (ANALYZE) made the old versions reusable). Run fuzzphony:reindex bv to compact it online', (string) preg_replace('/\s+/', ' ', str_replace('!', '', $display)));
 
         $notes = self::sizeNotes($two);
         self::assertCount(1, $notes, 'the doctor notes the backfilled rows');
@@ -117,6 +117,55 @@ final class BackfillVacuumTest extends TestCase
 
         $two->reindex('bv');
         self::assertSame([], self::sizeNotes($two), 'the reindex writes every row with the current map');
+    }
+
+    public function testAFailedVacuumNamesTheTableAndTheStatementAndTheNoteDoesNotClaimIt(): void
+    {
+        $two = $this->pending();
+        $inner = $this->connection;
+        // the apply's connection, except that a VACUUM fails (as a lock timeout or a cancelled statement would)
+        $failing = new class ($inner) implements Connection {
+            public function __construct(private readonly Connection $inner) {}
+
+            public function fetchAll(string $sql, array $params = []): array
+            {
+                return $this->inner->fetchAll($sql, $params);
+            }
+
+            public function fetchValue(string $sql, array $params = []): mixed
+            {
+                return $this->inner->fetchValue($sql, $params);
+            }
+
+            public function execute(string $sql, array $params = []): int
+            {
+                if (str_starts_with($sql, 'VACUUM')) {
+                    throw new \RuntimeException('canceling statement due to lock timeout');
+                }
+
+                return $this->inner->execute($sql, $params);
+            }
+
+            public function transactional(callable $callback): mixed
+            {
+                return $this->inner->transactional(fn(): mixed => $callback($this));
+            }
+
+            public function inTransaction(): bool
+            {
+                return $this->inner->inTransaction();
+            }
+        };
+
+        $tester = new CommandTester(new SchemaCommand($two, $failing));
+        self::assertSame(Command::SUCCESS, $tester->execute(['--apply' => true, '--force' => true], ['interactive' => false]));
+        $display = (string) preg_replace('/\s+/', ' ', str_replace(['[WARNING]', '[NOTE]', '!'], '', $tester->getDisplay(true)));
+
+        self::assertFalse($this->vacuumed());
+        self::assertStringContainsString(ColumnMap::VACUUM . ' ("bv"): ' . self::TABLE . ' failed (canceling statement due to lock timeout). Run it yourself: VACUUM (ANALYZE) ' . self::TABLE, $display);
+        self::assertStringNotContainsString('Re-run the apply', $display, 'a second apply backfills nothing, so it would not vacuum');
+        self::assertStringNotContainsString('made the old versions reusable', $display);
+        self::assertStringContainsString('The VACUUM did not run, so the table stays this large: run "VACUUM (ANALYZE) ' . self::TABLE . '", or fuzzphony:reindex bv, which also compacts it online', $display);
     }
 
     public function testNothingBackfilledMeansNoVacuumAndNoReport(): void

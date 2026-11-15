@@ -154,7 +154,9 @@ final readonly class ColumnMap
      * makes that space reusable at once (online: SHARE UPDATE EXCLUSIVE, searches and writes go on) and gives the planner the new
      * row sizes. It does not shrink the file: fuzzphony:reindex (the shadow rebuild) does that online, SchemaCommand says so.
      * VACUUM cannot run inside a transaction or a DO block, so it is a statement of its own, run once when the backfill set
-     * BACKFILLED to this table (the `forEach` query returns one row then, none otherwise); a dumped migration only names it.
+     * BACKFILLED to this table (the `forEach` query returns one row then, the table's name, none otherwise); a dumped migration only
+     * names it. A failed VACUUM is a warning that names the table and the statement to run by hand: a second apply would not run it (the
+     * backfill finds nothing left, so the setting stays empty).
      */
     public static function vacuum(IndexDefinition $index, Names $names): Statement
     {
@@ -164,7 +166,7 @@ final readonly class ColumnMap
             'VACUUM (ANALYZE) ' . $table,
             sprintf('%s ("%s")', self::VACUUM, $index->name),
             transactional: false,
-            forEach: sprintf("SELECT 1 AS name WHERE current_setting('%s', true) = %s", self::BACKFILLED, Sql::string($table)),
+            forEach: sprintf("SELECT %2\$s AS name WHERE current_setting('%1\$s', true) = %2\$s", self::BACKFILLED, Sql::string($table)),
         );
     }
 

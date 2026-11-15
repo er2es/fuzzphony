@@ -5,6 +5,8 @@ declare(strict_types=1);
 namespace Fuzzphony\Tests\Unit\Core\Definition;
 
 use Fuzzphony\Core\Definition\ArrayDefinitionLoader;
+use Fuzzphony\Core\Definition\FilterDefinition;
+use Fuzzphony\Core\Definition\FilterType;
 use Fuzzphony\Core\Definition\IndexBuilder;
 use Fuzzphony\Core\Definition\IndexDefinition;
 use Fuzzphony\Core\Definition\ManyValues;
@@ -70,6 +72,7 @@ final class SameRowAsTest extends TestCase
         $base = static fn(): IndexBuilder => IndexDefinition::builder('customers')->fromTable('customer')->field('name', 'A', fuzzy: true)->field('address', 'C', many: self::ADDRESS);
         yield 'unknown field' => [static fn() => $base()->filter('city', 'string', many: [...self::CITY, 'same_row_as' => 'addres']), 'Filter "city": many "same_row_as" names "addres", which is not a field of the index. Did you mean "address"?'];
         yield 'single-valued field' => [static fn() => $base()->filter('city', 'string', many: [...self::CITY, 'same_row_as' => 'name']), 'Filter "city": many "same_row_as" must name a field with "many" (several values), "name" has one value per document.'];
+        yield 'rank: whole field' => [static fn() => IndexDefinition::builder('customers')->fromTable('customer')->field('name', 'A')->field('address', 'C', many: ['from' => 'address', 'key' => 'customer_id', 'column' => 'line'])->filter('city', 'string', many: [...self::CITY, 'same_row_as' => 'address']), 'Filter "city": many "same_row_as" must name a field with many "rank: best" (only those take part in manyMatch(\'single\'), where the filter holds for the same row), "address" is "rank: whole".'];
         yield 'other child rows' => [static fn() => $base()->filter('city', 'string', many: ['from' => 'erp_address', 'key' => 'customer_id', 'column' => 'city', 'same_row_as' => 'address']), 'Filter "city": many "same_row_as": field "address" reads address/customer_id/id, this filter reads erp_address/customer_id/id; a value row and a filter value are on the same row only when from, key and id are equal.'];
         yield 'other id' => [static fn() => $base()->filter('city', 'string', many: [...self::CITY, 'id' => 'pk', 'same_row_as' => 'address']), 'this filter reads address/customer_id/pk'];
         yield 'on a field' => [static fn() => IndexDefinition::builder('customers')->fromTable('customer')->field('name', 'A')->field('address', 'C', many: [...self::ADDRESS, 'same_row_as' => 'name']), 'Field "address": many "same_row_as" is an option of a many filter, not of a field.'];
@@ -115,6 +118,14 @@ final class SameRowAsTest extends TestCase
         $tooLong = IndexDefinition::builder('customers')->fromTable('customer')->field('name', 'A')->field('address', 'C', many: self::ADDRESS)
             ->filter(str_repeat('c', 48), 'string', many: [...self::CITY, 'same_row_as' => 'address'])->build();
         self::assertSame(60, strlen($names->sameRowColumnName($tooLong->filter(str_repeat('c', 48)))), 'the longest filter name fits PostgreSQL\'s 63 bytes');
+        // two filters over the same source whose names agree in the part that fits (longer than a valid name, 48: the name is not
+        // relied on to be short): the hash covers the name too, so they never share a column
+        $many = new ManyValues('address', 'customer_id', 'city', sameRowAs: 'address');
+        $a = $names->sameRowColumnName(new FilterDefinition(str_repeat('c', 55) . 'a', FilterType::String, many: $many));
+        $b = $names->sameRowColumnName(new FilterDefinition(str_repeat('c', 55) . 'b', FilterType::String, many: $many));
+        self::assertNotSame($a, $b, 'one column each, never the same column twice in the INSERT');
+        self::assertStringStartsWith('fr_' . str_repeat('c', 51) . '_', $a, 'the readable prefix stays');
+        self::assertSame(63, strlen($a));
         $this->expectException(\LogicException::class);
         $names->sameRowColumnName(IndexDefinition::builder('x')->fromTable('t')->field('name', 'A')->filter('k', 'string')->build()->filter('k'));
     }

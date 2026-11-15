@@ -155,14 +155,20 @@ final class SchemaCommand extends Command
         foreach ($warnings as $warning) {
             $io->warning($warning);
         }
-        foreach ($growth as $name => [$before, $after]) {
+        foreach ($growth as $name => [$before, $after, $vacuums]) {
             if ($after !== null) {
+                // the VACUUM ran when the table's manual vacuum count went up and no warning says it failed (a pooler that gave the
+                // forEach query another session skips it; a role that does not own the table only gets a WARNING from PostgreSQL)
+                $vacuumed = !array_any($warnings, static fn(string $w): bool => str_starts_with($w, sprintf('%s ("%s")', ColumnMap::VACUUM, $name)))
+                    && $this->vacuumCount($sidecars[$name]) > $vacuums;
                 $io->note(sprintf(
-                    '%s: the backfill grew the table from %s to %s (the copied columns and the old row versions; VACUUM (ANALYZE) made the old versions reusable). Run fuzzphony:reindex %s to compact it online.',
+                    $vacuumed
+                        ? '%s: the backfill grew the table from %s to %s (the copied columns and the old row versions; VACUUM (ANALYZE) made the old versions reusable). Run fuzzphony:reindex %s to compact it online.'
+                        : '%s: the backfill grew the table from %s to %s (the copied columns and the old row versions). The VACUUM did not run, so the table stays this large: run "VACUUM (ANALYZE) %s", or fuzzphony:reindex %s, which also compacts it online.',
                     $name,
                     self::megabytes($before),
                     self::megabytes($after),
-                    $name,
+                    ...($vacuumed ? [$name] : [$sidecars[$name], $name]),
                 ));
             }
         }
@@ -272,7 +278,7 @@ final class SchemaCommand extends Command
      * VACUUM after it starts, the latter only when the backfill updated rows (ColumnMap::BACKFILLED names the table then).
      *
      * @param array<string, string>                  $sidecars index name => sidecar
-     * @param array<string, array{int, int|null}>     $growth   index name => [size before, size after or null]
+     * @param array<string, array{int, int|null, int}> $growth   index name => [size before, size after or null, manual vacuums before the VACUUM]
      */
     private function measureBackfill(Statement $statement, array $sidecars, array &$growth): void
     {
@@ -286,13 +292,22 @@ final class SchemaCommand extends Command
             }
             $size = fn(): int => Coerce::int($this->connection->fetchValue('SELECT coalesce(pg_total_relation_size(to_regclass(:t)), 0)', ['t' => $table]));
             if ($backfill) {
-                $growth[$name] = [$size(), null];
+                $growth[$name] = [$size(), null, 0];
             } elseif (isset($growth[$name]) && $this->connection->fetchValue(sprintf("SELECT current_setting('%s', true)", ColumnMap::BACKFILLED)) === $table) {
                 $growth[$name][1] = $size();
+                $growth[$name][2] = $this->vacuumCount($table);
             }
 
             return;
         }
+    }
+
+    /** How many times the table was vacuumed by hand (pg_stat_user_tables; autovacuum counts apart), read afresh. */
+    private function vacuumCount(string $table): int
+    {
+        $this->connection->fetchValue('SELECT pg_stat_clear_snapshot()');
+
+        return Coerce::int($this->connection->fetchValue('SELECT coalesce((SELECT vacuum_count FROM pg_stat_user_tables WHERE relid = to_regclass(:t)), 0)', ['t' => $table]));
     }
 
     private static function megabytes(int $bytes): string

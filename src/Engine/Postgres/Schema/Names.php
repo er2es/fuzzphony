@@ -236,13 +236,14 @@ final readonly class Names
      * The values table column with the value of a `same_row_as` filter on each value row of its field (`text[]`: NULL = not known yet, a
      * row written before the option or by an older refresh function; `{}` = the child row has no value). The name carries a hash of where
      * the value comes from (from, key, id, the filter's column, the field): a changed definition gets a new, empty column instead of
-     * trusting the values of the old one until a reindex.
+     * trusting the values of the old one until a reindex. The hash covers the filter's name too, so two filters whose names agree in the
+     * readable prefix (cut to fit 63 bytes) never share a column.
      */
     public function sameRowColumnName(FilterDefinition $filter): string
     {
         $many = $filter->many ?? throw new \LogicException(sprintf('Filter "%s" has no several values.', $filter->name));
 
-        return substr('fr_' . $filter->name, 0, self::MAX_IDENTIFIER_BYTES - 9) . '_' . hash('crc32b', json_encode([$many->from, $many->key, $many->id, $many->column, $many->sameRowAs], JSON_THROW_ON_ERROR));
+        return substr('fr_' . $filter->name, 0, self::MAX_IDENTIFIER_BYTES - 9) . '_' . hash('crc32b', json_encode([$filter->name, $many->from, $many->key, $many->id, $many->column, $many->sameRowAs], JSON_THROW_ON_ERROR));
     }
 
     /** The words of a fuzzy index and in how many documents each occurs: where "did you mean" (and later suggest()) read. */
