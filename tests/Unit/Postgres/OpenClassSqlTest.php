@@ -107,6 +107,32 @@ final class OpenClassSqlTest extends TestCase
         self::assertStringStartsWith('open_tsv_', $keys[0]);
     }
 
+    /**
+     * No granted field is typo-tolerant (0.12.5): the open fuzzy fields are every fuzzy field, a trigram index over them would copy `fz`,
+     * so none is built; the viewer's words use the open vector index and its typos `fz`, the recheck stays on its own columns.
+     */
+    public function testWithoutAGrantedFuzzyFieldTheTyposAreLookedUpInFzAndTheWordsInTheOpenClass(): void
+    {
+        $index = IndexDefinition::builder('items')->fromQuery('SELECT id, name, category, brand FROM fz_item')
+            ->field('name', 'A', fuzzy: true)->field('category', 'B', fuzzy: true)->field('brand', 'B', granted: 'ROLE_BRAND')->sync('manual')->build();
+        $keys = array_keys(OpenClass::indexes($index, new Names()));
+        self::assertNull(OpenClass::trigram($index, new Names()));
+        self::assertCount(1, $keys);
+        self::assertStringStartsWith('open_tsv_', $keys[0]);
+
+        $root = self::parse('mouse');
+        $tsquery = (new TsQueryCompiler($index))->compile($root);
+        $sql = (new SearchSqlBuilder($index, new Names(), [], ['name', 'category'], true, openClass: static fn(): bool => true))
+            ->ranked($tsquery, 'mouse', $root, [], new RankingProfile(), new Thresholds(typo: new TypoThresholds(similarity: 0.3)), 10, 0, [], $root)['sql'];
+        $probes = (new FuzzyQueryCompiler($index, new Thresholds(), new Names(), [], ['name', 'category'], false, static fn(): bool => true))->probes(self::parse('mouse'), 100);
+
+        self::assertStringContainsString('WHERE ' . self::OPEN_VECTOR . ' @@ q.tsq AND', $sql);
+        self::assertStringContainsString('OPERATOR("public".<%) s.fz', $sql);
+        self::assertStringContainsString('OPERATOR("public".<%) s.fz', array_values($probes)[0]['sql']);
+        self::assertStringNotContainsString("|| ' ' ||", $sql . array_values($probes)[0]['sql']);
+        self::assertStringContainsString('word_similarity(q.fn', $sql, 'the match is decided on the allowed fields\' own columns');
+    }
+
     public function testTheLookupsOfAViewerWhoHoldsNoGrantedFieldGoThroughTheOpenClass(): void
     {
         $sql = self::ranked(['name', 'category'], 'mouse', true);

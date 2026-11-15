@@ -212,6 +212,23 @@ Only the first `limit` values of a document are stored, so a value past the limi
 The empty-result relaxation and "did you mean" judge each word on its own, as in the default mode: a search with no single-value match can
 be relaxed to fewer words. Cost: [benchmarks](benchmarks.md#ranking-by-the-best-value-rank-best).
 
+**A filter on the same address.** When a many filter declares [`same_row_as`](configuration.md#several-values-per-document-many) a named
+field (`city` with `same_row_as: address`), the single-value mode also holds the filter to that value's own child row:
+
+```php
+$people->query('fő utca')->manyMatch('single')->where('city', 'Eger')->get();
+```
+
+finds the customer whose address in Eger holds "fő utca", not the one with "Fő utca 1" in Budapest and another address in Eger (the default
+mode finds both). `whereIn('city', [...])` holds when that row's city is one of them; several conditions on the filter must all hold for the
+same row; the null checks (`whereNull`) stay per customer. A customer whose words are all in other fields (the name) needs no address, so
+the city is then the customer's (any address). One word is enough to read the rows (`kossuth` + Eger finds the Kossuth address in Eger). The
+coupling is invisible in the query: it follows from the definition and the mode, and `explainMatches()` / the highlight show the coupled value.
+The facet of the filter counts the same way (`Eger (1)` is the number of customers whose address holding the words is in Eger, what choosing
+it shows); the other facets count the coupled result. A viewer who may not see the field, a field not named in `manyMatch()`, and the
+default mode get the document-level filter (the same statement as without the option). Rows indexed before the option behave as before until
+`fuzzphony:reindex` writes their city (the doctor counts them).
+
 ## Returning source fields: `with()`
 
 A result row usually needs a title, a slug, a price. `with()` returns those columns of the hit's **source row** in `Hit::$data`, so a page can be

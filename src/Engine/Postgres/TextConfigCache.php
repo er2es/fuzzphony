@@ -45,6 +45,8 @@ final class TextConfigCache
     private array $emptyAnswers = [];
     /** @var array<string, bool> sidecar table => whether a restricted viewer's lookup may use the open-class indexes (see openClass()) */
     private array $openClasses = [];
+    /** @var array<string, array<string, true>> values table => the same_row_as columns found in it (see sameRow(); a missing one is not kept) */
+    private array $sameRowColumns = [];
     /** @var \WeakMap<Synonyms, string>|null the content digest of each Synonyms object (immutable), made once; see expandSynonyms() */
     private ?\WeakMap $synonymDigests = null;
 
@@ -61,13 +63,72 @@ final class TextConfigCache
         $this->stems = [];
         $this->emptyAnswers = [];
         $this->openClasses = [];
+        $this->sameRowColumns = [];
         $this->synonymDigests = null;
+    }
+
+    /**
+     * The coupled filters of a search (SameRow::coupled()) whose column (Names::sameRowColumnName()) is in the values table; the others
+     * keep the document-level filter. In a rolling deploy the column of the running definition can be missing: a process with the new
+     * definition searches before schema --apply adds it, or one with the old definition after the apply dropped it. A column found is
+     * kept for the life of the process (no lookup for the next search), a missing one is looked up again on the next coupled search
+     * (one catalog lookup while it is missing), so an apply is picked up without a restart. A kept column that an apply dropped
+     * later fails the search with "undefined column": forgetSameRow() then forgets the table and the search is retried once.
+     *
+     * @param array<string, string> $coupled filter name => field name
+     *
+     * @return array<string, string>
+     */
+    public function sameRow(IndexDefinition $index, array $coupled): array
+    {
+        if ($coupled === []) {
+            return [];
+        }
+        $table = $this->names->values($index);
+        $columns = [];
+        foreach (array_keys($coupled) as $filter) {
+            $columns[$filter] = $this->names->sameRowColumnName($index->filter($filter));
+        }
+        $unknown = array_values(array_filter($columns, fn(string $column): bool => !isset($this->sameRowColumns[$table][$column])));
+        if ($unknown !== []) {
+            $rows = $this->guard->run('search', fn(): array => $this->connection->fetchAll(
+                'SELECT attname FROM pg_attribute WHERE attrelid = to_regclass(:table) AND attname = ANY(CAST(:columns AS text[])) AND NOT attisdropped',
+                ['table' => $table, 'columns' => Sql::arrayLiteral($unknown)],
+            ), Hints::INDEX);
+            foreach ($rows as $row) {
+                $this->sameRowColumns[$table][Coerce::str($row['attname'])] = true;
+            }
+        }
+
+        return array_filter($coupled, fn(string $filter): bool => isset($this->sameRowColumns[$table][$columns[$filter]]), ARRAY_FILTER_USE_KEY);
+    }
+
+    /**
+     * Whether $failure is PostgreSQL's "undefined column" for a same_row_as column (`fr_...`) of an index with such filters: then the
+     * columns kept for its values table are forgotten, so the retried search looks them up again (see sameRow()).
+     */
+    public function forgetSameRow(IndexDefinition $index, \Throwable $failure): bool
+    {
+        $table = $this->names->values($index);
+        if (!isset($this->sameRowColumns[$table])) {
+            return false;
+        }
+        for ($cause = $failure; $cause !== null; $cause = $cause->getPrevious()) {
+            $state = $cause instanceof \PDOException ? $cause->getCode() : (method_exists($cause, 'getSQLState') ? $cause->getSQLState() : null);
+            if ($state === '42703' && preg_match('/column \S*\bfr_\w+ does not exist/', $cause->getMessage()) === 1) {
+                unset($this->sameRowColumns[$table]);
+
+                return true;
+            }
+        }
+
+        return false;
     }
 
     /**
      * Whether a restricted viewer who holds none of the index's granted fields may look its words up in the open-class indexes
      * (OpenClass) instead of `fz` / `tsv`: every one of them exists, is valid and ready (a missing or half-built index would send
-     * the same statement to a table scan), and each is smaller than the index it replaces (open_fz than `fz`, open_tsv than `tsv`): when the granted
+     * the same statement to a table scan), and each is smaller than the index it replaces (open_fz than `fz` where there is one, open_tsv than `tsv`): when the granted
      * fields hold little of the text the open indexes are no shorter to read. Asked once per table
      * and kept until reset(): an index applied later is used from the next process (or resetCaches()), never wrongly before.
      *

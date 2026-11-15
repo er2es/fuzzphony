@@ -46,10 +46,13 @@ final readonly class SchemaPlan
             }
             foreach ($connection->fetchAll($statement->forEach) as $row) {
                 $name = Coerce::str($row['name']);
+                $sql = str_replace('{name}', $name, $statement->sql);
                 try {
-                    $connection->execute(str_replace('{name}', $name, $statement->sql));
+                    $connection->execute($sql);
                 } catch (\Throwable $e) {
-                    $warnings[] = sprintf('%s: %s failed (%s). Re-run the apply, or run the statement yourself.', $statement->description, $name, $e->getMessage());
+                    // the statement itself, not "re-run the apply": a run that depends on what an earlier statement did (the VACUUM after
+                    // a backfill) is not repeated by a second apply
+                    $warnings[] = sprintf('%s: %s failed (%s). Run it yourself: %s', $statement->description, $name, $e->getMessage(), $sql);
                 }
             }
         }

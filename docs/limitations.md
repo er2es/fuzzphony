@@ -239,6 +239,9 @@ with or without them, and an index without a `granted` field has no extra index 
 - A word that is common in a field the viewer **can** see costs what it costs an unrestricted viewer.
 - A phrase over fields of both classes, or with a synonym alternative, is rechecked on the fields' own columns as before.
 - A viewer restricted by hand (`restrictedToFields()`) on an index with no `granted` field has no open class: as slow as above.
+- When no granted field is typo-tolerant there is no open-class trigram index (it would copy `fz`): the viewer's typos are looked up in
+  `fz`, which may still hold a now-granted field's text in rows an earlier definition wrote, until the reindex; the recheck removes those
+  rows, they only cost time.
 - The open-class indexes are used only when they exist, are valid and each is smaller than the index it replaces (`fz`, `tsv`); the engine asks once per process, so
   after `fuzzphony:schema --apply` built them restart long-running workers (or call `Fuzzphony::resetCaches()`). Until then,
   and when the granted fields hold little of the text, the viewer is on the statements it always had.
@@ -427,7 +430,7 @@ A field or filter declared [`many`](configuration.md#several-values-per-document
   (a partial index on the values table and a count column, `schema --apply`, then a reindex for the speed); a document whose words are spread over
   several values keeps its whole-field rank, and a typo-tolerant match is still scored on the whole field. Ranking a candidate with more than one value
   then also reads its values that hold a query word (at most `limit`), so the [scan budget](#ranking-of-very-common-words) counts each such field like
-  two more words of the query, and a search whose words are in the field costs about 1.4 to 1.9 times as much
+  two more words of the query, and a search whose words are in the field costs about 1.3 to 1.9 times as much
   ([benchmarks](benchmarks.md#ranking-by-the-best-value-rank-best)).
 - **A phrase can match across two values.** What happens: `"budapest vienna"` also matches a customer whose values are `Budapest` and `Vienna`, because the
   values are read one after the other. What to do: nothing; a phrase over several values is rarely meant, and
@@ -443,6 +446,14 @@ A field or filter declared [`many`](configuration.md#several-values-per-document
   over a field boundary (`kisanna` for the name "Kiss" and the address "Anna utca 1") matches in the default mode only. The empty-result relaxation
   and "did you mean" judge the words on their own.
   What to do: name only the field that must be one value (`manyMatch('single', 'addresses')`), keep `limit` near the real number of values.
+- **A [`same_row_as`](configuration.md#several-values-per-document-many) filter is coupled only to positive conditions, and only once indexed.**
+  What happens: in `manyMatch('single')`, `where('city', 'Eger')` / `whereIn` hold for the address that holds the words, but `whereNull('city')`
+  stays per customer (no city on any address); rows indexed before the option match the city of any address until a reindex; the filter's own
+  `limit` still caps the per-customer list the search pre-filters on, so a city past it is not found even on the right row; a coupled search
+  reads the values of each candidate in the city (also for one word, and without the one-value shortcut), and its facet is counted in a statement
+  of its own. Why: the city is stored per value row only by the refresh, never rewritten at apply (no long rewrite, no race); the per-customer
+  list keeps the index pre-filter. What to do: run `fuzzphony:reindex` after adding the option (the doctor counts the rows that wait); keep the
+  filter's `limit` at least the field's.
 - **Filters on a many field are not hidden by `granted`.** What happens: `granted` hides a searchable field; a filter is a separate declaration and
   filters are never role-gated. What to do: do not declare a many filter over a column a viewer may not see.
 

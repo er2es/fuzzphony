@@ -114,16 +114,14 @@ additive work after it (0.11.0, released) and the stable 1.0.0 do not have to ch
 - v0.12.2, a patch (the library is unchanged): the city facet links of the ERP People tab keep the switches, and the mutation badge is published from the run itself (the full run of 0.12.0: 97% covered MSI).
 - v0.12.3, a patch (the library is unchanged): the demo verified on the final code (the "Why" and city-filter lines now appear; flows 340/340, shots clean, two screenshots refreshed), and the full mutation run once per release instead of monthly.
 - v0.12.4, a patch: smaller index tables (a per-field column that holds the same text as another column of the same row is stored empty, a per-row column map keeps every definition change safe for restricted viewers; `schema --apply` backfills rows of another map after a confirmation; four independent reviews, a 15-case transition matrix, a race test).
+- v0.12.5: in the strict mode a many filter can hold for the same address as the words (`same_row_as`; exact facet counts), `rank: best` ranks each match once (best/whole 1.3 to 1.9), the redundant open-class trigram index is dropped (12 MB at 200,000 rows) and the table is vacuumed after a column backfill; three independent reviews.
 
 ## Next
 
-### v0.12.4: a patch
+### After 0.12.5: to be decided
 
-What 0.12.0 to 0.12.3 left for a follow-up:
-
-- The smaller sidecar, first step: leave out the `t_*` and `z_*` columns an index never needs, share the normalised text between `exact` and `z_<primary>`,
-  and drop the stored `tsv` duplicate of a single field's `t_`. Only with a differential proof and timing that show speed and exactness unchanged.
-- A cheaper per-value rank for `rank: best`, if a way is found that keeps the results identical.
+- A cheaper per-value rank for `rank: best` beyond ranking once (searches whose words are in the field cost 1.3 to 1.9 times a whole-field search), if a way is found that keeps the results identical.
+- The 1.0 preparation (the final public API list, the backward-compatibility policy, rc.1).
 
 ### Ideas before 1.0, not yet decided
 

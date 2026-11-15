@@ -128,9 +128,12 @@ final class SchemaCommand extends Command
         $columnsBefore = $this->cachedColumns();
         $io->progressStart(count($plan->statements));
         $current = null;
+        $growth = [];
+        $sidecars = $this->sidecars($indexes);
         try {
-            $warnings = $plan->apply($this->connection, static function (Statement $statement) use ($io, &$current): void {
+            $warnings = $plan->apply($this->connection, function (Statement $statement) use ($io, &$current, &$growth, $sidecars): void {
                 $current = $statement;
+                $this->measureBackfill($statement, $sidecars, $growth);
                 $io->progressAdvance();
             });
         } catch (EngineFailure $e) {
@@ -152,9 +155,31 @@ final class SchemaCommand extends Command
         foreach ($warnings as $warning) {
             $io->warning($warning);
         }
+        foreach ($growth as $name => [$before, $after, $vacuums]) {
+            if ($after !== null) {
+                // the VACUUM ran when the table's manual vacuum count went up and no warning says it failed (a pooler that gave the
+                // forEach query another session skips it; a role that does not own the table only gets a WARNING from PostgreSQL)
+                $vacuumed = !array_any($warnings, static fn(string $w): bool => str_starts_with($w, sprintf('%s ("%s")', ColumnMap::VACUUM, $name)))
+                    && $this->vacuumCount($sidecars[$name]) > $vacuums;
+                $io->note(sprintf(
+                    $vacuumed
+                        ? '%s: the backfill grew the table from %s to %s (the copied columns and the old row versions; VACUUM (ANALYZE) made the old versions reusable). Run fuzzphony:reindex %s to compact it online.'
+                        : '%s: the backfill grew the table from %s to %s (the copied columns and the old row versions). The VACUUM did not run, so the table stays this large: run "VACUUM (ANALYZE) %s", or fuzzphony:reindex %s, which also compacts it online.',
+                    $name,
+                    self::megabytes($before),
+                    self::megabytes($after),
+                    ...($vacuumed ? [$name] : [$sidecars[$name], $name]),
+                ));
+            }
+        }
         $io->success(sprintf('%d statement(s) applied. Next: fuzzphony:reindex, then fuzzphony:doctor.', count($plan->statements)));
-        if (array_any(array_diff($this->cachedColumns(), $columnsBefore), static fn(string $column): bool => isset($tablesBefore[explode('.', $column)[0]]))) {
+        $columnsAfter = $this->cachedColumns();
+        $tablesAfter = $this->tables();
+        if (array_any(array_diff($columnsAfter, $columnsBefore), static fn(string $column): bool => isset($tablesBefore[explode('.', $column)[0]]))) {
             $io->warning('An index was added that the engine looks up once per process (the open-class indexes of an index with granted fields): restart long-running processes (Messenger workers, RoadRunner, FrankenPHP) so that they see it, or call PostgresEngine::resetCaches().');
+        } elseif (array_any(array_diff($columnsBefore, $columnsAfter), static fn(string $column): bool => isset($tablesAfter[explode('.', $column)[0]]))) {
+            // a process that saw the dropped index still sends its lookups to the expression it served: the same results, without the index
+            $io->warning('An index was dropped that the engine looks up once per process (an open-class index that is no longer needed): restart long-running processes (Messenger workers, RoadRunner, FrankenPHP) so that their searches stop reading the expression it served (the same results, but without the index), or call PostgresEngine::resetCaches().');
         }
         if ($skipped > 0) {
             $io->warning(sprintf(
@@ -227,6 +252,67 @@ final class SchemaCommand extends Command
         }
 
         return null;
+    }
+
+    /**
+     * @param list<IndexDefinition> $indexes
+     *
+     * @return array<string, string> index name => its sidecar (none for another engine)
+     */
+    private function sidecars(array $indexes): array
+    {
+        $engine = $this->fuzzphony->engine();
+        if (!$engine instanceof PostgresEngine) {
+            return [];
+        }
+        $sidecars = [];
+        foreach ($indexes as $index) {
+            $sidecars[$index->name] = $engine->schemaGenerator()->names()->sidecar($index);
+        }
+
+        return $sidecars;
+    }
+
+    /**
+     * The size of a sidecar (pg_total_relation_size: the table, its TOAST and its indexes) when its backfill starts, and when the
+     * VACUUM after it starts, the latter only when the backfill updated rows (ColumnMap::BACKFILLED names the table then).
+     *
+     * @param array<string, string>                  $sidecars index name => sidecar
+     * @param array<string, array{int, int|null, int}> $growth   index name => [size before, size after or null, manual vacuums before the VACUUM]
+     */
+    private function measureBackfill(Statement $statement, array $sidecars, array &$growth): void
+    {
+        $backfill = str_starts_with($statement->description, ColumnMap::BACKFILL);
+        if (!$backfill && !str_starts_with($statement->description, ColumnMap::VACUUM)) {
+            return;
+        }
+        foreach ($sidecars as $name => $table) {
+            if (!str_contains($statement->description, sprintf('("%s"', $name))) {
+                continue;
+            }
+            $size = fn(): int => Coerce::int($this->connection->fetchValue('SELECT coalesce(pg_total_relation_size(to_regclass(:t)), 0)', ['t' => $table]));
+            if ($backfill) {
+                $growth[$name] = [$size(), null, 0];
+            } elseif (isset($growth[$name]) && $this->connection->fetchValue(sprintf("SELECT current_setting('%s', true)", ColumnMap::BACKFILLED)) === $table) {
+                $growth[$name][1] = $size();
+                $growth[$name][2] = $this->vacuumCount($table);
+            }
+
+            return;
+        }
+    }
+
+    /** How many times the table was vacuumed by hand (pg_stat_user_tables; autovacuum counts apart), read afresh. */
+    private function vacuumCount(string $table): int
+    {
+        $this->connection->fetchValue('SELECT pg_stat_clear_snapshot()');
+
+        return Coerce::int($this->connection->fetchValue('SELECT coalesce((SELECT vacuum_count FROM pg_stat_user_tables WHERE relid = to_regclass(:t)), 0)', ['t' => $table]));
+    }
+
+    private static function megabytes(int $bytes): string
+    {
+        return sprintf('%.1f MB', $bytes / 1_048_576);
     }
 
     /** @return array<string, true> the oids of the tables there are now */
@@ -320,9 +406,12 @@ final class SchemaCommand extends Command
     {
         $class = 'Version' . date('YmdHis');
         $up = implode("\n", array_map(
-            static fn(Statement $s): string => sprintf("        // %s\n        \$this->addSql(%s);", $s->description, var_export($s->sql, true)),
-            // a statement that needs the database's answer to know what to run (dropping stale indexes) is for --apply, the doctor reports what is left
-            array_filter($plan->statements, static fn(Statement $s): bool => $s->forEach === null),
+            static fn(Statement $s): string => $s->forEach === null
+                ? sprintf("        // %s\n        \$this->addSql(%s);", $s->description, var_export($s->sql, true))
+                : sprintf('        // %s: not run here; when the backfill above updated rows, run "%s" outside a transaction afterwards (schema --apply does), and fuzzphony:reindex compacts the table online', $s->description, $s->sql),
+            // a statement that needs the database's answer to know what to run (dropping stale indexes) is for --apply, the doctor
+            // reports what is left; the VACUUM after a backfill is named as a hint
+            array_filter($plan->statements, static fn(Statement $s): bool => $s->forEach === null || str_starts_with($s->description, ColumnMap::VACUUM)),
         ));
         $code = <<<PHP
             <?php

@@ -553,6 +553,7 @@ final class PostgresInspector
                 'bin/console fuzzphony:reindex ' . $index->name,
             );
         }
+        array_push($checks, ...$this->widerThanNeeded($index));
         $pending = ColumnMap::pending($this->connection, $this->names, $index);
         if ($pending === []) {
             return $checks;
@@ -567,6 +568,46 @@ final class PostgresInspector
                 ColumnMap::BATCH,
             ),
             'bin/console fuzzphony:schema --apply --force',
+        )];
+    }
+
+    /**
+     * A sidecar larger than the current column map needs, which a backfill leaves behind (pgstattuple is not assumed, so two cheap
+     * estimates): rows without a map while the definition has one (`field_map IS NULL`: backfilled, or written before 0.12.4) store
+     * the per-field columns the map keeps empty, and the dead row versions the statistics count (pg_stat_user_tables). The note needs
+     * at least 10% of the rows without a map: each such row holds its shared text twice (in a one-field
+     * index `z_name` and `t_name` again, about half the row), so below 10% the reindex would save a few percent of the table, not
+     * worth a note. The dead versions are only added to it, above
+     * PostgreSQL's own autovacuum trigger (50 + 20% of the rows, the defaults: autovacuum is due and has not run); alone they are
+     * ordinary churn, autovacuum's business. One count over the table (like ColumnMap::pending()) with one statistics read.
+     *
+     * @return list<Check>
+     */
+    private function widerThanNeeded(IndexDefinition $index): array
+    {
+        if ($this->names->fieldMap($index) === null) {
+            return [];
+        }
+        $table = $this->names->sidecar($index);
+        $row = $this->connection->fetchAll(sprintf(
+            'SELECT count(*) FILTER (WHERE %2$s IS NULL) AS wide, count(*) AS total, (SELECT coalesce(max(n_dead_tup), 0) FROM pg_stat_user_tables WHERE relid = to_regclass(%3$s)) AS dead FROM %1$s',
+            $table,
+            PostgresSchemaGenerator::FIELD_MAP_COLUMN,
+            Sql::string($table),
+        ))[0] ?? [];
+        [$wide, $total, $dead] = [Coerce::int($row['wide'] ?? 0), Coerce::int($row['total'] ?? 0), Coerce::int($row['dead'] ?? 0)];
+        if ($total === 0 || $wide * 10 < $total) {
+            return [];
+        }
+        $parts = [sprintf('%d of %d document(s) store the per-field columns the current column map keeps empty (backfilled by schema --apply, or written before 0.12.4)', $wide, $total)];
+        if ($dead > 50 + intdiv($total, 5)) {
+            $parts[] = sprintf('%d dead row version(s) wait for VACUUM (after a backfill: the old versions of the updated rows; VACUUM (ANALYZE) %s makes their space reusable)', $dead, $table);
+        }
+
+        return [Check::warning(
+            'Sidecar size',
+            sprintf('The sidecar of "%s" is larger than it needs to be: %s. The reindex rewrites it compactly, online.', $index->name, implode('; ', $parts)),
+            'bin/console fuzzphony:reindex ' . $index->name,
         )];
     }
 

@@ -212,7 +212,17 @@ Size and build time (`fuzzphony:schema --apply`, `CREATE INDEX CONCURRENTLY`, bo
 | growth | +25 % | +34 % |
 | build time | 2 s | 12.5 s |
 
-The indexes are used only when both exist, are valid and are smaller together than `fz`; an index with no granted field has none.
+The indexes are used only when both exist, are valid and each is smaller than the one it replaces; an index with no granted field has
+none. Since 0.12.5 the trigram one is built only when a granted field is fuzzy (otherwise it held the trigrams of `fz`, was as large,
+and kept the full-text one switched off). On 200 000 ERP customers, after `schema --apply` and no reindex:
+
+| Index (no granted field fuzzy) | open-class trigram index | table + indexes 0.12.4 | 0.12.5 | restricted viewer, median ms 0.12.4 / 0.12.5 |
+|---|---:|---:|---:|---:|
+| `people2` (`name`, `contact` fuzzy; `address`, `email` granted) | 12.2 MB, dropped | 171.0 MB | 158.8 MB | 57.0 / 29.8 (`name`), 79.3 / 38.1 (`name`, `contact`) |
+| `mails` (`name` fuzzy; `email`, `tax_no` granted) | 7.7 MB, dropped | 101.3 MB | 93.6 MB | 28.7 / 24.9 |
+
+Results, scores, totals, facets and highlights are identical for every viewer (299 or 274 searches per viewer); an index with a fuzzy
+granted field (`people`) keeps both open-class indexes and every statement.
 ## Reading the numbers
 
 The two columns do different work. `ILIKE … LIMIT 20` returns the first 20 rows the scan reaches,
@@ -261,7 +271,10 @@ unchanged and the timings within noise. On 200 000 ERP customers, the index tabl
 
 A one-field index saves about 10%; where only a short `z_` copy goes, the map text eats what it saves. After a definition change the
 backfill of the 200 000 `cust` rows took 3.2 s (one scan to find the maps: 0.04 s) and left the table at 110 MB until the next reindex
-or `VACUUM` (the copied columns and the old row versions); an apply with nothing to backfill adds the scan only.
+(the copied columns and the old row versions); an apply with nothing to backfill adds the scan only. Since 0.12.5 the apply then runs
+`VACUUM (ANALYZE)` on it (one more measurement, `cust` with a granted `email` added: 39.8 MB before, 96.8 MB after the apply in 2.2 s
+including the VACUUM, 0 dead row versions instead of 199 930, 83.8 MB after `fuzzphony:reindex` in 4.8 s); the VACUUM makes the space
+reusable, only the reindex gives it back.
 
 ## Several values per document (`many`)
 
@@ -283,26 +296,27 @@ statement texts) compare identical with the previous release.
 
 ### Ranking by the best value (`rank: best`)
 
-In one line: a search whose words are in a `rank: best` field costs **1.4 to 2 times** a `rank: whole` search (on 54 000 matches of a common word about
+In one line: a search whose words are in a `rank: best` field costs **1.3 to 1.9 times** a `rank: whole` search (on 54 000 matches of a common word about
 50 ms more), a search whose words are elsewhere 1.0 to 1.15 times, and the match set, total and facets never change. It is the price of ranking each value of
 every candidate; the option is per field, so only the fields where it matters pay it.
 
-200 000 customers of the demo's ERP data (`demo/sql/erp.sql`, 1.5 addresses each, each address one value `zip city, street`), one index
-searched through `rank: whole` and `rank: best` definitions of the same tables; median and p95 of 20 warm searches, limit 20, PostgreSQL 17 in
-Docker on a laptop. The partial GIN index of the field is 8.5 MB next to the 58 MB values table (300 000 values).
+200 000 customers of the demo's ERP data (`demo/sql/erp.sql`, 1.5 addresses each, each address one value `zip city, street`), one index (name, address
+as a granted many field, contacts as a many field, email) searched through `rank: whole` and `rank: best` definitions of the same tables; median of 30
+warm searches, limit 20, PostgreSQL 17 in Docker on a laptop (0.12.5). The partial GIN index of the field is 8.5 MB next to the 58 MB values table
+(300 000 values).
 
 | Search | whole | best | best / whole |
 |---|---|---|---|
-| `kiss` (no word in the field) | 16.4 ms | 17.4 ms | 1.06 |
-| `nagy anna budapest` | 1.9 ms | 2.2 ms | 1.15 |
-| `fo utca szeged` (980 matches) | 10.4 ms | 16.5 ms | 1.58 |
-| `fo utca szeged`, restricted to name + address | 11.7 ms | 17.4 ms | 1.48 |
-| `kossuth lajos utca` (13 333 matches) | 79.3 ms | 125 ms | 1.57 |
-| `address:szeged` (12 745 matches) | 42.6 ms | 82.9 ms | 1.95 |
-| `"petofi sandor"` | 51.0 ms | 96.0 ms | 1.88 |
-| `budapest` (53 923 matches) | 88.5 ms | 139 ms | 1.57 |
-| `kossuth la`, as you type | 126 ms | 170 ms | 1.35 |
-| `szgeed fo`, typo | 53.0 ms | 53.0 ms | 1.00 |
+| `kiss` (no word in the field) | 27.6 ms | 28.8 ms | 1.05 |
+| `nagy anna budapest` | 2.1 ms | 2.3 ms | 1.05 |
+| `fo utca szeged` (980 matches) | 9.3 ms | 15.5 ms | 1.67 |
+| `fo utca szeged`, restricted to name + address | 10.1 ms | 16.0 ms | 1.58 |
+| `kossuth lajos utca` (13 333 matches) | 86.5 ms | 118 ms | 1.36 |
+| `address:szeged` (12 745 matches) | 41.8 ms | 80.3 ms | 1.92 |
+| `"petofi sandor"` | 51.5 ms | 91.3 ms | 1.77 |
+| `budapest` (53 923 matches) | 96.4 ms | 145 ms | 1.51 |
+| `kossuth la`, as you type | 130 ms | 174 ms | 1.34 |
+| `szgeed fo`, typo | 53.4 ms | 54.7 ms | 1.02 |
 
 A search whose words are not in the field costs the same (the field's own vector says so before the values are read), and so does a document
 with one value (its stored count says so: its best value is the whole field). Every other full-text candidate costs a primary-key probe of the
@@ -310,6 +324,12 @@ values table and one ranking per matching value, about as much as two more words
 field. A typo-tolerant match is ranked on the whole field and costs nothing more. The count saved most on the common word (`budapest` 1.82 to
 1.57); a covering index of the values by document with their vectors (`(doc) INCLUDE (t)`, 33 MB) and ranking a value alone when the other fields
 hold no query word changed nothing measurable and are not used.
+
+Since 0.12.5 each match of such an index is ranked once: the cheap selection of the first matches and the ordered selection read one scan, where
+the cheap one used to rank its first 2 000 matches and then see them ranked again (same rows, same expressions, results identical; 5 to 15 % less
+time on searches with more matches than the window, the same on smaller ones; a `rank: whole` index keeps its statements). Measured and not used:
+one lookup per document for all `rank: best` fields at once (no document of the data needed two: the words of a search rarely are in two such
+fields), sharing the vector of the fields before the field across its values (+6 %), and joining the matching values first (10 to 30 % slower).
 
 `manyMatch('single')` on the same data (default mode = `rank: best` above, measured in the same run; median of 20):
 

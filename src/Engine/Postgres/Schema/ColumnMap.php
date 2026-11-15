@@ -25,6 +25,16 @@ final readonly class ColumnMap
     /** The description of the backfill statement (SchemaCommand asks before it runs it). */
     public const string BACKFILL = 'Backfill the per-field columns of rows written with another column map';
 
+    /** The description of the VACUUM that follows a backfill which updated rows (SchemaCommand reports the growth around it). */
+    public const string VACUUM = 'Vacuum the sidecar after the backfill updated rows';
+
+    /**
+     * The session setting the backfill leaves the sidecar's name in when it updated rows (empty otherwise): the VACUUM after it runs
+     * only then. Session-level, so the next statement of the apply's connection reads it (a pooler that hands that statement to
+     * another session skips the VACUUM: autovacuum then does the work later, nothing is wrong).
+     */
+    public const string BACKFILLED = 'fuzzphony.backfilled';
+
     /** The mark of a map the guard no longer trusts (`!z_name=exact`): never equal to a current map, never backfilled. */
     public const string STALE = '!';
 
@@ -95,7 +105,10 @@ final readonly class ColumnMap
                         sets text;
                         last text;
                         n bigint;
+                        k bigint;
+                        done bigint := 0;
                     BEGIN
+                        PERFORM set_config('%7$s', '', false);
                         IF NOT EXISTS (SELECT 1 FROM pg_attribute WHERE attrelid = to_regclass(%2$s) AND attname = '%5$s' AND NOT attisdropped) THEN
                             RETURN;
                         END IF;
@@ -109,13 +122,17 @@ final readonly class ColumnMap
                             last := NULL;
                             LOOP
                                 EXECUTE format(
-                                    'WITH b AS (SELECT id FROM %3$s WHERE %5$s = %%1$L%%2$s ORDER BY id LIMIT %4$d), u AS (UPDATE %3$s AS t SET %%3$s %5$s = NULL FROM b WHERE t.id = b.id AND t.%5$s = %%1$L RETURNING 1) SELECT (SELECT id::text FROM b ORDER BY id DESC LIMIT 1), (SELECT count(*) FROM b)',
+                                    'WITH b AS (SELECT id FROM %3$s WHERE %5$s = %%1$L%%2$s ORDER BY id LIMIT %4$d), u AS (UPDATE %3$s AS t SET %%3$s %5$s = NULL FROM b WHERE t.id = b.id AND t.%5$s = %%1$L RETURNING 1) SELECT (SELECT id::text FROM b ORDER BY id DESC LIMIT 1), (SELECT count(*) FROM b), (SELECT count(*) FROM u)',
                                     m, CASE WHEN last IS NULL THEN '' ELSE format(' AND id > %%L', last) END, sets
-                                ) INTO last, n;
+                                ) INTO last, n, k;
+                                done := done + k;
                                 COMMIT;
                                 EXIT WHEN n < %4$d;
                             END LOOP;
                         END LOOP;
+                        IF done > 0 THEN
+                            PERFORM set_config('%7$s', %2$s, false);
+                        END IF;
                     END %1$s
                     SQL,
                 self::TAG,
@@ -124,9 +141,32 @@ final readonly class ColumnMap
                 $batch,
                 PostgresSchemaGenerator::FIELD_MAP_COLUMN,
                 self::otherMaps($index, $names, 'DISTINCT ' . PostgresSchemaGenerator::FIELD_MAP_COLUMN, ''),
+                self::BACKFILLED,
             ),
             sprintf('%s ("%s"; %d rows per batch, outside a transaction)', self::BACKFILL, $index->name, $batch),
             transactional: false,
+        );
+    }
+
+    /**
+     * Right after the backfill, when it updated rows: `VACUUM (ANALYZE)` of the sidecar. Every backfilled row left its old version
+     * behind (a new version larger than the page's free space: no HOT update), so the table grew by about its own size; the VACUUM
+     * makes that space reusable at once (online: SHARE UPDATE EXCLUSIVE, searches and writes go on) and gives the planner the new
+     * row sizes. It does not shrink the file: fuzzphony:reindex (the shadow rebuild) does that online, SchemaCommand says so.
+     * VACUUM cannot run inside a transaction or a DO block, so it is a statement of its own, run once when the backfill set
+     * BACKFILLED to this table (the `forEach` query returns one row then, the table's name, none otherwise); a dumped migration only
+     * names it. A failed VACUUM is a warning that names the table and the statement to run by hand: a second apply would not run it (the
+     * backfill finds nothing left, so the setting stays empty).
+     */
+    public static function vacuum(IndexDefinition $index, Names $names): Statement
+    {
+        $table = $names->sidecar($index);
+
+        return new Statement(
+            'VACUUM (ANALYZE) ' . $table,
+            sprintf('%s ("%s")', self::VACUUM, $index->name),
+            transactional: false,
+            forEach: sprintf("SELECT %2\$s AS name WHERE current_setting('%1\$s', true) = %2\$s", self::BACKFILLED, Sql::string($table)),
         );
     }
 

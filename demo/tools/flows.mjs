@@ -1073,6 +1073,24 @@ await secContext.close();
     await go(erp, BASE + '/erp?tab=people&q=kovacs&city=Budapest');
     const cityWhys = await erp.locator('#results .row-why').allTextContents();
     check('erp people: an active city filter shows the line "city filter Budapest: <address>" in every row', cityWhys.length > 5 && cityWhys.every((w) => /city filter Budapest: [0-9]{4} Budapest, /.test(w)), cityWhys.find((w) => !/city filter Budapest: /.test(w)) ?? '');
+    // same_row_as: in the strict mode the city is the city of the address that holds the words; the facet number is the hit count after the click
+    await go(erp, BASE + '/erp?tab=people&q=' + encodeURIComponent('fő utca szeged') + '&single=1');
+    const strictFacets = await erp.locator('#results .facet a').allTextContents();
+    check('erp people: strict mode, the facet lists only the city of the address that holds the words (no Budapest from the other address)', strictFacets.length === 1 && /Szeged/.test(strictFacets[0]), strictFacets.join(' | '));
+    const szeged = erp.locator('#results .facet a', { hasText: 'Szeged' }).first();
+    const facetText = await szeged.locator('span').last().innerText();
+    const facetNumber = Number(facetText.replace(/[^0-9]/g, ''));
+    await szeged.click();
+    await erp.waitForURL(/city=Szeged/);
+    await erp.waitForSelector('#results .hit-row');
+    const strictCityHits = await hits();
+    check('erp people: strict mode, the city facet number equals the hit count after the click (exact counts)', facetNumber > 100 && facetNumber === strictCityHits && !facetText.includes('+'), `${facetNumber} vs ${strictCityHits}`);
+    const strictCityWhys = await erp.locator('#results .row-why').allTextContents();
+    check('erp people: strict mode with a city: the Why line names the one address, which is in that city; no separate city filter line', strictCityWhys.length > 5 && strictCityWhys.every((w) => /one address holds all the words: [0-9]{4} Szeged, Fő utca [0-9]+ \(in Szeged/.test(w) && !/city filter Szeged:/.test(w)), strictCityWhys.find((w) => !/one address holds all the words: [0-9]{4} Szeged, Fő utca/.test(w)) ?? '');
+    check('erp people: the note explains the coupling with the Orosz example', /same_row_as: address/.test(await note()) && /Orosz/.test(await note()), await note());
+    await go(erp, BASE + '/erp?tab=people&q=' + encodeURIComponent('fő utca szeged') + '&city=Szeged');
+    const looseCityHits = await hits();
+    check('erp people: the default mode (document-level city) finds more people than the strict one, and keeps the "city filter" line', looseCityHits > strictCityHits && (await erp.locator('#results .row-why').first().innerText()).includes('city filter Szeged:'), `${looseCityHits} vs ${strictCityHits}`);
     for (const [qs, best, single] of [['best=0', false, false], ['single=1', true, true]]) {
         await go(erp, BASE + '/erp?tab=people&q=kovacs&' + qs);
         const facetHref = (await erp.locator('#results .facet a').first().getAttribute('href')) ?? '';

@@ -33,11 +33,16 @@ final readonly class BestValueRank
     /** @var list<string> the rank: best fields the viewer may see, in the index's order */
     public array $fields;
 
-    /** @param list<string>|null $allowed the fields the viewer may see; null = every field */
+    /**
+     * @param list<string>|null           $allowed   the fields the viewer may see; null = every field
+     * @param array<string, list<string>> $couplings manyMatch('single') with a same_row_as condition: per field, the conditions its value
+     *                                               row must also meet (SearchSqlBuilder::couplings()), so the best value is one that holds them
+     */
     public function __construct(
         private IndexDefinition $index,
         private Names $names,
         private ?array $allowed,
+        private array $couplings = [],
     ) {
         $this->fields = array_values(array_filter(
             array_map(static fn(FieldDefinition $f): string => $f->name, $index->manyBestFields()),
@@ -99,7 +104,7 @@ final readonly class BestValueRank
         }
 
         return sprintf(
-            'CASE WHEN %s @@ q.tsany AND NOT coalesce(%s, false) AND coalesce((%s) = %s AND (%s) > 0, false)%s THEN (SELECT b.ord FROM (SELECT v.ord, %s AS r FROM %s AS v WHERE v.doc = s.id AND v.field = %s AND v.t @@ q.tsany) AS b WHERE b.r > 0 ORDER BY b.r DESC, b.ord LIMIT 1) END',
+            'CASE WHEN %s @@ q.tsany AND NOT coalesce(%s, false) AND coalesce((%s) = %s AND (%s) > 0, false)%s THEN (SELECT b.ord FROM (SELECT v.ord, %s AS r FROM %s AS v WHERE v.doc = s.id AND v.field = %s AND v.t @@ q.tsany%s) AS b WHERE b.r > 0 ORDER BY b.r DESC, b.ord LIMIT 1) END',
             $this->names->fieldVector($this->index, $field),
             $this->oneValue($field),
             $mine,
@@ -109,7 +114,14 @@ final readonly class BestValueRank
             $this->valueRank($field, $weights, $rankQuery),
             $this->names->values($this->index),
             Sql::string($field),
+            $this->coupled($field),
         );
+    }
+
+    /** The same_row_as conditions of the field's value rows (see the constructor), or nothing. */
+    private function coupled(string $field): string
+    {
+        return ($this->couplings[$field] ?? []) === [] ? '' : ' AND ' . implode(' AND ', $this->couplings[$field]);
     }
 
     /** The rank of one field in greatest(): NULL when no value holds a query word, the whole-field rank of a one-value document, else its best value's. */
@@ -121,13 +133,14 @@ final readonly class BestValueRank
         // `tsv` is not capped, where the fallback may read other vectors). With one field that is the fallback itself (NULL), with several
         // it takes part in greatest() as what it is.
         return sprintf(
-            'CASE WHEN NOT %1$s @@ q.tsany THEN NULL WHEN %2$s THEN %3$s ELSE (SELECT max(%4$s) FROM %5$s AS v WHERE v.doc = s.id AND v.field = %6$s AND v.t @@ q.tsany) END',
+            'CASE WHEN NOT %1$s @@ q.tsany THEN NULL WHEN %2$s THEN %3$s ELSE (SELECT max(%4$s) FROM %5$s AS v WHERE v.doc = s.id AND v.field = %6$s AND v.t @@ q.tsany%7$s) END',
             $this->names->fieldVector($this->index, $field),
             $this->oneValue($field),
             count($this->fields) === 1 ? 'NULL' : $fallback,
             $this->valueRank($field, $weights, $rankQuery),
             $this->names->values($this->index),
             Sql::string($field),
+            $this->coupled($field),
         );
     }
 

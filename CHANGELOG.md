@@ -11,6 +11,27 @@ and a link. Measurements, proofs and test names belong to the pull request, [doc
 
 ## [Unreleased]
 
+## [0.12.5] - 2026-11-15
+
+The strict mode can couple a city filter to the address that holds the words (`same_row_as`), `rank: best` ranks each match once, the redundant open-class trigram index is dropped and the table is vacuumed after a backfill, and the demo shows the coupling. Three independent reviews (the coupling, the trigram drop with probes against the real 0.12.4, and their fixes) found no leak. Run `fuzzphony:schema --apply` (UPGRADE has the order); a reindex is needed only to fill the new per-address filter column of an existing index.
+
+### Added
+
+- **A city filter on the same address in the strict mode:** a many filter declared `same_row_as: address` holds, under `manyMatch('single')`, for the address that holds the words (`fő utca` + Eger finds the customer whose Eger address is on Fő utca), and its facet counts what choosing a value shows. Opt-in per filter; run `schema --apply`, then a reindex. See [searching](docs/searching.md#several-values-one-address-manymatch) and [UPGRADE](UPGRADE.md#from-012x-to-0125).
+
+### Changed
+
+- **Faster `rank: best`:** each full-text match of an index with a `rank: best` field is ranked once instead of twice for its first 2 000
+  matches (5 to 15 % less time on searches with more matches than the window); results unchanged, `rank: whole` indexes untouched.
+  See [benchmarks](docs/benchmarks.md#ranking-by-the-best-value-rank-best).
+- **Demo, ERP People tab:** the `city` filter of `people` is `same_row_as: address`, so with "One address must match all words" a chosen city is the city of the address that holds the words (`fő utca szeged`: the facet shows Szeged 294, not the 196 people whose Fő utca is elsewhere); the "city filter" line stays in the default mode only. An existing demo volume needs `DEMO_REINDEX=always` once.
+- **No duplicate trigram index for restricted viewers:** an index whose `granted` fields are all non-fuzzy no longer builds the open-class
+  trigram index (a copy of `fz`, 12 MB at 200 000 rows); `schema --apply` drops it, no reindex. Such viewers now also get the open-class
+  full-text index, which the copy kept switched off; results unchanged. See [UPGRADE](UPGRADE.md#from-012x-to-0125).
+- **Compaction hint after the column backfill:** `schema --apply` runs `VACUUM (ANALYZE)` on a table whose rows it backfilled, reports
+  its growth and points to `fuzzphony:reindex` (compacts online); the doctor notes a table still wider than its column map needs. See
+  [commands](docs/commands.md#commands).
+
 ## [0.12.4] - 2026-11-15
 
 Smaller index tables, proved safe for restricted viewers: a per-field column that holds the same text as another column of the same row is stored empty, and every definition change keeps the hidden-field independence (four independent reviews, a transition matrix of 15 definition changes, a race test against a concurrent refresh). Run `fuzzphony:schema --apply` (UPGRADE has the order and the confirmation); no reindex is needed.
@@ -1259,7 +1280,8 @@ on its own:
 - Sync modes: queue (default), trigger, ORM, manual; watches for joined tables.
 - Doctor with fixes; CLI commands for schema, reindex, worker, search and explain.
 
-[Unreleased]: https://github.com/er2es/fuzzphony/compare/v0.12.4...HEAD
+[Unreleased]: https://github.com/er2es/fuzzphony/compare/v0.12.5...HEAD
+[0.12.5]: https://github.com/er2es/fuzzphony/compare/v0.12.4...v0.12.5
 [0.12.4]: https://github.com/er2es/fuzzphony/compare/v0.12.3...v0.12.4
 [0.12.3]: https://github.com/er2es/fuzzphony/compare/v0.12.2...v0.12.3
 [0.12.2]: https://github.com/er2es/fuzzphony/compare/v0.12.1...v0.12.2
