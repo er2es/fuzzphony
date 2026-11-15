@@ -239,10 +239,10 @@ final class SearchSqlBuilder
         $operands = 1;
         // same_row_as: the positive conditions on a coupled filter, as tests of the value row (nothing, and no bind, without one)
         $couplings = $this->coupled === [] ? [] : $this->couplings($conditions, $params);
-        $best = new BestValueRank($this->index, $this->names, $this->allowedFields, $couplings);
-        if ($tsquery !== null) {
+        $rankForm = $tsquery === null ? null : TsQueryCompiler::withoutExclusions($tsquery);
+        $best = new BestValueRank($this->index, $this->names, $this->allowedFields, $couplings, $rankForm);
+        if ($tsquery !== null && $rankForm !== null) {
             $q[] = sprintf('to_tsquery(%s, %s) AS tsq', $config, $params->add($tsquery));
-            $rankForm = TsQueryCompiler::withoutExclusions($tsquery);
             if ($rankForm !== $tsquery) {
                 $q[] = sprintf('to_tsquery(%s, %s) AS tsr', $config, $params->add($rankForm));
                 $rankQuery = 'q.tsr';
