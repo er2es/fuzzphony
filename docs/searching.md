@@ -560,7 +560,12 @@ Invoice numbers, SKUs and part numbers (`INV-001`, `AB-12/3`, `INV.007`) are fou
 The same in YAML (`fields: { number: { weight: A, code: true } }`) and as an attribute (`#[SearchField('A', code: true)]`). The field's text is indexed
 with every run of characters that is not a letter or a digit as one space (`INV-001` as `inv`, `001`), and the code without separators is added
 (`inv001`), in the index's text configuration. `INV-001`, `inv-001`, `"INV-001"`, `001`, `INV-2024-0042`, `AB-12/3`, `INV.007` and `INV001` then find
-their row, in any case; `number:INV-001` works as for any field, and the whole code ranks first. Typo tolerance stays the field's own `fuzzy` flag. A
+their row, in any case; `number:INV-001` works as for any field, and the whole code ranks first. A beginning of a code finds it up to a separator
+(`INV-2024` finds `INV-2024-0042`), and `004*` asks for the beginning of a part. A last part cut off inside (`INV-2024-004`, or `INV2024004`
+without separators) is no whole word: when the search finds nothing at all, it runs once more with its last word as a prefix on the code fields
+the viewer may search (`number:INV-2024-004*`) and answers with that, flagged like the [zero-result rescue](#zero-result-rescue)
+(`SearchResult::$correctedFrom`, `$correctedTo`, a warning). A search with results, a search-as-you-type one and `rescue.correct_when_empty: false`
+never do this. Typo tolerance stays the field's own `fuzzy` flag. A
 highlight marks the whole code in the original text (a query written without separators, `INV001`, finds the row but marks nothing). A code with
 accents inside a word of letters and digits (`Ä12`) is found by the unaccented form only through its separated parts. A code whose parts are stop words
 of the language (`IT-5` in English) also finds rows that have the other parts. The flag is part of the definition: run `fuzzphony:schema --apply` and

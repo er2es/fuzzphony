@@ -29,8 +29,8 @@ final readonly class Erp
         ],
         'orders' => [
             'index' => 'orders', 'label' => 'Orders', 'field' => 'Search orders',
-            'about' => 'Orders by their number (an exact code, a beginning works too) and by the customer.',
-            'examples' => ['order number' => 'ORD-2026-044127', 'a beginning' => 'ORD-2025', 'customer' => 'kovacs'],
+            'about' => 'Orders by their number (an exact code; a beginning up to a separator, ORD-2025, works, and a cut-off last part, ORD-2025-00003, is searched as a beginning when nothing else matches) and by the customer.',
+            'examples' => ['order number' => 'ORD-2026-044127', 'a beginning' => 'ORD-2025', 'a cut-off number' => 'ORD-2025-00003', 'customer' => 'kovacs'],
         ],
     ];
 

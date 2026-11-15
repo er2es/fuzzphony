@@ -11,6 +11,10 @@ and a link. Measurements, proofs and test names belong to the pull request, [doc
 
 ## [Unreleased]
 
+### Added
+
+- A `code: true` field finds a code whose last part is cut off (`ORD-2025-00003` finds `ORD-2025-000030`): a search that finds nothing runs once more with its last word as a prefix on the code fields the viewer may search, flagged like the zero-result rescue (`correctedFrom`, `correctedTo`, a warning, the `rescued` log flag). Searches with results are unchanged; `rescue.correct_when_empty: false` and search-as-you-type skip it. Federated searches get it per index.
+
 ## [0.12.7] - 2026-11-15
 
 ### Fixed
