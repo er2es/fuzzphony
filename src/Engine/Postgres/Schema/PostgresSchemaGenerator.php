@@ -25,7 +25,7 @@ use Fuzzphony\Engine\Postgres\Sql\Sql;
  * @internal Generates idempotent DDL. Nothing here ever alters the source tables, except for
  * (optional) AFTER triggers that feed the sync queue.
  */
-final class PostgresSchemaGenerator
+final readonly class PostgresSchemaGenerator
 {
     /**
      * The sidecar layout this version generates, recorded in fuzzphony_meta: 1 = the 0.4 layout,
@@ -65,7 +65,7 @@ final class PostgresSchemaGenerator
     private const string TAG = DefinitionValidator::DOLLAR_QUOTE_TAG;
 
     /** @param bool $searchLog whether the shared schema includes the search log table (the engine was built with searchLog: true) */
-    public function __construct(private readonly Names $names = new Names(), private readonly bool $searchLog = false, private readonly int $backfillBatch = ColumnMap::BATCH) {}
+    public function __construct(private Names $names = new Names(), private bool $searchLog = false, private int $backfillBatch = ColumnMap::BATCH) {}
 
     public function names(): Names
     {
@@ -642,31 +642,12 @@ ON CONFLICT (index_name) DO UPDATE SET layout_version = EXCLUDED.layout_version,
         return array_values(array_diff($this->allTriggerNames($index, $watch), array_keys($this->triggerDefinitions($index, $watch))));
     }
 
-    /**
-     * The TRUNCATE trigger on every partition of a partitioned watched table, at every level:
-     * truncating one partition fires only that partition's triggers. pg_partition_tree() lists the
-     * partitions when the plan runs (so the plan stays database-free) and nothing for a table that
-     * is not partitioned. Each table's schema and name go through %I, so any name is
-     * quoted right. The trigger name is the parent's: trigger names are per table. Row-level
-     * triggers are cloned to partitions by PostgreSQL (and removed on DETACH); statement-level
-     * ones cannot go on them.
-     *
-     * A detached partition keeps its TRUNCATE trigger, so the triggers to remove are found by
-     * name and sync function on any table: with $create those on a table that is no longer in the
-     * partition tree, without it (a sync mode without triggers, drop()) all but the parent's, which
-     * the caller drops by name. drop() then drops the sync function, which they depend on.
-     */
     /** A watch of an index installed before 0.12.7 may still have the unhashed function, unless that name is a current function of a watch of this index (a watch named like the hash of a sibling). */
     private function hasLegacySyncFunction(IndexDefinition $index, Watch $watch): bool
     {
         $legacy = $this->names->legacySyncFunctionName($index, $watch);
-        foreach ($index->effectiveWatches() as $other) {
-            if ($this->names->syncFunctionName($index, $other) === $legacy) {
-                return false;
-            }
-        }
 
-        return true;
+        return !array_any($index->effectiveWatches(), fn(Watch $other): bool => $this->names->syncFunctionName($index, $other) === $legacy);
     }
 
     /**
@@ -701,6 +682,20 @@ ON CONFLICT (index_name) DO UPDATE SET layout_version = EXCLUDED.layout_version,
         return $statements;
     }
 
+    /**
+     * The TRUNCATE trigger on every partition of a partitioned watched table, at every level:
+     * truncating one partition fires only that partition's triggers. pg_partition_tree() lists the
+     * partitions when the plan runs (so the plan stays database-free) and nothing for a table that
+     * is not partitioned. Each table's schema and name go through %I, so any name is
+     * quoted right. The trigger name is the parent's: trigger names are per table. Row-level
+     * triggers are cloned to partitions by PostgreSQL (and removed on DETACH); statement-level
+     * ones cannot go on them.
+     *
+     * A detached partition keeps its TRUNCATE trigger, so the triggers to remove are found by
+     * name and sync function on any table: with $create those on a table that is no longer in the
+     * partition tree, without it (a sync mode without triggers, drop()) all but the parent's, which
+     * the caller drops by name. drop() then drops the sync function, which they depend on.
+     */
     private function partitionTriggers(IndexDefinition $index, Watch $watch, bool $create): Statement
     {
         $trigger = Sql::string($this->names->triggerName($index, $watch, '_trn'));

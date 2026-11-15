@@ -23,12 +23,6 @@ final readonly class TableProfile
 
     public function column(string $name): ?ColumnProfile
     {
-        foreach ($this->columns as $column) {
-            if ($column->name === $name) {
-                return $column;
-            }
-        }
-
-        return null;
+        return array_find($this->columns, static fn(ColumnProfile $column): bool => $column->name === $name);
     }
 }

@@ -36,7 +36,7 @@ use Fuzzphony\Core\Support\Closest;
  * The shape is checked as a whole before anything is built: unknown keys at every level, a list where a map
  * belongs, a string where a boolean belongs (the string "false" is not false) are InvalidDefinition problems.
  */
-final class ArrayDefinitionLoader
+final readonly class ArrayDefinitionLoader
 {
     private const array KEYS = ['source', 'sources', 'id_type', 'fields', 'filters', 'watch', 'sync', 'language', 'unaccent', 'boost', 'recency', 'profiles', 'thresholds', 'class', 'trigger_level', 'tenant', 'synonyms', 'log', 'returnable'];
 
@@ -52,7 +52,7 @@ final class ArrayDefinitionLoader
     private const array BOOL_KEYS = ['unaccent', 'log'];
 
     /** @param ?string $baseDir what a relative `source.query_file` starts at (the project root); null: the current working directory */
-    public function __construct(private readonly ?string $baseDir = null) {}
+    public function __construct(private ?string $baseDir = null) {}
 
     /** @param array<string, mixed> $config */
     public function load(string $name, array $config): IndexDefinition

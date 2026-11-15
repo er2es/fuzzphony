@@ -47,14 +47,9 @@ final readonly class IndexSource
     public function effectiveWatches(): array
     {
         $watches = $this->watches;
-        if ($this->source->table !== null) {
-            $own = false;
-            foreach ($watches as $watch) {
-                $own = $own || $watch->table === $this->source->table;
-            }
-            if (!$own) {
-                array_unshift($watches, new Watch($this->source->table, 'SELECT :id', $this->source->idColumn));
-            }
+        $table = $this->source->table;
+        if ($table !== null && !array_any($watches, static fn(Watch $w): bool => $w->table === $table)) {
+            array_unshift($watches, new Watch($table, 'SELECT :id', $this->source->idColumn));
         }
 
         return array_map(fn(Watch $w): Watch => new Watch($w->table, $w->affectedIds, $w->keyColumn, $w->columns, $this->name), $watches);

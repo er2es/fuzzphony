@@ -17,7 +17,7 @@ namespace Fuzzphony\Engine\Postgres;
  * overlap the most similar one wins. A swapped-letter variant of a typed word (TypoTerm::$variants), as a whole word, is a match
  * too: the search found it without trigram similarity. Marked output uses the Highlighter's private-use markers, never HTML.
  */
-final class TypoMarker
+final readonly class TypoMarker
 {
     /** The words a text is looked at in: a bound on the work for a very long document. */
     public const int MAX_WORDS_SCANNED = 2000;
@@ -31,7 +31,7 @@ final class TypoMarker
     private const string DELIMITER = ' … ';
 
     /** @param list<TypoTerm> $terms */
-    public function __construct(private readonly array $terms) {}
+    public function __construct(private array $terms) {}
 
     /**
      * The work marking $text costs, in runs of words to compare (what candidates() and the marking each go through): the

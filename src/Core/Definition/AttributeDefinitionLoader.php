@@ -11,9 +11,9 @@ use Fuzzphony\Core\Exception\InvalidDefinition;
 use Fuzzphony\Core\Support\Identifier;
 
 /** @internal Builds a definition from #[Searchable] attributes on a Doctrine/plain entity class. */
-final class AttributeDefinitionLoader
+final readonly class AttributeDefinitionLoader
 {
-    public function __construct(private readonly NamingStrategy $naming = new ConventionNamingStrategy()) {}
+    public function __construct(private NamingStrategy $naming = new ConventionNamingStrategy()) {}
 
     /** @param class-string $class */
     public function supports(string $class): bool

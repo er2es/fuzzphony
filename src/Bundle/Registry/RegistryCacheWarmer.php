@@ -12,19 +12,19 @@ use Symfony\Component\HttpKernel\CacheWarmer\CacheWarmerInterface;
  * @internal Fills the discovery cache of the registry at cache:warmup (prod only), so a read-only cache directory
  *           (an immutable container image) never has to be written by a web request.
  */
-final class RegistryCacheWarmer implements CacheWarmerInterface
+final readonly class RegistryCacheWarmer implements CacheWarmerInterface
 {
     /**
      * @param array<string, array<string, mixed>> $yaml
      * @param iterable<object>                    $definitionClasses
      */
     public function __construct(
-        private readonly array $yaml,
-        private readonly ?DoctrineIndexDiscovery $discovery,
-        private readonly ?CacheItemPoolInterface $cache,
-        private readonly ?string $projectDir,
-        private readonly bool $authorizationEnabled,
-        private readonly iterable $definitionClasses,
+        private array $yaml,
+        private ?DoctrineIndexDiscovery $discovery,
+        private ?CacheItemPoolInterface $cache,
+        private ?string $projectDir,
+        private bool $authorizationEnabled,
+        private iterable $definitionClasses,
     ) {}
 
     public function isOptional(): bool

@@ -4,7 +4,7 @@ declare(strict_types=1);
 
 namespace Fuzzphony\Core\Database;
 
-final class PdoConnection implements Connection
+final readonly class PdoConnection implements Connection
 {
     /**
      * pdo_pgsql prepares every statement on the server (Parse), executes it and drops it again (DEALLOCATE): three round
@@ -14,9 +14,9 @@ final class PdoConnection implements Connection
      *
      * @var array<int, bool>
      */
-    private readonly array $prepareOptions;
+    private array $prepareOptions;
 
-    public function __construct(private readonly \PDO $pdo)
+    public function __construct(private \PDO $pdo)
     {
         $this->pdo->setAttribute(\PDO::ATTR_ERRMODE, \PDO::ERRMODE_EXCEPTION);
         $this->prepareOptions = $pdo->getAttribute(\PDO::ATTR_DRIVER_NAME) === 'pgsql' ? [\Pdo\Pgsql::ATTR_DISABLE_PREPARES => true] : [];

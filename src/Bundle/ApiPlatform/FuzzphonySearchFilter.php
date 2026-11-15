@@ -22,17 +22,17 @@ use Fuzzphony\Core\Search\Hit;
  * Restricts the collection to the best matches (at most $maxResults) and orders by score,
  * so pagination, other filters and serialization keep working as usual.
  */
-final class FuzzphonySearchFilter implements FilterInterface
+final readonly class FuzzphonySearchFilter implements FilterInterface
 {
     /** @internal */
     public function __construct(
-        private readonly Fuzzphony $fuzzphony,
-        private readonly string $parameterName = 'q',
-        private readonly string $profile = 'default',
-        private readonly int $maxResults = 500,
-        private readonly ?ActorResolver $actors = null,
+        private Fuzzphony $fuzzphony,
+        private string $parameterName = 'q',
+        private string $profile = 'default',
+        private int $maxResults = 500,
+        private ?ActorResolver $actors = null,
         /** The index to search; default: the index of the resource's entity. Several indexes over one entity: name the one (#[ApiFilter(FuzzphonySearchFilter::class, arguments: ['index' => 'products_admin'])]). */
-        private readonly ?string $index = null,
+        private ?string $index = null,
     ) {}
 
     /** @param array<string, mixed> $context */

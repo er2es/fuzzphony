@@ -29,9 +29,9 @@ use Fuzzphony\Core\Support\ErrorSummary;
  * run that found no source row keeps the live index unless ReindexOptions::$pruneEmpty is set: an
  * empty source is far more likely a visibility problem than intent.
  */
-final class Reindexer
+final readonly class Reindexer
 {
-    public function __construct(private readonly Engine $engine) {}
+    public function __construct(private Engine $engine) {}
 
     public function run(IndexDefinition $index, ReindexOptions $options): ReindexResult
     {

@@ -8,9 +8,9 @@ use Fuzzphony\Core\Definition\IndexDefinition;
 use Fuzzphony\Core\Support\Coerce;
 
 /** @internal Writes config/packages/fuzzphony.yaml content without depending on symfony/yaml. */
-final class YamlExporter
+final readonly class YamlExporter
 {
-    private readonly ArrayExporter $arrays;
+    private ArrayExporter $arrays;
 
     public function __construct()
     {
