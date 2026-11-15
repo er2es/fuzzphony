@@ -126,4 +126,22 @@ final class ReviewFixesV0127Test extends TestCase
         self::assertSame(['Unknown field "secret"; searched in all fields instead.'], $hidden->warnings);
         self::assertSame(['Unknown field "nosuch"; searched in all fields instead.'], $unknown->warnings);
     }
+
+    public function testARowValueNeverReachesTheMessageOfAFailedRefresh(): void
+    {
+        $this->connection->execute('CREATE TABLE rf_note (id int PRIMARY KEY, title text NOT NULL)');
+        $this->connection->execute("INSERT INTO rf_note VALUES (1, '123-45-6789')");
+        $fuzzphony = new Fuzzphony(new PostgresEngine($this->connection), new IndexRegistry([
+            IndexDefinition::builder('rf_notes')->fromQuery('SELECT id, title::int AS title FROM rf_note')->field('title', 'A')->sync('manual')->build(),
+        ]));
+        $fuzzphony->schema()->apply($this->connection);
+
+        try {
+            $fuzzphony->reindex('rf_notes');
+            self::fail('the cast must fail');
+        } catch (\Throwable $e) {
+            self::assertStringNotContainsString('123-45-6789', $e->getMessage());
+            self::assertStringContainsString('SQLSTATE 22P02', $e->getMessage());
+        }
+    }
 }

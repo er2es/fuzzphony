@@ -22,6 +22,7 @@ use Fuzzphony\Core\Exception\SearchRefused;
 use Fuzzphony\Core\Observability\MetricsCollector;
 use Fuzzphony\Core\Observability\NullMetricsCollector;
 use Fuzzphony\Core\Query\SearchQuery;
+use Fuzzphony\Core\Support\ErrorSummary;
 use Psr\Log\LoggerInterface;
 
 /**
@@ -292,7 +293,7 @@ final readonly class SearchGate
             $this->log->record($record);
         } catch (\Throwable $e) {
             $this->metrics->increment('fuzzphony.search_log.failed', ['index' => $index->name]);
-            $this->logger?->error('Fuzzphony could not record a search: {message}', ['message' => $e->getMessage(), 'index' => $index->name]);
+            $this->logger?->error('Fuzzphony could not record a search: {message}', ['message' => ErrorSummary::describe($e), 'index' => $index->name]);
         }
 
         return new LoggedSearch($record->at, $record->index, $record->tenant === null ? null : (string) $record->tenant, $record->user, $record->ip, $record->query, $record->hits, $record->tookMs, $record->usedFuzzy, $record->status, $record->rescued);
@@ -346,7 +347,7 @@ final readonly class SearchGate
             $this->log->record($this->recordOf($index, $query, $typed, $hits, $tookMs, $usedFuzzy, $status, $rescued));
         } catch (\Throwable $e) {
             $this->metrics->increment('fuzzphony.search_log.failed', ['index' => $index->name]);
-            $this->logger?->error('Fuzzphony could not record a search: {message}', ['message' => $e->getMessage(), 'index' => $index->name]);
+            $this->logger?->error('Fuzzphony could not record a search: {message}', ['message' => ErrorSummary::describe($e), 'index' => $index->name]);
         }
     }
 }

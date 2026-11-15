@@ -8,6 +8,7 @@ use Fuzzphony\Core\Analytics\SearchLog;
 use Fuzzphony\Core\Analytics\SearchRecord;
 use Fuzzphony\Core\Engine\Engine;
 use Fuzzphony\Core\Observability\MetricsCollector;
+use Fuzzphony\Core\Support\ErrorSummary;
 use Psr\Log\LoggerInterface;
 use Symfony\Contracts\Service\ResetInterface;
 
@@ -63,7 +64,7 @@ final class BufferedSearchLog implements SearchLog, ResetInterface
             $this->store()->writeSearchLog($batch);
         } catch (\Throwable $e) {
             $this->metrics->increment('fuzzphony.search_log.failed', [], count($batch));
-            $this->logger?->error('Fuzzphony could not write {count} search log records: {message}', ['count' => count($batch), 'message' => $e->getMessage()]);
+            $this->logger?->error('Fuzzphony could not write {count} search log records: {message}', ['count' => count($batch), 'message' => ErrorSummary::describe($e)]);
         }
     }
 

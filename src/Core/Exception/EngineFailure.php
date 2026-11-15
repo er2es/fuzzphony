@@ -9,7 +9,7 @@ final class EngineFailure extends \RuntimeException implements FuzzphonyExceptio
     public static function wrap(string $operation, \Throwable $previous, ?string $hint = null): self
     {
         return new self(
-            sprintf('Fuzzphony %s failed: %s%s', $operation, $previous->getMessage(), $hint !== null ? "\nHint: " . $hint : ''),
+            sprintf('Fuzzphony %s failed: %s%s', $operation, \Fuzzphony\Core\Support\ErrorSummary::describe($previous), $hint !== null ? "\nHint: " . $hint : ''),
             0,
             $previous,
             $operation,

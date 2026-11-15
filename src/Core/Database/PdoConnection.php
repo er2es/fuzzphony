@@ -22,7 +22,7 @@ final class PdoConnection implements Connection
         $this->prepareOptions = $pdo->getAttribute(\PDO::ATTR_DRIVER_NAME) === 'pgsql' ? [\Pdo\Pgsql::ATTR_DISABLE_PREPARES => true] : [];
     }
 
-    public static function fromDsn(string $dsn, ?string $user = null, ?string $password = null): self
+    public static function fromDsn(#[\SensitiveParameter] string $dsn, ?string $user = null, #[\SensitiveParameter] ?string $password = null): self
     {
         return new self(new \PDO($dsn, $user, $password));
     }
