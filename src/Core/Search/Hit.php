@@ -14,7 +14,7 @@ final readonly class Hit implements \JsonSerializable
     /**
      * @param string                    $kind        the source inside the index the hit comes from (the index name for a single-source index)
      * @param array<string, string>     $highlights  field => HTML-safe snippet with <mark> tags (the text is escaped: put it into HTML as it is)
-     * @param float|null                $mergedScore the reciprocal-rank-fusion score a federated search orders its merged list by (weight / (60 + rank in its index)), comparable across indexes, unlike `$score`; null outside a federated search
+     * @param float|null                $mergedScore the reciprocal-rank-fusion score a federated search orders its merged list by (weight / (60 + rank in its index)), comparable across indexes, unlike `$score`; the hits of a rescued index (SearchResult::$correctedFrom) follow the others whatever this score; null outside a federated search
      * @param list<MatchedWord>|null    $matches     which word matched in which field and how: only with SearchBuilder::explainMatches(), null otherwise
      * @param string|null               $index       the index the hit comes from; null = the same as `$kind` (a single-source index)
      * @param array<string, scalar|list<string>|null> $data       field => value of the hit's source row, only with SearchBuilder::with() (empty otherwise, or when the row vanished)

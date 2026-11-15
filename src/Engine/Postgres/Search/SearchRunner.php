@@ -15,6 +15,7 @@ use Fuzzphony\Core\Query\Ast\NodeInspector;
 use Fuzzphony\Core\Query\Ast\Not;
 use Fuzzphony\Core\Query\Ast\Phrase;
 use Fuzzphony\Core\Query\Ast\Term;
+use Fuzzphony\Core\Query\CodePrefix;
 use Fuzzphony\Core\Query\Filter\Condition;
 use Fuzzphony\Core\Query\Filter\Operator;
 use Fuzzphony\Core\Query\QueryParser;
@@ -135,17 +136,12 @@ final readonly class SearchRunner
         $started = hrtime(true);
         $run = $this->executeOnce($index, $query, true);
         if ($run->rescue !== null) {
-            $second = $this->executeOnce($index, $query->withText($run->rescue['to']), false);
-            // The corrected search must find the whole corrected query: when it only found something after the relaxation dropped
-            // a word ("mp use" -> "mp usb" -> "usb"), the rescue would compound two guesses and say "showing results for
-            // 'mp usb'" about hits that are for "usb" alone, so the original empty answer stands.
-            if ($second->result->total > 0 && !$second->relaxed) {
-                $run = $this->rescued($query, $run, $second, $run->rescue, $started);
-                $this->guard->metrics()->increment('fuzzphony.search.rescued', ['index' => $index->name]);
-            } else {
-                // nothing either: the answer is the original, empty one; explain() still lists what the attempt ran
-                $run = new SearchRun($run->result, [...$run->statements, ...self::rescueLabels($second->statements)], $second->threshold);
-            }
+            $run = $this->attemptRescue($index, $query, $run, $run->rescue, $started);
+        }
+        // still nothing: the last word as the beginning of a code (CodePrefix), same flag, warning and switch as the correction
+        $code = $run->result->total === 0 ? CodePrefix::rescue($index, $query, $index->thresholds->with($query->thresholdOverrides)) : null;
+        if ($code !== null) {
+            $run = $this->attemptRescue($index, $query, $run, $code, $started);
         }
         $this->guard->metrics()->observe('fuzzphony.search.took_ms', $run->result->tookMs, ['index' => $index->name]);
         if (array_any($run->statements, static fn(Statement $s): bool => $s->kind === StatementKind::Fallback)) {
@@ -153,6 +149,23 @@ final readonly class SearchRunner
         }
 
         return new SearchRun($run->result, $run->statements, $run->threshold);
+    }
+
+    /** @param array{from: string, to: string} $rescue */
+    private function attemptRescue(IndexDefinition $index, SearchQuery $query, SearchRun $run, array $rescue, int|float $started): SearchRun
+    {
+        $second = $this->executeOnce($index, $query->withText($rescue['to']), false);
+        // The corrected search must find the whole corrected query: when it only found something after the relaxation dropped
+        // a word ("mp use" -> "mp usb" -> "usb"), the rescue would compound two guesses and say "showing results for
+        // 'mp usb'" about hits that are for "usb" alone, so the original empty answer stands.
+        if ($second->result->total > 0 && !$second->relaxed) {
+            $this->guard->metrics()->increment('fuzzphony.search.rescued', ['index' => $index->name]);
+
+            return $this->rescued($query, $run, $second, $rescue, $started);
+        }
+
+        // nothing either: the answer is the original, empty one; explain() still lists what the attempt ran
+        return new SearchRun($run->result, [...$run->statements, ...self::rescueLabels($second->statements)], $second->threshold);
     }
 
     /**

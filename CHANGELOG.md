@@ -15,6 +15,13 @@ and a link. Measurements, proofs and test names belong to the pull request, [doc
 ### Changed
 
 - **Typo hits of the word a typo most likely meant rank first:** the did-you-mean lookup now runs before the typo-tolerant statement, and the hits that have the likeliest word (fewest edits, a swap counting as one, then clearly the most documents) score 0.95 for it, above look-alikes (`szaob`: `Szabó` before `Szalai`, `peetr`: `Péter` before `Petra`). No extra statement; the same hits, totals and facets: only the order (and `fuzzySimilarity`) of typo hits changes ([did you mean](docs/searching.md#did-you-mean)).
+### Added
+
+- A `code: true` field finds a code whose last part is cut off (`ORD-2025-00003` finds `ORD-2025-000030`): a search that finds nothing runs once more with its last word as a prefix on the code fields the viewer may search, flagged like the zero-result rescue (`correctedFrom`, `correctedTo`, a warning, the `rescued` log flag). Searches with results are unchanged; `rescue.correct_when_empty: false` skips it, and search-as-you-type uses it only when it left the last word as typed (after a hyphen). Federated searches get it per index.
+
+### Changed
+
+- A federated search ranks the hits of a rescued index (`correctedFrom`, a typo correction or a cut-off code) after every hit of the indexes that found the typed text itself, whatever their weight; floors still bring them onto the page.
 
 ## [0.12.7] - 2026-11-15
 
