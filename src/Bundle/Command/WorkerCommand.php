@@ -39,6 +39,7 @@ final class WorkerCommand extends Command implements SignalableCommandInterface
             ->addOption('index', 'i', InputOption::VALUE_REQUIRED, 'Only this index (default: all queue-mode indexes)')
             ->addOption('once', null, InputOption::VALUE_NONE, 'Drain the queue once and exit (cron-friendly)')
             ->addOption('time-limit', 't', InputOption::VALUE_REQUIRED, 'Stop after this many seconds (let supervisor restart it)')
+            ->addOption('memory-limit', null, InputOption::VALUE_REQUIRED, 'Stop after the cycle in which memory use exceeded this (e.g. 128M; let supervisor restart it)')
             ->addOption('batch', 'b', InputOption::VALUE_REQUIRED, 'Queue items per batch');
     }
 
@@ -77,11 +78,16 @@ final class WorkerCommand extends Command implements SignalableCommandInterface
         }
 
         $limit = $input->getOption('time-limit');
+        $memoryLimit = self::bytes($input->getOption('memory-limit'));
         $io->writeln(sprintf('Worker started for: %s (Ctrl+C / SIGTERM stops gracefully)', implode(', ', array_map(static fn($i): string => $i->name, $indexes))));
-        $total = $worker->run($indexes, $batch, $this->idleSleep, is_string($limit) ? (int) $limit : null, static function (int $processed) use ($output, $report): void {
+        $total = $worker->run($indexes, $batch, $this->idleSleep, is_string($limit) ? (int) $limit : null, static function (int $processed) use ($output, $report, $worker, $memoryLimit): void {
             $report();
             if ($processed > 0 && $output->isVerbose()) {
                 $output->writeln(sprintf('[%s] %d item(s)', date('H:i:s'), $processed));
+            }
+            if ($memoryLimit !== null && memory_get_usage() > $memoryLimit) {
+                $output->writeln(sprintf('Memory use %d bytes exceeded --memory-limit; stopping.', memory_get_usage()));
+                $worker->stop();
             }
         });
         $io->writeln(sprintf('Stopped after %d item(s).', $total));
@@ -92,7 +98,7 @@ final class WorkerCommand extends Command implements SignalableCommandInterface
     /** @return list<int> */
     public function getSubscribedSignals(): array
     {
-        return \defined('SIGTERM') ? [\SIGTERM, \SIGINT] : [];
+        return \defined('SIGTERM') ? [\SIGTERM, \SIGINT, \SIGQUIT] : [];
     }
 
     public function handleSignal(int $signal, int|false $previousExitCode = 0): int|false
@@ -100,5 +106,21 @@ final class WorkerCommand extends Command implements SignalableCommandInterface
         $this->worker?->stop();
 
         return false; // keep running until the current batch is finished
+    }
+
+    /** "128M", "1G", "512K" or plain bytes; null without the option. */
+    private static function bytes(mixed $limit): ?int
+    {
+        if (!is_string($limit)) {
+            return null;
+        }
+        $unit = strtoupper(substr($limit, -1));
+
+        return (int) $limit * match ($unit) {
+            'K' => 1024,
+            'M' => 1024 ** 2,
+            'G' => 1024 ** 3,
+            default => 1,
+        };
     }
 }

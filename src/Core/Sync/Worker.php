@@ -171,8 +171,18 @@ final class Worker
     {
         $this->queueFailures[$index->name] = $e;
         $this->metrics->increment('fuzzphony.worker.queue_failures', ['index' => $index->name]);
-        $delay = isset($this->queueBackoff[$index->name]) ? min(self::BACKOFF_MAX, 2 * $this->queueBackoff[$index->name][0]) : self::BACKOFF;
-        $this->queueBackoff[$index->name] = [$delay, ($this->clock)() + $delay];
+        $this->backOff($this->queueBackoff, $index->name);
+    }
+
+    /**
+     * BACKOFF seconds after the first failure, doubling per failure in a row up to BACKOFF_MAX.
+     *
+     * @param array<string, array{int, float}> $table
+     */
+    private function backOff(array &$table, string $name): void
+    {
+        $delay = isset($table[$name]) ? min(self::BACKOFF_MAX, 2 * $table[$name][0]) : self::BACKOFF;
+        $table[$name] = [$delay, ($this->clock)() + $delay];
     }
 
     /**
@@ -246,8 +256,7 @@ final class Worker
     {
         $this->failures[$index->name] = $e;
         $this->metrics->increment('fuzzphony.worker.rebuild_failures', ['index' => $index->name]);
-        $delay = isset($this->backoff[$index->name]) ? min(self::BACKOFF_MAX, 2 * $this->backoff[$index->name][0]) : self::BACKOFF;
-        $this->backoff[$index->name] = [$delay, ($this->clock)() + $delay];
+        $this->backOff($this->backoff, $index->name);
         try {
             $this->engine->recordRebuildFailure($index, ErrorSummary::forOperator($e, false));
         } catch (\Throwable) {
