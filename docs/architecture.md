@@ -113,6 +113,9 @@ keeps the map (a weight, `code`, `granted`) touches no row; one that changes it 
 (never copied from its new version), and the walk follows the selected ids. Before the refresh functions are replaced, the apply
 checks the one in the database: if it writes no `field_map` (an earlier release after a downgrade), every map is marked stale
 (`!z_name=exact`): read from the row's own columns, never backfilled, until a reindex. `field_map` is never dropped: a later definition still has to know which columns of a row are empty.
+A backfill that updated rows leaves the sidecar's name in the session setting `fuzzphony.backfilled`; the next statement of the plan,
+`VACUUM (ANALYZE)` of that table (outside a transaction: VACUUM cannot run in one or in a `DO` block), runs only then. It makes the old row
+versions reusable, it does not shrink the file; `fuzzphony:reindex` (the shadow rebuild) does that online.
 
 A fuzzy index also has `fuzzphony_<index>__vocab` (same schema): its words and in how many documents
 each occurs, created by `fuzzphony:schema --apply` and rebuilt after every full reindex, for "did you
@@ -124,7 +127,11 @@ columns) and `...__open_tsv_<hash>` (full text over their `t_` columns). A restr
 up there instead of in `fz` / `tsv` (`OpenClass`, `TextConfigCache::openClass()`): the lookup only has to find a superset of the allowed
 fields' own matches, the recheck against their columns decides, so the result is unchanged. The engine uses them only when both exist, are
 valid and ready and each is smaller than the one it replaces (`fz`, `tsv`) (asked once per process, `resetCaches()`); a viewer who holds a granted field keeps
-`fz` / `tsv`.
+`fz` / `tsv`. The trigram one exists only when a granted field is fuzzy: otherwise the open fuzzy fields are every fuzzy field, the same
+trigrams as `fz` for every row the current definition wrote, so the index would copy `fz` (and, never smaller, keep the gate off); such a
+viewer looks its typos up in `fz` (a superset; a row an earlier definition wrote may hold a now-granted field's text there until the
+reindex, which the recheck removes) and its words in `open_tsv`. Statements never name an index, only the expression it is over, so a
+process that still trusts a dropped one runs the same statement without it.
 
 `fuzzphony_meta` (same schema) records, per index, the sidecar layout version, a hash of the
 definition it was applied with and a hash of the definition its documents were built from;

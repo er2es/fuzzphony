@@ -21,6 +21,12 @@ and a link. Measurements, proofs and test names belong to the pull request, [doc
   matches (5 to 15 % less time on searches with more matches than the window); results unchanged, `rank: whole` indexes untouched.
   See [benchmarks](docs/benchmarks.md#ranking-by-the-best-value-rank-best).
 - **Demo, ERP People tab:** the `city` filter of `people` is `same_row_as: address`, so with "One address must match all words" a chosen city is the city of the address that holds the words (`fő utca szeged`: the facet shows Szeged 294, not the 196 people whose Fő utca is elsewhere); the "city filter" line stays in the default mode only. An existing demo volume needs `DEMO_REINDEX=always` once.
+- **No duplicate trigram index for restricted viewers:** an index whose `granted` fields are all non-fuzzy no longer builds the open-class
+  trigram index (a copy of `fz`, 12 MB at 200 000 rows); `schema --apply` drops it, no reindex. Such viewers now also get the open-class
+  full-text index, which the copy kept switched off; results unchanged. See [UPGRADE](UPGRADE.md#from-012x-to-0125).
+- **Compaction hint after the column backfill:** `schema --apply` runs `VACUUM (ANALYZE)` on a table whose rows it backfilled, reports
+  its growth and points to `fuzzphony:reindex` (compacts online); the doctor notes a table still wider than its column map needs. See
+  [commands](docs/commands.md#commands).
 
 ## [0.12.4] - 2026-11-15
 

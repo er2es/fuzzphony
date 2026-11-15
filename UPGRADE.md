@@ -5,9 +5,23 @@ and the [CHANGELOG](CHANGELOG.md) has the full list of changes.
 
 ## From 0.12.x to 0.12.5
 
-No API change and no change for an existing definition: the schema plan of an index with a many field gains one idempotent statement
+No API change and no change of results: the schema plan of an index with a many field gains one idempotent statement
 (it drops a `fr_` column of the values table that no filter expects; there is none on an existing install), and every statement of its
-searches is the same.
+searches is the same. Two schema changes, both applied by `schema --apply`, **no reindex needed**:
+
+- **An index whose `granted` fields are all non-fuzzy loses one index.** Its open-class trigram index (`...__open_fz_<hash>`) held the
+  same trigrams as `fz`, so it is no longer built and the apply drops it (`DROP INDEX CONCURRENTLY`, found in the catalog, safe to run
+  again; 12 MB at 200 000 rows). A viewer restricted to the open fields looks its typos up in `fz` and its words in the open-class
+  full-text index, which the copy kept switched off; results are unchanged. Order: **deploy the code, restart long-running workers, then
+  apply** (the command asks for the restart when it dropped one). A 0.12.4 process still running after the apply keeps the same results:
+  statements name no index, only the expression, so its lookup runs without the index (slower, never failing) until it restarts. A
+  dumped migration leaves the drop out (as every stale-index drop); the doctor reports the index as stale until an apply drops it.
+  Going back to 0.12.4: its apply builds the index again.
+- **After a column backfill the apply runs `VACUUM (ANALYZE)` on that table** (only when the backfill updated rows; outside a
+  transaction) and the command prints how much the table grew, with `fuzzphony:reindex <index>` as the online way to compact it; the
+  doctor's new "Sidecar size" warning (also shown for rows written before 0.12.4 and not reindexed since, when they are 10% or more of
+  the table) stays until that reindex. A dumped migration has the `VACUUM` as a comment: run it after the
+  migration when the backfill updated rows.
 
 ### Opting in: `same_row_as`
 

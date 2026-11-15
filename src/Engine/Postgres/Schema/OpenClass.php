@@ -14,7 +14,8 @@ use Fuzzphony\Core\Definition\IndexDefinition;
  * GIN over their `t_` columns joined, instead of in `fz` and `tsv` that hold the granted text too. A common word that sits in a
  * large granted field then costs the viewer nothing (it is not in these indexes), and nothing about a granted field's content
  * decides what the viewer finds: the lookup only has to find a superset of the allowed fields' own matches, which the per-field
- * recheck then decides, exactly as it does on `fz` / `tsv`.
+ * recheck then decides, exactly as it does on `fz` / `tsv`. The trigram one is built only when a granted field is typo-tolerant
+ * (else it would copy `fz`, see trigram()): such a viewer then looks its typos up in `fz` and its words in the open vector index.
  *
  * An index without a granted field has none of this: no extra index, no changed statement.
  */
@@ -37,10 +38,19 @@ final readonly class OpenClass
 
     /**
      * The expression the trigram index is over (`s.z_name || ' ' || s.z_category` with the alias `s.`, bare in the DDL), or null
-     * when the index has no granted field or the open fields have no typo-tolerant one.
+     * when the index has no granted field, the open fields have no typo-tolerant one, or no granted field is typo-tolerant.
+     *
+     * In the last case the open fuzzy fields are every fuzzy field, the same text `fz` is built from (for a row the current
+     * definition wrote, the same trigrams: pg_trgm ignores the separators), so the index would only copy `fz`; and, never smaller
+     * than `fz`, it kept the gate (TextConfigCache::openClass()) off, so the viewer lost the open-class vector index too. The lookup
+     * reads `fz` instead: a superset of the open fields' text (a row an earlier definition wrote may still hold a now-granted
+     * field's text there until the reindex), and the recheck on the allowed fields' own columns decides the match, as it always did.
      */
     public static function trigram(IndexDefinition $index, Names $names, string $alias = ''): ?string
     {
+        if (!array_any($index->fields, static fn(FieldDefinition $f): bool => $f->granted !== null && $f->fuzzy)) {
+            return null;
+        }
         $columns = array_map(
             static fn(FieldDefinition $f): string => $names->fieldFuzzy($index, $f->name, $alias),
             array_values(array_filter(self::fields($index), static fn(FieldDefinition $f): bool => $f->fuzzy)),

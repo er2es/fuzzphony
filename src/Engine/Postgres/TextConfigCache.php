@@ -67,7 +67,7 @@ final class TextConfigCache
     /**
      * Whether a restricted viewer who holds none of the index's granted fields may look its words up in the open-class indexes
      * (OpenClass) instead of `fz` / `tsv`: every one of them exists, is valid and ready (a missing or half-built index would send
-     * the same statement to a table scan), and each is smaller than the index it replaces (open_fz than `fz`, open_tsv than `tsv`): when the granted
+     * the same statement to a table scan), and each is smaller than the index it replaces (open_fz than `fz` where there is one, open_tsv than `tsv`): when the granted
      * fields hold little of the text the open indexes are no shorter to read. Asked once per table
      * and kept until reset(): an index applied later is used from the next process (or resetCaches()), never wrongly before.
      *

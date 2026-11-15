@@ -22,7 +22,7 @@ tenant scope, the log's user). Its searches are counted but **not written to the
 (with `--tenant` and `--user` a test search would otherwise look like that user searching, and pollute the zero-result report).
 
 `fuzzphony:schema` without `--apply` only prints the SQL, so you can review it first. An index with a `granted` field gets two more
-indexes (`...__open_fz_<hash>`, `...__open_tsv_<hash>`, over its open fields; the hash follows their definition, so when the `granted` fields change the apply builds the new ones `CONCURRENTLY` and drops the old with `DROP INDEX CONCURRENTLY`, found by the end of the name at any length; a failed drop is a warning, run the apply again; `--dump-migration` leaves it out; the doctor reports an old one as stale until then); when the apply built one
+indexes (`...__open_fz_<hash>`, `...__open_tsv_<hash>`, over its open fields; the trigram one only when a `granted` field is fuzzy, else it would copy `fz`; the hash follows their definition, so when the `granted` fields change the apply builds the new ones `CONCURRENTLY` and drops the old with `DROP INDEX CONCURRENTLY`, found by the end of the name at any length; a failed drop is a warning, run the apply again; `--dump-migration` leaves it out; the doctor reports an old one as stale until then); when the apply built or dropped one
 of them on a table that was there, the command asks you to restart long-running workers (they look these up once per process). See
 [Reindexing and orphan pruning](sync.md#reindexing-and-orphan-pruning) for what `--no-prune` and
 `--prune-empty` are for.
@@ -36,7 +36,11 @@ before the column backfill after a definition change (rows written under another
 emptied per-field columns back, in batches, see [UPGRADE](../UPGRADE.md#a-definition-change-any-release-from-0124-on)):
 declined, or non-interactive without `--force`, it applies the rest, skips the backfill, warns and exits
 with 1. The PHP API (`Fuzzphony::schema()`, `Fuzzphony::reindex()`) never prompts (its plan includes the
-backfill).
+backfill). A backfill leaves an old version of every row it updated, so the table grows (43 MB to 110 MB at 200 000 rows): when it
+updated rows, the apply runs `VACUUM (ANALYZE)` on that table right after it (outside a transaction, online; the PHP API too), which
+makes the old versions' space reusable but does not shrink the file, and the command prints the growth and the fix,
+`fuzzphony:reindex <index>`, the online shadow rebuild that writes the table compactly. A dumped migration names the `VACUUM` as a comment
+(run it yourself after the migration if the backfill updated rows); the doctor's "Sidecar size" note stays until the reindex.
 
 Short options (`-b` batch, `-f` facet or format, `-i` index, `-l` limit or language, `-p` rank profile, `-t` time limit, `-w` where
 or write) mean different things in different commands: `-l` is the limit in `fuzzphony:search` and `fuzzphony:analytics` and the language in
@@ -77,8 +81,10 @@ It checks:
 - **tables read but not watched** (the `Watches` check, for every `queue` or `trigger` index and every source of a multi-source index): the tables the source query
   reads are taken from PostgreSQL's own dependency catalog (the query is put into a temporary view, no row is read; views are followed down to their tables), and each one
   that no `watch` covers is a warning with a watch to adapt, or `sync: manual`. See [Watched tables](sync.md#watched-tables);
-- sidecar column drift, and missing or INVALID indexes (for an index with a `granted` field also its two open-class indexes: an error until
+- sidecar column drift, and missing or INVALID indexes (for an index with a `granted` field also its open-class indexes: an error until
   `fuzzphony:schema --apply` has built them, the fix is the `CREATE INDEX CONCURRENTLY` statement);
+- "Sidecar size" (a warning): at least 10% of the rows still store the per-field columns the current column map keeps empty
+  (backfilled, or written before 0.12.4), with the dead row versions when autovacuum is due; the fix is `fuzzphony:reindex <index>`;
 - objects left in `public` after switching to a dedicated `schema` (a warning when the configured
   schema has no sidecar table for an index but `public` still has one);
 - with DoctrineBundle, an application `schema_filter` that still lets Fuzzphony's tables through,

@@ -181,6 +181,8 @@ final class PostgresSchemaGenerator
         $statements[] = ColumnMap::guard($index, $this->names);
         // after the transaction that replaced the refresh functions (it is not transactional): rows of another map get their columns back
         $statements[] = ColumnMap::backfill($index, $this->names, $this->backfillBatch);
+        // right after it (the statements outside the transaction run in this order): only when it updated rows
+        $statements[] = ColumnMap::vacuum($index, $this->names);
         if ($index->hasFuzzy()) {
             $statements[] = new Statement(
                 sprintf('CREATE TABLE IF NOT EXISTS %s (word text PRIMARY KEY, freq integer NOT NULL)', $this->names->vocabulary($index)),
