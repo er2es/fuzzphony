@@ -72,9 +72,8 @@ set per statement, once when two statements want the same value, and the check t
 transaction of your own the statements share one savepoint and your values are put back once ([limitations](limitations.md#a-search-inside-your-own-transaction)).
 Multiply by your network latency: on a database 1 ms away the round trips alone are 4 ms for a plain word and 12 ms for the word with two facets.
 
-Count them yourself on a disposable database: `ALTER SYSTEM SET log_statement = 'all'; SELECT pg_reload_conf();`, run one search, and read the server log
-(each logged line is one `BEGIN`, `COMMIT`, simple statement or `execute <unnamed>` / `execute pdo_stmt_...`; the last form is a prepared statement whose
-Parse is not logged, so it is one more round trip). Reset with `ALTER SYSTEM SET log_statement = 'none'`.
+Count them yourself on a disposable database: `ALTER SYSTEM SET log_statement = 'all'; SELECT pg_reload_conf();`, run one search, and count the logged
+lines (a `BEGIN`, `COMMIT`, simple statement or `execute ...`). Reset with `ALTER SYSTEM SET log_statement = 'none'`.
 
 ## Common words
 
@@ -112,14 +111,11 @@ in a container with the default `shared_buffers`; the catalogue is the benchmark
 | `ideal` and 15 prefixes OR | 343 ms | 960 ms |
 | 4 common words OR | 48 ms | 110 ms |
 
-What is left is mostly the index scan that finds the matches (a bitmap of every document that has one of the words), which the budget does not shorten,
-plus the ranking of up to 6 250 to 100 000 matches. The scan budget is what bounds the 1 000 000-row column: without it `ideal` costs 160 ms at 200 000
-rows and about 950 ms at 1 000 000. The cost is about 1 microsecond per scanned match for one word, so the budget is a trade between the worst case and
-the share of matches that are ranked: at 1 000 000 rows a budget of 10 000 costs 60 to 115 ms, 50 000 about 160 to 240 ms, 100 000 (the one used) 170 to
-330 ms, 200 000 300 to 630 ms (indicative). With the planted documents at the end of the table, 100 000 misses the five that sit beyond the 100 000
-matches of `wireless` and 200 000 finds them. A restricted viewer's search of a word that is common in a field the viewer cannot see is slow for a different
-reason ([Known limitations](limitations.md#a-restricted-viewers-very-common-word-in-a-hidden-typo-tolerant-field)). The figures are warm; the first run
-after a restart reads the table from disk (seconds at 1 000 000 rows for a word spread over every page).
+What is left is mostly the index scan that finds the matches, which the budget does not shorten, plus the ranking of up to 100 000 matches. The scan
+budget is what bounds the 1 000 000-row column (without it `ideal` costs about 950 ms there); the cost is about 1 microsecond per scanned match for one
+word. A restricted viewer's search of a word that is common in a field the viewer cannot see is slow for a different reason
+([Known limitations](limitations.md#a-restricted-viewers-very-common-word-in-a-hidden-typo-tolerant-field)). The figures are warm; the first run after a
+restart reads the table from disk.
 
 ### Typo words and facets of a capped search
 
@@ -157,21 +153,21 @@ description is full of very common words). A viewer who holds neither granted fi
 `typo.mode: always` (one run when it takes longer than 8 s), PostgreSQL in a container on a shared development machine with the default 128 MB of shared
 buffers; indicative, not a benchmark of the hardware.
 
-| viewer and search | 200 000 before | 200 000 after | 1 000 000 before | 1 000 000 after |
-|---|---:|---:|---:|---:|
-| name + category, `battery` (hidden) | 2 192 ms | 4.6 ms | 13 632 ms | 5.5 ms |
-| the same, 3 hidden words | 10 207 ms | 172 ms | 49 125 ms | 387 ms |
-| the same, 5 hidden words | 16 006 ms | 186 ms | 88 015 ms | 394 ms |
-| the same, phrase `"battery life"` | 2 230 ms | 4.6 ms | 13 539 ms | 5.5 ms |
-| the same, rare word `lenvo` | 1 972 ms | 4.4 ms | 8 731 ms | 5.5 ms |
-| the same, typo + hidden word | 7 696 ms | 7.3 ms | 40 317 ms | 8.6 ms |
-| the same, a common word the viewer sees (`kitchen`) | 973 ms | 193 ms | 1 043 ms | 477 ms |
-| the same, 3 words the viewer sees | 749 ms | 91 ms | 1 594 ms | 542 ms |
-| + brand (some granted fields), 3 words | 11 280 ms | 10 943 ms | 65 035 ms | 95 814 ms (same statement, noise) |
-| + brand, phrase / `kitchen` | 2 307 / 1 033 ms | 2 259 / 971 ms | 16 262 / 1 322 ms | 12 845 / 1 167 ms |
-| name + category + description (brand hidden): `keyb*` | 1 460 ms | 1 072 ms | 971 ms | 463 ms |
-| the same, phrase / typo | 1 452 / 775 ms | 1 427 / 757 ms | 1 543 / 1 610 ms | 1 462 / 1 623 ms |
-| unrestricted, typo / 3 common words | 1 162 / 640 ms | 1 174 / 638 ms | 1 527 / 1 940 ms | 1 453 / 955 ms |
+| viewer and search | 200 000 rows | 1 000 000 rows |
+|---|---:|---:|
+| name + category, `battery` (hidden) | 4.6 ms | 5.5 ms |
+| the same, 3 hidden words | 172 ms | 387 ms |
+| the same, 5 hidden words | 186 ms | 394 ms |
+| the same, phrase `"battery life"` | 4.6 ms | 5.5 ms |
+| the same, rare word `lenvo` | 4.4 ms | 5.5 ms |
+| the same, typo + hidden word | 7.3 ms | 8.6 ms |
+| the same, a common word the viewer sees (`kitchen`) | 193 ms | 477 ms |
+| the same, 3 words the viewer sees | 91 ms | 542 ms |
+| + brand (some granted fields), 3 words | 10 943 ms | 95 814 ms (same statement, noise) |
+| + brand, phrase / `kitchen` | 2 259 / 971 ms | 12 845 / 1 167 ms |
+| name + category + description (brand hidden): `keyb*` | 1 072 ms | 463 ms |
+| the same, phrase / typo | 1 427 / 757 ms | 1 462 / 1 623 ms |
+| unrestricted, typo / 3 common words | 1 174 / 638 ms | 1 453 / 955 ms |
 
 A viewer who holds a granted field has the statements it always had (byte for byte); the differences in those rows are the machine's. Size and build time
 (`fuzzphony:schema --apply`, `CREATE INDEX CONCURRENTLY`, both indexes):
@@ -237,11 +233,7 @@ index tables after a full reindex (heap + TOAST + indexes), with and without the
 | `orders` (`number` A code, `customer_name` fuzzy) | `z_customer_name` | 59 MB (35 MB heap) | 60 MB (35 MB heap) |
 | `mails` (`name` fuzzy, two granted fields) | `z_name` | 105 MB (60 MB heap) | 105 MB (59 MB heap) |
 
-A one-field index saves about 10%; where only a short `z_` copy goes, the map text eats what it saves. After a definition change the backfill of the 200 000
-`cust` rows took 3.2 s (one scan to find the maps: 0.04 s) and left the table at 110 MB until the next reindex (the copied columns and the old row
-versions); an apply with nothing to backfill adds the scan only. The apply then runs `VACUUM (ANALYZE)` on it (`cust` with a granted `email` added: 39.8 MB
-before, 96.8 MB after the apply in 2.2 s including the VACUUM, 0 dead row versions instead of 199 930, 83.8 MB after `fuzzphony:reindex` in 4.8 s); the
-VACUUM makes the space reusable, only the reindex gives it back.
+A one-field index saves about 10%; where only a short `z_` copy goes, the map text eats what it saves. The backfill after a definition change took 3.2 s for the 200 000 `cust` rows; the apply then runs `VACUUM (ANALYZE)` on the table, which makes the space reusable, and only `fuzzphony:reindex` gives it back.
 
 ## Several values per document (`many`)
 
@@ -286,10 +278,7 @@ searches, limit 20, PostgreSQL 17 in Docker on a laptop. The partial GIN index o
 A search whose words are not in the field costs the same (the field's own vector says so before the values are read), and so does a document with one value
 (its stored count says so). Every other full-text candidate costs a primary-key probe of the values table and one ranking per matching value, about as much
 as two more words of the query, which is what the scan budget counts for such a field. A typo-tolerant match is ranked on the whole field and costs nothing
-more. Each match is ranked once: the cheap selection of the first matches and the ordered selection read one scan. Measured and not used: a covering index
-of the values by document with their vectors (33 MB) and ranking a value alone when the other fields hold no query word (nothing measurable), one lookup
-per document for all `rank: best` fields at once (no document of the data needed two), sharing the vector of the fields before the field across its values
-(+6 %), and joining the matching values first (10 to 30 % slower).
+more. Each match is ranked once: the cheap selection of the first matches and the ordered selection read one scan.
 Since 0.12.7 a multi-word search (no phrase, not OR only) does not rank a value that lacks one of its words when no other field holds a query word (such a value cannot give a cover): `fo utca szeged` 15.8 to 12.6 ms, `kossuth lajos utca` 7.5 % less, `petofi sandor` (every value holds both words) 1 to 3 % more; results identical. Ranking only the best candidates with the whole-field rank as a bound is not exact and is not used.
 
 `manyMatch('single')` on the same data (default mode = `rank: best` above, measured in the same run; median of 20):
