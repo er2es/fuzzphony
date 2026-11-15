@@ -54,11 +54,29 @@ final class SearchSqlBuilderBestValueTest extends TestCase
 
         self::assertStringContainsString("to_tsquery('\"public\".\"fuzzphony_english\"'::regconfig, :p1) AS tsany", $sql);
         self::assertStringContainsString(
-            'coalesce(nullif(CASE WHEN NOT s."t_city" @@ q.tsany THEN NULL WHEN s."n_city" = 1 AND s.tsv_capped IS FALSE THEN NULL ELSE (SELECT max(ts_rank_cd(' . self::W . ', s."t_name" || v.t || s."t_phone" || s."t_note", q.tsq, 32)) FROM "public"."fuzzphony_people__values" AS v'
+            'coalesce(nullif(CASE WHEN NOT s."t_city" @@ q.tsany THEN NULL WHEN s."n_city" = 1 AND s.tsv_capped IS FALSE THEN NULL'
+            . ' WHEN NOT (s."t_name" @@ q.tsany OR s."t_phone" @@ q.tsany OR s."t_note" @@ q.tsany) THEN (SELECT max(ts_rank_cd(' . self::W . ', s."t_name" || v.t || s."t_phone" || s."t_note", q.tsq, 32)) FROM "public"."fuzzphony_people__values" AS v'
+            . " WHERE v.doc = s.id AND v.field = 'city' AND v.t @@ q.tsq)"
+            . ' ELSE (SELECT max(ts_rank_cd(' . self::W . ', s."t_name" || v.t || s."t_phone" || s."t_note", q.tsq, 32)) FROM "public"."fuzzphony_people__values" AS v'
             . " WHERE v.doc = s.id AND v.field = 'city' AND v.t @@ q.tsany) END, 0), ts_rank_cd(" . self::W . ', s.tsv, q.tsq, 32))::double precision AS r_text',
             $sql,
         );
         self::assertStringNotContainsString('bv_', $sql, 'the best value is reported only when asked');
+    }
+
+    public function testAValueRanksOnlyWhenItCanGiveACoverOnItsOwn(): void
+    {
+        $guard = "WHERE v.doc = s.id AND v.field = 'city' AND v.t @@ q.tsq)";
+        // an AND query: when no other visible field holds a query word, only a value that matches the rank query is ranked
+        self::assertStringContainsString('WHEN NOT (s."t_name" @@ q.tsany) THEN (SELECT max(ts_rank_cd(' . self::W . ', s."t_name" || v.t, q.tsq, 32))', self::ranked(self::index(), ['name', 'city'], 'fo utca'));
+        self::assertStringContainsString('WHEN true THEN (SELECT max(ts_rank_cd(' . self::W . ', v.t, q.tsq, 32))', self::ranked(self::index(), ['city'], 'fo utca'), 'no other visible field');
+        self::assertStringContainsString($guard, self::ranked(self::index(), null, 'kossuth la*'));
+        // one word, OR only, a phrase: every value that holds a word is ranked, as before
+        foreach (['szeged', 'fo OR utca', '"fo utca"'] as $text) {
+            self::assertStringNotContainsString($guard, self::ranked(self::index(), null, $text), $text);
+        }
+        // an exclusion is not in the rank query (q.tsr): the guard reads the rank query
+        self::assertStringContainsString("v.field = 'city' AND v.t @@ q.tsr)", self::ranked(self::index(), null, 'fo utca -szeged'));
     }
 
     public function testEveryVisibleBestFieldTakesPartAndTheBestCounts(): void

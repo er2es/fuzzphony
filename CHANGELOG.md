@@ -25,6 +25,12 @@ and a link. Measurements, proofs and test names belong to the pull request, [doc
 - **`explain()` shows no plan to a tenant actor** of a tenant-scoped index (its row counts span every tenant).
 - **A restricted viewer gets the same "Unknown field" warning for a hidden field as for one that does not exist.**
 
+### Changed
+
+- **Cheaper `rank: best` on multi-word searches:** a value that cannot give a cover on its own (no other field holds a query word and the
+  value lacks one of the words) is no longer ranked (`fo utca szeged` 20 % and `kossuth lajos utca` 8 % less time); results unchanged,
+  other statements byte-identical. See [benchmarks](docs/benchmarks.md#ranking-by-the-best-value-rank-best).
+
 ## [0.12.6] - 2026-11-15
 
 ### Changed
