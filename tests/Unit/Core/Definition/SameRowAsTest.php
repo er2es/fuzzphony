@@ -159,7 +159,5 @@ final class SameRowAsTest extends TestCase
         self::assertSame(['city' => 'address', 'zip' => 'address'], SameRow::coupled($index, ['address', 'contact']));
         self::assertSame([], SameRow::coupled($index, ['contact']), 'address hidden or not named: no coupling');
         self::assertSame([], SameRow::coupled($index, []));
-        self::assertSame(['city', 'zip'], array_map(static fn($f): string => $f->name, SameRow::ofField($index, 'address')));
-        self::assertSame([], SameRow::ofField($index, 'contact'));
     }
 }

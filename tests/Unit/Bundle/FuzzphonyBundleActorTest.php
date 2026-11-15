@@ -4,7 +4,6 @@ declare(strict_types=1);
 
 namespace Fuzzphony\Tests\Unit\Bundle;
 
-use Doctrine\DBAL\Connection as DbalConnection;
 use Fuzzphony\Bundle\EventListener\SearchExceptionListener;
 use Fuzzphony\Bundle\FuzzphonyBundle;
 use Fuzzphony\Bundle\Security\NullActorResolver;
@@ -16,13 +15,14 @@ use Fuzzphony\Core\Search\ActorResolver;
 use Fuzzphony\Core\Search\SearchGate;
 use PHPUnit\Framework\TestCase;
 use Symfony\Component\Config\Definition\Exception\InvalidConfigurationException;
-use Symfony\Component\DependencyInjection\ContainerBuilder;
 use Symfony\Component\DependencyInjection\Definition;
 use Symfony\Component\DependencyInjection\Reference;
 
 /** The fuzzphony.actor node, the actor resolver and the search gate services, and the 403 listener. */
 final class FuzzphonyBundleActorTest extends TestCase
 {
+    use BuildsBundleContainer;
+
     public function testWithoutConfigurationNobodyIsTheActorAndTheGateIsWired(): void
     {
         $container = $this->buildContainer();
@@ -101,25 +101,5 @@ final class FuzzphonyBundleActorTest extends TestCase
                 self::assertStringContainsString('symfony/property-access', $e->getMessage());
             }
         }
-    }
-
-    /** @param array<string, mixed> $config */
-    private function buildContainer(array $config = []): ContainerBuilder
-    {
-        $container = new ContainerBuilder();
-        $container->setParameter('kernel.environment', 'test');
-        $container->setParameter('kernel.debug', false);
-        $container->setParameter('kernel.project_dir', dirname(__DIR__, 3));
-        $container->setParameter('kernel.cache_dir', sys_get_temp_dir());
-        $container->setParameter('kernel.build_dir', sys_get_temp_dir());
-        $container->register('doctrine.dbal.default_connection', DbalConnection::class)->setSynthetic(true)->setPublic(true);
-        $container->register('logger', \Psr\Log\LoggerInterface::class)->setSynthetic(true)->setPublic(true);
-
-        $extension = (new FuzzphonyBundle())->getContainerExtension();
-        self::assertNotNull($extension);
-        $container->registerExtension($extension);
-        $extension->load([$config], $container);
-
-        return $container;
     }
 }

@@ -4,7 +4,6 @@ declare(strict_types=1);
 
 namespace Fuzzphony\Tests\Unit\Bundle;
 
-use Doctrine\DBAL\Connection as DbalConnection;
 use Fuzzphony\Bundle\FuzzphonyBundle;
 use Fuzzphony\Core\Exception\InvalidConfiguration;
 use PHPUnit\Framework\Attributes\DataProvider;
@@ -19,6 +18,8 @@ use Symfony\Component\DependencyInjection\Loader\PhpFileLoader;
 /** Corners of FuzzphonyBundle::loadExtension() and of its configuration tree that the other bundle tests do not pin. */
 final class FuzzphonyBundleMutationsTest extends TestCase
 {
+    use BuildsBundleContainer;
+
     public function testPerTenantIsAcceptedExplicitly(): void
     {
         $container = $this->buildContainer(['rate_limit' => ['limiter' => 'search', 'per' => 'tenant']]);
@@ -153,37 +154,11 @@ final class FuzzphonyBundleMutationsTest extends TestCase
     /** @param array<array-key, mixed> $config */
     private function loadRaw(array $config): ContainerBuilder
     {
-        $container = $this->container();
+        $container = $this->kernelContainer();
         $instanceof = [];
         $configurator = new ContainerConfigurator($container, new PhpFileLoader($container, new FileLocator()), $instanceof, __FILE__, __FILE__);
 
         (new FuzzphonyBundle())->loadExtension($config, $configurator, $container);
-
-        return $container;
-    }
-
-    /** @param array<string, mixed> $config */
-    private function buildContainer(array $config = []): ContainerBuilder
-    {
-        $container = $this->container();
-        $extension = (new FuzzphonyBundle())->getContainerExtension();
-        self::assertNotNull($extension);
-        $container->registerExtension($extension);
-        $extension->load([$config], $container);
-
-        return $container;
-    }
-
-    private function container(): ContainerBuilder
-    {
-        $container = new ContainerBuilder();
-        $container->setParameter('kernel.environment', 'test');
-        $container->setParameter('kernel.debug', false);
-        $container->setParameter('kernel.project_dir', dirname(__DIR__, 3));
-        $container->setParameter('kernel.cache_dir', sys_get_temp_dir());
-        $container->setParameter('kernel.build_dir', sys_get_temp_dir());
-        $container->register('doctrine.dbal.default_connection', DbalConnection::class)->setSynthetic(true)->setPublic(true);
-        $container->register('logger', \Psr\Log\LoggerInterface::class)->setSynthetic(true)->setPublic(true);
 
         return $container;
     }
