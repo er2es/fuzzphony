@@ -170,32 +170,7 @@ echo json_encode([
 ], JSON_THROW_ON_ERROR);
 ```
 
-and the page that calls it:
-
-```html
-<input id="q" type="search" placeholder="Search products…" autocomplete="off">
-<div id="results"></div>
-<script>
-  const esc = (s) => s.replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]);
-
-  function render(r) {
-    const total = r.total + (r.totalIsLowerBound ? '+' : '');
-    return [
-      r.correctedFrom ? `<p>Showing results for the corrected search (you wrote <i>${esc(r.correctedFrom)}</i>)</p>` : '',
-      r.didYouMean ? `<p>Did you mean <a href="?q=${encodeURIComponent(r.didYouMean)}">${esc(r.didYouMean)}</a>?</p>` : '',
-      `<p>${total} results</p>`,
-      '<ul>' + r.hits.map((h) => `<li>${h.nameHtml}</li>`).join('') + '</ul>',
-    ].join('');
-  }
-
-  async function search(q) {
-    const response = await fetch('/search.php?q=' + encodeURIComponent(q));
-    document.querySelector('#results').innerHTML = render(await response.json());
-  }
-
-  document.querySelector('#q').addEventListener('input', (e) => search(e.target.value));
-</script>
-```
+The page calls it with `fetch('/search.php?q=' + encodeURIComponent(q))` and sets `nameHtml` as HTML (`innerHTML`) and every other field as text (escape `didYouMean`, `correctedFrom` and `warnings`).
 
 For search-as-you-type, call the endpoint after a pause in typing, and add `->unlogged()` to keep those searches out of the [search log](analytics.md). A
 public endpoint needs a rate limit: with Symfony `fuzzphony.rate_limit.per: ip` ([Security](security.md#the-rate-limit)); without it, your framework's. The

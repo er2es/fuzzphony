@@ -22,6 +22,9 @@ and a link. Measurements, proofs and test names belong to the pull request, [doc
 ### Changed
 
 - A federated search ranks the hits of a rescued index (`correctedFrom`, a typo correction or a cut-off code) after every hit of the indexes that found the typed text itself, whatever their weight; floors still bring them onto the page.
+### Changed
+
+- **Documentation:** a hero banner, shorter pages (the roadmap and the upgrade guide no longer repeat release history; UPGRADE.md drops the steps before 0.3), the `BUILDX_BAKE_ENTITLEMENTS_FS=0` note wherever the demo is built.
 
 ## [0.12.7] - 2026-11-15
 

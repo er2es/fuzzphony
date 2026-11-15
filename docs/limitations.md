@@ -37,11 +37,10 @@ compare letters, not meaning, so they cannot tell a typo from a different word t
 - It reaches only the words of fuzzy fields (`fuzzy: true`). Words shorter than `typo.min_length` (3) must match exactly.
 - By default (`typo.mode: fallback`) it runs only when exact matching finds fewer than `typo.fallback_below` (5) hits, so a typo next to enough exact
   hits is not corrected. `always` runs it every time, `never` switches it off.
-- A letter replaced in the middle of a 5 to 7 letter word (`mpuse`) is **not** added to the results. Only the [zero-result rescue](searching.md#zero-result-rescue)
-  reaches it, and only when the search found nothing at all, the vocabulary has exactly one word one edit away, the index is not tenant-scoped and the
-  viewer is not restricted. A tie between two candidates, a word with two wrong letters, a code with digits, a search-as-you-type text, a search that found
-  something, and one whose corrected query finds something only because the relaxation drops a word are not rescued. A rescued search is logged as a
-  search that found hits ([details](#a-rescued-search-is-not-a-zero-result-search-in-the-log)).
+- The [zero-result rescue](searching.md#zero-result-rescue) reaches `mpuse` only when the search found nothing at all, the vocabulary has exactly one word one
+  edit away, the index is not tenant-scoped and the viewer is not restricted. A tie between two candidates, a word with two wrong letters, a code with
+  digits, a search-as-you-type text, a search that found something, and one whose corrected query finds something only because the relaxation drops a word
+  are not rescued. A rescued search is logged as a search that found hits ([details](#a-rescued-search-is-not-a-zero-result-search-in-the-log)).
 
 What to do: set `typo.similarity` to a number to use one value for every word (it finds more typos and lists more look-alikes; the trade-off is in
 [Typo tolerance](searching.md#typo-tolerance)). Irregular word forms are not typos at all (see [languages](#stemming-covers-regular-forms-one-language-per-index)).
@@ -79,10 +78,7 @@ to be". Its limits:
 - Only in the typo-tolerant fields, and as a look-alike (`who` ranks "Who" and "The Who" first and also lists `whole`). Each word must be at least
   `typo.min_length` (3) letters: a shorter stop word has to match exactly, which a stop word never does, so `to be or not to be` without quotes finds
   nothing (the quoted phrase is one word of 14 letters and finds it).
-- At most three stop words are searched; four or more find nothing. It costs a typo-tolerant search, one probe per word with at most `limits.candidates`
-  candidates each, and every word that is in most documents keeps all its matches: with `the and were there those` in the title of every one of 100 000
-  documents, five words took 15 s for a restricted viewer (0.7 s unrestricted); one word 0.12 s (restricted) and 0.2 s (unrestricted), two 0.23 and
-  0.27 s, three 0.36 and 0.42 s. `limits.candidates` applies as always (the total is a lower bound).
+- At most three stop words are searched; four or more find nothing. It costs a typo-tolerant search, one probe per word with at most `limits.candidates` candidates each, and every word that is in most documents keeps all its matches (five such words took 15 s for a restricted viewer, three 0.4 s). `limits.candidates` applies as always (the total is a lower bound).
 
 What to do: for names, titles or codes use `language: simple` (no stemming and no stop words), in an index of their own ([Languages](languages.md#what-the-language-decides)).
 
@@ -110,11 +106,8 @@ candidates or in which order ([Security](security.md)). A search whose word has 
   matches in index order; a word with more matches is ranked among those only, so the document that would rank first can be missing when the word is
   that common (`wireless` has 100 005 matches on the 1 000 000-row benchmark catalogue and the five beyond the budget are not found). The budget counts
   work, not rows: it is divided by the number of words of the query (16 words scan the first 6 250 matches, never fewer than the candidates asked for), and
-  excluded words are not looked up for the rank. Measured: a one-word query costs 0.7 to 1 microseconds per scanned match, 170 to 330 ms in the worst
-  case at 1 000 000 rows; hostile queries (16 words, 15 exclusions, 15 prefixes) 170 to 340 ms at 200 000 rows and 0.4 to 1 s at 1 000 000
-  ([Benchmarks](benchmarks.md#common-words)).
-- **A word under the limit costs what it did**; a word over it costs one more pass over its matches: 10 to 38 ms for `wireless` (20 000 matches) on
-  200 000 products, up to 105 ms for the most common word there.
+  excluded words are not looked up for the rank. A one-word query costs about 1 microsecond per scanned match, up to 330 ms at 1 000 000 rows ([Benchmarks](benchmarks.md#common-words)).
+- **A word under the limit costs what it did**; a word over it costs one more pass over its matches.
 - `relevance.min_score` keeps documents under it out of the candidate slots, so a query that needs it still finds its best documents.
 
 **Typo-tolerant branch: the first matches of the trigram index; exact only while a word has no more matches than the limit.** For each typo-tolerant
@@ -132,8 +125,7 @@ word the branch takes the documents the trigram index returns, at most `limits.c
   text still costs its recheck time ([below](#a-restricted-viewers-very-common-word-in-a-hidden-typo-tolerant-field)). Beyond the budget the first matches
   in physical order are taken ([Security](security.md#the-limits-stated-honestly)).
 - **A page past the candidates** selects the window `offset + limit` in this branch too (up to 10 000).
-- **Cost.** 25 to 75 ms on 200 000 products for a typo word that matches 15 000 of them; a restricted viewer pays one more selection (about 0.15 s for
-  `hedphones` restricted to two fields, `batery` on a 12-field index 0.5 s) ([Benchmarks](benchmarks.md#typo-words-and-facets-of-a-capped-search)).
+- **Cost.** One more selection for a restricted viewer ([Benchmarks](benchmarks.md#typo-words-and-facets-of-a-capped-search)).
 
 On the full-text branch and for a restricted viewer's typo branch the candidates are decided by rank, bonuses, similarity of the visible fields, the id and
 the filters, not by the physical order of the table; for everyone else's typo branch above the limit the physical order decides which matches are looked
@@ -150,14 +142,12 @@ When the search hit its candidate limit the counts of `facets()` are taken over 
 documents of the strict branch and, with typo tolerance, the typo branch's candidates), so a facet shows the documents the page was chosen from and does
 not depend on the order of the table. They are lower bounds ("120+"; the Live Component prints the `+`) while `total` is, and a page past the limit does
 not count more facet candidates. A facet that leaves a condition out (the disjunctive facet of an active filter) selects its own candidates, by the same
-rule. A filter-only listing with no text counts the first `limits.candidates` documents by id. With `exactCounts()` every match is counted (a limit of 10
-gave 4, 3 and 3 for three categories; the exact counts were 1 001, 1 000 and 1 000). See [Facets](searching.md#facets).
+rule. A filter-only listing with no text counts the first `limits.candidates` documents by id. With `exactCounts()` every match is counted. See [Facets](searching.md#facets).
 
 ### A restricted viewer's very common word in a hidden typo-tolerant field
 
 A restricted viewer's words are looked up in an index that also holds the text of the fields it may not see, and the rows that match only there are
-rejected afterwards. A word that is in most documents' hidden field then makes a typo-tolerant search read every row (200 000 products, five ordinary
-words in a hidden field: one such word 1.7 s, five 19 s).
+rejected afterwards. A word that is in most documents' hidden field then makes a typo-tolerant search read every row.
 
 **What is fast now.** An index with at least one `granted` field has two more indexes over its open fields (the ones without `granted`): a trigram index
 over their typo-tolerant text (only when a granted field is typo-tolerant: otherwise it would copy `fz`) and a full-text index over their text
@@ -175,8 +165,7 @@ The results are the same with or without them, and an index without a `granted` 
   definition wrote until the reindex; the recheck removes those rows, they only cost time.
 - The open-class indexes are used only when they exist, are valid and are smaller than the index they replace; the engine asks once per process, so after
   an apply built them restart long-running workers (or call `Fuzzphony::resetCaches()`).
-- A typo-tolerant search of a word the viewer's own tenant does not have, while other tenants do, can be slow for a restricted viewer (5.8 s on 200 000
-  products in one measurement). Nothing of the other tenant is returned or counted; the time is the cost.
+- A typo-tolerant search of a word the viewer's own tenant does not have, while other tenants do, can be slow for a restricted viewer. Nothing of the other tenant is returned or counted; the time is the cost.
 - Changing which fields are `granted` makes the open-class indexes stale: run `fuzzphony:schema --apply` (it builds the new ones and drops the old with
   `DROP INDEX CONCURRENTLY`; a drop that fails is a warning, run it again); until then the doctor reports the old ones as stale.
 - Timing is not hidden ([Security](security.md#the-limits-stated-honestly)).

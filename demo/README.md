@@ -17,6 +17,8 @@ docker compose up --build                      # http://localhost:8000 (seeds 50
 DEMO_ROWS=1000000 docker compose up --build    # the full 1M-product catalogue (a few minutes to seed and index)
 ```
 
+If Docker stops with `additional privileges requested`, set `BUILDX_BAKE_ENTITLEMENTS_FS=0` first, see [Docker build privileges](#docker-build-privileges).
+
 ### The large profile: 1 000 000 products
 
 For a big machine (Docker needs **8 GB of memory or more**; the default stack is sized for about 2 GB) there is an opt-in
@@ -49,25 +51,26 @@ php-fpm workers. Every `docker compose` command of that session needs both files
    ```
    # Linux / macOS / Git Bash
    docker compose down -v
+   export BUILDX_BAKE_ENTITLEMENTS_FS=0   # only if Docker asks for a build privilege
    DEMO_ROWS=1000000 docker compose -f docker-compose.yml -f docker-compose.large.yml up --build
    ```
-   (`BUILDX_BAKE_ENTITLEMENTS_FS=0` is only for Docker Compose versions that ask for a build privilege, see below.)
+   (`BUILDX_BAKE_ENTITLEMENTS_FS=0`: see [Docker build privileges](#docker-build-privileges).)
 3. **Wait for the index**: seeding and indexing 1 000 000 rows takes several minutes (about one minute at the default
    500 000). Follow it with `docker compose -f docker-compose.yml -f docker-compose.large.yml logs -f init`;
    http://localhost:8000 answers once `[init] done` appears.
 
 At this size a search for `tv` is a good test of typo tolerance: it finds 3 products, which is below the fallback limit, so the typo-tolerant
-branch runs for `tv` and for its synonyms `television` and `telly`. Before 0.8.3 that took 4.9 s (the trigram index returned about 100 000
-rows starting `tel…` for `telly`, three times per search); the same search takes about 0.2 s now (see the CHANGELOG).
+branch runs for `tv` and for its synonyms `television` and `telly`.
 
 To go back to the default stack: `docker compose -f docker-compose.yml -f docker-compose.large.yml down -v`, then the plain
 `docker compose up --build` above. To avoid typing both files every time, set `COMPOSE_FILE` once per terminal
 (`set COMPOSE_FILE=docker-compose.yml;docker-compose.large.yml` on Windows, `export COMPOSE_FILE=docker-compose.yml:docker-compose.large.yml` elsewhere).
 
-If a recent Docker Compose stops with `additional privileges requested: pass "--allow=fs.read=..." to grant requested
-privileges`, it is Docker's build sandbox (bake): the compose file is in `demo/` but the build context is the repository
-root. `docker compose` has no `--allow` flag; switch the check off for the session with an environment variable
-(verified: the image builds with it), then run the same command:
+### Docker build privileges
+
+A recent Docker Compose may stop with `additional privileges requested: pass "--allow=fs.read=..." to grant requested
+privileges`: it is Docker's build sandbox (bake), because the compose file is in `demo/` but the build context is the
+repository root. `docker compose` has no `--allow` flag; switch the check off for the terminal session, then run the same command:
 
 ```
 set BUILDX_BAKE_ENTITLEMENTS_FS=0                # Windows cmd
@@ -115,32 +118,26 @@ The search boxes of the catalogue, the Languages, Relevance, Synonyms and Observ
 ### The interface
 
 The design follows Apple's Human Interface Guidelines as habits rather than as a look: one action per screen, one accent colour that only means
-"you can act on this", content before chrome (a translucent toolbar, hairlines instead of boxes, explanations one disclosure away), familiar
-patterns (the rounded search field, the segmented control, inset grouped lists, a tab bar on a phone), 44 px touch targets, text contrast of at
-least 4.5:1, light and dark (from the system setting, or chosen with the switch in the toolbar), sizes in `rem`, motion that explains cause and effect and stops under
-`prefers-reduced-motion`. It is native CSS (`@layer`, tokens with `light-dark()` and `color-mix()`, cross-document view transitions),
-the system font stack and one inline SVG sprite ([`templates/_sprite.html.twig`](templates/_sprite.html.twig): the interface icons and one drawing
-per product category); no font, image or script is downloaded for it.
+"you can act on this", content before chrome, 44 px touch targets, text contrast of at least 4.5:1, light and dark (the system setting, or the switch in the
+toolbar, kept per visitor in `localStorage`), motion that stops under `prefers-reduced-motion`. It is native CSS, the system font stack and one inline SVG
+sprite ([`templates/_sprite.html.twig`](templates/_sprite.html.twig)); no font, image or script is downloaded for it.
 
-**Menu, switch and footer (0.9.10).** The links of the top menu are centred on the page at every width (the brand at the left edge, or above them where the bar is narrow; the tab bar of a phone is unchanged). The switch at the right of the bar chooses the colour scheme: System (follows the device, the default), Light or Dark. The choice is per visitor, kept in `localStorage` (a private window or blocked storage only means it does not last) and applied by a small inline script in the head before the first paint, so a page never flashes the other scheme (the demo's Content-Security-Policy allows inline scripts; [`theme_controller.js`](assets/controllers/theme_controller.js) only handles the buttons). Every colour token is a `light-dark()` pair, so `data-theme` on `<html>` just sets `color-scheme`. The footer is part of a page-level flex column (`min-height: 100dvh`, `<main>` grows, the footer follows): at the bottom of the window on a short page (the empty home page, an error page), below the content on a long one, never fixed or sticky. It shows the Fuzzphony version and links to the documentation, GitHub, the changelog and the licence.
+- **Footer.** It shows the Fuzzphony version and links to the documentation, GitHub, the changelog and the licence. The version is read at run time
+  ([`src/Service/Version.php`](src/Service/Version.php)): Composer's pretty version when it is a release, otherwise (the demo installs the library from a
+  path repository, which Composer reports as `dev-main`) the newest `## [x.y.z]` heading of `CHANGELOG.md`.
+- **Emptying a search box** removes `q` from the address on every page that has one, so a reload or a shared link shows the empty page. On the Languages
+  page switching the language empties the box and shows that language's examples.
+- **Why a row was found.** On the Relevance page every row has a "Why" line: which field matched and how (the word or its stem, a synonym, or typo
+  tolerance with the word pair and its trigram similarity, from `Catalog::closestWords()`).
+- **Config wizard sample.** `/under-the-hood/wizard?sample=1` shows one complete definition of the catalogue as YAML, builder and attributes; Tune starts
+  from it with `/tune?start=sample`. The data lives in `src/Service/SampleConfig.php`.
+- **Info tooltips on Tune** come from [`SettingHelp`](src/Service/SettingHelp.php); **loading** looks the same everywhere (a top bar, a dimmed page, a
+  spinner, a status pill; `aria-busy` is the one signal).
 
-**The version in the footer.** It is read at run time ([`src/Service/Version.php`](src/Service/Version.php)): the pretty version from Composer's `\Composer\InstalledVersions` when it is a release (`0.9.9`, as when the library is installed from a tag). The demo installs the library from a path repository, where Composer only says `dev-main` plus a reference that is not a commit of the repository, so the footer then shows the newest `## [x.y.z]` heading of the repository's `CHANGELOG.md` (the Dockerfile copies it next to the library); without that file it falls back to the Composer string with the short reference.
-
-**Emptying a search box leaves the old search.** Clearing the box (the clear button, or deleting the text) removes `q` from the address on every page that has one: the home page updates the address in place (`history.replaceState`, other parameters such as filters stay), the pages that submit open themselves again without the text (`clearable_controller.js`; the language, viewer and index stay), so a reload or a shared link shows the empty page. On the Languages page the language chips link to `?lang=xx` only: switching the language empties the box and shows that language's examples (`?lang=xx&q=...` typed or linked directly still searches).
-
-**Why a row was found.** On the Relevance page every row has a "Why" line in words: which field matched and how (the word itself or its stem, a synonym, or typo tolerance with the word pair, its trigram similarity and the number of shared trigrams, computed by one small query on the displayed rows: `Catalog::closestWords()`, bound parameters). The searches ask for the highlights of the name, brand and category, so a word found only through the brand (`tv` finds `Tefal` at the flat 0.3: one shared trigram) is marked in the brand.
-
-To look at it the way it was reviewed, [`tools/shots.mjs`](tools/shots.mjs) takes a screenshot of every page at phone, tablet and laptop size, light and dark (a few pages also by choosing the other scheme with the switch),
-with reduced motion, and runs axe-core (WCAG 2.2 AA) and a horizontal-overflow check on every one of them (Playwright from its official Docker image; nothing
-is added to the project): see the comment at the top of the file. [`tools/flows.mjs`](tools/flows.mjs) checks what a screenshot cannot show, in a real browser:
-the live results, the rescue, the suggestion panel with the keyboard, the colour scheme switch, the footer's position, the menu's centring, clearing a search box, the loading language, the search log, the Security page, the Speed view and the phone layout
-(it resets the viewer's count first, so a re-run is never refused by the previous one).
-
-**Config wizard sample.** `/under-the-hood/wizard?sample=1` (the "Load the sample configuration" button) shows one complete definition of the catalogue as YAML, builder and attributes, with a note per part. The data lives in one place, `src/Service/SampleConfig.php` (`CONFIG`, loaded through the library's own loader, so a mistake throws; `NOTES`); Tune starts from its default profile and thresholds with the "sample" chip or `/tune?start=sample`. The attribute export says it cannot express profiles and thresholds. Synonyms are only explained: the library's YAML export writes a list of synonym groups as numbered keys.
-
-**Info tooltips on Tune.** Each control has an info button (`<button>` with `aria-describedby` and `aria-expanded`) that opens a custom tooltip on hover, focus or tap and closes on Escape, a press outside or blur; one is open at a time, it is placed inside the window (also on a phone) and a Live Component re-render leaves it alone (`data-live-ignore`). The texts are in one place, [`SettingHelp`](src/Service/SettingHelp.php); the behaviour is [`tooltip_controller.js`](assets/controllers/tooltip_controller.js), checked in `tools/flows.mjs`.
-
-**Loading looks the same everywhere.** Whatever the demo waits for, it shows the same three things after a short delay (so a fast answer does not flicker): a hairline bar runs along the top, the page dims (the field too, though it stays usable), the field shows a small spinner (a page without a field gets one of its own) and a status pill at the bottom says what is going on. `aria-busy` is the one signal, for the eyes and for assistive technology: a Live Component (Tune) and the live results set it on their own region, and a link or form sets it on `<main>` (`progress_controller.js`); the bar and the spinner follow either. One rule in `app.css` (`.busy-region`, `.field-spinner`) covers every page.
+[`tools/shots.mjs`](tools/shots.mjs) takes a screenshot of every page at phone, tablet and laptop size, light and dark, and runs axe-core (WCAG 2.2 AA)
+and a horizontal-overflow check on each (Playwright from its official Docker image; nothing is added to the project). [`tools/flows.mjs`](tools/flows.mjs)
+checks what a screenshot cannot show, in a real browser: the live results, the rescue, the suggestion panel, the colour scheme switch, the search log, the
+Security page and the phone layout. See the comment at the top of each file.
 
 The index itself is in [`config/packages/fuzzphony.yaml`](config/packages/fuzzphony.yaml): it was
 generated by the wizard and then tuned by hand; its `popular` ranking profile is a starting point in Tune.
@@ -323,7 +320,7 @@ the source is bind-mounted, Symfony runs in `dev` mode (AssetMapper served on th
 `vendor/` lives in a named volume that composer fills on the first start.
 
 ```bash
-docker compose -f docker-compose.yml -f docker-compose.dev.yml up --build
+docker compose -f docker-compose.yml -f docker-compose.dev.yml up --build   # BUILDX_BAKE_ENTITLEMENTS_FS=0 if asked, see above
 docker compose -f docker-compose.yml -f docker-compose.dev.yml run --rm init composer update   # after changing composer.json
 ```
 
