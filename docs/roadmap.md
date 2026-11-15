@@ -114,6 +114,7 @@ additive work after it (0.11.0, released) and the stable 1.0.0 do not have to ch
 - v0.12.2, a patch (the library is unchanged): the city facet links of the ERP People tab keep the switches, and the mutation badge is published from the run itself (the full run of 0.12.0: 97% covered MSI).
 - v0.12.3, a patch (the library is unchanged): the demo verified on the final code (the "Why" and city-filter lines now appear; flows 340/340, shots clean, two screenshots refreshed), and the full mutation run once per release instead of monthly.
 - v0.12.4, a patch: smaller index tables (a per-field column that holds the same text as another column of the same row is stored empty, a per-row column map keeps every definition change safe for restricted viewers; `schema --apply` backfills rows of another map after a confirmation; four independent reviews, a 15-case transition matrix, a race test).
+- v0.12.6: `DefinitionProvider` (index definitions from your own source), shorter docs, a test for the doc samples.
 - v0.12.5: in the strict mode a many filter can hold for the same address as the words (`same_row_as`; exact facet counts), `rank: best` ranks each match once (best/whole 1.3 to 1.9), the redundant open-class trigram index is dropped (12 MB at 200,000 rows) and the table is vacuumed after a column backfill; three independent reviews.
 
 ## Next

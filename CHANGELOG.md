@@ -11,6 +11,8 @@ and a link. Measurements, proofs and test names belong to the pull request, [doc
 
 ## [Unreleased]
 
+## [0.12.6] - 2026-11-15
+
 ### Changed
 
 - **Documentation is shorter** (README, UPGRADE and the long pages under `docs/` lose repetition and release history; headings, options, limits and security rules stay). UPGRADE.md starts with the one-line upgrade: `composer update`, `fuzzphony:schema --apply`, `fuzzphony:reindex <index>` when the doctor asks, `fuzzphony:doctor`.
@@ -1291,7 +1293,8 @@ on its own:
 - Sync modes: queue (default), trigger, ORM, manual; watches for joined tables.
 - Doctor with fixes; CLI commands for schema, reindex, worker, search and explain.
 
-[Unreleased]: https://github.com/er2es/fuzzphony/compare/v0.12.5...HEAD
+[Unreleased]: https://github.com/er2es/fuzzphony/compare/v0.12.6...HEAD
+[0.12.6]: https://github.com/er2es/fuzzphony/compare/v0.12.5...v0.12.6
 [0.12.5]: https://github.com/er2es/fuzzphony/compare/v0.12.4...v0.12.5
 [0.12.4]: https://github.com/er2es/fuzzphony/compare/v0.12.3...v0.12.4
 [0.12.3]: https://github.com/er2es/fuzzphony/compare/v0.12.2...v0.12.3
