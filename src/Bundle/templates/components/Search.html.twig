@@ -8,6 +8,9 @@
            aria-label="{{ placeholder }}"
            class="fuzzphony-search__input">
 
+    {# The search (and its rate-limit charge) is evaluated first: a refused search never reaches the completions below. #}
+    {% set result = this.result %}
+
     {# The word being typed, completed from the index's vocabulary. The completions are plain text: Twig escapes them. #}
     {% set completions = this.completions %}
     {% if completions %}
@@ -18,7 +21,6 @@
         </ul>
     {% endif %}
 
-    {% set result = this.result %}
     {% if result %}
         <p class="fuzzphony-search__meta" aria-live="polite">
             {{ result.total }}{{ result.totalIsLowerBound ? '+' }} result{{ result.total == 1 ? '' : 's' }}

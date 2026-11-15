@@ -80,4 +80,11 @@ final class ReviewFixesV0127Test extends TestCase
             self::assertStringContainsString('App\NoteX', $e->getMessage());
         }
     }
+
+    public function testTheSearchComponentEvaluatesTheChargedResultBeforeTheCompletions(): void
+    {
+        $twig = (string) file_get_contents(__DIR__ . '/../../../../src/Bundle/templates/components/Search.html.twig');
+
+        self::assertLessThan(strpos($twig, 'this.completions'), strpos($twig, 'this.result'));
+    }
 }
