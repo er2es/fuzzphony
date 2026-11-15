@@ -1,4 +1,4 @@
-<p align="center"><img src="docs/assets/hero.svg" alt="Fuzzphony: fuzzy search, in perfect harmony with your database. Scattered, misspelled letters settle onto a sound wave and become the word wireless." width="900"></p>
+<p align="center"><img src="docs/assets/hero.svg" alt="Fuzzphony: fuzzy search, in perfect harmony with your database. Scattered, misspelled letters settle onto a sound wave and become the word harmony." width="900"></p>
 
 # Fuzzphony
 

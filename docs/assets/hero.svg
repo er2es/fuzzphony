@@ -1,6 +1,6 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 330" role="img" aria-labelledby="t d">
 <title id="t">Fuzzphony</title>
-<desc id="d">Scattered, misspelled letters settle onto a sound wave and become the word Wireless: fuzzy search, in perfect harmony with your database.</desc>
+<desc id="d">Scattered, misspelled letters settle onto a sound wave and become the word harmony: fuzzy search, in perfect harmony with your database.</desc>
 <defs>
 <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#0b1530"/><stop offset="0.55" stop-color="#16295a"/><stop offset="1" stop-color="#1f3b73"/></linearGradient>
 <linearGradient id="wv" x1="0" y1="0" x2="1" y2="0"><stop offset="0" stop-color="#8fb3ff" stop-opacity="0.15"/><stop offset="0.6" stop-color="#8fb3ff" stop-opacity="0.7"/><stop offset="1" stop-color="#f5b84a"/></linearGradient>
@@ -15,14 +15,13 @@
 <path d="M590,224.2 L598,236.4 L606,246.6 L614,254.7 L622,260.4 L630,263.7 L638,264.5 L646,263.0 L654,259.4 L662,253.7 L670,246.3 L678,237.5 L686,227.6 L694,217.1 L702,206.2 L710,195.3 L718,184.8 L726,175.0 L734,166.2 L742,158.6 L750,152.4 L758,147.7 L766,144.5 L774,143.0 L782,143.0 L790,144.5 L798,147.4 L806,151.4 L814,156.4 L822,162.1 L830,168.4 L838,174.9 L846,181.4 L854,187.8 L862,193.9 L870,199.3 L878,204.1 L886,208.1 L894,211.2 L902,213.3 L910,214.6 L918,214.9 L926,214.4 L934,213.2 L942,211.3 L950,208.9 L958,206.1 L966,203.0 L974,199.8 L982,196.5 L990,193.4 L998,190.5 L1006,187.9 L1014,185.7 L1022,183.9 L1030,182.5 L1038,181.5 L1046,180.9 L1054,180.7 L1062,180.9 L1070,181.4 L1078,182.1 L1086,182.9 L1094,183.9 L1102,185.0 L1110,186.1 L1118,187.1 L1126,188.1 L1134,189.1 L1142,190.0+0.0j L1150,190.8-0.0j" stroke="url(#wv)" stroke-width="3.5"/>
 </g>
 <g font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-weight="600">
-<text x="650" y="251" font-size="56" fill="#e8eefc" opacity="0.55" text-anchor="middle" transform="rotate(-24 650 231.46345563805096)">w</text>
-<text x="716" y="241" font-size="56" fill="#e8eefc" opacity="0.61" text-anchor="middle" transform="rotate(20 716 221.39082530775516)">i</text>
-<text x="782" y="139" font-size="56" fill="#e8eefc" opacity="0.68" text-anchor="middle" transform="rotate(-15 782 119.02707326569765)">r</text>
-<text x="848" y="221" font-size="56" fill="#e8eefc" opacity="0.74" text-anchor="middle" transform="rotate(10 848 201.07243964051156)">e</text>
-<text x="914" y="222" font-size="56" fill="#e8eefc" opacity="0.81" text-anchor="middle" transform="rotate(-7 914 202.85487804593325)">l</text>
-<text x="980" y="225" font-size="56" fill="#e8eefc" opacity="0.87" text-anchor="middle" transform="rotate(4 980 205.34697755823134)">e</text>
-<text x="1046" y="197" font-size="56" fill="#e8eefc" opacity="0.94" text-anchor="middle" transform="rotate(-2 1046 176.90756522706883)">s</text>
-<text x="1112" y="209" font-size="66" fill="#f5b84a" opacity="1.00" text-anchor="middle" transform="rotate(0 1112 186.3290113316241)" filter="url(#glow)">s</text>
+<text x="650" y="251" font-size="56" fill="#e8eefc" opacity="0.55" text-anchor="middle" transform="rotate(-24 650 231.46345563805096)">h</text>
+<text x="730" y="224" font-size="56" fill="#e8eefc" opacity="0.62" text-anchor="middle" transform="rotate(20 730 204.4825034623724)">a</text>
+<text x="810" y="151" font-size="56" fill="#e8eefc" opacity="0.70" text-anchor="middle" transform="rotate(-14 810 131.77785503187644)">r</text>
+<text x="890" y="243" font-size="56" fill="#e8eefc" opacity="0.78" text-anchor="middle" transform="rotate(8 890 223.72945125400022)">m</text>
+<text x="970" y="213" font-size="56" fill="#e8eefc" opacity="0.85" text-anchor="middle" transform="rotate(-5 970 193.38118282775903)">o</text>
+<text x="1050" y="204" font-size="56" fill="#e8eefc" opacity="0.93" text-anchor="middle" transform="rotate(2 1050 184.7730998976576)">n</text>
+<text x="1130" y="212" font-size="66" fill="#f5b84a" opacity="1.00" text-anchor="middle" transform="rotate(0 1130 188.6001893576586)" filter="url(#glow)">y</text>
 </g>
 <g font-family="Georgia, 'Times New Roman', serif">
 <text x="60" y="160" font-size="76" font-weight="700" fill="#ffffff" letter-spacing="1">Fuzzphony</text>
