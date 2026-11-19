@@ -31,6 +31,7 @@ and a link. Measurements, proofs and test names belong to the pull request, [doc
 ### Changed
 
 - The refresh stems each field and normalises each typo-tolerant field once per document instead of twice (same stored values, less write-path work).
+- **Demo:** the Combined tab's `site` panel has a kind filter (`kinds()`), a cut-off order number example, a "Two indexes over one entity" wizard sample, and the worker runs with `--memory-limit=128M`.
 
 ### Documentation
 
