@@ -46,8 +46,7 @@ foreach ($result as $hit) {
 ```
 
 Status: pre-1.0 (v0.12.8). The API may still change before 1.0; breaking changes are listed in the
-[CHANGELOG](https://github.com/er2es/fuzzphony/blob/main/CHANGELOG.md) and explained in
-[UPGRADE.md](https://github.com/er2es/fuzzphony/blob/main/UPGRADE.md).
+[CHANGELOG](https://github.com/er2es/fuzzphony/blob/main/CHANGELOG.md).
 
 ## Try the demo
 
@@ -119,7 +118,7 @@ For Symfony, add `Fuzzphony\Bundle\FuzzphonyBundle::class => ['all' => true]` to
 default `default`).
 
 Upgrading: `composer update`, then `bin/console fuzzphony:schema --apply`, `fuzzphony:reindex <index>` when the doctor asks, and `fuzzphony:doctor`
-(details per release in [UPGRADE.md](https://github.com/er2es/fuzzphony/blob/main/UPGRADE.md)).
+([UPGRADE.md](https://github.com/er2es/fuzzphony/blob/main/UPGRADE.md)).
 
 ## Quickstart (Symfony)
 

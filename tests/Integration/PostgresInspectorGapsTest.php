@@ -59,19 +59,6 @@ final class PostgresInspectorGapsTest extends TestCase
         self::fail('no check ' . $name);
     }
 
-    public function testAnIndexUnderAnOldNameIsAnErrorNamedAfterItWithTheDropToRun(): void
-    {
-        $fuzzphony = $this->install($this->queueIndex());
-        $this->connection->execute('ALTER INDEX fuzzphony_gap__tsv RENAME TO fuzzphony_gap_tsv');
-
-        $check = self::check($fuzzphony, 'Index fuzzphony_gap_tsv');
-
-        self::assertSame(CheckStatus::Error, $check->status);
-        self::assertStringStartsWith('OLD NAME', $check->message);
-        self::assertStringContainsString('DROP INDEX CONCURRENTLY ', (string) $check->fix);
-        self::assertStringContainsString('"fuzzphony_gap_tsv";', (string) $check->fix);
-    }
-
     private function failQueue(int $items): void
     {
         $this->connection->execute("DELETE FROM fuzzphony_queue WHERE index_name = 'gap'");

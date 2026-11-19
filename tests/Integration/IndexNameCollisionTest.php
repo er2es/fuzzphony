@@ -81,31 +81,4 @@ final class IndexNameCollisionTest extends TestCase
         self::assertContains('fuzzphony_coll_pkey', $before);
     }
 
-    public function testAnIndexUnderTheOldNameIsReportedAndDroppedByTheApply(): void
-    {
-        $fuzzphony = new Fuzzphony(new PostgresEngine($this->connection), new IndexRegistry([$this->definitions()[0]]));
-        $fuzzphony->schema()->apply($this->connection);
-        $fuzzphony->reindex('coll');
-        // what a release before 0.10 had: the same indexes under `<sidecar>_<kind>` (and the open-class ones with a single underscore)
-        foreach (['tsv', 'fz', 'f_price'] as $kind) {
-            $this->connection->execute(sprintf('ALTER INDEX fuzzphony_coll__%1$s RENAME TO fuzzphony_coll_%1$s', $kind));
-        }
-        $this->connection->execute('ALTER INDEX fuzzphony_coll__pkey RENAME TO fuzzphony_coll_pkey');
-        $open = Coerce::str($this->connection->fetchValue("SELECT indexname FROM pg_indexes WHERE tablename = 'fuzzphony_coll' AND indexname ~ '__open_fz_'"));
-        $this->connection->execute(sprintf('ALTER INDEX %s RENAME TO %s', $open, str_replace('__open_', '_open_', $open)));
-
-        $old = array_values(array_filter($fuzzphony->inspect('coll')->checks, static fn($check): bool => str_contains($check->message, 'OLD NAME') || str_contains($check->message, 'STALE')));
-        self::assertCount(4, $old);
-
-        $fuzzphony->schema()->apply($this->connection);
-
-        $indexes = array_map(static fn(array $r): string => Coerce::str($r['indexname']), $this->connection->fetchAll("SELECT indexname FROM pg_indexes WHERE tablename = 'fuzzphony_coll' ORDER BY indexname"));
-        self::assertSame([], array_values(array_filter($indexes, static fn(string $n): bool => preg_match('/^fuzzphony_coll_(tsv|fz|f_price|open_)/', $n) === 1)), 'the old names are gone');
-        self::assertContains('fuzzphony_coll__tsv', $indexes);
-        self::assertContains('fuzzphony_coll_pkey', $indexes, 'the primary key is renamed by the next reindex, not dropped');
-        self::assertSame(1, $fuzzphony->in('coll')->query('kettle')->get()->total);
-        foreach ($fuzzphony->inspect('coll')->checks as $check) {
-            self::assertNotSame(CheckStatus::Error, $check->status, $check->name . ' ' . $check->message);
-        }
-    }
 }

@@ -70,6 +70,6 @@ Running Fuzzphony in production:
 - Access and privacy: [Security](security.md), [the search log](analytics.md) and the
   [security policy](../SECURITY.md) for reporting a vulnerability.
 - Capacity: [Benchmarks](benchmarks.md) and [Known limitations](limitations.md).
-- Upgrading: [UPGRADE.md](../UPGRADE.md) for what to change between versions and the [CHANGELOG](../CHANGELOG.md) for
+- Upgrading: [UPGRADE.md](../UPGRADE.md) for the upgrade steps and the [CHANGELOG](../CHANGELOG.md) for
   what each release contains.
 - Contributing: [CONTRIBUTING.md](../CONTRIBUTING.md).

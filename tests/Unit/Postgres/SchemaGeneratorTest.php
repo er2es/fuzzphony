@@ -12,7 +12,6 @@ use Fuzzphony\Core\Definition\TriggerLevel;
 use Fuzzphony\Core\Definition\Watch;
 use Fuzzphony\Core\Definition\Weight;
 use Fuzzphony\Core\Schema\Statement;
-use Fuzzphony\Engine\Postgres\Schema\ColumnMap;
 use Fuzzphony\Engine\Postgres\Schema\Fingerprint;
 use Fuzzphony\Engine\Postgres\Schema\Names;
 use Fuzzphony\Engine\Postgres\Schema\PostgresSchemaGenerator;
@@ -72,20 +71,14 @@ final class SchemaGeneratorTest extends TestCase
         self::assertStringContainsString('"field_map" = EXCLUDED."field_map"', $sql, 'every write sets it: a row never keeps an older map');
     }
 
-    public function testTheColumnMapIsNeverDroppedAndRowsOfAnotherMapAreBackfilledOutsideTheTransaction(): void
+    public function testTheColumnMapIsNeverDropped(): void
     {
         $two = IndexDefinition::builder('two')->fromTable('fz_product')->field('name', 'A')->field('brand', 'B', fuzzy: true)->field('description', 'C', fuzzy: true)->sync('manual')->build();
-        $generator = new PostgresSchemaGenerator(backfillBatch: 500);
+        $generator = new PostgresSchemaGenerator();
         self::assertSame('text', $generator->columns($two)['field_map'], 'kept without a map: NULL says every column is filled');
         $sql = $generator->index($two)->toSql();
         self::assertStringNotContainsString('DROP COLUMN field_map', $sql);
         self::assertStringContainsString('NULL::text,', $sql, 'a definition without a map writes NULL');
-        $backfill = array_values(array_filter($generator->index($two)->statements, static fn(Statement $s): bool => str_starts_with($s->description, ColumnMap::BACKFILL)));
-        self::assertCount(1, $backfill);
-        self::assertFalse($backfill[0]->transactional, 'it commits after each batch');
-        self::assertStringContainsString("WHERE field_map IS NOT NULL AND left(field_map, 1) <> '!' LOOP", $backfill[0]->sql, 'without a map every row of a map is filled back');
-        self::assertStringContainsString('LIMIT 500', $backfill[0]->sql);
-        self::assertStringContainsString("WHERE field_map IS NOT NULL AND left(field_map, 1) <> '!' AND field_map <> 'z_name=exact' LOOP", $generator->index(Indexes::products())->toSql(), 'a row of the current map is left alone');
     }
 
     public function testIndexesAreBuiltConcurrentlyOutsideTransactions(): void
@@ -728,21 +721,6 @@ LANGUAGE plpgsql SET search_path FROM CURRENT AS \$fzi\$", $shared, 'the install
         self::assertFalse($last->transactional);
         self::assertSame(self::upsert('products', Fingerprint::definition(Indexes::products())), $last->sql);
         self::assertSame('Record the layout and definition "products" was built from', $last->description);
-    }
-
-    public function testALayoutStepRunsOnlyForAnIndexStoredWithAnOlderLayout(): void
-    {
-        $statements = (new PostgresSchemaGenerator())->index(Indexes::products())->statements;
-        $steps = array_values(array_filter($statements, static fn(Statement $s): bool => str_starts_with($s->description, 'Layout step')));
-
-        self::assertCount(1, $steps);
-        self::assertTrue($steps[0]->transactional, 'in the apply transaction, so before the non-transactional meta upsert');
-        self::assertSame('Layout step to 2: the per-field columns of existing documents stay empty until a full reindex', $steps[0]->description);
-        self::assertSame(
-            "DO \$fuzzphony\$ BEGIN IF to_regclass('\"public\".\"fuzzphony_meta\"') IS NOT NULL THEN IF (SELECT layout_version FROM \"public\".\"fuzzphony_meta\" WHERE index_name = 'products') < 2 THEN UPDATE \"public\".\"fuzzphony_meta\" SET documents_hash = NULL WHERE index_name = 'products'; END IF; END IF; END \$fuzzphony\$",
-            $steps[0]->sql,
-        );
-        self::assertSame($steps[0], $statements[count($statements) - 2], 'right before the meta upsert, also in --dump-migration');
     }
 
     public function testDropForgetsTheVersionRecordAndAReindexRecordsTheDocuments(): void

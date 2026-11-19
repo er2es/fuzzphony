@@ -290,8 +290,6 @@ things take more writing than with one entity per index.
 - **The stored key is text:** the sidecar key is `<kind>:<id>` (columns `kind` and `src_id` carry the parts), also for integer ids; `Hit::$id` is
   converted back with the source's `id_type`. Code that reads the sidecar table directly uses `kind` and `src_id`; `refresh('site', ['product:5'])` takes
   the key. There is no migration between the single and the multi-source layout (`schema --apply` then `reindex`).
-- **Older Fuzzphony code does not read a multi-source index:** upgrade every process (web, worker, console) before the first one is applied; there is no
-  schema-level downgrade.
 - **An id repeated inside one source keeps one row.** Make the source's ids unique (`DISTINCT ON`, or aggregate).
 - **A watch is per source:** a table a source reads without a `watch` is not followed, and the doctor warns about it (`Watches`). One `watch` per table
   per source; check it with a test that changes a row of each.

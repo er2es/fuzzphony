@@ -337,7 +337,7 @@ it, and the doctor warns when there is none.
   `address`, the filter is the document-level one. Filters only. `fuzzphony:schema --apply` adds one nullable `text[]` column to the values table
   (`fr_<filter>_<hash>`, no rewrite) and **a reindex fills it**: until then rows written before the option match the city of any address (the doctor
   counts them). Removing the option, or changing its column, field or child table, drops the column at the next apply. In a rolling deploy a coupled
-  search whose column is missing keeps the document-level filter instead of failing ([UPGRADE](../UPGRADE.md#opting-in-same_row_as)). Refused with a fix:
+  search whose column is missing keeps the document-level filter instead of failing. Refused with a fix:
   a name that is not a field, a single-valued field, a `rank: whole` field, a field that reads other child rows, the option on a field.
 - **The hit says which value matched**: with `explainMatches()` every `MatchedWord` of a many field carries `valueOrd` (from 0) and `value`.
   `highlight('city')` shows the value that matches best, not the whole list.
@@ -633,9 +633,7 @@ The role that runs `fuzzphony:reindex` needs `SELECT` and `UPDATE` on `fuzzphony
 after an apply that creates new tables. To build next to the live index and swap it in, the reindexing role also needs `CREATE` on the schema and
 ownership of the index tables (or membership in their owner); without them it reindexes in place (see [Reindexing](sync.md#reindexing-and-orphan-pruning)).
 
-`DROP SCHEMA fuzzphony CASCADE` removes every index at once (drop the triggers on your tables with `fuzzphony:schema --drop --apply` first). Moving an
-existing install out of `public` is not automatic, see [UPGRADE.md](../UPGRADE.md#moving-to-a-dedicated-schema); the doctor warns (check "Schema") when
-the configured schema has no sidecar table for an index but `public` still has one.
+`DROP SCHEMA fuzzphony CASCADE` removes every index at once (drop the triggers on your tables with `fuzzphony:schema --drop --apply` first).
 
 ## Bundle configuration
 

@@ -31,18 +31,7 @@ of them on a table that was there, the command asks you to restart long-running 
 former removes the sidecar table, its triggers, functions and queued rows; the latter can wipe
 every indexed document). Both explain what will happen and ask for confirmation
 (default **no**); `--force` skips the question, and is required to run either non-interactively
-(`--no-interaction`) -- without it they refuse with exit code 1. `fuzzphony:schema --apply` also asks
-before the column backfill after a definition change (rows written under another column map get their
-emptied per-field columns back, in batches, see [UPGRADE](../UPGRADE.md#a-definition-change-any-release-from-0124-on)):
-declined, or non-interactive without `--force`, it applies the rest, skips the backfill, warns and exits
-with 1. The PHP API (`Fuzzphony::schema()`, `Fuzzphony::reindex()`) never prompts (its plan includes the
-backfill). A backfill leaves an old version of every row it updated, so the table grows (43 MB to 110 MB at 200 000 rows): when it
-updated rows, the apply runs `VACUUM (ANALYZE)` on that table right after it (outside a transaction, online; the PHP API too), which
-makes the old versions' space reusable but does not shrink the file, and the command prints the growth and the fix,
-`fuzzphony:reindex <index>`, the online shadow rebuild that writes the table compactly. A dumped migration names the `VACUUM` as a comment
-(run it yourself after the migration if the backfill updated rows); the doctor's "Sidecar size" note stays until the reindex. A
-`VACUUM` that fails is a warning naming the table and the statement to run by hand (a second apply would not run it: the backfill finds
-nothing left), and the growth note then says the table stays this large until that `VACUUM` or the reindex.
+(`--no-interaction`) -- without it they refuse with exit code 1.
 
 Short options (`-b` batch, `-f` facet or format, `-i` index, `-l` limit or language, `-p` rank profile, `-t` time limit, `-w` where
 or write) mean different things in different commands: `-l` is the limit in `fuzzphony:search` and `fuzzphony:analytics` and the language in
@@ -85,10 +74,6 @@ It checks:
   that no `watch` covers is a warning with a watch to adapt, or `sync: manual`. See [Watched tables](sync.md#watched-tables);
 - sidecar column drift, and missing or INVALID indexes (for an index with a `granted` field also its open-class indexes: an error until
   `fuzzphony:schema --apply` has built them, the fix is the `CREATE INDEX CONCURRENTLY` statement);
-- "Sidecar size" (a warning): at least 10% of the rows still store the per-field columns the current column map keeps empty
-  (backfilled, or written before 0.12.4), with the dead row versions when autovacuum is due; the fix is `fuzzphony:reindex <index>`;
-- objects left in `public` after switching to a dedicated `schema` (a warning when the configured
-  schema has no sidecar table for an index but `public` still has one);
 - with DoctrineBundle, an application `schema_filter` that still lets Fuzzphony's tables through,
   so `migrations:diff` would drop them (a warning with the regex to merge; none once your filter
   hides them);

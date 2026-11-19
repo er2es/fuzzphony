@@ -11,6 +11,10 @@ and a link. Measurements, proofs and test names belong to the pull request, [doc
 
 ## [Unreleased]
 
+### Removed
+
+- **The code that migrated installs of earlier releases** (backfills, legacy names, layout steps); reinstall with `schema --apply` and `reindex`.
+
 ### Added
 
 - **`->kinds('person', 'order')` limits a multi-source search to some kinds** (hits, total, facets; also `fuzzphony:search -k person`). It changes

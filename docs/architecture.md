@@ -98,24 +98,17 @@ what it contains.
 
 Its columns: `tsv` (all fields' weighted vectors joined), `fz` (the fuzzy fields' normalised text), `exact` (the primary field's normalised
 text), one `t_<field>` per field (its own vector: field scoping, restricted viewers), one `z_<field>` per fuzzy field (its own normalised
-text), the filters' `f_<filter>` and the bookkeeping columns. Since 0.12.4 a per-field column whose value another column of the row holds
+text), the filters' `f_<filter>` and the bookkeeping columns. A per-field column whose value another column of the row holds
 is written empty (`Names::sharedColumns()`): `t_<field>` of an index of one field (= `tsv`), `z_<field>` of the primary field (= `exact`)
 and of the only fuzzy field (= `fz`). The row's `field_map` (text, `Names::fieldMap()`) lists those pairs as the row was written
 (`t_name=tsv,z_name=exact`); each pair is a fact about that row whatever definition comes later. A reader takes the other column only
 for a row written with the current map (`CASE WHEN s.field_map = 'z_name=exact' THEN s.exact ELSE s."z_name" END`, built by
 `Names::fieldFuzzy()` / `fieldVector()`; an equality costs a row about as much as reading the column), and the row's own column for any
 other row (NULL: every column filled). So a granted field's text that another definition put into `fz`, `exact` or `tsv` is never read
-in place of an open field's column. After a definition change that changes the map, `schema --apply` runs the backfill (`ColumnMap`):
-the rows of every other map get every column of their map copied back from the same row and their map set to NULL, in committed
-batches outside the apply's transaction (`SchemaCommand` asks first), so afterwards a row has the current map or none. A change that
-keeps the map (a weight, `code`, `granted`) touches no row; one that changes it also rebuilds an open-class index over a shared column
-(its expression names the map). The batch re-checks the old map on the row it updates, so a row a refresh rewrote while the batch waited on its lock is skipped
-(never copied from its new version), and the walk follows the selected ids. Before the refresh functions are replaced, the apply
+in place of an open field's column. A change that keeps the map (a weight, `code`, `granted`) touches no row; one that changes it also rebuilds an open-class index over a shared column
+(its expression names the map), and the rows of another map are read from their own columns until `fuzzphony:reindex` rewrites them. Before the refresh functions are replaced, the apply
 checks the one in the database: if it writes no `field_map` (an earlier release after a downgrade), every map is marked stale
-(`!z_name=exact`): read from the row's own columns, never backfilled, until a reindex. `field_map` is never dropped: a later definition still has to know which columns of a row are empty.
-A backfill that updated rows leaves the sidecar's name in the session setting `fuzzphony.backfilled`; the next statement of the plan,
-`VACUUM (ANALYZE)` of that table (outside a transaction: VACUUM cannot run in one or in a `DO` block), runs only then. It makes the old row
-versions reusable, it does not shrink the file; `fuzzphony:reindex` (the shadow rebuild) does that online.
+(`!z_name=exact`): read from the row's own columns until a reindex. `field_map` is never dropped: a later definition still has to know which columns of a row are empty.
 
 A fuzzy index also has `fuzzphony_<index>__vocab` (same schema): its words and in how many documents
 each occurs, created by `fuzzphony:schema --apply` and rebuilt after every full reindex, for "did you
@@ -137,10 +130,7 @@ process that still trusts a dropped one runs the same statement without it.
 definition it was applied with and a hash of the definition its documents were built from;
 `fuzzphony:doctor` compares them with the current definition.
 
-`fuzzphony:schema --apply` upgrades an index built with an older sidecar layout: each layout step
-is a guarded `DO` block in the index's plan that runs only while the stored layout is older (so
-`--dump-migration` contains it too), before the meta row records the new layout. The `*` row
-records the shared objects (queue, normaliser, text configurations); the doctor's "Shared objects"
+The `*` row records the shared objects (queue, normaliser, text configurations); the doctor's "Shared objects"
 check compares it.
 
 ## Multi-source indexes: how it is stored
