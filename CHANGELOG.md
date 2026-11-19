@@ -11,6 +11,8 @@ and a link. Measurements, proofs and test names belong to the pull request, [doc
 
 ## [Unreleased]
 
+## [0.12.9] - 2026-11-19
+
 ### Removed
 
 - **The code that migrated installs of earlier releases** (backfills, legacy names, layout steps); reinstall with `schema --apply` and `reindex`.
@@ -1368,7 +1370,8 @@ on its own:
 - Sync modes: queue (default), trigger, ORM, manual; watches for joined tables.
 - Doctor with fixes; CLI commands for schema, reindex, worker, search and explain.
 
-[Unreleased]: https://github.com/er2es/fuzzphony/compare/v0.12.8...HEAD
+[Unreleased]: https://github.com/er2es/fuzzphony/compare/v0.12.9...HEAD
+[0.12.9]: https://github.com/er2es/fuzzphony/compare/v0.12.8...v0.12.9
 [0.12.8]: https://github.com/er2es/fuzzphony/compare/v0.12.7...v0.12.8
 [0.12.7]: https://github.com/er2es/fuzzphony/compare/v0.12.6...v0.12.7
 [0.12.6]: https://github.com/er2es/fuzzphony/compare/v0.12.5...v0.12.6

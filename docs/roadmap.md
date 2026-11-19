@@ -16,11 +16,11 @@ What comes next, up to 1.0. No dates are promised. Back to the [README](../READM
 - **0.10, the breaking release:** security by default (a search without an actor is made as the current user; `->asSystem()` is explicit), `Hit::$kind` and
   typed ids, a smaller public API ([list](architecture.md#public-api)), cleaned-up names, grouped thresholds, a mandatory `schema --apply`.
 - **0.11 to 0.12:** several indexes per entity (`#[AsIndexDefinition]`), multi-source indexes, `many: { rank: best }`, `same_row_as`, a smaller sidecar,
-  `DefinitionProvider`, tested doc samples, review fixes, typo hits ranked by the likeliest word, a code prefix rescue, a shorter and tidier code base.
+  `DefinitionProvider`, tested doc samples, review fixes, typo hits ranked by the likeliest word, a code prefix rescue, a shorter and tidier code base, a `kinds()` filter and a repeatable `#[Searchable]`, a schema apply that is safe under load and in parallel, and no code for installs of earlier releases (0.12.9).
 
 ## Next
 
-- 0.12.9: the last bugfix round, with a check of the SQL Fuzzphony builds (safety, quality and obvious performance), then v1.0.0 (no release candidate).
+- v1.0.0 (no release candidate): the code of 0.12.9, with the version and the status line changed.
 - Idea, not decided: a smaller sidecar (leave out the `t_*` and `z_*` columns an index never needs), only where exactness and speed stay.
 
 ### v1.0.0: stable
