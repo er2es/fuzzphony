@@ -234,6 +234,49 @@ final class SchemaPlanTest extends TestCase
         self::assertSame([...$attempt, ...$retry, ...$retry], $connection->log);
     }
 
+    public function testAFailedRepairIsAWarningOnceAndTheBuildStillRuns(): void
+    {
+        $connection = new class implements Connection {
+            /** @var list<string> */
+            public array $log = [];
+
+            public function inTransaction(): bool
+            {
+                return false;
+            }
+
+            public function fetchAll(string $sql, array $params = []): array
+            {
+                return [['name' => 'ix']];
+            }
+
+            public function fetchValue(string $sql, array $params = []): mixed
+            {
+                return false;
+            }
+
+            public function execute(string $sql, array $params = []): int
+            {
+                $this->log[] = $sql;
+                if ($sql === 'FAIL ix') {
+                    throw new \PDOException('denied');
+                }
+
+                return 0;
+            }
+
+            public function transactional(callable $callback): mixed
+            {
+                return $callback($this);
+            }
+        };
+        $drop = new Statement('FAIL {name}', 'drop', false, forEach: 'NAMES');
+        $warnings = (new SchemaPlan([$drop, new Statement('BUILD', 'build', false, waitWhile: 'BUSY', repair: $drop)]))->apply($connection);
+
+        self::assertSame(['drop: ix failed (denied). Run it yourself: FAIL ix'], $warnings);
+        self::assertSame(['FAIL ix', 'FAIL ix', 'BUILD'], $connection->log);
+    }
+
     public function testABuildThatKeepsDeadlockingFailsAfterFiveRetries(): void
     {
         $connection = self::deadlocking(6);

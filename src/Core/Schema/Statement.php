@@ -27,7 +27,7 @@ final readonly class Statement
         public ?string $waitWhile = null,
         /**
          * A statement with `forEach` run after the wait and before `skipIf` (an index a build cancelled while this one waited
-         * left INVALID: dropped, so this statement builds it again). Its failures are not warnings: the statement fails.
+         * left INVALID: dropped, so this statement builds it again). Its failures are warnings, as for `forEach`.
          */
         public ?self $repair = null,
     ) {}

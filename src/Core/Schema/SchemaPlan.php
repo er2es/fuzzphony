@@ -38,22 +38,38 @@ final readonly class SchemaPlan
         $warnings = [];
         foreach ($separate as $statement) {
             if ($statement->forEach === null) {
-                self::run($connection, $statement, $onStatement);
+                $warnings = [...$warnings, ...self::run($connection, $statement, $onStatement)];
 
                 continue;
             }
             if ($onStatement !== null) {
                 $onStatement($statement);
             }
-            foreach ($connection->fetchAll($statement->forEach) as $row) {
-                $name = Coerce::str($row['name']);
-                $sql = str_replace('{name}', $name, $statement->sql);
-                try {
-                    $connection->execute($sql);
-                } catch (\Throwable $e) {
-                    // the statement itself, not "re-run the apply": a run that depends on what an earlier statement did is not repeated by a second apply
-                    $warnings[] = sprintf('%s: %s failed (%s). Run it yourself: %s', $statement->description, $name, $e->getMessage(), $sql);
+            $warnings = [...$warnings, ...self::each($connection, $statement, false)];
+        }
+
+        return array_values(array_unique($warnings)); // a repair after a wait can fail on the same name as the step before it
+    }
+
+    /**
+     * Runs a statement with `forEach` once for each name.
+     *
+     * @return list<string> its failed runs
+     */
+    private static function each(Connection $connection, Statement $statement, bool $retryDeadlock): array
+    {
+        $warnings = [];
+        foreach ($connection->fetchAll((string) $statement->forEach) as $row) {
+            $name = Coerce::str($row['name']);
+            $sql = str_replace('{name}', $name, $statement->sql);
+            try {
+                $connection->execute($sql);
+            } catch (\Throwable $e) {
+                if ($retryDeadlock && ErrorSummary::sqlState($e) === '40P01') {
+                    throw $e;
                 }
+                // the statement itself, not "re-run the apply": a run that depends on what an earlier statement did is not repeated by a second apply
+                $warnings[] = sprintf('%s: %s failed (%s). Run it yourself: %s', $statement->description, $name, $e->getMessage(), $sql);
             }
         }
 
@@ -63,16 +79,15 @@ final readonly class SchemaPlan
     /** How often a statement with a wait is tried again after it lost a deadlock (two concurrent builds on one table). */
     private const int DEADLOCK_RETRIES = 5;
 
-    private static function run(Connection $connection, Statement $statement, ?callable $onStatement): void
+    /** @return list<string> the failed runs of its repair */
+    private static function run(Connection $connection, Statement $statement, ?callable $onStatement): array
     {
         if ($onStatement !== null) {
             $onStatement($statement);
         }
         for ($attempt = 0; ; ++$attempt) {
             try {
-                self::attempt($connection, $statement);
-
-                return;
+                return self::attempt($connection, $statement);
             } catch (\Throwable $e) {
                 // the wait is a poll: another apply can start its build between our poll and our build, and one of the two
                 // concurrent builds is cancelled as a deadlock. The victim waits again, drops the index it left INVALID and checks
@@ -93,20 +108,18 @@ final readonly class SchemaPlan
         }
     }
 
-    private static function attempt(Connection $connection, Statement $statement): void
+    /** @return list<string> the failed runs of its repair */
+    private static function attempt(Connection $connection, Statement $statement): array
     {
         while ($statement->waitWhile !== null && $connection->fetchValue($statement->waitWhile) === true) {
             usleep(100_000); // short statements: a long-running wait would hold a snapshot the other build waits for
         }
-        if ($statement->repair?->forEach !== null) {
-            foreach ($connection->fetchAll($statement->repair->forEach) as $row) {
-                $connection->execute(str_replace('{name}', Coerce::str($row['name']), $statement->repair->sql));
-            }
+        $warnings = $statement->repair?->forEach !== null ? self::each($connection, $statement->repair, true) : [];
+        if ($statement->skipIf === null || $connection->fetchValue($statement->skipIf) !== true) {
+            $connection->execute($statement->sql);
         }
-        if ($statement->skipIf !== null && $connection->fetchValue($statement->skipIf) === true) {
-            return;
-        }
-        $connection->execute($statement->sql);
+
+        return $warnings;
     }
 
     public function toSql(): string
