@@ -54,6 +54,7 @@ final readonly class SharedWatch
             new Statement(sprintf('DO %1$s BEGIN IF NOT EXISTS (SELECT 1 FROM pg_attribute WHERE attrelid = to_regclass(%2$s) AND attname = \'source\' AND NOT attisdropped) THEN ALTER TABLE %3$s ADD COLUMN source text NOT NULL DEFAULT \'\'; END IF; END %1$s', self::TAG, Sql::string($this->names->watches()), $this->names->watches()), 'Which source of a multi-source index a watch belongs to (empty for a single-source index)'),
             new Statement(Guard::createIndex($this->names->index($this->names->watchLogIndexName() . '_w'), sprintf('CREATE INDEX IF NOT EXISTS %s ON %s (tbl)', Sql::ident($this->names->watchLogIndexName() . '_w'), $this->names->watches())), 'Watches by table'),
             new Statement($this->installFunction(), 'Builds (or removes) the shared trigger of a watched table from the watches'),
+            Guard::revokeFromPublic($this->names->watchInstallFunction() . '(text, text)'),
         ];
     }
 

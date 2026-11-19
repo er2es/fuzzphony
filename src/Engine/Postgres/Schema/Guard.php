@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Fuzzphony\Engine\Postgres\Schema;
 
 use Fuzzphony\Core\Definition\DefinitionValidator;
+use Fuzzphony\Core\Schema\Statement;
 use Fuzzphony\Engine\Postgres\Sql\Sql;
 
 /**
@@ -57,5 +58,16 @@ final class Guard
             $newTable === null ? 'NULL' : Sql::string($newTable),
             $create,
         );
+    }
+
+    /**
+     * Only the owner and the roles granted EXECUTE (Grants: the search and the worker role) may call the function; PostgreSQL
+     * grants it to PUBLIC by default. Trigger functions need no grant (the privilege is checked when the trigger is created).
+     *
+     * @param string $function the quoted, qualified function name with its argument types
+     */
+    public static function revokeFromPublic(string $function): Statement
+    {
+        return new Statement(sprintf('REVOKE ALL ON FUNCTION %s FROM PUBLIC', $function), 'Only the roles granted EXECUTE (fuzzphony:schema --dump-grants) may call it');
     }
 }

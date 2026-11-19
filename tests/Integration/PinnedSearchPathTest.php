@@ -69,6 +69,7 @@ final class PinnedSearchPathTest extends TestCase
     {
         $this->connection->execute('CREATE ROLE fz_pin_role');
         $this->connection->execute('GRANT ALL ON ALL TABLES IN SCHEMA public TO fz_pin_role');
+        $this->connection->execute('GRANT EXECUTE ON FUNCTION fuzzphony_refresh_products(bigint[]), fuzzphony_norm(text) TO fz_pin_role');
         $this->connection->execute('CREATE SCHEMA fz_pin_role AUTHORIZATION fz_pin_role');
         $this->connection->execute('SET ROLE fz_pin_role');
         $this->connection->execute('CREATE TABLE fz_pin_role.fz_brand (id bigint, name text, country text)');
@@ -78,5 +79,13 @@ final class PinnedSearchPathTest extends TestCase
         $this->connection->execute('RESET ROLE');
 
         self::assertNotSame('hijacked', $this->brandOf(1));
+    }
+
+    public function testOnlyTheGrantedRolesCanCallTheFunctions(): void
+    {
+        $this->connection->execute('CREATE ROLE fz_pin_role');
+        $callable = $this->connection->fetchAll("SELECT f FROM unnest(ARRAY['fuzzphony_norm(text)', 'fuzzphony_refresh_products(bigint[])', 'fuzzphony_refresh_products__next(bigint[])', 'fuzzphony_drain_products()', 'fuzzphony_watch_install(text,text)']) AS f WHERE has_function_privilege('fz_pin_role', to_regprocedure(f), 'EXECUTE')");
+
+        self::assertSame([], $callable, 'no EXECUTE for PUBLIC: the search and worker roles get theirs from --dump-grants');
     }
 }
