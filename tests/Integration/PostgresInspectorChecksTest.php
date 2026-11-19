@@ -192,7 +192,7 @@ final class PostgresInspectorChecksTest extends TestCase
         self::assertCount(1, $created);
         self::assertSame(1, preg_match('/^CREATE TEMPORARY VIEW "(fuzzphony_probe_[0-9a-f]{8})" AS /', $created[0], $view));
         $name = $view[1] ?? '';
-        self::assertSame(['DROP VIEW IF EXISTS "' . $name . '"'], $connection->statements('DROP VIEW'));
+        self::assertSame(['DROP VIEW "' . $name . '"', 'DROP VIEW IF EXISTS "' . $name . '"'], $connection->statements('DROP VIEW'), 'in the probe''s transaction, and again after it (a failed probe)');
         self::assertSame([['view' => 'pg_temp.' . $name]], $connection->params('SELECT attname, format_type'));
         self::assertSame(0, $this->connection->fetchValue('SELECT count(*) FROM pg_class WHERE relname LIKE \'fuzzphony_probe_%\''), 'the session keeps no probe view');
     }

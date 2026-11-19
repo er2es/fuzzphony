@@ -52,6 +52,7 @@ final class FreshInstallRolesTest extends TestCase
 
     protected function tearDown(): void
     {
+        Harness::cleanup();
         $this->c->execute('RESET ROLE');
         foreach (Harness::OWN_SCHEMAS as $schema) {
             $this->c->execute(sprintf('DROP SCHEMA IF EXISTS %s CASCADE', $schema));

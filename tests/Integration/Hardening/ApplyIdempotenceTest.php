@@ -23,6 +23,11 @@ final class ApplyIdempotenceTest extends TestCase
 {
     private Connection $c;
 
+    protected function tearDown(): void
+    {
+        Harness::cleanup();
+    }
+
     protected function setUp(): void
     {
         $this->c = Harness::fresh();

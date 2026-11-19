@@ -24,6 +24,11 @@ final class TransactionPoolerTest extends TestCase
     private Connection $c;
     private int $discards = 0;
 
+    protected function tearDown(): void
+    {
+        Harness::cleanup();
+    }
+
     protected function setUp(): void
     {
         $this->c = Harness::fresh();

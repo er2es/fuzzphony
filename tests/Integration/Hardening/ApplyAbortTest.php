@@ -30,6 +30,7 @@ final class ApplyAbortTest extends TestCase
 
     protected function tearDown(): void
     {
+        Harness::cleanup();
         $this->c->execute('DROP EVENT TRIGGER IF EXISTS fz_h_reject');
         $this->c->execute('DROP FUNCTION IF EXISTS public.fz_h_reject()');
     }

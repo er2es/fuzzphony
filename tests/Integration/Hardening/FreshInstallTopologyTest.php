@@ -32,6 +32,7 @@ final class FreshInstallTopologyTest extends TestCase
 
     protected function tearDown(): void
     {
+        Harness::cleanup();
         $this->c->execute('RESET search_path');
     }
 

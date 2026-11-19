@@ -44,6 +44,7 @@ final class ConcurrentApplyTest extends TestCase
 
     protected function tearDown(): void
     {
+        Harness::cleanup();
         @unlink($this->go);
     }
 

@@ -39,6 +39,18 @@ final class Harness
         return $c;
     }
 
+    /** Drops what a hardening test leaves outside public (its own schemas, event triggers), so the other tests see none of it. */
+    public static function cleanup(): void
+    {
+        $c = PostgresTestCase::connect();
+        foreach ($c->fetchAll('SELECT evtname FROM pg_event_trigger') as $row) {
+            $c->execute(sprintf('DROP EVENT TRIGGER %s', Coerce::str($row['evtname'])));
+        }
+        foreach (self::OWN_SCHEMAS as $schema) {
+            $c->execute(sprintf('DROP SCHEMA IF EXISTS %s CASCADE', $schema));
+        }
+    }
+
     /** The fixture tables (fz_product, fz_brand) with the conformance rows, in public. */
     public static function fixtures(Connection $c): void
     {

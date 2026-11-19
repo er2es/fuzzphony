@@ -172,7 +172,8 @@ final class ManyRankSchemaTest extends TestCase
         $generator = new PostgresSchemaGenerator(new Names());
         $plain = implode("\n;\n", array_map(static fn($s): string => $s->sql, $generator->index($this->definition([]))->statements));
         $whole = implode("\n;\n", array_map(static fn($s): string => $s->sql, $generator->index($this->definition(['city' => 'whole']))->statements));
-        $best = array_map(static fn($s): string => $s->sql, $generator->index($this->definition(['city' => 'best']))->statements);
+        // without the step that drops an INVALID leftover of the opt-in index before it is built
+        $best = array_values(array_map(static fn($s): string => $s->sql, array_filter($generator->index($this->definition(['city' => 'best']))->statements, static fn($s): bool => !(str_contains((string) $s->forEach, 'indisvalid') && str_contains((string) $s->forEach, 'values_best_city')))));
 
         self::assertSame($plain, $whole);
         self::assertStringNotContainsString('values_best', $plain);
