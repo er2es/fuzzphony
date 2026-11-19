@@ -184,17 +184,6 @@ final readonly class Names
         return self::limit(self::PREFIX . 'sync_' . $index->name . '__' . ($watch->source !== null ? $watch->source . '__' : '') . str_replace('.', '_', $watch->table) . '_' . substr(md5(Sql::ident($watch->table) . "|" . (string) $watch->source), 0, 8));
     }
 
-    /** The name before 0.12.7 (no hash): its function and triggers are removed when an index is applied. */
-    public function legacySyncFunctionName(IndexDefinition $index, Watch $watch): string
-    {
-        return self::limit(self::PREFIX . 'sync_' . $index->name . '__' . ($watch->source !== null ? $watch->source . '__' : '') . str_replace('.', '_', $watch->table));
-    }
-
-    public function legacySyncFunction(IndexDefinition $index, Watch $watch): string
-    {
-        return $this->qualify($this->legacySyncFunctionName($index, $watch));
-    }
-
     public function syncFunction(IndexDefinition $index, Watch $watch): string
     {
         return $this->qualify($this->syncFunctionName($index, $watch));
@@ -356,12 +345,6 @@ final readonly class Names
         return self::limit($this->sidecarName($index) . '__' . $suffix);
     }
 
-    /** The name indexName() gave before 0.10 (`<sidecar>_<suffix>`): the apply drops an index that still has it, the doctor reports it. */
-    public function legacyIndexName(IndexDefinition $index, string $suffix): string
-    {
-        return self::limit($this->sidecarName($index) . '_' . $suffix);
-    }
-
     /** The sidecar column with one field's own weighted tsvector (layout 2): a field-scoped word is checked against it. */
     public function fieldVectorName(string $field): string
     {
@@ -412,8 +395,7 @@ final readonly class Names
     /**
      * What the refresh function writes to `field_map`: the pairs of sharedColumns() as `column=source`, sorted and joined with
      * commas (`t_name=tsv,z_name=exact`); null without a shared column. Each pair is a fact about the row it is written to (that
-     * column's value is the source's), whatever definition comes later: the apply copies the values of a row of another map back
-     * from them (ColumnMap::backfill()), so a row has the current map or none, and the readers compare the map (perField()).
+     * column's value is the source's), whatever definition comes later: the readers compare the map (perField()), and a reindex rewrites the row.
      */
     public function fieldMap(IndexDefinition $index): ?string
     {
@@ -424,7 +406,7 @@ final readonly class Names
 
     /**
      * `s.t_name`, or for a shared column: the source for a row of the current map, else the column itself (NULL: filled; another map
-     * before its backfill: possibly empty, never another field's text). An equality, not a test of the pair: it costs a row about
+     * before its reindex: possibly empty, never another field's text). An equality, not a test of the pair: it costs a row about
      * as much as reading the column (a pair test with strpos() made a 3-word search on 200 000 rows 10% slower).
      */
     private function perField(IndexDefinition $index, string $column, string $alias): string

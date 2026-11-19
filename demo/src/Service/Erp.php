@@ -62,7 +62,7 @@ final readonly class Erp
     ];
 
     /** The chips under the combined box: label => query. */
-    public const array COMBINED_EXAMPLES = ['a surname' => 'kovacs', 'a legal form' => 'kft', 'order numbers' => 'ORD-2025'];
+    public const array COMBINED_EXAMPLES = ['a surname' => 'kovacs', 'a legal form' => 'kft', 'order numbers' => 'ORD-2025', 'a cut-off number' => 'ORD-2025-00003'];
 
     /** Which table a kind (the index name of a single-source index, the source name of the multi-source `site`) is read from. */
     private const array KINDS = [

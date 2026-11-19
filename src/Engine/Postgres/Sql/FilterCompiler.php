@@ -8,11 +8,15 @@ use Fuzzphony\Core\Definition\IndexDefinition;
 use Fuzzphony\Core\Exception\InvalidQuery;
 use Fuzzphony\Core\Query\Filter\Condition;
 use Fuzzphony\Core\Query\Filter\Operator;
+use Fuzzphony\Core\Support\Coerce;
 
 /** @internal Compiles where() conditions against the typed filter columns of the sidecar table. */
 final class FilterCompiler
 {
     private const int MAX_IN_VALUES = 1000;
+
+    /** The name of the condition SearchBuilder::kinds() adds: no filter of an index can have it (a filter name is an identifier). */
+    public const string KINDS = '#kinds';
 
     public function __construct(private readonly IndexDefinition $index) {}
 
@@ -40,6 +44,9 @@ final class FilterCompiler
 
     private function condition(Condition $c, ParameterBag $params, string $alias): string
     {
+        if ($c->filter === self::KINDS) {
+            return sprintf('%s.kind = ANY(CAST(%s AS text[]))', $alias, $params->add(Sql::arrayLiteral(array_map(Coerce::str(...), is_array($c->value) ? array_values($c->value) : []))));
+        }
         $filter = $this->index->filter($c->filter);
         $column = $alias . '.' . self::column($filter->name);
         $bind = fn(mixed $value): string => $params->add($filter->type->normalize($value, $filter->name));

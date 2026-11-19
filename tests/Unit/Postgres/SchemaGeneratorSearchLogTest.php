@@ -48,17 +48,17 @@ final class SchemaGeneratorSearchLogTest extends TestCase
         self::assertStringContainsString('client IP', $statements[1]->description);
         self::assertStringContainsString('ADD COLUMN "rescued" boolean NOT NULL DEFAULT false', $statements[2]->sql, 'an existing table gets the rescued flag; old rows are not rescued');
         self::assertSame(
-            'CREATE INDEX IF NOT EXISTS fuzzphony_search_log_index_at ON "public"."fuzzphony_search_log" (index_name, at)',
+            'DO $fuzzphony$ BEGIN IF to_regclass(\'"public"."fuzzphony_search_log_index_at"\') IS NULL THEN CREATE INDEX IF NOT EXISTS fuzzphony_search_log_index_at ON "public"."fuzzphony_search_log" (index_name, at); END IF; END $fuzzphony$',
             $statements[3]->sql,
         );
         self::assertSame('Search log by index and time', $statements[3]->description);
         self::assertSame(
-            'CREATE INDEX IF NOT EXISTS fuzzphony_search_log_index_norm ON "public"."fuzzphony_search_log" (index_name, query_norm)',
+            'DO $fuzzphony$ BEGIN IF to_regclass(\'"public"."fuzzphony_search_log_index_norm"\') IS NULL THEN CREATE INDEX IF NOT EXISTS fuzzphony_search_log_index_norm ON "public"."fuzzphony_search_log" (index_name, query_norm); END IF; END $fuzzphony$',
             $statements[4]->sql,
         );
         self::assertSame('Search log grouped by query', $statements[4]->description);
         self::assertSame(
-            'CREATE INDEX IF NOT EXISTS fuzzphony_search_log_at ON "public"."fuzzphony_search_log" (at)',
+            'DO $fuzzphony$ BEGIN IF to_regclass(\'"public"."fuzzphony_search_log_at"\') IS NULL THEN CREATE INDEX IF NOT EXISTS fuzzphony_search_log_at ON "public"."fuzzphony_search_log" (at); END IF; END $fuzzphony$',
             $statements[5]->sql,
         );
         self::assertStringContainsString('purge', $statements[5]->description);

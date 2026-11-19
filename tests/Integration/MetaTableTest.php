@@ -64,7 +64,7 @@ final class MetaTableTest extends TestCase
 
         $this->context->connection->execute("DELETE FROM fuzzphony_meta WHERE index_name = 'products'");
         self::assertSame(['Schema version' => CheckStatus::Warning], $this->statuses());
-        self::assertSame('No version record: built before 0.4, or never applied.', $this->check('Schema version')->message);
+        self::assertSame('No version record: never applied.', $this->check('Schema version')->message);
 
         $this->context->connection->execute('DROP TABLE fuzzphony_meta');
         self::assertSame(['Schema version' => CheckStatus::Warning], $this->statuses(), 'an install from before 0.4');
@@ -100,7 +100,7 @@ final class MetaTableTest extends TestCase
         $connection->execute("DELETE FROM fuzzphony_meta WHERE index_name = '*'");
         $check = $this->check('Shared objects');
         self::assertSame(CheckStatus::Warning, $check->status);
-        self::assertSame('No version record for the shared objects: built before 0.4, or never applied.', $check->message);
+        self::assertSame('No version record for the shared objects: never applied.', $check->message);
         self::assertSame('bin/console fuzzphony:schema --apply', $check->fix);
         self::assertSame(CheckStatus::Ok, $this->check('Schema version')->status, 'the index row is read on its own');
 

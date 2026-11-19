@@ -106,7 +106,7 @@ candidates or in which order ([Security](security.md)). A search whose word has 
   matches in index order; a word with more matches is ranked among those only, so the document that would rank first can be missing when the word is
   that common (`wireless` has 100 005 matches on the 1 000 000-row benchmark catalogue and the five beyond the budget are not found). The budget counts
   work, not rows: it is divided by the number of words of the query (16 words scan the first 6 250 matches, never fewer than the candidates asked for), and
-  excluded words are not looked up for the rank. A one-word query costs about 1 microsecond per scanned match, up to 330 ms at 1 000 000 rows ([Benchmarks](benchmarks.md#common-words)).
+  excluded words are not looked up for the rank. A one-word query costs about 1 microsecond per scanned match, 290 ms for `wireless` (100 005 matches) at 1 000 000 rows ([Benchmarks](benchmarks.md#common-words)).
 - **A word under the limit costs what it did**; a word over it costs one more pass over its matches.
 - `relevance.min_score` keeps documents under it out of the candidate slots, so a query that needs it still finds its best documents.
 
@@ -259,7 +259,7 @@ is no doctor note either; tracking such events may come later.
 - `orm` sees only changes made through the entity manager: raw SQL writes, joined data and a `TRUNCATE` are not followed. `manual` follows nothing; call
   `refresh()` or `reindex()`.
 - `trigger` is read-your-writes, but the `TRUNCATE` of a watched table that is not the index's own table resyncs the whole index inside the truncating
-  transaction (42.8 s on 1 000 000 documents, holding an `ACCESS EXCLUSIVE` lock). Prefer `queue` for large indexes that watch joined tables.
+  transaction (about as long as a full reindex written in place, holding an `ACCESS EXCLUSIVE` lock). Prefer `queue` for large indexes that watch joined tables.
 
 See [Keeping the index in sync](sync.md).
 
@@ -280,7 +280,6 @@ things take more writing than with one entity per index.
 - **Overlapping indexes share the triggers of a table (`queue` sync).** A table has one set of four triggers and one change log whatever the number of
   indexes watching it ([Sync](sync.md#one-trigger-per-table-one-change-log)). `sync: trigger` and `trigger_level: row` keep four triggers per index and
   table and refresh every index inside the writing statement. For a hot table prefer `sync: queue` and `columns`.
-- **One `#[Searchable]` per class.** A second attribute is a PHP error: define further indexes over the same table in YAML or the builder, under another name.
 - **A federated search merges by rank only:** the best hit of each index comes first, whatever its score. Weight an index (`weight:`), or use one
   multi-source index when one common ranking matters more.
 - **A database that does not allow triggers follows nothing by itself:** `sync: queue` and `trigger` fail at `schema --apply` (permission denied) and
@@ -288,13 +287,9 @@ things take more writing than with one entity per index.
 
 ### Several sources in one index
 
-- **A query cannot be limited to some kinds** (there is no `kinds(...)` filter yet): filter on a column every source returns (a `kind` or `type` filter
-  you declare), or search a separate index.
 - **The stored key is text:** the sidecar key is `<kind>:<id>` (columns `kind` and `src_id` carry the parts), also for integer ids; `Hit::$id` is
   converted back with the source's `id_type`. Code that reads the sidecar table directly uses `kind` and `src_id`; `refresh('site', ['product:5'])` takes
   the key. There is no migration between the single and the multi-source layout (`schema --apply` then `reindex`).
-- **Older Fuzzphony code does not read a multi-source index:** upgrade every process (web, worker, console) before the first one is applied; there is no
-  schema-level downgrade.
 - **An id repeated inside one source keeps one row.** Make the source's ids unique (`DISTINCT ON`, or aggregate).
 - **A watch is per source:** a table a source reads without a `watch` is not followed, and the doctor warns about it (`Watches`). One `watch` per table
   per source; check it with a test that changes a row of each.

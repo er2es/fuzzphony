@@ -170,6 +170,16 @@ final class SearchCommandOptionsTest extends TestCase
         self::assertNull($this->query, 'the engine was not asked');
     }
 
+    public function testKindOnASingleSourceIndexIsRefusedWithTheReason(): void
+    {
+        $tester = $this->tester();
+
+        $status = $tester->execute(['index' => 'products', 'query' => 'mouse', '--kind' => ['person']], ['interactive' => false]);
+
+        self::assertSame(Command::FAILURE, $status);
+        self::assertStringContainsString('single source', $tester->getDisplay(true));
+    }
+
     public function testThresholdOverridesAreTyped(): void
     {
         $tester = $this->tester();

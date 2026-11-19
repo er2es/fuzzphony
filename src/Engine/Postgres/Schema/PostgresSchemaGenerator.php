@@ -28,9 +28,7 @@ use Fuzzphony\Engine\Postgres\Sql\Sql;
 final readonly class PostgresSchemaGenerator
 {
     /**
-     * The sidecar layout this version generates, recorded in fuzzphony_meta: 1 = the 0.4 layout,
-     * 2 = per-field columns (0.5). A layout change bumps it and adds its step to layoutSteps(),
-     * with a test.
+     * The sidecar layout this version generates, recorded in fuzzphony_meta (the doctor reports an older one).
      */
     public const int LAYOUT_VERSION = 2;
 
@@ -46,7 +44,7 @@ final readonly class PostgresSchemaGenerator
     public const string CAPPED_COLUMN = 'tsv_capped';
     /**
      * Which column map a row was written with (Names::fieldMap(), `t_name=tsv,z_name=exact`); NULL = every per-field column is
-     * filled (no shared column, an earlier release, or a row the backfill filled: ColumnMap). Never dropped: a later definition
+     * filled (no shared column, or a row the downgrade guard distrusts: ColumnMap). Never dropped: a later definition
      * still has to know which columns of a row are empty.
      */
     public const string FIELD_MAP_COLUMN = 'field_map';
@@ -64,8 +62,11 @@ final readonly class PostgresSchemaGenerator
     /** Every generated function body / DO block is quoted with this tag; the validator keeps it out of embedded SQL. */
     private const string TAG = DefinitionValidator::DOLLAR_QUOTE_TAG;
 
+    /** How long one apply statement waits for a table lock (the same as the shadow swap). */
+    public const string LOCK_TIMEOUT = '3s';
+
     /** @param bool $searchLog whether the shared schema includes the search log table (the engine was built with searchLog: true) */
-    public function __construct(private Names $names = new Names(), private bool $searchLog = false, private int $backfillBatch = ColumnMap::BATCH) {}
+    public function __construct(private Names $names = new Names(), private bool $searchLog = false) {}
 
     public function names(): Names
     {
@@ -80,7 +81,21 @@ final readonly class PostgresSchemaGenerator
     public function global(IndexDefinition ...$indexes): SchemaPlan
     {
         $schema = $this->names->extensionSchema;
-        $statements = [];
+        // a statement that has to wait for a lock (a long writer on a table it changes) gives up instead of queueing every later
+        // write behind it; the apply is one transaction, so it rolls back whole and can simply be run again
+        $statements = [
+            // two applies at once take turns (the second waits for the first's transaction, then finds everything there) instead of
+            // failing on a duplicate catalog entry (CREATE EXTENSION / SCHEMA / TABLE IF NOT EXISTS race); a transaction lock, so a
+            // transaction pooler cannot leak it. Before the lock_timeout below: the wait is as long as the other transaction
+            new Statement("SELECT pg_advisory_xact_lock(hashtext('fuzzphony:schema-apply'))", 'Take turns with an apply running at the same time'),
+            new Statement(sprintf('SET LOCAL lock_timeout = %s', Sql::string(self::LOCK_TIMEOUT)), 'Give up after ' . self::LOCK_TIMEOUT . ' waiting for a lock (a long transaction writing a table the apply changes): the apply rolls back and can be run again'),
+            // the functions below store this path (SET search_path FROM CURRENT): the schemas the source tables resolve in now, "$user"
+            // expanded once and pg_temp last, so neither a caller's own schema nor a temporary table can stand in for a source table
+            new Statement(
+                "SELECT set_config('search_path', coalesce((SELECT string_agg(quote_ident(u.s), ', ' ORDER BY u.n) FROM unnest(current_schemas(false)) WITH ORDINALITY AS u(s, n) WHERE u.s NOT LIKE 'pg\\_temp\\_%') || ', ', '') || 'pg_temp', true)",
+                'Pin the search path the generated functions store: the schemas it resolves to now, pg_temp last',
+            ),
+        ];
         if ($this->names->schema !== 'public') {
             // not for public: PostgreSQL checks CREATE on the database before IF NOT EXISTS
             $statements[] = new Statement(sprintf('CREATE SCHEMA IF NOT EXISTS %s', $this->names->quotedSchema()), "Fuzzphony's own schema");
@@ -99,7 +114,7 @@ final readonly class PostgresSchemaGenerator
                 "CREATE TABLE IF NOT EXISTS %s (\n    index_name text NOT NULL,\n    doc_id text NOT NULL,\n    queued_at timestamptz NOT NULL DEFAULT clock_timestamp(),\n    PRIMARY KEY (index_name, doc_id)\n)",
                 $this->names->queue(),
             ), 'Sync queue shared by all indexes'),
-            new Statement(sprintf('CREATE INDEX IF NOT EXISTS %s ON %s (index_name, queued_at)', $this->names->queueOrderIndex(), $this->names->queue()), 'Queue processing order'),
+            new Statement(Guard::createIndex($this->names->index($this->names->queueOrderIndex()), sprintf('CREATE INDEX IF NOT EXISTS %s ON %s (index_name, queued_at)', $this->names->queueOrderIndex(), $this->names->queue())), 'Queue processing order'),
             new Statement(sprintf(
                 "CREATE TABLE IF NOT EXISTS %s (
     index_name text PRIMARY KEY,
@@ -142,9 +157,9 @@ final readonly class PostgresSchemaGenerator
                 ), 'Search log (opt-in)'),
                 $this->addColumn($this->names->searchLog(), 'actor_ip', 'text', 'Search log: the client IP (search_log.ip; stays empty when it is off, and an existing table gets the column here)'),
                 $this->addColumn($this->names->searchLog(), 'rescued', 'boolean NOT NULL DEFAULT false', 'Search log: whether the zero-result rescue answered the search (an existing table gets the column here)'),
-                new Statement(sprintf('CREATE INDEX IF NOT EXISTS %s ON %s (index_name, at)', $this->names->searchLogIndexName('index_at'), $this->names->searchLog()), 'Search log by index and time'),
-                new Statement(sprintf('CREATE INDEX IF NOT EXISTS %s ON %s (index_name, query_norm)', $this->names->searchLogIndexName('index_norm'), $this->names->searchLog()), 'Search log grouped by query'),
-                new Statement(sprintf('CREATE INDEX IF NOT EXISTS %s ON %s (at)', $this->names->searchLogIndexName('at'), $this->names->searchLog()), 'Search log by time alone (the purge and the doctor look at the oldest rows)'),
+                new Statement(Guard::createIndex($this->names->index($this->names->searchLogIndexName('index_at')), sprintf('CREATE INDEX IF NOT EXISTS %s ON %s (index_name, at)', $this->names->searchLogIndexName('index_at'), $this->names->searchLog())), 'Search log by index and time'),
+                new Statement(Guard::createIndex($this->names->index($this->names->searchLogIndexName('index_norm')), sprintf('CREATE INDEX IF NOT EXISTS %s ON %s (index_name, query_norm)', $this->names->searchLogIndexName('index_norm'), $this->names->searchLog())), 'Search log grouped by query'),
+                new Statement(Guard::createIndex($this->names->index($this->names->searchLogIndexName('at')), sprintf('CREATE INDEX IF NOT EXISTS %s ON %s (at)', $this->names->searchLogIndexName('at'), $this->names->searchLog())), 'Search log by time alone (the purge and the doctor look at the oldest rows)'),
             );
         }
 
@@ -160,6 +175,47 @@ final readonly class PostgresSchemaGenerator
         $statements[] = $this->recordApply('*', Fingerprint::shared($this->names), 'Record the layout of the shared objects');
 
         return new SchemaPlan($statements);
+    }
+
+    /**
+     * CREATE INDEX CONCURRENTLY IF NOT EXISTS, after dropping an INVALID index of that name (a concurrent build that failed or was
+     * cancelled midway leaves one, and IF NOT EXISTS would keep it forever). An index another session is building right now is
+     * INVALID too: it is left alone (pg_stat_progress_create_index names it), and so is an index that exists.
+     *
+     * Two applies at once: the build waits until no other session builds an index on the table (polled with short statements:
+     * two concurrent builds on one table wait for each other and one fails with a deadlock).
+     *
+     * @param string $table      the qualified table
+     * @param string $definition the rest of the definition ("USING gin (tsv)")
+     *
+     * @return list<Statement>
+     */
+    private function concurrentIndex(string $name, string $table, string $definition, string $description): array
+    {
+        $index = Sql::string($this->names->index($name));
+        $dropInvalid = new Statement(
+            'DROP INDEX CONCURRENTLY IF EXISTS {name}',
+            $description . ': drop it first when an interrupted concurrent build left it INVALID',
+            transactional: false,
+            forEach: sprintf(
+                'SELECT i.indexrelid::regclass::text AS name FROM pg_index AS i WHERE i.indexrelid = to_regclass(%s) AND NOT i.indisvalid AND NOT EXISTS (SELECT 1 FROM pg_stat_progress_create_index AS p WHERE p.index_relid = i.indexrelid)',
+                $index,
+            ),
+        );
+
+        return [
+            $dropInvalid,
+            new Statement(
+                sprintf('CREATE INDEX CONCURRENTLY IF NOT EXISTS %s ON %s %s', Sql::ident($name), $table, $definition),
+                $description,
+                transactional: false,
+                // valid already: not queued behind another build (an INVALID one is dropped by the repair after the wait and built again)
+                skipIf: sprintf('SELECT EXISTS (SELECT 1 FROM pg_index WHERE indexrelid = to_regclass(%s) AND indisvalid)', $index),
+                waitWhile: sprintf('SELECT EXISTS (SELECT 1 FROM pg_stat_progress_create_index WHERE relid = to_regclass(%s) AND pid <> pg_backend_pid())', Sql::string($table)),
+                // a build of another apply this one waited for may have been cancelled and left the index INVALID
+                repair: $dropInvalid,
+            ),
+        ];
     }
 
     public function index(IndexDefinition $index): SchemaPlan
@@ -179,10 +235,6 @@ final readonly class PostgresSchemaGenerator
         }
         // before the refresh functions below are replaced: the maps an earlier release's function may have outdated
         $statements[] = ColumnMap::guard($index, $this->names);
-        // after the transaction that replaced the refresh functions (it is not transactional): rows of another map get their columns back
-        $statements[] = ColumnMap::backfill($index, $this->names, $this->backfillBatch);
-        // right after it (the statements outside the transaction run in this order): only when it updated rows
-        $statements[] = ColumnMap::vacuum($index, $this->names);
         if ($index->hasFuzzy()) {
             $statements[] = new Statement(
                 sprintf('CREATE TABLE IF NOT EXISTS %s (word text PRIMARY KEY, freq integer NOT NULL)', $this->names->vocabulary($index)),
@@ -216,16 +268,10 @@ final readonly class PostgresSchemaGenerator
         $statements[] = new Statement($this->refreshFunction($index, shadow: true), 'Builds / removes documents by id in the table a full reindex builds next to the live one');
         $statements[] = new Statement($this->trackFunction($index), 'Logs which documents change while a full reindex runs');
 
-        $legacy = [];
         foreach ($index->effectiveWatches() as $watch) {
             $watched = Sql::ident($watch->table);
-            // the unhashed names of before 0.12.7 (their function may be shared by two tables: dropped after all triggers are gone)
-            if ($this->hasLegacySyncFunction($index, $watch)) {
-                $legacy[$this->names->legacySyncFunction($index, $watch)] = true;
-                array_push($statements, ...$this->legacySyncTriggers($index, $watch));
-            }
             foreach ($this->obsoleteTriggerNames($index, $watch) as $obsolete) {
-                $statements[] = new Statement(sprintf('DROP TRIGGER IF EXISTS %s ON %s', Sql::ident($obsolete), $watched), sprintf('Remove trigger not used in "%s" sync / %s level', $index->sync->value, $index->triggerLevel->value));
+                $statements[] = new Statement(Guard::dropTrigger($obsolete, $watched), sprintf('Remove trigger not used in "%s" sync / %s level', $index->sync->value, $index->triggerLevel->value));
             }
             if (!$index->sync->usesTriggers() || SharedWatch::applies($index)) {
                 $statements[] = $this->partitionTriggers($index, $watch, false);
@@ -242,14 +288,19 @@ final readonly class PostgresSchemaGenerator
             );
             foreach ($this->triggerDefinitions($index, $watch) as $name => $definition) {
                 $statements[] = new Statement(
-                    sprintf('CREATE OR REPLACE TRIGGER %s %s ON %s %s EXECUTE FUNCTION %s()', Sql::ident($name), $definition['timing'], $watched, $definition['for'], $this->names->syncFunction($index, $watch)),
+                    Guard::createTrigger(
+                        $name,
+                        $watched,
+                        $this->names->syncFunction($index, $watch),
+                        $definition['type'],
+                        $definition['old'],
+                        $definition['new'],
+                        sprintf('CREATE OR REPLACE TRIGGER %s %s ON %s %s EXECUTE FUNCTION %s()', Sql::ident($name), $definition['timing'], $watched, $definition['for'], $this->names->syncFunction($index, $watch)),
+                    ),
                     sprintf('%s sync on %s (%s level)', ucfirst($index->sync->value), $watch->table, $index->triggerLevel->value),
                 );
             }
             $statements[] = $this->partitionTriggers($index, $watch, true);
-        }
-        foreach (array_keys($legacy) as $old) {
-            $statements[] = new Statement(sprintf('DROP FUNCTION IF EXISTS %s()', $old), 'Remove the sync function of the unhashed name of an earlier release');
         }
         if (SharedWatch::applies($index)) {
             $statements[] = new Statement($this->sharedWatch()->drainFunction($index, $this->relevantColumns(...), $this->names->sidecar($index), $this->names->changes($index)), 'Moves the changes the shared trigger logged into the index queue');
@@ -259,30 +310,22 @@ final readonly class PostgresSchemaGenerator
         $statements[] = $this->sharedWatch()->register($index, $this->relevantColumns(...));
 
         foreach ($this->indexes($index) as $name => $definition) {
-            $statements[] = new Statement(
-                sprintf('CREATE INDEX CONCURRENTLY IF NOT EXISTS %s ON %s %s', Sql::ident($name), $table, $definition),
-                sprintf('Index %s', $name),
-                transactional: false,
-            );
+            array_push($statements, ...$this->concurrentIndex($name, $table, $definition, sprintf('Index %s', $name)));
         }
         foreach ($index->manyBestFields() as $field) {
             // the values table is small next to the sidecar and has its own partial GIN per field that ranks through its best value
-            $statements[] = new Statement(
-                sprintf('CREATE INDEX CONCURRENTLY IF NOT EXISTS %s ON %s USING gin (t) WHERE field = %s', Sql::ident($this->names->valuesBestIndexName($index, $field->name)), $this->names->values($index), Sql::string($field->name)),
+            array_push($statements, ...$this->concurrentIndex(
+                $this->names->valuesBestIndexName($index, $field->name),
+                $this->names->values($index),
+                sprintf('USING gin (t) WHERE field = %s', Sql::string($field->name)),
                 sprintf('Index of the values of "%s": its best single value ranks a document (many: { rank: best })', $field->name),
-                transactional: false,
-            );
+            ));
         }
         if ($index->hasFuzzy()) {
-            $statements[] = new Statement(
-                sprintf('CREATE INDEX CONCURRENTLY IF NOT EXISTS %s ON %s USING gin (word %s.gin_trgm_ops)', Sql::ident($this->names->vocabularyIndexName($index)), $this->names->vocabulary($index), $this->names->extension()),
-                'Index of the vocabulary: the words close to a misspelled one',
-                transactional: false,
-            );
-            $statements[] = new Statement(
-                sprintf('CREATE INDEX CONCURRENTLY IF NOT EXISTS %s ON %s (word text_pattern_ops)', Sql::ident($this->names->vocabularyPrefixIndexName($index)), $this->names->vocabulary($index)),
-                'Prefix index of the vocabulary: completes the beginning of a word (suggest())',
-                transactional: false,
+            array_push(
+                $statements,
+                ...$this->concurrentIndex($this->names->vocabularyIndexName($index), $this->names->vocabulary($index), sprintf('USING gin (word %s.gin_trgm_ops)', $this->names->extension()), 'Index of the vocabulary: the words close to a misspelled one'),
+                ...$this->concurrentIndex($this->names->vocabularyPrefixIndexName($index), $this->names->vocabulary($index), '(word text_pattern_ops)', 'Prefix index of the vocabulary: completes the beginning of a word (suggest())'),
             );
         }
         // after the open-class indexes above: one built for other granted fields (or for none any more) is dropped once the right ones exist.
@@ -290,14 +333,13 @@ final readonly class PostgresSchemaGenerator
         // behind the drop); a drop that fails is a warning and the apply is safe to run again
         $statements[] = new Statement(
             'DROP INDEX CONCURRENTLY IF EXISTS {name}',
-            'Drop an open-class index built for other granted fields, or an index under the name an earlier release gave it',
+            'Drop an open-class index built for other granted fields',
             transactional: false,
             forEach: sprintf(
-                'SELECT quote_ident(n.nspname) || \'.\' || quote_ident(c.relname) AS name FROM pg_index AS i JOIN pg_class AS c ON c.oid = i.indexrelid JOIN pg_namespace AS n ON n.oid = c.relnamespace WHERE i.indrelid = to_regclass(%1$s) AND (c.relname ~ %2$s OR c.relname = ANY (%4$s)) AND c.relname <> ALL (%3$s)',
+                'SELECT quote_ident(n.nspname) || \'.\' || quote_ident(c.relname) AS name FROM pg_index AS i JOIN pg_class AS c ON c.oid = i.indexrelid JOIN pg_namespace AS n ON n.oid = c.relnamespace WHERE i.indrelid = to_regclass(%1$s) AND c.relname ~ %2$s AND c.relname <> ALL (%3$s)',
                 Sql::string($table),
                 Sql::string('_' . OpenClass::NAME_TAIL . '$'),
                 'ARRAY[' . implode(', ', array_map(Sql::string(...), [...OpenClass::expectedNames($index, $this->names), ''])) . ']::text[]',
-                'ARRAY[' . implode(', ', array_map(Sql::string(...), ['', ...$this->legacyIndexNames($index)])) . ']::text[]',
             ),
         );
         if ($index->manyFields() !== []) {
@@ -326,17 +368,6 @@ final readonly class PostgresSchemaGenerator
             ),
             'Drop the value count column of a field that is no longer declared with many: { rank: best }',
         );
-        foreach ($this->layoutSteps($index) as $target => [$step, $why]) {
-            $statements[] = new Statement(sprintf(
-                'DO %1$s BEGIN IF to_regclass(%2$s) IS NOT NULL THEN IF (SELECT layout_version FROM %3$s WHERE index_name = %4$s) < %5$d THEN %6$s END IF; END IF; END %1$s',
-                self::TAG,
-                Sql::string($this->names->meta()),
-                $this->names->meta(),
-                Sql::string($index->name),
-                $target,
-                $step,
-            ), sprintf('Layout step to %d: %s', $target, $why));
-        }
         $statements[] = $this->recordApply($index->name, Fingerprint::definition($index), sprintf('Record the layout and definition "%s" was built from', $index->name));
 
         return new SchemaPlan($statements);
@@ -392,11 +423,6 @@ final readonly class PostgresSchemaGenerator
             }
             $statements[] = $this->partitionTriggers($index, $watch, false);
             $statements[] = new Statement(sprintf('DROP FUNCTION IF EXISTS %s()', $this->names->syncFunction($index, $watch)), 'Remove sync function');
-            if ($this->hasLegacySyncFunction($index, $watch)) {
-                // an index installed by an earlier release (before 0.12.7) has its triggers on the unhashed function
-                array_push($statements, ...$this->legacySyncTriggers($index, $watch));
-                $statements[] = new Statement(sprintf('DROP FUNCTION IF EXISTS %s()', $this->names->legacySyncFunction($index, $watch)), 'Remove the sync function of the unhashed name of an earlier release');
-            }
         }
         $statements[] = new Statement(sprintf('DROP FUNCTION IF EXISTS %s(%s[])', $this->names->refreshFunction($index), Types::id($index->idType)), 'Remove refresh function');
         if ($index->manyFields() !== []) {
@@ -452,27 +478,6 @@ ON CONFLICT (index_name) DO UPDATE SET layout_version = EXCLUDED.layout_version,
             Sql::string($definitionHash),
             Sql::string(self::libraryVersion()),
         ), $description, transactional: false);
-    }
-
-    /**
-     * The sidecar layout upgrade steps, by the layout each one leads to. schema --apply runs a
-     * step for an index whose stored layout (fuzzphony_meta) is older, in the apply transaction,
-     * before the meta upsert records the new layout; a missing version table or row runs none.
-     * The check is SQL (a DO block), so the plan stays database-free and --dump-migration contains
-     * the steps. New columns come from the plan's guarded ADD COLUMN, not from a step. The
-     * SELECT sits in its own IF: plpgsql plans an IF expression as a whole, so
-     * "to_regclass(...) IS NOT NULL AND (SELECT ...)" would fail on a missing table.
-     *
-     * @return array<int, array{string, string}> target layout => [the step's SQL, why it exists]
-     */
-    private function layoutSteps(IndexDefinition $index): array
-    {
-        return [
-            2 => [
-                sprintf('UPDATE %s SET documents_hash = NULL WHERE index_name = %s;', $this->names->meta(), Sql::string($index->name)),
-                'the per-field columns of existing documents stay empty until a full reindex',
-            ],
-        ];
     }
 
     /** For the record only: the version of the installed package. */
@@ -561,19 +566,6 @@ ON CONFLICT (index_name) DO UPDATE SET layout_version = EXCLUDED.layout_version,
     }
 
     /**
-     * The names the secondary indexes had before 0.10 (`<sidecar>_<suffix>`, see Names::indexName()), without the primary key (it
-     * cannot be dropped alone and the rebuild renames it): an index that still has one is dropped by the apply, once the new one exists.
-     *
-     * @return list<string>
-     */
-    public function legacyIndexNames(IndexDefinition $index): array
-    {
-        $suffixes = ['tsv', ...($index->hasFuzzy() ? ['fz'] : []), ...array_map(static fn($filter): string => 'f_' . $filter->name, $index->filters)];
-
-        return array_map(fn(string $suffix): string => $this->names->legacyIndexName($index, $suffix), $suffixes);
-    }
-
-    /**
      * Expected secondary indexes (name => "USING ... (...)").
      *
      * @return array<string, string>
@@ -602,7 +594,7 @@ ON CONFLICT (index_name) DO UPDATE SET layout_version = EXCLUDED.layout_version,
     /**
      * Triggers the definition needs (name => timing / FOR clause); empty when the sync mode uses none.
      *
-     * @return array<string, array{timing: string, for: string}>
+     * @return array<string, array{timing: string, for: string, type: int, old: ?string, new: ?string}>
      */
     public function triggerDefinitions(IndexDefinition $index, Watch $watch): array
     {
@@ -611,16 +603,16 @@ ON CONFLICT (index_name) DO UPDATE SET layout_version = EXCLUDED.layout_version,
         }
         // PostgreSQL never runs DELETE triggers for TRUNCATE and only allows TRUNCATE triggers per
         // statement (without transition tables), so both levels get the same extra trigger.
-        $truncate = [$this->names->triggerName($index, $watch, '_trn') => ['timing' => 'AFTER TRUNCATE', 'for' => 'FOR EACH STATEMENT']];
+        $truncate = [$this->names->triggerName($index, $watch, '_trn') => ['timing' => 'AFTER TRUNCATE', 'for' => 'FOR EACH STATEMENT', 'type' => 32, 'old' => null, 'new' => null]];
         if ($index->triggerLevel === TriggerLevel::Row) {
-            return [$this->names->triggerName($index, $watch) => ['timing' => 'AFTER INSERT OR UPDATE OR DELETE', 'for' => 'FOR EACH ROW']] + $truncate;
+            return [$this->names->triggerName($index, $watch) => ['timing' => 'AFTER INSERT OR UPDATE OR DELETE', 'for' => 'FOR EACH ROW', 'type' => 29, 'old' => null, 'new' => null]] + $truncate;
         }
 
         // Transition tables require one trigger per event.
         return [
-            $this->names->triggerName($index, $watch, '_ins') => ['timing' => 'AFTER INSERT', 'for' => 'REFERENCING NEW TABLE AS fz_new FOR EACH STATEMENT'],
-            $this->names->triggerName($index, $watch, '_upd') => ['timing' => 'AFTER UPDATE', 'for' => 'REFERENCING OLD TABLE AS fz_old NEW TABLE AS fz_new FOR EACH STATEMENT'],
-            $this->names->triggerName($index, $watch, '_del') => ['timing' => 'AFTER DELETE', 'for' => 'REFERENCING OLD TABLE AS fz_old FOR EACH STATEMENT'],
+            $this->names->triggerName($index, $watch, '_ins') => ['timing' => 'AFTER INSERT', 'for' => 'REFERENCING NEW TABLE AS fz_new FOR EACH STATEMENT', 'type' => 4, 'old' => null, 'new' => 'fz_new'],
+            $this->names->triggerName($index, $watch, '_upd') => ['timing' => 'AFTER UPDATE', 'for' => 'REFERENCING OLD TABLE AS fz_old NEW TABLE AS fz_new FOR EACH STATEMENT', 'type' => 16, 'old' => 'fz_old', 'new' => 'fz_new'],
+            $this->names->triggerName($index, $watch, '_del') => ['timing' => 'AFTER DELETE', 'for' => 'REFERENCING OLD TABLE AS fz_old FOR EACH STATEMENT', 'type' => 8, 'old' => 'fz_old', 'new' => null],
         ] + $truncate;
     }
 
@@ -640,46 +632,6 @@ ON CONFLICT (index_name) DO UPDATE SET layout_version = EXCLUDED.layout_version,
     public function obsoleteTriggerNames(IndexDefinition $index, Watch $watch): array
     {
         return array_values(array_diff($this->allTriggerNames($index, $watch), array_keys($this->triggerDefinitions($index, $watch))));
-    }
-
-    /** A watch of an index installed before 0.12.7 may still have the unhashed function, unless that name is a current function of a watch of this index (a watch named like the hash of a sibling). */
-    private function hasLegacySyncFunction(IndexDefinition $index, Watch $watch): bool
-    {
-        $legacy = $this->names->legacySyncFunctionName($index, $watch);
-
-        return !array_any($index->effectiveWatches(), fn(Watch $other): bool => $this->names->syncFunctionName($index, $other) === $legacy);
-    }
-
-    /**
-     * Drops every trigger that uses the unhashed sync function of before 0.12.7: by name on the watched table, then wherever
-     * else (a TRUNCATE trigger on a partition) so DROP FUNCTION finds nothing depending on it. Only this index's function.
-     *
-     * @return list<Statement>
-     */
-    private function legacySyncTriggers(IndexDefinition $index, Watch $watch): array
-    {
-        $base = $this->names->legacySyncFunctionName($index, $watch);
-        $statements = [];
-        foreach (['', '_ins', '_upd', '_del', '_trn'] as $suffix) {
-            $statements[] = new Statement(sprintf('DROP TRIGGER IF EXISTS %s ON %s', Sql::ident($suffix === '' ? $base : Names::limit($base . $suffix)), Sql::ident($watch->table)), 'Remove the trigger of the unhashed sync function name of an earlier release');
-        }
-        $statements[] = new Statement(sprintf(
-            <<<'SQL'
-                DO %1$s
-                DECLARE
-                    r record;
-                BEGIN
-                    FOR r IN SELECT g.tgname, n.nspname, c.relname FROM pg_trigger AS g JOIN pg_class AS c ON c.oid = g.tgrelid JOIN pg_namespace AS n ON n.oid = c.relnamespace WHERE g.tgfoid = to_regprocedure(%2$s) AND g.tgparentid = 0 LOOP
-                        EXECUTE format('DROP TRIGGER %%I ON %%I.%%I', r.tgname, r.nspname, r.relname);
-                    END LOOP;
-                END
-                %1$s
-                SQL,
-            self::TAG,
-            Sql::string($this->names->legacySyncFunction($index, $watch) . '()'),
-        ), 'Remove the triggers of the unhashed sync function of an earlier release from every table (partitions)');
-
-        return $statements;
     }
 
     /**
@@ -715,13 +667,14 @@ ON CONFLICT (index_name) DO UPDATE SET layout_version = EXCLUDED.layout_version,
         if ($create) {
             $loops[] = sprintf(
                 <<<'SQL'
-                    FOR r IN SELECT n.nspname, c.relname FROM pg_partition_tree(to_regclass(%1$s)) AS t JOIN pg_class AS c ON c.oid = t.relid JOIN pg_namespace AS n ON n.oid = c.relnamespace WHERE t.level > 0 LOOP
+                    FOR r IN SELECT n.nspname, c.relname FROM pg_partition_tree(to_regclass(%1$s)) AS t JOIN pg_class AS c ON c.oid = t.relid JOIN pg_namespace AS n ON n.oid = c.relnamespace WHERE t.level > 0 AND NOT EXISTS (SELECT 1 FROM pg_trigger AS g WHERE g.tgrelid = t.relid AND g.tgname = %2$s AND g.tgfoid = to_regprocedure(%4$s) AND g.tgenabled = 'O') LOOP
                             EXECUTE format('CREATE OR REPLACE TRIGGER %%I AFTER TRUNCATE ON %%I.%%I FOR EACH STATEMENT EXECUTE FUNCTION %%s()', %2$s, r.nspname, r.relname, %3$s);
                         END LOOP;
                     SQL,
                 $table,
                 $trigger,
                 Sql::string($function),
+                Sql::string($function . '()'),
             );
         }
 
@@ -763,6 +716,8 @@ ON CONFLICT (index_name) DO UPDATE SET layout_version = EXCLUDED.layout_version,
         $table = $shadow ? $this->names->shadow($index) : $this->names->sidecar($index);
         $columns = ['id', 'tsv', self::CAPPED_COLUMN, 'fz', 'exact'];
         // the joined vector is computed once (the lateral subquery below) and read twice: it is the column, and the flag is made from it
+        // and so is each field's vector and each fuzzy field's normalised text (v.fv<n>, v.nz<n>): PostgreSQL computes an expression
+        // as often as it is written, and stemming is most of what a refresh costs
         $values = ['doc.fz_id', 'v.fz_tsv', self::cappedExpression('v.fz_tsv'), $this->fuzzyExpression($index), $this->exactExpression($index)];
         if ($index->isMultiSource()) {
             array_splice($columns, 1, 0, ['kind', 'src_id']);
@@ -773,10 +728,10 @@ ON CONFLICT (index_name) DO UPDATE SET layout_version = EXCLUDED.layout_version,
         $shared = $this->names->sharedColumns($index);
         foreach ($index->fields as $field) {
             $columns[] = $this->names->fieldVectorName($field->name);
-            $values[] = isset($shared[$this->names->fieldVectorName($field->name)]) ? "''::tsvector" : $this->fieldVectorExpression($index, $field);
+            $values[] = isset($shared[$this->names->fieldVectorName($field->name)]) ? "''::tsvector" : self::fieldVectorRef($index, $field);
             if ($field->fuzzy) {
                 $columns[] = $this->names->fieldFuzzyName($field->name);
-                $values[] = isset($shared[$this->names->fieldFuzzyName($field->name)]) ? "''" : sprintf("coalesce(%s, '')", $this->fieldFuzzyExpression($field));
+                $values[] = isset($shared[$this->names->fieldFuzzyName($field->name)]) ? "''" : sprintf("coalesce(%s, '')", self::fieldFuzzyRef($index, $field));
             }
         }
         $map = $this->names->fieldMap($index);
@@ -830,7 +785,7 @@ ON CONFLICT (index_name) DO UPDATE SET layout_version = EXCLUDED.layout_version,
                     SELECT DISTINCT ON (doc.fz_id)
                         %5$s
                     FROM (%6$s) AS doc
-                    CROSS JOIN LATERAL (SELECT %10$s AS fz_tsv OFFSET 0) AS v
+                    CROSS JOIN LATERAL (SELECT f.*, %10$s AS fz_tsv FROM (SELECT %12$s OFFSET 0) AS f OFFSET 0) AS v
                     WHERE doc.fz_id = ANY(p_ids)
                     ORDER BY doc.fz_id
                     ON CONFLICT (id) DO UPDATE SET
@@ -864,6 +819,7 @@ ON CONFLICT (index_name) DO UPDATE SET layout_version = EXCLUDED.layout_version,
             ),
             $this->tsvectorExpression($index),
             $index->manyFields() === [] ? '' : $this->valuesRefresh($index, $table),
+            $this->fieldExpressions($index),
         );
     }
 
@@ -1426,10 +1382,44 @@ ON CONFLICT (index_name) DO UPDATE SET layout_version = EXCLUDED.layout_version,
 
     private function tsvectorExpression(IndexDefinition $index): string
     {
-        return implode("\n            || ", array_map(
-            fn(FieldDefinition $field): string => $this->fieldVectorExpression($index, $field),
+        return implode(' || ', array_map(
+            static fn(FieldDefinition $field): string => 'f.' . self::fieldVectorAlias($index, $field),
             $index->fields,
         ));
+    }
+
+    /** The refresh's per-row values, computed once: each field's vector (fv<n>) and each fuzzy field's normalised text (nz<n>). */
+    private function fieldExpressions(IndexDefinition $index): string
+    {
+        $expressions = [];
+        foreach ($index->fields as $field) {
+            $expressions[] = sprintf('%s AS %s', $this->fieldVectorExpression($index, $field), self::fieldVectorAlias($index, $field));
+        }
+        foreach ($index->fuzzyFields() as $field) {
+            $expressions[] = sprintf('%s AS %s', $this->fieldFuzzyExpression($field), self::fieldFuzzyAlias($index, $field));
+        }
+
+        return implode(",\n            ", $expressions);
+    }
+
+    private static function fieldVectorAlias(IndexDefinition $index, FieldDefinition $field): string
+    {
+        return 'fv' . (int) array_search($field, $index->fields, true);
+    }
+
+    private static function fieldFuzzyAlias(IndexDefinition $index, FieldDefinition $field): string
+    {
+        return 'nz' . (int) array_search($field, $index->fields, true);
+    }
+
+    private static function fieldVectorRef(IndexDefinition $index, FieldDefinition $field): string
+    {
+        return 'v.' . self::fieldVectorAlias($index, $field);
+    }
+
+    private static function fieldFuzzyRef(IndexDefinition $index, FieldDefinition $field): string
+    {
+        return 'v.' . self::fieldFuzzyAlias($index, $field);
     }
 
     /** One field's part of tsv, and its own t_<field> column. */
@@ -1468,7 +1458,7 @@ ON CONFLICT (index_name) DO UPDATE SET layout_version = EXCLUDED.layout_version,
             return "''";
         }
 
-        return sprintf("coalesce(concat_ws(' ', %s), '')", implode(', ', array_map($this->fieldFuzzyExpression(...), $fields)));
+        return sprintf("coalesce(concat_ws(' ', %s), '')", implode(', ', array_map(static fn(FieldDefinition $field): string => self::fieldFuzzyRef($index, $field), $fields)));
     }
 
     /** One fuzzy field's normalised text: its part of fz, and (coalesced) its own z_<field> column. */
@@ -1479,6 +1469,8 @@ ON CONFLICT (index_name) DO UPDATE SET layout_version = EXCLUDED.layout_version,
 
     private function exactExpression(IndexDefinition $index): string
     {
-        return sprintf("coalesce(%s(doc.%s::text), '')", $this->names->normFunction(), Sql::ident('fld_' . $index->primaryField()->name));
+        $primary = $index->primaryField();
+
+        return sprintf("coalesce(%s, '')", $primary->fuzzy ? self::fieldFuzzyRef($index, $primary) : $this->fieldFuzzyExpression($primary));
     }
 }

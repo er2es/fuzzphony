@@ -76,7 +76,6 @@ final readonly class PostgresInspector
         $sidecarExists = $this->regclass($this->names->sidecar($index));
         if (!$sidecarExists) {
             $checks[] = Check::error('Sidecar table', sprintf('Table %s does not exist.', $this->names->sidecar($index)), self::APPLY);
-            array_push($checks, ...$this->location($index));
         } else {
             array_push($checks, ...$this->sidecarColumns($index));
             array_push($checks, ...$this->sidecarIndexes($index));
@@ -156,6 +155,16 @@ final readonly class PostgresInspector
         if (!$this->regclass($table)) {
             return Check::error('Vocabulary', sprintf('Table %s does not exist, so "did you mean" cannot suggest anything.', $table), self::APPLY);
         }
+        // its two indexes: without them (or with an INVALID one an interrupted concurrent build left) every typo lookup reads the whole table
+        $valid = [];
+        foreach ($this->connection->fetchAll('SELECT c.relname, i.indisvalid FROM pg_index AS i JOIN pg_class AS c ON c.oid = i.indexrelid WHERE i.indrelid = to_regclass(:t)', ['t' => $table]) as $row) {
+            $valid[Coerce::str($row['relname'])] = (bool) $row['indisvalid'];
+        }
+        foreach ([$this->names->vocabularyIndexName($index), $this->names->vocabularyPrefixIndexName($index)] as $name) {
+            if (($valid[$name] ?? false) === false) {
+                return Check::error('Vocabulary', sprintf('Index %s is %s, so typo lookups and suggestions read the whole vocabulary.', $name, array_key_exists($name, $valid) ? 'INVALID (an interrupted concurrent build)' : 'missing'), self::APPLY);
+            }
+        }
         $words = Coerce::int($this->connection->fetchValue(sprintf('SELECT count(*) FROM %s', $table)));
 
         return $words === 0
@@ -193,7 +202,7 @@ final readonly class PostgresInspector
         $checks = [$this->sharedObjects($rows['*'] ?? null)];
         $row = $rows[$index->name] ?? null;
         if ($row === null) {
-            $checks[] = Check::warning('Schema version', 'No version record: built before 0.4, or never applied.', self::APPLY);
+            $checks[] = Check::warning('Schema version', 'No version record: never applied.', self::APPLY);
 
             return $checks;
         }
@@ -203,7 +212,7 @@ final readonly class PostgresInspector
             : Check::error('Definition', 'The definition changed since the last apply.', self::APPLY);
         $checks[] = Coerce::str($row['documents_hash']) === Fingerprint::documents($index)
             ? Check::ok('Documents', 'built from the current definition')
-            : Check::warning('Documents', 'The documents were built from another definition, or not fully reindexed since 0.4.', sprintf('bin/console fuzzphony:reindex %s', $index->name));
+            : Check::warning('Documents', 'The documents were built from another definition.', sprintf('bin/console fuzzphony:reindex %s', $index->name));
 
         return $checks;
     }
@@ -217,7 +226,7 @@ final readonly class PostgresInspector
     private function sharedObjects(?array $row): Check
     {
         if ($row === null) {
-            return Check::warning('Shared objects', 'No version record for the shared objects: built before 0.4, or never applied.', self::APPLY);
+            return Check::warning('Shared objects', 'No version record for the shared objects: never applied.', self::APPLY);
         }
         $layout = $this->layout('Shared objects', $row);
         if ($layout->status !== CheckStatus::Ok) {
@@ -319,27 +328,6 @@ final readonly class PostgresInspector
         );
     }
 
-    /**
-     * A dedicated schema that lacks this index while "public" still has it: an install from
-     * before the "schema" setting, which is not moved automatically. (Only called when the
-     * sidecar is missing, so with schema "public" the lookup below finds nothing either.)
-     *
-     * @return list<Check>
-     */
-    private function location(IndexDefinition $index): array
-    {
-        $legacy = Sql::ident('public.' . $this->names->sidecarName($index));
-        if (!$this->regclass($legacy)) {
-            return [];
-        }
-
-        return [Check::warning(
-            'Schema',
-            sprintf('%s has no sidecar table for this index, but %s exists: an install from before the dedicated schema.', $this->names->quotedSchema(), $legacy),
-            'See UPGRADE.md, "Moving to a dedicated schema": fuzzphony:schema --apply, fuzzphony:reindex, then drop the old objects.',
-        )];
-    }
-
     private function function(string $signature, string $label): Check
     {
         $exists = (bool) $this->connection->fetchValue('SELECT to_regprocedure(:sig) IS NOT NULL', ['sig' => $signature]);
@@ -358,11 +346,18 @@ final readonly class PostgresInspector
     {
         $view = 'fuzzphony_probe_' . bin2hex(random_bytes(4));
         try {
-            $this->connection->execute(sprintf('CREATE TEMPORARY VIEW %s AS %s', Sql::ident($view), DocumentSql::raw($index)));
-            $rows = $this->connection->fetchAll(
-                'SELECT attname, format_type(atttypid, atttypmod) AS type FROM pg_attribute WHERE attrelid = to_regclass(:view) AND attnum > 0 AND NOT attisdropped',
-                ['view' => 'pg_temp.' . $view],
-            );
+            // one transaction: behind a transaction pooler each statement outside one may run on another server connection,
+            // which does not see the temporary view
+            $rows = $this->connection->transactional(static function (Connection $c) use ($view, $index): array {
+                $c->execute(sprintf('CREATE TEMPORARY VIEW %s AS %s', Sql::ident($view), DocumentSql::raw($index)));
+                $rows = $c->fetchAll(
+                    'SELECT attname, format_type(atttypid, atttypmod) AS type FROM pg_attribute WHERE attrelid = to_regclass(:view) AND attnum > 0 AND NOT attisdropped',
+                    ['view' => 'pg_temp.' . $view],
+                );
+                $c->execute(sprintf('DROP VIEW %s', Sql::ident($view)));
+
+                return $rows;
+            });
         } catch (\Throwable $e) {
             $firstLine = strtok($e->getMessage(), "\n");
             $checks[] = Check::error(
@@ -537,8 +532,7 @@ final readonly class PostgresInspector
     }
 
     /**
-     * Documents written with another column map than the definition's (a definition change applied without the backfill, see
-     * ColumnMap): the per-field columns their map left empty are read as they are, so searches on those fields miss them.
+     * Documents whose column map the downgrade guard no longer trusts (ColumnMap::guard()).
      *
      * @return list<Check>
      */
@@ -553,62 +547,8 @@ final readonly class PostgresInspector
                 'bin/console fuzzphony:reindex ' . $index->name,
             );
         }
-        array_push($checks, ...$this->widerThanNeeded($index));
-        $pending = ColumnMap::pending($this->connection, $this->names, $index);
-        if ($pending === []) {
-            return $checks;
-        }
 
-        return [...$checks, Check::warning(
-            'Sidecar columns',
-            sprintf(
-                '%d document(s) were written with another column map (%s): the per-field columns that map left empty are read as they are, so a search on those fields (a field-scoped word, a viewer restricted to fields) misses them. schema --apply copies them back from the columns that hold the values, in batches of %d rows, each committed (about the time and WAL of updating those rows); it asks first.',
-                array_sum($pending),
-                implode(', ', array_map(static fn(string $map, int $n): string => sprintf('"%s": %d', $map, $n), array_keys($pending), $pending)),
-                ColumnMap::BATCH,
-            ),
-            'bin/console fuzzphony:schema --apply --force',
-        )];
-    }
-
-    /**
-     * A sidecar larger than the current column map needs, which a backfill leaves behind (pgstattuple is not assumed, so two cheap
-     * estimates): rows without a map while the definition has one (`field_map IS NULL`: backfilled, or written before 0.12.4) store
-     * the per-field columns the map keeps empty, and the dead row versions the statistics count (pg_stat_user_tables). The note needs
-     * at least 10% of the rows without a map: each such row holds its shared text twice (in a one-field
-     * index `z_name` and `t_name` again, about half the row), so below 10% the reindex would save a few percent of the table, not
-     * worth a note. The dead versions are only added to it, above
-     * PostgreSQL's own autovacuum trigger (50 + 20% of the rows, the defaults: autovacuum is due and has not run); alone they are
-     * ordinary churn, autovacuum's business. One count over the table (like ColumnMap::pending()) with one statistics read.
-     *
-     * @return list<Check>
-     */
-    private function widerThanNeeded(IndexDefinition $index): array
-    {
-        if ($this->names->fieldMap($index) === null) {
-            return [];
-        }
-        $table = $this->names->sidecar($index);
-        $row = $this->connection->fetchAll(sprintf(
-            'SELECT count(*) FILTER (WHERE %2$s IS NULL) AS wide, count(*) AS total, (SELECT coalesce(max(n_dead_tup), 0) FROM pg_stat_user_tables WHERE relid = to_regclass(%3$s)) AS dead FROM %1$s',
-            $table,
-            PostgresSchemaGenerator::FIELD_MAP_COLUMN,
-            Sql::string($table),
-        ))[0] ?? [];
-        [$wide, $total, $dead] = [Coerce::int($row['wide'] ?? 0), Coerce::int($row['total'] ?? 0), Coerce::int($row['dead'] ?? 0)];
-        if ($total === 0 || $wide * 10 < $total) {
-            return [];
-        }
-        $parts = [sprintf('%d of %d document(s) store the per-field columns the current column map keeps empty (backfilled by schema --apply, or written before 0.12.4)', $wide, $total)];
-        if ($dead > 50 + intdiv($total, 5)) {
-            $parts[] = sprintf('%d dead row version(s) wait for VACUUM (after a backfill: the old versions of the updated rows; VACUUM (ANALYZE) %s makes their space reusable)', $dead, $table);
-        }
-
-        return [Check::warning(
-            'Sidecar size',
-            sprintf('The sidecar of "%s" is larger than it needs to be: %s. The reindex rewrites it compactly, online.', $index->name, implode('; ', $parts)),
-            'bin/console fuzzphony:reindex ' . $index->name,
-        )];
+        return $checks;
     }
 
     /** @return list<Check> */
@@ -634,13 +574,7 @@ final readonly class PostgresInspector
         }
         // an open-class index built for other granted fields (the expected one has another name): never used, and costs every write
         $expected = array_keys($this->schema->indexes($index));
-        $legacy = $this->schema->legacyIndexNames($index);
         foreach (array_keys($valid) as $name) {
-            if (in_array($name, $legacy, true)) {
-                $checks[] = Check::error('Index ' . $name, 'OLD NAME (an earlier release named it so; no search uses it)', sprintf('DROP INDEX CONCURRENTLY %s; or run "bin/console fuzzphony:schema --apply"', $this->names->index($name)));
-
-                continue;
-            }
             if (!in_array($name, $expected, true) && OpenClass::isOpenClassName($name)) {
                 $checks[] = Check::error('Index ' . $name, 'STALE (built for other granted fields; no search uses it)', sprintf('DROP INDEX CONCURRENTLY %s; or run "bin/console fuzzphony:schema --apply"', $this->names->index($name)));
             }

@@ -29,6 +29,41 @@ final class AttributeDefinitionLoaderTest extends TestCase
         self::assertSame([['tv', 'television'], 'laptop => notebook'], $definition->synonyms->toEntries());
     }
 
+    public function testSearchableIsRepeatableWithADistinctNameEach(): void
+    {
+        $class = new #[\Fuzzphony\Core\Attribute\Searchable(name: 'things', table: 'thing')] #[\Fuzzphony\Core\Attribute\Searchable(name: 'things_admin', table: 'thing')] class {
+            #[\Fuzzphony\Core\Attribute\SearchField]
+            public string $title = '';
+        };
+        $loader = new AttributeDefinitionLoader();
+
+        $definitions = $loader->loadAll($class::class);
+
+        self::assertSame(['things', 'things_admin'], array_map(static fn($d): string => $d->name, $definitions));
+        self::assertSame('things', $loader->load($class::class)->name);
+        self::assertNotNull($definitions[1]->field('title'));
+    }
+
+    public function testARepeatedSearchableWithoutANameOrWithADuplicateIsRefused(): void
+    {
+        $unnamed = new RepeatedUnnamedThing();
+        $same = new RepeatedSameNameThing();
+        $loader = new AttributeDefinitionLoader();
+
+        try {
+            $loader->loadAll($unnamed::class);
+            self::fail('unnamed repeat');
+        } catch (InvalidDefinition $e) {
+            self::assertStringContainsString('needs its own `name`', $e->violations[0]);
+        }
+        try {
+            $loader->loadAll($same::class);
+            self::fail('duplicate name');
+        } catch (InvalidDefinition $e) {
+            self::assertStringContainsString('named "x" (attributes 1 and 2)', $e->violations[0]);
+        }
+    }
+
     public function testConventionsFillInEverything(): void
     {
         $definition = (new AttributeDefinitionLoader())->load(Product::class);
@@ -88,3 +123,11 @@ final class AttributeDefinitionLoaderTest extends TestCase
         (new AttributeDefinitionLoader())->load(UninferableFilterProduct::class);
     }
 }
+
+#[\Fuzzphony\Core\Attribute\Searchable(table: 'thing')]
+#[\Fuzzphony\Core\Attribute\Searchable(table: 'thing')]
+final class RepeatedUnnamedThing {}
+
+#[\Fuzzphony\Core\Attribute\Searchable(name: 'x', table: 'thing')]
+#[\Fuzzphony\Core\Attribute\Searchable(name: 'x', table: 'thing')]
+final class RepeatedSameNameThing {}

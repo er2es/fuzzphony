@@ -83,12 +83,14 @@ final class RoleGrantsTest extends TestCase
     }
 
     /** @return list<string> the GRANT statements --dump-grants prints for the role, comments left out */
-    private function dump(string $kind): array
+    private function dump(string $kind, bool $complete = true): array
     {
         $tester = new CommandTester(new SchemaCommand($this->fuzzphony, $this->connection, new Grants($this->names, true)));
         self::assertSame(0, $tester->execute(['--dump-grants' => true, '--role' => $kind, '--to' => $this->roles[$kind]]));
         $display = $tester->getDisplay(true);
-        self::assertStringNotContainsString('not there yet', $display);
+        if ($complete) {
+            self::assertStringNotContainsString('not there yet', $display);
+        }
 
         return array_values(array_filter(array_map('trim', explode("\n", $display)), static fn(string $line): bool => $line !== '' && !str_starts_with($line, '--')));
     }
@@ -118,6 +120,40 @@ final class RoleGrantsTest extends TestCase
             }
             self::assertMatchesRegularExpression('/permission denied|must be owner/', $message, $sql);
         }
+    }
+
+    /** The functions are PUBLIC's to execute (not SECURITY DEFINER: the caller's own table privileges apply): a role with table grants only works. */
+    private function grantTablesOnly(string $kind): void
+    {
+        foreach ($this->dump($kind, false) as $statement) {
+            if (!str_starts_with($statement, 'GRANT EXECUTE')) {
+                $this->connection->execute($statement);
+            }
+        }
+    }
+
+    public function testASearchRoleWithTableGrantsOnlySearches(): void
+    {
+        $this->applyAsSuperuser();
+        $this->grantTablesOnly('search');
+
+        $this->become('search');
+        self::assertNotSame([], $this->fuzzphony->in('products')->query('headphnoes')->get()->ids());
+    }
+
+    public function testARoleThatWritesAWatchedTableInTriggerModeNeedsTableGrantsOnly(): void
+    {
+        $this->index = Indexes::products('trigger');
+        $this->fuzzphony = new Fuzzphony($this->engine, new IndexRegistry([$this->index]));
+        $this->applyAsSuperuser();
+        $this->grantTablesOnly('worker');
+        $this->connection->execute('GRANT SELECT, INSERT, UPDATE ON fz_product TO ' . $this->roles['worker']);
+
+        $this->become('worker');
+        $this->connection->execute("UPDATE fz_product SET name = 'Wireless mouse v9' WHERE id = 1");
+        $this->connection->execute('RESET ROLE');
+
+        self::assertSame('wireless mouse v9', $this->connection->fetchValue('SELECT exact FROM ' . $this->names->sidecar($this->index) . ' WHERE id = 1'));
     }
 
     public function testTheSearchRoleSearchesLogsAndWritesTheWatchedTablesAndNothingElse(): void

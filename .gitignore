@@ -18,3 +18,4 @@ demo/assets/vendor/
 /demo/tools/node_modules/
 /demo/tools/package*.json
 /build/shots/
+/phpstan/

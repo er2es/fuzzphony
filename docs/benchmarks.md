@@ -233,7 +233,7 @@ index tables after a full reindex (heap + TOAST + indexes), with and without the
 | `orders` (`number` A code, `customer_name` fuzzy) | `z_customer_name` | 59 MB (35 MB heap) | 60 MB (35 MB heap) |
 | `mails` (`name` fuzzy, two granted fields) | `z_name` | 105 MB (60 MB heap) | 105 MB (59 MB heap) |
 
-A one-field index saves about 10%; where only a short `z_` copy goes, the map text eats what it saves. The backfill after a definition change took 3.2 s for the 200 000 `cust` rows; the apply then runs `VACUUM (ANALYZE)` on the table, which makes the space reusable, and only `fuzzphony:reindex` gives it back.
+A one-field index saves about 10%; where only a short `z_` copy goes, the map text eats what it saves.
 
 ## Several values per document (`many`)
 

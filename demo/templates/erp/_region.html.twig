@@ -67,6 +67,11 @@
         {% if site %}
             <section aria-labelledby="site-h">
                 <h2 id="site-h" class="list-title">One multi-source index <code>site</code> · {{ site.total }}{{ site.totalIsLowerBound ? '+' }} hits · {{ site.tookMs|number_format(1) }} ms</h2>
+                <div class="chips kind-chips" role="group" aria-label="Limit to a kind">
+                    <a class="chip{{ kind == '' ? ' is-current' }}" href="{{ path('erp', {tab: 'combined', mode: mode, q: q}) }}"{% if kind == '' %} aria-current="true"{% endif %}>All</a>
+                    {% for key, k in siteKinds %}<a class="chip{{ kind == key ? ' is-current' }}" href="{{ path('erp', {tab: 'combined', mode: mode, q: q, kind: key}) }}"{% if kind == key %} aria-current="true"{% endif %}>{{ k[1] }}</a>{% endfor %}
+                </div>
+                <p class="erp-why">What this shows: <code>kinds('order')</code> limits the one index to a single source: the hits and the total count only orders (people and companies are the other kinds).</p>
                 {% if site.hits %}
                     <ul class="list" aria-label="Multi-source index results">{% for hit in site.hits %}{{ r.row(hit, q, false, "") }}{% endfor %}</ul>
                 {% else %}

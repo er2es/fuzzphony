@@ -1144,6 +1144,11 @@ await secContext.close();
     await go(erp, BASE + '/erp?tab=combined&q=ORD-2025');
     check('erp combined: order numbers are found as orders', (await erp.locator('#results .flag.is-ok', { hasText: 'order' }).count()) > 0);
 
+    await go(erp, BASE + '/erp?tab=combined&mode=site&q=kovacs&kind=orders');
+    check('erp combined: the kind chip limits the site panel to orders and is marked current', (await erp.locator('.kind-chips a[aria-current=true]').innerText()) === 'orders' && (await erp.locator('#results .hit-row .flag.is-ok').allTextContents()).every((k) => k.trim() === 'order'));
+    await go(erp, BASE + '/erp?tab=combined&q=ORD-2025-00003');
+    check('erp combined: a cut-off order number finds ORD-2025-000030 in the federated panel', (await erp.locator('#results').innerText()).includes('ORD-2025-000030'));
+
     // the sync demonstration: move an address, see which indexes refreshed, undo
     await go(erp, BASE + '/erp?tab=sync');
     check('erp sync: the page explains the triggers (one set for the indexes)', /one trigger set for 2 indexes/.test(await erp.locator('#triggers-title + p').innerText()));

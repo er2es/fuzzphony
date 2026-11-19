@@ -7,7 +7,6 @@ namespace Fuzzphony\Tests\Integration;
 use Fuzzphony\Core\Database\Connection;
 use Fuzzphony\Core\Fuzzphony;
 use Fuzzphony\Core\Inspection\Check;
-use Fuzzphony\Core\Inspection\CheckStatus;
 use Fuzzphony\Core\Registry\IndexRegistry;
 use Fuzzphony\Core\Support\Coerce;
 use Fuzzphony\Core\Sync\Worker;
@@ -122,29 +121,6 @@ final class DedicatedSchemaTest extends TestCase
         $report = $this->fuzzphony('queue')->inspect('products');
 
         self::assertSame([], array_map(static fn(Check $c): string => $c->name . ': ' . $c->message, $report->problems()));
-    }
-
-    public function testTheDoctorWarnsAboutAnInstallLeftInPublic(): void
-    {
-        // what 0.3 built: everything in public
-        (new Fuzzphony(new PostgresEngine($this->connection), new IndexRegistry([Indexes::products('manual')])))->schema()->apply($this->connection);
-        $fuzzphony = new Fuzzphony(new PostgresEngine($this->connection, schema: self::SCHEMA), new IndexRegistry([Indexes::products('manual')]));
-
-        $checks = array_column($fuzzphony->inspect('products')->problems(), null, 'name');
-
-        self::assertSame(CheckStatus::Warning, $checks['Schema']->status);
-        self::assertSame('"fuzzphony_s" has no sidecar table for this index, but "public"."fuzzphony_products" exists: an install from before the dedicated schema.', $checks['Schema']->message);
-        self::assertSame('See UPGRADE.md, "Moving to a dedicated schema": fuzzphony:schema --apply, fuzzphony:reindex, then drop the old objects.', $checks['Schema']->fix);
-    }
-
-    public function testNoLocationWarningWithoutAnOldInstall(): void
-    {
-        $fuzzphony = new Fuzzphony(new PostgresEngine($this->connection, schema: self::SCHEMA), new IndexRegistry([Indexes::products('manual')]));
-
-        $names = array_map(static fn(Check $c): string => $c->name, $fuzzphony->inspect('products')->checks);
-
-        self::assertContains('Sidecar table', $names, 'never applied');
-        self::assertNotContains('Schema', $names, 'and nothing left in public either');
     }
 
     public function testTheWizardDoesNotOfferTablesFromFuzzphonysSchema(): void

@@ -15,9 +15,15 @@ final class Sql
         return Identifier::quote($identifier);
     }
 
+    /**
+     * A plain literal reads a backslash as itself only with standard_conforming_strings = on (the default since 9.1); a value that
+     * has one is written as an escape string (E'...', backslashes doubled), which reads the same under either setting.
+     */
     public static function string(string $value): string
     {
-        return "'" . str_replace("'", "''", $value) . "'";
+        $quoted = str_replace("'", "''", $value);
+
+        return str_contains($value, '\\') ? "E'" . str_replace('\\', '\\\\', $quoted) . "'" : "'" . $quoted . "'";
     }
 
     public static function float(float $value): string

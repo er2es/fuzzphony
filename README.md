@@ -14,6 +14,7 @@
 [![PostgreSQL 15 | 16 | 17 | 18](https://img.shields.io/badge/PostgreSQL-15%20%7C%2016%20%7C%2017%20%7C%2018-336791?logo=postgresql&logoColor=white)](https://github.com/er2es/fuzzphony/blob/main/.github/workflows/ci.yml)
 [![Symfony 7.4 LTS | 8.1](https://img.shields.io/badge/Symfony-7.4%20LTS%20%7C%208.1-000000?logo=symfony)](https://github.com/er2es/fuzzphony/blob/main/.github/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://github.com/er2es/fuzzphony/blob/main/LICENSE)
+![Anthropic CVP](https://img.shields.io/badge/Anthropic_CVP-Defense_Access_Verified-D97757?style=flat-square&logo=anthropic&logoColor=white)
 
 **Fuzzy search, in perfect harmony with your database.**
 
@@ -28,8 +29,9 @@ service to add, feed or keep in step.
 - **Secure.** Authorization is built in: a tenant-scoped index refuses a search without a tenant, a field can be granted to a
   role, and a field a viewer may not see is not matched, ranked, highlighted, counted or suggested from. Tests prove a hidden
   field's content cannot change a restricted viewer's results. A search that names no actor is made as the current user.
-- **Fast and small.** Common searches answer in milliseconds on half a million rows, and the whole index costs a part of the
-  table it indexes ([what each option costs in disk](docs/benchmarks.md#what-each-option-costs-in-disk)).
+- **Fast, and cheap to store.** A warm search takes from a few milliseconds (a rare word) to about 10 to 90 ms (typos, accents, stemming) on 200 000
+  products, and the sidecar table of 500 000 products is 342 MB with every option on, about 700 bytes a row
+  ([measured](docs/benchmarks.md), [what each option costs in disk](docs/benchmarks.md#what-each-option-costs-in-disk)).
 
 ```php
 $result = $fuzzphony->in(Product::class)
@@ -44,9 +46,8 @@ foreach ($result as $hit) {
 }
 ```
 
-Status: pre-1.0 (v0.12.8). The API may still change before 1.0; breaking changes are listed in the
-[CHANGELOG](https://github.com/er2es/fuzzphony/blob/main/CHANGELOG.md) and explained in
-[UPGRADE.md](https://github.com/er2es/fuzzphony/blob/main/UPGRADE.md).
+Status: pre-1.0 (v0.12.9). The API may still change before 1.0; breaking changes are listed in the
+[CHANGELOG](https://github.com/er2es/fuzzphony/blob/main/CHANGELOG.md).
 
 ## Try the demo
 
@@ -74,7 +75,7 @@ A good fit when:
   table lands in your schema.
 - You are replacing `LIKE` in admin panels, back offices, CRMs and support tools, or one more service is one too many.
 - The data must stay under the same backups and roles, and search must be as fresh as the data (`trigger` mode: same transaction).
-- You run a shared-schema multi-tenant SaaS (the tenant filter is enforced on every query), or need a rate limit, index authorization and fields only some
+- You run a shared-schema multi-tenant SaaS (the tenant filter is enforced on every search made through the library), or need a rate limit, index authorization and fields only some
   viewers may search, and want to know what people search for and do not find.
 - A record has several values (addresses, phone numbers) that should be found by any value, or ranked by the best single one.
 - Your content is multilingual: stemming for 28 languages, accent folding (`kavefozo` finds `Kávéfőző`).
@@ -118,7 +119,7 @@ For Symfony, add `Fuzzphony\Bundle\FuzzphonyBundle::class => ['all' => true]` to
 default `default`).
 
 Upgrading: `composer update`, then `bin/console fuzzphony:schema --apply`, `fuzzphony:reindex <index>` when the doctor asks, and `fuzzphony:doctor`
-(details per release in [UPGRADE.md](https://github.com/er2es/fuzzphony/blob/main/UPGRADE.md)).
+([UPGRADE.md](https://github.com/er2es/fuzzphony/blob/main/UPGRADE.md)).
 
 ## Quickstart (Symfony)
 

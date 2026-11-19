@@ -351,7 +351,7 @@ $result->didYouMean;   // "headphones -cable": the query with the word replaced,
 - The vocabulary is the words of the index's typo-tolerant fields and in how many documents each occurs. A full `fuzzphony:reindex` rebuilds it
   (`--vocabulary` rebuilds only it); single-document changes do not touch it, so it ages (the doctor reports only that it is missing or empty). The
   effect is mild: a new word is not "corrected" and cannot be suggested for a neighbouring misspelling. **Rebuild it on a schedule** (one pass over the
-  index, about 10 s for 500 000 documents, readers never blocked):
+  index, readers never blocked):
 
   ```
   # crontab: every night at 03:15
@@ -397,7 +397,7 @@ Show it as a bar ("Showing results for mouse", with a link that searches the typ
 
 ## Search-as-you-type
 
-Three things make a search box feel instant, and each is its own call. The library gives you the data and the matching; the dropdown is **your template**:
+Three things make a search box answer while the visitor types, and each is its own call. The library gives you the data and the matching; the dropdown is **your template**:
 
 | What the visitor sees | The call (backend) | What you build (frontend) |
 |---|---|---|
@@ -491,6 +491,13 @@ foreach ($result->facets['category_id'] as $facet) {   // FacetValue: ->value, -
   that leaves a condition out is one more statement. A search without text (filter browsing) is counted too. With empty-result relaxation the facets
   follow the relaxed search.
 - `fuzzphony:search products mouse -f category_id -f in_stock [--exact]` prints them.
+
+## Limiting a multi-source search to some kinds
+
+`->kinds('person', 'order')` limits a search of a [multi-source index](configuration.md#several-sources-in-one-index) to those kinds (source names): hits, the
+total and the facets count only them, and it combines with filters, the tenant and a restricted viewer's fields (it is a plain condition on the kind, so it
+shows nothing a viewer may not see). A single-source index, no kind or an unknown kind is an `InvalidQuery` (the last one lists the known kinds); a second
+call replaces the list. In `federated()->index(..., configure: fn ($b) => $b->kinds('person'))` it limits that index. `fuzzphony:search -k person` does the same.
 
 ## Federated search
 

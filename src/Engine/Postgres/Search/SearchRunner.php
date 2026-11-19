@@ -230,6 +230,9 @@ final readonly class SearchRunner
         $conditions = $index->tenant !== null
             ? [new Condition($index->tenant, Operator::Eq, $query->tenant), ...$query->conditions]
             : $query->conditions;
+        if ($query->kinds !== null) {
+            $conditions = [...$conditions, new Condition(FilterCompiler::KINDS, Operator::In, $query->kinds)];
+        }
 
         $thresholds = $index->thresholds->with($query->thresholdOverrides);
         if (!$rescue) {

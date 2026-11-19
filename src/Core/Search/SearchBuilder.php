@@ -135,6 +135,28 @@ final readonly class SearchBuilder
         return $this->next($this->query->withManyMatch($parsed, array_values(array_unique($fields))));
     }
 
+    /**
+     * Limits a search of a multi-source index to these kinds (source names): hits, totals and facets count only them. It is a plain
+     * condition on the kind, so it changes nothing about what a viewer may see; calling it again replaces the list. An index with a
+     * single source, no kind, or a kind the index does not have is an InvalidQuery (the last one lists the kinds).
+     */
+    public function kinds(string ...$kinds): self
+    {
+        if (!$this->index->isMultiSource()) {
+            throw new InvalidQuery(sprintf('Index "%s" has a single source: kinds() limits a search of a multi-source index.', $this->index->name));
+        }
+        $known = array_map(static fn(\Fuzzphony\Core\Definition\IndexSource $s): string => $s->name, $this->index->sources);
+        if ($kinds === []) {
+            throw new InvalidQuery(sprintf('kinds() needs at least one kind. Known kinds: %s.', implode(', ', $known)));
+        }
+        $unknown = array_values(array_diff($kinds, $known));
+        if ($unknown !== []) {
+            throw new InvalidQuery(sprintf('Index "%s" has no kind "%s". Known kinds: %s.', $this->index->name, $unknown[0], implode(', ', $known)));
+        }
+
+        return $this->next($this->query->withKinds(array_values(array_unique($kinds))));
+    }
+
     public function profile(string $profile): self
     {
         $this->index->profile($profile); // fail fast on typos
