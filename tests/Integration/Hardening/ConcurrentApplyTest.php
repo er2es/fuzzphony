@@ -130,6 +130,29 @@ final class ConcurrentApplyTest extends TestCase
         self::assertSame([], Harness::problems($f, 'products'));
     }
 
+    /**
+     * The wait for another build is a poll: between two of its builds an apply runs none, so a second apply can start its build
+     * then and one of the two concurrent builds loses a deadlock. The loser waits, drops what it left and tries again.
+     * FZ_STRESS_ROUNDS sets the rounds (10).
+     */
+    public function testThreeAppliesAtOnceNeverFailOnADeadlock(): void
+    {
+        $rounds = getenv('FZ_STRESS_ROUNDS') === false ? 10 : (int) getenv('FZ_STRESS_ROUNDS');
+        for ($round = 0; $round < $rounds; ++$round) {
+            [$sync, $schema] = $round % 2 === 0 ? ['queue', 'public'] : ['trigger', 'fz_h_own'];
+            $this->c = Harness::fresh();
+            Harness::fixtures($this->c);
+            Harness::cleanup();
+            @unlink($this->go);
+            $children = [$this->spawn('apply', $sync, $schema), $this->spawn('apply', $sync, $schema), $this->spawn('apply', $sync, $schema)];
+            $this->go();
+            foreach ($this->wait($children) as $r) {
+                self::assertSame('', $r['error'], 'round ' . $round);
+            }
+            self::assertSame([], Harness::invalidIndexes($this->c), 'round ' . $round);
+        }
+    }
+
     #[DataProvider('modes')]
     public function testApplyWhileWritersWriteAndAWorkerDrains(string $sync, string $schema): void
     {

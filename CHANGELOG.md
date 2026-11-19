@@ -32,7 +32,9 @@ and a link. Measurements, proofs and test names belong to the pull request, [doc
 - `fuzzphony_watch_install()` pins its search path.
 - **An INVALID index left by an interrupted concurrent build is rebuilt by the next `schema --apply`** (`IF NOT EXISTS` kept it forever), and the
   doctor reports a missing or INVALID vocabulary index (it reported OK while every typo lookup read the whole vocabulary).
-- **Two `schema --apply` runs at once take turns** instead of failing on a duplicate catalog entry or a deadlock between their concurrent index builds.
+- **Two `schema --apply` runs at once take turns** instead of failing on a duplicate catalog entry or a deadlock between their concurrent index builds
+  (a build that still loses a deadlock waits, drops what it left and tries again), and one that waited for a build that was then cancelled
+  rebuilds the index instead of leaving it INVALID.
 - **Behind a transaction-pooling PgBouncer** the doctor, its watch coverage check and the apply of a multi-source or `returnable` index no longer
   report false errors or fail: their temporary probe view is created, read and dropped in one transaction.
 - A generated SQL literal with a backslash is written as `E'...'`, so it reads the same with `standard_conforming_strings = off`.

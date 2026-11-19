@@ -192,23 +192,28 @@ final readonly class PostgresSchemaGenerator
      */
     private function concurrentIndex(string $name, string $table, string $definition, string $description): array
     {
-        return [
-            new Statement(
-                'DROP INDEX CONCURRENTLY IF EXISTS {name}',
-                $description . ': drop it first when an interrupted concurrent build left it INVALID',
-                transactional: false,
-                forEach: sprintf(
-                    'SELECT i.indexrelid::regclass::text AS name FROM pg_index AS i WHERE i.indexrelid = to_regclass(%s) AND NOT i.indisvalid AND NOT EXISTS (SELECT 1 FROM pg_stat_progress_create_index AS p WHERE p.index_relid = i.indexrelid)',
-                    Sql::string($this->names->index($name)),
-                ),
+        $index = Sql::string($this->names->index($name));
+        $dropInvalid = new Statement(
+            'DROP INDEX CONCURRENTLY IF EXISTS {name}',
+            $description . ': drop it first when an interrupted concurrent build left it INVALID',
+            transactional: false,
+            forEach: sprintf(
+                'SELECT i.indexrelid::regclass::text AS name FROM pg_index AS i WHERE i.indexrelid = to_regclass(%s) AND NOT i.indisvalid AND NOT EXISTS (SELECT 1 FROM pg_stat_progress_create_index AS p WHERE p.index_relid = i.indexrelid)',
+                $index,
             ),
+        );
+
+        return [
+            $dropInvalid,
             new Statement(
                 sprintf('CREATE INDEX CONCURRENTLY IF NOT EXISTS %s ON %s %s', Sql::ident($name), $table, $definition),
                 $description,
                 transactional: false,
-                // there (valid, or being built by an apply running at the same time): not queued behind that build
-                skipIf: sprintf('SELECT to_regclass(%s) IS NOT NULL', Sql::string($this->names->index($name))),
+                // valid already: not queued behind another build (an INVALID one is dropped by the repair after the wait and built again)
+                skipIf: sprintf('SELECT EXISTS (SELECT 1 FROM pg_index WHERE indexrelid = to_regclass(%s) AND indisvalid)', $index),
                 waitWhile: sprintf('SELECT EXISTS (SELECT 1 FROM pg_stat_progress_create_index WHERE relid = to_regclass(%s) AND pid <> pg_backend_pid())', Sql::string($table)),
+                // a build of another apply this one waited for may have been cancelled and left the index INVALID
+                repair: $dropInvalid,
             ),
         ];
     }
