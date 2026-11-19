@@ -16,6 +16,7 @@ and a link. Measurements, proofs and test names belong to the pull request, [doc
 - **`->kinds('person', 'order')` limits a multi-source search to some kinds** (hits, total, facets; also `fuzzphony:search -k person`). It changes
   nothing for a search without it. See [Searching](docs/searching.md#limiting-a-multi-source-search-to-some-kinds).
 - **`#[Searchable]` is repeatable:** several indexes over one class, each with its own `name`. See [Configuration](docs/configuration.md#several-indexes).
+
 ### Fixed
 
 - **A `schema --apply` that changes nothing takes no lock on the watched tables** (its indexes and triggers are created or dropped only when the catalog
