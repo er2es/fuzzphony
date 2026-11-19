@@ -297,7 +297,10 @@ are counted in the metrics but not written to the [search log](analytics.md) unl
 
 The guards above decide who may search; the database user decides what the code can do at all. [Database roles and grants](roles.md) has the
 least-privilege matrix (application, worker, admin), `fuzzphony:schema --dump-grants` and the `fuzzphony.connections` setting. Every Fuzzphony function
-is `SECURITY INVOKER`.
+is `SECURITY INVOKER`, and only the roles granted `EXECUTE` (not `PUBLIC`) may call the normaliser, the refresh and the drain functions.
+
+The functions that run your source query and watch queries keep the search path `schema --apply` ran with, resolved then (`"$user"` expanded) and with
+`pg_temp` last: a caller's own schema or temporary table never stands in for a source table. A source table moved to another schema needs a new apply.
 
 `INSERT` on `fuzzphony_watch_log` is a trust boundary: the application role that writes the watched tables has it by design, so it can also write bogus log
 entries. Unusable keys are skipped and counted (the doctor reports them), forged TRUNCATE entries queue at most one full rebuild per index, and none of it

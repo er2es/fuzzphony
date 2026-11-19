@@ -11,8 +11,25 @@ and a link. Measurements, proofs and test names belong to the pull request, [doc
 
 ## [Unreleased]
 
+### Fixed
+
+- **A `schema --apply` that changes nothing takes no lock on the watched tables** (its indexes and triggers are created or dropped only when the catalog
+  says so), so it no longer queues behind a long writer and every later write behind itself; an apply that has to wait gives up after 3 s (`lock_timeout`),
+  rolls back whole and can simply be run again.
+- **The generated functions pin the search path the apply resolved, with `pg_temp` last** (was `SET search_path FROM CURRENT`, which kept `"$user"`):
+  a caller's own schema or temporary table can no longer stand in for a source table ([Security](docs/security.md#database-roles)).
+- `fuzzphony_watch_install()` pins its search path; `EXECUTE` on the normaliser, refresh, drain and installer functions is revoked from `PUBLIC`
+  (the grants of `--dump-grants` keep the search and worker roles working).
+- A generated SQL literal with a backslash is written as `E'...'`, so it reads the same with `standard_conforming_strings = off`.
+
+### Changed
+
+- The refresh stems each field and normalises each typo-tolerant field once per document instead of twice (same stored values, less write-path work).
+
 ### Documentation
 
+- The common-word cost in the limitations matches the benchmarks (290 ms at 1 000 000 rows); the 29 text search configurations are the 28 stemmed
+  languages and `simple`; two unmeasured timings (trigger-mode `TRUNCATE` resync, vocabulary rebuild) no longer state a number.
 - Claim pass: the README's speed and size line now states the measured figures (warm search times, 342 MB sidecar for 500 000 products) instead of "a part of the table", the tenant filter claim says "every search made through the library", and `docs/searching.md`, `docs/sync.md` and the three recipes were checked against the code (no other change needed).
 
 ## [0.12.8] - 2026-11-15
