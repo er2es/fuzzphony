@@ -33,6 +33,9 @@ A stable API and a backward-compatibility promise. PostgreSQL only: no other eng
 
 Separate projects, in their own repositories:
 
+- Source `watch` keys that are an expression or several columns, and one composite id per document (today: one plain column, one id column).
+- A text search configuration per field (stemming in more than one language in one index).
+- A value boundary in a `many` field's vector, so a phrase cannot match across two values (it changes ranking and the index: needs a differential proof; `manyMatch('single')` covers it today).
 - Record linkage (`fuzzphony/record-linkage`): probabilistic matching of people and companies with explainable match scores.
 - A Laravel Scout driver over the same PostgreSQL engine.
 - Hybrid (lexical and semantic) search with pgvector.
