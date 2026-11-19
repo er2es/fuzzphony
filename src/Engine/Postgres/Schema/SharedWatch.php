@@ -54,7 +54,6 @@ final readonly class SharedWatch
             new Statement(sprintf('DO %1$s BEGIN IF NOT EXISTS (SELECT 1 FROM pg_attribute WHERE attrelid = to_regclass(%2$s) AND attname = \'source\' AND NOT attisdropped) THEN ALTER TABLE %3$s ADD COLUMN source text NOT NULL DEFAULT \'\'; END IF; END %1$s', self::TAG, Sql::string($this->names->watches()), $this->names->watches()), 'Which source of a multi-source index a watch belongs to (empty for a single-source index)'),
             new Statement(Guard::createIndex($this->names->index($this->names->watchLogIndexName() . '_w'), sprintf('CREATE INDEX IF NOT EXISTS %s ON %s (tbl)', Sql::ident($this->names->watchLogIndexName() . '_w'), $this->names->watches())), 'Watches by table'),
             new Statement($this->installFunction(), 'Builds (or removes) the shared trigger of a watched table from the watches'),
-            Guard::revokeFromPublic($this->names->watchInstallFunction() . '(text, text)'),
         ];
     }
 
@@ -68,6 +67,7 @@ final readonly class SharedWatch
         $name = Sql::string($index->name);
         $reg = $this->names->watches();
         $rows = [];
+        $compare = [];
         $new = [];
         $multi = $index->isMultiSource();
         if (self::applies($index)) {
@@ -85,6 +85,7 @@ final readonly class SharedWatch
                     $cols === null ? 'NULL::jsonb' : 'to_jsonb(ARRAY[' . implode(', ', array_map(Sql::string(...), $cols)) . ']::text[])',
                     $multi ? ', ' . Sql::string((string) $watch->source) : '',
                 );
+                $compare[] = sprintf('(%d, %s, %s, %s, %s%s)', $no, $tbl, $fn, Sql::string($watch->keyColumn), $cols === null ? 'NULL::jsonb' : 'to_jsonb(ARRAY[' . implode(', ', array_map(Sql::string(...), $cols)) . ']::text[])', $multi ? ', ' . Sql::string((string) $watch->source) : '');
                 $new[] = sprintf('jsonb_build_array(%s, %s)', $tbl, $fn);
             }
         }
@@ -95,6 +96,24 @@ final readonly class SharedWatch
             $multi ? ', source' : '',
             $multi ? ' source = EXCLUDED.source,' : '',
         );
+        if ($upsert !== '') {
+            // upsert only when the registered rows differ: a drain holds its row FOR UPDATE for the whole transaction, so even a no-op
+            // ON CONFLICT DO UPDATE would wait for it (and fail after lock_timeout)
+            $cols = 'tbl, fn, key_column, columns' . ($multi ? ', source' : '');
+            $upsert = sprintf(
+                "IF (SELECT count(*) FROM %1\$s WHERE index_name = %2\$s AND watch_no < %3\$d) <> %3\$d OR EXISTS (SELECT 1 FROM (VALUES %4\$s) AS v(watch_no, %5\$s) LEFT JOIN %1\$s AS w ON w.index_name = %2\$s AND w.watch_no = v.watch_no WHERE ROW(w.%6\$s) IS DISTINCT FROM ROW(v.%7\$s)) THEN
+        %8\$s
+        END IF;",
+                $reg,
+                $name,
+                count($rows),
+                implode(', ', $compare),
+                $cols,
+                str_replace(', ', ', w.', $cols),
+                str_replace(', ', ', v.', $cols),
+                $upsert,
+            );
+        }
 
         return new Statement(sprintf(
             <<<'SQL'

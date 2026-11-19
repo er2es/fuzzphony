@@ -22,10 +22,10 @@ and a link. Measurements, proofs and test names belong to the pull request, [doc
 - **A `schema --apply` that changes nothing takes no lock on the watched tables** (its indexes and triggers are created or dropped only when the catalog
   says so), so it no longer queues behind a long writer and every later write behind itself; an apply that has to wait gives up after 3 s (`lock_timeout`),
   rolls back whole and can simply be run again.
+  It also no longer waits for a running worker drain: the watch registration is written only when it differs.
 - **The generated functions pin the search path the apply resolved, with `pg_temp` last** (was `SET search_path FROM CURRENT`, which kept `"$user"`):
   a caller's own schema or temporary table can no longer stand in for a source table ([Security](docs/security.md#database-roles)).
-- `fuzzphony_watch_install()` pins its search path; `EXECUTE` on the normaliser, refresh, drain and installer functions is revoked from `PUBLIC`
-  (the grants of `--dump-grants` keep the search and worker roles working).
+- `fuzzphony_watch_install()` pins its search path.
 - A generated SQL literal with a backslash is written as `E'...'`, so it reads the same with `standard_conforming_strings = off`.
 
 ### Changed

@@ -59,15 +59,4 @@ final class Guard
             $create,
         );
     }
-
-    /**
-     * Only the owner and the roles granted EXECUTE (Grants: the search and the worker role) may call the function; PostgreSQL
-     * grants it to PUBLIC by default. Trigger functions need no grant (the privilege is checked when the trigger is created).
-     *
-     * @param string $function the quoted, qualified function name with its argument types
-     */
-    public static function revokeFromPublic(string $function): Statement
-    {
-        return new Statement(sprintf('REVOKE ALL ON FUNCTION %s FROM PUBLIC', $function), 'Only the roles granted EXECUTE (fuzzphony:schema --dump-grants) may call it');
-    }
 }

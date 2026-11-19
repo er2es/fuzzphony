@@ -108,7 +108,6 @@ final readonly class PostgresSchemaGenerator
                 Sql::ident($schema),
                 Sql::string(Sql::ident($schema) . '.unaccent'),
             ), 'Normaliser for trigram / exact matching: lowercase, no accents, alphanumerics only'),
-            Guard::revokeFromPublic($this->names->normFunction() . '(text)'),
             new Statement(sprintf(
                 "CREATE TABLE IF NOT EXISTS %s (\n    index_name text NOT NULL,\n    doc_id text NOT NULL,\n    queued_at timestamptz NOT NULL DEFAULT clock_timestamp(),\n    PRIMARY KEY (index_name, doc_id)\n)",
                 $this->names->queue(),
@@ -229,8 +228,6 @@ final readonly class PostgresSchemaGenerator
         $statements[] = new Statement($this->refreshFunction($index), 'Builds / removes documents by id');
         $statements[] = new Statement($this->refreshFunction($index, shadow: true), 'Builds / removes documents by id in the table a full reindex builds next to the live one');
         $statements[] = new Statement($this->trackFunction($index), 'Logs which documents change while a full reindex runs');
-        $statements[] = Guard::revokeFromPublic(sprintf('%s(%s[])', $this->names->refreshFunction($index), Types::id($index->idType)));
-        $statements[] = Guard::revokeFromPublic(sprintf('%s(%s[])', $this->names->shadowRefreshFunction($index), Types::id($index->idType)));
 
         $legacy = [];
         foreach ($index->effectiveWatches() as $watch) {
@@ -277,7 +274,6 @@ final readonly class PostgresSchemaGenerator
         }
         if (SharedWatch::applies($index)) {
             $statements[] = new Statement($this->sharedWatch()->drainFunction($index, $this->relevantColumns(...), $this->names->sidecar($index), $this->names->changes($index)), 'Moves the changes the shared trigger logged into the index queue');
-            $statements[] = Guard::revokeFromPublic($this->names->drainFunction($index) . '()');
         } else {
             $statements[] = new Statement(sprintf('DROP FUNCTION IF EXISTS %s()', $this->names->drainFunction($index)), 'Remove the function that drains the shared change log (this sync mode does not use it)');
         }

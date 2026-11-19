@@ -7,8 +7,7 @@ Restart long-running processes (workers, RoadRunner, FrankenPHP) after an apply:
 
 ## From 0.12.x to 0.12.9
 
-Run `schema --apply`: it re-creates the functions with the pinned search path and revokes `EXECUTE` from `PUBLIC`. A role that calls them without
-the grants of `fuzzphony:schema --dump-grants` (a search or worker role that is not the owner) needs those grants first.
+Run `schema --apply`: it re-creates the functions with the pinned search path. Nothing else changes for your roles.
 
 ## From 0.12.x to 0.12.7
 
