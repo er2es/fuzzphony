@@ -45,9 +45,9 @@ final class WizardCommand extends Command
         $this
             ->addArgument('table', InputArgument::OPTIONAL, 'Source table (asked interactively when omitted)')
             ->addOption('name', null, InputOption::VALUE_REQUIRED, 'Index name (default: derived from the table)')
-            ->addOption('language', 'l', InputOption::VALUE_REQUIRED, 'Stemming language: english, hungarian, german, simple, ...', 'english')
-            ->addOption('format', 'f', InputOption::VALUE_REQUIRED, 'yaml | builder | attributes', 'yaml')
-            ->addOption('write', 'w', InputOption::VALUE_REQUIRED, 'Write the output to this file instead of printing it')
+            ->addOption('language', null, InputOption::VALUE_REQUIRED, 'Stemming language: english, hungarian, german, simple, ...', 'english')
+            ->addOption('format', null, InputOption::VALUE_REQUIRED, 'yaml | builder | attributes', 'yaml')
+            ->addOption('write', null, InputOption::VALUE_REQUIRED, 'Write the output to this file instead of printing it')
             ->addOption('try', null, InputOption::VALUE_NONE, 'Create the index now, reindex, run the doctor and a sample search');
     }
 

@@ -11,6 +11,14 @@ and a link. Measurements, proofs and test names belong to the pull request, [doc
 
 ## [Unreleased]
 
+## [1.0.0] - 2026-11-19
+
+The code of 0.12.9: the public API (the 83 types of [the list](docs/architecture.md#public-api), the bundle configuration keys, the console commands and their options) is now stable under [Semantic Versioning](https://semver.org/).
+
+### Changed
+
+- **`fuzzphony:wizard` has long option names only** (`--language`, `--format`, `--write`): its short `-l`, `-f` and `-w` clashed with the same letters in `fuzzphony:search` and `fuzzphony:analytics`; every short option now means the same in every command that has it.
+
 ## [0.12.9] - 2026-11-19
 
 ### Removed
@@ -1370,7 +1378,8 @@ on its own:
 - Sync modes: queue (default), trigger, ORM, manual; watches for joined tables.
 - Doctor with fixes; CLI commands for schema, reindex, worker, search and explain.
 
-[Unreleased]: https://github.com/er2es/fuzzphony/compare/v0.12.9...HEAD
+[Unreleased]: https://github.com/er2es/fuzzphony/compare/v1.0.0...HEAD
+[1.0.0]: https://github.com/er2es/fuzzphony/compare/v0.12.9...v1.0.0
 [0.12.9]: https://github.com/er2es/fuzzphony/compare/v0.12.8...v0.12.9
 [0.12.8]: https://github.com/er2es/fuzzphony/compare/v0.12.7...v0.12.8
 [0.12.7]: https://github.com/er2es/fuzzphony/compare/v0.12.6...v0.12.7

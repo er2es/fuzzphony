@@ -46,8 +46,8 @@ foreach ($result as $hit) {
 }
 ```
 
-Status: pre-1.0 (v0.12.9). The API may still change before 1.0; breaking changes are listed in the
-[CHANGELOG](https://github.com/er2es/fuzzphony/blob/main/CHANGELOG.md).
+Status: stable (v1.0.0). The public API follows [Semantic Versioning](https://semver.org/) ([what is covered](https://github.com/er2es/fuzzphony/blob/main/CONTRIBUTING.md#backward-compatibility));
+changes are listed in the [CHANGELOG](https://github.com/er2es/fuzzphony/blob/main/CHANGELOG.md).
 
 ## Try the demo
 
@@ -207,8 +207,7 @@ Report vulnerabilities privately: see [SECURITY.md](https://github.com/er2es/fuz
 ## Known limitations and roadmap
 
 Typo tolerance is trigram-based (it cannot tell a typo from a similar word), and a word with more matches than `limits.candidates` is ranked over its best
-matches with a lower-bound `total`: see [docs/limitations.md](https://github.com/er2es/fuzzphony/blob/main/docs/limitations.md). PostgreSQL only before 1.0;
-v1.0.0 is the stable API and the backward-compatibility promise ([roadmap](https://github.com/er2es/fuzzphony/blob/main/docs/roadmap.md)).
+matches with a lower-bound `total`: see [docs/limitations.md](https://github.com/er2es/fuzzphony/blob/main/docs/limitations.md). PostgreSQL only; what may come next is in the [roadmap](https://github.com/er2es/fuzzphony/blob/main/docs/roadmap.md).
 
 ## Contributing and license
 

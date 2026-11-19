@@ -22,7 +22,7 @@ no separate packages and no split repositories. The layering is a rule of the co
 ## Engine
 
 Everything dialect-specific lives behind `Fuzzphony\Core\Engine\Engine`, validated by a
-conformance test suite (`tests/Conformance`). PostgreSQL is the only engine through 1.0. A full
+conformance test suite (`tests/Conformance`). PostgreSQL is the only engine. A full
 reindex is driven through the engine too (`beginRebuild()`, `refreshShadow()`, `finishRebuild()`,
 `abortRebuild()`, `discardLeftoverRebuild()`), so `Reindexer` stays engine-agnostic; the PostgreSQL engine builds next to the
 live table and swaps it in ([ADR 0008](adr/0008-shadow-rebuild-with-a-change-log.md)).
@@ -37,7 +37,7 @@ reads `pg_trgm.word_similarity_threshold`; the SQL builders (`Sql\SearchSqlBuild
 
 ## Public API
 
-From 1.0 the backward-compatibility promise covers exactly these 83 classes, interfaces and enums; everything else in
+The backward-compatibility promise covers exactly these 83 classes, interfaces and enums; everything else in
 `src/` is marked `@internal` and may change in any release. The engine contract (`Core\Engine\Engine`), the wizard's
 building blocks, the index registry, the search gate and the other container types are `@internal`: build the service
 with `Fuzzphony::postgres()` (or the bundle) and read the wizard through `Fuzzphony::wizard()`; `Fuzzphony::indexes()` and `Fuzzphony::definition()` list and read the registered indexes. The constructor of an

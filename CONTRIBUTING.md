@@ -72,10 +72,7 @@ with `pdo_pgsql` and `pcov` installed, next to the test database. There is no CI
 
 ## Backward compatibility
 
-Until 1.0, any release (0.x, and the 0.9.x patch releases too) may contain a breaking change or a behaviour change; 0.9.5
-dropped Symfony 8.0 and 0.9.8 changed `hasMore()`, turned the zero-result rescue on and ranked capped searches differently, all
-as patch releases. Each one is listed under **Breaking** (or **Behaviour change**) in the CHANGELOG and explained in
-[UPGRADE.md](UPGRADE.md). From 1.0 the project follows [Semantic Versioning](https://semver.org/):
+Fuzzphony follows [Semantic Versioning](https://semver.org/) from 1.0. Before 1.0 a release could break the API; the CHANGELOG lists those changes:
 
 - **Covered** (the public API): the classes listed in [docs/architecture.md](docs/architecture.md#public-api) (and in
   `tests/Unit/PublicApiTest.php`) with their public methods, properties and constants not tagged `@internal`; the bundle's

@@ -2,12 +2,12 @@
 
 ## Supported versions
 
-Fuzzphony is pre-1.0. Security fixes are released for the latest minor version only.
+Security fixes are released for the latest minor version only.
 
 | Version | Supported |
 |---|---|
-| 0.9.x | yes |
-| < 0.9 | no |
+| 1.x | yes (the latest minor) |
+| < 1.0 | no |
 
 ## Reporting a vulnerability
 
