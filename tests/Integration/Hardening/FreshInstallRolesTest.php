@@ -6,7 +6,6 @@ namespace Fuzzphony\Tests\Integration\Hardening;
 
 use Fuzzphony\Bundle\Command\SchemaCommand;
 use Fuzzphony\Core\Database\Connection;
-use Fuzzphony\Core\Definition\IndexDefinition;
 use Fuzzphony\Core\Fuzzphony;
 use Fuzzphony\Core\Inspection\CheckStatus;
 use Fuzzphony\Core\Registry\IndexRegistry;

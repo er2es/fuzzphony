@@ -33,7 +33,7 @@ final class TransactionPoolerTest extends TestCase
     {
         $inner = $this->c;
 
-        return new class($inner) implements Connection {
+        return new class ($inner) implements Connection {
             public int $discards = 0;
 
             public function __construct(private readonly Connection $inner) {}

@@ -115,7 +115,7 @@ final readonly class WatchCoverage
     {
         $c->execute(sprintf('CREATE TEMPORARY VIEW %s AS %s', Sql::ident($view), DocumentSql::raw($part)));
         $read = $c->fetchAll(
-                <<<'SQL'
+            <<<'SQL'
                     WITH RECURSIVE r(rel) AS (
                         SELECT d.refobjid FROM pg_rewrite w
                         JOIN pg_depend d ON d.classid = 'pg_rewrite'::regclass AND d.objid = w.oid AND d.refclassid = 'pg_class'::regclass AND d.refobjid <> w.ev_class
@@ -134,8 +134,8 @@ final readonly class WatchCoverage
                       AND NOT (n.nspname = :schema AND c.relname LIKE 'fuzzphony\_%')
                     ORDER BY n.nspname, c.relname
                     SQL,
-                ['view' => 'pg_temp.' . $view, 'schema' => $this->schema],
-            );
+            ['view' => 'pg_temp.' . $view, 'schema' => $this->schema],
+        );
         $c->execute(sprintf('DROP VIEW %s', Sql::ident($view)));
 
         return $read;
