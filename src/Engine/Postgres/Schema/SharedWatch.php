@@ -45,14 +45,14 @@ final readonly class SharedWatch
                 "CREATE TABLE IF NOT EXISTS %s (\n    tbl text NOT NULL,\n    xid bigint NOT NULL,\n    at timestamptz NOT NULL DEFAULT now(),\n    op text NOT NULL,\n    key_column text NOT NULL,\n    key text,\n    chg jsonb\n)",
                 $this->names->watchLog(),
             ), 'Change log shared by all indexes: the keys of the rows that changed in a watched table'),
-            new Statement(sprintf('CREATE INDEX IF NOT EXISTS %s ON %s (tbl, xid)', Sql::ident($this->names->watchLogIndexName()), $this->names->watchLog()), 'Change log by table and transaction'),
+            new Statement(Guard::createIndex($this->names->index($this->names->watchLogIndexName()), sprintf('CREATE INDEX IF NOT EXISTS %s ON %s (tbl, xid)', Sql::ident($this->names->watchLogIndexName()), $this->names->watchLog())), 'Change log by table and transaction'),
             new Statement(sprintf(
                 "CREATE TABLE IF NOT EXISTS %s (\n    index_name text NOT NULL,\n    watch_no integer NOT NULL,\n    tbl text NOT NULL,\n    fn text NOT NULL,\n    key_column text NOT NULL,\n    columns jsonb,\n    cur_xid bigint NOT NULL,\n    bad_rows bigint NOT NULL DEFAULT 0,\n    bad_at timestamptz,\n    PRIMARY KEY (index_name, watch_no)\n)",
                 $this->names->watches(),
             ), 'Which index watches which table, how far in the change log it has read, and how many log rows it could not apply'),
             ...array_map(fn(array $c): Statement => new Statement(sprintf('DO %1$s BEGIN IF NOT EXISTS (SELECT 1 FROM pg_attribute WHERE attrelid = to_regclass(%2$s) AND attname = %3$s AND NOT attisdropped) THEN ALTER TABLE %4$s ADD COLUMN %6$s %5$s; END IF; END %1$s', self::TAG, Sql::string($this->names->watches()), Sql::string($c[0]), $this->names->watches(), $c[1], $c[0]), 'Count of log rows with an unusable key (skipped, never retried)'), [['bad_rows', 'bigint NOT NULL DEFAULT 0'], ['bad_at', 'timestamptz']]),
             new Statement(sprintf('DO %1$s BEGIN IF NOT EXISTS (SELECT 1 FROM pg_attribute WHERE attrelid = to_regclass(%2$s) AND attname = \'source\' AND NOT attisdropped) THEN ALTER TABLE %3$s ADD COLUMN source text NOT NULL DEFAULT \'\'; END IF; END %1$s', self::TAG, Sql::string($this->names->watches()), $this->names->watches()), 'Which source of a multi-source index a watch belongs to (empty for a single-source index)'),
-            new Statement(sprintf('CREATE INDEX IF NOT EXISTS %s ON %s (tbl)', Sql::ident($this->names->watchLogIndexName() . '_w'), $this->names->watches()), 'Watches by table'),
+            new Statement(Guard::createIndex($this->names->index($this->names->watchLogIndexName() . '_w'), sprintf('CREATE INDEX IF NOT EXISTS %s ON %s (tbl)', Sql::ident($this->names->watchLogIndexName() . '_w'), $this->names->watches())), 'Watches by table'),
             new Statement($this->installFunction(), 'Builds (or removes) the shared trigger of a watched table from the watches'),
         ];
     }
@@ -298,7 +298,7 @@ final readonly class SharedWatch
         $reg = $this->names->watches();
         $sql = <<<'SQL'
             CREATE OR REPLACE FUNCTION @FN@(p_tbl text, p_fn text) RETURNS void
-            LANGUAGE plpgsql AS $fzi$
+            LANGUAGE plpgsql SET search_path FROM CURRENT AS $fzi$
             DECLARE
                 -- the name is derived from the table, never taken from the stored watches (a forged row must not point the cleanup at someone else's function)
                 v_base text := 'fuzzphony_watch__' || left(trim(both '_' from regexp_replace(p_tbl, '[^A-Za-z0-9_]+', '_', 'g')), 32) || '_' || substr(md5(p_tbl), 1, 8);
@@ -352,7 +352,7 @@ final readonly class SharedWatch
                             format(v_t2, p_tbl, v_k, v_diff, v_any::text, '$1'));
                     END IF;
                 END LOOP;
-                EXECUTE format($b$CREATE OR REPLACE FUNCTION %1$s() RETURNS trigger LANGUAGE plpgsql SET search_path FROM CURRENT AS $fzb$
+                EXECUTE format($b$CREATE OR REPLACE FUNCTION %1$s() RETURNS trigger LANGUAGE plpgsql SET search_path = pg_catalog, pg_temp AS $fzb$
             DECLARE
                 v_x bigint := pg_current_xact_id()::text::bigint;
             BEGIN
@@ -366,12 +366,22 @@ final readonly class SharedWatch
                 RETURN NULL;
             END
             $fzb$$b$, v_fn, p_tbl, v_ins, v_del, v_upd);
-                EXECUTE format('CREATE OR REPLACE TRIGGER %I AFTER INSERT ON %s REFERENCING NEW TABLE AS fz_new FOR EACH STATEMENT EXECUTE FUNCTION %s()', v_base || '__ins', v_rels, v_fn);
-                EXECUTE format('CREATE OR REPLACE TRIGGER %I AFTER UPDATE ON %s REFERENCING OLD TABLE AS fz_old NEW TABLE AS fz_new FOR EACH STATEMENT EXECUTE FUNCTION %s()', v_base || '__upd', v_rels, v_fn);
-                EXECUTE format('CREATE OR REPLACE TRIGGER %I AFTER DELETE ON %s REFERENCING OLD TABLE AS fz_old FOR EACH STATEMENT EXECUTE FUNCTION %s()', v_base || '__del', v_rels, v_fn);
-                EXECUTE format('CREATE OR REPLACE TRIGGER %I AFTER TRUNCATE ON %s FOR EACH STATEMENT EXECUTE FUNCTION %s()', v_base || '__trn', v_rels, v_fn);
+                -- only when missing or different: CREATE OR REPLACE TRIGGER locks the table even when nothing changes
+                IF NOT EXISTS (SELECT 1 FROM pg_trigger WHERE tgrelid = v_rel AND tgname = v_base || '__ins' AND tgfoid = to_regprocedure(v_fn || '()') AND tgtype = 4 AND tgenabled = 'O' AND tgqual IS NULL AND tgoldtable IS NULL AND tgnewtable = 'fz_new') THEN
+                    EXECUTE format('CREATE OR REPLACE TRIGGER %I AFTER INSERT ON %s REFERENCING NEW TABLE AS fz_new FOR EACH STATEMENT EXECUTE FUNCTION %s()', v_base || '__ins', v_rels, v_fn);
+                END IF;
+                IF NOT EXISTS (SELECT 1 FROM pg_trigger WHERE tgrelid = v_rel AND tgname = v_base || '__upd' AND tgfoid = to_regprocedure(v_fn || '()') AND tgtype = 16 AND tgenabled = 'O' AND tgqual IS NULL AND tgoldtable = 'fz_old' AND tgnewtable = 'fz_new') THEN
+                    EXECUTE format('CREATE OR REPLACE TRIGGER %I AFTER UPDATE ON %s REFERENCING OLD TABLE AS fz_old NEW TABLE AS fz_new FOR EACH STATEMENT EXECUTE FUNCTION %s()', v_base || '__upd', v_rels, v_fn);
+                END IF;
+                IF NOT EXISTS (SELECT 1 FROM pg_trigger WHERE tgrelid = v_rel AND tgname = v_base || '__del' AND tgfoid = to_regprocedure(v_fn || '()') AND tgtype = 8 AND tgenabled = 'O' AND tgqual IS NULL AND tgoldtable = 'fz_old' AND tgnewtable IS NULL) THEN
+                    EXECUTE format('CREATE OR REPLACE TRIGGER %I AFTER DELETE ON %s REFERENCING OLD TABLE AS fz_old FOR EACH STATEMENT EXECUTE FUNCTION %s()', v_base || '__del', v_rels, v_fn);
+                END IF;
+                IF NOT EXISTS (SELECT 1 FROM pg_trigger WHERE tgrelid = v_rel AND tgname = v_base || '__trn' AND tgfoid = to_regprocedure(v_fn || '()') AND tgtype = 32 AND tgenabled = 'O' AND tgqual IS NULL AND tgoldtable IS NULL AND tgnewtable IS NULL) THEN
+                    EXECUTE format('CREATE OR REPLACE TRIGGER %I AFTER TRUNCATE ON %s FOR EACH STATEMENT EXECUTE FUNCTION %s()', v_base || '__trn', v_rels, v_fn);
+                END IF;
                 -- truncating one partition fires only that partition's triggers
-                FOR r IN SELECT n.nspname, c.relname FROM pg_partition_tree(v_rel) AS t JOIN pg_class AS c ON c.oid = t.relid JOIN pg_namespace AS n ON n.oid = c.relnamespace WHERE t.level > 0 LOOP
+                FOR r IN SELECT n.nspname, c.relname FROM pg_partition_tree(v_rel) AS t JOIN pg_class AS c ON c.oid = t.relid JOIN pg_namespace AS n ON n.oid = c.relnamespace WHERE t.level > 0
+                          AND NOT EXISTS (SELECT 1 FROM pg_trigger AS g WHERE g.tgrelid = t.relid AND g.tgname = v_base || '__trn' AND g.tgfoid = to_regprocedure(v_fn || '()') AND g.tgenabled = 'O') LOOP
                     EXECUTE format('CREATE OR REPLACE TRIGGER %I AFTER TRUNCATE ON %I.%I FOR EACH STATEMENT EXECUTE FUNCTION %s()', v_base || '__trn', r.nspname, r.relname, v_fn);
                 END LOOP;
                 -- a detached partition keeps its TRUNCATE trigger

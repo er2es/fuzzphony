@@ -64,6 +64,9 @@ final readonly class PostgresSchemaGenerator
     /** Every generated function body / DO block is quoted with this tag; the validator keeps it out of embedded SQL. */
     private const string TAG = DefinitionValidator::DOLLAR_QUOTE_TAG;
 
+    /** How long one apply statement waits for a table lock (the same as the shadow swap). */
+    public const string LOCK_TIMEOUT = '3s';
+
     /** @param bool $searchLog whether the shared schema includes the search log table (the engine was built with searchLog: true) */
     public function __construct(private Names $names = new Names(), private bool $searchLog = false, private int $backfillBatch = ColumnMap::BATCH) {}
 
@@ -80,7 +83,17 @@ final readonly class PostgresSchemaGenerator
     public function global(IndexDefinition ...$indexes): SchemaPlan
     {
         $schema = $this->names->extensionSchema;
-        $statements = [];
+        // a statement that has to wait for a lock (a long writer on a table it changes) gives up instead of queueing every later
+        // write behind it; the apply is one transaction, so it rolls back whole and can simply be run again
+        $statements = [
+            new Statement(sprintf('SET LOCAL lock_timeout = %s', Sql::string(self::LOCK_TIMEOUT)), 'Give up after ' . self::LOCK_TIMEOUT . ' waiting for a lock (a long transaction writing a table the apply changes): the apply rolls back and can be run again'),
+            // the functions below store this path (SET search_path FROM CURRENT): the schemas the source tables resolve in now, "$user"
+            // expanded once and pg_temp last, so neither a caller's own schema nor a temporary table can stand in for a source table
+            new Statement(
+                "SELECT set_config('search_path', coalesce((SELECT string_agg(quote_ident(u.s), ', ' ORDER BY u.n) FROM unnest(current_schemas(false)) WITH ORDINALITY AS u(s, n) WHERE u.s NOT LIKE 'pg\\_temp\\_%') || ', ', '') || 'pg_temp', true)",
+                'Pin the search path the generated functions store: the schemas it resolves to now, pg_temp last',
+            ),
+        ];
         if ($this->names->schema !== 'public') {
             // not for public: PostgreSQL checks CREATE on the database before IF NOT EXISTS
             $statements[] = new Statement(sprintf('CREATE SCHEMA IF NOT EXISTS %s', $this->names->quotedSchema()), "Fuzzphony's own schema");
@@ -99,7 +112,7 @@ final readonly class PostgresSchemaGenerator
                 "CREATE TABLE IF NOT EXISTS %s (\n    index_name text NOT NULL,\n    doc_id text NOT NULL,\n    queued_at timestamptz NOT NULL DEFAULT clock_timestamp(),\n    PRIMARY KEY (index_name, doc_id)\n)",
                 $this->names->queue(),
             ), 'Sync queue shared by all indexes'),
-            new Statement(sprintf('CREATE INDEX IF NOT EXISTS %s ON %s (index_name, queued_at)', $this->names->queueOrderIndex(), $this->names->queue()), 'Queue processing order'),
+            new Statement(Guard::createIndex($this->names->index($this->names->queueOrderIndex()), sprintf('CREATE INDEX IF NOT EXISTS %s ON %s (index_name, queued_at)', $this->names->queueOrderIndex(), $this->names->queue())), 'Queue processing order'),
             new Statement(sprintf(
                 "CREATE TABLE IF NOT EXISTS %s (
     index_name text PRIMARY KEY,
@@ -142,9 +155,9 @@ final readonly class PostgresSchemaGenerator
                 ), 'Search log (opt-in)'),
                 $this->addColumn($this->names->searchLog(), 'actor_ip', 'text', 'Search log: the client IP (search_log.ip; stays empty when it is off, and an existing table gets the column here)'),
                 $this->addColumn($this->names->searchLog(), 'rescued', 'boolean NOT NULL DEFAULT false', 'Search log: whether the zero-result rescue answered the search (an existing table gets the column here)'),
-                new Statement(sprintf('CREATE INDEX IF NOT EXISTS %s ON %s (index_name, at)', $this->names->searchLogIndexName('index_at'), $this->names->searchLog()), 'Search log by index and time'),
-                new Statement(sprintf('CREATE INDEX IF NOT EXISTS %s ON %s (index_name, query_norm)', $this->names->searchLogIndexName('index_norm'), $this->names->searchLog()), 'Search log grouped by query'),
-                new Statement(sprintf('CREATE INDEX IF NOT EXISTS %s ON %s (at)', $this->names->searchLogIndexName('at'), $this->names->searchLog()), 'Search log by time alone (the purge and the doctor look at the oldest rows)'),
+                new Statement(Guard::createIndex($this->names->index($this->names->searchLogIndexName('index_at')), sprintf('CREATE INDEX IF NOT EXISTS %s ON %s (index_name, at)', $this->names->searchLogIndexName('index_at'), $this->names->searchLog())), 'Search log by index and time'),
+                new Statement(Guard::createIndex($this->names->index($this->names->searchLogIndexName('index_norm')), sprintf('CREATE INDEX IF NOT EXISTS %s ON %s (index_name, query_norm)', $this->names->searchLogIndexName('index_norm'), $this->names->searchLog())), 'Search log grouped by query'),
+                new Statement(Guard::createIndex($this->names->index($this->names->searchLogIndexName('at')), sprintf('CREATE INDEX IF NOT EXISTS %s ON %s (at)', $this->names->searchLogIndexName('at'), $this->names->searchLog())), 'Search log by time alone (the purge and the doctor look at the oldest rows)'),
             );
         }
 
@@ -225,7 +238,7 @@ final readonly class PostgresSchemaGenerator
                 array_push($statements, ...$this->legacySyncTriggers($index, $watch));
             }
             foreach ($this->obsoleteTriggerNames($index, $watch) as $obsolete) {
-                $statements[] = new Statement(sprintf('DROP TRIGGER IF EXISTS %s ON %s', Sql::ident($obsolete), $watched), sprintf('Remove trigger not used in "%s" sync / %s level', $index->sync->value, $index->triggerLevel->value));
+                $statements[] = new Statement(Guard::dropTrigger($obsolete, $watched), sprintf('Remove trigger not used in "%s" sync / %s level', $index->sync->value, $index->triggerLevel->value));
             }
             if (!$index->sync->usesTriggers() || SharedWatch::applies($index)) {
                 $statements[] = $this->partitionTriggers($index, $watch, false);
@@ -242,7 +255,15 @@ final readonly class PostgresSchemaGenerator
             );
             foreach ($this->triggerDefinitions($index, $watch) as $name => $definition) {
                 $statements[] = new Statement(
-                    sprintf('CREATE OR REPLACE TRIGGER %s %s ON %s %s EXECUTE FUNCTION %s()', Sql::ident($name), $definition['timing'], $watched, $definition['for'], $this->names->syncFunction($index, $watch)),
+                    Guard::createTrigger(
+                        $name,
+                        $watched,
+                        $this->names->syncFunction($index, $watch),
+                        $definition['type'],
+                        $definition['old'],
+                        $definition['new'],
+                        sprintf('CREATE OR REPLACE TRIGGER %s %s ON %s %s EXECUTE FUNCTION %s()', Sql::ident($name), $definition['timing'], $watched, $definition['for'], $this->names->syncFunction($index, $watch)),
+                    ),
                     sprintf('%s sync on %s (%s level)', ucfirst($index->sync->value), $watch->table, $index->triggerLevel->value),
                 );
             }
@@ -602,7 +623,7 @@ ON CONFLICT (index_name) DO UPDATE SET layout_version = EXCLUDED.layout_version,
     /**
      * Triggers the definition needs (name => timing / FOR clause); empty when the sync mode uses none.
      *
-     * @return array<string, array{timing: string, for: string}>
+     * @return array<string, array{timing: string, for: string, type: int, old: ?string, new: ?string}>
      */
     public function triggerDefinitions(IndexDefinition $index, Watch $watch): array
     {
@@ -611,16 +632,16 @@ ON CONFLICT (index_name) DO UPDATE SET layout_version = EXCLUDED.layout_version,
         }
         // PostgreSQL never runs DELETE triggers for TRUNCATE and only allows TRUNCATE triggers per
         // statement (without transition tables), so both levels get the same extra trigger.
-        $truncate = [$this->names->triggerName($index, $watch, '_trn') => ['timing' => 'AFTER TRUNCATE', 'for' => 'FOR EACH STATEMENT']];
+        $truncate = [$this->names->triggerName($index, $watch, '_trn') => ['timing' => 'AFTER TRUNCATE', 'for' => 'FOR EACH STATEMENT', 'type' => 32, 'old' => null, 'new' => null]];
         if ($index->triggerLevel === TriggerLevel::Row) {
-            return [$this->names->triggerName($index, $watch) => ['timing' => 'AFTER INSERT OR UPDATE OR DELETE', 'for' => 'FOR EACH ROW']] + $truncate;
+            return [$this->names->triggerName($index, $watch) => ['timing' => 'AFTER INSERT OR UPDATE OR DELETE', 'for' => 'FOR EACH ROW', 'type' => 29, 'old' => null, 'new' => null]] + $truncate;
         }
 
         // Transition tables require one trigger per event.
         return [
-            $this->names->triggerName($index, $watch, '_ins') => ['timing' => 'AFTER INSERT', 'for' => 'REFERENCING NEW TABLE AS fz_new FOR EACH STATEMENT'],
-            $this->names->triggerName($index, $watch, '_upd') => ['timing' => 'AFTER UPDATE', 'for' => 'REFERENCING OLD TABLE AS fz_old NEW TABLE AS fz_new FOR EACH STATEMENT'],
-            $this->names->triggerName($index, $watch, '_del') => ['timing' => 'AFTER DELETE', 'for' => 'REFERENCING OLD TABLE AS fz_old FOR EACH STATEMENT'],
+            $this->names->triggerName($index, $watch, '_ins') => ['timing' => 'AFTER INSERT', 'for' => 'REFERENCING NEW TABLE AS fz_new FOR EACH STATEMENT', 'type' => 4, 'old' => null, 'new' => 'fz_new'],
+            $this->names->triggerName($index, $watch, '_upd') => ['timing' => 'AFTER UPDATE', 'for' => 'REFERENCING OLD TABLE AS fz_old NEW TABLE AS fz_new FOR EACH STATEMENT', 'type' => 16, 'old' => 'fz_old', 'new' => 'fz_new'],
+            $this->names->triggerName($index, $watch, '_del') => ['timing' => 'AFTER DELETE', 'for' => 'REFERENCING OLD TABLE AS fz_old FOR EACH STATEMENT', 'type' => 8, 'old' => 'fz_old', 'new' => null],
         ] + $truncate;
     }
 
@@ -661,7 +682,7 @@ ON CONFLICT (index_name) DO UPDATE SET layout_version = EXCLUDED.layout_version,
         $base = $this->names->legacySyncFunctionName($index, $watch);
         $statements = [];
         foreach (['', '_ins', '_upd', '_del', '_trn'] as $suffix) {
-            $statements[] = new Statement(sprintf('DROP TRIGGER IF EXISTS %s ON %s', Sql::ident($suffix === '' ? $base : Names::limit($base . $suffix)), Sql::ident($watch->table)), 'Remove the trigger of the unhashed sync function name of an earlier release');
+            $statements[] = new Statement(Guard::dropTrigger($suffix === '' ? $base : Names::limit($base . $suffix), Sql::ident($watch->table)), 'Remove the trigger of the unhashed sync function name of an earlier release');
         }
         $statements[] = new Statement(sprintf(
             <<<'SQL'
@@ -715,13 +736,14 @@ ON CONFLICT (index_name) DO UPDATE SET layout_version = EXCLUDED.layout_version,
         if ($create) {
             $loops[] = sprintf(
                 <<<'SQL'
-                    FOR r IN SELECT n.nspname, c.relname FROM pg_partition_tree(to_regclass(%1$s)) AS t JOIN pg_class AS c ON c.oid = t.relid JOIN pg_namespace AS n ON n.oid = c.relnamespace WHERE t.level > 0 LOOP
+                    FOR r IN SELECT n.nspname, c.relname FROM pg_partition_tree(to_regclass(%1$s)) AS t JOIN pg_class AS c ON c.oid = t.relid JOIN pg_namespace AS n ON n.oid = c.relnamespace WHERE t.level > 0 AND NOT EXISTS (SELECT 1 FROM pg_trigger AS g WHERE g.tgrelid = t.relid AND g.tgname = %2$s AND g.tgfoid = to_regprocedure(%4$s) AND g.tgenabled = 'O') LOOP
                             EXECUTE format('CREATE OR REPLACE TRIGGER %%I AFTER TRUNCATE ON %%I.%%I FOR EACH STATEMENT EXECUTE FUNCTION %%s()', %2$s, r.nspname, r.relname, %3$s);
                         END LOOP;
                     SQL,
                 $table,
                 $trigger,
                 Sql::string($function),
+                Sql::string($function . '()'),
             );
         }
 
