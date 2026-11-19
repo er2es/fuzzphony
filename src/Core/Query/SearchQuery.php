@@ -24,6 +24,7 @@ final readonly class SearchQuery
      * @param list<string>|null    $allowedFields      field names the search is limited to; null = every field
      * @param list<string>|null    $returning          returnable source columns to return with the hits; null = none, [] = all
      * @param list<string>         $manyMatchFields    many fields (rank: best) the manyMatch mode applies to; [] = every visible one
+     * @param list<string>|null    $kinds              the kinds of a multi-source index the search is limited to; null = every kind
      */
     public function __construct(
         public string $text = '',
@@ -58,6 +59,8 @@ final readonly class SearchQuery
         public ManyMatch $manyMatch = ManyMatch::Any,
         /** The many fields manyMatch() names; [] = every one the viewer may search. */
         public array $manyMatchFields = [],
+        /** The kinds a multi-source index search is limited to (SearchBuilder::kinds()); null = every kind. */
+        public ?array $kinds = null,
     ) {
         if ($facetValues < 1 || $facetValues > 100) {
             throw new \Fuzzphony\Core\Exception\InvalidQuery(sprintf('Facet values must be between 1 and 100, got %d.', $facetValues));
@@ -140,6 +143,12 @@ final readonly class SearchQuery
     public function returning(array $fields): self
     {
         return $this->copy(returning: $fields);
+    }
+
+    /** @param list<string> $kinds */
+    public function withKinds(array $kinds): self
+    {
+        return $this->copy(kinds: $kinds);
     }
 
     public function profile(string $profile): self
@@ -231,6 +240,7 @@ final readonly class SearchQuery
         $returning = array_key_exists('returning', $changes) ? self::stringList($changes['returning']) : $this->returning;
         $manyMatch = $changes['manyMatch'] ?? null;
         $manyMatchFields = $changes['manyMatchFields'] ?? null;
+        $kinds = array_key_exists('kinds', $changes) ? self::stringList($changes['kinds']) : $this->kinds;
 
         return new self(
             text: is_string($text) ? $text : $this->text,
@@ -254,6 +264,7 @@ final readonly class SearchQuery
             returning: $returning,
             manyMatch: $manyMatch instanceof ManyMatch ? $manyMatch : $this->manyMatch,
             manyMatchFields: self::stringList($manyMatchFields) ?? $this->manyMatchFields,
+            kinds: $kinds,
         );
     }
 
