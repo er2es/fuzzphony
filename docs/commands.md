@@ -33,10 +33,8 @@ every indexed document). Both explain what will happen and ask for confirmation
 (default **no**); `--force` skips the question, and is required to run either non-interactively
 (`--no-interaction`) -- without it they refuse with exit code 1.
 
-Short options (`-b` batch, `-f` facet or format, `-i` index, `-l` limit or language, `-p` rank profile, `-t` time limit, `-w` where
-or write) mean different things in different commands: `-l` is the limit in `fuzzphony:search` and `fuzzphony:analytics` and the language in
-`fuzzphony:wizard`; `-f` is a facet in `fuzzphony:search` and the format in `fuzzphony:wizard`; `-w` is a filter in `fuzzphony:search` and the
-output file in `fuzzphony:wizard`. Use the long names in scripts; the short ones are settled in the API round before 1.0.
+Short options mean the same in every command that has them: `-b` batch, `-f` facet, `-i` index, `-k` kind, `-l` limit, `-p` rank profile,
+`-t` time limit, `-w` where. `fuzzphony:wizard` has long names only (`--language`, `--format`, `--write`).
 
 ## The doctor
 

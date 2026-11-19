@@ -612,7 +612,7 @@
             "dist": {
                 "type": "path",
                 "url": "..",
-                "reference": "c1252008c020078df5d50522c8a24ec61ba776d2"
+                "reference": "657677860dfe5fed04b8b6866fcd64a314311b8a"
             },
             "require": {
                 "ext-mbstring": "*",

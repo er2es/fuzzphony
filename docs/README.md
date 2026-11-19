@@ -59,7 +59,7 @@ If you read in order: the README (install and quick start), then [Index definiti
 - [Design decisions (ADRs)](adr/): why is it built this way (sidecar table, queue sync by default, candidate limit,
   shadow rebuild and more)?
 - [Grafana dashboard](grafana/README.md): a sample dashboard for the Prometheus metrics.
-- [Roadmap](roadmap.md): what did each version ship, and what is planned for 1.0?
+- [Roadmap](roadmap.md): what did each version ship, and what comes after 1.0?
 
 ## Operations
 

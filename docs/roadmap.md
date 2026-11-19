@@ -1,6 +1,6 @@
 # Roadmap
 
-What comes next, up to 1.0. No dates are promised. Back to the [README](../README.md). What each release shipped is in the
+What is done and what may come next. No dates are promised. Back to the [README](../README.md). What each release shipped is in the
 [CHANGELOG](../CHANGELOG.md); what to change when upgrading is in [UPGRADE.md](../UPGRADE.md).
 
 ## Done
@@ -17,17 +17,7 @@ What comes next, up to 1.0. No dates are promised. Back to the [README](../READM
   typed ids, a smaller public API ([list](architecture.md#public-api)), cleaned-up names, grouped thresholds, a mandatory `schema --apply`.
 - **0.11 to 0.12:** several indexes per entity (`#[AsIndexDefinition]`), multi-source indexes, `many: { rank: best }`, `same_row_as`, a smaller sidecar,
   `DefinitionProvider`, tested doc samples, review fixes, typo hits ranked by the likeliest word, a code prefix rescue, a shorter and tidier code base, a `kinds()` filter and a repeatable `#[Searchable]`, a schema apply that is safe under load and in parallel, and no code for installs of earlier releases (0.12.9).
-
-## Next
-
-- v1.0.0 (no release candidate): the code of 0.12.9, with the version and the status line changed.
-- Idea, not decided: a smaller sidecar (leave out the `t_*` and `z_*` columns an index never needs), only where exactness and speed stay.
-
-### v1.0.0: stable
-
-A stable API and a backward-compatibility promise. PostgreSQL only: no other engine is planned before 1.0. The documentation stays on GitHub
-(rendered Markdown): the [index](README.md), the "[Migrating from `LIKE`](migrating-from-like.md)" guide and recipes ([admin panel](recipes/admin-panel.md),
-[shop](recipes/shop.md), [multi-tenant SaaS](recipes/multi-tenant-saas.md)), all with tested code, and a link check in CI.
+- **1.0:** the stable API and the backward-compatibility promise ([policy](../CONTRIBUTING.md#backward-compatibility)); PostgreSQL only; the documentation stays on GitHub (rendered Markdown): the [index](README.md), the "[Migrating from `LIKE`](migrating-from-like.md)" guide and recipes ([admin panel](recipes/admin-panel.md), [shop](recipes/shop.md), [multi-tenant SaaS](recipes/multi-tenant-saas.md)), all with tested code, and a link check in CI.
 
 ## After 1.0
 
