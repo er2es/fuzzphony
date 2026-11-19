@@ -24,6 +24,7 @@ $index = ConcurrentApplyTest::index($sync);
 $engine = new PostgresEngine($connection, 'public', $schema, searchLog: true);
 $fuzzphony = new Fuzzphony\Core\Fuzzphony($engine, new Fuzzphony\Core\Registry\IndexRegistry([$index]));
 $count = 0;
+$base = 10000 + random_int(1, 1_000_000) * 1000;
 $errors = [];
 $until = microtime(true) + $seconds;
 // wait for the go file, so the processes start together
@@ -43,7 +44,7 @@ try {
                     $fuzzphony->reindex('products');
                     break;
                 case 'write':
-                    $id = 10000 + getmypid() * 1000 + $count;
+                    $id = $base + $count;
                     $connection->execute("INSERT INTO fz_product VALUES (:id, 'Zebrafish lamp', 'aquarium', 1, 10, true, 1, now())", ['id' => $id]);
                     $connection->execute("UPDATE fz_product SET name = 'Zebrafish lamp ' || :n WHERE id = :id", ['id' => $id, 'n' => (string) $count]);
                     if ($count % 3 === 0) {

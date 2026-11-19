@@ -22,6 +22,7 @@ use PHPUnit\Framework\TestCase;
 final class TransactionPoolerTest extends TestCase
 {
     private Connection $c;
+    private int $discards = 0;
 
     protected function setUp(): void
     {
@@ -32,17 +33,18 @@ final class TransactionPoolerTest extends TestCase
     private function pooled(): Connection
     {
         $inner = $this->c;
+        $counted = function (): void {
+            ++$this->discards;
+        };
 
-        return new class ($inner) implements Connection {
-            public int $discards = 0;
-
-            public function __construct(private readonly Connection $inner) {}
+        return new class ($inner, $counted) implements Connection {
+            public function __construct(private readonly Connection $inner, private readonly \Closure $counted) {}
 
             private function reset(): void
             {
                 if (!$this->inner->inTransaction()) {
                     $this->inner->execute('DISCARD ALL');
-                    ++$this->discards;
+                    ($this->counted)();
                 }
             }
 
@@ -119,7 +121,7 @@ final class TransactionPoolerTest extends TestCase
         self::assertSame([900], $f->in('products')->query('zebrafish')->get()->ids());
         self::assertContains(3, $f->in('products')->query('headphnoes')->get()->ids());
         self::assertSame([], Harness::problems($f, 'products'));
-        self::assertGreaterThan(20, $pooled->discards);
+        self::assertGreaterThan(20, $this->discards);
     }
 
     public function testAMultiSourceAndAReturnableIndexApplyBehindAPooler(): void
@@ -138,7 +140,7 @@ final class TransactionPoolerTest extends TestCase
         $f->reindex('site', new \Fuzzphony\Core\Sync\ReindexOptions(inPlace: true));
         $f->reindex('products', new \Fuzzphony\Core\Sync\ReindexOptions(inPlace: true));
         self::assertSame([], Harness::problems($f, 'site'));
-        self::assertStringContainsStringIgnoringCase('mouse', (string) ($f->in('products')->query('mouse')->with('name')->get()->hits[0]->data['name'] ?? ''));
+        self::assertStringContainsStringIgnoringCase('mouse', \Fuzzphony\Core\Support\Coerce::str($f->in('products')->query('mouse')->with('name')->get()->hits[0]->data['name'] ?? ''));
     }
 
     public function testTheDoctorStillFindsAnUnwatchedTableBehindAPooler(): void

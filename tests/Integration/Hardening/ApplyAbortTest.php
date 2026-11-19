@@ -123,7 +123,7 @@ final class ApplyAbortTest extends TestCase
         // a second connection terminates the apply's backend in the middle of its transaction (at the trigger on fz_brand)
         $waiting = new \Fuzzphony\Tests\Integration\InterceptingConnection($victim, execute: static function (string $sql) use ($killer, $pid): void {
             if (str_contains($sql, 'fz_brand') && str_contains($sql, 'TRIGGER')) {
-                $killer->execute(sprintf("DO \$\$ BEGIN PERFORM pg_terminate_backend(%d); END \$\$", (int) $pid));
+                $killer->execute(sprintf("DO \$\$ BEGIN PERFORM pg_terminate_backend(%d); END \$\$", \Fuzzphony\Core\Support\Coerce::int($pid)));
             }
         });
         try {

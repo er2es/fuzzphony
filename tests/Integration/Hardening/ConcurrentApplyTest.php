@@ -70,7 +70,7 @@ final class ConcurrentApplyTest extends TestCase
         foreach ($children as [$process, $out]) {
             $text = (string) stream_get_contents($out);
             proc_close($process);
-            $lines = array_values(array_filter(explode("\n", trim($text))));
+            $lines = array_values(array_filter(explode("\n", trim($text)), static fn(string $l): bool => $l !== ''));
             $decoded = json_decode((string) end($lines), true);
             self::assertIsArray($decoded, 'child output: ' . $text);
             $results[] = ['ok' => (bool) $decoded['ok'], 'error' => Coerce::str($decoded['error']), 'errors' => Coerce::int($decoded['errors']), 'count' => Coerce::int($decoded['count'])];
