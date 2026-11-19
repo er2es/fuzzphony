@@ -789,6 +789,8 @@ ON CONFLICT (index_name) DO UPDATE SET layout_version = EXCLUDED.layout_version,
         $table = $shadow ? $this->names->shadow($index) : $this->names->sidecar($index);
         $columns = ['id', 'tsv', self::CAPPED_COLUMN, 'fz', 'exact'];
         // the joined vector is computed once (the lateral subquery below) and read twice: it is the column, and the flag is made from it
+        // and so is each field's vector and each fuzzy field's normalised text (v.fv<n>, v.nz<n>): PostgreSQL computes an expression
+        // as often as it is written, and stemming is most of what a refresh costs
         $values = ['doc.fz_id', 'v.fz_tsv', self::cappedExpression('v.fz_tsv'), $this->fuzzyExpression($index), $this->exactExpression($index)];
         if ($index->isMultiSource()) {
             array_splice($columns, 1, 0, ['kind', 'src_id']);
@@ -799,10 +801,10 @@ ON CONFLICT (index_name) DO UPDATE SET layout_version = EXCLUDED.layout_version,
         $shared = $this->names->sharedColumns($index);
         foreach ($index->fields as $field) {
             $columns[] = $this->names->fieldVectorName($field->name);
-            $values[] = isset($shared[$this->names->fieldVectorName($field->name)]) ? "''::tsvector" : $this->fieldVectorExpression($index, $field);
+            $values[] = isset($shared[$this->names->fieldVectorName($field->name)]) ? "''::tsvector" : self::fieldVectorRef($index, $field);
             if ($field->fuzzy) {
                 $columns[] = $this->names->fieldFuzzyName($field->name);
-                $values[] = isset($shared[$this->names->fieldFuzzyName($field->name)]) ? "''" : sprintf("coalesce(%s, '')", $this->fieldFuzzyExpression($field));
+                $values[] = isset($shared[$this->names->fieldFuzzyName($field->name)]) ? "''" : sprintf("coalesce(%s, '')", self::fieldFuzzyRef($index, $field));
             }
         }
         $map = $this->names->fieldMap($index);
@@ -856,7 +858,7 @@ ON CONFLICT (index_name) DO UPDATE SET layout_version = EXCLUDED.layout_version,
                     SELECT DISTINCT ON (doc.fz_id)
                         %5$s
                     FROM (%6$s) AS doc
-                    CROSS JOIN LATERAL (SELECT %10$s AS fz_tsv OFFSET 0) AS v
+                    CROSS JOIN LATERAL (SELECT f.*, %10$s AS fz_tsv FROM (SELECT %12$s OFFSET 0) AS f OFFSET 0) AS v
                     WHERE doc.fz_id = ANY(p_ids)
                     ORDER BY doc.fz_id
                     ON CONFLICT (id) DO UPDATE SET
@@ -890,6 +892,7 @@ ON CONFLICT (index_name) DO UPDATE SET layout_version = EXCLUDED.layout_version,
             ),
             $this->tsvectorExpression($index),
             $index->manyFields() === [] ? '' : $this->valuesRefresh($index, $table),
+            $this->fieldExpressions($index),
         );
     }
 
@@ -1452,10 +1455,44 @@ ON CONFLICT (index_name) DO UPDATE SET layout_version = EXCLUDED.layout_version,
 
     private function tsvectorExpression(IndexDefinition $index): string
     {
-        return implode("\n            || ", array_map(
-            fn(FieldDefinition $field): string => $this->fieldVectorExpression($index, $field),
+        return implode(' || ', array_map(
+            static fn(FieldDefinition $field): string => 'f.' . self::fieldVectorAlias($index, $field),
             $index->fields,
         ));
+    }
+
+    /** The refresh's per-row values, computed once: each field's vector (fv<n>) and each fuzzy field's normalised text (nz<n>). */
+    private function fieldExpressions(IndexDefinition $index): string
+    {
+        $expressions = [];
+        foreach ($index->fields as $field) {
+            $expressions[] = sprintf('%s AS %s', $this->fieldVectorExpression($index, $field), self::fieldVectorAlias($index, $field));
+        }
+        foreach ($index->fuzzyFields() as $field) {
+            $expressions[] = sprintf('%s AS %s', $this->fieldFuzzyExpression($field), self::fieldFuzzyAlias($index, $field));
+        }
+
+        return implode(",\n            ", $expressions);
+    }
+
+    private static function fieldVectorAlias(IndexDefinition $index, FieldDefinition $field): string
+    {
+        return 'fv' . (int) array_search($field, $index->fields, true);
+    }
+
+    private static function fieldFuzzyAlias(IndexDefinition $index, FieldDefinition $field): string
+    {
+        return 'nz' . (int) array_search($field, $index->fields, true);
+    }
+
+    private static function fieldVectorRef(IndexDefinition $index, FieldDefinition $field): string
+    {
+        return 'v.' . self::fieldVectorAlias($index, $field);
+    }
+
+    private static function fieldFuzzyRef(IndexDefinition $index, FieldDefinition $field): string
+    {
+        return 'v.' . self::fieldFuzzyAlias($index, $field);
     }
 
     /** One field's part of tsv, and its own t_<field> column. */
@@ -1494,7 +1531,7 @@ ON CONFLICT (index_name) DO UPDATE SET layout_version = EXCLUDED.layout_version,
             return "''";
         }
 
-        return sprintf("coalesce(concat_ws(' ', %s), '')", implode(', ', array_map($this->fieldFuzzyExpression(...), $fields)));
+        return sprintf("coalesce(concat_ws(' ', %s), '')", implode(', ', array_map(static fn(FieldDefinition $field): string => self::fieldFuzzyRef($index, $field), $fields)));
     }
 
     /** One fuzzy field's normalised text: its part of fz, and (coalesced) its own z_<field> column. */
@@ -1505,6 +1542,8 @@ ON CONFLICT (index_name) DO UPDATE SET layout_version = EXCLUDED.layout_version,
 
     private function exactExpression(IndexDefinition $index): string
     {
-        return sprintf("coalesce(%s(doc.%s::text), '')", $this->names->normFunction(), Sql::ident('fld_' . $index->primaryField()->name));
+        $primary = $index->primaryField();
+
+        return sprintf("coalesce(%s, '')", $primary->fuzzy ? self::fieldFuzzyRef($index, $primary) : $this->fieldFuzzyExpression($primary));
     }
 }

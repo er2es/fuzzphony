@@ -40,7 +40,7 @@ final class SchemaGeneratorTest extends TestCase
         self::assertStringNotContainsString('ADD COLUMN IF NOT EXISTS "tsv_capped"', $sql);
         self::assertStringContainsString('"tsv_capped" boolean', $sql, 'a new sidecar table has it');
         // the joined vector is built once, in a lateral subquery nothing can pull up, and the column and the flag both read it
-        self::assertStringContainsString('CROSS JOIN LATERAL (SELECT setweight(', $sql);
+        self::assertStringContainsString('CROSS JOIN LATERAL (SELECT f.*, f.fv0 || f.fv1 || f.fv2 AS fz_tsv FROM (SELECT setweight(', $sql);
         self::assertStringContainsString('OFFSET 0) AS v', $sql);
         self::assertStringContainsString("v.fz_tsv,
         EXISTS (SELECT 1 FROM unnest(v.fz_tsv) AS u(lexeme, positions, weights) WHERE cardinality(u.positions) >= 256 OR EXISTS (SELECT 1 FROM unnest(u.positions) AS p WHERE p >= 16383)),", $sql);
@@ -59,14 +59,16 @@ final class SchemaGeneratorTest extends TestCase
             $sql,
         );
         self::assertStringContainsString(
-            "setweight(to_tsvector('\"public\".\"fuzzphony_english\"'::regconfig, coalesce(doc.\"fld_brand\"::text, '')), 'B'),\n        coalesce(\"public\".\"fuzzphony_norm\"(doc.\"fld_brand\"::text), ''),\n        setweight(to_tsvector('\"public\".\"fuzzphony_english\"'::regconfig, coalesce(doc.\"fld_description\"::text, '')), 'D'),\n        'z_name=exact',\n        doc.fz_boost::double precision",
+            "v.fv1,\n        coalesce(v.nz1, ''),\n        v.fv2,\n        'z_name=exact',\n        doc.fz_boost::double precision",
             $sql,
             'each field its own weighted vector (the same as its part of tsv) and, when fuzzy, its normalised text',
         );
+        self::assertStringContainsString("setweight(to_tsvector('\"public\".\"fuzzphony_english\"'::regconfig, coalesce(doc.\"fld_brand\"::text, '')), 'B') AS fv1", $sql);
+        self::assertStringContainsString("\"public\".\"fuzzphony_norm\"(doc.\"fld_brand\"::text) AS nz1", $sql);
         self::assertStringContainsString('"t_brand" = EXCLUDED."t_brand"', $sql);
         self::assertStringContainsString('"z_brand" = EXCLUDED."z_brand"', $sql);
         // z_name holds what exact holds (name is the primary field): written empty, with the column map the readers check
-        self::assertStringContainsString("coalesce(\"public\".\"fuzzphony_norm\"(doc.\"fld_name\"::text), ''),\n        setweight(to_tsvector('\"public\".\"fuzzphony_english\"'::regconfig, coalesce(doc.\"fld_name\"::text, '')), 'A'),\n        '',\n        setweight(", $sql);
+        self::assertStringContainsString("coalesce(v.nz0, ''),\n        v.fv0,\n        '',\n        v.fv1", $sql);
         self::assertStringContainsString('"field_map" = EXCLUDED."field_map"', $sql, 'every write sets it: a row never keeps an older map');
     }
 
