@@ -5,6 +5,11 @@ Upgrading: `composer update`, then `bin/console fuzzphony:schema --apply`, `fuzz
 Before 1.0 a minor version may contain breaking changes. Each section lists what to change; the [CHANGELOG](CHANGELOG.md) has the full list.
 Restart long-running processes (workers, RoadRunner, FrankenPHP) after an apply: the engine looks some catalog facts up once per process.
 
+## From 0.12.x to 0.12.9
+
+Run `schema --apply`: it re-creates the functions with the pinned search path and revokes `EXECUTE` from `PUBLIC`. A role that calls them without
+the grants of `fuzzphony:schema --dump-grants` (a search or worker role that is not the owner) needs those grants first.
+
 ## From 0.12.x to 0.12.7
 
 The sync trigger functions have new names (a hash of the table): `schema --apply` migrates the old functions and triggers of 0.12.6 and earlier,

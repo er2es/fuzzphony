@@ -351,7 +351,7 @@ $result->didYouMean;   // "headphones -cable": the query with the word replaced,
 - The vocabulary is the words of the index's typo-tolerant fields and in how many documents each occurs. A full `fuzzphony:reindex` rebuilds it
   (`--vocabulary` rebuilds only it); single-document changes do not touch it, so it ages (the doctor reports only that it is missing or empty). The
   effect is mild: a new word is not "corrected" and cannot be suggested for a neighbouring misspelling. **Rebuild it on a schedule** (one pass over the
-  index, about 10 s for 500 000 documents, readers never blocked):
+  index, readers never blocked):
 
   ```
   # crontab: every night at 03:15

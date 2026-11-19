@@ -17,11 +17,11 @@ IndexDefinition::builder('termekek')->language('hungarian')     // builder
 language: hungarian     # YAML; add "unaccent: false" to keep accents significant
 ```
 
-The value is a PostgreSQL text search configuration. PostgreSQL 15+ ships 29: `arabic`,
+The value is a PostgreSQL text search configuration. PostgreSQL 15+ ships 29: the 28 languages with a Snowball stemmer, `arabic`,
 `armenian`, `basque`, `catalan`, `danish`, `dutch`, `english` (the default), `finnish`, `french`,
 `german`, `greek`, `hindi`, `hungarian`, `indonesian`, `irish`, `italian`, `lithuanian`, `nepali`,
 `norwegian`, `portuguese`, `romanian`, `russian`, `serbian`, `spanish`, `swedish`, `tamil`,
-`turkish`, `yiddish` (each with a Snowball stemmer), and `simple` (no stemming, no stop words: for
+`turkish`, `yiddish`, and `simple` (no stemming, no stop words: for
 codes, names or mixed-language text).
 
 ## What the language decides

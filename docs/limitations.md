@@ -106,7 +106,7 @@ candidates or in which order ([Security](security.md)). A search whose word has 
   matches in index order; a word with more matches is ranked among those only, so the document that would rank first can be missing when the word is
   that common (`wireless` has 100 005 matches on the 1 000 000-row benchmark catalogue and the five beyond the budget are not found). The budget counts
   work, not rows: it is divided by the number of words of the query (16 words scan the first 6 250 matches, never fewer than the candidates asked for), and
-  excluded words are not looked up for the rank. A one-word query costs about 1 microsecond per scanned match, up to 330 ms at 1 000 000 rows ([Benchmarks](benchmarks.md#common-words)).
+  excluded words are not looked up for the rank. A one-word query costs about 1 microsecond per scanned match, 290 ms for `wireless` (100 005 matches) at 1 000 000 rows ([Benchmarks](benchmarks.md#common-words)).
 - **A word under the limit costs what it did**; a word over it costs one more pass over its matches.
 - `relevance.min_score` keeps documents under it out of the candidate slots, so a query that needs it still finds its best documents.
 
@@ -259,7 +259,7 @@ is no doctor note either; tracking such events may come later.
 - `orm` sees only changes made through the entity manager: raw SQL writes, joined data and a `TRUNCATE` are not followed. `manual` follows nothing; call
   `refresh()` or `reindex()`.
 - `trigger` is read-your-writes, but the `TRUNCATE` of a watched table that is not the index's own table resyncs the whole index inside the truncating
-  transaction (42.8 s on 1 000 000 documents, holding an `ACCESS EXCLUSIVE` lock). Prefer `queue` for large indexes that watch joined tables.
+  transaction (about as long as a full reindex written in place, holding an `ACCESS EXCLUSIVE` lock). Prefer `queue` for large indexes that watch joined tables.
 
 See [Keeping the index in sync](sync.md).
 

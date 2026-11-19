@@ -124,7 +124,7 @@ In `trigger` and `queue` mode a `TRUNCATE` is followed by a separate statement-l
     ids and the other indexes as usual, and tries the job again after 1 minute, doubling up to 1 hour. `fuzzphony:worker --once` processes everything else
     and exits with code 1. The doctor's queue check warns "a full rebuild keeps failing" with the last error until a full run succeeds.
   - In `trigger` mode there is no worker to hand the job to: every indexed document, plus every document the source now returns, is resynced inside the
-    truncating transaction. On a 1M-document index that took 42.8 s, holding an `ACCESS EXCLUSIVE` lock on the truncated table and row locks on the index
+    truncating transaction. That takes about as long as a full reindex written in place, holding an `ACCESS EXCLUSIVE` lock on the truncated table and row locks on the index
     the whole time. Prefer `queue` mode for large indexes that watch joined tables, or truncate in a maintenance window.
 
 `orm` and `manual` mode never see a `TRUNCATE`: run `fuzzphony:reindex`.
