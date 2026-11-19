@@ -180,6 +180,7 @@ final class DidYouMeanTest extends TestCase
         $this->connection->execute(sprintf('CREATE ROLE %s', $role));
         try {
             $this->connection->execute(sprintf('GRANT SELECT ON fuzzphony_products TO %s', $role));
+            $this->connection->execute(sprintf('GRANT EXECUTE ON FUNCTION fuzzphony_norm(text) TO %s', $role)); // not PUBLIC's (roles.md)
             $this->connection->execute(sprintf('SET ROLE %s', $role));
             try {
                 $result = $fuzzphony->in('products')->query('mouse')->get();
