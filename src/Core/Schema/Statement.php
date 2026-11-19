@@ -25,5 +25,10 @@ final readonly class Statement
         public ?string $skipIf = null,
         /** A query that returns true while the statement has to wait (another session builds an index on the same table); polled before it runs. */
         public ?string $waitWhile = null,
+        /**
+         * A statement with `forEach` run after the wait and before `skipIf` (an index a build cancelled while this one waited
+         * left INVALID: dropped, so this statement builds it again). Its failures are not warnings: the statement fails.
+         */
+        public ?self $repair = null,
     ) {}
 }

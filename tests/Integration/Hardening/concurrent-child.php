@@ -6,7 +6,7 @@ declare(strict_types=1);
  * A second PHP process for ConcurrentApplyTest: runs one action against FUZZPHONY_TEST_DSN until it is done (or for the given
  * seconds) and prints one line of JSON: {"ok": bool, "error": string, "count": int}.
  *
- * Usage: php concurrent-child.php <apply|reindex|write|drain> <sync> <schema> [seconds]
+ * Usage: php concurrent-child.php <apply|reindex|write|drain|sql> <sync> <schema> [seconds]   (sql: runs FZ_SQL once)
  */
 
 use Fuzzphony\Core\Database\PdoConnection;
@@ -51,6 +51,9 @@ try {
                         $connection->execute('DELETE FROM fz_product WHERE id = :id', ['id' => $id]);
                     }
                     break;
+                case 'sql':
+                    $connection->execute((string) getenv('FZ_SQL'));
+                    break;
                 case 'drain':
                     (new Worker($engine))->runOnce([$index]);
                     usleep(20000);
@@ -65,7 +68,7 @@ try {
                 $message .= ' | ' . $p->getMessage();
             }
             $errors[] = $message;
-            if ($action === 'apply' || $action === 'reindex') {
+            if ($action === 'apply' || $action === 'reindex' || $action === 'sql') {
                 break;
             }
             usleep(20000);

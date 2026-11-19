@@ -7,6 +7,7 @@ namespace Fuzzphony\Core\Schema;
 use Fuzzphony\Core\Database\Connection;
 use Fuzzphony\Core\Exception\EngineFailure;
 use Fuzzphony\Core\Support\Coerce;
+use Fuzzphony\Core\Support\ErrorSummary;
 
 /** Ordered DDL. Idempotent: every statement can be re-run safely. */
 final readonly class SchemaPlan
@@ -59,27 +60,53 @@ final readonly class SchemaPlan
         return $warnings;
     }
 
+    /** How often a statement with a wait is tried again after it lost a deadlock (two concurrent builds on one table). */
+    private const int DEADLOCK_RETRIES = 5;
+
     private static function run(Connection $connection, Statement $statement, ?callable $onStatement): void
     {
         if ($onStatement !== null) {
             $onStatement($statement);
         }
-        try {
-            while ($statement->waitWhile !== null && $connection->fetchValue($statement->waitWhile) === true) {
-                usleep(100_000); // short statements: a long-running wait would hold a snapshot the other build waits for
-            }
-            if ($statement->skipIf !== null && $connection->fetchValue($statement->skipIf) === true) {
+        for ($attempt = 0; ; ++$attempt) {
+            try {
+                self::attempt($connection, $statement);
+
                 return;
+            } catch (\Throwable $e) {
+                // the wait is a poll: another apply can start its build between our poll and our build, and one of the two
+                // concurrent builds is cancelled as a deadlock. The victim waits again, drops the index it left INVALID and checks
+                // whether the other apply built it meanwhile.
+                if ($statement->waitWhile !== null && $attempt < self::DEADLOCK_RETRIES && ErrorSummary::sqlState($e) === '40P01') {
+                    usleep(20_000 * ($attempt + 1) + random_int(0, 30_000));
+
+                    continue;
+                }
+
+                throw EngineFailure::wrap(
+                    sprintf('schema statement "%s"', $statement->description),
+                    $e,
+                    'Review the SQL with "bin/console fuzzphony:schema" (without --apply); every statement is safe to re-run.',
+                    driverMessage: true,
+                );
             }
-            $connection->execute($statement->sql);
-        } catch (\Throwable $e) {
-            throw EngineFailure::wrap(
-                sprintf('schema statement "%s"', $statement->description),
-                $e,
-                'Review the SQL with "bin/console fuzzphony:schema" (without --apply); every statement is safe to re-run.',
-                driverMessage: true,
-            );
         }
+    }
+
+    private static function attempt(Connection $connection, Statement $statement): void
+    {
+        while ($statement->waitWhile !== null && $connection->fetchValue($statement->waitWhile) === true) {
+            usleep(100_000); // short statements: a long-running wait would hold a snapshot the other build waits for
+        }
+        if ($statement->repair?->forEach !== null) {
+            foreach ($connection->fetchAll($statement->repair->forEach) as $row) {
+                $connection->execute(str_replace('{name}', Coerce::str($row['name']), $statement->repair->sql));
+            }
+        }
+        if ($statement->skipIf !== null && $connection->fetchValue($statement->skipIf) === true) {
+            return;
+        }
+        $connection->execute($statement->sql);
     }
 
     public function toSql(): string
