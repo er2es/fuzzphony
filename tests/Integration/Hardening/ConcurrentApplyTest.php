@@ -137,7 +137,7 @@ final class ConcurrentApplyTest extends TestCase
      */
     public function testThreeAppliesAtOnceNeverFailOnADeadlock(): void
     {
-        $rounds = (int) (getenv('FZ_STRESS_ROUNDS') ?: 10);
+        $rounds = getenv('FZ_STRESS_ROUNDS') === false ? 10 : (int) getenv('FZ_STRESS_ROUNDS');
         for ($round = 0; $round < $rounds; ++$round) {
             [$sync, $schema] = $round % 2 === 0 ? ['queue', 'public'] : ['trigger', 'fz_h_own'];
             $this->c = Harness::fresh();
