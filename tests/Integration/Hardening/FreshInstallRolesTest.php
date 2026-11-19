@@ -59,6 +59,7 @@ final class FreshInstallRolesTest extends TestCase
         }
         $this->c->execute('DROP SCHEMA IF EXISTS public CASCADE');
         $this->c->execute('CREATE SCHEMA public');
+        $this->c->execute('GRANT USAGE ON SCHEMA public TO PUBLIC'); // what a new database has: later tests run as other roles
         foreach ($this->roles as $role) {
             $this->dropRole($role);
         }
