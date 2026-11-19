@@ -21,15 +21,19 @@ What is done and what may come next. No dates are promised. Back to the [README]
 
 ## After 1.0
 
-Separate projects, in their own repositories:
+Ideas for the library, none decided:
 
 - Source `watch` keys that are an expression or several columns, and one composite id per document (today: one plain column, one id column).
 - A text search configuration per field (stemming in more than one language in one index).
 - A value boundary in a `many` field's vector, so a phrase cannot match across two values (it changes ranking and the index: needs a differential proof; `manyMatch('single')` covers it today).
+- Hybrid (lexical and semantic) search with pgvector.
+
+Separate projects, in their own repositories:
+
 - Record linkage (`fuzzphony/record-linkage`): probabilistic matching of people and companies with explainable match scores.
 - A Laravel Scout driver over the same PostgreSQL engine.
-- Hybrid (lexical and semantic) search with pgvector.
-- A Prometheus and Grafana stack next to the demo, so the Prometheus collector and the dashboard are shown working end to end.
+
+And next to the demo: a Prometheus and Grafana stack, so the Prometheus collector and the dashboard are shown working end to end.
 
 ## Mutation testing
 
