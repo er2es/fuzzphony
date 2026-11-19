@@ -11,6 +11,10 @@ and a link. Measurements, proofs and test names belong to the pull request, [doc
 
 ## [Unreleased]
 
+### Documentation
+
+- Claim pass: the README's speed and size line now states the measured figures (warm search times, 342 MB sidecar for 500 000 products) instead of "a part of the table", the tenant filter claim says "every search made through the library", and `docs/searching.md`, `docs/sync.md` and the three recipes were checked against the code (no other change needed).
+
 ## [0.12.8] - 2026-11-15
 
 ### Added

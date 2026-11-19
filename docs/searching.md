@@ -397,7 +397,7 @@ Show it as a bar ("Showing results for mouse", with a link that searches the typ
 
 ## Search-as-you-type
 
-Three things make a search box feel instant, and each is its own call. The library gives you the data and the matching; the dropdown is **your template**:
+Three things make a search box answer while the visitor types, and each is its own call. The library gives you the data and the matching; the dropdown is **your template**:
 
 | What the visitor sees | The call (backend) | What you build (frontend) |
 |---|---|---|
