@@ -14,6 +14,7 @@
 [![PostgreSQL 15 | 16 | 17 | 18](https://img.shields.io/badge/PostgreSQL-15%20%7C%2016%20%7C%2017%20%7C%2018-336791?logo=postgresql&logoColor=white)](https://github.com/er2es/fuzzphony/blob/main/.github/workflows/ci.yml)
 [![Symfony 7.4 LTS | 8.1](https://img.shields.io/badge/Symfony-7.4%20LTS%20%7C%208.1-000000?logo=symfony)](https://github.com/er2es/fuzzphony/blob/main/.github/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://github.com/er2es/fuzzphony/blob/main/LICENSE)
+![Anthropic CVP](https://img.shields.io/badge/Anthropic_CVP-Defense_Access_Verified-D97757?style=flat-square&logo=anthropic&logoColor=white)
 
 **Fuzzy search, in perfect harmony with your database.**
 
