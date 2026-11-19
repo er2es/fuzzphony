@@ -28,6 +28,9 @@ final class ErpController extends AbstractController
 
     private const array MODES = ['both' => 'Side by side', 'site' => 'One multi-source index', 'federated' => 'Federated search'];
 
+    /** The kind filter of the `site` panel: query value => [source name of the index, label]. */
+    public const array SITE_KINDS = ['people' => ['person', 'people'], 'companies' => ['company', 'companies'], 'orders' => ['order', 'orders']];
+
     /** The federated search of the combined box: index => [weight, floor]. */
     public const array FEDERATION = ['people' => [1.0, 2], 'companies' => [1.2, 2], 'orders' => [0.8, 1]];
 
@@ -40,7 +43,7 @@ final class ErpController extends AbstractController
         }
         $q = mb_substr(trim((string) $request->query->get('q', '')), 0, self::MAX_QUERY);
         $live = $request->headers->get('X-Requested-With') === 'fetch';
-        $data = ['tab' => $tab, 'q' => $q, 'tabs' => Erp::TABS, 'error' => null, 'result' => null, 'hits' => [], 'site' => null, 'federated' => null, 'mode' => 'both'];
+        $data = ['tab' => $tab, 'q' => $q, 'tabs' => Erp::TABS, 'error' => null, 'result' => null, 'hits' => [], 'site' => null, 'federated' => null, 'mode' => 'both', 'kind' => '', 'siteKinds' => []];
 
         try {
             if (isset(Erp::TABS[$tab])) {
@@ -48,7 +51,9 @@ final class ErpController extends AbstractController
             } elseif ($tab === 'combined') {
                 $mode = (string) $request->query->get('mode', 'both');
                 $data['mode'] = isset(self::MODES[$mode]) ? $mode : 'both';
-                $data = [...$data, ...$this->combined($fuzzphony, $q, $data['mode']), 'modes' => self::MODES, 'federation' => self::FEDERATION, 'examples' => Erp::COMBINED_EXAMPLES];
+                $kind = (string) $request->query->get('kind', '');
+                $data['kind'] = isset(self::SITE_KINDS[$kind]) ? $kind : '';
+                $data = [...$data, ...$this->combined($fuzzphony, $q, $data['mode'], $data['kind']), 'siteKinds' => self::SITE_KINDS, 'modes' => self::MODES, 'federation' => self::FEDERATION, 'examples' => Erp::COMBINED_EXAMPLES];
             }
         } catch (FuzzphonyException $e) {
             $data['error'] = $e->getMessage();
@@ -124,12 +129,13 @@ final class ErpController extends AbstractController
      *
      * @return array{site: \Fuzzphony\Core\Search\SearchResult|null, federated: \Fuzzphony\Core\Search\FederatedResult|null}
      */
-    private function combined(Fuzzphony $fuzzphony, string $q, string $mode): array
+    private function combined(Fuzzphony $fuzzphony, string $q, string $mode, string $kind = ''): array
     {
         $site = $federated = null;
         if ($q !== '') {
             if ($mode !== 'federated') {
-                $site = $fuzzphony->in('site')->asSystem()->query($q)->asYouType()->with()->explainMatches()->limit(12)->unlogged()->get();
+                $search = $fuzzphony->in('site')->asSystem()->query($q)->asYouType()->with()->explainMatches()->limit(12)->unlogged();
+                $site = ($kind !== '' ? $search->kinds(self::SITE_KINDS[$kind][0]) : $search)->get();
             }
             if ($mode !== 'site') {
                 $search = $fuzzphony->federated()->asSystem()->query($q)->limit(12)->unlogged();
