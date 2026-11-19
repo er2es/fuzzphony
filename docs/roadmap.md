@@ -28,7 +28,7 @@ Ideas for the library, none decided:
 - A value boundary in a `many` field's vector, so a phrase cannot match across two values (it changes ranking and the index: needs a differential proof; `manyMatch('single')` covers it today).
 - Hybrid (lexical and semantic) search with pgvector.
 
-Separate projects, in their own repositories:
+Planned as separate packages, each with its own repository (not part of this one):
 
 - Record linkage (`fuzzphony/record-linkage`): probabilistic matching of people and companies with explainable match scores.
 - A Laravel Scout driver over the same PostgreSQL engine.
