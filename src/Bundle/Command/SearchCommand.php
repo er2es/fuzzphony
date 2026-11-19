@@ -39,6 +39,7 @@ final class SearchCommand extends Command
             // "--profile" as a global run-profiling flag) already reserves that name and throws
             // "An option named 'profile' already exists" the moment this command actually runs
             // through a real FrameworkBundle console app (a bare CommandTester never surfaces it).
+            ->addOption('kind', 'k', InputOption::VALUE_REQUIRED | InputOption::VALUE_IS_ARRAY, 'On a multi-source index: only these kinds, e.g. -k person -k order')
             ->addOption('rank-profile', 'p', InputOption::VALUE_REQUIRED, 'Ranking profile', 'default')
             ->addOption('limit', 'l', InputOption::VALUE_REQUIRED, 'Hits to show', '10')
             ->addOption('threshold', null, InputOption::VALUE_REQUIRED | InputOption::VALUE_IS_ARRAY, 'Override a threshold as group.key=value, e.g. --threshold typo.mode=always (groups: relevance, typo, rescue, limits)')
@@ -97,6 +98,10 @@ final class SearchCommand extends Command
                     default => $m[3],
                 };
                 $search = $search->where($m[1], $m[2], $value);
+            }
+            $kinds = array_map(Coerce::str(...), (array) $input->getOption('kind'));
+            if ($kinds !== []) {
+                $search = $search->kinds(...$kinds);
             }
             $overrides = $groups = [];
             foreach ((array) $input->getOption('threshold') as $pair) {

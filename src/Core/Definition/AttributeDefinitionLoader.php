@@ -24,14 +24,52 @@ final readonly class AttributeDefinitionLoader
     /** @param class-string $class */
     public function load(string $class): IndexDefinition
     {
+        return $this->loadAll($class)[0];
+    }
+
+    /**
+     * One definition per #[Searchable] of the class (the attribute is repeatable): from the second on, each carries a `name` of its own.
+     *
+     * @param class-string $class
+     *
+     * @return non-empty-list<IndexDefinition>
+     */
+    public function loadAll(string $class): array
+    {
         $reflection = new \ReflectionClass($class);
         $attributes = $reflection->getAttributes(Searchable::class);
         if ($attributes === []) {
             throw new InvalidDefinition($class, [sprintf('Class %s has no #[Searchable] attribute.', $class)]);
         }
-        $searchable = $attributes[0]->newInstance();
-        $name = $searchable->name ?? Identifier::snake($reflection->getShortName()) . 's';
+        $searchables = [];
+        $names = [];
+        foreach ($attributes as $position => $attribute) {
+            $searchable = $attribute->newInstance();
+            $name = $searchable->name ?? Identifier::snake($reflection->getShortName()) . 's';
+            if ($position > 0 && $searchable->name === null) {
+                throw new InvalidDefinition($name, [sprintf('Class %s repeats #[Searchable]: every one after the first needs its own `name` (the first one is "%s").', $class, array_key_first($names))]);
+            }
+            if (isset($names[$name])) {
+                throw new InvalidDefinition($name, [sprintf('Class %s has two #[Searchable] named "%s" (attributes %d and %d): give each its own `name`.', $class, $name, $names[$name], $position + 1)]);
+            }
+            $names[$name] = $position + 1;
+            $searchables[$name] = $searchable;
+        }
 
+        $definitions = [];
+        foreach ($searchables as $name => $searchable) {
+            $definitions[] = $this->build($class, $reflection, $searchable, $name);
+        }
+
+        return $definitions;
+    }
+
+    /**
+     * @param class-string     $class
+     * @param \ReflectionClass<object> $reflection
+     */
+    private function build(string $class, \ReflectionClass $reflection, Searchable $searchable, string $name): IndexDefinition
+    {
         $builder = IndexDefinition::builder($name)
             ->fromTable($searchable->table ?? $this->naming->table($class), $this->naming->idColumn($class))
             ->idType($this->naming->idType($class))

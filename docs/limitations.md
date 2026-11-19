@@ -280,7 +280,6 @@ things take more writing than with one entity per index.
 - **Overlapping indexes share the triggers of a table (`queue` sync).** A table has one set of four triggers and one change log whatever the number of
   indexes watching it ([Sync](sync.md#one-trigger-per-table-one-change-log)). `sync: trigger` and `trigger_level: row` keep four triggers per index and
   table and refresh every index inside the writing statement. For a hot table prefer `sync: queue` and `columns`.
-- **One `#[Searchable]` per class.** A second attribute is a PHP error: define further indexes over the same table in YAML or the builder, under another name.
 - **A federated search merges by rank only:** the best hit of each index comes first, whatever its score. Weight an index (`weight:`), or use one
   multi-source index when one common ranking matters more.
 - **A database that does not allow triggers follows nothing by itself:** `sync: queue` and `trigger` fail at `schema --apply` (permission denied) and
@@ -288,8 +287,6 @@ things take more writing than with one entity per index.
 
 ### Several sources in one index
 
-- **A query cannot be limited to some kinds** (there is no `kinds(...)` filter yet): filter on a column every source returns (a `kind` or `type` filter
-  you declare), or search a separate index.
 - **The stored key is text:** the sidecar key is `<kind>:<id>` (columns `kind` and `src_id` carry the parts), also for integer ids; `Hit::$id` is
   converted back with the source's `id_type`. Code that reads the sidecar table directly uses `kind` and `src_id`; `refresh('site', ['product:5'])` takes
   the key. There is no migration between the single and the multi-source layout (`schema --apply` then `reindex`).

@@ -11,6 +11,12 @@ and a link. Measurements, proofs and test names belong to the pull request, [doc
 
 ## [Unreleased]
 
+### Added
+
+- **`->kinds('person', 'order')` limits a multi-source search to some kinds** (hits, total, facets; also `fuzzphony:search -k person`). It changes
+  nothing for a search without it. See [Searching](docs/searching.md#limiting-a-multi-source-search-to-some-kinds).
+- **`#[Searchable]` is repeatable:** several indexes over one class, each with its own `name`. See [Configuration](docs/configuration.md#several-indexes).
+
 ### Documentation
 
 - Claim pass: the README's speed and size line now states the measured figures (warm search times, 342 MB sidecar for 500 000 products) instead of "a part of the table", the tenant filter claim says "every search made through the library", and `docs/searching.md`, `docs/sync.md` and the three recipes were checked against the code (no other change needed).

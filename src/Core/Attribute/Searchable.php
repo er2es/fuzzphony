@@ -8,12 +8,12 @@ use Fuzzphony\Core\Definition\SyncMode;
 use Fuzzphony\Core\Definition\TriggerLevel;
 
 /**
- * Marks a class as a search index. Everything has a sensible default:
+ * Marks a class as a search index (repeatable: several indexes over one class, each after the first with its own `name`). Everything has a sensible default:
  *
  *   #[Searchable]
  *   final class Product { #[SearchField('A', fuzzy: true)] public string $name; }
  */
-#[\Attribute(\Attribute::TARGET_CLASS)]
+#[\Attribute(\Attribute::TARGET_CLASS | \Attribute::IS_REPEATABLE)]
 final readonly class Searchable
 {
     public function __construct(

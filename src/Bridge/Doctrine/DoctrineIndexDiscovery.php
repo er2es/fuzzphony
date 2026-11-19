@@ -21,7 +21,7 @@ final readonly class DoctrineIndexDiscovery
         foreach ($this->entityManager->getMetadataFactory()->getAllMetadata() as $metadata) {
             $class = $metadata->getName();
             if (!$metadata->isMappedSuperclass && $loader->supports($class)) {
-                $definitions[] = $loader->load($class);
+                array_push($definitions, ...$loader->loadAll($class));
             }
         }
 

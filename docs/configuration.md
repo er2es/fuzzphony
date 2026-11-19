@@ -185,7 +185,8 @@ sidecar table, triggers and queue rows, so indexes can share tables:
   ([Sync](sync.md#one-trigger-per-table-one-change-log)); applying twice changes nothing. With `sync: trigger` (or `trigger_level: row`) each index keeps
   four triggers of its own (`fuzzphony_sync_<index>__<table>_<hash>_ins|upd|del|trn`).
 - Dropping one index (`fuzzphony:schema people --drop --apply`) removes its part only; the triggers and the log go with the last index that watches the table.
-- **One `#[Searchable]` per class** (the attribute is not repeatable). To index the same table twice (a public and an admin index) define the second one
+- **Several indexes over one class:** `#[Searchable]` is repeatable; each one after the first needs its own `name` (a repeated name or a missing one is
+  an `InvalidDefinition`). To index the same table twice (a public and an admin index) repeat the attribute, or define the second one
   under another name in YAML or the builder, with `source.table`:
 
 <!-- fragment -->

@@ -492,6 +492,13 @@ foreach ($result->facets['category_id'] as $facet) {   // FacetValue: ->value, -
   follow the relaxed search.
 - `fuzzphony:search products mouse -f category_id -f in_stock [--exact]` prints them.
 
+## Limiting a multi-source search to some kinds
+
+`->kinds('person', 'order')` limits a search of a [multi-source index](configuration.md#several-sources-in-one-index) to those kinds (source names): hits, the
+total and the facets count only them, and it combines with filters, the tenant and a restricted viewer's fields (it is a plain condition on the kind, so it
+shows nothing a viewer may not see). A single-source index, no kind or an unknown kind is an `InvalidQuery` (the last one lists the known kinds); a second
+call replaces the list. In `federated()->index(..., configure: fn ($b) => $b->kinds('person'))` it limits that index. `fuzzphony:search -k person` does the same.
+
 ## Federated search
 
 One text over several indexes, with one merged list:
