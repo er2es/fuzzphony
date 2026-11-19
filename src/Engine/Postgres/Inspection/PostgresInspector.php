@@ -155,6 +155,16 @@ final readonly class PostgresInspector
         if (!$this->regclass($table)) {
             return Check::error('Vocabulary', sprintf('Table %s does not exist, so "did you mean" cannot suggest anything.', $table), self::APPLY);
         }
+        // its two indexes: without them (or with an INVALID one an interrupted concurrent build left) every typo lookup reads the whole table
+        $valid = [];
+        foreach ($this->connection->fetchAll('SELECT c.relname, i.indisvalid FROM pg_index AS i JOIN pg_class AS c ON c.oid = i.indexrelid WHERE i.indrelid = to_regclass(:t)', ['t' => $table]) as $row) {
+            $valid[Coerce::str($row['relname'])] = (bool) $row['indisvalid'];
+        }
+        foreach ([$this->names->vocabularyIndexName($index), $this->names->vocabularyPrefixIndexName($index)] as $name) {
+            if (($valid[$name] ?? false) === false) {
+                return Check::error('Vocabulary', sprintf('Index %s is %s, so typo lookups and suggestions read the whole vocabulary.', $name, array_key_exists($name, $valid) ? 'INVALID (an interrupted concurrent build)' : 'missing'), self::APPLY);
+            }
+        }
         $words = Coerce::int($this->connection->fetchValue(sprintf('SELECT count(*) FROM %s', $table)));
 
         return $words === 0
@@ -336,11 +346,18 @@ final readonly class PostgresInspector
     {
         $view = 'fuzzphony_probe_' . bin2hex(random_bytes(4));
         try {
-            $this->connection->execute(sprintf('CREATE TEMPORARY VIEW %s AS %s', Sql::ident($view), DocumentSql::raw($index)));
-            $rows = $this->connection->fetchAll(
-                'SELECT attname, format_type(atttypid, atttypmod) AS type FROM pg_attribute WHERE attrelid = to_regclass(:view) AND attnum > 0 AND NOT attisdropped',
-                ['view' => 'pg_temp.' . $view],
-            );
+            // one transaction: behind a transaction pooler each statement outside one may run on another server connection,
+            // which does not see the temporary view
+            $rows = $this->connection->transactional(static function (Connection $c) use ($view, $index): array {
+                $c->execute(sprintf('CREATE TEMPORARY VIEW %s AS %s', Sql::ident($view), DocumentSql::raw($index)));
+                $rows = $c->fetchAll(
+                    'SELECT attname, format_type(atttypid, atttypmod) AS type FROM pg_attribute WHERE attrelid = to_regclass(:view) AND attnum > 0 AND NOT attisdropped',
+                    ['view' => 'pg_temp.' . $view],
+                );
+                $c->execute(sprintf('DROP VIEW %s', Sql::ident($view)));
+
+                return $rows;
+            });
         } catch (\Throwable $e) {
             $firstLine = strtok($e->getMessage(), "\n");
             $checks[] = Check::error(

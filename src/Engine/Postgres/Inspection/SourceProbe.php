@@ -27,11 +27,17 @@ final class SourceProbe
             $name = $one->name ?? $index->name;
             $view = 'fuzzphony_probe_' . bin2hex(random_bytes(4));
             try {
-                $connection->execute(sprintf('CREATE TEMPORARY VIEW %s AS %s', Sql::ident($view), DocumentSql::raw($part)));
-                $columns = array_map(Coerce::str(...), array_column($connection->fetchAll(
-                    'SELECT attname FROM pg_attribute WHERE attrelid = to_regclass(:view) AND attnum > 0 AND NOT attisdropped',
-                    ['view' => 'pg_temp.' . $view],
-                ), 'attname'));
+                // one transaction: behind a transaction pooler another server connection would not see the temporary view
+                $columns = array_map(Coerce::str(...), array_column($connection->transactional(static function (Connection $c) use ($view, $part): array {
+                    $c->execute(sprintf('CREATE TEMPORARY VIEW %s AS %s', Sql::ident($view), DocumentSql::raw($part)));
+                    $rows = $c->fetchAll(
+                        'SELECT attname FROM pg_attribute WHERE attrelid = to_regclass(:view) AND attnum > 0 AND NOT attisdropped',
+                        ['view' => 'pg_temp.' . $view],
+                    );
+                    $c->execute(sprintf('DROP VIEW %s', Sql::ident($view)));
+
+                    return $rows;
+                }), 'attname'));
             } catch (\Throwable $e) {
                 $line = strtok($e->getMessage(), "\n");
                 $problems[] = sprintf('Source "%s" cannot be queried: %s', $name, trim($line !== false ? $line : $e->getMessage()));

@@ -65,6 +65,12 @@ final readonly class SchemaPlan
             $onStatement($statement);
         }
         try {
+            while ($statement->waitWhile !== null && $connection->fetchValue($statement->waitWhile) === true) {
+                usleep(100_000); // short statements: a long-running wait would hold a snapshot the other build waits for
+            }
+            if ($statement->skipIf !== null && $connection->fetchValue($statement->skipIf) === true) {
+                return;
+            }
             $connection->execute($statement->sql);
         } catch (\Throwable $e) {
             throw EngineFailure::wrap(

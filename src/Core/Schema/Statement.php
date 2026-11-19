@@ -17,5 +17,13 @@ final readonly class Statement
          * is reported as a warning and the plan goes on.
          */
         public ?string $forEach = null,
+        /**
+         * A query that returns true when the statement has nothing to do (the index it builds exists already): it is then not run.
+         * For a concurrent build that IF NOT EXISTS would skip anyway, but only after it queued for the table lock behind another
+         * build (two applies at once: the builds wait for each other and one fails with a deadlock).
+         */
+        public ?string $skipIf = null,
+        /** A query that returns true while the statement has to wait (another session builds an index on the same table); polled before it runs. */
+        public ?string $waitWhile = null,
     ) {}
 }

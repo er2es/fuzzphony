@@ -84,9 +84,17 @@ final class SchemaGeneratorTest extends TestCase
     public function testIndexesAreBuiltConcurrentlyOutsideTransactions(): void
     {
         $statements = (new PostgresSchemaGenerator())->index(Indexes::products())->statements;
-        $concurrent = array_values(array_filter($statements, static fn(Statement $s): bool => str_contains($s->sql, 'CONCURRENTLY')));
+        $concurrent = array_values(array_filter($statements, static fn(Statement $s): bool => str_starts_with($s->sql, 'CREATE INDEX CONCURRENTLY')));
 
-        self::assertCount(9, $concurrent); // tsv, trigram, 4 filters, the vocabulary's trigram and prefix indexes, the drop of stale open-class indexes
+        self::assertCount(8, $concurrent); // tsv, trigram, 4 filters, the vocabulary's trigram and prefix indexes
+        foreach ($concurrent as $statement) {
+            self::assertNotNull($statement->skipIf, 'an index that exists is not queued behind another build');
+            self::assertNotNull($statement->waitWhile, 'it waits for another build on the table');
+        }
+        $drops = array_values(array_filter($statements, static fn(Statement $s): bool => str_starts_with($s->sql, 'DROP INDEX CONCURRENTLY')));
+        self::assertCount(9, $drops); // each one's INVALID leftover first, then the drop of stale open-class indexes
+        self::assertStringContainsString('NOT i.indisvalid', (string) $drops[0]->forEach);
+        $concurrent = [...$concurrent, ...$drops];
         foreach ($concurrent as $statement) {
             self::assertFalse($statement->transactional);
         }
@@ -647,7 +655,7 @@ final class SchemaGeneratorTest extends TestCase
         $global = $generator->global(Indexes::products());
         $sql = $global->merge($generator->index(Indexes::products()))->toSql();
 
-        self::assertSame('CREATE SCHEMA IF NOT EXISTS "fuzzphony_s"', $global->statements[2]->sql, 'right after the lock timeout and the pinned search path');
+        self::assertSame('CREATE SCHEMA IF NOT EXISTS "fuzzphony_s"', $global->statements[3]->sql, 'right after the apply lock, the lock timeout and the pinned search path');
         self::assertStringContainsString('CREATE TABLE IF NOT EXISTS "fuzzphony_s"."fuzzphony_queue"', $sql);
         self::assertStringContainsString('CREATE INDEX IF NOT EXISTS fuzzphony_queue_order ON "fuzzphony_s"."fuzzphony_queue"', $sql);
         self::assertStringContainsString('CREATE TABLE IF NOT EXISTS "fuzzphony_s"."fuzzphony_products"', $sql);
