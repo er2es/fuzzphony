@@ -175,6 +175,31 @@ final readonly class PostgresSchemaGenerator
         return new SchemaPlan($statements);
     }
 
+    /**
+     * CREATE INDEX CONCURRENTLY IF NOT EXISTS, after dropping an INVALID index of that name (a concurrent build that failed or was
+     * cancelled midway leaves one, and IF NOT EXISTS would keep it forever). An index another session is building right now is
+     * INVALID too: it is left alone (pg_stat_progress_create_index names it).
+     *
+     * @param string $on the table and the rest of the definition ("table USING gin (tsv)")
+     *
+     * @return list<Statement>
+     */
+    private function concurrentIndex(string $name, string $on, string $description): array
+    {
+        return [
+            new Statement(
+                'DROP INDEX CONCURRENTLY IF EXISTS {name}',
+                $description . ': drop it first when an interrupted concurrent build left it INVALID',
+                transactional: false,
+                forEach: sprintf(
+                    'SELECT i.indexrelid::regclass::text AS name FROM pg_index AS i WHERE i.indexrelid = to_regclass(%s) AND NOT i.indisvalid AND NOT EXISTS (SELECT 1 FROM pg_stat_progress_create_index AS p WHERE p.index_relid = i.indexrelid)',
+                    Sql::string($this->names->index($name)),
+                ),
+            ),
+            new Statement(sprintf('CREATE INDEX CONCURRENTLY IF NOT EXISTS %s ON %s', Sql::ident($name), $on), $description, transactional: false),
+        ];
+    }
+
     public function index(IndexDefinition $index): SchemaPlan
     {
         $table = $this->names->sidecar($index);
@@ -280,30 +305,21 @@ final readonly class PostgresSchemaGenerator
         $statements[] = $this->sharedWatch()->register($index, $this->relevantColumns(...));
 
         foreach ($this->indexes($index) as $name => $definition) {
-            $statements[] = new Statement(
-                sprintf('CREATE INDEX CONCURRENTLY IF NOT EXISTS %s ON %s %s', Sql::ident($name), $table, $definition),
-                sprintf('Index %s', $name),
-                transactional: false,
-            );
+            array_push($statements, ...$this->concurrentIndex($name, sprintf('%s %s', $table, $definition), sprintf('Index %s', $name)));
         }
         foreach ($index->manyBestFields() as $field) {
             // the values table is small next to the sidecar and has its own partial GIN per field that ranks through its best value
-            $statements[] = new Statement(
-                sprintf('CREATE INDEX CONCURRENTLY IF NOT EXISTS %s ON %s USING gin (t) WHERE field = %s', Sql::ident($this->names->valuesBestIndexName($index, $field->name)), $this->names->values($index), Sql::string($field->name)),
+            array_push($statements, ...$this->concurrentIndex(
+                $this->names->valuesBestIndexName($index, $field->name),
+                sprintf('%s USING gin (t) WHERE field = %s', $this->names->values($index), Sql::string($field->name)),
                 sprintf('Index of the values of "%s": its best single value ranks a document (many: { rank: best })', $field->name),
-                transactional: false,
-            );
+            ));
         }
         if ($index->hasFuzzy()) {
-            $statements[] = new Statement(
-                sprintf('CREATE INDEX CONCURRENTLY IF NOT EXISTS %s ON %s USING gin (word %s.gin_trgm_ops)', Sql::ident($this->names->vocabularyIndexName($index)), $this->names->vocabulary($index), $this->names->extension()),
-                'Index of the vocabulary: the words close to a misspelled one',
-                transactional: false,
-            );
-            $statements[] = new Statement(
-                sprintf('CREATE INDEX CONCURRENTLY IF NOT EXISTS %s ON %s (word text_pattern_ops)', Sql::ident($this->names->vocabularyPrefixIndexName($index)), $this->names->vocabulary($index)),
-                'Prefix index of the vocabulary: completes the beginning of a word (suggest())',
-                transactional: false,
+            array_push(
+                $statements,
+                ...$this->concurrentIndex($this->names->vocabularyIndexName($index), sprintf('%s USING gin (word %s.gin_trgm_ops)', $this->names->vocabulary($index), $this->names->extension()), 'Index of the vocabulary: the words close to a misspelled one'),
+                ...$this->concurrentIndex($this->names->vocabularyPrefixIndexName($index), sprintf('%s (word text_pattern_ops)', $this->names->vocabulary($index)), 'Prefix index of the vocabulary: completes the beginning of a word (suggest())'),
             );
         }
         // after the open-class indexes above: one built for other granted fields (or for none any more) is dropped once the right ones exist.
