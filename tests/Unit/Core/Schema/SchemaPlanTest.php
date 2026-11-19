@@ -121,4 +121,52 @@ final class SchemaPlanTest extends TestCase
             $log->getArrayCopy(),
         );
     }
+
+    public function testAStatementWaitsWhileItsWaitQueryIsTrueAndIsSkippedWhenItsSkipQueryIsTrue(): void
+    {
+        $connection = new class implements Connection {
+            /** @var list<string> */
+            public array $log = [];
+            public int $waits = 2;
+
+            public function inTransaction(): bool
+            {
+                return false;
+            }
+
+            public function fetchAll(string $sql, array $params = []): array
+            {
+                return [];
+            }
+
+            public function fetchValue(string $sql, array $params = []): mixed
+            {
+                $this->log[] = $sql;
+
+                return match ($sql) {
+                    'BUSY' => $this->waits-- > 0,
+                    'THERE' => true,
+                    default => false,
+                };
+            }
+
+            public function execute(string $sql, array $params = []): int
+            {
+                $this->log[] = $sql;
+
+                return 0;
+            }
+
+            public function transactional(callable $callback): mixed
+            {
+                return $callback($this);
+            }
+        };
+        (new SchemaPlan([
+            new Statement('BUILD A', 'a', false, skipIf: 'ABSENT', waitWhile: 'BUSY'),
+            new Statement('BUILD B', 'b', false, skipIf: 'THERE'),
+        ]))->apply($connection);
+
+        self::assertSame(['BUSY', 'BUSY', 'BUSY', 'ABSENT', 'BUILD A', 'THERE'], $connection->log);
+    }
 }
