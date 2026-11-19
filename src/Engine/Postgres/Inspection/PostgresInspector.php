@@ -368,11 +368,18 @@ final readonly class PostgresInspector
     {
         $view = 'fuzzphony_probe_' . bin2hex(random_bytes(4));
         try {
-            $this->connection->execute(sprintf('CREATE TEMPORARY VIEW %s AS %s', Sql::ident($view), DocumentSql::raw($index)));
-            $rows = $this->connection->fetchAll(
-                'SELECT attname, format_type(atttypid, atttypmod) AS type FROM pg_attribute WHERE attrelid = to_regclass(:view) AND attnum > 0 AND NOT attisdropped',
-                ['view' => 'pg_temp.' . $view],
-            );
+            // one transaction: behind a transaction pooler each statement outside one may run on another server connection,
+            // which does not see the temporary view
+            $rows = $this->connection->transactional(static function (Connection $c) use ($view, $index): array {
+                $c->execute(sprintf('CREATE TEMPORARY VIEW %s AS %s', Sql::ident($view), DocumentSql::raw($index)));
+                $rows = $c->fetchAll(
+                    'SELECT attname, format_type(atttypid, atttypmod) AS type FROM pg_attribute WHERE attrelid = to_regclass(:view) AND attnum > 0 AND NOT attisdropped',
+                    ['view' => 'pg_temp.' . $view],
+                );
+                $c->execute(sprintf('DROP VIEW %s', Sql::ident($view)));
+
+                return $rows;
+            });
         } catch (\Throwable $e) {
             $firstLine = strtok($e->getMessage(), "\n");
             $checks[] = Check::error(

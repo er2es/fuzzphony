@@ -40,29 +40,8 @@ final readonly class WatchCoverage
         }
         $view = 'fuzzphony_probe_' . bin2hex(random_bytes(4));
         try {
-            $this->connection->execute(sprintf('CREATE TEMPORARY VIEW %s AS %s', Sql::ident($view), DocumentSql::raw($part)));
-            $read = $this->connection->fetchAll(
-                <<<'SQL'
-                    WITH RECURSIVE r(rel) AS (
-                        SELECT d.refobjid FROM pg_rewrite w
-                        JOIN pg_depend d ON d.classid = 'pg_rewrite'::regclass AND d.objid = w.oid AND d.refclassid = 'pg_class'::regclass AND d.refobjid <> w.ev_class
-                        WHERE w.ev_class = to_regclass(:view)
-                      UNION
-                        SELECT d.refobjid FROM r
-                        JOIN pg_class v ON v.oid = r.rel AND v.relkind = 'v'
-                        JOIN pg_rewrite w ON w.ev_class = v.oid
-                        JOIN pg_depend d ON d.classid = 'pg_rewrite'::regclass AND d.objid = w.oid AND d.refclassid = 'pg_class'::regclass AND d.refobjid <> w.ev_class
-                    )
-                    SELECT DISTINCT c.oid::bigint AS oid, n.nspname, c.relname,
-                           ARRAY(SELECT a::bigint FROM pg_partition_ancestors(c.oid) AS a WHERE a <> c.oid) AS ancestors
-                    FROM r JOIN pg_class c ON c.oid = r.rel JOIN pg_namespace n ON n.oid = c.relnamespace
-                    WHERE c.relkind IN ('r', 'p', 'm', 'f')
-                      AND n.nspname NOT IN ('pg_catalog', 'information_schema') AND n.nspname NOT LIKE 'pg\_toast%'
-                      AND NOT (n.nspname = :schema AND c.relname LIKE 'fuzzphony\_%')
-                    ORDER BY n.nspname, c.relname
-                    SQL,
-                ['view' => 'pg_temp.' . $view, 'schema' => $this->schema],
-            );
+            // one transaction: behind a transaction pooler another server connection would not see the temporary view
+            $read = $this->connection->transactional(fn(Connection $c): array => $this->read($c, $view, $part));
             $watched = [];
             foreach ($part->effectiveWatches() as $watch) {
                 $oid = $this->connection->fetchValue('SELECT to_regclass(:table)::oid::bigint', ['table' => Sql::ident($watch->table)]);
@@ -129,5 +108,36 @@ final readonly class WatchCoverage
         $text = trim(Coerce::str($array), '{}');
 
         return $text === '' ? [] : array_map(static fn(string $o): int => (int) $o, explode(',', $text));
+    }
+
+    /** @return list<array<string, mixed>> the tables the source query reads (through views too), probed through a temporary view */
+    private function read(Connection $c, string $view, IndexDefinition $part): array
+    {
+        $c->execute(sprintf('CREATE TEMPORARY VIEW %s AS %s', Sql::ident($view), DocumentSql::raw($part)));
+        $read = $c->fetchAll(
+                <<<'SQL'
+                    WITH RECURSIVE r(rel) AS (
+                        SELECT d.refobjid FROM pg_rewrite w
+                        JOIN pg_depend d ON d.classid = 'pg_rewrite'::regclass AND d.objid = w.oid AND d.refclassid = 'pg_class'::regclass AND d.refobjid <> w.ev_class
+                        WHERE w.ev_class = to_regclass(:view)
+                      UNION
+                        SELECT d.refobjid FROM r
+                        JOIN pg_class v ON v.oid = r.rel AND v.relkind = 'v'
+                        JOIN pg_rewrite w ON w.ev_class = v.oid
+                        JOIN pg_depend d ON d.classid = 'pg_rewrite'::regclass AND d.objid = w.oid AND d.refclassid = 'pg_class'::regclass AND d.refobjid <> w.ev_class
+                    )
+                    SELECT DISTINCT c.oid::bigint AS oid, n.nspname, c.relname,
+                           ARRAY(SELECT a::bigint FROM pg_partition_ancestors(c.oid) AS a WHERE a <> c.oid) AS ancestors
+                    FROM r JOIN pg_class c ON c.oid = r.rel JOIN pg_namespace n ON n.oid = c.relnamespace
+                    WHERE c.relkind IN ('r', 'p', 'm', 'f')
+                      AND n.nspname NOT IN ('pg_catalog', 'information_schema') AND n.nspname NOT LIKE 'pg\_toast%'
+                      AND NOT (n.nspname = :schema AND c.relname LIKE 'fuzzphony\_%')
+                    ORDER BY n.nspname, c.relname
+                    SQL,
+                ['view' => 'pg_temp.' . $view, 'schema' => $this->schema],
+            );
+        $c->execute(sprintf('DROP VIEW %s', Sql::ident($view)));
+
+        return $read;
     }
 }
