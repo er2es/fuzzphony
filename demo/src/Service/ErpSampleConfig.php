@@ -16,6 +16,20 @@ final class ErpSampleConfig
 {
     public const string NAME = 'customers';
 
+    /** Code only: the "Two indexes over one entity" sample of the wizard (nothing is built or run). */
+    public const string TWO_INDEXES = <<<'PHP'
+        #[Searchable(name: 'customers', language: 'english', table: 'erp_customer')]
+        #[Searchable(name: 'customers_admin', language: 'simple', table: 'erp_customer', sync: SyncMode::Queue)]
+        final class Customer
+        {
+            #[SearchField('A', fuzzy: true)]
+            public string $name;
+
+            #[SearchField('A', code: true)]
+            public string $taxNo;
+        }
+        PHP;
+
     private const string QUERY = "SELECT cu.id, cu.name, cu.tax_no, cu.email, cu.created_at, ad.city AS billing_city\n"
         . "FROM erp_customer cu\n"
         . "LEFT JOIN erp_address ad ON ad.customer_id = cu.id AND ad.kind = 'billing'";

@@ -40,6 +40,18 @@
         {% endif %}
     </div>
 
+    <div class="callout sample-offer" role="group" aria-labelledby="two-title">
+        <div class="callout-body">
+            <strong id="two-title">Two indexes over one entity</strong>
+            <span class="muted">Code only, nothing runs: repeat <code>#[Searchable]</code> on one class, every repeat with its own <code>name</code>.</span>
+        </div>
+        {% if two %}<a class="button" href="{{ path('wizard') }}">Hide</a>{% else %}<a class="button" href="{{ path('wizard', {sample: 'two'}) }}">Show the code</a>{% endif %}
+    </div>
+    {% if two %}
+        <pre tabindex="0">{{ twoCode }}</pre>
+        <p class="muted">One class, two indexes over the same table: <code>customers</code> for the public search and <code>customers_admin</code> (here with another language) for a back office, each searched with <code>$fuzzphony->in('...')</code>. The repeat must carry a distinct <code>name</code>; two indexes of one class cannot share a name.</p>
+    {% endif %}
+
     {% if error %}<p class="callout is-bad" role="alert">{{ error }}</p>{% endif %}
 
     {% if sample %}

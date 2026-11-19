@@ -54,7 +54,8 @@ final class PagesController extends AbstractController
         // ?sample=1: the sample configuration (src/Service/SampleConfig.php) instead of a table's suggestion
         // ?sample=erp: the second sample, for the ERP tables (src/Service/ErpSampleConfig.php)
         $isErp = (string) $request->query->get('sample') === 'erp';
-        $isSample = $isErp || $request->query->getBoolean('sample');
+        $isTwo = (string) $request->query->get('sample') === 'two';
+        $isSample = $isErp || (!$isTwo && $request->query->getBoolean('sample'));
 
         if ($isSample) {
             try {
@@ -85,6 +86,8 @@ final class PagesController extends AbstractController
             'exports' => $exports,
             'error' => $error,
             'sample' => $isErp ? ErpSampleConfig::NOTES : ($isSample ? SampleConfig::NOTES : null),
+            'two' => $isTwo,
+            'twoCode' => $isTwo ? ErpSampleConfig::TWO_INDEXES : '',
             'sampleKind' => $isErp ? 'erp' : ($isSample ? 'catalogue' : null),
         ]);
     }
