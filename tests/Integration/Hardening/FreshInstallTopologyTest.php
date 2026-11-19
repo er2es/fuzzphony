@@ -213,11 +213,21 @@ final class FreshInstallTopologyTest extends TestCase
     }
 
     /** The source tables in an application schema the role's search_path names; Fuzzphony in its own schema or in public. */
-    #[DataProvider('schemas')]
-    public function testSourceTablesFoundThroughTheSearchPath(string $schema): void
+    /** @return iterable<string, array{string, string}> */
+    public static function searchPaths(): iterable
+    {
+        foreach (['public', 'fz_h_own'] as $schema) {
+            yield "{$schema}, app schema then public" => [$schema, 'fz_h_app, public'];
+            yield "{$schema}, app schema alone" => [$schema, 'fz_h_app'];
+            yield "{$schema}, user schema first" => [$schema, '"$user", fz_h_app'];
+        }
+    }
+
+    #[DataProvider('searchPaths')]
+    public function testSourceTablesFoundThroughTheSearchPath(string $schema, string $path): void
     {
         $this->c->execute('CREATE SCHEMA fz_h_app');
-        $this->c->execute('SET search_path TO fz_h_app, public');
+        $this->c->execute('SET search_path TO ' . $path);
         Harness::fixtures($this->c);
         self::assertNotNull($this->c->fetchValue("SELECT to_regclass('fz_h_app.fz_product')"));
         $index = Indexes::products('trigger');
@@ -230,7 +240,7 @@ final class FreshInstallTopologyTest extends TestCase
         $this->c->execute('SET search_path TO public');
         $this->c->execute("INSERT INTO fz_h_app.fz_product VALUES (900, 'Zebrafish lamp', 'aquarium', 1, 10, true, 1, now())");
         self::assertSame([900], $this->ids($f, 'products', 'zebrafish'));
-        $this->c->execute('SET search_path TO fz_h_app, public');
+        $this->c->execute('SET search_path TO ' . $path);
         self::assertSame([], Harness::problems($f, 'products'));
     }
 }
