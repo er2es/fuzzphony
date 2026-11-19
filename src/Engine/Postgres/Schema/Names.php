@@ -184,17 +184,6 @@ final readonly class Names
         return self::limit(self::PREFIX . 'sync_' . $index->name . '__' . ($watch->source !== null ? $watch->source . '__' : '') . str_replace('.', '_', $watch->table) . '_' . substr(md5(Sql::ident($watch->table) . "|" . (string) $watch->source), 0, 8));
     }
 
-    /** The name before 0.12.7 (no hash): its function and triggers are removed when an index is applied. */
-    public function legacySyncFunctionName(IndexDefinition $index, Watch $watch): string
-    {
-        return self::limit(self::PREFIX . 'sync_' . $index->name . '__' . ($watch->source !== null ? $watch->source . '__' : '') . str_replace('.', '_', $watch->table));
-    }
-
-    public function legacySyncFunction(IndexDefinition $index, Watch $watch): string
-    {
-        return $this->qualify($this->legacySyncFunctionName($index, $watch));
-    }
-
     public function syncFunction(IndexDefinition $index, Watch $watch): string
     {
         return $this->qualify($this->syncFunctionName($index, $watch));
@@ -354,12 +343,6 @@ final readonly class Names
         }
 
         return self::limit($this->sidecarName($index) . '__' . $suffix);
-    }
-
-    /** The name indexName() gave before 0.10 (`<sidecar>_<suffix>`): the apply drops an index that still has it, the doctor reports it. */
-    public function legacyIndexName(IndexDefinition $index, string $suffix): string
-    {
-        return self::limit($this->sidecarName($index) . '_' . $suffix);
     }
 
     /** The sidecar column with one field's own weighted tsvector (layout 2): a field-scoped word is checked against it. */

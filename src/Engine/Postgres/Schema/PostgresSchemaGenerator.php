@@ -229,14 +229,8 @@ final readonly class PostgresSchemaGenerator
         $statements[] = new Statement($this->refreshFunction($index, shadow: true), 'Builds / removes documents by id in the table a full reindex builds next to the live one');
         $statements[] = new Statement($this->trackFunction($index), 'Logs which documents change while a full reindex runs');
 
-        $legacy = [];
         foreach ($index->effectiveWatches() as $watch) {
             $watched = Sql::ident($watch->table);
-            // the unhashed names of before 0.12.7 (their function may be shared by two tables: dropped after all triggers are gone)
-            if ($this->hasLegacySyncFunction($index, $watch)) {
-                $legacy[$this->names->legacySyncFunction($index, $watch)] = true;
-                array_push($statements, ...$this->legacySyncTriggers($index, $watch));
-            }
             foreach ($this->obsoleteTriggerNames($index, $watch) as $obsolete) {
                 $statements[] = new Statement(Guard::dropTrigger($obsolete, $watched), sprintf('Remove trigger not used in "%s" sync / %s level', $index->sync->value, $index->triggerLevel->value));
             }
@@ -268,9 +262,6 @@ final readonly class PostgresSchemaGenerator
                 );
             }
             $statements[] = $this->partitionTriggers($index, $watch, true);
-        }
-        foreach (array_keys($legacy) as $old) {
-            $statements[] = new Statement(sprintf('DROP FUNCTION IF EXISTS %s()', $old), 'Remove the sync function of the unhashed name of an earlier release');
         }
         if (SharedWatch::applies($index)) {
             $statements[] = new Statement($this->sharedWatch()->drainFunction($index, $this->relevantColumns(...), $this->names->sidecar($index), $this->names->changes($index)), 'Moves the changes the shared trigger logged into the index queue');
@@ -311,14 +302,13 @@ final readonly class PostgresSchemaGenerator
         // behind the drop); a drop that fails is a warning and the apply is safe to run again
         $statements[] = new Statement(
             'DROP INDEX CONCURRENTLY IF EXISTS {name}',
-            'Drop an open-class index built for other granted fields, or an index under the name an earlier release gave it',
+            'Drop an open-class index built for other granted fields',
             transactional: false,
             forEach: sprintf(
-                'SELECT quote_ident(n.nspname) || \'.\' || quote_ident(c.relname) AS name FROM pg_index AS i JOIN pg_class AS c ON c.oid = i.indexrelid JOIN pg_namespace AS n ON n.oid = c.relnamespace WHERE i.indrelid = to_regclass(%1$s) AND (c.relname ~ %2$s OR c.relname = ANY (%4$s)) AND c.relname <> ALL (%3$s)',
+                'SELECT quote_ident(n.nspname) || \'.\' || quote_ident(c.relname) AS name FROM pg_index AS i JOIN pg_class AS c ON c.oid = i.indexrelid JOIN pg_namespace AS n ON n.oid = c.relnamespace WHERE i.indrelid = to_regclass(%1$s) AND c.relname ~ %2$s AND c.relname <> ALL (%3$s)',
                 Sql::string($table),
                 Sql::string('_' . OpenClass::NAME_TAIL . '$'),
                 'ARRAY[' . implode(', ', array_map(Sql::string(...), [...OpenClass::expectedNames($index, $this->names), ''])) . ']::text[]',
-                'ARRAY[' . implode(', ', array_map(Sql::string(...), ['', ...$this->legacyIndexNames($index)])) . ']::text[]',
             ),
         );
         if ($index->manyFields() !== []) {
@@ -413,11 +403,6 @@ final readonly class PostgresSchemaGenerator
             }
             $statements[] = $this->partitionTriggers($index, $watch, false);
             $statements[] = new Statement(sprintf('DROP FUNCTION IF EXISTS %s()', $this->names->syncFunction($index, $watch)), 'Remove sync function');
-            if ($this->hasLegacySyncFunction($index, $watch)) {
-                // an index installed by an earlier release (before 0.12.7) has its triggers on the unhashed function
-                array_push($statements, ...$this->legacySyncTriggers($index, $watch));
-                $statements[] = new Statement(sprintf('DROP FUNCTION IF EXISTS %s()', $this->names->legacySyncFunction($index, $watch)), 'Remove the sync function of the unhashed name of an earlier release');
-            }
         }
         $statements[] = new Statement(sprintf('DROP FUNCTION IF EXISTS %s(%s[])', $this->names->refreshFunction($index), Types::id($index->idType)), 'Remove refresh function');
         if ($index->manyFields() !== []) {
@@ -582,19 +567,6 @@ ON CONFLICT (index_name) DO UPDATE SET layout_version = EXCLUDED.layout_version,
     }
 
     /**
-     * The names the secondary indexes had before 0.10 (`<sidecar>_<suffix>`, see Names::indexName()), without the primary key (it
-     * cannot be dropped alone and the rebuild renames it): an index that still has one is dropped by the apply, once the new one exists.
-     *
-     * @return list<string>
-     */
-    public function legacyIndexNames(IndexDefinition $index): array
-    {
-        $suffixes = ['tsv', ...($index->hasFuzzy() ? ['fz'] : []), ...array_map(static fn($filter): string => 'f_' . $filter->name, $index->filters)];
-
-        return array_map(fn(string $suffix): string => $this->names->legacyIndexName($index, $suffix), $suffixes);
-    }
-
-    /**
      * Expected secondary indexes (name => "USING ... (...)").
      *
      * @return array<string, string>
@@ -661,46 +633,6 @@ ON CONFLICT (index_name) DO UPDATE SET layout_version = EXCLUDED.layout_version,
     public function obsoleteTriggerNames(IndexDefinition $index, Watch $watch): array
     {
         return array_values(array_diff($this->allTriggerNames($index, $watch), array_keys($this->triggerDefinitions($index, $watch))));
-    }
-
-    /** A watch of an index installed before 0.12.7 may still have the unhashed function, unless that name is a current function of a watch of this index (a watch named like the hash of a sibling). */
-    private function hasLegacySyncFunction(IndexDefinition $index, Watch $watch): bool
-    {
-        $legacy = $this->names->legacySyncFunctionName($index, $watch);
-
-        return !array_any($index->effectiveWatches(), fn(Watch $other): bool => $this->names->syncFunctionName($index, $other) === $legacy);
-    }
-
-    /**
-     * Drops every trigger that uses the unhashed sync function of before 0.12.7: by name on the watched table, then wherever
-     * else (a TRUNCATE trigger on a partition) so DROP FUNCTION finds nothing depending on it. Only this index's function.
-     *
-     * @return list<Statement>
-     */
-    private function legacySyncTriggers(IndexDefinition $index, Watch $watch): array
-    {
-        $base = $this->names->legacySyncFunctionName($index, $watch);
-        $statements = [];
-        foreach (['', '_ins', '_upd', '_del', '_trn'] as $suffix) {
-            $statements[] = new Statement(Guard::dropTrigger($suffix === '' ? $base : Names::limit($base . $suffix), Sql::ident($watch->table)), 'Remove the trigger of the unhashed sync function name of an earlier release');
-        }
-        $statements[] = new Statement(sprintf(
-            <<<'SQL'
-                DO %1$s
-                DECLARE
-                    r record;
-                BEGIN
-                    FOR r IN SELECT g.tgname, n.nspname, c.relname FROM pg_trigger AS g JOIN pg_class AS c ON c.oid = g.tgrelid JOIN pg_namespace AS n ON n.oid = c.relnamespace WHERE g.tgfoid = to_regprocedure(%2$s) AND g.tgparentid = 0 LOOP
-                        EXECUTE format('DROP TRIGGER %%I ON %%I.%%I', r.tgname, r.nspname, r.relname);
-                    END LOOP;
-                END
-                %1$s
-                SQL,
-            self::TAG,
-            Sql::string($this->names->legacySyncFunction($index, $watch) . '()'),
-        ), 'Remove the triggers of the unhashed sync function of an earlier release from every table (partitions)');
-
-        return $statements;
     }
 
     /**

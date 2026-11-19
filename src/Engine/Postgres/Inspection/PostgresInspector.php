@@ -76,7 +76,6 @@ final readonly class PostgresInspector
         $sidecarExists = $this->regclass($this->names->sidecar($index));
         if (!$sidecarExists) {
             $checks[] = Check::error('Sidecar table', sprintf('Table %s does not exist.', $this->names->sidecar($index)), self::APPLY);
-            array_push($checks, ...$this->location($index));
         } else {
             array_push($checks, ...$this->sidecarColumns($index));
             array_push($checks, ...$this->sidecarIndexes($index));
@@ -193,7 +192,7 @@ final readonly class PostgresInspector
         $checks = [$this->sharedObjects($rows['*'] ?? null)];
         $row = $rows[$index->name] ?? null;
         if ($row === null) {
-            $checks[] = Check::warning('Schema version', 'No version record: built before 0.4, or never applied.', self::APPLY);
+            $checks[] = Check::warning('Schema version', 'No version record: never applied.', self::APPLY);
 
             return $checks;
         }
@@ -203,7 +202,7 @@ final readonly class PostgresInspector
             : Check::error('Definition', 'The definition changed since the last apply.', self::APPLY);
         $checks[] = Coerce::str($row['documents_hash']) === Fingerprint::documents($index)
             ? Check::ok('Documents', 'built from the current definition')
-            : Check::warning('Documents', 'The documents were built from another definition, or not fully reindexed since 0.4.', sprintf('bin/console fuzzphony:reindex %s', $index->name));
+            : Check::warning('Documents', 'The documents were built from another definition.', sprintf('bin/console fuzzphony:reindex %s', $index->name));
 
         return $checks;
     }
@@ -217,7 +216,7 @@ final readonly class PostgresInspector
     private function sharedObjects(?array $row): Check
     {
         if ($row === null) {
-            return Check::warning('Shared objects', 'No version record for the shared objects: built before 0.4, or never applied.', self::APPLY);
+            return Check::warning('Shared objects', 'No version record for the shared objects: never applied.', self::APPLY);
         }
         $layout = $this->layout('Shared objects', $row);
         if ($layout->status !== CheckStatus::Ok) {
@@ -317,27 +316,6 @@ final readonly class PostgresInspector
                 SQL,
             ['stem' => $this->schema->stemDictionaryName($index->text), 'name' => $this->names->textConfigName($index->text), 'stop' => $this->names->stopDictionaryName($index->text), 'schema' => $this->names->schema],
         );
-    }
-
-    /**
-     * A dedicated schema that lacks this index while "public" still has it: an install from
-     * before the "schema" setting, which is not moved automatically. (Only called when the
-     * sidecar is missing, so with schema "public" the lookup below finds nothing either.)
-     *
-     * @return list<Check>
-     */
-    private function location(IndexDefinition $index): array
-    {
-        $legacy = Sql::ident('public.' . $this->names->sidecarName($index));
-        if (!$this->regclass($legacy)) {
-            return [];
-        }
-
-        return [Check::warning(
-            'Schema',
-            sprintf('%s has no sidecar table for this index, but %s exists: an install from before the dedicated schema.', $this->names->quotedSchema(), $legacy),
-            'See UPGRADE.md, "Moving to a dedicated schema": fuzzphony:schema --apply, fuzzphony:reindex, then drop the old objects.',
-        )];
     }
 
     private function function(string $signature, string $label): Check
@@ -634,13 +612,7 @@ final readonly class PostgresInspector
         }
         // an open-class index built for other granted fields (the expected one has another name): never used, and costs every write
         $expected = array_keys($this->schema->indexes($index));
-        $legacy = $this->schema->legacyIndexNames($index);
         foreach (array_keys($valid) as $name) {
-            if (in_array($name, $legacy, true)) {
-                $checks[] = Check::error('Index ' . $name, 'OLD NAME (an earlier release named it so; no search uses it)', sprintf('DROP INDEX CONCURRENTLY %s; or run "bin/console fuzzphony:schema --apply"', $this->names->index($name)));
-
-                continue;
-            }
             if (!in_array($name, $expected, true) && OpenClass::isOpenClassName($name)) {
                 $checks[] = Check::error('Index ' . $name, 'STALE (built for other granted fields; no search uses it)', sprintf('DROP INDEX CONCURRENTLY %s; or run "bin/console fuzzphony:schema --apply"', $this->names->index($name)));
             }
