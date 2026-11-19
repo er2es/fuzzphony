@@ -59,7 +59,6 @@ final class ReindexCommandTest extends TestCase
         try {
             $connection->execute(sprintf('GRANT SELECT ON fz_product, fz_brand TO %s', $role));
             $connection->execute(sprintf('GRANT SELECT, INSERT, UPDATE, DELETE ON fuzzphony_products, fuzzphony_meta TO %s', $role));
-            $connection->execute(sprintf('GRANT EXECUTE ON FUNCTION fuzzphony_norm(text), fuzzphony_refresh_products(bigint[]) TO %s', $role)); // not PUBLIC's (roles.md)
             $connection->execute(sprintf('SET ROLE %s', $role));
             try {
                 $status = $this->tester->execute(['index' => 'products'], ['interactive' => false]);
