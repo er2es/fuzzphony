@@ -12,7 +12,6 @@ use Fuzzphony\Core\Schema\SchemaPlan;
 use Fuzzphony\Core\Schema\Statement;
 use Fuzzphony\Core\Support\Coerce;
 use Fuzzphony\Core\Support\Identifier;
-use Fuzzphony\Engine\Postgres\PostgresEngine;
 use Fuzzphony\Engine\Postgres\Schema\GrantRole;
 use Fuzzphony\Engine\Postgres\Schema\Grants;
 use Fuzzphony\Engine\Postgres\Schema\Names;
@@ -262,9 +261,9 @@ final class SchemaCommand extends Command
     {
         $class = 'Version' . date('YmdHis');
         $up = implode("\n", array_map(
-            static fn(Statement $s): string => $s->forEach === null
-                ? sprintf("        // %s\n        \$this->addSql(%s);", $s->description, var_export($s->sql, true))
-XX
+            static fn(Statement $s): string => sprintf("        // %s\n        \$this->addSql(%s);", $s->description, var_export($s->sql, true)),
+            // a statement that needs the database's answer to know what to run (dropping stale indexes) is for --apply, the doctor reports what is left
+            array_filter($plan->statements, static fn(Statement $s): bool => $s->forEach === null),
         ));
         $code = <<<PHP
             <?php

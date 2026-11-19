@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Fuzzphony\Engine\Postgres\Schema;
 
+use Fuzzphony\Core\Database\Connection;
 use Fuzzphony\Core\Definition\DefinitionValidator;
 use Fuzzphony\Core\Definition\IndexDefinition;
 use Fuzzphony\Core\Schema\Statement;

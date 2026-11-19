@@ -98,7 +98,7 @@ The strict mode can couple a city filter to the address that holds the words (`s
 
 ### Added
 
-- **A city filter on the same address in the strict mode:** a many filter declared `same_row_as: address` holds, under `manyMatch('single')`, for the address that holds the words (`fő utca` + Eger finds the customer whose Eger address is on Fő utca), and its facet counts what choosing a value shows. Opt-in per filter; run `schema --apply`, then a reindex. See [searching](docs/searching.md#several-values-one-address-manymatch) and [UPGRADE](UPGRADE.md#from-012x-to-0125).
+- **A city filter on the same address in the strict mode:** a many filter declared `same_row_as: address` holds, under `manyMatch('single')`, for the address that holds the words (`fő utca` + Eger finds the customer whose Eger address is on Fő utca), and its facet counts what choosing a value shows. Opt-in per filter; run `schema --apply`, then a reindex. See [searching](docs/searching.md#several-values-one-address-manymatch) and [UPGRADE](UPGRADE.md).
 
 ### Changed
 
@@ -108,7 +108,7 @@ The strict mode can couple a city filter to the address that holds the words (`s
 - **Demo, ERP People tab:** the `city` filter of `people` is `same_row_as: address`, so with "One address must match all words" a chosen city is the city of the address that holds the words (`fő utca szeged`: the facet shows Szeged 294, not the 196 people whose Fő utca is elsewhere); the "city filter" line stays in the default mode only. An existing demo volume needs `DEMO_REINDEX=always` once.
 - **No duplicate trigram index for restricted viewers:** an index whose `granted` fields are all non-fuzzy no longer builds the open-class
   trigram index (a copy of `fz`, 12 MB at 200 000 rows); `schema --apply` drops it, no reindex. Such viewers now also get the open-class
-  full-text index, which the copy kept switched off; results unchanged. See [UPGRADE](UPGRADE.md#from-012x-to-0125).
+  full-text index, which the copy kept switched off; results unchanged. See [UPGRADE](UPGRADE.md).
 - **Compaction hint after the column backfill:** `schema --apply` runs `VACUUM (ANALYZE)` on a table whose rows it backfilled, reports
   its growth and points to `fuzzphony:reindex` (compacts online); the doctor notes a table still wider than its column map needs. See
   [commands](docs/commands.md#commands).
@@ -119,8 +119,8 @@ Smaller index tables, proved safe for restricted viewers: a per-field column tha
 
 ### Changed
 
-- **Smaller index tables:** a per-field column whose value another column holds (`z_` of the primary or the only fuzzy field, `t_` of a one-field index) is stored empty; results and speed unchanged. Run `schema --apply` before deploying (no reindex needed; the space returns at the next reindex); going back to 0.12.3 needs a reindex. See [UPGRADE](UPGRADE.md#from-012x-to-0124).
-- **Definition changes:** `schema --apply` copies the columns of rows written under another column map back in batches (it asks first; `--force` in non-interactive runs), and the doctor warns while such rows wait; after a downgrade and upgrade the maps are no longer trusted until a reindex. See [UPGRADE](UPGRADE.md#a-definition-change-any-release-from-0124-on).
+- **Smaller index tables:** a per-field column whose value another column holds (`z_` of the primary or the only fuzzy field, `t_` of a one-field index) is stored empty; results and speed unchanged. Run `schema --apply` before deploying (no reindex needed; the space returns at the next reindex); going back to 0.12.3 needs a reindex. See [UPGRADE](UPGRADE.md).
+- **Definition changes:** `schema --apply` copies the columns of rows written under another column map back in batches (it asks first; `--force` in non-interactive runs), and the doctor warns while such rows wait; after a downgrade and upgrade the maps are no longer trusted until a reindex. See [UPGRADE](UPGRADE.md).
 
 ## [0.12.3] - 2026-11-12
 
@@ -237,14 +237,14 @@ A patch release: the benchmark workflow works again and `explainMatches()` expla
 The breaking release, gathered in one round so that 0.11 and 1.0 do not have to change the API again. The engine is sturdier (a mandatory schema apply, one
 trigger set and one change log per watched table, a worker that isolates unreadable rows), the API is smaller and safer (77 public types, a search always runs
 as someone, grouped thresholds, renamed methods) and a custom frontend gets what it needs (`toArray()`/JSON, `explainMatches()`, `logSearch()`, database roles).
-Start with the checklist in [UPGRADE](UPGRADE.md#from-0913-to-0100). The demo follows the new API and runs on Symfony UX 3.6.
+Start with the checklist in [UPGRADE](UPGRADE.md). The demo follows the new API and runs on Symfony UX 3.6.
 
 ### Breaking
 
 - **A search that names no actor runs as the application's current user.** Anonymous (CLI, worker, no token) hides `granted` fields; full access is the visible `->asSystem()`
-  (logged as `(system)`). A `granted` field without `authorization.enabled` fails the build and the doctor ([UPGRADE](UPGRADE.md#from-0913-to-0100)).
+  (logged as `(system)`). A `granted` field without `authorization.enabled` fails the build and the doctor ([UPGRADE](UPGRADE.md)).
 - **`restrictedToFields()` only narrows;** `Hit::$kind` and a typed `Hit::$id` replace `FederatedHit` (`mergedScore` on the hit).
-- **Thresholds are four named groups** (`relevance`, `typo`, `rescue`, `limits`); the flat names fail with the new key in the message ([UPGRADE](UPGRADE.md#from-0913-to-0100)).
+- **Thresholds are four named groups** (`relevance`, `typo`, `rescue`, `limits`); the flat names fail with the new key in the message ([UPGRADE](UPGRADE.md)).
 - **`Fuzzphony::suggest()` is `complete()`, `useSuggestion` is `useDidYouMean`, `--suggest` is `--complete`** (no aliases).
 - **The public API is 77 types:** the engine contract, the wizard's parts, the registry and the container types are `@internal`; `Fuzzphony::postgres()`, `wizard()`,
   `resetCaches()` and the optional `Engine` interfaces folded into `Engine` and `Connection` ([Public API](docs/architecture.md#public-api)).
@@ -256,7 +256,7 @@ Start with the checklist in [UPGRADE](UPGRADE.md#from-0913-to-0100). The demo fo
 - **The wizard's YAML writes lists as sequences** and multi-line texts exactly.
 
 - **An actor with a tenant never searches another tenant.** A `forTenant()` naming a different tenant (also for the current user) throws `AccessDenied`, whatever the order of
-  `asActor()` and `forTenant()`; `asSystem()` is the way across ([UPGRADE](UPGRADE.md#from-0913-to-0100), [multi-tenancy](docs/multi-tenancy.md)).
+  `asActor()` and `forTenant()`; `asSystem()` is the way across ([UPGRADE](UPGRADE.md), [multi-tenancy](docs/multi-tenancy.md)).
 - **A `granted` field needs a guard that can restrict fields** (`FieldRestrictingGuard`, which the authorization guard is); a rate limit alone no longer satisfies `Fuzzphony::postgres()`.
   The public API grows to 77 types.
 
@@ -325,7 +325,7 @@ Patch release: a ranking fix for searches made as you type.
 
 ### Behaviour change
 
-- Rankings of `asYouType()` searches change, see **Fixed** above and [UPGRADE.md](UPGRADE.md#from-0910-to-0911).
+- Rankings of `asYouType()` searches change, see **Fixed** above and [UPGRADE.md](UPGRADE.md).
 
 ## [0.9.10] - 2026-10-29
 
@@ -348,7 +348,7 @@ Demo-only release: no change to the library.
 
 ## [0.9.9] - 2026-10-29
 
-The review-fix round before the API round: a restricted viewer's search on words common in hidden fields is fast again (open-class indexes), the typo-tolerant branch is cheap again for everyone (`hedphones` 354 -> 51 ms at 200k), the engine is split into services, and the demo and the CI were reworked. Run `fuzzphony:schema --apply` on indexes with a `granted` field (see [UPGRADE.md](UPGRADE.md#from-098-to-099)); nothing else is required. Strict YAML/array validation, the stricter `granted` check and some result changes for restricted and capped searches are listed under Behaviour change.
+The review-fix round before the API round: a restricted viewer's search on words common in hidden fields is fast again (open-class indexes), the typo-tolerant branch is cheap again for everyone (`hedphones` 354 -> 51 ms at 200k), the engine is split into services, and the demo and the CI were reworked. Run `fuzzphony:schema --apply` on indexes with a `granted` field (see [UPGRADE.md](UPGRADE.md)); nothing else is required. Strict YAML/array validation, the stricter `granted` check and some result changes for restricted and capped searches are listed under Behaviour change.
 
 ### Added
 
@@ -402,7 +402,7 @@ The review-fix round before the API round: a restricted viewer's search on words
 
 ## [0.9.8] - 2026-10-22
 
-The round before the API review: the best match of a very common word is no longer lost above `candidate_limit`, a rate limit for anonymous visitors by IP, typo tolerance for swapped letters, a zero-result rescue, and phrases after a very long field. Run `fuzzphony:schema --apply` and `fuzzphony:reindex` ([UPGRADE.md](UPGRADE.md#from-097-to-098)).
+The round before the API review: the best match of a very common word is no longer lost above `candidate_limit`, a rate limit for anonymous visitors by IP, typo tolerance for swapped letters, a zero-result rescue, and phrases after a very long field. Run `fuzzphony:schema --apply` and `fuzzphony:reindex` ([UPGRADE.md](UPGRADE.md)).
 
 ### Breaking
 
@@ -432,7 +432,7 @@ The round before the API review: the best match of a very common word is no long
 
 ## [0.9.7] - 2026-10-21
 
-Small fixes, one of them a security fix for restricted viewers. Results of every query that worked before are unchanged. Nothing to do on upgrade ([UPGRADE.md](UPGRADE.md#from-096-to-097)).
+Small fixes, one of them a security fix for restricted viewers. Results of every query that worked before are unchanged. Nothing to do on upgrade ([UPGRADE.md](UPGRADE.md)).
 
 ### Fixed
 
@@ -448,7 +448,7 @@ Small fixes, one of them a security fix for restricted viewers. Results of every
 
 ## [0.9.6] - 2026-10-21
 
-Who searched what, the documentation round and a reviewed list of known limitations. Nothing breaks; one optional step, `fuzzphony:schema --apply`, to store the client IP ([UPGRADE.md](UPGRADE.md#from-095-to-096)).
+Who searched what, the documentation round and a reviewed list of known limitations. Nothing breaks; one optional step, `fuzzphony:schema --apply`, to store the client IP ([UPGRADE.md](UPGRADE.md)).
 
 ### Added
 
@@ -466,7 +466,7 @@ Who searched what, the documentation round and a reviewed list of known limitati
 
 ## [0.9.5] - 2026-10-20
 
-The performance round, a fix for the Doctrine ORM wiring, and Symfony 8.0 leaves the supported versions ([UPGRADE.md](UPGRADE.md#from-094-to-095)).
+The performance round, a fix for the Doctrine ORM wiring, and Symfony 8.0 leaves the supported versions ([UPGRADE.md](UPGRADE.md)).
 
 ### Breaking
 
@@ -481,7 +481,7 @@ The performance round, a fix for the Doctrine ORM wiring, and Symfony 8.0 leaves
 
 ### Fixed
 
-- **Doctrine ORM wiring in a real Symfony kernel:** `#[Searchable]` discovery, `EntityLoader` and the ORM sync listener were never registered in an application because the bundle asked for the extension too early. They now are; remove hand-registered duplicates ([UPGRADE.md](UPGRADE.md#from-094-to-095)).
+- **Doctrine ORM wiring in a real Symfony kernel:** `#[Searchable]` discovery, `EntityLoader` and the ORM sync listener were never registered in an application because the bundle asked for the extension too early. They now are; remove hand-registered duplicates ([UPGRADE.md](UPGRADE.md)).
 
 ## [0.9.4] - 2026-10-14
 
@@ -526,7 +526,7 @@ No upgrade steps. Two small follow-ups to the 0.9 search log.
 
 ## [0.9.0] - 2026-10-14
 
-Parts 1 (identity), 2 (search log and analytics) and 3 (guards) of 0.9. Upgrade: nothing, unless you enable the log: run `fuzzphony:schema --apply`. See [UPGRADE.md](UPGRADE.md#from-08-to-09).
+Parts 1 (identity), 2 (search log and analytics) and 3 (guards) of 0.9. Upgrade: nothing, unless you enable the log: run `fuzzphony:schema --apply`. See [UPGRADE.md](UPGRADE.md).
 
 ### Added
 
@@ -715,7 +715,7 @@ No upgrade steps. The library gains search-as-you-type matching; the rest is the
 
 **Additive, no breaking changes.** After upgrading run `fuzzphony:schema --apply` once: it adds a prefix
 index to the vocabulary of every typo-tolerant index (`suggest()` works without it, with a scan of the
-small vocabulary table). See [UPGRADE.md](UPGRADE.md#from-07-to-08).
+small vocabulary table). See [UPGRADE.md](UPGRADE.md).
 
 ### Added
 
@@ -796,7 +796,7 @@ No upgrade steps: nothing changes unless you use the new synonym sources.
 
 **After upgrading, run `fuzzphony:schema --apply`, then `fuzzphony:reindex --vocabulary`** (a full
 `fuzzphony:reindex` does it too), and give the roles the grants for the new vocabulary table. Typo-tolerant
-results change: see Breaking. See [UPGRADE.md](UPGRADE.md#from-06-to-07).
+results change: see Breaking. See [UPGRADE.md](UPGRADE.md).
 
 ### Breaking
 
@@ -814,7 +814,7 @@ results change: see Breaking. See [UPGRADE.md](UPGRADE.md#from-06-to-07).
   behaviour for every word. `Thresholds::$fuzzySimilarity` is now `?float` (`null`, the default,
   means by length): code that reads it must handle `null`. A custom `Engine` must apply the same
   rule (the conformance test expects `"wireles headphones"` to find only the headphones). See
-  [UPGRADE.md](UPGRADE.md#from-06-to-07).
+  [UPGRADE.md](UPGRADE.md).
 
 ### Added
 
@@ -911,7 +911,7 @@ results change: see Breaking. See [UPGRADE.md](UPGRADE.md#from-06-to-07).
 ## [0.5.0] - 2026-10-01
 
 **After upgrading, run `fuzzphony:schema --apply`, then one full `fuzzphony:reindex`.** See
-[UPGRADE.md](UPGRADE.md#from-04-to-05).
+[UPGRADE.md](UPGRADE.md).
 
 ### Breaking
 
@@ -1017,7 +1017,7 @@ results change: see Breaking. See [UPGRADE.md](UPGRADE.md#from-06-to-07).
 
 **After upgrading, run `fuzzphony:schema --apply`, then one full `fuzzphony:reindex`**, and grant the new
 `fuzzphony_meta` table to the roles that run the doctor (`SELECT`) and the reindex (`SELECT`,
-`UPDATE`). See [UPGRADE.md](UPGRADE.md#from-03-to-04).
+`UPDATE`). See [UPGRADE.md](UPGRADE.md).
 
 ### Breaking
 
@@ -1054,7 +1054,7 @@ results change: see Breaking. See [UPGRADE.md](UPGRADE.md#from-06-to-07).
   read from one configured schema (`public` unless `schema` is set), and the generated functions are
   re-created with a pinned `search_path`. After upgrading, run `fuzzphony:schema --apply`; an
   install whose objects live outside `public` must set `schema` to that schema. See
-  [UPGRADE.md](UPGRADE.md#from-03-to-04), step 5.
+  [UPGRADE.md](UPGRADE.md), step 5.
 - `Engine` has a new method `recordReindex(IndexDefinition $index): void`, called after a full
   reindex. Custom engines must implement it (an empty body is fine).
 - The new `fuzzphony_meta` table needs grants: `SELECT` and `UPDATE` for the role that runs
