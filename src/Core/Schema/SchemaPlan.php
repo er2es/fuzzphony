@@ -50,8 +50,7 @@ final readonly class SchemaPlan
                 try {
                     $connection->execute($sql);
                 } catch (\Throwable $e) {
-                    // the statement itself, not "re-run the apply": a run that depends on what an earlier statement did (the VACUUM after
-                    // a backfill) is not repeated by a second apply
+                    // the statement itself, not "re-run the apply": a run that depends on what an earlier statement did is not repeated by a second apply
                     $warnings[] = sprintf('%s: %s failed (%s). Run it yourself: %s', $statement->description, $name, $e->getMessage(), $sql);
                 }
             }

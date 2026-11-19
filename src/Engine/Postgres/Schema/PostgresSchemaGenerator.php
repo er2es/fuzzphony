@@ -28,9 +28,7 @@ use Fuzzphony\Engine\Postgres\Sql\Sql;
 final readonly class PostgresSchemaGenerator
 {
     /**
-     * The sidecar layout this version generates, recorded in fuzzphony_meta: 1 = the 0.4 layout,
-     * 2 = per-field columns (0.5). A layout change bumps it and adds its step to layoutSteps(),
-     * with a test.
+     * The sidecar layout this version generates, recorded in fuzzphony_meta (the doctor reports an older one).
      */
     public const int LAYOUT_VERSION = 2;
 
@@ -46,7 +44,7 @@ final readonly class PostgresSchemaGenerator
     public const string CAPPED_COLUMN = 'tsv_capped';
     /**
      * Which column map a row was written with (Names::fieldMap(), `t_name=tsv,z_name=exact`); NULL = every per-field column is
-     * filled (no shared column, an earlier release, or a row the backfill filled: ColumnMap). Never dropped: a later definition
+     * filled (no shared column, or a row the downgrade guard distrusts: ColumnMap). Never dropped: a later definition
      * still has to know which columns of a row are empty.
      */
     public const string FIELD_MAP_COLUMN = 'field_map';
@@ -68,7 +66,7 @@ final readonly class PostgresSchemaGenerator
     public const string LOCK_TIMEOUT = '3s';
 
     /** @param bool $searchLog whether the shared schema includes the search log table (the engine was built with searchLog: true) */
-    public function __construct(private Names $names = new Names(), private bool $searchLog = false, private int $backfillBatch = ColumnMap::BATCH) {}
+    public function __construct(private Names $names = new Names(), private bool $searchLog = false) {}
 
     public function names(): Names
     {
@@ -192,10 +190,6 @@ final readonly class PostgresSchemaGenerator
         }
         // before the refresh functions below are replaced: the maps an earlier release's function may have outdated
         $statements[] = ColumnMap::guard($index, $this->names);
-        // after the transaction that replaced the refresh functions (it is not transactional): rows of another map get their columns back
-        $statements[] = ColumnMap::backfill($index, $this->names, $this->backfillBatch);
-        // right after it (the statements outside the transaction run in this order): only when it updated rows
-        $statements[] = ColumnMap::vacuum($index, $this->names);
         if ($index->hasFuzzy()) {
             $statements[] = new Statement(
                 sprintf('CREATE TABLE IF NOT EXISTS %s (word text PRIMARY KEY, freq integer NOT NULL)', $this->names->vocabulary($index)),
@@ -337,17 +331,6 @@ final readonly class PostgresSchemaGenerator
             ),
             'Drop the value count column of a field that is no longer declared with many: { rank: best }',
         );
-        foreach ($this->layoutSteps($index) as $target => [$step, $why]) {
-            $statements[] = new Statement(sprintf(
-                'DO %1$s BEGIN IF to_regclass(%2$s) IS NOT NULL THEN IF (SELECT layout_version FROM %3$s WHERE index_name = %4$s) < %5$d THEN %6$s END IF; END IF; END %1$s',
-                self::TAG,
-                Sql::string($this->names->meta()),
-                $this->names->meta(),
-                Sql::string($index->name),
-                $target,
-                $step,
-            ), sprintf('Layout step to %d: %s', $target, $why));
-        }
         $statements[] = $this->recordApply($index->name, Fingerprint::definition($index), sprintf('Record the layout and definition "%s" was built from', $index->name));
 
         return new SchemaPlan($statements);
@@ -458,27 +441,6 @@ ON CONFLICT (index_name) DO UPDATE SET layout_version = EXCLUDED.layout_version,
             Sql::string($definitionHash),
             Sql::string(self::libraryVersion()),
         ), $description, transactional: false);
-    }
-
-    /**
-     * The sidecar layout upgrade steps, by the layout each one leads to. schema --apply runs a
-     * step for an index whose stored layout (fuzzphony_meta) is older, in the apply transaction,
-     * before the meta upsert records the new layout; a missing version table or row runs none.
-     * The check is SQL (a DO block), so the plan stays database-free and --dump-migration contains
-     * the steps. New columns come from the plan's guarded ADD COLUMN, not from a step. The
-     * SELECT sits in its own IF: plpgsql plans an IF expression as a whole, so
-     * "to_regclass(...) IS NOT NULL AND (SELECT ...)" would fail on a missing table.
-     *
-     * @return array<int, array{string, string}> target layout => [the step's SQL, why it exists]
-     */
-    private function layoutSteps(IndexDefinition $index): array
-    {
-        return [
-            2 => [
-                sprintf('UPDATE %s SET documents_hash = NULL WHERE index_name = %s;', $this->names->meta(), Sql::string($index->name)),
-                'the per-field columns of existing documents stay empty until a full reindex',
-            ],
-        ];
     }
 
     /** For the record only: the version of the installed package. */

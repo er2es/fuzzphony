@@ -395,8 +395,7 @@ final readonly class Names
     /**
      * What the refresh function writes to `field_map`: the pairs of sharedColumns() as `column=source`, sorted and joined with
      * commas (`t_name=tsv,z_name=exact`); null without a shared column. Each pair is a fact about the row it is written to (that
-     * column's value is the source's), whatever definition comes later: the apply copies the values of a row of another map back
-     * from them (ColumnMap::backfill()), so a row has the current map or none, and the readers compare the map (perField()).
+     * column's value is the source's), whatever definition comes later: the readers compare the map (perField()), and a reindex rewrites the row.
      */
     public function fieldMap(IndexDefinition $index): ?string
     {
@@ -407,7 +406,7 @@ final readonly class Names
 
     /**
      * `s.t_name`, or for a shared column: the source for a row of the current map, else the column itself (NULL: filled; another map
-     * before its backfill: possibly empty, never another field's text). An equality, not a test of the pair: it costs a row about
+     * before its reindex: possibly empty, never another field's text). An equality, not a test of the pair: it costs a row about
      * as much as reading the column (a pair test with strpos() made a 3-word search on 200 000 rows 10% slower).
      */
     private function perField(IndexDefinition $index, string $column, string $alias): string
