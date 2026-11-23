@@ -174,7 +174,8 @@
         .toolbar-inner > .nav { grid-area: nav; }
         .toolbar-inner > .theme-switch { grid-area: theme; }
     }
-    .wordmark { font-weight: 700; font-size: 1.0625rem; letter-spacing: -.015em; color: var(--label); }
+    .wordmark { display: inline-flex; align-items: center; gap: .5rem; font-weight: 700; font-size: 1.0625rem; letter-spacing: -.015em; color: var(--label); }
+    .wordmark .logo { width: 1.5rem; height: 1.5rem; flex: none; }
     .wordmark:hover { text-decoration: none; }
     .nav { display: flex; align-items: center; gap: .125rem; }
     /* the rules for the items of the bar; the links in the menu's panel are rows of their own (.menu-panel a) */
