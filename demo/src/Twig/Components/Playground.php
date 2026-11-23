@@ -40,12 +40,12 @@ final class Playground
 
     #[LiveProp(writable: true, url: true)] public string $query = Examples::TUNE_START;
     #[LiveProp(writable: true)] public bool $analyze = false;
-    #[LiveProp(writable: true)] public bool $inStockOnly = false;
+    #[LiveProp(writable: true, url: true)] public bool $inStockOnly = false;
     /** The other value of the stock facet; "in stock only" wins when both are set (the checkbox next to the sliders). */
-    #[LiveProp(writable: true)] public bool $outOfStockOnly = false;
-    #[LiveProp(writable: true)] public int $maxPrice = 0;
+    #[LiveProp(writable: true, url: true)] public bool $outOfStockOnly = false;
+    #[LiveProp(writable: true, url: true)] public int $maxPrice = 0;
     /** The category chosen on the facet (a name, '' = any). */
-    #[LiveProp(writable: true)] public string $category = '';
+    #[LiveProp(writable: true, url: true)] public string $category = '';
     #[LiveProp(writable: true)] public bool $exactCounts = false;
 
     // ranking profile
@@ -171,6 +171,27 @@ final class Playground
         $this->boost = $profile->boost;
         $this->recency = $profile->recency;
         $this->halfLife = $profile->recencyHalfLifeDays;
+    }
+
+    /** A chosen filter shown as a token is lifted by its cross; only the names below are taken. */
+    #[LiveAction]
+    public function clearFilter(#[LiveArg] string $name): void
+    {
+        match ($name) {
+            'category' => $this->category = '',
+            'stock' => [$this->inStockOnly, $this->outOfStockOnly] = [false, false],
+            'price' => $this->maxPrice = 0,
+            default => null,
+        };
+    }
+
+    #[LiveAction]
+    public function clearFilters(): void
+    {
+        $this->category = '';
+        $this->inStockOnly = false;
+        $this->outOfStockOnly = false;
+        $this->maxPrice = 0;
     }
 
     #[LiveAction]

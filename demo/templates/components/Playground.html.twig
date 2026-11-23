@@ -115,6 +115,16 @@
                 </div>
                 {% if result.warnings %}<div class="warnings">{% for warning in result.warnings %}<p>{{ warning }}</p>{% endfor %}</div>{% endif %}
                 {% if result.didYouMean %}<p class="did-you-mean">Did you mean <code>{{ result.didYouMean }}</code>?</p>{% endif %}
+                {# The filters in force, as tokens: a search with a hidden filter (a category, stock, a price) finds nothing of what the words name. #}
+                {% if category or inStockOnly or outOfStockOnly or maxPrice > 0 %}
+                    <div class="chips" aria-label="Chosen filters">
+                        {% if category %}<button type="button" class="token" data-action="live#action" data-live-action-param="clearFilter" data-live-name-param="category" aria-label="Remove the filter: category {{ category }}">Category: {{ category }}<svg class="icon" aria-hidden="true"><use href="#i-clear"/></svg></button>{% endif %}
+                        {% if inStockOnly %}<button type="button" class="token" data-action="live#action" data-live-action-param="clearFilter" data-live-name-param="stock" aria-label="Remove the filter: in stock only">In stock only<svg class="icon" aria-hidden="true"><use href="#i-clear"/></svg></button>
+                        {% elseif outOfStockOnly %}<button type="button" class="token" data-action="live#action" data-live-action-param="clearFilter" data-live-name-param="stock" aria-label="Remove the filter: out of stock only">Out of stock only<svg class="icon" aria-hidden="true"><use href="#i-clear"/></svg></button>{% endif %}
+                        {% if maxPrice > 0 %}<button type="button" class="token" data-action="live#action" data-live-action-param="clearFilter" data-live-name-param="price" aria-label="Remove the filter: price up to {{ maxPrice }}">Price up to {{ maxPrice|number_format(0, '.', ' ') }} Ft<svg class="icon" aria-hidden="true"><use href="#i-clear"/></svg></button>{% endif %}
+                        <button type="button" class="token" data-action="live#action" data-live-action-param="clearFilters">Clear all</button>
+                    </div>
+                {% endif %}
                 {# Facets: the values of a filter among the matches. A chosen category narrows the search; the facet still lists the other categories. #}
                 {% set categories = this.categories %}
                 {% set stock = result.facets.in_stock ?? [] %}
