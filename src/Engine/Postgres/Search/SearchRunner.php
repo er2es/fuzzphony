@@ -514,7 +514,7 @@ final readonly class SearchRunner
         $typoPhase = fn(Node $fuzzyRoot, StatementKind $kind, string $label, array $empty): \Closure => fn(array $corrections = []): PhaseResult => $this->session->inTransaction(function () use ($c, $fuzzy, $fuzzyRoot, $kind, $label, $empty, $tsquery, $plain, $scopedRoot, $withIds, $corrections): PhaseResult {
             /** @var list<string> $empty */
             /** @var array<string, array{word: string, score: float}> $corrections */
-            $candidates = $this->fuzzyCandidates($c, $fuzzy, $fuzzyRoot, $empty);
+            $candidates = $this->session->candidates($fuzzy, $fuzzyRoot, $c->thresholds->limits->candidates, $empty, $c->conditions);
             $statement = Statement::of($kind, $label, $c->builder($candidates, $corrections)->ranked($tsquery, $plain, $fuzzyRoot, $c->conditions, $c->profile, $c->thresholds, $c->query->limit, $c->query->offset, $empty, $scopedRoot, $withIds));
             $threshold = $fuzzy->lowestSimilarity($fuzzyRoot, $empty);
             $rows = $this->session->run($statement, $threshold);
@@ -620,33 +620,6 @@ final readonly class SearchRunner
         $empty = $this->caches->emptyQueries($c->index, $fuzzy->leafQueries($query));
 
         return $fuzzyRoot === null || $empty === [] ? $empty : $fuzzy->keepingStopWords($fuzzyRoot, $empty);
-    }
-
-    /**
-     * The documents each typo-tolerant word matches on its own, asked word by word at the word's own similarity:
-     * with the session's threshold set for the lowest word of the whole statement, the trigram index would return
-     * (and PostgreSQL read) every row that merely starts alike for a word that needs more (see FuzzyQueryCompiler).
-     * A word with more matches than the candidate limit is left out of `candidates` and keeps its trigram condition.
-     *
-     * Each probe applies the search's conditions (tenant and filters): only documents the search could return are probed.
-     *
-     * @param list<string> $emptyQueries
-     *
-     * @return array<string, list<int|string>> by candidateKey()
-     */
-    private function fuzzyCandidates(SearchContext $c, FuzzyQueryCompiler $fuzzy, Node $root, array $emptyQueries): array
-    {
-        $cap = $c->thresholds->limits->candidates;
-        $candidates = [];
-        foreach ($fuzzy->probes($root, $cap, $emptyQueries, $c->conditions) as $key => $probe) {
-            $ids = array_map(static fn(array $row): int|string => is_int($row['id']) ? $row['id'] : Coerce::str($row['id']), $this->session->runProbe($probe['sql'], $probe['params'], $probe['similarity']));
-            sort($ids); // the probe has no order: the ids are bound into statements (explain() shows them), which must not follow the heap
-            if (count($ids) <= $cap) {
-                $candidates[$key] = $ids;
-            }
-        }
-
-        return $candidates;
     }
 
     /**

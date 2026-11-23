@@ -7,7 +7,10 @@ namespace Fuzzphony\Engine\Postgres;
 use Fuzzphony\Core\Database\Connection;
 use Fuzzphony\Core\Exception\EngineFailure;
 use Fuzzphony\Core\Exception\FuzzphonyException;
+use Fuzzphony\Core\Query\Ast\Node;
+use Fuzzphony\Core\Query\Filter\Condition;
 use Fuzzphony\Core\Support\Coerce;
+use Fuzzphony\Engine\Postgres\Sql\FuzzyQueryCompiler;
 
 /**
  * @internal The connection of the searches of one engine and the pg_trgm settings they need.
@@ -198,6 +201,33 @@ final class SearchSession
     public function runProbe(string $sql, array $params, float $wordSimilarity): array
     {
         return $this->guard->run('search', fn(): array => $this->fetch($sql, $params, $wordSimilarity, self::WORD_SIMILARITY, true), Hints::INDEX);
+    }
+
+    /**
+     * The documents each typo-tolerant word matches on its own, asked word by word at the word's own similarity
+     * (FuzzyQueryCompiler::probes(), $above as there): with the session's threshold set for the lowest word of the whole
+     * statement, the trigram index would return (and PostgreSQL read) every row that merely starts alike for a word that needs
+     * more. A word with more matches than $cap is left out and keeps its trigram condition.
+     *
+     * Each probe applies $conditions (tenant and filters): only documents the statement could return are probed.
+     *
+     * @param list<string>    $emptyQueries
+     * @param list<Condition> $conditions
+     *
+     * @return array<string, list<int|string>> by candidate key
+     */
+    public function candidates(FuzzyQueryCompiler $fuzzy, Node $root, int $cap, array $emptyQueries, array $conditions, ?float $above = null): array
+    {
+        $candidates = [];
+        foreach ($fuzzy->probes($root, $cap, $emptyQueries, $conditions, $above) as $key => $probe) {
+            $ids = array_map(static fn(array $row): int|string => is_int($row['id']) ? $row['id'] : Coerce::str($row['id']), $this->runProbe($probe['sql'], $probe['params'], $probe['similarity']));
+            sort($ids); // the probe has no order: the ids are bound into statements (explain() shows them), which must not follow the heap
+            if (count($ids) <= $cap) {
+                $candidates[$key] = $ids;
+            }
+        }
+
+        return $candidates;
     }
 
     /**

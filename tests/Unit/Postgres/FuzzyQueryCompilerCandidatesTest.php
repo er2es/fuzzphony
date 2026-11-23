@@ -135,6 +135,41 @@ final class FuzzyQueryCompilerCandidatesTest extends TestCase
         }
     }
 
+    public function testAboveTheSessionsSimilarityOnlyTheWordsThatNeedMoreAreProbed(): void
+    {
+        $root = self::parse('television | telly');
+        $lowest = self::compiler()->lowestSimilarity($root);
+        self::assertNotNull($lowest);
+
+        $probes = self::compiler()->probes($root, 10, above: $lowest);
+
+        // television: 10 letters, two typos, (10 + 1 - 6) / (10 + 1 + 6) + 0.03 = the session's; telly: (5 + 1 - 3) / (5 + 1 + 3) + 0.03
+        self::assertCount(1, $probes);
+        $probe = array_values($probes)[0];
+        self::assertSame(['p0' => 'telly'], $probe['params']);
+        self::assertEqualsWithDelta(0.3633333333, $probe['similarity'], 0.0001);
+        self::assertSame(array_values(self::compiler()->probes(self::parse('telly'), 10))[0]['sql'], $probe['sql'], 'the same probe as the main search\'s');
+    }
+
+    public function testWordsOfTheSameSimilarityOrAFlatOneNeedNoProbeAboveIt(): void
+    {
+        $root = self::parse('mouse | cable');
+        self::assertSame([], self::compiler()->probes($root, 10, above: self::compiler()->lowestSimilarity($root)));
+
+        $flat = new FuzzyQueryCompiler(Indexes::products(), new Thresholds(typo: new TypoThresholds(similarity: 0.3)), new Names());
+        self::assertSame([], $flat->probes(self::parse('television | telly'), 10, above: 0.3));
+    }
+
+    public function testAPrefixAboveTheSessionIsProbedNoStricterThanItsRecheck(): void
+    {
+        // keyboards*: looked up at 9 letters, (10 - 6) / (10 + 6) + 0.03 = 0.28, rechecked as 8, (9 - 6) / (9 + 6) + 0.03 = 0.23; a lookup
+        // stricter than the recheck would drop documents the statement's "<%" at the session's similarity keeps
+        $similarities = static fn(float $above): array => array_map(static fn(array $p): float => round($p['similarity'], 4), array_values(self::compiler()->probes(self::parse('keyboards* | mouse'), 10, above: $above)));
+
+        self::assertSame([0.23, 0.3633], $similarities(0.2));
+        self::assertSame([0.3633], $similarities(0.25), 'the prefix needs no more than 0.25');
+    }
+
     private static function compiler(): FuzzyQueryCompiler
     {
         return new FuzzyQueryCompiler(Indexes::products(), new Thresholds(), new Names());
