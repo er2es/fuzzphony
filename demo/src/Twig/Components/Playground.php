@@ -207,6 +207,13 @@ final class Playground
         };
     }
 
+    /** The note about look-alike hits offers it: no typo tolerance, so only the words themselves match. */
+    #[LiveAction]
+    public function exactWordsOnly(): void
+    {
+        $this->fuzzyMode = FuzzyMode::Never->value;
+    }
+
     #[LiveAction]
     public function clearFilters(): void
     {

@@ -15,7 +15,7 @@ and a link. Measurements, proofs and test names belong to the pull request, [doc
 
 - **Demo:** the header shows the logo next to the name, like the browser tab.
 - **Demo, ERP Combined tab:** the two panels start their title, tools and list at the same height side by side (a matching tools line on the federated panel), and the note names the kind that is chosen (`kinds('order')`) or says that none is.
-- **Demo, Tune:** an example chip clears every filter (a stock or price filter used to stay and hide what the example names), and a note explains when the chosen filters leave no match for the words and the list shows look-alike words.
+- **Demo, Tune:** an example chip clears every filter (a stock or price filter used to stay and hide what the example names), and a note explains when the chosen filters leave no match for the words and the list shows look-alike words, with a button per filter to remove it and one for "only exact words".
 
 ## [1.0.1] - 2026-11-23
 
