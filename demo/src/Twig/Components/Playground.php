@@ -12,6 +12,7 @@ use Fuzzphony\Core\Exception\FuzzphonyException;
 use Fuzzphony\Core\Fuzzphony;
 use Fuzzphony\Core\Ranking\FuzzyMode;
 use Fuzzphony\Core\Ranking\RankingProfile;
+use Fuzzphony\Core\Ranking\Thresholds;
 use Fuzzphony\Core\Search\Explanation;
 use Fuzzphony\Core\Search\SearchBuilder;
 use Fuzzphony\Core\Search\SearchResult;
@@ -161,20 +162,26 @@ final class Playground
         if ($name === 'sample') {
             $definition = $this->sample->definition();
             $this->applyProfile($definition->profile('default'));
-            $thresholds = $definition->thresholds;
-            $this->minScore = $thresholds->relevance->minScore;
-            $this->similarityByLength = $thresholds->typo->similarity === null;
-            $this->similarity = $thresholds->typo->similarity ?? $this->similarity;
-            $this->fuzzyMode = $thresholds->typo->mode->value;
-            $this->fallbackBelow = $thresholds->typo->fallbackBelow;
-            $this->candidateLimit = $thresholds->limits->candidates;
+            $this->applyThresholds($definition->thresholds);
 
             return;
         }
         if (!in_array($name, ['default', 'popular'], true)) {
             return;
         }
-        $this->applyProfile($this->fuzzphony->definition('catalog')->profile($name));
+        $definition = $this->fuzzphony->definition('catalog');
+        $this->applyProfile($definition->profile($name));
+        $this->applyThresholds($definition->thresholds);
+    }
+
+    private function applyThresholds(Thresholds $thresholds): void
+    {
+        $this->minScore = $thresholds->relevance->minScore;
+        $this->similarityByLength = $thresholds->typo->similarity === null;
+        $this->similarity = $thresholds->typo->similarity ?? 0.3;
+        $this->fuzzyMode = $thresholds->typo->mode->value;
+        $this->fallbackBelow = $thresholds->typo->fallbackBelow;
+        $this->candidateLimit = $thresholds->limits->candidates;
     }
 
     private function applyProfile(RankingProfile $profile): void
@@ -217,20 +224,18 @@ final class Playground
     /** The profile (`default`, `popular`, `sample`) whose values the controls show right now, '' when they match none: its chip is marked. */
     public function getActiveProfile(): string
     {
-        $current = [$this->text, $this->fuzzy, $this->exactBonus, $this->prefixBonus, $this->boost, $this->recency, $this->halfLife];
-        foreach (['default', 'popular'] as $name) {
-            $p = $this->fuzzphony->definition('catalog')->profile($name);
-            if (self::same($current, [$p->text, $p->fuzzy, $p->exactBonus, $p->prefixBonus, $p->boost, $p->recency, $p->recencyHalfLifeDays])) {
+        $now = [$this->text, $this->fuzzy, $this->exactBonus, $this->prefixBonus, $this->boost, $this->recency, $this->halfLife, $this->minScore, $this->similarityByLength ? 1.0 : 0.0, $this->similarityByLength ? 0.0 : $this->similarity, $this->fuzzyMode, $this->fallbackBelow, $this->candidateLimit];
+        $catalog = $this->fuzzphony->definition('catalog');
+        foreach (['default' => $catalog, 'popular' => $catalog, 'sample' => $this->sample->definition()] as $name => $definition) {
+            $p = $definition->profile($name === 'sample' ? 'default' : $name);
+            $t = $definition->thresholds;
+            $values = [$p->text, $p->fuzzy, $p->exactBonus, $p->prefixBonus, $p->boost, $p->recency, $p->recencyHalfLifeDays, $t->relevance->minScore, $t->typo->similarity === null ? 1.0 : 0.0, $t->typo->similarity ?? 0.0, $t->typo->mode->value, $t->typo->fallbackBelow, $t->limits->candidates];
+            if (self::same($now, $values)) {
                 return $name;
             }
         }
-        $definition = $this->sample->definition();
-        $p = $definition->profile('default');
-        $t = $definition->thresholds;
-        $sample = [$p->text, $p->fuzzy, $p->exactBonus, $p->prefixBonus, $p->boost, $p->recency, $p->recencyHalfLifeDays, $t->relevance->minScore, $t->typo->similarity === null ? 1.0 : 0.0, $t->typo->mode->value, $t->typo->fallbackBelow, $t->limits->candidates];
-        $now = [...$current, $this->minScore, $this->similarityByLength ? 1.0 : 0.0, $this->fuzzyMode, $this->fallbackBelow, $this->candidateLimit];
 
-        return self::same($now, $sample) ? 'sample' : '';
+        return '';
     }
 
     /**

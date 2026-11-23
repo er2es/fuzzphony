@@ -96,7 +96,7 @@ await page.fill('input[type=search]', 'mouse');
 await page.waitForSelector('#results .facet a');
 await page.click('#results .facet a >> nth=0');
 await page.waitForLoadState('load');
-check('a facet narrows the search', /(cat|stock)=/.test(page.url()), page.url());
+check('a facet narrows the search', /(category|stock)=/.test(page.url()), page.url());
 check('and shows the chosen filter as a token', (await page.locator('.token').count()) > 0);
 
 // 6. the Speed view
@@ -143,7 +143,7 @@ await p3.waitForSelector('#results:not([aria-busy="true"])');
 await p3.waitForTimeout(500);
 check('home: afterwards both are gone', !(await spinnerShown(p3)) && (await p3.evaluate(() => parseFloat(getComputedStyle(document.querySelector('#results')).opacity) > 0.95)));
 
-await go(p3, BASE + '/tune?query=mouse');
+await go(p3, BASE + '/tune?q=mouse');
 await p3.waitForSelector('.layout');
 await p3.fill('.pane input[type=search]', 'mouse pad');
 await p3.waitForSelector('.layout[aria-busy="true"]');
@@ -267,13 +267,13 @@ check('a word typed and left at once by navigation was logged', logged.includes(
 check('there is no "/ to search" hint in the toolbar', (await p3.locator('.toolbar-hint').count()) === 0);
 
 // the SQL of the Tune page wraps instead of scrolling sideways
-await go(page, BASE + '/tune?query=mouse');
+await go(page, BASE + '/tune?q=mouse');
 await page.click('label[for=view-sql]');
 await page.waitForSelector('.panel-sql pre');
 check('the SQL wraps instead of scrolling sideways', await page.evaluate(() => [...document.querySelectorAll('.panel-sql pre')].every((pre) => pre.scrollWidth <= pre.clientWidth + 1)));
 
 // the library's highlight is markup (<mark>), on every list of products, never visible tags
-for (const [path, selector] of [['/?q=hedphones', '#results .hit-row'], ['/relevance?q=mouse', '.hit-row'], ['/languages?lang=fr&q=chevaux', '.hit-row'], ['/tune?query=mouse', '.hit-row']]) {
+for (const [path, selector] of [['/?q=hedphones', '#results .hit-row'], ['/relevance?q=mouse', '.hit-row'], ['/languages?lang=fr&q=chevaux', '.hit-row'], ['/tune?q=mouse', '.hit-row']]) {
     await go(page, BASE + path);
     await page.waitForSelector(selector);
     const titles = await page.locator(`${selector} .row-title`).allInnerTexts();
@@ -281,20 +281,20 @@ for (const [path, selector] of [['/?q=hedphones', '#results .hit-row'], ['/relev
 }
 
 // the ranking profile `popular` of the configuration is a starting point in Tune: its values land in the sliders
-await go(page, `${BASE}/tune?query=mouse`);
+await go(page, `${BASE}/tune?q=mouse`);
 await page.click('.profile-chips .chip >> text=popular');
 const sliderValue = (label) => page.evaluate((l) => [...document.querySelectorAll('.slider')].find((s) => s.innerText.trim().startsWith(l))?.querySelector('input').value, label);
 await page.waitForFunction(() => [...document.querySelectorAll('.slider')].find((s) => s.innerText.trim().startsWith('Recency half-life'))?.querySelector('input').value === '60', null, { timeout: 15000 });
 check('tune: the popular profile fills the sliders from the configuration', (await sliderValue('Popularity boost')) === '0.03' && (await sliderValue('Recency half-life')) === '60');
 
 // both stock chips of Tune narrow the search
-await go(page, BASE + '/tune?query=mouse');
+await go(page, BASE + '/tune?q=mouse');
 await page.waitForSelector('.facets .chip');
 const chipCount = async (name) => Number((await page.locator('.facets .chip', { hasText: name }).first().innerText()).replace(/\D+/g, ' ').trim().split(' ').pop());
-const before = await chipCount('out of stock');
-await page.click('.facets .chip >> text=out of stock');
+const before = await chipCount('Out of stock');
+await page.click('.facets .chip >> text=Out of stock');
 await page.waitForSelector('.facets .chip[aria-pressed=true]');
-check('the out of stock chip is a button that narrows the search', (await page.locator('.facets .chip[aria-pressed=true]').innerText()).startsWith('out of stock') && before > 0);
+check('the out of stock chip is a button that narrows the search', (await page.locator('.facets .chip[aria-pressed=true]').innerText()).startsWith('Out of stock') && before > 0);
 
 // Tune starts with a query that every group of settings reacts to (twelve projectors, sql/demo_additions.sql), and the example chips put the other ones in
 await go(page, BASE + '/tune');
@@ -323,7 +323,7 @@ await page.waitForFunction(() => /typo tolerant/.test(document.querySelector('.s
 check('tune: the typos chip searches `hedphones` and finds the headphones', /2,000\+ hits/.test(await tuneHits()) && (await tuneTitles())[0].includes('headphones'));
 await moveSlider('fuzzy', 0);
 check('tune: Fuzzy weight 0 leaves the typo search without a hit', /^0 hits/.test(await tuneHits()));
-await go(page, BASE + '/tune?query=mouse');
+await go(page, BASE + '/tune?q=mouse');
 await page.waitForSelector('.panel-results .hit-row');
 await moveSlider('candidateLimit', 100);
 check('tune: the candidate limit shows in the total ("100+")', /^100\+ hits/.test(await tuneHits()), await tuneHits());
@@ -345,6 +345,187 @@ await page.click('.profile-chips .chip >> text=sample');
 await page.waitForFunction(() => [...document.querySelectorAll('.slider')].find((s) => s.innerText.trim().startsWith('Recency half-life'))?.querySelector('input').value === '45', null, { timeout: 15000 });
 check('tune: the "sample" chip fills the sliders too', (await sliderValue('Popularity boost')) === '0.02' && (await sliderValue('Recency')) === '0.15');
 
+
+// ---- one address, one vocabulary, one filter pattern, on Tune, ERP, Search and the pages around them
+{
+    const consistency = await browser.newContext({ bypassCSP, viewport: { width: 1280, height: 800 }, reducedMotion: 'reduce' });
+    const page = await consistency.newPage();
+    page.setDefaultTimeout(30000);
+    const search = () => new URL(page.url()).search;
+    const live = async (name = '') => {
+        const r = await page.waitForResponse((x) => x.url().includes('_components/Playground' + (name ? '/' + name : '')), { timeout: 30000 });
+        await page.waitForTimeout(300);
+
+        return r;
+    };
+
+    // Tune: the address holds only what differs from the default, the readouts equal the sliders, a reload reproduces the page
+    await go(page, BASE + '/tune');
+    await page.waitForSelector('.panel-results .hit-row');
+    check('tune: the default page has no parameter in its address', search() === '', search());
+    let done = live('startFrom');
+    await page.click('.profile-set .chip >> text=popular');
+    await done;
+    const readouts = () => page.evaluate(() => [...document.querySelectorAll('.slider')].filter((s) => s.querySelector('output').textContent.trim() !== s.querySelector('input').value).map((s) => s.querySelector('.slider-name').innerText.trim()));
+    check('tune: every readout equals its slider after "Start from popular"', (await readouts()).length === 0, (await readouts()).join());
+    check('tune: the address holds only what differs from the default', search() === '?boost=0.03&recency=0.3&halfLife=60', search());
+    check('tune: the chip of the profile in force is pressed', (await page.getAttribute('.profile-set .chip >> text=popular', 'aria-pressed')) === 'true' && (await page.getAttribute('.profile-set .chip >> text=default', 'aria-pressed')) === 'false');
+    await go(page, page.url());
+    check('tune: a reload reproduces the page (sliders, readouts, pressed chip)', (await page.inputValue('#in-boost')) === '0.03' && (await readouts()).length === 0 && (await page.getAttribute('.profile-set .chip >> text=popular', 'aria-pressed')) === 'true');
+    done = live('startFrom');
+    await page.click('.profile-set .chip >> text=sample');
+    await done;
+    check('tune: after "Start from sample" the readouts follow too', (await readouts()).length === 0 && (await page.getAttribute('.profile-set .chip >> text=sample', 'aria-pressed')) === 'true');
+    done = live('startFrom');
+    await page.click('.profile-set .chip >> text=default');
+    await done;
+    check('tune: back to default: the address is empty again', search() === '', search());
+
+    // Tune: filters (stock and category as on the search page), tokens, "Clear all", Back and Forward
+    await go(page, BASE + '/tune?q=mouse');
+    await page.waitForSelector('.facets .chip');
+    const histBefore = await page.evaluate(() => history.length);
+    done = live('pickStock');
+    await page.click('.facets .chip >> text=In stock');
+    await done;
+    check('tune: the stock facet puts `stock=in` (one value) into the address', search() === '?q=mouse&stock=in', search());
+    done = live('pickCategory');
+    await page.click('.facets .chip:not([aria-pressed=true]) >> nth=0');
+    await done;
+    check('tune: a category adds `category`, and no default parameter appears', /category=/.test(search()) && /stock=in/.test(search()) && !/exactCounts|fuzzyMode|text=|query/.test(search()), search());
+    const tuneTokens = (await page.locator('.token').allInnerTexts()).map((t) => t.trim());
+    check('tune: the tokens are worded like on the other pages and offer "Clear all"', /^Category: /.test(tuneTokens[0]) && tuneTokens[1] === 'In stock' && tuneTokens[2] === 'Clear all', tuneTokens.join('|'));
+    check('tune: two discrete actions are two history entries', (await page.evaluate(() => history.length)) === histBefore + 2, String(await page.evaluate(() => history.length)));
+    done = live('clearFilters');
+    await page.click('.token >> text=Clear all');
+    await done;
+    check('tune: "Clear all" leaves no default parameter in the address', search() === '?q=mouse', search());
+    await page.goBack();
+    await page.waitForSelector('.token');
+    check('tune: Back restores the filters', /stock=in/.test(search()) && (await page.locator('.token').count()) >= 2, search());
+    await page.goForward();
+    await page.waitForFunction(() => !document.querySelector('.token'));
+    check('tune: Forward clears them again', search() === '?q=mouse', search());
+    const entries = await page.evaluate(() => history.length);
+    await page.fill('input[type=search]', 'mouse pad');
+    await live();
+    check('tune: typing rewrites the address and adds no history entry', (await page.evaluate(() => history.length)) === entries && search() === '?q=mouse+pad', search());
+
+    // Tune: the SQL view and the thresholds are in the address too
+    await go(page, BASE + '/tune');
+    await page.waitForSelector('.panel-results .hit-row');
+    await page.click('label[for=view-sql]');
+    check('tune: the SQL view is in the address', search() === '?view=sql', search());
+    await go(page, page.url());
+    check('tune: and a reload shows it', await page.isChecked('#view-sql'));
+    done = live();
+    await page.selectOption('#in-fuzzyMode', 'always');
+    await done;
+    check('tune: fuzzy mode and the view are both in the address', /fuzzyMode=always/.test(search()) && /view=sql/.test(search()), search());
+    await go(page, BASE + '/tune?query=mouse');
+    check('tune: the old `query` still works (it becomes `q`)', search() === '?q=mouse', search());
+
+    // ERP: the address of the box, links built from the whole state, Back and Forward
+    await go(page, BASE + '/erp?q=fo');
+    await page.waitForSelector('#results .facet a');
+    await page.selectOption('select[name=created]', '2026');
+    await page.waitForFunction(() => location.search.includes('created=2026'));
+    check('erp: the box is in the address, with no empty value', search() === '?q=fo&created=2026', search());
+    await page.uncheck('input[type=checkbox][name=best]');
+    await page.waitForFunction(() => location.search.includes('best=0'));
+    check('erp: unticked: one `best` value (0)', search() === '?q=fo&created=2026&best=0', search());
+    await page.check('input[type=checkbox][name=best]');
+    await page.waitForFunction(() => !location.search.includes('best'));
+    check('erp: ticked again (the default): no `best`', search() === '?q=fo&created=2026', search());
+    await page.uncheck('input[type=checkbox][name=best]');
+    await page.waitForFunction(() => location.search.includes('best=0'));
+    const facetHref = await page.getAttribute('#results .facet a >> nth=0', 'href');
+    check('erp: a facet link is built from the whole state (created, best)', /created=2026/.test(facetHref) && /best=0/.test(facetHref) && /city=/.test(facetHref), facetHref);
+    await page.click('#results .facet a >> nth=0');
+    await page.waitForLoadState('load');
+    check('erp: after the click every filter is still in force', /created=2026/.test(search()) && /best=0/.test(search()) && (await page.locator('#results .token').count()) === 3, search());
+    const erpTokens = (await page.locator('#results .token').allInnerTexts()).map((t) => t.trim());
+    check('erp: tokens like the other pages: "City: X", "Created in 2026", "Clear all"', /^City: /.test(erpTokens[0]) && erpTokens[1] === 'Created in 2026' && erpTokens[2] === 'Clear all', erpTokens.join('|'));
+    const tokenHref = await page.getAttribute('#results .token >> nth=0', 'href');
+    check('erp: a token lifts only itself', /created=2026/.test(tokenHref) && !/city=/.test(tokenHref), tokenHref);
+    await page.click('#results .token-clear');
+    await page.waitForLoadState('load');
+    check('erp: "Clear all" lifts the filters; the text and the people options stay', search() === '?q=fo&best=0', search());
+    await go(page, BASE + '/erp?q=fo');
+    const erpEntries = await page.evaluate(() => history.length);
+    await page.click('.examples-row a >> nth=1');
+    await page.waitForFunction(() => document.querySelector('input[name=q]').value !== 'fo');
+    check('erp: an example is a history entry of its own and is marked as the current one', (await page.evaluate(() => history.length)) === erpEntries + 1 && (await page.locator('.examples-row a[aria-current]').count()) === 1);
+    await page.goBack();
+    await page.waitForFunction(() => document.querySelector('input[name=q]').value === 'fo');
+    check('erp: Back restores the search before the example', search() === '?q=fo', search());
+    await go(page, BASE + '/erp?tab=combined&q=fo');
+    await page.fill('input[name=q]', 'fo ');
+    await page.waitForTimeout(900);
+    check('erp: the default mode and tab are not in the address after typing', !/mode=/.test(search()) && !/tab=people/.test(search()), search());
+
+    // Search: the same names and the same tokens
+    await go(page, BASE + '/?q=mouse&cat=Computers&stock=1');
+    check('search: the older `cat` and `stock=1` still work', (await page.locator('#results .token').count()) === 3);
+    const searchTokens = (await page.locator('#results .token').allInnerTexts()).map((t) => t.trim());
+    check('search: the same wording as Tune and ERP', searchTokens[0] === 'Category: Computers' && searchTokens[1] === 'In stock' && searchTokens[2] === 'Clear all', searchTokens.join('|'));
+    await page.click('#results .token-clear');
+    await page.waitForLoadState('load');
+    check('search: "Clear all" leaves only the text', search() === '?q=mouse', search());
+    await page.click('#results .facet a >> text=In stock');
+    await page.waitForLoadState('load');
+    check('search: the stock value is `in` and the chosen facet value is current', search() === '?q=mouse&stock=in' && (await page.locator('#results .facet a[aria-current]').count()) === 1, search());
+
+    await go(page, BASE + '/?q=mouse');
+    const homeEntries = await page.evaluate(() => history.length);
+    await page.click('.examples-row a >> nth=1');
+    await page.waitForFunction(() => document.querySelector('input[name=q]').value !== 'mouse');
+    check('search: an example is a history entry of its own and is marked as the current one', (await page.evaluate(() => history.length)) === homeEntries + 1 && (await page.locator('.examples-row a[aria-current]').count()) === 1);
+    await page.goBack();
+    await page.waitForFunction(() => document.querySelector('input[name=q]').value === 'mouse');
+    check('search: Back restores the search before the example', search() === '?q=mouse', search());
+
+    // the wizard keeps the loaded sample, the security page has the clear button and the spinner, no link carries a default
+    await go(page, BASE + '/under-the-hood/wizard?sample=1');
+    await page.selectOption('select[name=language]', 'german');
+    await page.waitForLoadState('load');
+    check('wizard: changing the language keeps the sample loaded', /sample=1/.test(search()) && (await page.locator('#sample-title').innerText()).includes('is loaded'), search());
+    await go(page, BASE + '/under-the-hood/security?as=ada&q=salary');
+    check('security: the clear button and the busy spinner are there', (await page.locator('.search-field .clear').count()) === 1 && (await page.locator('.search-field .field-spinner').count()) === 1);
+    await page.click('.search-field .clear');
+    await page.waitForFunction(() => !location.search.includes('q='));
+    check('security: the clear button leaves the search', !search().includes('q='), search());
+    for (const [path, pattern, what] of [['/languages', /lang=en\b/, 'lang=en'], ['/under-the-hood/synonyms', /index=catalog/, 'index=catalog'], ['/under-the-hood/analytics', /=(&|#|$)/, 'an empty parameter']]) {
+        await go(page, BASE + path);
+        const bad = await page.$$eval('main a[href^="/"]', (as, p) => as.map((a) => a.getAttribute('href')).filter((h) => new RegExp(p).test(h)), pattern.source);
+        check(`${path}: no link carries ${what}`, bad.length === 0, bad.slice(0, 3).join());
+    }
+
+    // a finger needs 32 px
+    const fingers = await browser.newContext({ bypassCSP, viewport: { width: 390, height: 844 }, reducedMotion: 'reduce' });
+    const pp = await fingers.newPage();
+    pp.setDefaultTimeout(30000);
+    const small = (selector) => pp.$$eval(selector, (els) => els.filter((e) => e.offsetParent !== null).map((e) => [Math.round(e.getBoundingClientRect().height), (e.textContent || e.getAttribute('aria-label') || '').trim().slice(0, 24)]).filter(([h]) => h < 32));
+    await go(pp, BASE + '/tune?q=mouse&stock=in&category=Mice');
+    await pp.waitForSelector('.facets .chip');
+    for (const selector of ['.chip', '.token', '.tip-btn', '.footer-links a']) {
+        const found = await small(selector);
+        check(`phone: tune ${selector} is at least 32px high`, found.length === 0, JSON.stringify(found.slice(0, 3)));
+    }
+    await go(pp, BASE + '/erp?q=fo');
+    await pp.waitForSelector('#results .row');
+    for (const selector of ['.chip', '#results .row-title a']) {
+        const found = await small(selector);
+        check(`phone: erp ${selector} is at least 32px high`, found.length === 0, JSON.stringify(found.slice(0, 3)));
+    }
+    await go(pp, BASE + '/?q=mouse&stock=in');
+    for (const selector of ['.chip', '.token']) {
+        const found = await small(selector);
+        check(`phone: search ${selector} is at least 32px high`, found.length === 0, JSON.stringify(found.slice(0, 3)));
+    }
+    await consistency.close();
+    await fingers.close();
+}
 
 // a failing live search keeps the old results and says so in one quiet line, which goes away with the next answer
 await go(page, BASE + '/?q=mouse');
@@ -701,7 +882,7 @@ check('analytics: a capped total is shown as 2,000+', /2,000\+/.test(analyticsTe
 await go(page, `${BASE}/relevance?q=tv`);
 const h2s = (await page.locator('main h2').allTextContents()).map((t) => t.trim());
 check('relevance: no two headings of level 2 have the same text', new Set(h2s).size === h2s.length, h2s.join(' | '));
-await go(page, `${BASE}/tune?query=mouse`);
+await go(page, `${BASE}/tune?q=mouse`);
 check('tune: the sliders are 24 px tall at least and the view switch has no frame of its own', (await page.locator('input[type=range]').evaluateAll((els) => els.every((e) => e.getBoundingClientRect().height >= 24))) && (await page.locator('fieldset.segmented').evaluate((f) => getComputedStyle(f).borderTopWidth)) === '0px');
 // benchmark: a non-zero hit count is green (success colour), a 0 is red (danger colour), in both hits columns
 await go(page, `${BASE}/under-the-hood/benchmark`);
@@ -718,7 +899,7 @@ check('benchmark: a non-zero hits cell has the success colour and a 0 the danger
 for (const w of [320, 360, 390, 420]) {
     const ctx = await browser.newContext({ bypassCSP, viewport: { width: w, height: 800 }, reducedMotion: 'reduce' });
     const pg = await ctx.newPage();
-    await go(pg, `${BASE}/tune?query=mouse`);
+    await go(pg, `${BASE}/tune?q=mouse`);
     const r = await pg.evaluate(() => {
         const els = [...document.querySelectorAll('.profile-label, .profile-set .chip, .profile-label .tip-btn')];
         const tops = new Set(els.map((e) => Math.round(e.getBoundingClientRect().top + e.getBoundingClientRect().height / 2)));
@@ -761,10 +942,10 @@ await page.click('.search-field .clear');
 await page.waitForFunction(() => !location.search.includes('q='));
 await go(page, page.url());
 check('home: clearing the box removes q from the address, a reload shows the empty page', !page.url().includes('q=') && (await page.inputValue('input[type=search]')) === '' && (await page.locator('#results .hit-row').count()) === 0, page.url());
-await go(page, BASE + '/?q=mouse&cat=Computers');
+await go(page, BASE + '/?q=mouse&category=Computers');
 await page.fill('input[type=search]', '');
 await page.waitForFunction(() => !location.search.includes('q='));
-check('home: and the filters stay in the address', page.url().includes('cat=Computers'), page.url());
+check('home: and the filters stay in the address', page.url().includes('category=Computers'), page.url());
 for (const [path, keep] of [['/relevance?q=mouse', null], ['/languages?lang=fr&q=chevaux', 'lang=fr'], ['/under-the-hood/synonyms?q=tv', null], ['/under-the-hood/security?as=anonymous&q=salary', 'as=anonymous']]) {
     await go(page, BASE + path);
     await page.fill('input[type=search]', '');
@@ -777,7 +958,7 @@ await go(page, `${BASE}/under-the-hood/observability?q=mouse`);
 await page.fill('input[type=search]', '');
 await page.waitForFunction(() => !location.search.includes('q='));
 check('observability: clearing the box removes q from the address (the page falls back to its default example)', !page.url().includes('q='), page.url());
-await go(page, `${BASE}/tune?query=mouse`);
+await go(page, `${BASE}/tune?q=mouse`);
 await page.fill('input[type=search]', '');
 await page.waitForFunction(() => new URLSearchParams(location.search).get('query') === '');
 await go(page, page.url());
@@ -878,7 +1059,7 @@ check('relevance: the caption explains the flat threshold', /single shared trigr
     const tp = await tipCtx.newPage();
     tp.on('pageerror', (e) => errors.push(e.message));
     tp.on('console', (m) => m.type() === 'error' && !m.text().includes('Cross-Origin-Opener-Policy') && errors.push(m.text()));
-    await go(tp, `${BASE}/tune?query=mouse`);
+    await go(tp, `${BASE}/tune?q=mouse`);
     await tp.waitForSelector('.hit-row');
     const btn = (name) => tp.locator(`.tip-btn[aria-label="What does ${name} do?"]`);
     const shown = () => tp.locator('.tip-bubble:not([hidden])');
@@ -959,7 +1140,7 @@ check('relevance: the caption explains the flat threshold', /single shared trigr
     for (const scheme of ['light', 'dark']) {
         const c = await browser.newContext({ bypassCSP, viewport: { width: 1280, height: 800 }, colorScheme: scheme, reducedMotion: 'reduce' });
         const sp = await c.newPage();
-        await go(sp, `${BASE}/tune?query=mouse`);
+        await go(sp, `${BASE}/tune?q=mouse`);
         await sp.locator('.tip-btn').first().focus();
         const colours = await sp.locator('.tip-bubble:not([hidden])').evaluate((e) => [getComputedStyle(e).color, getComputedStyle(e).backgroundColor]);
         const ratio = contrast(colours);
@@ -970,7 +1151,7 @@ check('relevance: the caption explains the flat threshold', /single shared trigr
     // a phone: every tooltip opens by tap inside the window, nothing scrolls sideways, and opening one moves nothing
     const phoneCtx = await browser.newContext({ bypassCSP, viewport: { width: 390, height: 844 }, reducedMotion: 'reduce', hasTouch: true, isMobile: true });
     const pp = await phoneCtx.newPage();
-    await go(pp, `${BASE}/tune?query=mouse`);
+    await go(pp, `${BASE}/tune?q=mouse`);
     await pp.waitForSelector('.hit-row');
     const inside = [];
     let moved = false;
