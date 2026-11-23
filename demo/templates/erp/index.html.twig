@@ -6,7 +6,7 @@
 {% block body %}
 {# One page, five sections: three admin boxes (each its own index), the combined box and the sync demonstration. Only the chosen section is rendered. #}
 {% set searching = tab != 'sync' %}
-<div class="page stack"{% if searching %} data-controller="live-search"{% endif %}>
+<div class="page stack"{% if searching %} data-controller="live-search history"{% endif %}>
     <div class="hero">
         <h1>ERP</h1>
         <p class="lede">An ERP-like data set in plain tables, searched four ways: one box per kind, one box over all of them, and a table whose changes the indexes follow.</p>
@@ -69,7 +69,7 @@
             <div class="examples-row" aria-label="Examples">
                 <span class="label">Try</span>
                 {% for label, example in examples %}
-                    <a class="chip" href="{{ path('erp', {tab: tab, mode: tab == 'combined' ? mode : null, kind: tab == 'combined' and kind != '' ? kind : null, best: tab == 'people' and not best ? '0' : null, single: tab == 'people' and single ? '1' : null, q: example}) }}" data-action="live-search#example" data-live-search-q-param="{{ example }}"><code>{{ example }}</code> <small>{{ label }}</small></a>
+                    <a class="chip{{ example == q ? ' is-current' }}" href="{{ path('erp', state|merge({q: example})|filter(v => v != '')) }}"{% if example == q %} aria-current="true"{% endif %} data-action="live-search#example" data-live-search-q-param="{{ example }}"><code>{{ example }}</code> <small>{{ label }}</small></a>
                 {% endfor %}
             </div>
         {% endif %}

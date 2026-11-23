@@ -3,7 +3,7 @@
 
 {% block body %}
 {# The field offers the completions of the word only: the results appear below as you type, and the categories are the facets next to them. #}
-<div class="page" data-controller="suggest live-search"
+<div class="page" data-controller="suggest live-search history"
      data-suggest-url-value="{{ path('suggest') }}" data-suggest-index-value="catalog" data-suggest-page-value="{{ path('search') }}"
      data-suggest-categories-value="false" data-suggest-products-value="false">
     <section class="hero" aria-labelledby="title">
@@ -23,15 +23,15 @@
             </div>
             <div class="suggest-panel" data-suggest-target="panel" data-live-ignore hidden></div>
             {% if view == 'speed' %}<input type="hidden" name="view" value="speed">{% endif %}
-            {% if category != '' %}<input type="hidden" name="cat" value="{{ category }}">{% endif %}
-            {% if stock is not null %}<input type="hidden" name="stock" value="{{ stock ? 1 : 0 }}">{% endif %}
+            {% if category != '' %}<input type="hidden" name="category" value="{{ category }}">{% endif %}
+            {% if stock is not null %}<input type="hidden" name="stock" value="{{ stock ? 'in' : 'out' }}">{% endif %}
             <button type="submit" class="sr-only">Search</button>
         </form>
 
         <div class="examples-row" aria-label="Examples">
             <span class="label">Try</span>
             {% for label, example in examples %}
-                <a class="chip" href="{{ path('search', {q: example}) }}" data-action="live-search#example" data-live-search-q-param="{{ example }}"><code>{{ example }}</code> <small>{{ label }}</small></a>
+                <a class="chip{{ example == q ? ' is-current' }}" href="{{ path('search', {q: example, view: view == 'speed' ? 'speed' : null, category: category ?: null, stock: stock is null ? null : (stock ? 'in' : 'out')}) }}"{% if example == q %} aria-current="true"{% endif %} data-action="live-search#example" data-live-search-q-param="{{ example }}"><code>{{ example }}</code> <small>{{ label }}</small></a>
             {% endfor %}
         </div>
     </section>

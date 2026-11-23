@@ -22,6 +22,7 @@ export default class extends Controller {
 
     connect() {
         this.seq = 0;
+        this.markExample();
         this.onLeave = () => {
             if (document.visibilityState === 'hidden') {
                 this.flushSettle();
@@ -33,6 +34,7 @@ export default class extends Controller {
     }
 
     update() {
+        this.markExample();
         this.cancelSettle();
         clearTimeout(this.timer);
         this.timer = setTimeout(() => this.load(), this.delayValue);
@@ -119,11 +121,27 @@ export default class extends Controller {
         }
     }
 
-    /** The address of the settled search: the form's own fields, without `q` when the field is empty (a reload shows the empty page, not the old search). */
+    /**
+     * The address of the settled search: the form's own fields, but only what differs from the page's defaults, so it is the same address
+     * the links of the page (facets, tokens, examples) build: no empty value, no `q` for an empty field (a reload shows the empty page, not
+     * the old search), no `best` while the box is ticked (the form sends a hidden 0 and the box's 1: the 1 is the default), no `mode=both`,
+     * no `tab=people`.
+     */
     address(params, text) {
         const kept = new URLSearchParams(params);
-        if (text === '') {
-            kept.delete('q');
+        for (const [name, value] of [...kept]) {
+            if (value === '') {
+                kept.delete(name);
+            }
+        }
+        if (kept.getAll('best').includes('1')) {
+            kept.delete('best');
+        }
+        if (kept.get('mode') === 'both') {
+            kept.delete('mode');
+        }
+        if (kept.get('tab') === 'people') {
+            kept.delete('tab');
         }
         const query = kept.toString();
 
@@ -155,16 +173,32 @@ export default class extends Controller {
         return response.ok ? response.text() : null;
     }
 
-    /** An example token fills the field and searches it in place. */
+    /** The example whose text is in the field is marked as the current one (a link: aria-current, and its selected style). */
+    markExample() {
+        const text = this.hasInputTarget ? this.inputTarget.value.trim() : '';
+        for (const chip of this.element.querySelectorAll('.examples-row a.chip')) {
+            const on = text !== '' && chip.dataset.liveSearchQParam === text;
+            chip.classList.toggle('is-current', on);
+            on ? chip.setAttribute('aria-current', 'true') : chip.removeAttribute('aria-current');
+        }
+    }
+
+    /** An example token fills the field and searches it in place; it is a step of its own in the history (Back returns to the search before). */
     example(event) {
         event.preventDefault();
+        history.pushState(history.state, '', location.href);
         this.inputTarget.value = event.params.q;
+        this.markExample();
         this.inputTarget.focus();
         this.load(true);
     }
 
     clear() {
+        if (this.inputTarget.value !== '') {
+            history.pushState(history.state, '', location.href);
+        }
         this.inputTarget.value = '';
+        this.markExample();
         this.inputTarget.focus();
         this.load();
     }
