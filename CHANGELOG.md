@@ -11,6 +11,14 @@ and a link. Measurements, proofs and test names belong to the pull request, [doc
 
 ## [Unreleased]
 
+## [1.0.1] - 2026-11-23
+
+A demo patch: the library is unchanged.
+
+### Fixed
+
+- **Demo, Tune:** the filters in force (a category, stock, a price) are shown as removable tokens and are part of the address, so a search no longer finds nothing of what its words name without showing why ([#111](https://github.com/er2es/fuzzphony/issues/111)).
+
 ### Changed
 
 - **Demo:** every page keeps its state in the address (only values that differ from the default; one name for one concept: `q`, `category`, `stock`), a reload or a shared link reproduces the page, the filters in force are removable tokens with a "Clear all" on Search, Tune and ERP, the Tune settings and the SQL view are part of the address (old `?query=` and `cat` links still work), the Back button steps through chosen filters, and the Security page has a clear button.
@@ -1382,7 +1390,8 @@ on its own:
 - Sync modes: queue (default), trigger, ORM, manual; watches for joined tables.
 - Doctor with fixes; CLI commands for schema, reindex, worker, search and explain.
 
-[Unreleased]: https://github.com/er2es/fuzzphony/compare/v1.0.0...HEAD
+[Unreleased]: https://github.com/er2es/fuzzphony/compare/v1.0.1...HEAD
+[1.0.1]: https://github.com/er2es/fuzzphony/compare/v1.0.0...v1.0.1
 [1.0.0]: https://github.com/er2es/fuzzphony/compare/v0.12.9...v1.0.0
 [0.12.9]: https://github.com/er2es/fuzzphony/compare/v0.12.8...v0.12.9
 [0.12.8]: https://github.com/er2es/fuzzphony/compare/v0.12.7...v0.12.8
