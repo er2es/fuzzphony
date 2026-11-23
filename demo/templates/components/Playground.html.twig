@@ -124,6 +124,7 @@
                         {% if this.filterCount > 1 %}<button type="button" class="token token-clear" data-action="history#push live#action" data-live-action-param="clearFilters">Clear all</button>{% endif %}
                     </div>
                 {% endif %}
+                {% if this.lookAlikeOnly %}<p class="callout" role="status">No product with these words is inside the chosen filters, so the list shows look-alike words. Remove a filter (the ✕ above) to see the exact matches.</p>{% endif %}
                 {# Facets: the values of a filter among the matches. A chosen category narrows the search; the facet still lists the other categories. #}
                 {% set categories = this.categories %}
                 {% set stockFacet = result.facets.in_stock ?? [] %}

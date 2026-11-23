@@ -123,7 +123,7 @@ final class Playground
     {
         if (in_array($text, Examples::TUNE, true)) {
             $this->query = $text;
-            $this->category = '';
+            $this->clearFilters(); // an example is a fresh start: no filter left from before may hide what it names
         }
     }
 
@@ -288,6 +288,22 @@ final class Playground
         $this->run();
 
         return $this->result;
+    }
+
+    /** True when filters are in force and no hit of the page holds a word of the query itself (every hit is a look-alike): the words match nothing inside the filters. */
+    public function isLookAlikeOnly(): bool
+    {
+        $result = $this->getResult();
+        if ($this->getFilterCount() === 0 || $result === null || $result->hits === []) {
+            return false;
+        }
+        foreach ($result->hits as $hit) {
+            if ($hit->breakdown->textRank > 0.0) {
+                return false;
+            }
+        }
+
+        return true;
     }
 
     public function getExplanation(): ?Explanation

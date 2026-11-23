@@ -11,6 +11,10 @@ and a link. Measurements, proofs and test names belong to the pull request, [doc
 
 ## [Unreleased]
 
+### Fixed
+
+- **Demo, Tune:** an example chip clears every filter (a stock or price filter used to stay and hide what the example names), and a note explains when the chosen filters leave no match for the words and the list shows look-alike words.
+
 ## [1.0.1] - 2026-11-23
 
 A demo patch: the library is unchanged.
