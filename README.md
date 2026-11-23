@@ -46,7 +46,7 @@ foreach ($result as $hit) {
 }
 ```
 
-Status: stable (v1.0.0). The public API follows [Semantic Versioning](https://semver.org/) ([what is covered](https://github.com/er2es/fuzzphony/blob/main/CONTRIBUTING.md#backward-compatibility));
+Status: stable (v1.0.1). The public API follows [Semantic Versioning](https://semver.org/) ([what is covered](https://github.com/er2es/fuzzphony/blob/main/CONTRIBUTING.md#backward-compatibility));
 changes are listed in the [CHANGELOG](https://github.com/er2es/fuzzphony/blob/main/CHANGELOG.md).
 
 ## Try the demo
