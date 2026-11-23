@@ -13,6 +13,7 @@ and a link. Measurements, proofs and test names belong to the pull request, [doc
 
 ### Fixed
 
+- **Demo, Search:** a search that finds nothing still shows how long it took (and "0 products").
 - **Demo:** the header shows the logo next to the name, like the browser tab.
 - **Demo, ERP Combined tab:** the two panels start their title, tools and list at the same height side by side (a matching tools line on the federated panel), and the note names the kind that is chosen (`kinds('order')`) or says that none is.
 - **Demo, Tune:** an example chip clears every filter (a stock or price filter used to stay and hide what the example names), and a note explains when the chosen filters leave no match for the words and the list shows look-alike words, with a button per filter to remove it, one for "only exact words" and one that sets Min relevance just above these look-alike hits.
