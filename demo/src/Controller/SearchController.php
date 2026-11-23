@@ -37,12 +37,7 @@ final class SearchController extends AbstractController
     {
         $q = self::normalizeQuery($request);
         $view = (string) $request->query->get('view') === 'speed' ? 'speed' : 'results';
-        $category = mb_substr(trim((string) $request->query->get('cat', '')), 0, 40);
-        $stock = match ((string) $request->query->get('stock', '')) {
-            '1' => true,
-            '0' => false,
-            default => null,
-        };
+        [$category, $stock] = self::filters($request);
 
         // the live search sends a request per pause in typing: those are not logged (the half-typed words would fill the log);
         // the settled query is: a full page load, or the live search's one silent repeat after the text has stood for a moment
@@ -134,12 +129,7 @@ final class SearchController extends AbstractController
     public function ilike(Request $request, Fuzzphony $fuzzphony, Catalog $catalog, Facets $facets): Response
     {
         $q = self::normalizeQuery($request);
-        $category = mb_substr(trim((string) $request->query->get('cat', '')), 0, 40);
-        $stock = match ((string) $request->query->get('stock', '')) {
-            '1' => true,
-            '0' => false,
-            default => null,
-        };
+        [$category, $stock] = self::filters($request);
         $asYouType = $request->query->get('ay', '1') !== '0';
         $without = $with = null;
         if ($q !== '') {
@@ -152,6 +142,24 @@ final class SearchController extends AbstractController
         }
 
         return $this->render('search/_bars.html.twig', ['without' => $without, 'with' => $with, 'q' => $q]);
+    }
+
+    /**
+     * The category and stock filters of the address: `category` (the older `cat` is still read) and `stock` = `in` or `out` (the same
+     * names as on the Tune page; the older 1 and 0 are still read).
+     *
+     * @return array{string, bool|null}
+     */
+    private static function filters(Request $request): array
+    {
+        $category = mb_substr(trim((string) $request->query->get('category', $request->query->get('cat', ''))), 0, 40);
+        $stock = match ((string) $request->query->get('stock', '')) {
+            'in', '1' => true,
+            'out', '0' => false,
+            default => null,
+        };
+
+        return [$category, $stock];
     }
 
     private static function normalizeQuery(Request $request): string

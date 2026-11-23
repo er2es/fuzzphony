@@ -2,7 +2,7 @@
 <div class="stack">
     {% if result and result.hits %}
         {# The page shows this search's own time at once; the comparison (the warm median of both sides) is measured by its own request. #}
-        <div class="speed-bars" data-controller="ilike" data-src="{{ path('search_ilike', {q: q, cat: category ?: null, stock: stock is null ? null : (stock ? 1 : 0), ay: asYouType ? 1 : 0}) }}">
+        <div class="speed-bars" data-controller="ilike" data-src="{{ path('search_ilike', {q: q, category: category ?: null, stock: stock is null ? null : (stock ? 'in' : 'out'), ay: asYouType ? null : 0}) }}">
             <div class="busy-region" data-ilike-target="region" data-loading-message="Measuring both sides…" aria-busy="true">
                 <div class="speed-row">
                     <span>Fuzzphony</span>

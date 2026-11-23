@@ -97,7 +97,7 @@ export default class extends Controller {
             sections.push(['Searches', data.completions.map((c) => ({ label: c, href: this.link(c) }))]);
         }
         if (this.categoriesValue && data.categories.length) {
-            sections.push(['Categories', data.categories.map((c) => ({ label: c.name, note: String(c.count), href: this.link(text, { cat: c.name }), inline: true }))]);
+            sections.push(['Categories', data.categories.map((c) => ({ label: c.name, note: String(c.count), href: this.link(text, { category: c.name }), inline: true }))]);
         }
         if (this.productsValue && data.products.length) {
             sections.push(['Products', data.products.map((p) => ({ label: p.name, note: p.note, href: this.link(p.name), icon: p.icon, hue: p.hue }))]);

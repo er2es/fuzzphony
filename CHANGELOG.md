@@ -11,6 +11,10 @@ and a link. Measurements, proofs and test names belong to the pull request, [doc
 
 ## [Unreleased]
 
+### Changed
+
+- **Demo:** every page keeps its state in the address (only values that differ from the default; one name for one concept: `q`, `category`, `stock`), a reload or a shared link reproduces the page, the filters in force are removable tokens with a "Clear all" on Search, Tune and ERP, the Tune settings and the SQL view are part of the address (old `?query=` and `cat` links still work), the Back button steps through chosen filters, and the Security page has a clear button.
+
 ## [1.0.0] - 2026-11-19
 
 The code of 0.12.9: the public API (the 83 types of [the list](docs/architecture.md#public-api), the bundle configuration keys, the console commands and their options) is now stable under [Semantic Versioning](https://semver.org/).

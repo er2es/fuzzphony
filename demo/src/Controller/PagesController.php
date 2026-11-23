@@ -31,6 +31,14 @@ final class PagesController extends AbstractController
     #[Route('/tune', name: 'tune')]
     public function tune(Request $request): Response
     {
+        // old links used `query` for the text: `q` is the name on every page
+        if ($request->query->has('query') && !$request->query->has('q')) {
+            $params = $request->query->all();
+            $params['q'] = $params['query'];
+            unset($params['query']);
+
+            return $this->redirectToRoute('tune', $params);
+        }
         // ?start=sample: the sliders start from the Config wizard's sample configuration (the link on that page)
         return $this->render('playground.html.twig', ['start' => $request->query->getString('start') === 'sample' ? 'sample' : '']);
     }

@@ -63,6 +63,22 @@ final class ErpController extends AbstractController
             $data = [...$data, ...$this->syncData($request, $sync)];
         }
 
+        // The whole state of the page as address parameters, without what is empty or the default: every link of the page (facets, tokens,
+        // examples, modes) starts from it and changes one thing, so a click never drops a filter and works the same without JavaScript.
+        $filters = $data['filters'] ?? [];
+        $data['state'] = array_filter([
+            'tab' => $tab === 'people' ? '' : $tab,
+            'q' => $q,
+            'created' => $filters['created'] ?? '',
+            'total' => $filters['total'] ?? '',
+            'city' => $filters['city'] ?? '',
+            'status' => $filters['status'] ?? '',
+            'best' => $tab === 'people' && !($data['single'] ?? false) && !($data['best'] ?? true) ? '0' : '',
+            'single' => ($data['single'] ?? false) ? '1' : '',
+            'mode' => $tab === 'combined' && $data['mode'] !== 'both' ? $data['mode'] : '',
+            'kind' => $tab === 'combined' ? $data['kind'] : '',
+        ], static fn (string $v): bool => $v !== '');
+
         // the live search asks for the results region only
         if ($live && $tab !== 'sync') {
             return $this->render('erp/_region.html.twig', $data);

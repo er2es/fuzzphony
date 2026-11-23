@@ -52,7 +52,7 @@
                         <div class="row-title">Understood as <code>{{ suggestion.interpretedAs }}</code></div>
                         <div class="row-sub">{% if suggestion.interpretedAs == q|lower or suggestion.interpretedAs == q %}No synonym applies to this query.{% else %}The catalogue's synonyms were expanded on the query, no reindex needed.{% endif %}</div>
                     </div>
-                    <a class="button" href="{{ path('synonyms', {index: 'catalog'}) }}">Edit synonyms</a>
+                    <a class="button" href="{{ path('synonyms') }}">Edit synonyms</a>
                 </li>
             </ul>
         </section>

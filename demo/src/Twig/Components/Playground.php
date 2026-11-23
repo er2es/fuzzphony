@@ -12,6 +12,7 @@ use Fuzzphony\Core\Exception\FuzzphonyException;
 use Fuzzphony\Core\Fuzzphony;
 use Fuzzphony\Core\Ranking\FuzzyMode;
 use Fuzzphony\Core\Ranking\RankingProfile;
+use Fuzzphony\Core\Ranking\Thresholds;
 use Fuzzphony\Core\Search\Explanation;
 use Fuzzphony\Core\Search\SearchBuilder;
 use Fuzzphony\Core\Search\SearchResult;
@@ -21,6 +22,7 @@ use Symfony\UX\LiveComponent\Attribute\LiveAction;
 use Symfony\UX\LiveComponent\Attribute\LiveArg;
 use Symfony\UX\LiveComponent\Attribute\LiveProp;
 use Symfony\UX\LiveComponent\Attribute\PostHydrate;
+use Symfony\UX\LiveComponent\Metadata\UrlMapping;
 use Symfony\UX\LiveComponent\DefaultActionTrait;
 
 /**
@@ -38,32 +40,37 @@ final class Playground
 {
     use DefaultActionTrait;
 
-    #[LiveProp(writable: true, url: true)] public string $query = Examples::TUNE_START;
-    #[LiveProp(writable: true)] public bool $analyze = false;
-    #[LiveProp(writable: true)] public bool $inStockOnly = false;
-    /** The other value of the stock facet; "in stock only" wins when both are set (the checkbox next to the sliders). */
-    #[LiveProp(writable: true)] public bool $outOfStockOnly = false;
-    #[LiveProp(writable: true)] public int $maxPrice = 0;
+    /*
+     * Every control is in the address, so a reload or a shared link reproduces the page; only a value that differs from the default is
+     * written (App\EventListener\LiveUrlDefaults drops the rest). The text is `q`, as on every other page.
+     */
+    #[LiveProp(writable: true, url: new UrlMapping(as: 'q'))] public string $query = Examples::TUNE_START;
+    #[LiveProp(writable: true, url: true)] public bool $analyze = false;
+    /** The stock facet: '' = any, 'in' or 'out' (the same values as on the search page). */
+    #[LiveProp(writable: true, url: true)] public string $stock = '';
+    #[LiveProp(writable: true, url: true)] public int $maxPrice = 0;
     /** The category chosen on the facet (a name, '' = any). */
-    #[LiveProp(writable: true)] public string $category = '';
-    #[LiveProp(writable: true)] public bool $exactCounts = false;
+    #[LiveProp(writable: true, url: true)] public string $category = '';
+    #[LiveProp(writable: true, url: true)] public bool $exactCounts = false;
+    /** Which panel is shown: 'results' or 'sql' (the radios switch it in the browser, see history_controller.js). */
+    #[LiveProp(writable: true, url: true)] public string $view = 'results';
 
     // ranking profile
-    #[LiveProp(writable: true)] public float $text = 1.0;
-    #[LiveProp(writable: true)] public float $fuzzy = 0.5;
-    #[LiveProp(writable: true)] public float $exactBonus = 0.5;
-    #[LiveProp(writable: true)] public float $prefixBonus = 0.2;
-    #[LiveProp(writable: true)] public float $boost = 0.0;
-    #[LiveProp(writable: true)] public float $recency = 0.0;
-    #[LiveProp(writable: true)] public float $halfLife = 30.0;
+    #[LiveProp(writable: true, url: true)] public float $text = 1.0;
+    #[LiveProp(writable: true, url: true)] public float $fuzzy = 0.5;
+    #[LiveProp(writable: true, url: true)] public float $exactBonus = 0.5;
+    #[LiveProp(writable: true, url: true)] public float $prefixBonus = 0.2;
+    #[LiveProp(writable: true, url: true)] public float $boost = 0.0;
+    #[LiveProp(writable: true, url: true)] public float $recency = 0.0;
+    #[LiveProp(writable: true, url: true)] public float $halfLife = 30.0;
 
     // thresholds
-    #[LiveProp(writable: true)] public float $minScore = 0.01;
-    #[LiveProp(writable: true)] public bool $similarityByLength = true;
-    #[LiveProp(writable: true)] public float $similarity = 0.3;
-    #[LiveProp(writable: true)] public string $fuzzyMode = 'fallback';
-    #[LiveProp(writable: true)] public int $fallbackBelow = 5;
-    #[LiveProp(writable: true)] public int $candidateLimit = 2000;
+    #[LiveProp(writable: true, url: true)] public float $minScore = 0.01;
+    #[LiveProp(writable: true, url: true)] public bool $similarityByLength = true;
+    #[LiveProp(writable: true, url: true)] public float $similarity = 0.3;
+    #[LiveProp(writable: true, url: true)] public string $fuzzyMode = 'fallback';
+    #[LiveProp(writable: true, url: true)] public int $fallbackBelow = 5;
+    #[LiveProp(writable: true, url: true)] public int $candidateLimit = 2000;
 
     private ?SearchResult $result = null;
     private ?Explanation $explanation = null;
@@ -120,6 +127,15 @@ final class Playground
         }
     }
 
+    /** The stock facet chosen again lifts the choice; only `in` and `out` are taken. */
+    #[LiveAction]
+    public function pickStock(#[LiveArg] string $value): void
+    {
+        if (in_array($value, ['in', 'out'], true)) {
+            $this->stock = $this->stock === $value ? '' : $value;
+        }
+    }
+
     /** The category chosen again lifts the choice. */
     #[LiveAction]
     public function pickCategory(#[LiveArg] string $name): void
@@ -146,20 +162,26 @@ final class Playground
         if ($name === 'sample') {
             $definition = $this->sample->definition();
             $this->applyProfile($definition->profile('default'));
-            $thresholds = $definition->thresholds;
-            $this->minScore = $thresholds->relevance->minScore;
-            $this->similarityByLength = $thresholds->typo->similarity === null;
-            $this->similarity = $thresholds->typo->similarity ?? $this->similarity;
-            $this->fuzzyMode = $thresholds->typo->mode->value;
-            $this->fallbackBelow = $thresholds->typo->fallbackBelow;
-            $this->candidateLimit = $thresholds->limits->candidates;
+            $this->applyThresholds($definition->thresholds);
 
             return;
         }
         if (!in_array($name, ['default', 'popular'], true)) {
             return;
         }
-        $this->applyProfile($this->fuzzphony->definition('catalog')->profile($name));
+        $definition = $this->fuzzphony->definition('catalog');
+        $this->applyProfile($definition->profile($name));
+        $this->applyThresholds($definition->thresholds);
+    }
+
+    private function applyThresholds(Thresholds $thresholds): void
+    {
+        $this->minScore = $thresholds->relevance->minScore;
+        $this->similarityByLength = $thresholds->typo->similarity === null;
+        $this->similarity = $thresholds->typo->similarity ?? 0.3;
+        $this->fuzzyMode = $thresholds->typo->mode->value;
+        $this->fallbackBelow = $thresholds->typo->fallbackBelow;
+        $this->candidateLimit = $thresholds->limits->candidates;
     }
 
     private function applyProfile(RankingProfile $profile): void
@@ -173,18 +195,62 @@ final class Playground
         $this->halfLife = $profile->recencyHalfLifeDays;
     }
 
+    /** A chosen filter shown as a token is lifted by its cross; only the names below are taken. */
     #[LiveAction]
-    public function toggleInStock(): void
+    public function clearFilter(#[LiveArg] string $name): void
     {
-        $this->inStockOnly = !$this->inStockOnly;
-        $this->outOfStockOnly = false;
+        match ($name) {
+            'category' => $this->category = '',
+            'stock' => $this->stock = '',
+            'price' => $this->maxPrice = 0,
+            default => null,
+        };
     }
 
     #[LiveAction]
-    public function toggleOutOfStock(): void
+    public function clearFilters(): void
     {
-        $this->outOfStockOnly = !$this->outOfStockOnly;
-        $this->inStockOnly = false;
+        $this->category = '';
+        $this->stock = '';
+        $this->maxPrice = 0;
+    }
+
+    /** @return int how many filters are in force (the token row offers "Clear all" from two) */
+    public function getFilterCount(): int
+    {
+        return (int) ($this->category !== '') + (int) ($this->stock !== '') + (int) ($this->maxPrice > 0);
+    }
+
+    /** The profile (`default`, `popular`, `sample`) whose values the controls show right now, '' when they match none: its chip is marked. */
+    public function getActiveProfile(): string
+    {
+        $now = [$this->text, $this->fuzzy, $this->exactBonus, $this->prefixBonus, $this->boost, $this->recency, $this->halfLife, $this->minScore, $this->similarityByLength ? 1.0 : 0.0, $this->similarityByLength ? 0.0 : $this->similarity, $this->fuzzyMode, $this->fallbackBelow, $this->candidateLimit];
+        $catalog = $this->fuzzphony->definition('catalog');
+        foreach (['default' => $catalog, 'popular' => $catalog, 'sample' => $this->sample->definition()] as $name => $definition) {
+            $p = $definition->profile($name === 'sample' ? 'default' : $name);
+            $t = $definition->thresholds;
+            $values = [$p->text, $p->fuzzy, $p->exactBonus, $p->prefixBonus, $p->boost, $p->recency, $p->recencyHalfLifeDays, $t->relevance->minScore, $t->typo->similarity === null ? 1.0 : 0.0, $t->typo->similarity ?? 0.0, $t->typo->mode->value, $t->typo->fallbackBelow, $t->limits->candidates];
+            if (self::same($now, $values)) {
+                return $name;
+            }
+        }
+
+        return '';
+    }
+
+    /**
+     * @param list<float|int|string> $a
+     * @param list<float|int|string> $b
+     */
+    private static function same(array $a, array $b): bool
+    {
+        foreach ($a as $i => $v) {
+            if (is_string($v) || is_string($b[$i]) ? $v !== $b[$i] : abs($v - $b[$i]) > 1e-9) {
+                return false;
+            }
+        }
+
+        return true;
     }
 
     /** @return list<array{name: string, count: int}> the category facet of the result, by name */
@@ -213,6 +279,8 @@ final class Playground
         $this->analyze = $this->analyze && $this->analyzeAllowed;
         $this->exactCounts = $this->exactCounts && $this->exactAllowed;
         $this->category = mb_substr($this->category, 0, 40);
+        $this->stock = in_array($this->stock, ['in', 'out'], true) ? $this->stock : '';
+        $this->view = $this->view === 'sql' ? 'sql' : 'results';
     }
 
     public function getResult(): ?SearchResult
@@ -276,10 +344,8 @@ final class Playground
                 'recency_half_life_days' => $this->halfLife,
             ])
             ->thresholds(['relevance' => ['min_score' => $this->minScore], 'typo' => ['similarity' => $this->similarityByLength ? null : $this->similarity, 'mode' => $this->fuzzyMode, 'fallback_below' => $this->fallbackBelow], 'limits' => ['candidates' => $this->candidateLimit]]);
-        if ($this->inStockOnly) {
-            $search = $search->where('in_stock', true);
-        } elseif ($this->outOfStockOnly) {
-            $search = $search->where('in_stock', false);
+        if ($this->stock !== '') {
+            $search = $search->where('in_stock', $this->stock === 'in');
         }
         $search = $this->facets->narrow($search, $this->category, null)->facets('category_id', 'in_stock');
         if ($this->exactCounts) {

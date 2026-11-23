@@ -1,10 +1,10 @@
-{# The slider readout updates instantly (range controller); the server is asked once the handle rests for 300 ms. The label and the info
+{# The slider readout updates instantly (range controller) and is re-rendered by the server with everything else, so it always equals the slider; the server is asked once the handle rests for 300 ms. The label and the info
    button are siblings, so the button is not part of the slider's accessible name. #}
 {% macro slider(label, model, value, min, max, step) %}
     <div class="slider" data-controller="range">
         <div class="slider-head">
             <span class="slider-name"><label for="in-{{ model }}">{{ label }}</label>{{ _self.tip(model, label) }}</span>
-            <output data-range-target="output" data-live-ignore aria-live="off">{{ value }}</output>
+            <output data-range-target="output" aria-live="off">{{ value }}</output>
         </div>
         <input type="range" id="in-{{ model }}" data-action="input->range#update" data-model="debounce(300)|{{ model }}" value="{{ value }}" min="{{ min }}" max="{{ max }}" step="{{ step }}">
     </div>
@@ -21,16 +21,16 @@
 {% import _self as ui %}
 {% import '_ui.html.twig' as shared %}
 
-<div {{ attributes.defaults(stimulus_controller('suggest', {url: path('suggest'), index: 'catalog', page: path('tune'), param: 'query', categories: false})) }} class="layout" data-loading-message="Updating…">
+<div {{ attributes.defaults(stimulus_controller('suggest', {url: path('suggest'), index: 'catalog', page: path('tune'), param: 'q', categories: false})|stimulus_controller('history')) }} class="layout" data-loading-message="Updating…">
     <aside class="settings" aria-label="Settings">
         <section>
             <h2 class="list-title">Ranking</h2>
             <div class="profile-chips" role="group" aria-label="Start from a ranking profile of the catalogue">
                 <span class="profile-label"><span class="muted">Start from</span>{{ ui.tip('startFrom', 'Start from') }}</span>
                 <span class="profile-set">
-                <button type="button" class="chip" data-action="live#action" data-live-action-param="startFrom" data-live-name-param="default">default</button>
-                <button type="button" class="chip" data-action="live#action" data-live-action-param="startFrom" data-live-name-param="popular">popular</button>
-                <button type="button" class="chip" data-action="live#action" data-live-action-param="startFrom" data-live-name-param="sample">sample</button>
+                {% for name in ['default', 'popular', 'sample'] %}
+                <button type="button" class="chip" aria-pressed="{{ this.activeProfile == name ? 'true' : 'false' }}" data-action="history#push live#action" data-live-action-param="startFrom" data-live-name-param="{{ name }}">{{ name }}</button>
+                {% endfor %}
                 </span>
             </div>
             <div class="list">
@@ -63,7 +63,7 @@
         <section>
             <h2 class="list-title">Filters</h2>
             <div class="list">
-                <div class="check setting"><label><input type="checkbox" data-model="inStockOnly" {{ inStockOnly ? 'checked' }}><span>In stock only</span></label>{{ ui.tip('inStockOnly', 'In stock only') }}</div>
+                <div class="check setting"><label><input type="checkbox" data-action="change->history#push change->live#action" data-live-action-param="pickStock" data-live-value-param="in" {{ stock == 'in' ? 'checked' }}><span>In stock only</span></label>{{ ui.tip('inStockOnly', 'In stock only') }}</div>
                 {{ ui.slider('Max price (0 = any)', 'maxPrice', maxPrice, 0, 200000, 1000) }}
                 {% if this.exactAllowed %}
                     <div class="check setting"><label><input type="checkbox" data-model="exactCounts" {{ exactCounts ? 'checked' }}><span>Exact counts <small class="muted">Count every match: the total and the facets, not only the candidates.</small></span></label>{{ ui.tip('exactCounts', 'Exact counts') }}</div>
@@ -85,7 +85,7 @@
         <div class="chips example-chips" role="group" aria-label="Example queries">
             <span class="muted">Try</span>
             {% for label, text in this.examples %}
-                <button type="button" class="chip" aria-pressed="{{ text == query ? 'true' : 'false' }}" data-action="live#action" data-live-action-param="tryQuery" data-live-text-param="{{ text }}"><code>{{ text }}</code> <small>{{ label }}</small></button>
+                <button type="button" class="chip" aria-pressed="{{ text == query ? 'true' : 'false' }}" data-action="history#push live#action" data-live-action-param="tryQuery" data-live-text-param="{{ text }}"><code>{{ text }}</code> <small>{{ label }}</small></button>
             {% endfor %}
         </div>
 
@@ -94,9 +94,9 @@
                shown or hidden with :has(), so a click is instant and exactly one radio is ever checked. #}
             <fieldset class="segmented" data-live-ignore>
                 <legend class="sr-only">View</legend>
-                <input type="radio" name="view" id="view-results" value="results" checked>
+                <input type="radio" name="view" id="view-results" value="results" data-model="norender|view" data-action="change->history#param"{{ view != 'sql' ? ' checked' }}>
                 <label for="view-results">Results</label>
-                <input type="radio" name="view" id="view-sql" value="sql">
+                <input type="radio" name="view" id="view-sql" value="sql" data-model="norender|view" data-action="change->history#param"{{ view == 'sql' ? ' checked' }}>
                 <label for="view-sql">SQL / EXPLAIN</label>
             </fieldset>
         </div>
@@ -115,20 +115,26 @@
                 </div>
                 {% if result.warnings %}<div class="warnings">{% for warning in result.warnings %}<p>{{ warning }}</p>{% endfor %}</div>{% endif %}
                 {% if result.didYouMean %}<p class="did-you-mean">Did you mean <code>{{ result.didYouMean }}</code>?</p>{% endif %}
+                {# The filters in force, as tokens: a search with a hidden filter (a category, stock, a price) finds nothing of what the words name. #}
+                {% if this.filterCount > 0 %}
+                    <div class="chips" aria-label="Chosen filters">
+                        {% if category %}<button type="button" class="token" data-action="history#push live#action" data-live-action-param="clearFilter" data-live-name-param="category" aria-label="Remove the filter: category {{ category }}">Category: {{ category }}<svg class="icon" aria-hidden="true"><use href="#i-clear"/></svg></button>{% endif %}
+                        {% if stock != '' %}<button type="button" class="token" data-action="history#push live#action" data-live-action-param="clearFilter" data-live-name-param="stock" aria-label="Remove the filter: {{ stock == 'in' ? 'in stock' : 'out of stock' }}">{{ stock == 'in' ? 'In stock' : 'Out of stock' }}<svg class="icon" aria-hidden="true"><use href="#i-clear"/></svg></button>{% endif %}
+                        {% if maxPrice > 0 %}<button type="button" class="token" data-action="history#push live#action" data-live-action-param="clearFilter" data-live-name-param="price" aria-label="Remove the filter: price up to {{ maxPrice }}">Price up to {{ maxPrice|number_format(0, '.', ' ') }} Ft<svg class="icon" aria-hidden="true"><use href="#i-clear"/></svg></button>{% endif %}
+                        {% if this.filterCount > 1 %}<button type="button" class="token token-clear" data-action="history#push live#action" data-live-action-param="clearFilters">Clear all</button>{% endif %}
+                    </div>
+                {% endif %}
                 {# Facets: the values of a filter among the matches. A chosen category narrows the search; the facet still lists the other categories. #}
                 {% set categories = this.categories %}
-                {% set stock = result.facets.in_stock ?? [] %}
-                {% if categories or stock %}
+                {% set stockFacet = result.facets.in_stock ?? [] %}
+                {% if categories or stockFacet %}
                     <div class="facets" aria-label="Facets">
                         {% for c in categories %}
-                            <button type="button" class="chip" aria-pressed="{{ c.name == category ? 'true' : 'false' }}" data-action="live#action" data-live-action-param="pickCategory" data-live-name-param="{{ c.name }}">{{ c.name }} <span class="muted">{{ c.count|number_format }}{{ result.totalIsLowerBound and not exactCounts ? '+' }}</span></button>
+                            <button type="button" class="chip" aria-pressed="{{ c.name == category ? 'true' : 'false' }}" data-action="history#push live#action" data-live-action-param="pickCategory" data-live-name-param="{{ c.name }}">{{ c.name }} <span class="muted">{{ c.count|number_format }}{{ result.totalIsLowerBound and not exactCounts ? '+' }}</span></button>
                         {% endfor %}
-                        {% for s in stock %}
-                            {% if s.value %}
-                                <button type="button" class="chip" aria-pressed="{{ inStockOnly ? 'true' : 'false' }}" data-action="live#action" data-live-action-param="toggleInStock">in stock <span class="muted">{{ s.count|number_format }}{{ result.totalIsLowerBound and not exactCounts ? '+' }}</span></button>
-                            {% else %}
-                                <button type="button" class="chip" aria-pressed="{{ outOfStockOnly and not inStockOnly ? 'true' : 'false' }}" data-action="live#action" data-live-action-param="toggleOutOfStock">out of stock <span class="muted">{{ s.count|number_format }}{{ result.totalIsLowerBound and not exactCounts ? '+' }}</span></button>
-                            {% endif %}
+                        {% for s in stockFacet %}
+                            {% set value = s.value ? 'in' : 'out' %}
+                            <button type="button" class="chip" aria-pressed="{{ stock == value ? 'true' : 'false' }}" data-action="history#push live#action" data-live-action-param="pickStock" data-live-value-param="{{ value }}">{{ s.value ? 'In stock' : 'Out of stock' }} <span class="muted">{{ s.count|number_format }}{{ result.totalIsLowerBound and not exactCounts ? '+' }}</span></button>
                         {% endfor %}
                     </div>
                 {% endif %}

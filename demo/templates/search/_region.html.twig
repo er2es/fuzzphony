@@ -1,5 +1,5 @@
 {# The results region of the home page: swapped in place while the visitor types (live_search_controller.js). #}
-{% macro url(q, view, category, stock, extra = {}) %}{{ path('search', {q: q, view: view == 'speed' ? 'speed' : null, cat: category ?: null, stock: stock is null ? null : (stock ? 1 : 0)}|merge(extra)) }}{% endmacro %}
+{% macro url(q, view, category, stock, extra = {}) %}{{ path('search', {q: q, view: view == 'speed' ? 'speed' : null, category: category ?: null, stock: stock is null ? null : (stock ? 'in' : 'out')}|merge(extra)) }}{% endmacro %}
 {% import _self as u %}
 {% import '_ui.html.twig' as ui %}
 {% set keep = exact ? {exact: 1} : {} %}
@@ -26,13 +26,17 @@
             </nav>
         </div>
 
+        {# The filters in force, as tokens: each lifts only itself, "Clear all" (from two) lifts both. #}
         {% if category != '' or stock is not null %}
             <div class="chips" aria-label="Chosen filters">
                 {% if category != '' %}
-                    <a class="token" href="{{ u.url(q, view, '', stock, keep) }}" aria-label="Remove the category {{ category }}">{{ category }}<svg class="icon" aria-hidden="true"><use href="#i-clear"/></svg></a>
+                    <a class="token" href="{{ u.url(q, view, '', stock, keep) }}" aria-label="Remove the filter Category: {{ category }}">Category: {{ category }}<svg class="icon" aria-hidden="true"><use href="#i-clear"/></svg></a>
                 {% endif %}
                 {% if stock is not null %}
-                    <a class="token" href="{{ u.url(q, view, category, null, keep) }}" aria-label="Remove the stock filter">{{ stock ? 'In stock' : 'Out of stock' }}<svg class="icon" aria-hidden="true"><use href="#i-clear"/></svg></a>
+                    <a class="token" href="{{ u.url(q, view, category, null, keep) }}" aria-label="Remove the filter {{ stock ? 'In stock' : 'Out of stock' }}">{{ stock ? 'In stock' : 'Out of stock' }}<svg class="icon" aria-hidden="true"><use href="#i-clear"/></svg></a>
+                {% endif %}
+                {% if category != '' and stock is not null %}
+                    <a class="token token-clear" href="{{ u.url(q, view, '', null, keep) }}">Clear all</a>
                 {% endif %}
             </div>
         {% endif %}
@@ -111,7 +115,7 @@
 
             <details class="disclosure">
                 <summary>How this was searched<svg class="icon" aria-hidden="true"><use href="#i-chevron"/></svg></summary>
-                <p class="muted">{% if result.correctedFrom is not null %}Nothing matched the text as typed, even as the beginning of a word, so the page searched it once more as a finished text: a word of the catalogue was exactly one letter away (the zero-result rescue, <code>SearchResult::$correctedFrom</code>; <a href="{{ path('observability', {q: q}) }}">Observability</a> shows its metric), and the query was understood as <code>{{ result.interpretedAs }}</code>. {% else %}The last word was matched as itself and as the beginning of a longer word, so the query was understood as <code>{{ result.interpretedAs }}</code>. {% endif %}{% if result.usedFuzzy %}Typo tolerance was needed to find enough products. {% endif %}Every number above comes from one search with its facets. <a href="{{ path('tune', {query: q}) }}">Open it in Tune</a> to see the ranking and the SQL{% if result.correctedFrom is not null %} (Tune searches as you type, which is never rescued: it shows the search that found nothing){% endif %}.</p>
+                <p class="muted">{% if result.correctedFrom is not null %}Nothing matched the text as typed, even as the beginning of a word, so the page searched it once more as a finished text: a word of the catalogue was exactly one letter away (the zero-result rescue, <code>SearchResult::$correctedFrom</code>; <a href="{{ path('observability', {q: q}) }}">Observability</a> shows its metric), and the query was understood as <code>{{ result.interpretedAs }}</code>. {% else %}The last word was matched as itself and as the beginning of a longer word, so the query was understood as <code>{{ result.interpretedAs }}</code>. {% endif %}{% if result.usedFuzzy %}Typo tolerance was needed to find enough products. {% endif %}Every number above comes from one search with its facets. <a href="{{ path('tune', {q: q}) }}">Open it in Tune</a> to see the ranking and the SQL{% if result.correctedFrom is not null %} (Tune searches as you type, which is never rescued: it shows the search that found nothing){% endif %}.</p>
             </details>
         {% endif %}
     </section>

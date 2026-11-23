@@ -4,7 +4,7 @@
         <h2 id="difference" class="list-title">One multi-source index or a federated search?</h2>
         <nav class="segmented" aria-label="Show">
             {% for key, label in modes %}
-                <a href="{{ path('erp', {tab: 'combined', mode: key, q: q ?: null}) }}"{% if key == mode %} aria-current="true"{% endif %} data-loading-message="Switching…">{{ label }}</a>
+                <a href="{{ path('erp', state|merge({mode: key == 'both' ? '' : key})|filter(v => v != '')) }}"{% if key == mode %} aria-current="true"{% endif %} data-loading-message="Switching…">{{ label }}</a>
             {% endfor %}
         </nav>
     </div>
