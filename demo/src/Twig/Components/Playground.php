@@ -123,7 +123,7 @@ final class Playground
     {
         if (in_array($text, Examples::TUNE, true)) {
             $this->query = $text;
-            $this->category = '';
+            $this->clearFilters(); // an example is a fresh start: no filter left from before may hide what it names
         }
     }
 
@@ -207,6 +207,20 @@ final class Playground
         };
     }
 
+    /** The note about look-alike hits offers it: no typo tolerance, so only the words themselves match. */
+    /** The note about look-alike hits offers the Min relevance that drops them (the slider's range is taken). */
+    #[LiveAction]
+    public function setMinRelevance(#[LiveArg] float $value): void
+    {
+        $this->minScore = self::clampFloat($value, ...self::RANGES['minScore']);
+    }
+
+    #[LiveAction]
+    public function exactWordsOnly(): void
+    {
+        $this->fuzzyMode = FuzzyMode::Never->value;
+    }
+
     #[LiveAction]
     public function clearFilters(): void
     {
@@ -288,6 +302,37 @@ final class Playground
         $this->run();
 
         return $this->result;
+    }
+
+    /** True when filters are in force and no hit of the page holds a word of the query itself (every hit is a look-alike): the words match nothing inside the filters. */
+    public function isLookAlikeOnly(): bool
+    {
+        $result = $this->getResult();
+        if ($this->getFilterCount() === 0 || $result === null || $result->hits === []) {
+            return false;
+        }
+        foreach ($result->hits as $hit) {
+            if ($hit->breakdown->textRank > 0.0) {
+                return false;
+            }
+        }
+
+        return true;
+    }
+
+    /** The Min relevance just above the best look-alike hit of the page: the value that drops exactly these hits (0.0 when there is none). */
+    public function getLookAlikeCeiling(): float
+    {
+        $result = $this->getResult();
+        if ($result === null || $result->hits === []) {
+            return 0.0;
+        }
+        $best = 0.0;
+        foreach ($result->hits as $hit) {
+            $best = max($best, $hit->breakdown->relevance);
+        }
+
+        return min(1.0, ceil($best * 100) / 100 + 0.01);
     }
 
     public function getExplanation(): ?Explanation

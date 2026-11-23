@@ -174,7 +174,8 @@
         .toolbar-inner > .nav { grid-area: nav; }
         .toolbar-inner > .theme-switch { grid-area: theme; }
     }
-    .wordmark { font-weight: 700; font-size: 1.0625rem; letter-spacing: -.015em; color: var(--label); }
+    .wordmark { display: inline-flex; align-items: center; gap: .5rem; font-weight: 700; font-size: 1.0625rem; letter-spacing: -.015em; color: var(--label); }
+    .wordmark .logo { width: 1.5rem; height: 1.5rem; flex: none; }
     .wordmark:hover { text-decoration: none; }
     .nav { display: flex; align-items: center; gap: .125rem; }
     /* the rules for the items of the bar; the links in the menu's panel are rows of their own (.menu-panel a) */
@@ -488,6 +489,11 @@
     .page > header.hero { padding-top: .5rem; }
     .two-up { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 1.25rem; align-items: start; }
     @media (max-width: 52rem) { .two-up { grid-template-columns: 1fr; } }
+    /* the two panels of the Combined tab: the title, the tools and the list start at the same height side by side */
+    .two-up.is-aligned { grid-template-rows: auto auto 1fr; row-gap: 0; }
+    .two-up.is-aligned > section { display: grid; grid-row: span 3; grid-template-rows: subgrid; align-content: start; }
+    .two-up.is-aligned .panel-tools .erp-why { margin-top: .5rem; }
+    @media (max-width: 52rem) { .two-up.is-aligned { grid-template-rows: none; } .two-up.is-aligned > section { display: block; grid-row: auto; } }
     .caption { margin: .5rem 0 0 1rem; }
     .flag { padding: .1rem .55rem; border-radius: 999px; background: color-mix(in srgb, var(--accent) 14%, transparent); color: var(--accent); font-size: .75rem; font-weight: 600; white-space: nowrap; }
 
@@ -506,6 +512,8 @@
     /* a short message that belongs to what was just done */
     .callout { display: flex; flex-wrap: wrap; align-items: center; gap: .5rem; margin: 0 0 1rem; padding: .75rem 1rem; border-radius: var(--r-group); background: var(--surface); box-shadow: 0 0 0 .5px var(--hairline); }
     .callout ul { margin: .25rem 0 0; padding-left: 1.25rem; flex-basis: 100%; }
+    .callout > p { margin: 0; flex-basis: 100%; }
+    .callout .chips { flex-basis: 100%; }
     .callout a:not(.button) { text-decoration: underline; } /* a link inside a sentence must not rely on its colour alone */
     .callout.is-ok { color: var(--ok); } .callout.is-bad { color: var(--bad); }
     .callout .icon { width: 1.25rem; height: 1.25rem; }

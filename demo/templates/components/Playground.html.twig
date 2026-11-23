@@ -124,6 +124,18 @@
                         {% if this.filterCount > 1 %}<button type="button" class="token token-clear" data-action="history#push live#action" data-live-action-param="clearFilters">Clear all</button>{% endif %}
                     </div>
                 {% endif %}
+                {% if this.lookAlikeOnly %}
+                    <div class="callout" role="status">
+                        <p>No product with these words is inside the chosen filters, so the list shows look-alike words. Their relevance is low (the similarity of the word times the fuzzy weight, before popularity and recency), and the &quot;Min relevance&quot; setting cuts the hits below a value.</p>
+                        <div class="chips">
+                            {% if category %}<button type="button" class="chip" data-action="history#push live#action" data-live-action-param="clearFilter" data-live-name-param="category">Remove: Category {{ category }}</button>{% endif %}
+                            {% if stock != '' %}<button type="button" class="chip" data-action="history#push live#action" data-live-action-param="clearFilter" data-live-name-param="stock">Remove: {{ stock == 'in' ? 'In stock' : 'Out of stock' }}</button>{% endif %}
+                            {% if maxPrice > 0 %}<button type="button" class="chip" data-action="history#push live#action" data-live-action-param="clearFilter" data-live-name-param="price">Remove: Price up to {{ maxPrice|number_format(0, '.', ' ') }} Ft</button>{% endif %}
+                            <button type="button" class="chip" data-action="history#push live#action" data-live-action-param="setMinRelevance" data-live-value-param="{{ this.lookAlikeCeiling }}">Min relevance {{ this.lookAlikeCeiling|number_format(2) }} (drops these look-alikes)</button>
+                            <button type="button" class="chip" data-action="history#push live#action" data-live-action-param="exactWordsOnly">Only exact words (fuzzy mode: never)</button>
+                        </div>
+                    </div>
+                {% endif %}
                 {# Facets: the values of a filter among the matches. A chosen category narrows the search; the facet still lists the other categories. #}
                 {% set categories = this.categories %}
                 {% set stockFacet = result.facets.in_stock ?? [] %}
@@ -160,7 +172,7 @@
                             {% set title %}{% if hit.highlights.name is defined %}{{ hit.highlights.name|raw }}{% else %}{{ row.name ?? hit.id }}{% endif %}{% endset %}
                             {{ shared.product_row(row.category ?? '', title, (row.brand ?? '') ~ ' · ' ~ (row.category ?? '') ~ (row ? ' · ' ~ row.price|number_format(0, '.', ' ') ~ ' Ft' : ''), aside, null, below) }}
                         {% else %}
-                            <li class="row no-lead"><span class="muted">No hits. Lower "Min relevance"{% if not similarityByLength %} or "Fuzzy similarity"{% endif %}, or switch fuzzy mode to "always".</span></li>
+                            <li class="row no-lead"><span class="muted">{% if this.filterCount > 0 %}No hits inside the chosen filters. Remove a filter (the ✕ above), or {% else %}No hits. {% endif %}Lower "Min relevance"{% if not similarityByLength %} or "Fuzzy similarity"{% endif %}, or switch fuzzy mode to "always".</span></li>
                         {% endfor %}
                     </ol>
                     <ul class="legend muted" aria-label="Bar colours">

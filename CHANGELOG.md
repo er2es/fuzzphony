@@ -11,6 +11,23 @@ and a link. Measurements, proofs and test names belong to the pull request, [doc
 
 ## [Unreleased]
 
+## [1.0.2] - 2026-11-23
+
+A performance patch for the library (identical results) and fixes to the demo.
+
+### Fixed
+
+- **Demo, Search:** a search that finds nothing still shows how long it took (and "0 products").
+- **Demo:** the header shows the logo next to the name, like the browser tab.
+- **Demo, ERP Combined tab:** the two panels start their title, tools and list at the same height side by side (a matching tools line on the federated panel), and the note names the kind that is chosen (`kinds('order')`) or says that none is.
+- **Demo, Tune:** an example chip clears every filter (a stock or price filter used to stay and hide what the example names), and a note explains when the chosen filters leave no match for the words and the list shows look-alike words, with a button per filter to remove it, one for "only exact words" and one that sets Min relevance just above these look-alike hits.
+
+### Changed
+
+- **Faster facets of a typo-tolerant search whose words need different similarities** (a synonym group such as `tv, television, telly`, words of
+  different lengths): the facet that leaves its own filter out looks up such a word's typo matches at its own similarity first, instead of reading
+  every row that clears the lowest word's. The counts are the same; a search whose words all need the same runs the statements it always did.
+
 ## [1.0.1] - 2026-11-23
 
 A demo patch: the library is unchanged.
@@ -1390,7 +1407,8 @@ on its own:
 - Sync modes: queue (default), trigger, ORM, manual; watches for joined tables.
 - Doctor with fixes; CLI commands for schema, reindex, worker, search and explain.
 
-[Unreleased]: https://github.com/er2es/fuzzphony/compare/v1.0.1...HEAD
+[Unreleased]: https://github.com/er2es/fuzzphony/compare/v1.0.2...HEAD
+[1.0.2]: https://github.com/er2es/fuzzphony/compare/v1.0.1...v1.0.2
 [1.0.1]: https://github.com/er2es/fuzzphony/compare/v1.0.0...v1.0.1
 [1.0.0]: https://github.com/er2es/fuzzphony/compare/v0.12.9...v1.0.0
 [0.12.9]: https://github.com/er2es/fuzzphony/compare/v0.12.8...v0.12.9

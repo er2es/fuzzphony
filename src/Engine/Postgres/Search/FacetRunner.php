@@ -68,7 +68,7 @@ final readonly class FacetRunner
 
                 continue;
             }
-            $statement = $this->statement($c, $run, $isCommon ? $builder : $c->builder(), $names, $others[$first], $isCommon ? $ids : null);
+            $statement = $this->statement($c, $run, $isCommon ? $builder : $c->builder($this->candidates($c, $run, $others[$first], $threshold)), $names, $others[$first], $isCommon ? $ids : null);
             // ids: the statement reads no similarity setting
             $result = $this->session->run($statement, $isCommon && $ids !== null ? null : $threshold);
             $statements[] = $statement;
@@ -86,6 +86,26 @@ final readonly class FacetRunner
         }
 
         return new FacetResult($facets, $statements);
+    }
+
+    /**
+     * The candidates of the words of a group that leaves a condition out (the page's were probed under every condition) and that need more
+     * similarity than the statement's session one ($threshold, the lowest word's): synonyms or words of different lengths. Without them
+     * the trigram index returns, for such a word, every row that clears the lowest word's similarity, which the recheck then throws away.
+     * The ids are the same rows (FuzzyQueryCompiler::probes() with $above); none when every word needs the same, so the statement stays.
+     *
+     * @param list<Condition> $conditions the conditions the group counts under
+     *
+     * @return array<string, list<int|string>>
+     */
+    private function candidates(SearchContext $c, PipelineRun $run, array $conditions, ?float $threshold): array
+    {
+        $ranked = $run->ranked;
+        if ($ranked?->fuzzyRoot === null || $threshold === null) {
+            return [];
+        }
+
+        return $this->session->candidates($c->fuzzy(), $ranked->fuzzyRoot, $c->thresholds->limits->candidates, $ranked->emptyQueries, $conditions, $threshold);
     }
 
     /**

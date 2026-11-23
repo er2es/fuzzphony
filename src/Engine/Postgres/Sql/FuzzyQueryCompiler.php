@@ -135,12 +135,17 @@ final class FuzzyQueryCompiler
      * Each applies the search's own conditions (the tenant and the filters), so it probes, counts and returns only
      * documents the search could find: an id of another tenant never reaches a statement (explain() shows them bound).
      *
+     * With $above (a statement's session similarity, lowestSimilarity()) only the words that need more are probed, each at the most it
+     * may without being stricter than its own recheck (a prefix is rechecked one letter shorter than it is looked up): its ids are then
+     * exactly the documents the statement's "<%" at $above and the recheck keep, whatever the other words need. A word that needs no more
+     * than $above is not probed (its "<%" reads nothing the recheck throws away), so a statement whose words all need the same is unchanged.
+     *
      * @param list<string>         $emptyQueries leaf tsqueries the text configuration reduces to nothing (stop words)
      * @param list<Condition>      $conditions   the search's conditions, tenant included; none: no extra predicate
      *
      * @return array<string, array{sql: string, params: array<string, scalar|null>, similarity: float}> by candidateKey()
      */
-    public function probes(Node $node, int $cap, array $emptyQueries = [], array $conditions = []): array
+    public function probes(Node $node, int $cap, array $emptyQueries = [], array $conditions = [], ?float $above = null): array
     {
         $probes = [];
         $leaves = $this->trigramLeaves($node, $emptyQueries);
@@ -151,6 +156,13 @@ final class FuzzyQueryCompiler
             $key = $this->candidateKey($leaf);
             if (isset($probes[$key])) {
                 continue;
+            }
+            $similarity = $this->lookupSimilarity($leaf, $needle);
+            if ($above !== null) {
+                $similarity = min($similarity, $this->recheckFloor($leaf, $needle));
+                if ($similarity <= $above) {
+                    continue;
+                }
             }
             $params = new ParameterBag();
             $norm = sprintf('%s(%s)', $this->names->normFunction(), $params->add($needle));
@@ -167,7 +179,7 @@ final class FuzzyQueryCompiler
             $probes[$key] = [
                 'sql' => sprintf("SELECT s.id\nFROM %s AS s\nWHERE %s\nLIMIT %d", $this->names->sidecar($this->index), $where, $cap + 1),
                 'params' => $params->all(),
-                'similarity' => $this->lookupSimilarity($leaf, $needle),
+                'similarity' => $similarity,
             ];
         }
 
@@ -285,6 +297,19 @@ final class FuzzyQueryCompiler
         }
 
         return TypoCurve::lowest($length, $ascii);
+    }
+
+    /**
+     * The least similarity a word's recheck can ask for (similaritySql() at its normalised length, a prefix one letter shorter): a lookup no
+     * stricter than this finds every document the recheck keeps. A restricted viewer's lookup already is (lookupSimilarity()).
+     */
+    private function recheckFloor(Node $leaf, string $needle): float
+    {
+        if ($this->thresholds->typo->similarity !== null || $this->hidesTypoTolerantText()) {
+            return $this->lookupSimilarity($leaf, $needle);
+        }
+
+        return TypoCurve::lowest(self::length($needle) - ($this->isPrefix($leaf) ? 1 : 0), preg_match('/^[ -~]*$/', $needle) === 1);
     }
 
     /** Whether a typo-tolerant field is hidden from this viewer (a restricted one who may see all of them hides none). */
