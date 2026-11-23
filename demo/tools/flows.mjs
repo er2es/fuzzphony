@@ -4,7 +4,9 @@ import { chromium } from 'playwright';
 import AxeBuilder from '@axe-core/playwright';
 
 const BASE = process.env.BASE ?? 'http://host.docker.internal:8099';
-const browser = await chromium.launch();
+const browser = await chromium.launch(process.env.PW_CHANNEL ? { channel: process.env.PW_CHANNEL } : {});
+// a locally installed browser (PW_CHANNEL=msedge) needs the page's CSP out of the way for the injected axe script
+const bypassCSP = !!process.env.PW_CHANNEL;
 const results = [];
 const check = (name, ok, detail = '') => {
     results.push(ok);
@@ -37,7 +39,7 @@ const outrank = async (pg, word, table) => {
     return words;
 };
 
-const context = await browser.newContext({ viewport: { width: 1280, height: 800 }, reducedMotion: 'reduce' });
+const context = await browser.newContext({ bypassCSP, viewport: { width: 1280, height: 800 }, reducedMotion: 'reduce' });
 const page = await context.newPage();
 page.setDefaultTimeout(8000);
 await go(page, BASE + '/');
@@ -112,7 +114,7 @@ check('speed: and then the bars hold the measured medians and the factor', (awai
 await measuring.close();
 
 // 7. waiting on the server looks the same everywhere: the field shows a spinner and the region dims (aria-busy is the signal)
-const slow = await browser.newContext({ viewport: { width: 1280, height: 800 }, reducedMotion: 'reduce' });
+const slow = await browser.newContext({ bypassCSP, viewport: { width: 1280, height: 800 }, reducedMotion: 'reduce' });
 const p3 = await slow.newPage();
 p3.setDefaultTimeout(30000);
 await p3.route('**/*', async (route) => {
@@ -360,7 +362,7 @@ const missing = await page.goto(`${BASE}/no-such-page`, { waitUntil: 'load' });
 check('a missing page is a branded 404 with the navigation and a way back', missing?.status() === 404 && (await page.locator('main h1').innerText()) === 'Page not found' && (await page.locator('nav.nav').count()) === 1 && (await page.locator('main a[href="/"]').count()) > 0);
 
 // 10. a phone: the tab bar is at the bottom of the screen
-const phone = await browser.newContext({ viewport: { width: 390, height: 844 }, reducedMotion: 'reduce' });
+const phone = await browser.newContext({ bypassCSP, viewport: { width: 390, height: 844 }, reducedMotion: 'reduce' });
 const p2 = await phone.newPage();
 await go(p2, BASE + '/');
 const box = await p2.locator('nav.nav').boundingBox();
@@ -381,14 +383,14 @@ check('and the panel is opaque', /^rgb\(/.test(menuLink.panel), menuLink.panel);
 // page (kept in the session) is its own. The limit is 5 searches in 10 seconds; reset=1 forgets the viewer's searches of the window
 // (demo only), so a re-run is never refused by the previous one. The rate-limit checks come last: they spend Ada's five searches, and
 // the six searches are made in one go (the first four without rendering the page) so they fit in the window.
-const secContext = await browser.newContext({ viewport: { width: 1280, height: 800 }, reducedMotion: 'reduce' });
+const secContext = await browser.newContext({ bypassCSP, viewport: { width: 1280, height: 800 }, reducedMotion: 'reduce' });
 const sec = await secContext.newPage();
 sec.setDefaultTimeout(8000);
 const viewing = (q, as, extra = '') => `${BASE}/under-the-hood/security?as=${as}&q=${q}${extra}`;
 const sqlOf = async (p) => (await p.locator('.disclosure pre').allTextContents()).join(' ');
 
 // a first visit opens on Ada and an answer, not on a refusal; Anonymous is the last choice; there is one reset button at a time
-const fresh = await (await browser.newContext({ viewport: { width: 1280, height: 800 }, reducedMotion: 'reduce' })).newPage();
+const fresh = await (await browser.newContext({ bypassCSP, viewport: { width: 1280, height: 800 }, reducedMotion: 'reduce' })).newPage();
 await go(fresh, `${BASE}/under-the-hood/security?q=menu`);
 check('security: a first visit is Ada, with an answer and no refusal', (await fresh.locator('.viewer-links [aria-current]').innerText()) === 'Ada' && (await fresh.locator('.callout.is-bad').count()) === 0 && (await fresh.locator('.hit-row').count()) > 0);
 check('security: Anonymous is the last choice', (await fresh.locator('.viewer-links a').last().innerText()) === 'Anonymous');
@@ -714,7 +716,7 @@ const hitCols = await page.evaluate(() => {
 check('benchmark: a non-zero hits cell has the success colour and a 0 the danger colour (both hits columns)', hitCols.n >= 2 && hitCols.pos > 0 && hitCols.bad === 0, JSON.stringify(hitCols));
 // tune: "Start from" label, icon and the three chips share one line on narrow phones
 for (const w of [320, 360, 390, 420]) {
-    const ctx = await browser.newContext({ viewport: { width: w, height: 800 }, reducedMotion: 'reduce' });
+    const ctx = await browser.newContext({ bypassCSP, viewport: { width: w, height: 800 }, reducedMotion: 'reduce' });
     const pg = await ctx.newPage();
     await go(pg, `${BASE}/tune?query=mouse`);
     const r = await pg.evaluate(() => {
@@ -800,7 +802,7 @@ const foot = await page.locator('footer.site-footer').evaluate((f) => ({ text: f
 check('footer: a landmark child of <body> with the Fuzzphony version (a release number, not dev-main)', foot.role === 'BODY' && /^Fuzzphony\s+\d+\.\d+\.\d+/.test(foot.text.trim()) && !/dev-/.test(foot.text), foot.text);
 check('footer: links to the documentation, GitHub, the changelog and the licence', ['Documentation', 'GitHub', 'Changelog', 'MIT licence'].every((n) => foot.links.some(([t, h]) => t === n && h.startsWith('https://github.com/er2es/fuzzphony'))), JSON.stringify(foot.links));
 {
-    const phone = await browser.newContext({ viewport: { width: 390, height: 844 }, reducedMotion: 'reduce' });
+    const phone = await browser.newContext({ bypassCSP, viewport: { width: 390, height: 844 }, reducedMotion: 'reduce' });
     const pp = await phone.newPage();
     await go(pp, BASE + '/');
     const m = await pp.evaluate(() => ({ bottom: document.querySelector('footer.site-footer').getBoundingClientRect().bottom, vh: innerHeight, tab: document.querySelector('.nav').getBoundingClientRect().top, foot: document.querySelector('.footer-links').getBoundingClientRect().bottom }));
@@ -834,7 +836,7 @@ check('relevance: the caption explains the flat threshold', /single shared trigr
     const lightBg = 'rgb(245, 245, 247)';
     const darkBg = 'rgb(0, 0, 0)';
     const bg = (pg) => pg.evaluate(() => getComputedStyle(document.body).backgroundColor);
-    const sw = await browser.newContext({ viewport: { width: 1280, height: 800 }, colorScheme: 'light', reducedMotion: 'reduce' });
+    const sw = await browser.newContext({ bypassCSP, viewport: { width: 1280, height: 800 }, colorScheme: 'light', reducedMotion: 'reduce' });
     const tp = await sw.newPage();
     tp.setDefaultTimeout(8000);
     await go(tp, BASE + '/relevance');
@@ -858,7 +860,7 @@ check('relevance: the caption explains the flat threshold', /single shared trigr
     await tp.locator('.theme-switch button[aria-label=Dark]').click();
     check('theme: storage that throws does not break the switch (it holds for this page view)', (await bg(tp)) === darkBg);
     await sw.close();
-    const ph = await browser.newContext({ viewport: { width: 390, height: 844 }, colorScheme: 'light', reducedMotion: 'reduce' });
+    const ph = await browser.newContext({ bypassCSP, viewport: { width: 390, height: 844 }, colorScheme: 'light', reducedMotion: 'reduce' });
     const pq = await ph.newPage();
     await go(pq, BASE + '/');
     const btn = pq.locator('.theme-switch button[aria-label=Dark]');
@@ -872,7 +874,7 @@ check('relevance: the caption explains the flat threshold', /single shared trigr
 // the info tooltips of the Tune controls: a button for every control, a custom tooltip that opens on hover, focus and tap, closes on Escape, stays inside a phone
 {
     const errors = [];
-    const tipCtx = await browser.newContext({ viewport: { width: 1280, height: 800 }, reducedMotion: 'reduce' });
+    const tipCtx = await browser.newContext({ bypassCSP, viewport: { width: 1280, height: 800 }, reducedMotion: 'reduce' });
     const tp = await tipCtx.newPage();
     tp.on('pageerror', (e) => errors.push(e.message));
     tp.on('console', (m) => m.type() === 'error' && !m.text().includes('Cross-Origin-Opener-Policy') && errors.push(m.text()));
@@ -955,7 +957,7 @@ check('relevance: the caption explains the flat threshold', /single shared trigr
         return (Math.max(a, b) + 0.05) / (Math.min(a, b) + 0.05);
     };
     for (const scheme of ['light', 'dark']) {
-        const c = await browser.newContext({ viewport: { width: 1280, height: 800 }, colorScheme: scheme, reducedMotion: 'reduce' });
+        const c = await browser.newContext({ bypassCSP, viewport: { width: 1280, height: 800 }, colorScheme: scheme, reducedMotion: 'reduce' });
         const sp = await c.newPage();
         await go(sp, `${BASE}/tune?query=mouse`);
         await sp.locator('.tip-btn').first().focus();
@@ -966,7 +968,7 @@ check('relevance: the caption explains the flat threshold', /single shared trigr
     }
 
     // a phone: every tooltip opens by tap inside the window, nothing scrolls sideways, and opening one moves nothing
-    const phoneCtx = await browser.newContext({ viewport: { width: 390, height: 844 }, reducedMotion: 'reduce', hasTouch: true, isMobile: true });
+    const phoneCtx = await browser.newContext({ bypassCSP, viewport: { width: 390, height: 844 }, reducedMotion: 'reduce', hasTouch: true, isMobile: true });
     const pp = await phoneCtx.newPage();
     await go(pp, `${BASE}/tune?query=mouse`);
     await pp.waitForSelector('.hit-row');
@@ -1195,7 +1197,7 @@ await secContext.close();
         await pg.waitForFunction(() => !document.querySelector('.magic-spinner').classList.contains('is-on'));
     };
     const groupTitles = (pg) => pg.locator('dialog.magic .magic-heading > span:first-child').allTextContents();
-    const mctx = await browser.newContext({ viewport: { width: 1280, height: 800 }, reducedMotion: 'reduce' });
+    const mctx = await browser.newContext({ bypassCSP, viewport: { width: 1280, height: 800 }, reducedMotion: 'reduce' });
     const m = await mctx.newPage();
     m.setDefaultTimeout(8000);
     const magicRequests = [];
@@ -1317,7 +1319,7 @@ await secContext.close();
     await api.close();
 
     // the language follows the page, the intranet follows the viewer (each context is a new visitor: Ada first)
-    const lang = await browser.newContext({ viewport: { width: 1280, height: 800 }, reducedMotion: 'reduce' });
+    const lang = await browser.newContext({ bypassCSP, viewport: { width: 1280, height: 800 }, reducedMotion: 'reduce' });
     const lp = await lang.newPage();
     lp.setDefaultTimeout(8000);
     await go(lp, BASE + '/languages?lang=hu');
@@ -1370,7 +1372,7 @@ await secContext.close();
     await lang.close();
 
     // a phone: a full-screen sheet
-    const phone = await browser.newContext({ viewport: { width: 390, height: 844 }, reducedMotion: 'reduce', hasTouch: true });
+    const phone = await browser.newContext({ bypassCSP, viewport: { width: 390, height: 844 }, reducedMotion: 'reduce', hasTouch: true });
     const ph = await phone.newPage();
     ph.setDefaultTimeout(8000);
     await go(ph, BASE + '/erp');

@@ -5,20 +5,18 @@
 
 {# The search field of a page that submits (the home page has its own, which also searches while you type). #}
 {% macro search_field(action, q, index, placeholder, params = {}, categories = false, products = true, suggest = true) %}
-    {# `suggest: false` is for an index the dropdown must not read (/suggest refuses the actor-guarded intranet index): no completions, clear button or spinner #}
+    {# `suggest: false` is for an index the dropdown must not read (/suggest refuses the actor-guarded intranet index): no completions; the clear button and the busy spinner are there as on every search field #}
     <form method="get" action="{{ action }}" role="search" class="field-wrap" data-controller="{% if suggest %}suggest {% endif %}clearable"{% if suggest %}
           data-suggest-url-value="{{ path('suggest') }}" data-suggest-index-value="{{ index }}" data-suggest-page-value="{{ action }}"
-          data-suggest-params-value="{{ params|json_encode|e('html_attr') }}"
+          data-suggest-params-value="{{ params|filter(v => v is not null and v != '')|json_encode|e('html_attr') }}"
           data-suggest-categories-value="{{ categories ? 'true' : 'false' }}" data-suggest-products-value="{{ products ? 'true' : 'false' }}"{% endif %}>
-        {% for name, value in params %}<input type="hidden" name="{{ name }}" value="{{ value }}">{% endfor %}
+        {% for name, value in params %}{% if value is not null and value != '' %}<input type="hidden" name="{{ name }}" value="{{ value }}">{% endif %}{% endfor %}
         <div class="search-field">
             <svg class="icon" aria-hidden="true"><use href="#i-search"/></svg>
             <input type="search" name="q" value="{{ q }}" placeholder="{{ placeholder }}" aria-label="{{ placeholder }}" autocomplete="off" spellcheck="false" enterkeyhint="search" maxlength="100"
                    {% if q == '' %}autofocus{% endif %}{% if suggest %} data-suggest-target="input" data-action="input->suggest#update"{% endif %}>
-            {% if suggest %}
-                <button type="button" class="clear" aria-label="Clear the search" data-action="suggest#clear"><svg class="icon" aria-hidden="true"><use href="#i-clear"/></svg></button>
-                <span class="field-spinner" aria-hidden="true"></span>
-            {% endif %}
+            <button type="button" class="clear" aria-label="Clear the search" data-action="{{ suggest ? 'suggest' : 'clearable' }}#clear"><svg class="icon" aria-hidden="true"><use href="#i-clear"/></svg></button>
+            <span class="field-spinner" aria-hidden="true"></span>
         </div>
         {% if suggest %}<div class="suggest-panel" data-suggest-target="panel" data-live-ignore hidden></div>{% endif %}
         <button type="submit" class="sr-only">Search</button>

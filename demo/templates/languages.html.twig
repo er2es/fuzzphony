@@ -14,11 +14,11 @@
 
         <nav class="chips chips-center" aria-label="Language">
             {% for c, l in languages %}
-                <a class="chip{{ c == code ? ' is-current' }}" href="{{ path('languages', {lang: c}) }}"{% if c == code %} aria-current="page"{% endif %} lang="{{ c }}" data-loading-message="Switching the language…">{{ l.native }}{% if l.native != l.name %} <small>{{ l.name }}</small>{% endif %}</a>
+                <a class="chip{{ c == code ? ' is-current' }}" href="{{ path('languages', {lang: c == 'en' ? null : c}) }}"{% if c == code %} aria-current="page"{% endif %} lang="{{ c }}" data-loading-message="Switching the language…">{{ l.native }}{% if l.native != l.name %} <small>{{ l.name }}</small>{% endif %}</a>
             {% endfor %}
         </nav>
 
-        {{ ui.search_field(path('languages'), q, language.index, 'Search the ' ~ language.name ~ ' catalogue', {lang: code}) }}
+        {{ ui.search_field(path('languages'), q, language.index, 'Search the ' ~ language.name ~ ' catalogue', {lang: code == 'en' ? null : code}) }}
     </div>
 
     {% if q == '' %}
@@ -27,7 +27,7 @@
             <ul class="list">
                 {% for preset in language.presets %}
                     <li class="row no-lead">
-                        <a class="row-body preset-link" href="{{ path('languages', {lang: code, q: preset.q}) }}" data-loading-message="Searching for {{ preset.q }}…">
+                        <a class="row-body preset-link" href="{{ path('languages', {lang: code == 'en' ? null : code, q: preset.q}) }}" data-loading-message="Searching for {{ preset.q }}…">
                             <span class="row-title" lang="{{ code }}">{{ preset.q }}</span>
                             <span class="row-sub">{{ _self.caption(preset.caption) }}</span>
                         </a>

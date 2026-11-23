@@ -12,7 +12,7 @@
 
     <nav class="chips chips-center" aria-label="Index">
         {% for name, label in indexes %}
-            <a class="chip{{ name == index ? ' is-current' }}" href="{{ path('synonyms', {index: name}) }}"{% if name == index %} aria-current="page"{% endif %}>{{ label }}</a>
+            <a class="chip{{ name == index ? ' is-current' }}" href="{{ path('synonyms', {index: name == 'catalog' ? null : name}) }}"{% if name == index %} aria-current="page"{% endif %}>{{ label }}</a>
         {% endfor %}
     </nav>
 
@@ -25,7 +25,7 @@
                 <ul>{% for p in problems %}<li>{{ p }}</li>{% endfor %}</ul>
             </div>
         {% endif %}
-        <form method="post" action="{{ path('synonyms', {index: index, q: q}) }}" class="editor" data-loading-message="Saving…">
+        <form method="post" action="{{ path('synonyms', {index: index == 'catalog' ? null : index, q: q ?: null}) }}" class="editor" data-loading-message="Saving…">
             <textarea name="body" rows="10" spellcheck="false" aria-label="Synonyms of {{ indexes[index] }}">{{ text }}</textarea>
             <div class="editor-bar">
                 <span class="muted">One entry per line. <code>tv, television</code> is a group, <code>drill =&gt; screwdriver</code> a one-way rule, <code>#</code> a comment.</span>
@@ -45,9 +45,9 @@
 
     <section aria-labelledby="try" class="stack">
         <h2 id="try">Try it</h2>
-        {{ ui.search_field(path('synonyms'), q, index, 'Search ' ~ indexes[index], {index: index}) }}
+        {{ ui.search_field(path('synonyms'), q, index, 'Search ' ~ indexes[index], {index: index == 'catalog' ? null : index}) }}
         <div class="chips">
-            {% for example in examples %}<a class="chip" href="{{ path('synonyms', {index: index, q: example}) }}"><code>{{ example }}</code></a>{% endfor %}
+            {% for example in examples %}<a class="chip" href="{{ path('synonyms', {index: index == 'catalog' ? null : index, q: example}) }}"><code>{{ example }}</code></a>{% endfor %}
         </div>
         {% if error %}<p class="callout is-bad" role="alert">{{ error }}</p>{% endif %}
         {% if result %}

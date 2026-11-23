@@ -8,6 +8,8 @@
     </div>
 
     <form method="get" class="list settings-form" data-controller="autosubmit" data-loading-message="Introspecting the table…">
+        {# a loaded sample stays loaded while the table or the language is changed #}
+        {% if sampleKind == 'erp' %}<input type="hidden" name="sample" value="erp">{% elseif sampleKind == 'catalogue' %}<input type="hidden" name="sample" value="1">{% elseif two %}<input type="hidden" name="sample" value="two">{% endif %}
         <label class="setting select-row">Table
             <select name="table" data-action="change->autosubmit#submit">
                 {% for t in tables %}<option value="{{ t.table }}" {{ t.table == table ? 'selected' }}>{{ t.table }} (~{{ t.rows|number_format }} rows)</option>{% endfor %}

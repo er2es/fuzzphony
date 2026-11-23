@@ -63,7 +63,7 @@
                             <div class="chips">
                                 {% for key, label in filters[group] %}
                                     {% set query = {index: chosen.index, who: chosen.who, status: chosen.status}|merge({(group): key}) %}
-                                    <a class="chip{{ chosen[group] == key ? ' is-current' }}" href="{{ path('analytics', {index: query.index != 'all' ? query.index, who: query.who != 'all' ? query.who, status: query.status != 'all' ? query.status, _fragment: 'who'}) }}"{% if chosen[group] == key %} aria-current="true"{% endif %}>{{ label }}</a>
+                                    <a class="chip{{ chosen[group] == key ? ' is-current' }}" href="{{ path('analytics', {index: query.index != 'all' ? query.index : null, who: query.who != 'all' ? query.who : null, status: query.status != 'all' ? query.status : null, _fragment: 'who'}) }}"{% if chosen[group] == key %} aria-current="true"{% endif %}>{{ label }}</a>
                                 {% endfor %}
                             </div>
                         </nav>

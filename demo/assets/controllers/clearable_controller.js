@@ -18,6 +18,14 @@ export default class extends Controller {
         this.element.addEventListener('input', this.onInput);
     }
 
+    /** The clear button of a field without a suggestion panel: empties the field (which leaves the search, see above) and puts the cursor back. */
+    clear() {
+        const input = this.element.querySelector('input[type=search]');
+        input.value = '';
+        input.focus();
+        input.dispatchEvent(new Event('input', { bubbles: true }));
+    }
+
     leave(name) {
         const url = new URL(location.href);
         if (!url.searchParams.has(name)) {
