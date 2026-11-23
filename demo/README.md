@@ -127,6 +127,13 @@ sprite ([`templates/_sprite.html.twig`](templates/_sprite.html.twig)); no font, 
   path repository, which Composer reports as `dev-main`) the newest `## [x.y.z]` heading of `CHANGELOG.md`.
 - **Emptying a search box** removes `q` from the address on every page that has one, so a reload or a shared link shows the empty page. On the Languages
   page switching the language empties the box and shows that language's examples.
+- **One address, one vocabulary.** The page state is in the address and only what differs from the default is written: the text is `q` on every page (Tune's old
+  `query` is redirected), a category is `category` (`cat` still read) and the stock filter `stock=in` or `stock=out` on Search and Tune, and Tune puts every slider, the
+  fuzzy mode, the exact counts and the Results / SQL view in the address (`/tune?q=mouse&boost=0.03&stock=in`), so a reload or a shared link reproduces the page. The
+  filters in force are removable tokens with a "Clear all" (from two) on Search, Tune and ERP; the facet, token and example links of ERP are built from the whole state of
+  the page, so a click never drops a filter, with or without JavaScript. A facet, chip, token, example or "Clear all" is a history entry (Back and Forward restore the
+  page, [`history_controller.js`](assets/controllers/history_controller.js)); typing only rewrites the address. The Security page keeps `as` in its links: the viewer is
+  remembered in the session, so the address says who is searching.
 - **Why a row was found.** On the Relevance page every row has a "Why" line: which field matched and how (the word or its stem, a synonym, or typo
   tolerance with the word pair and its trigram similarity, from `Catalog::closestWords()`).
 - **Config wizard sample.** `/under-the-hood/wizard?sample=1` shows one complete definition of the catalogue as YAML, builder and attributes; Tune starts

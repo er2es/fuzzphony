@@ -191,7 +191,8 @@ check('the menu lists wizard, benchmark, doctor, observability, synonyms, analyt
 // earlier run's rows must not satisfy the check; `outrank` below makes them top entries on a used stack): "mouse" plus a random suffix, which the search tolerates (it still finds mice), and
 // a nonsense word that finds nothing. Each is searched three times so it outranks the single searches of other visitors on a
 // shared demo database (the tables sort by the number of searches). The log is written after the response: poll.
-const suffix = Math.random().toString(36).replace(/[^a-z0-9]/g, '').slice(2, 6).padEnd(4, 'x');
+// letters only: a number could fuzzy-match a product name such as "Smart screwdriver 9997" and the nonsense word would find something
+const suffix = Array.from({ length: 4 }, () => String.fromCharCode(97 + Math.floor(Math.random() * 26))).join('');
 const found = `mouse${suffix}`;
 const nothing = `qzxv${suffix}9`;
 await go(page, BASE + '/');
@@ -960,7 +961,7 @@ await page.waitForFunction(() => !location.search.includes('q='));
 check('observability: clearing the box removes q from the address (the page falls back to its default example)', !page.url().includes('q='), page.url());
 await go(page, `${BASE}/tune?q=mouse`);
 await page.fill('input[type=search]', '');
-await page.waitForFunction(() => new URLSearchParams(location.search).get('query') === '');
+await page.waitForFunction(() => new URLSearchParams(location.search).get('q') === '');
 await go(page, page.url());
 check('tune: clearing the box empties the address parameter too, and a reload keeps the empty search', (await page.inputValue('input[type=search]')) === '' && !page.url().includes('mouse'), page.url());
 
