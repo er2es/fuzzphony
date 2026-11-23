@@ -11,6 +11,12 @@ and a link. Measurements, proofs and test names belong to the pull request, [doc
 
 ## [Unreleased]
 
+### Changed
+
+- **Faster facets of a typo-tolerant search whose words need different similarities** (a synonym group such as `tv, television, telly`, words of
+  different lengths): the facet that leaves its own filter out looks up such a word's typo matches at its own similarity first, instead of reading
+  every row that clears the lowest word's. The counts are the same; a search whose words all need the same runs the statements it always did.
+
 ## [1.0.1] - 2026-11-23
 
 A demo patch: the library is unchanged.
